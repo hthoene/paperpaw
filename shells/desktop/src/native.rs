@@ -21,7 +21,7 @@ use paperpaw_core::sdk::native::support::{Api, ApiSlot, Entry};
 use paperpaw_core::sdk::native::{FINGERPRINT, Native, take};
 use paperpaw_core::sdk::{Plugin, PluginProblem};
 use paperpaw_core::{CodeFile, CodeLoader};
-use paperpaw_platform::Storage;
+use paperpaw_platform::{MemoryClass, Storage};
 
 /// The name of a code plugin's file built for this computer.
 pub fn file_name() -> String {
@@ -127,22 +127,23 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
 /// pinned owner; every such plugin of this loader shares one
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HostLoader {
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     resources: Option<paperpaw_core::native_host::HostResources>,
-    /// The id of the device this loader runs on (the profile's), which sizes
-    /// the `core.ui` store; empty is "not an X4".
-    device_id: String,
+    /// The memory class the device this loader runs on declares (the
+    /// profile's), which sizes the `core.ui` store.
+    memory: MemoryClass,
 }
 
 impl HostLoader {
-    /// A loader for the device `device_id` (a profile's id).
+    /// A loader for a device of the memory class `memory` (a profile's).
     #[must_use]
-    pub fn for_device(device_id: &str) -> Self {
+    pub fn for_device(memory: MemoryClass) -> Self {
         Self {
-            device_id: device_id.to_owned(),
-            ..Self::default()
+            depth: None,
+            resources: None,
+            memory,
         }
     }
 }
@@ -151,13 +152,13 @@ impl HostLoader {
 /// wired at once (before the first plugin loads, so that a host call made
 /// while one loads or declares finds it); `None` and a message where it has no
 /// room.
-fn new_resources(device_id: &str) -> Option<paperpaw_core::native_host::HostResources> {
+fn new_resources(memory: MemoryClass) -> Option<paperpaw_core::native_host::HostResources> {
     use paperpaw_core::native_host::{HostResources, HostWiring};
     let Ok(resources) = HostResources::try_new() else {
         eprintln!("native: no room for the host's table of handles");
         return None;
     };
-    match resources.wire(HostWiring::new().ui(device_id)) {
+    match resources.wire(HostWiring::new().ui(memory)) {
         Ok(wired) if wired.ui_skipped() => {
             eprintln!("native: core.ui not wired (no memory for its store)");
         }
@@ -197,7 +198,7 @@ impl CodeLoader for HostLoader {
             return None;
         }
         if self.resources.is_none() {
-            self.resources = new_resources(&self.device_id);
+            self.resources = new_resources(self.memory);
         }
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
@@ -238,7 +239,7 @@ impl HostLoader {
             .and_then(FlatDepth::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
         if self.resources.is_none() {
-            self.resources = Some(new_resources(&self.device_id).ok_or(PluginProblem::NoRoom)?);
+            self.resources = Some(new_resources(self.memory).ok_or(PluginProblem::NoRoom)?);
         }
         let resources = self
             .resources
@@ -1138,13 +1139,13 @@ static INIT: extern "C" fn() = make_marker;
             std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
         let was = crate::native_runtime::enabled();
         crate::native_runtime::set_enabled(false);
-        let mut off = HostLoader::for_device("xteink-x4");
+        let mut off = HostLoader::for_device(MemoryClass::Small);
         assert!(off.hyphenation_sink(&storage).is_none());
         assert!(off.resources.is_none(), "nothing is made, nothing wired");
         crate::native_runtime::set_enabled(true);
-        for device in ["xteink-x4", "desktop"] {
+        for device in [MemoryClass::Small, MemoryClass::Large] {
             let mut on = HostLoader::for_device(device);
-            assert!(on.hyphenation_sink(&storage).is_some(), "{device}");
+            assert!(on.hyphenation_sink(&storage).is_some(), "{device:?}");
             let resources = on.resources.as_ref().unwrap();
             // Wired already: a second `core.ui`, or a second `text.hyphenate`, is refused.
             assert!(resources.wire(HostWiring::new().ui(device)).is_err());
@@ -1162,8 +1163,12 @@ static INIT: extern "C" fn() = make_marker;
     #[test]
     fn core_ui_is_wired_when_the_table_of_handles_is_made() {
         use paperpaw_core::native_host::HostWiring;
-        let resources = new_resources("xteink-x4").unwrap();
-        assert!(resources.wire(HostWiring::new().ui("xteink-x4")).is_err());
+        let resources = new_resources(MemoryClass::Small).unwrap();
+        assert!(
+            resources
+                .wire(HostWiring::new().ui(MemoryClass::Small))
+                .is_err()
+        );
         let storage: std::rc::Rc<dyn Storage> =
             std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
         assert!(

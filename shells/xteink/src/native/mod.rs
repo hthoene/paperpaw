@@ -428,7 +428,7 @@ fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
             return None;
         }
     };
-    match resources.wire(HostWiring::new().ui(crate::DEVICE.id)) {
+    match resources.wire(HostWiring::new().ui(crate::DEVICE.memory)) {
         Ok(wired) if wired.ui_skipped() => {
             warn!("native: core.ui not wired (no memory for its store)");
         }

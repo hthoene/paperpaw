@@ -68,13 +68,13 @@ impl HostWiring {
     }
 
     /// `core.ui`: the screen-stack service (questions, hand-overs, texts). The
-    /// host makes its store, sized for the device named by `device_id` (the
-    /// X4 gets the small limits of its 256 KiB heap; the same test as the
+    /// host makes its store, sized for the device's memory class (`Small`
+    /// gets the small limits of a 256 KiB heap; the same test as the
     /// admission rules use, so the two cannot disagree); nothing else is passed
     /// in, and nothing is allocated until a plugin uses it.
     #[must_use]
-    pub fn ui(mut self, device_id: &str) -> Self {
-        self.ui = Some(super::ui_store::is_x4(device_id));
+    pub fn ui(mut self, memory: paperpaw_platform::MemoryClass) -> Self {
+        self.ui = Some(super::ui_store::is_x4(memory));
         self
     }
 }
