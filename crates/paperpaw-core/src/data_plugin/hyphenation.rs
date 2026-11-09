@@ -90,6 +90,67 @@ pub(crate) fn tables(
     found
 }
 
+/// Why the loader refuses a whole plugin ([`hyphenation_tables`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ManifestRefusal {
+    /// The plugin is made for a later PaperPaw than this one reads
+    /// (`made_for` is its formats; this one reads up to
+    /// [`paperpaw_sdk::DATA_FORMATS`]). It may be a good plugin that a newer
+    /// firmware wrote: not this one's to judge, or to replace.
+    LaterFormats { made_for: u32 },
+    /// Any other reason (a line that does not parse, an invalid id or
+    /// version, ...), in words.
+    Invalid(String),
+}
+
+/// The formats `source` says it is made for (the last `formats` of its
+/// `[plugin]`, read as the loader reads it); lines that do not parse are
+/// passed over here.
+fn made_for(source: &str) -> Option<u32> {
+    let mut found = None;
+    for entry in paperpaw_config::parse(source).filter_map(Result::ok) {
+        if entry.section == "plugin" && entry.key == "formats" {
+            found = entry.value.as_str().trim().parse().ok();
+        }
+    }
+    found
+}
+
+/// The tables the loader takes from the `plugin.ini` `source` of the plugin
+/// folder `folder` (its name: the id of a plugin that names none): the paths
+/// `[hyphenation]` names, relative to the folder, in the order written. `Err`
+/// where the loader refuses the whole plugin (a line that does not parse, an
+/// invalid id or version, formats from a later PaperPaw: told apart by
+/// [`ManifestRefusal`]). Formats before 5 give no tables. It is the loader's
+/// own code (`parse_manifest` and `tables`, and its formats limit), so a shell
+/// that has to tell a usable hyphenation plugin from one that is not (the
+/// default pack's seeding) cannot drift from it. Whether a table's file is
+/// there, or holds, is not looked at here.
+///
+/// # Errors
+/// Why the loader refuses the plugin.
+pub fn hyphenation_tables(source: &str, folder: &str) -> Result<Vec<String>, ManifestRefusal> {
+    let formats = match super::parse_manifest(source, folder) {
+        Ok((_, formats)) => formats,
+        Err(why) => {
+            // A pack of a later PaperPaw is told as such, whatever else is in
+            // it: it is kept toward the newer firmware, not judged.
+            return Err(match made_for(source) {
+                Some(made_for) if made_for > super::FORMATS => {
+                    ManifestRefusal::LaterFormats { made_for }
+                }
+                _ => ManifestRefusal::Invalid(why),
+            });
+        }
+    };
+    let mut ignored = Vec::new();
+    Ok(tables(source, folder, formats, &mut ignored)
+        .into_iter()
+        .map(|table| table.path)
+        .collect())
+}
+
 /// Whether `tag` is a language tag a table may be named for: `[A-Za-z0-9-]`,
 /// 1 to 35 bytes.
 fn valid_tag(tag: &str) -> bool {
