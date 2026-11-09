@@ -24,6 +24,10 @@
 //! says so. Without a goal (set to none), the cat goes by [`model::DEFAULT_GOAL`]
 //! minutes and only the minutes read show.
 //!
+//! - A sleep screen of its own (*Today's reading cat* among the sleep
+//!   screen's choices): the cat large in the middle, the minutes and the
+//!   goal below it.
+//!
 //! This is the interface-7 plugin only (`PORTING-7.md`).
 
 #![no_std]
@@ -44,6 +48,7 @@ pub mod native_plugin;
 
 pub mod model;
 mod native_picture;
+mod native_sleep;
 mod native_widget;
 pub mod store;
 

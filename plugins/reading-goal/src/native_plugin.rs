@@ -36,6 +36,7 @@ use paperpaw_ui_kit::{
 
 use crate::model::{Kept, Mood, Statistics, parse_stage};
 use crate::native_picture::{self, Next, Pictures, Source};
+use crate::native_sleep;
 use crate::native_widget::{self, TARGET};
 use crate::store;
 
@@ -52,6 +53,8 @@ const REPLY: usize = Stage::out_len(8);
 
 /// The minute tick's callback token, as declared.
 const TICK: u32 = crate::declarations::TICK_TOKEN;
+/// The sleep screen's callback token.
+const SLEEP: u32 = crate::declarations::SLEEP_TOKEN;
 /// The slot the settings fill, and the store's action.
 const SETTINGS_SLOT: &str = "core.settings";
 const STORE: &str = "store.open";
@@ -114,9 +117,13 @@ impl Plugin for NativeReadingGoal {
         {
             registrations::submit(host, batch)?;
         }
-        // A host that does not admit stages yet leaves the plugin without
-        // the figure; the rest works.
-        for batch in image::STAGES {
+        // A host that does not admit these yet leaves the plugin without the
+        // figure and the sleep screen; the rest works.
+        for batch in image::STAGES
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+        {
             match registrations::submit(host, batch) {
                 Ok(()) | Err(Error::Unsupported) => {}
                 Err(error) => return Err(error),
@@ -132,7 +139,7 @@ impl Plugin for NativeReadingGoal {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged)
+        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::ScreenOpened)
         else {
             return Ok(());
         };
@@ -160,6 +167,12 @@ impl Plugin for NativeReadingGoal {
             Event::ImageReady(ready) => self.image_ready(host, &ready),
             Event::SettingChanged { key: PICTURES, .. } => self.pictures_changed(host),
             Event::SettingChanged { .. } => Ok(()),
+            // The sleep screen opens: its picture is asked for (it comes
+            // later, and the screen shows words until it does).
+            Event::ScreenOpened { .. } if token == SLEEP => {
+                self.want_picture(host);
+                Ok(())
+            }
             _ => {
                 let Some(edge) = edge(token, &event) else {
                     return Ok(());
@@ -178,12 +191,10 @@ impl Plugin for NativeReadingGoal {
         }
     }
 
-    fn draw(
-        &mut self,
-        host: &Host<'_>,
-        _token: u32,
-        mut frame: DrawFrame<'_>,
-    ) -> Result<(), Error> {
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Screen && token == SLEEP {
+            return self.draw_sleep(host, &mut frame);
+        }
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
@@ -340,6 +351,13 @@ impl Kept {
 }
 
 impl NativeReadingGoal {
+    /// The sleep screen: the cat of today's mood and the minutes.
+    fn draw_sleep(&self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        let mut cx = Cx::open(host, crate::declarations::WIDGET_GROUP)?;
+        let today = native_widget::facts(host, &self.kept, self.statistics)?;
+        native_sleep::draw(&mut cx, frame, &today, self.pictures.of(today.mood))
+    }
+
     /// Asks for the picture of the mood shown, where there is none yet and
     /// none is asked for. A failure is tried again at the next minute.
     fn want_picture(&mut self, host: &Host<'_>) {
