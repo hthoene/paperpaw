@@ -639,6 +639,14 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **Updates.** The owner says its widget shows something new with `command.widget_changed`
   (own instances); the host sends `event.widget_changed` (a hint, coalesced per instance) to the
   plugin whose screen made it, which measures and draws again. The minute tick stays `event.tick`.
+  86 is registrable: the maker subscribes with `registration.event` and gets it at that token
+  (a maker that did not subscribe is not told). The host delivers it between callbacks, never
+  inside one, once per instance however often the owner said `command.widget_changed`, and only
+  while the instance lives. A guard does not hold it (a hint); what the maker then does to its
+  screen follows the stack's rules (`redraw` of a screen not on top is `ERR_STATE`).
+  `command.widget_changed` names only the submitter's own instances: an unknown or dropped one is
+  `ERR_NOT_FOUND`, another plugin's `ERR_DENIED`, and a shell without a widget table answers
+  `ERR_UNSUPPORTED` (todo 361, #845).
 - [D] **Input.** The showing screen forwards a tap or long press with op 6 (`widget_input`); the
   owner gets `input.widget` through `input` (`kind` 0 tap, 1 long press; `target` from op 7, 0 for
   none). Moving between targets with buttons stays the showing screen's.
