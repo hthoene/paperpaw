@@ -124,7 +124,7 @@ fn a_whole_install_asks_first_binds_the_digest_and_waits_for_its_restart() {
         }
     );
     assert_eq!(machine.state(), State::Installed);
-    assert_eq!(machine.last(), (3, 0));
+    assert_eq!(machine.last(OWNER), (3, 0));
     // Written to the digest of the check, committed, never abandoned.
     let digest = paperpaw_facts("0.6.0", "p", 1).sha256;
     assert!(fw.log.iter().any(|call| matches!(
@@ -302,7 +302,7 @@ fn a_failure_at_any_stage_ends_the_install_and_leaves_no_state_3() {
         };
         assert_eq!(outcome.reason, reason, "{stage:?}");
         assert_eq!(machine.state(), State::Failed, "{stage:?}");
-        assert_eq!(machine.last(), (1, reason), "{stage:?}");
+        assert_eq!(machine.last(OWNER), (1, reason), "{stage:?}");
         assert!(!machine.busy(), "{stage:?}: the job is closed");
         assert!(!fw.committed || stage == Stage::Restart, "{stage:?}");
     }
@@ -626,4 +626,32 @@ fn a_finished_check_keeps_its_facts_where_it_refuses_and_a_damaged_or_foreign_ch
             assert!(!checked.leaves_out_some(), "{name}: no bits");
         }
     }
+}
+
+#[test]
+fn another_plugins_request_number_is_not_told_and_a_check_is_no_install_request() {
+    let mut machine = FirmwareInstall::new();
+    let mut fw = fake();
+    machine.start(install(OWNER, 3, 0), &mut fw);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ask(_)));
+    assert_eq!(machine.last(OWNER), (3, 0));
+    assert_eq!(machine.last(OTHER), (0, 0), "asking");
+    machine.answer(install_q(OWNER, 3), Answer::Yes, &mut fw);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ended(_)));
+    assert_eq!(machine.last(OWNER), (3, 0), "waiting for its restart");
+    assert_eq!(machine.last(OTHER), (0, 0), "waiting");
+    // Another plugin's check that runs is neither's request.
+    machine.reserve_check(OTHER).unwrap();
+    machine.start(check_job(OTHER, 9), &mut fw);
+    assert_eq!(machine.last(OWNER), (3, 0));
+    assert_eq!(machine.last(OTHER), (0, 0), "its own check is no install");
+    run(&mut machine, &mut fw);
+    // A failed install is the failing plugin's alone.
+    let mut machine = FirmwareInstall::new();
+    let mut fw = fake();
+    fw.facts.signer = Signer::Unsigned;
+    machine.start(install(OWNER, 4, 0), &mut fw);
+    run(&mut machine, &mut fw);
+    assert_eq!(machine.last(OWNER).0, 4);
+    assert_eq!(machine.last(OTHER), (0, 0), "failed");
 }
