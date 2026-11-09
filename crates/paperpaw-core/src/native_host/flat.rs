@@ -11,7 +11,7 @@ use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
 
 #[path = "flat/page.rs"]
-mod page;
+pub(super) mod page;
 
 /// Why one registered event could not be delivered. The shell logs the failure.
 #[non_exhaustive]
