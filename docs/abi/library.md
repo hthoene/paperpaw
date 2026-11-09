@@ -247,8 +247,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   hash differs, never made) is walked from the start: slower, the same rows, never an error. A
   stopped plugin's entries are cleared.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
-  the screen's long side; the default is interface 6 `cover_fit`, the larger of 300 and 3/8 of the
-  screen's long side): the catalog's cover as an image id of the caller, made from the book's format
+  the screen's long side, larger is `ERR_INVALID`, never clamped; the default is interface 6
+  `cover_fit`, the larger of 300 and 3/8 of the screen's long side): the catalog's cover as an
+  image id of the caller, made from the book's format
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).
