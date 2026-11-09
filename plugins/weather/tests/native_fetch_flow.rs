@@ -220,6 +220,7 @@ fn action(p: &Plug<'_>, token: u32, name: &str) -> Callback {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: name,
+            flags: 0,
         }),
     )
 }
