@@ -57,7 +57,7 @@ Records: `abi/services/core.device@1.def`.
 
 | Key | Allows | Plugins (first-party) |
 | --- | --- | --- |
-| `uses.wifi` | commands 1564-1571 | wifi, transfer, diagnostics |
+| `uses.wifi` | commands 1564-1571 | wifi, transfer, diagnostics, fonts-browser (*Go online* for a download or the list in Offline mode) |
 | `uses.power` | commands 1572-1575 | power, diagnostics, settings, plugin-manager, reading-goal, store, update |
 | `uses.install` | commands 1576, 1577, 1580-1582, 1592 (kind 0); REG `answer_plugin` | store, fonts-browser, plugin-manager, update |
 | `uses.firmware` | commands 1578, 1579, 1592 (kind 1) | update |

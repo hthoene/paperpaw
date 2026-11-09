@@ -53,6 +53,18 @@ impl Job {
         self.current().is_some()
     }
 
+    /// How many files are here (checked and kept).
+    #[must_use]
+    pub const fn done(&self) -> usize {
+        self.next
+    }
+
+    /// How many files the font has.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.plan.steps.len()
+    }
+
     /// Notes that the host was asked to install the folder.
     pub const fn install_asked(&mut self) {
         self.installing = true;

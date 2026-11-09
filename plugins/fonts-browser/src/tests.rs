@@ -13,8 +13,14 @@ fn translations_are_complete() {
 #[test]
 fn the_text_of_your_own_fonts_is_the_help_after_its_heading() {
     for (ini, how) in [
-        (include_str!("../i18n/en.ini"), include_str!("../how/en.txt")),
-        (include_str!("../i18n/de.ini"), include_str!("../how/de.txt")),
+        (
+            include_str!("../i18n/en.ini"),
+            include_str!("../how/en.txt"),
+        ),
+        (
+            include_str!("../i18n/de.ini"),
+            include_str!("../how/de.txt"),
+        ),
     ] {
         let catalog = Catalog::parse(ini).unwrap();
         let heading = catalog.get("fonts-browser.own.heading").unwrap();
