@@ -197,6 +197,11 @@ pub(crate) mod setting_events;
 pub(crate) mod sock_service;
 #[allow(
     dead_code,
+    reason = "the native stage.run host (#828) frames its replies with it"
+)]
+pub(crate) mod stage_reply_tail;
+#[allow(
+    dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
