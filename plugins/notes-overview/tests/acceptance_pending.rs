@@ -18,9 +18,9 @@ fn the_export_is_written_to_a_part_file_and_replaces_the_old_one_when_whole() {
 }
 
 #[test]
-#[ignore = "needs a native screen host (core.ui compose, Input H3) and the draft-22 doc_open"]
+#[ignore = "needs the reader of interface 7 to read the params `section` and `offset` of its handover (docs/abi/document.md, Opening at a place) and a screen host for the choosing"]
 fn choosing_a_note_opens_the_book_at_its_place() {
-    unreachable!("the book first, then the goto event to the note's start");
+    unreachable!("command.open into core.reader with path, section and offset of the note");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! The native declarations name what the interface-6 registration names for
 //! what is ported: the menu style setting (id, title, help, group, choices),
-//! the list screen and the slot it fills. The panel and the notice are not
-//! declared yet (see `PORTING-7.md`).
+//! the list and panel screens and the slots they fill. The notice is not
+//! declared (see `PORTING-7.md`).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
@@ -86,7 +86,9 @@ fn the_list_screen_and_its_slot_match() {
         }
     }
     assert!(screens.contains(&("menu.list".to_string(), "menu.title".to_string())));
+    assert!(screens.contains(&("menu.panel".to_string(), "menu.title".to_string())));
     assert!(slots.contains(&("core.menu".to_string(), "menu.list".to_string())));
+    assert!(slots.contains(&("core.panel".to_string(), "menu.panel".to_string())));
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert_eq!(batches(|d| declarations::navigation(d).unwrap()).len(), 1);
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
@@ -96,7 +98,32 @@ fn the_list_screen_and_its_slot_match() {
 fn the_plugin_and_the_declarations_share_their_tokens() {
     use paperpaw_plugin_menu::native_plugin as plugin;
     assert_eq!(
-        [plugin::LIST, plugin::EVENTS],
-        [declarations::LIST, declarations::EVENTS]
+        [plugin::LIST, plugin::PANEL, plugin::EVENTS],
+        [
+            declarations::LIST,
+            declarations::PANEL,
+            declarations::EVENTS
+        ]
     );
+}
+
+#[test]
+fn the_panels_help_hints_are_declared_and_worded_in_both_languages() {
+    assert_eq!(batches(|d| declarations::help(d).unwrap()).len(), 1);
+    for text in [
+        include_str!("../i18n/en.ini"),
+        include_str!("../i18n/de.ini"),
+    ] {
+        for key in [
+            "menu.help.panel",
+            "menu.help.panel-tap",
+            "menu.help.panel-close",
+            "menu.help.panel-buttons",
+        ] {
+            assert!(
+                text.lines().any(|l| l.starts_with(&format!("{key} ="))),
+                "{key}"
+            );
+        }
+    }
 }

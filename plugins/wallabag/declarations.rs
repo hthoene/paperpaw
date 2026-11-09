@@ -1,6 +1,6 @@
 //! What the wallabag set-up declares, compared with the interface-6
 //! registration by the declaration tests: the three settings edited on the
-//! set-up screen, the screen, the two actions, the place in the tools and the
+//! set-up screen, the screen, the action, the place in the tools and the
 //! icons.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, ExtraDecl, Instances, Kind, MenuEntryDecl,
@@ -9,7 +9,6 @@ use paperpaw_sdk::native::declare::{
 
 /// Callback tokens: stable within this plugin.
 pub const OPEN_TOKEN: u32 = 1;
-pub const FETCH_TOKEN: u32 = 2;
 pub const SCREEN: u32 = 10;
 
 /// The server and the account, set on the set-up screen: the address, the
@@ -49,17 +48,17 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The actions, the place in the tools and the icons.
+/// The action, the place in the tools and the icon. `wallabag.fetch` (token 2,
+/// icon `refresh`) is declared with the fetch slice, so no bound action is a
+/// no-op meanwhile.
 pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.action(ActionDecl::new("open", "wallabag.title", OPEN_TOKEN))?;
-    d.action(ActionDecl::new("fetch", "wallabag.fetch", FETCH_TOKEN))?;
     let mut entry = MenuEntryDecl::new("core.tools", "wallabag.open");
     entry.order = 48;
     d.menu_entry(entry)?;
     d.icon("wallabag.open", "article")?;
-    d.icon("wallabag.fetch", "refresh")?;
     d.submit()?;
     Ok(())
 }

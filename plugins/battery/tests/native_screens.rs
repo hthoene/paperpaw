@@ -56,7 +56,7 @@ impl native::Plugin for ScreenProbe {
         r: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Test-only trigger: screen routing is Core #944, not this pixel fixture.
-        let Event::Started { now_ms } = e.decode()? else {
+        let Event::Started { now_ms, .. } = e.decode()? else {
             return Err(Error::Invalid);
         };
         assert!(native::snapshot::capture_snapshot(h).is_ok());
@@ -71,6 +71,7 @@ impl native::Plugin for ScreenProbe {
         let len = paperpaw_core::native_host::events::encode(
             &paperpaw_core::native_host::registrations::Record::EventScreenShown(
                 paperpaw_core::native_host::registrations::EventScreenShown {
+                    last_input: 0,
                     now_ms,
                     screen: "battery.screen",
                     width: 480,

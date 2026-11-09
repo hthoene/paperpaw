@@ -256,35 +256,83 @@ impl<'a> ReadingView<'a> {
     }
 }
 
+/// Text typed from outside (`event.text_typed`). It may be a password, so `Debug`
+/// shows only its length; read it with [`TypedText::as_str`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TypedText<'a>(&'a str);
+
+impl<'a> TypedText<'a> {
+    pub(super) const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The typed text, borrowed from the callback input.
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+impl core::fmt::Debug for TypedText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TypedText")
+            .field("len", &self.0.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// One event, borrowing its callback's bytes. The scalar variants carry the
 /// emission time on the snapshot's monotonic millisecond clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event<'a> {
     /// A scheduled tick callback.
+    #[non_exhaustive]
     Tick { now_ms: u64 },
     /// PaperPaw started.
+    #[non_exhaustive]
     Started { now_ms: u64 },
     /// PaperPaw resumed.
+    #[non_exhaustive]
     Resume { now_ms: u64 },
     /// PaperPaw is suspending; save synchronously before returning.
+    #[non_exhaustive]
     Suspend { now_ms: u64 },
     /// PaperPaw is stopping; save synchronously before returning.
+    #[non_exhaustive]
     Stopping { now_ms: u64 },
     /// A fresh battery measurement is available through the snapshot.
+    #[non_exhaustive]
     BatteryMeasured { now_ms: u64 },
     /// The displayed page changed.
     PageTurned(ReadingView<'a>),
-    /// A screen became visible or its pane changed size.
+    /// A screen became visible or its pane changed size. `last_input` is what
+    /// the user used last before it was shown, as the host saw it (`None` where
+    /// the host does not say): a focus at once for buttons, none for a finger.
+    #[non_exhaustive]
     ScreenShown {
         now_ms: u64,
         screen: &'a str,
         width: u32,
         height: u32,
         instance: Option<super::ui::Instance>,
+        last_input: Option<crate::keys::InputMode>,
     },
     /// A registered action was invoked.
+    #[non_exhaustive]
     ActionRun { now_ms: u64, action: &'a str },
+    /// Text typed from outside: a hardware keyboard's keys or a shell's remote
+    /// control (`event.text_typed`, 109). Sent only to the instance on top when it
+    /// is a screen offered on slot `core.keyboard`, through `dispatch_event`, and
+    /// needs no subscription (naming 109 in a registration refuses the batch). Text
+    /// over 1,024 bytes comes in several events cut between characters; `done` is
+    /// set only on the last, and confirms the dialog.
+    #[non_exhaustive]
+    TextTyped {
+        now_ms: u64,
+        text: TypedText<'a>,
+        done: bool,
+    },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
     ///
@@ -303,6 +351,7 @@ pub enum Event<'a> {
     ///     }
     /// }
     /// ```
+    #[non_exhaustive]
     StageCall {
         stage: &'a str,
         schema: u32,
@@ -310,6 +359,7 @@ pub enum Event<'a> {
     },
     /// A setting changed. An empty key asks the plugin to reread retained settings.
     /// Empty old bytes mean no previous readable value; the new value is read from the host.
+    #[non_exhaustive]
     SettingChanged {
         now_ms: u64,
         key: &'a str,
@@ -318,23 +368,27 @@ pub enum Event<'a> {
     /// A book session edge with the host-stamped reading position.
     /// Reason 0 is an ordinary open/close or a finished book. Reason 1 is a
     /// restored open or a sleep/shutdown close. Reserved reasons become 0.
+    #[non_exhaustive]
     Book {
         kind: BookKind,
         reason: u32,
         reading: ReadingView<'a>,
     },
     /// A root-1 book moved; paths are complete and never truncated.
+    #[non_exhaustive]
     BookMoved {
         now_ms: u64,
         from: &'a str,
         path: &'a str,
     },
     /// A root-1 book was removed.
+    #[non_exhaustive]
     BookRemoved { now_ms: u64, path: &'a str },
     /// The library changed (`event.library_changed`): a hint, coalesced per
     /// plugin, so reread what you show. `generation` is the catalog generation;
     /// `path` is the one book the change was about, empty for several. The
     /// plugin's own changes arrive too.
+    #[non_exhaustive]
     LibraryChanged {
         now_ms: u64,
         what: LibraryChanges,
@@ -342,22 +396,28 @@ pub enum Event<'a> {
         path: &'a str,
     },
     /// Installed plugin state changed; read inventory through its owning service.
+    #[non_exhaustive]
     PluginsChanged { now_ms: u64 },
     /// The radio connection state changed.
+    #[non_exhaustive]
     WifiChanged { now_ms: u64, state: WifiLinkState },
     /// A Wi-Fi scan finished (`event.wifi_scanned`), a hint coalesced per kind:
     /// read the list again. `networks` is the number of networks found.
+    #[non_exhaustive]
     WifiScanned { now_ms: u64, networks: u32 },
     /// A `join` or `host` request of this plugin ended, exactly once.
     WifiDone(WifiDone<'a>),
     /// Network work waits for a network (`event.network_wanted`). Only the
     /// network manager (`core.network-manager`) gets it.
+    #[non_exhaustive]
     NetworkWanted { now_ms: u64 },
     /// The network is no longer needed (`event.network_idle`); the network
     /// manager may switch the radio off. Only the network manager gets it.
+    #[non_exhaustive]
     NetworkIdle { now_ms: u64 },
     /// Firmware installation progressed (`event.firmware_changed`), at most every
     /// 250 ms: a hint, read the details with the device's firmware read.
+    #[non_exhaustive]
     FirmwareChanged {
         now_ms: u64,
         request: Option<super::device::DeviceRequest>,
@@ -373,14 +433,19 @@ pub enum Event<'a> {
     /// The interface-6 power mode or level changed.
     PowerChanged(PowerChange<'a>),
     /// Status items changed; read them through the owning stage.
+    #[non_exhaustive]
     StatusChanged { now_ms: u64 },
     /// Charging, external power or low-battery state changed.
+    #[non_exhaustive]
     ChargeChanged { now_ms: u64, flags: ChargeFlags },
     /// Registry sections changed; reread the sections used by this plugin.
+    #[non_exhaustive]
     RegistryChanged { now_ms: u64, what: RegistryChanges },
     /// The active settings preview changed or ended.
+    #[non_exhaustive]
     PreviewChanged { now_ms: u64 },
     /// Another plugin asks subscribers to offer installation. This installs nothing itself.
+    #[non_exhaustive]
     PluginsRequested {
         now_ms: u64,
         request: PluginRequestId,
@@ -389,6 +454,7 @@ pub enum Event<'a> {
     },
     /// One requested plugin received an installation outcome. Delivered only to the requester.
     /// Reserved outcome values become Failed.
+    #[non_exhaustive]
     PluginAnswered {
         now_ms: u64,
         request: PluginRequestId,
@@ -396,6 +462,7 @@ pub enum Event<'a> {
         outcome: super::commands::PluginOutcome,
     },
     /// An instance opened or received a new handover.
+    #[non_exhaustive]
     ScreenOpened {
         now_ms: u64,
         screen: &'a str,
@@ -408,12 +475,14 @@ pub enum Event<'a> {
         restored: bool,
     },
     /// An instance closed after its final draw.
+    #[non_exhaustive]
     ScreenClosed {
         now_ms: u64,
         screen: &'a str,
         instance: super::ui::Instance,
     },
     /// Read the current stack through core.ui.
+    #[non_exhaustive]
     StackChanged { now_ms: u64 },
     /// A request of this plugin ended (`core.net`); read the answer in this callback.
     HttpDone(super::net::HttpDone),
@@ -424,15 +493,29 @@ pub enum Event<'a> {
     Socket(super::sockets::SocketEvent),
     /// Something happened to a broadcast of this plugin.
     Broadcast(super::sockets::BroadcastEvent<'a>),
-    /// Work of this plugin came due (`core.work`): opens a run.
+    /// Work of this plugin came due (`core.work`): opens a run. Requests and sockets
+    /// started in this callback belong to the run (background, `work.md` 2.3); the
+    /// run ends when this callback has returned and its last request and socket
+    /// have ended, so its sockets must have an idle time. It lasts at most 10
+    /// minutes. The run is quiet: UI calls that would ask the user answer
+    /// `Error::State` in this callback and in the events of the run's requests and
+    /// sockets, and notices go to the plugin's work note.
     WorkDue(super::work::WorkDue<'a>),
     /// Work was taken out for good (the user turned the network off).
     WorkRefused(super::work::WorkRefused<'a>),
     /// What held work back no longer does: try again what was held.
+    #[non_exhaustive]
     WorkAllowed { now_ms: u64 },
+    /// A provider kept the answer it had marked `pending`: ask again with the
+    /// same text and language (`event.lookup_ready`). Only an asker subscribed to
+    /// it is told.
+    #[non_exhaustive]
+    LookupReady { now_ms: u64, provider: &'a str },
     /// A final answer or committed live update, readable in this callback.
+    #[non_exhaustive]
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
+    #[non_exhaustive]
     WidgetMade {
         now_ms: u64,
         widget: &'a str,
@@ -440,22 +523,26 @@ pub enum Event<'a> {
         place: &'a str,
     },
     /// The host dropped a widget instance.
+    #[non_exhaustive]
     WidgetDropped {
         now_ms: u64,
         instance: super::ui::Instance,
     },
     /// A widget's content or layout changed.
+    #[non_exhaustive]
     WidgetChanged {
         now_ms: u64,
         instance: super::ui::Instance,
     },
     /// A screen drew its first page and is ready for help.
+    #[non_exhaustive]
     ScreenReady {
         now_ms: u64,
         screen: &'a str,
         instance: super::ui::Instance,
     },
     /// Speech ended or was refused; the caller's cookie is unchanged.
+    #[non_exhaustive]
     Spoken {
         now_ms: u64,
         cookie: u32,
@@ -493,7 +580,7 @@ impl<'a> Event<'a> {
 /// use paperpaw_sdk::native::{Error, events::{Event, Incoming, kinds}};
 /// fn on_tick(event: Incoming<'_>) -> Result<Option<u64>, Error> {
 ///     Ok(match event.decode_as::<kinds::Tick>()? {
-///         Some(Event::Tick { now_ms }) => Some(now_ms),
+///         Some(Event::Tick { now_ms, .. }) => Some(now_ms),
 ///         _ => None,
 ///     })
 /// }

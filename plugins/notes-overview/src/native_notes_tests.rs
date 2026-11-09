@@ -4,8 +4,8 @@
 use crate::fail_alloc::sweep;
 use crate::model::Kind;
 use crate::native_notes::{
-    Choice, Flow, Layout, MOST_NOTES, MOST_REPLIES, MOST_SCREEN_PAGES, Replies, Row, Show, Start,
-    page,
+    Choice, Flow, Layout, MOST_NOTES, MOST_REPLIES, MOST_SCREEN_PAGES, Place, Replies, Row, Show,
+    Start, page,
 };
 use alloc::format;
 use alloc::string::String;
@@ -67,6 +67,10 @@ impl Replies for Fake {
                 text: &self.texts[n],
                 note: "",
                 percent: 1,
+                place: Place {
+                    section: 0,
+                    offset: n as u32,
+                },
             };
             if each(n - cursor, &row)? == Flow::Stop {
                 break;
@@ -253,4 +257,41 @@ fn refused_allocations_end_in_no_memory() {
     let mut fake = Fake::new(260, 7);
     let pages = [Start::default()];
     sweep(|| Ok(page(&mut fake, &pages, &mut make)?.items.len()));
+}
+
+#[test]
+fn a_note_opens_the_book_at_its_own_place_on_every_page() {
+    let mut fake = Fake::new(300, 7);
+    let mut pages = alloc::vec![Start::default()];
+    let mut checked = 0;
+    loop {
+        let got = page(&mut fake, &pages, &mut make).unwrap();
+        assert_eq!(got.places.len(), got.layout.notes);
+        let rows = titles(&got.items);
+        for (index, title) in rows.iter().enumerate() {
+            let place = got.layout.place(&got.places, index);
+            match got.layout.choice(index) {
+                Choice::Note => {
+                    // The title is `n<note>` and the fake's offset is `<note>`.
+                    let n: u32 = title[1..].parse().unwrap();
+                    assert_eq!(
+                        place,
+                        Some(Place {
+                            section: 0,
+                            offset: n
+                        })
+                    );
+                    checked += 1;
+                }
+                _ => assert_eq!(place, None, "{title}"),
+            }
+        }
+        // One past the last row is no row at all.
+        assert_eq!(got.layout.place(&got.places, rows.len()), None);
+        match got.next {
+            Some(next) => pages.push(next),
+            None => break,
+        }
+    }
+    assert_eq!(checked, 240);
 }

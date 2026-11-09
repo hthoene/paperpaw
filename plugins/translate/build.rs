@@ -1,8 +1,4 @@
 //! Turns the declarations into read-only batches built into the plugin image.
-#[allow(
-    dead_code,
-    reason = "the settings are built once the choice may have 33 values"
-)]
 mod declarations;
 
 use paperpaw_sdk::native::declare::Declarations;
@@ -40,8 +36,7 @@ macro_rules! emit {
 fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
-    // `declarations::settings` is not built yet: the choice has 33 values and a
-    // `setting.spec` takes 32 (draft 29 raises it; see PORTING-7.md).
+    emit!(source, "SETTINGS", declarations::settings);
     emit!(source, "SCREEN", declarations::screen);
     emit!(source, "EVENTS", declarations::events);
     emit!(source, "OFFER", declarations::offer);

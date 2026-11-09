@@ -186,7 +186,19 @@ impl Plugin for NativeReadingGoal {
         } else {
             None
         };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
+        // What was drawn is what the next tick compares with: the first
+        // tick after a draw that finds something new tells the maker.
+        let mark = native_widget::mark(&today);
+        drop(cx);
+        if let Some(item) = self
+            .items
+            .iter_mut()
+            .find(|item| item.instance.get() == frame.id)
+        {
+            item.shown = Some(mark);
+        }
+        Ok(())
     }
 
     fn input(&mut self, host: &Host<'_>, _token: u32, input: Input<'_>) -> Result<Handled, Error> {
