@@ -218,6 +218,7 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         token,
     };
     let draw = |token| wire::Registration::Draw { token };
+    let tagged = |event_tag, token| wire::Registration::Event { event_tag, token };
     let batches: &[&[wire::Registration]] = match REGS.with(Cell::get) {
         0 => return None,
         1 => &[&[event(91)]],
@@ -234,6 +235,13 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         // The same event in two batches; the same draw in two batches.
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
+        // The book events 65-67 and suspend, each its own token (95-98).
+        13 => &[&[
+            tagged(65, 95),
+            tagged(66, 96),
+            tagged(67, 97),
+            tagged(34, 98),
+        ]],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
@@ -333,7 +341,7 @@ unsafe extern "C" fn screen_event(
     _: PpBuffer,
 ) -> i32 {
     if token != 91 {
-        return ERR_INVALID;
+        return events_registered::told(token, bytes);
     }
     // SAFETY: the owner retains the initialized fixture and its pinned context.
     let context = unsafe {
@@ -702,30 +710,6 @@ fn an_empty_install_is_refused_without_publication() {
     assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
     assert!(kernel.shared.native_instances.find("factory").is_none());
-    assert_eq!(DESTROYED.with(Cell::get), 1);
-}
-
-#[test]
-fn an_events_only_library_is_admitted_and_subscribed() {
-    EMPTY.with(|value| value.set(true));
-    let (mut kernel, result) = regs_kernel(1);
-    EMPTY.with(|value| value.set(false));
-    result.unwrap();
-    let key = kernel.shared.native_instances.find("factory").unwrap();
-    assert!(
-        kernel
-            .shared
-            .native_instances
-            .subscribed(key, wire::EVENT_STARTED_TAG)
-    );
-    assert!(
-        !kernel
-            .shared
-            .registry
-            .screens
-            .contains_key("factory.screen")
-    );
-    assert!(kernel.unload_plugin(&Id::new_static("factory")));
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
 
@@ -1500,6 +1484,8 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
+#[path = "native_events_install_tests.rs"]
+mod events_registered;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
 

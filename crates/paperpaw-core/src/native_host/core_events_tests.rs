@@ -37,8 +37,6 @@ struct Probe {
     titles: Rc<RefCell<Vec<String>>>,
     /// Fails every call when set.
     fails: Rc<Cell<bool>>,
-    /// The reasons of the `book_closed` it was told.
-    reasons: Rc<RefCell<Vec<u32>>>,
 }
 
 impl NativeInstance for Probe {
@@ -70,10 +68,7 @@ impl NativeInstance for Probe {
                 (wire::EVENT_BATTERY_MEASURED_TAG, event.now_ms)
             }
             wire::Record::EventBookOpened(event) => (wire::EVENT_BOOK_OPENED_TAG, event.now_ms),
-            wire::Record::EventBookClosed(event) => {
-                self.reasons.borrow_mut().push(event.reason);
-                (wire::EVENT_BOOK_CLOSED_TAG, event.now_ms)
-            }
+            wire::Record::EventBookClosed(event) => (wire::EVENT_BOOK_CLOSED_TAG, event.now_ms),
             wire::Record::EventBookFinished(event) => (wire::EVENT_BOOK_FINISHED_TAG, event.now_ms),
             wire::Record::EventPageTurned(event) => {
                 self.titles.borrow_mut().push(event.title.into());
@@ -120,7 +115,6 @@ struct World {
     told: Told,
     titles: Rc<RefCell<Vec<String>>>,
     fails: Rc<Cell<bool>>,
-    reasons: Rc<RefCell<Vec<u32>>>,
 }
 
 /// Plugin `a` hears the tags `a_tags`, plugin `b` the tags `b_tags`.
@@ -131,7 +125,6 @@ fn world(a_tags: &'static [u32], b_tags: &'static [u32]) -> World {
     let told = Told::default();
     let titles = Rc::new(RefCell::new(Vec::new()));
     let fails = Rc::new(Cell::new(false));
-    let reasons = Rc::new(RefCell::new(Vec::new()));
     let mut add = |name: char, tags: &'static [u32]| {
         let probe = Probe {
             name,
@@ -139,7 +132,6 @@ fn world(a_tags: &'static [u32], b_tags: &'static [u32]) -> World {
             told: Rc::clone(&told),
             titles: Rc::clone(&titles),
             fails: Rc::clone(&fails),
-            reasons: Rc::clone(&reasons),
         };
         kernel
             .shared
@@ -160,7 +152,6 @@ fn world(a_tags: &'static [u32], b_tags: &'static [u32]) -> World {
         told,
         titles,
         fails,
-        reasons,
     }
 }
 
@@ -497,45 +488,6 @@ const BOOKS: &[u32] = &[
     wire::EVENT_BOOK_FINISHED_TAG,
     wire::EVENT_SUSPEND_TAG,
 ];
-
-#[test]
-fn the_book_events_reach_a_subscriber_in_the_order_raised() {
-    let mut w = world(BOOKS, &[]);
-    for tag in [
-        wire::EVENT_BOOK_OPENED_TAG,
-        wire::EVENT_BOOK_FINISHED_TAG,
-        wire::EVENT_BOOK_CLOSED_TAG,
-    ] {
-        raise(&mut w.kernel, tag, &page("T"));
-    }
-    assert_eq!(
-        tags(&w, 'a'),
-        [
-            wire::EVENT_BOOK_OPENED_TAG,
-            wire::EVENT_BOOK_FINISHED_TAG,
-            wire::EVENT_BOOK_CLOSED_TAG
-        ]
-    );
-}
-
-#[test]
-fn book_closed_with_reason_one_is_told_before_suspend_never_after() {
-    let mut w = world(BOOKS, &[]);
-    // The device sleeps while a callback is on the stack: book_closed waits.
-    w.kernel.shared.native_instances.test_enter_callback();
-    let mut closed = page("T");
-    closed.set("reason", "1");
-    raise(&mut w.kernel, wire::EVENT_BOOK_CLOSED_TAG, &closed);
-    w.kernel.shared.native_instances.test_leave_callback();
-    // Suspend drains the queue: the edge raised first comes out first.
-    w.kernel
-        .emit(&builtin::SUSPEND.id().clone(), &Params::new());
-    assert_eq!(
-        tags(&w, 'a'),
-        [wire::EVENT_BOOK_CLOSED_TAG, wire::EVENT_SUSPEND_TAG]
-    );
-    assert_eq!(*w.reasons.borrow(), [1]);
-}
 
 #[test]
 fn a_book_event_without_a_location_is_not_told_and_is_logged_once() {
