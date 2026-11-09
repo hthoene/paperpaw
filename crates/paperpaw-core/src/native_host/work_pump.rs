@@ -25,6 +25,7 @@ use super::{
     registrations::{self as wire, Record},
     work_sched::{Event, Moment},
 };
+use alloc::rc::Rc;
 use paperpaw_platform::Instant;
 
 /// Plugin calls (events 103 to 105) in one pass: the most one device has
@@ -51,15 +52,25 @@ impl crate::Kernel {
     /// One pass of the work scheduler (see the module). `true` when plugin
     /// calls remain for another pass.
     pub(crate) fn native_work_pump(&mut self) -> bool {
+        // A batch left waiting runs first, so no entry is taken for a callback
+        // that is then refused.
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         let instances = &self.shared.native_instances;
-        let Some(work) = instances.work_services() else {
+        // The scheduler and its view of the device are held here, so that a
+        // callback's commands can run (`&mut self`) between two calls.
+        let Some((sched, env)) = instances
+            .work_services()
+            .map(|work| (Rc::clone(&work.sched), Rc::clone(&work.env)))
+        else {
             return false;
         };
         // Never inside a callback: what comes due during one comes after.
         if instances.depth() > 0 {
             return true;
         }
-        let env = &*work.env;
+        let env = &*env;
         let now_ms = env.now_ms();
         let charging = self
             .shared
@@ -72,10 +83,10 @@ impl crate::Kernel {
         // already charging is no moment.
         if seen & SEEN != 0 {
             if env.network_up() && seen & SEEN_UP == 0 {
-                work.sched.moment(Moment::Online, env);
+                sched.moment(Moment::Online, env);
             }
             if charging && seen & SEEN_CHARGING == 0 {
-                work.sched.moment(Moment::Charging, env);
+                sched.moment(Moment::Charging, env);
             }
         }
         instances.set_work_seen(
@@ -83,7 +94,7 @@ impl crate::Kernel {
                 | if charging { SEEN_CHARGING } else { 0 },
         );
         // A table in use waits for the next pass.
-        let Ok(pass) = work.sched.begin_pass(env) else {
+        let Ok(pass) = sched.begin_pass(env) else {
             return true;
         };
         // The hints (one per subscribed plugin) are not work: they do not
@@ -95,11 +106,12 @@ impl crate::Kernel {
         let mut calls = 0;
         let mut more = false;
         while calls < PER_PASS {
+            let instances = &self.shared.native_instances;
             let accepts = |owner: u64| {
                 instances.subscribed(owner, wire::EVENT_WORK_DUE_TAG)
                     && matches!(instances.state(owner), Ok(InstanceState::Running(_)))
             };
-            let Ok(Some(event)) = work.sched.next_event(env, &accepts) else {
+            let Ok(Some(event)) = sched.next_event(env, &accepts) else {
                 break;
             };
             self.work_deliver(&event, now_ms);
@@ -112,8 +124,7 @@ impl crate::Kernel {
 
     /// `event.work_allowed` (105) to every running plugin that subscribed: a
     /// hint, one per pass, so one pending at most.
-    fn work_tell_allowed(&self, now_ms: u64) {
-        let instances = &self.shared.native_instances;
+    fn work_tell_allowed(&mut self, now_ms: u64) {
         let mut record = [0u8; RECORD_BYTES];
         let allowed = Record::EventWorkAllowed(wire::EventWorkAllowed { now_ms });
         let Ok(len) = wire::records_encode(&[allowed], &mut record) else {
@@ -123,21 +134,29 @@ impl crate::Kernel {
             );
             return;
         };
-        let env = self.shared.env(self.now);
         let mut index = 0;
-        while let Some((owner, lease)) = instances.running_nth(index) {
+        loop {
+            let instances = &self.shared.native_instances;
+            let Some((owner, lease)) = instances.running_nth(index) else {
+                break;
+            };
             index += 1;
+            let Ok(lease) = lease.try_clone() else {
+                continue;
+            };
             if instances.subscribed(owner, wire::EVENT_WORK_ALLOWED_TAG) {
-                // A hint: how the plugin took it is its own.
-                let _ = lease.service_event(&record[..len], &env);
+                // A hint: how the plugin took it is its own; what it staged
+                // runs before the next callback.
+                let _ = self.native_event_call(owner, &lease, &record[..len]);
+                self.native_outbox_run();
             }
         }
     }
 
     /// One event of the scheduler to its plugin.
-    fn work_deliver(&self, event: &Event, now_ms: u64) {
+    fn work_deliver(&mut self, event: &Event, now_ms: u64) {
         let instances = &self.shared.native_instances;
-        let Some(work) = instances.work_services() else {
+        let Some(sched) = instances.work_services().map(|work| Rc::clone(&work.sched)) else {
             return;
         };
         let (owner, token, run) = match event {
@@ -175,13 +194,15 @@ impl crate::Kernel {
         if let (true, Ok(len), Ok(InstanceState::Running(lease))) =
             (told, encoded, instances.state(owner))
         {
-            let env = self.shared.env(self.now);
             // The outcome is the plugin's own: the entry ended with the call.
-            let _guard = run.map(|run| work.sched.enter_run_callback(owner, run));
-            let _ = lease.service_event(&record[..len], &env);
+            let guard = run.map(|run| sched.enter_run_callback(owner, run));
+            let _ = self.native_event_call(owner, &lease, &record[..len]);
+            drop(guard);
+            // What it staged runs before the next callback.
+            self.native_outbox_run();
         }
         if let Some(run) = run {
-            work.sched.callback_returned(run, now_ms);
+            sched.callback_returned(run, now_ms);
         }
     }
 

@@ -52,6 +52,16 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
+    emit(&mut source, "UI", |sink| {
+        declarations::ui(sink).map_err(|e| format!("invalid Mail actions: {e:?}"))
+    })?;
+    emit(&mut source, "SCREENS", |sink| {
+        let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
+        declarations::screens(&mut d).map_err(|e| format!("invalid Mail screens: {e:?}"))
+    })?;
+    emit(&mut source, "EVENTS", |sink| {
+        declarations::events(sink).map_err(|e| format!("invalid Mail event declarations: {e:?}"))
+    })?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("mail_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;

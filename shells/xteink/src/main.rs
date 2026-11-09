@@ -362,6 +362,11 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    let device_table = match &ready.code {
+        CodePlugins::Load(loader) => Some(loader.device_table()),
+        _ => None,
+    };
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -375,6 +380,8 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+        device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(

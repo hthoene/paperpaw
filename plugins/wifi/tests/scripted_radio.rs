@@ -212,6 +212,7 @@ fn shown(screen: &str, now_ms: u64) -> Vec<u8> {
         width: 480,
         height: 800,
         instance: Some(1),
+        last_input: 0,
     }))
     .unwrap()
 }
