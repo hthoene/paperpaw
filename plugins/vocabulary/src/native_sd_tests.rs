@@ -132,7 +132,10 @@ fn a_missing_folder_is_made_with_a_note_on_how_files_are_made() {
     finish(&mut run, &storage, "en", true);
     let rows = rows_of(&run);
     assert_eq!(rows.len(), 1);
-    assert!(rows[0].1.starts_with("The folder Flashcards is made."), "{rows:?}");
+    assert!(
+        rows[0].1.starts_with("The folder Flashcards is made."),
+        "{rows:?}"
+    );
     assert!(storage.exists("Flashcards/_Read me.txt"));
 }
 
@@ -267,8 +270,10 @@ fn a_refused_allocation_ends_the_run_with_a_line_that_says_so_never_a_panic() {
         // Whatever was refused, every deck still reads whole.
         fixture(|| {
             for deck in cards::decks(&storage).unwrap() {
-                cards::each_card(&storage, deck.id, |_, _| core::ops::ControlFlow::Continue(()))
-                    .unwrap();
+                cards::each_card(&storage, deck.id, |_, _| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
             }
         });
     }

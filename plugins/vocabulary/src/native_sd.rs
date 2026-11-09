@@ -139,11 +139,16 @@ impl MenuView {
     ///
     /// # Errors
     /// As [`Self::new`]; the view is as it was.
-    pub(crate) fn refresh(&mut self, words: &mut impl Words, shown: Shown<'_>) -> Result<(), Error> {
+    pub(crate) fn refresh(
+        &mut self,
+        words: &mut impl Words,
+        shown: Shown<'_>,
+    ) -> Result<(), Error> {
         let focus = self.list.focus();
         let (items, targets) = rows(words, shown)?;
         self.list.replace(items);
-        self.list.set_focus(focus.min(targets.len().saturating_sub(1)));
+        self.list
+            .set_focus(focus.min(targets.len().saturating_sub(1)));
         self.targets = targets;
         Ok(())
     }
@@ -168,7 +173,11 @@ fn rows(words: &mut impl Words, shown: Shown<'_>) -> Result<(Vec<Item>, Vec<Targ
         .try_reserve_exact(room)
         .map_err(|_| Error::NoMemory)?;
     let note = crate::native_decks::files_note(words, shown.folder, shown.pending)?;
-    items.push(Item::noted(&words.copy("vocabulary.sd.update")?, GO, &note)?);
+    items.push(Item::noted(
+        &words.copy("vocabulary.sd.update")?,
+        GO,
+        &note,
+    )?);
     targets.push(Target::Update);
     for deck in shown.decks {
         let link = sync::link_of(shown.ledger, deck.id);
@@ -658,7 +667,11 @@ fn report_rows(
     };
     push(rows, title, note)?;
     if report.removal_held {
-        push(rows, String::new(), words.copy("vocabulary.sd.removal-held")?)?;
+        push(
+            rows,
+            String::new(),
+            words.copy("vocabulary.sd.removal-held")?,
+        )?;
     }
     if report.no_room > 0 {
         let note = words.format("vocabulary.sd.no-room", &[count(report.no_room)])?;
@@ -710,10 +723,9 @@ fn save_rows(
         value: &report.file,
     };
     let note = match report.outcome {
-        export::Outcome::Saved => words.format(
-            "vocabulary.sd.saved",
-            &[count(report.cards), file],
-        )?,
+        export::Outcome::Saved => {
+            words.format("vocabulary.sd.saved", &[count(report.cards), file])?
+        }
         export::Outcome::NotLinked => words.format("vocabulary.sd.saved.unlinked", &[file])?,
         export::Outcome::NoDeck => words.copy("vocabulary.sd.save.no-deck")?,
         export::Outcome::Unreadable => words.copy("vocabulary.sd.save.unreadable")?,

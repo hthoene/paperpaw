@@ -7,6 +7,7 @@
 //! alive).
 use alloc::string::String;
 
+use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host,
     callbacks::{DrawFrame, Input},
@@ -15,7 +16,6 @@ use paperpaw_sdk::native::{
     ui::{Instance, Open, Param},
     work::{Work, WorkSpec},
 };
-use paperpaw_sdk::Handled;
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::{Footer, ItemList, ItemStep, text};
 
@@ -207,7 +207,9 @@ impl NativeVocabulary {
     ) -> Result<(), Error> {
         if token == SD_MENU_TOKEN {
             let view = self.sd_menus.top(token).ok_or(Error::State)?;
-            return view.list().draw_with(host, frame, TITLE, true, Footer::None);
+            return view
+                .list()
+                .draw_with(host, frame, TITLE, true, Footer::None);
         }
         let run = self.sd_runs.top(token).ok_or(Error::State)?;
         run.show(&mut HostWords::new(host)?)?;
