@@ -11,6 +11,10 @@ authors.workspace = true
 categories = ["no-std", "embedded"]
 keywords = ["e-reader", "e-ink", "epaper"]
 
+[features]
+# The scripted firmware host (`firmware_fake`), for tests of other crates.
+fake = []
+
 [dependencies]
 
 [dev-dependencies]

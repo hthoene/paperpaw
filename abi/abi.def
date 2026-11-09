@@ -5079,6 +5079,15 @@
           "ordinal": 0,
           "default": 0,
           "max_bytes": 0
+        },
+        {
+          "name": "previews",
+          "type": "str",
+          "since": 1,
+          "optional": true,
+          "ordinal": 1,
+          "default": "",
+          "max_bytes": 128
         }
       ]
     },

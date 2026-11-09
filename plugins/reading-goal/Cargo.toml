@@ -16,10 +16,6 @@ categories = ["no-std"]
 card-files = ["pictures/*.png"]
 
 [features]
-# The cats carried in the code (the plugin as part of an app); a plugin file
-# for a reader is built without them and reads them from its folder.
-default = ["embedded-pictures"]
-embedded-pictures = []
 linked = []
 native-entry = []
 

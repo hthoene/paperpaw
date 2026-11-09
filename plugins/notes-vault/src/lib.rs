@@ -31,11 +31,17 @@ mod index;
 mod lines;
 mod list;
 mod markdown;
+mod native_card;
 mod native_entry;
+mod native_home;
+mod native_list;
 #[doc(hidden)]
 pub mod native_model;
-/// The interface-7 notes vault (slice 1; see `PORTING-7.md`).
+mod native_notice;
+mod native_paged;
+/// The interface-7 notes vault (see `PORTING-7.md`).
 pub mod native_plugin;
+mod native_tags;
 mod note;
 mod page;
 mod source;
@@ -48,6 +54,16 @@ pub use native_entry::NATIVE_ENTRY;
 
 #[cfg(test)]
 mod native_parity_tests;
+
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

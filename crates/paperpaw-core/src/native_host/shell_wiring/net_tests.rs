@@ -96,3 +96,36 @@ fn every_shell_reason_has_its_wire_value() {
         assert_eq!(finished.reason, wire, "{reason:?}");
     }
 }
+
+#[test]
+fn a_call_naming_the_network_and_core_files_together_wires_both() {
+    use crate::native_host::storage_files::{BusyKind, BusySource};
+    struct Quiet;
+    impl BusySource for Quiet {
+        fn busy(
+            &self,
+            _: &dyn paperpaw_platform::Storage,
+            _: &str,
+            _: crate::native_host::files_service::Access,
+        ) -> bool {
+            false
+        }
+    }
+    let resources = HostResources::try_new().unwrap();
+    let sources = resources.hosts().busy_sources();
+    sources
+        .register(BusyKind::LibraryMoves, Rc::new(Quiet))
+        .unwrap();
+    sources
+        .register(BusyKind::ReaderBook, Rc::new(Quiet))
+        .unwrap();
+    let wired = resources
+        .wire(
+            HostWiring::new()
+                .net(inputs())
+                .files(Rc::new(MemoryStorage::new())),
+        )
+        .unwrap();
+    assert!(wired.net().is_some());
+    assert!(resources.hosts().net().is_some() && resources.hosts().files().is_some());
+}

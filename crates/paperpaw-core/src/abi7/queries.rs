@@ -4,7 +4,7 @@
 //! and its catalog borrow remain live. Authorization compares borrowed canonical
 //! identity spans without allocating. Settings value resolution may allocate.
 
-use super::settings_visibility::{Visibility, visibility, visibility_for};
+use super::settings_visibility::{SettingIdentity, Visibility, visibility, visibility_for};
 use super::{
     context::FrameSlot,
     settings_wire::{SettingValueRef, settings_encode},
@@ -74,10 +74,8 @@ fn read_for(
         let granted = matches!(frame.settings().get(full), Some(SettingValue::Bool(true)));
         return encode(SettingValueRef::Bool(granted), out);
     }
-    let secret = frame
-        .settings()
-        .specs()
-        .find(|spec| identity.matches(spec.id.as_str()))
+    let secret = identity
+        .definition(frame.settings())
         .is_some_and(|spec| spec.extra().secret);
     let visible = if identity.head.len() == key.len() {
         visibility(caller, key, secret, frame.settings_editor())
@@ -88,57 +86,6 @@ fn read_for(
         Visibility::Hidden => ERR_DENIED,
         Visibility::Redacted if key.split(['.', '@']).next() != Some(caller.as_str()) => ERR_DENIED,
         Visibility::Redacted | Visibility::Readable => copy_value(frame, key, out),
-    }
-}
-
-/// A canonical identity as two borrowed spans, with at most one placement.
-/// Comparing spans avoids both heap allocation and a large stack scratch buffer.
-struct SettingIdentity<'a> {
-    head: &'a str,
-    tail: &'a str,
-}
-impl<'a> SettingIdentity<'a> {
-    fn new(key: &'a str) -> Result<Self, i32> {
-        use paperpaw_native::host_glue::ERR_INVALID;
-        let mut placement = None;
-        for segment in key.split('.') {
-            let name = if let Some((name, number)) = segment.split_once('@') {
-                if placement.is_some()
-                    || number.is_empty()
-                    || !number.bytes().all(|byte| byte.is_ascii_digit())
-                {
-                    return Err(ERR_INVALID);
-                }
-                placement = key.find('@');
-                name
-            } else {
-                segment
-            };
-            if name.is_empty()
-                || !name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-            {
-                return Err(ERR_INVALID);
-            }
-        }
-        let Some(at) = placement else {
-            return Ok(Self {
-                head: key,
-                tail: "",
-            });
-        };
-        let end = key[at..].find('.').map_or(key.len(), |dot| at + dot);
-        Ok(Self {
-            head: &key[..at],
-            tail: &key[end..],
-        })
-    }
-    fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
-        self.head.bytes().chain(self.tail.bytes())
-    }
-    fn matches(&self, key: &str) -> bool {
-        self.bytes().eq(key.bytes())
     }
 }
 

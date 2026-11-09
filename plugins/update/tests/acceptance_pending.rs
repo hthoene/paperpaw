@@ -8,19 +8,23 @@ mod pending;
 use pending::Case;
 
 const CASES: [Case; 4] = [
-    // An update on the card is found, said who signed it, and installed by the
-    // shell; after the restart the plugin says how it went.
+    // An update on the card is found, its version and who signed it said (the
+    // device's file check), installed by the device; after the restart the
+    // plugin says how it went. All of it is native (`src/native_plugin.rs`,
+    // `src/native_check.rs`, `src/native_card.rs`); what is pending is the
+    // dual-boot notice (the flag the firmware has to give) and the plugins an
+    // update leaves out.
     Case {
         name: "update-from-the-card",
         golden: None,
-        blocked_by: &["FIRMWARE-service", "FS", "H1"],
+        blocked_by: &["DUAL-BOOT-FLAG", "LEAVES-OUT"],
     },
     // The update server is asked, an update downloaded and the code plugins
     // built for it fetched.
     Case {
         name: "update-online",
         golden: None,
-        blocked_by: &["NET", "FS", "FIRMWARE-service"],
+        blocked_by: &["NET-flow", "LEAVES-OUT"],
     },
     // The weekly look runs as declared work at a cheap moment.
     Case {
@@ -28,11 +32,12 @@ const CASES: [Case; 4] = [
         golden: None,
         blocked_by: &["WORK-declaration", "NET"],
     },
-    // The page and the badge on its entry in the settings.
+    // The page's states beyond the card's files (online, waiting, dual boot)
+    // and the badge on its entry in the settings.
     Case {
         name: "update-page",
         golden: None,
-        blocked_by: &["H1", "H2", "H3", "ITEM-STATE"],
+        blocked_by: &["ITEM-STATE", "NET-flow", "DUAL-BOOT-FLAG"],
     },
 ];
 
@@ -47,13 +52,13 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED FIRMWARE-service/FS/H1: no native firmware service, files or screen commands yet"]
+#[ignore = "BLOCKED DUAL-BOOT-FLAG/LEAVES-OUT: no dual-boot flag; the plugins an update leaves out wait for core.device op 16 leaves_out (device.md 5.1, #732) and its SDK wrapper"]
 fn update_from_the_card() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED NET/FS/FIRMWARE-service: network, files and the firmware service are not on integration"]
+#[ignore = "BLOCKED NET-flow/LEAVES-OUT: the online flow (check, download, plugin fetch) is not native yet"]
 fn update_online() {
     CASES[1].refuse().unwrap();
 }
@@ -65,7 +70,7 @@ fn update_weekly_look() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H2/H3/ITEM-STATE: screen commands, dialogs, composition and a menu item's badge are not qualified"]
+#[ignore = "BLOCKED ITEM-STATE/NET-flow/DUAL-BOOT-FLAG: the entry's badge and the online and dual-boot states are not native yet"]
 fn update_page() {
     CASES[3].refuse().unwrap();
 }

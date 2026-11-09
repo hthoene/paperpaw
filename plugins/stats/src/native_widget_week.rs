@@ -129,7 +129,12 @@ fn initial(cx: &mut Cx<'_>, weekday: u8) -> Result<String, Error> {
 ///
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
-pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+pub fn draw(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    _slot: &crate::native_widgets::Slot,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let days = shown(cx)?;
     if days.is_empty() {

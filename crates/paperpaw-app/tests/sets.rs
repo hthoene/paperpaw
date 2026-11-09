@@ -122,7 +122,8 @@ fn the_crates_listed_are_those_installed() {
 #[cfg(feature = "store-plugins")]
 #[test]
 fn built_in_store_plugins_are_off_unless_used() {
-    let used = ["stats"];
+    // Any one of them: the plugins leave this list as their interface-6 code goes.
+    let used = [paperpaw_app::STORE_PLUGINS[0]];
     let kernel = paperpaw_app::install_with(
         builder(),
         fonts(),
@@ -184,7 +185,10 @@ fn a_store_plugin_switched_off_before_stays_off() {
     let plugins = plugins(&kernel);
     let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
     assert_eq!(state("aids"), Some(PluginState::Running));
-    assert_eq!(state("stats"), Some(PluginState::Running));
+    assert_eq!(
+        state(paperpaw_app::STORE_PLUGINS[0]),
+        Some(PluginState::Running)
+    );
     assert_eq!(state("vocabulary"), Some(PluginState::Off));
     // Off as it always shipped.
     assert_eq!(state("browser"), Some(PluginState::Off));
