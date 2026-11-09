@@ -277,14 +277,14 @@ fn the_next_books_list_each_series_once_and_skips_a_book_read_before() {
         *log.borrow(),
         [
             "facets 1 show 2 cursor 0",
-            "query show 2 series Saga sort 2 flags 1",
+            "query show 2 series Saga sort 0 flags 0",
             "next 3 in 4",
             "facets 1 show 3 cursor 0",
-            "query show 3 series Done sort 2 flags 1",
+            "query show 3 series Done sort 0 flags 0",
             "next 9 in 4",
-            "query show 3 series Seen sort 2 flags 1",
+            "query show 3 series Seen sort 0 flags 0",
             "next 20 in 4",
-            "query show 3 series Last sort 2 flags 1",
+            "query show 3 series Last sort 0 flags 0",
             "next 30 in 4",
         ]
     );

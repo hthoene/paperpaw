@@ -32,10 +32,10 @@ and the last book of 250, exactly 96 and 97 books, back to the window before, a 
   over the row). A name is held up to 128 bytes (cut with an ellipsis for its row, read whole
   again when chosen). Choosing a name lists its books. `native_shelves.rs` holds the rules, host-free.
 - **Next in your series**: `native_shelves::collect_next`. The series with a book being read, then
-  those with a finished one, from the series facet (`show` reading / finished); for each, the last
-  begun book by number (`query`, sorted by series, descending) and the book after it (LIB op 6
-  `next_in_series`). A next book that was already begun is not shown. At most 48 series found and
-  96 looked at; the
+  those with a finished one, from the series facet (`show` reading / finished); for each, one
+  begun book (`query` of the series) and the series' lowest unread book from LIB op 6
+  `next_in_series` (Kernel's ruling on #696, `library.md`: not the book after the given one;
+  `NotFound` when every book of it was opened). At most 48 series found and 96 looked at; the
   catalog changing meanwhile is `State` and the list is read again.
 - **Search**: the action `files.search` (menu `files.menu`, order 21) asks for words with the
   system keyboard (`Question::text`) and opens the books that have them (`Scope::Search`); more
@@ -51,8 +51,10 @@ and the last book of 250, exactly 96 and 97 books, back to the window before, a 
 ## Differences from interface 6 in this slice
 
 - The shelves are one list of categories, not names inline (interface 6 showed the first series
-  and folders on the shelves page itself). The folders list shows what the host's folder facet
-  gives (the folders books are in), by their own name, not a walk into sub-folders.
+  and folders on the shelves page itself). The folders list is one level, as Beta 3's: the
+  folders right inside the library folder that hold a book at any depth, by their own name, with
+  the books in and below each (Kernel's ruling on #696, `library.md`). Choosing one lists its books
+  at any depth; there is no walk into sub-folders (Beta 3 had none).
 - *Next in your series* lists series being read first, then those only finished, each in the
   host's alphabetical order; interface 6 sorted by when the series was read last (the host's
   query has no such order for a facet). It is capped at 48 series.

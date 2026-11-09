@@ -181,8 +181,9 @@ pub trait SeriesSource<C> {
     /// The host's refusal (`State` for a changed catalog) or `NoMemory`.
     fn names(&mut self, begun: Begun, from: C) -> Result<SeriesNames<C>, Error>;
 
-    /// The book after the last book of `series` that is `begun` this way;
-    /// none when the series has no more.
+    /// The series' lowest unread book (the host's `next_in_series` from a
+    /// book of it that is `begun` this way); none when every book of it was
+    /// opened.
     ///
     /// # Errors
     /// The host's refusal (`State` for a changed catalog) or `NoMemory`.
@@ -191,9 +192,8 @@ pub trait SeriesSource<C> {
 
 /// The next book of each series begun, the series being read first and
 /// those of finished books after them (a series once, `most` books at
-/// most). A book already begun or finished is not a next book: a series
-/// whose last begun book is followed by one that was read before shows
-/// nothing.
+/// most). A book already begun or finished is not a next book (the host
+/// gives the lowest unread one, so this only guards a stale answer).
 ///
 /// # Errors
 /// The source's refusal or `NoMemory`.

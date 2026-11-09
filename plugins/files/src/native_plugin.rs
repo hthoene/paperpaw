@@ -26,7 +26,7 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         formatting::Arg,
-        library::{BookRef, CatalogCursor, CatalogPhase, Facet, Library, Query, Show, Sort},
+        library::{BookRef, CatalogCursor, CatalogPhase, Facet, Library, Query, Show},
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
@@ -481,12 +481,9 @@ impl SeriesSource<CatalogCursor> for NextHost<'_, '_> {
     }
 
     fn next_of(&mut self, begun: Begun, series: &str) -> Result<Option<BookLine>, Error> {
-        // The last begun book of the series, by its number.
-        let query = Query::new()
-            .show(show(begun))
-            .series(series)?
-            .sort(Sort::Series)
-            .descending(true);
+        // Any begun book of the series: the host answers with the series'
+        // lowest unread book (`library.md`, op 6).
+        let query = Query::new().show(show(begun)).series(series)?;
         let page = self
             .library
             .query(self.host, &query, self.input, self.out)?;
