@@ -2,12 +2,13 @@
 //! for `core.files` root 2: a built-in plugin has no install folder on the
 //! card, whatever a leftover `plugins/<id>/` holds.
 //!
-//! Open question for Kernel (R3 of the #715 review): may a card plugin take a
-//! linked plugin's id? `register_linked` refuses a taken id; this set assumes
-//! the registry refuses the other way round too (a card plugin with a linked
-//! id is never registered), so its install folder is never read. If Kernel
-//! rules that it may, the id must leave this set when the card plugin is
-//! registered, and `core.files` root 2 must read that plugin's own folder.
+//! A card (`.ppn`) plugin never takes a linked plugin's id, and nothing
+//! replaces a linked plugin but a firmware update (`device.md` 5.5: reason 15,
+//! "id taken (built in, or another source's)", `ERR_DENIED`). An install or a
+//! check refuses with it; a `.ppn` found on the card at start with a linked id
+//! is not loaded (the linked plugin stays; the card file is logged and left
+//! alone, never deleted). So for root 2 a linked plugin's `plugins/<id>/` is
+//! always empty, whatever the card holds there.
 //!
 //! The kernel adds an id before it registers the plugin and takes it back
 //! when the registration fails, so an id is in the set only for a plugin that
