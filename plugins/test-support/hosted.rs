@@ -1,10 +1,17 @@
-//! Test-only: constructs a linked native plugin in a real registered scope of
-//! the kernel's native host (`Hosted::construct_registered`), the scope the
-//! host gives `make`. The host runs the plugin's own checked metadata; nothing
-//! here stands in for a service.
-use paperpaw_core::native_host::{HostResources, shell};
-use paperpaw_native::host_glue::Services;
-use paperpaw_native::metadata::{self, Feature, Host as AdmissionHost, Profile, Service};
+//! Test-only: installs a linked native plugin the way a shell does, through
+//! `Kernel::register_linked`: the entry and its metadata are checked against the
+//! host, `make` runs in the registered scope, and every declaration family the
+//! host admits (screens, actions, settings, menus, slots, stages, widgets, ...)
+//! goes through the kernel's declaration store, registry, menus and slots.
+//! The host runs the plugin's own checked metadata; nothing here stands in for
+//! a service. Families the host refuses on purpose stay refused.
+use paperpaw_core::{
+    Kernel,
+    native_host::{HostResources, flat::FlatDepth},
+};
+use paperpaw_native::host_glue::{PpEntry, Services};
+use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
+use paperpaw_sdk::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat};
 use std::alloc::Layout;
 
 /// The consent features the host offers; a plugin's metadata may require any.
@@ -70,7 +77,9 @@ impl Services for Heap {
     }
 }
 
-fn report(
+fn report(_: &Heap, _: u32, _: i32) {}
+
+fn teardown(
     _: &Heap,
     _: &str,
     step: paperpaw_core::native_host::TeardownStep,
@@ -79,23 +88,37 @@ fn report(
     eprintln!("native teardown {step:?}: {error:?}");
 }
 
-/// Constructs `entry` with the services its metadata declares and tears it
-/// down; the host's refusal of construction comes back as its debug text.
-pub fn try_construct(
-    entry: &paperpaw_native::host_glue::PpEntry,
-    metadata_bytes: &[u8],
+/// A device for the kernel the plugin registers in.
+fn device() -> DeviceInfo {
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
+        InputCaps::new(true, true, false, &[]),
+        MemoryClass::Large,
+    )
+}
+
+/// Installs `entry` as plugin `name` in a new kernel with the services its
+/// metadata declares, and returns the kernel (drop it to tear the plugin
+/// down); the host's refusal comes back as its debug text.
+pub fn install(
+    entry: &'static PpEntry,
     name: &str,
     services: &[&'static str],
-) -> Result<(), String> {
-    let services: Vec<Service<'_>> = services
-        .iter()
-        .map(|key| Service {
-            key,
-            major: 1,
-            semantic_revision: 0,
-            min_table_bytes: 0,
-        })
-        .collect();
+) -> Result<Kernel, String> {
+    let services: &'static [Service<'static>] = Box::leak(
+        services
+            .iter()
+            .map(|key| Service {
+                key,
+                major: 1,
+                semantic_revision: 0,
+                min_table_bytes: 0,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
     let host = AdmissionHost {
         abi_major: 7,
         minor: 1,
@@ -104,32 +127,38 @@ pub fn try_construct(
             entry_layout: 1,
             entry_bytes: 32,
         },
-        services: &services,
+        services,
         features: FEATURES,
     };
-    let checked = metadata::check(metadata_bytes, &host).expect("metadata admitted");
-    let declared = shell::DeclaredServices::try_from_iter(checked.services()).unwrap();
-    // SAFETY: statically linked code and metadata live for the whole test; no image range.
-    let hosted = unsafe {
-        shell::Hosted::new(
-            Heap,
-            (),
-            entry.make.expect("the entry has a factory"),
+    // SAFETY: a linked entry's metadata view is its own static bytes.
+    let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
+    let mut kernel = Kernel::builder(device())
+        .build()
+        .map_err(|e| format!("{e:?}"))?;
+    // SAFETY: statically linked code and metadata live for the whole test.
+    unsafe {
+        kernel.register_linked(
+            entry,
+            metadata,
+            &host,
             name,
-            (core::ptr::null(), 0),
+            Heap,
+            HostResources::try_new().map_err(|e| format!("{e:?}"))?,
+            &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+            teardown,
             report,
-            HostResources::try_new().unwrap(),
-            declared,
         )
     }
-    .expect("hosted");
-    let constructed = hosted.construct_registered(hosted.begin().unwrap());
-    let outcome = constructed
-        .as_ref()
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"));
-    drop(constructed);
-    hosted.stop();
-    hosted.owner().finish().unwrap();
-    outcome
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(kernel)
+}
+
+/// [`install`] and tear the plugin down again: `make` ran in a real
+/// registered scope and its declarations were admitted.
+pub fn try_construct(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+) -> Result<(), String> {
+    install(entry, name, services).map(drop)
 }
