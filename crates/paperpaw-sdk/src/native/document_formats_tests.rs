@@ -22,7 +22,7 @@ fn end(flags: u32, total: u32, generation: u32, next: u32) -> Record<'static> {
 #[test]
 fn format_for_sends_the_root_the_path_and_the_sniff_flag_and_reads_the_format() {
     setup!(table, state, host, docs);
-    let (mut input, mut out) = ([0; 1024], [0; 1536]);
+    let (mut input, mut out) = ([0; 1024], [0; 4096]);
     reply(&state, &[format("format-epub.epub", "epub\nkepub.epub")]);
     let found = docs
         .format_for(
@@ -64,7 +64,7 @@ fn format_for_sends_the_root_the_path_and_the_sniff_flag_and_reads_the_format() 
 #[test]
 fn format_for_refuses_bad_arguments_before_the_host_and_reads_the_hosts_answers() {
     setup!(table, state, host, docs);
-    let (mut input, mut out) = ([0; 1024], [0; 1536]);
+    let (mut input, mut out) = ([0; 1024], [0; 4096]);
     for (root, path) in [
         (Root::Library, ""),
         (Root::Library, &*"p".repeat(513)),

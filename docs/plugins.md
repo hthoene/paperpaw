@@ -2798,7 +2798,7 @@ and when none matches and `sniff` is set, by the file's first 512 bytes. The ans
 manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
 the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
 pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
-`formats`; `out` 1,536 and 4,096.
+`formats`; `out` 4,096 for both.
 
 ### Book fields and badges
 

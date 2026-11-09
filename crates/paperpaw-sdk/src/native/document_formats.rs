@@ -224,7 +224,7 @@ impl Documents {
     /// (the user's choice, else the higher priority), and when no extension matches and
     /// `sniff` is set, by the first 512 bytes of the file offered to the formats
     /// that sniff. `root` is [`Root::Data`] or [`Root::Library`] (the user's
-    /// files, which needs `uses.storage`). `input` is 1,024 bytes; `out` 1,536.
+    /// files, which needs `uses.storage`). `input` is 1,024 bytes; `out` 4,096.
     ///
     /// # Errors
     /// `NotFound` when no format reads the file; Invalid for an empty path or one
