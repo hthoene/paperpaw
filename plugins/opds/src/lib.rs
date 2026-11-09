@@ -48,6 +48,8 @@ pub mod native_plugin;
 #[doc(hidden)]
 pub mod native_search;
 #[doc(hidden)]
+pub mod native_sync;
+#[doc(hidden)]
 pub mod native_web;
 
 #[cfg(feature = "linked")]

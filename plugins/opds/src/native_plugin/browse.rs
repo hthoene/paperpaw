@@ -513,7 +513,7 @@ impl NativeOpds {
     fn other_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         match done.token() {
             web::COVER => self.cover_done(host, done),
-            _ => Ok(()),
+            _ => self.sync_done(host, done),
         }
     }
 
@@ -720,33 +720,5 @@ impl NativeOpds {
         for name in FILES {
             crate::native_files::remove(&files, name);
         }
-    }
-
-    pub(super) fn sync_action(&mut self, _host: &Host<'_>) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub(super) fn work_due(&mut self, _host: &Host<'_>, _key: &str) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub(super) fn sync_running(&self) -> bool {
-        false
-    }
-
-    pub(super) fn sync_row(&mut self, _host: &Host<'_>) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub(super) fn sync_one(&mut self, _host: &Host<'_>, _index: usize) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub(super) fn sync_report_text(
-        &self,
-        _host: &Host<'_>,
-        _say: &mut Messages,
-    ) -> Result<Option<String>, Error> {
-        Ok(None)
     }
 }

@@ -39,11 +39,13 @@ use crate::declarations::{
 use crate::native_catalogs::{self as catalogs, Catalog, Vault};
 use crate::native_files::DataFiles;
 use crate::native_keep::{self as keep, Secret};
+use crate::native_sync::Sync;
 use crate::native_web::Web;
 
 mod browse;
 mod edit;
 mod list;
+mod sync;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/opds_declarations.rs"));
@@ -94,6 +96,7 @@ pub struct NativeOpds {
     library: Option<Library>,
     work: Option<Work>,
     web: Web,
+    sync: Sync,
     /// Whether the services were looked for (one that is not there is not
     /// asked for again).
     opened: bool,
@@ -513,6 +516,7 @@ impl NativeOpds {
 
     /// The plugin stops: what is under way is cancelled and its files go.
     fn stopping(&mut self, host: &Host<'_>) {
+        self.stop_sync(host);
         self.stop_all(host);
     }
 }

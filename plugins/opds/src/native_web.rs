@@ -122,6 +122,11 @@ impl Web {
         self.net.as_ref().ok_or(Error::State)
     }
 
+    /// Whether the device has a network at all (`core.net` opens).
+    pub fn available(&mut self, host: &Host<'_>) -> bool {
+        self.net(host).is_ok()
+    }
+
     /// Sends `call` to `catalog`, with `auth` (the `Authorization` header's
     /// value) where the address is the catalog's own.
     ///

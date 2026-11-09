@@ -13,6 +13,9 @@ use paperpaw_sdk::native::Error;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
+#[cfg(feature = "linked")]
+pub mod services;
+
 /// The data folder in memory.
 #[derive(Debug, Default)]
 pub struct Mem {
