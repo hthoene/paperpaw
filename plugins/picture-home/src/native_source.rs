@@ -220,8 +220,11 @@ impl HostSource {
     /// them: 2 to 6.
     #[must_use]
     pub fn columns(&self) -> u8 {
-        u8::try_from(self.columns.clamp(2, i64::from(paperpaw_sdk::widgets::grid::MAX_COLUMNS)))
-            .unwrap_or(4)
+        u8::try_from(
+            self.columns
+                .clamp(2, i64::from(paperpaw_sdk::widgets::grid::MAX_COLUMNS)),
+        )
+        .unwrap_or(4)
     }
 
     /// A widget measured at the grid's width: its rows and its fewest rows.
@@ -362,7 +365,8 @@ mod tests {
     #[test]
     fn tools_and_texts_are_copied_with_fallible_allocation() {
         let mut src = source();
-        src.texts.push(("picture-home.page-1".into(), "a 0/0 1x1".into()));
+        src.texts
+            .push(("picture-home.page-1".into(), "a 0/0 1x1".into()));
         crate::fail_alloc::sweep(|| {
             assert_eq!(src.text("picture-home.page-1")?, "a 0/0 1x1");
             assert_eq!(src.text("picture-home.page-2")?, "");

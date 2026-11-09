@@ -9,8 +9,8 @@
 use paperpaw_ui_kit::dialog::Dialog;
 
 use super::*;
-use crate::native_stage as stage;
 use crate::native_arrange::{self as arrange, CHOICES, Choice, Dir, Mode, Put};
+use crate::native_stage as stage;
 
 /// The options of the item of a cell: which button has the focus, and the
 /// dialog (made at the first draw: it needs the font).

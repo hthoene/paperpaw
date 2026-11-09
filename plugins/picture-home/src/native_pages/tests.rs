@@ -98,7 +98,8 @@ fn the_first_page_always_shows_the_others_where_they_hold_something() {
 fn expanding_puts_the_tools_in_and_leaves_out_what_the_grid_cannot_use() {
     let mut src = Fake::new(&[]);
     src.missing.push("gone.widget");
-    let page = items("home.tools, core.space, core.fill, gone.widget@2, tool:core.library, own.card");
+    let page =
+        items("home.tools, core.space, core.fill, gone.widget@2, tool:core.library, own.card");
     let shown = expand(&src, &page).unwrap();
     // The tools not on the page otherwise, then what stays.
     assert_eq!(
@@ -129,7 +130,10 @@ fn storing_keeps_what_the_page_hides_and_a_space_for_an_emptied_page() {
     // hidden, so a layout that dropped them drops them.
     assert_eq!(writes[0].text, "a.b 1/0 2x1, gone.widget, core.fill");
     // An emptied first page is empty, any other keeps a space.
-    assert_eq!(store(&src, 0, &[]).unwrap()[0].text, "gone.widget, core.fill");
+    assert_eq!(
+        store(&src, 0, &[]).unwrap()[0].text,
+        "gone.widget, core.fill"
+    );
     let bare = Fake::new(&["a.b", "c.d"]);
     assert_eq!(store(&bare, 0, &[]).unwrap()[0].text, "");
     assert_eq!(store(&bare, 1, &[]).unwrap()[0].text, "core.space");
@@ -199,7 +203,12 @@ fn a_placement_is_its_widget() {
 
 #[test]
 fn refused_allocations_end_in_no_memory_and_recover() {
-    let mut src = Fake::new(&["a.b 0/0 2x1, gone.widget, home.tools", "c.d", "", "core.space"]);
+    let mut src = Fake::new(&[
+        "a.b 0/0 2x1, gone.widget, home.tools",
+        "c.d",
+        "",
+        "core.space",
+    ]);
     src.missing.push("gone.widget");
     let page = items("a.b 0/0 2x1, home.tools, tool:core.library");
     sweep(|| pages(&src).map(|p| p.len()));

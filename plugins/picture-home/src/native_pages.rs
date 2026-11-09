@@ -32,7 +32,12 @@ pub const FILL: &str = "core.fill";
 
 /// What the pages show at first: the clock, the book being read and the recent
 /// ones, then the tools.
-pub const DEFAULTS: [&str; MAX_PAGES] = ["home.clock, home.continue, home.recent", "home.tools", "", ""];
+pub const DEFAULTS: [&str; MAX_PAGES] = [
+    "home.clock, home.continue, home.recent",
+    "home.tools",
+    "",
+    "",
+];
 
 /// What the pages read from the host.
 pub trait Source: Sizes {

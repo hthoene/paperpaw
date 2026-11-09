@@ -9,10 +9,7 @@ use paperpaw_sdk::native::{
     settings::SettingValue,
     ui::Notify,
 };
-use paperpaw_ui_kit::{
-    Messages,
-    mem::buffer,
-};
+use paperpaw_ui_kit::{Messages, mem::buffer};
 
 use crate::native_pages::{self, Write};
 
@@ -30,7 +27,11 @@ pub fn apply(host: &Host<'_>, writes: &[Write], resets: &[String]) -> Result<boo
         say(host, "picture-home.too-big")?;
         return Ok(false);
     }
-    let longest = writes.iter().map(|write| write.text.len()).max().unwrap_or(0);
+    let longest = writes
+        .iter()
+        .map(|write| write.text.len())
+        .max()
+        .unwrap_or(0);
     let mut scratch = buffer(OVERHEAD + longest)?;
     let mut sender = CommandSender::new(host, &mut scratch);
     for write in writes {

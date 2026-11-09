@@ -244,7 +244,15 @@ impl Dashboard {
             editing,
             pencil: pencil_on,
         };
-        let made = Self::fill(host, ui, &src, &frame, &shown, (&footer, buttons), &mut cells);
+        let made = Self::fill(
+            host,
+            ui,
+            &src,
+            &frame,
+            &shown,
+            (&footer, buttons),
+            &mut cells,
+        );
         let targets = match made {
             Ok(made) => made,
             Err(error) => {
@@ -519,12 +527,18 @@ impl Dashboard {
         let mut above = Vec::new();
         for cell in &laid.cells {
             if let Some(plate) = laid.plate {
-                paint::push(&mut below, Paint::Focus(cell.rect, style.corner, None, plate))?;
+                paint::push(
+                    &mut below,
+                    Paint::Focus(cell.rect, style.corner, None, plate),
+                )?;
             }
             if self.editing {
                 // The cells show while editing.
                 let line = Some(u32::from(style.line).max(1));
-                paint::push(&mut below, Paint::Focus(cell.rect, style.corner, line, style.ink))?;
+                paint::push(
+                    &mut below,
+                    Paint::Focus(cell.rect, style.corner, line, style.ink),
+                )?;
             }
             if matches!(cell.what, What::Tool(_)) {
                 name(&mut below, font, &style, cell.rect, &cell.name)?;
@@ -1010,7 +1024,10 @@ mod tests {
         // The gray the setting names is the one the SDK's grid paints.
         let gray = plate_of(&src(crate::settings::PLATES[1]));
         assert!(gray.is_some() && gray != Some(Color::WHITE));
-        assert_eq!(plate_of(&src("#808080")), Some(Color::rgb(0x80, 0x80, 0x80)));
+        assert_eq!(
+            plate_of(&src("#808080")),
+            Some(Color::rgb(0x80, 0x80, 0x80))
+        );
     }
 
     #[test]

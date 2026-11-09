@@ -70,7 +70,9 @@ pub fn frame(m: &Metrics, strip: Option<bool>, columns: u8, rows: i64) -> Frame 
     let area = Rect::new(
         outer - m.gap / 2,
         top,
-        width.saturating_sub(outer.saturating_mul(2)).saturating_add(m.gap),
+        width
+            .saturating_sub(outer.saturating_mul(2))
+            .saturating_add(m.gap),
         bottom.saturating_sub(top),
     );
     let (columns, rows) = if wide {

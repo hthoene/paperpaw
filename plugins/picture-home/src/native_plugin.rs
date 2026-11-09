@@ -463,13 +463,19 @@ mod tests {
             dashboard_asks(pairs(&[("id", "picture-home.page-3")])),
             Ok((false, Some(2)))
         );
-        assert_eq!(dashboard_asks(pairs(&[("mode", "view")])), Ok((false, None)));
+        assert_eq!(
+            dashboard_asks(pairs(&[("mode", "view")])),
+            Ok((false, None))
+        );
         // A setting that is no page's is not a page.
         assert_eq!(
             dashboard_asks(pairs(&[("id", "picture-home.columns")])),
             Ok((false, None))
         );
         assert_eq!(dashboard_asks(pairs(&[])), Ok((false, None)));
-        assert_eq!(dashboard_asks([Err(Error::Busy)].into_iter()), Err(Error::Busy));
+        assert_eq!(
+            dashboard_asks([Err(Error::Busy)].into_iter()),
+            Err(Error::Busy)
+        );
     }
 }
