@@ -144,10 +144,13 @@
     }
   ],
   "services": [
+    "core.net",
     "core.registry",
+    "core.secrets",
     "core.ui"
   ],
   "features": [
+    "uses.network",
     "uses.storage"
   ]
 }

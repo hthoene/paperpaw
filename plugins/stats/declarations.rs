@@ -1,8 +1,8 @@
 //! Stats' declarations as borrowed builders, shared by the build script (which
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl, StageDecl, WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
+    MenuEntryDecl, ScreenDecl, SpecDecl, StageDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -14,10 +14,13 @@ pub const OVERVIEW_TOKEN: u32 = 20;
 pub const BOOKS_TOKEN: u32 = 21;
 pub const BOOK_TOKEN: u32 = 22;
 pub const CALENDAR_TOKEN: u32 = 23;
+pub const SYNC_TOKEN: u32 = 24;
 /// The action that opens the overview.
 pub const OPEN_TOKEN: u32 = 30;
 /// The minute tick, for the widgets that must show a new day.
 pub const TICK_TOKEN: u32 = 2;
+/// The end of a request of the sync.
+pub const HTTP_TOKEN: u32 = 3;
 /// The widgets' tokens.
 pub const TODAY_TOKEN: u32 = 40;
 pub const WEEK_TOKEN: u32 = 41;
@@ -54,6 +57,31 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
         extra.step = step;
         declarations.extra(extra)?;
     }
+    // The WebDAV folder and its user, both set on the sync page (the password
+    // is kept with the other passwords, not here).
+    for (name, title, help, advanced) in [
+        (
+            "webdav-url",
+            "stats.setting.sync",
+            "stats.setting.sync.help",
+            false,
+        ),
+        (
+            "webdav-user",
+            "stats.sync.user",
+            "stats.sync.user.help",
+            true,
+        ),
+    ] {
+        let mut spec = SpecDecl::new(name, Kind::Text(""), GROUP, title);
+        spec.help = help;
+        spec.kept_on_reset = true;
+        spec.advanced = advanced;
+        declarations.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.editor = Some(EditorDecl::Screen("sync"));
+        declarations.extra(extra)?;
+    }
     declarations.submit()
 }
 
@@ -70,6 +98,7 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         "stats.calendar",
         CALENDAR_TOKEN,
     ))?;
+    declarations.screen(ScreenDecl::new("sync", "stats.sync.title", SYNC_TOKEN))?;
     declarations.action(ActionDecl::new("open", "stats.title", OPEN_TOKEN))?;
     for (menu, order) in [("core.tools", 35), ("core.reader-more", 30)] {
         let mut entry = MenuEntryDecl::new(menu, "stats.open");
@@ -99,6 +128,7 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    declarations.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
     declarations.subscribe_event(EventKind::SettingChanged, EVENTS_TOKEN)?;
     declarations.submit()
 }

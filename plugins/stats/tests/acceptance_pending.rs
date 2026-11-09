@@ -29,7 +29,7 @@ fn reading_goal_is_told_todays_seconds() {
 }
 
 #[test]
-#[ignore = "needs core.net (#351), secrets (Services todo 79) and core.files listing (#339)"]
+#[ignore = "needs a host that runs native plugins end to end: the engine (src/native_webdav_tests.rs) and the shell are tested without it, the requests need core.net with a WebDAV server"]
 fn webdav_sync_merges_and_uploads_with_an_etag() {
     unreachable!("download, merge_as, conditional upload, working-file sweep");
 }

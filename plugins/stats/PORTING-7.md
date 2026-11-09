@@ -319,12 +319,46 @@ events) is still in place. It is removed in the PR that finishes the port.
   rule for panels with up to 4 grays is kept), the dots of empty days are small discs the same way.
 - No float `clamp` in the new code (`.min().max()`), as Firmware asked (it drags in panic formatting on the X4).
 
+## Ported: the sync with KOReader's WebDAV folder, the screen and the import
+
+- `src/native_webdav.rs` is the interface-6 `Sync` as a host-free state machine over a `Storage` (the data folder
+  as the data layer names it): `start`, `downloaded`, `uploaded`, `decide` each say the next `Step` (download, upload
+  on a condition, a message, ask the user), every allocation fallible. Same rules as interface 6: a download into
+  `incoming.sqlite3`, the merge (`merge::merge_as`), the upload from `statistics.sqlite3` only if nobody changed the
+  file (`If-Match` with the ETag, weak mark left off, or `If-None-Match: *`; again from the download on a 412, at most
+  three times), what was uploaded kept per folder and user (`statistics.sqlite3.<hash>.sync`, the others forgotten),
+  a file gone from a folder uploaded to is not replaced at once, a file lacking much asks (*Remove* / *Keep*) and the
+  sync starts again with the answer. The messages are `Say`, made into the catalog's words in both languages
+  (`tests/` in `native_webdav_tests.rs` check each key and fill-in). `Both` routes the data folder's paths and the
+  card's (root 1, read only) for the import of KOReader's statistics.
+- `src/native_webdav_net.rs` makes the calls: the requests of `core.net` (a download saved to a file and an upload sent
+  from one, so the statistics' file is never in memory; headers `Authorization`, `User-Agent`, the conditions,
+  `Content-Type`) and the password as the plugin's own secret `webdav` (labelled `stats.secret`; the secret store
+  moves interface 6's `stats.webdav` to it). The password, its buffers and the `Authorization` value are wiped. The
+  request ends with one `http_done` (token 3); the ETag is read with `answer` while it is delivered. A request that
+  cannot be made ends the sync as an unreachable server does (status 0). A password in `webdav.ini` of earlier
+  versions moves into the secrets at the start (best effort).
+- `src/native_sync_screen.rs` and `src/native_sync_shell.rs`: the screen `stats.sync` (token 24) with the rows *Folder*,
+  *User name*, *Password* (dots where one is kept), *Sync now* and *Take over from KOReader* (where its file is on the
+  card), the message below as the list's note; the host's keyboard for the three values (the folder in URL mode, the
+  password masked), the questions *Remove*/*Keep* and, in offline mode, *Go online*/*Not now* once per sync. The
+  overview shows its sync row again. The settings `stats.webdav-url` and `stats.webdav-user` (user advanced, both kept
+  on reset, edited on the sync page) are declared and compared with interface 6 (`tests/widgets_parity.rs`).
+  Metadata names `core.net`, `core.secrets` and `uses.network`.
+- Differences from interface 6, on purpose: the message below the rows is the list's note (as high as its words need),
+  so the row *More about this* (a dialog for a message too long for the room) is gone; offline mode is found by the
+  request ending with reason `offline`, not before it (the offer comes then, once per sync); a request that fails
+  because the heap refuses ends the sync with the event's error and leaves the files as they were.
+- **Fixed on the way:** `NativeStats::event` did not decode the events of screens, actions, requests and answers
+  (`ScreenOpened`, `ScreenShown`, `ScreenClosed`, `ActionRun`, `HttpDone`, `Answered` were not in its `read_event!`
+  list), so a real host's screen events would have been ignored; they are decoded now.
+- Not tested end to end: a sync against a server (the host runs no native plugin with `core.net` here); the engine and
+  the shell's pieces are tested without one, with the refusal of every allocation of the start and the authorization.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The widget *Books this year* (needs the library for books without a finishing date: `uses.library`, the
   metadata of both targets) and the
   status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
-- Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
-  (Services todo 79).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
 - The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.

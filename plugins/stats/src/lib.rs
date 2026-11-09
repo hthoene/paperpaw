@@ -35,6 +35,10 @@ mod native_chart;
 mod native_entry;
 mod native_overview;
 mod native_screens;
+mod native_sync_screen;
+mod native_sync_shell;
+mod native_webdav;
+mod native_webdav_net;
 mod native_widget_calendar;
 mod native_widget_ring;
 mod native_widget_streak;
@@ -74,6 +78,8 @@ mod texts;
 mod totals;
 mod widget;
 
+#[cfg(test)]
+mod native_webdav_tests;
 #[cfg(test)]
 mod screens_tests;
 #[cfg(test)]

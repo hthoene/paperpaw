@@ -20,6 +20,8 @@ use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
+use crate::native_sync_screen::SyncView;
+use crate::native_sync_shell::SyncShell;
 use crate::native_widgets::{Tap, Widgets};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
@@ -56,6 +58,7 @@ enum View {
     Books(BooksView),
     Book(BookView),
     Calendar(CalendarView),
+    Sync(SyncView),
 }
 
 /// Stats' interface-7 entry state.
@@ -67,6 +70,8 @@ pub struct NativeStats {
     screens: Screens<View>,
     /// The widgets screens show.
     widgets: Widgets,
+    /// The sync with the WebDAV folder.
+    sync: SyncShell,
 }
 
 impl core::fmt::Debug for NativeStats {
@@ -103,7 +108,7 @@ impl Plugin for NativeStats {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::Answered)
         else {
             return Ok(());
         };
@@ -124,6 +129,10 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         match event {
+            Event::HttpDone(_) if token == crate::declarations::HTTP_TOKEN => {
+                return self.sync_event(host, &event);
+            }
+            Event::Answered { .. } => return self.sync_event(host, &event),
             Event::ActionRun {
                 action: "stats.open",
                 ..
@@ -148,7 +157,10 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         let told = match event {
-            Event::Started { now_ms } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
+            Event::Started { now_ms } => {
+                self.sync.started(host);
+                with_cx(host, now_ms, |cx| self.recorder.started(cx))
+            }
             Event::Resume { now_ms } => {
                 with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
                 return Ok(());
@@ -204,6 +216,7 @@ impl Plugin for NativeStats {
             View::Books(view) => view.draw(host, &mut frame),
             View::Book(view) => view.draw(host, &mut frame),
             View::Calendar(view) => view.draw(host, &mut frame),
+            View::Sync(view) => view.draw(host, &mut frame),
         }
     }
 
@@ -235,6 +248,14 @@ impl Plugin for NativeStats {
             }
             View::Book(view) => view.input(host, &input),
             View::Calendar(view) => view.input(host, &input),
+            View::Sync(view) => {
+                let (handled, row) = view.input(host, &input)?;
+                if let Some(row) = row {
+                    let ui = self.ui.as_ref().ok_or(Error::State)?;
+                    self.sync.activate(host, ui, view, row)?;
+                }
+                Ok(handled)
+            }
         }
     }
 }
@@ -280,6 +301,21 @@ impl NativeStats {
 }
 
 impl NativeStats {
+    /// Hands a net or answer event to the WebDAV sync with its screen.
+    fn sync_event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
+        self.ui(host)?;
+        let view = match self.screens.top(crate::declarations::SYNC_TOKEN) {
+            Some(View::Sync(view)) => Some(view),
+            _ => None,
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        match event {
+            Event::HttpDone(done) => self.sync.http_done(host, ui, view, done),
+            Event::Answered { answer, .. } => self.sync.answered(host, ui, view, answer),
+            _ => Ok(()),
+        }
+    }
+
     fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
@@ -326,6 +362,7 @@ impl NativeStats {
             }
             "stats.calendar" => View::Calendar(CalendarView::new(host, &data, today_of(host)?)?),
             "stats.books" => View::Books(BooksView::new(host, &data)?),
+            "stats.sync" => View::Sync(self.sync.view(host)?),
             "stats.book" => {
                 let id = match handover {
                     Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,

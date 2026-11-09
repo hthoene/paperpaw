@@ -116,3 +116,20 @@ fn the_daily_goal_is_the_interface_6_setting() {
         format!("choice stats.goal.off {:?}", declarations::GOALS)
     );
 }
+
+/// The two settings of the sync with the WebDAV folder are the interface-6
+/// settings (the folder, and the user, which is advanced): the native
+/// declarations name them with the same texts, defaults and flags.
+#[test]
+fn the_sync_settings_are_the_interface_6_settings() {
+    let old = old("stats.webdav-");
+    let ids: Vec<&str> = old.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, ["stats.webdav-url", "stats.webdav-user"]);
+    assert_eq!(old[0].title, "stats.setting.sync");
+    assert_eq!(old[0].help.as_deref(), Some("stats.setting.sync.help"));
+    assert_eq!(old[1].title, "stats.sync.user");
+    assert_eq!(old[1].help.as_deref(), Some("stats.sync.user.help"));
+    for shape in &old {
+        assert_eq!(shape.kind, "text \"\"");
+    }
+}
