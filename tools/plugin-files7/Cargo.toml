@@ -205,6 +205,8 @@ bench = false
 [[bin]]
 name = "update"
 path = "src/bin/update.rs"
+name = "transfer"
+path = "src/bin/transfer.rs"
 test = false
 bench = false
 
@@ -242,6 +244,7 @@ paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entr
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
 paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
+paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]
