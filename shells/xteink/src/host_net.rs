@@ -55,7 +55,6 @@ const HANDSHAKE_MS: u32 = 30_000;
 const BROADCAST_MS: u32 = 11_000;
 
 /// What one step of the sockets came to, before it is reported.
-#[derive(Debug)]
 enum Out {
     /// A socket's event.
     Socket(SocketEvent),
@@ -423,7 +422,7 @@ impl Bridge {
     fn log_counts(&self) {
         let (reports, idle) = match self.inner.try_borrow() {
             Ok(inner) => (
-                inner.reports.as_ref().map(|w| w.sockets.clone()),
+                inner.reports.as_ref().and_then(|w| w.sockets.clone()),
                 !inner.sockets.any() && inner.calls.is_empty(),
             ),
             Err(_) => return,
