@@ -53,3 +53,18 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
 
 None in behaviour. `state.ini` and its form are unchanged (version 1 files are read; the path is
 relative to the data folder).
+
+## The notes stage (todo 1937)
+
+- `reader.notes-exported@1` replaces the event `core.notes-exported` (`core-events.md` 5): schema
+  `stages/reader.notes-exported@1.def` (input `notes.exported`: `root` u32, `path` str 512, `title`
+  str 256; reply one `notes.done` with an optional u32 `status`, 0 taken, which the reader ignores;
+  at most 8 subscribers), codec `src/stages.rs` by `tools/stage-codec.py` (CI checks it is fresh),
+  declaration `declarations::stages` (host admission and bounds tested in `tests/abi7_declarations.rs`).
+- `src/native_notes.rs`: `input` (a title over 256 bytes is cut at a character, a path over 512 is
+  refused, never cut), `run` (every subscriber once, answers and refusals not read) and `after_write`
+  (the stage runs after a successful write only; a failed run changes nothing), tested host-free.
+- The interface-6 `annotations.rs` still emits `core.notes-exported` (it has no stage host): the
+  native annotations screen calls `native_notes::run(host, ROOT_FILES, path, title)` after its
+  write, and the event goes with the interface-6 code at activation. readwise and joplin (Port E)
+  subscribe to the stage. The metadata of the reader is unchanged.
