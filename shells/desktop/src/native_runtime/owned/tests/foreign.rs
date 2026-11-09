@@ -209,7 +209,7 @@ fn h2_ignored_decode_unsupported_and_capacity_refusals_never_publish() {
         event_tag: EVENT_TICK_TAG + 1,
         token: TOKEN,
     }]);
-    let capacity = records_bytes(&[Registration::Draw { token: TOKEN }; 7]);
+    let capacity = records_bytes(&[Registration::Draw { token: TOKEN }; 8]);
     for (invalid, expected) in [
         (malformed, native_host::Error::Invalid),
         (unsupported, native_host::Error::Invalid),
