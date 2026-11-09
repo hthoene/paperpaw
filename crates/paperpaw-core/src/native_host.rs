@@ -113,6 +113,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
@@ -153,7 +154,6 @@ pub(crate) mod image_service;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
-pub(crate) mod busy_adapters;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;

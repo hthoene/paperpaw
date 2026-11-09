@@ -837,11 +837,21 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
     let card = Rc::new(paperpaw_sdk::MemoryStorage::new());
     card.write("Books/a.epub", b"x").unwrap();
     // Until both owners have registered, core.files is refused.
-    assert!(resources.wire(HostWiring::new().files(card.clone())).is_err());
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
     let w = Rc::new(world(3));
     let moves = Rc::new(Moves::default());
-    hosts.register_library_moves(moves.clone(), w.clone()).unwrap();
-    assert!(resources.wire(HostWiring::new().files(card.clone())).is_err());
+    hosts
+        .register_library_moves(moves.clone(), w.clone())
+        .unwrap();
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
     hosts.register_reader_book_source().unwrap();
     hosts.register_reader_book_source().unwrap();
     resources.wire(HostWiring::new().files(card)).unwrap();
@@ -868,5 +878,8 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
     hosts.in_use().claim(7, "Books/a.epub").unwrap();
     hosts.reader_book_opened("Books/a.epub").unwrap();
     hosts.reader_book_closed("Books/a.epub");
-    assert!(files.busy("Books/a.epub", Access::Remove), "the plugin's claim stays");
+    assert!(
+        files.busy("Books/a.epub", Access::Remove),
+        "the plugin's claim stays"
+    );
 }

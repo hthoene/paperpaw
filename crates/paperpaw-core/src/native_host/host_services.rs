@@ -426,7 +426,8 @@ impl HostServices {
     /// `ERR_NO_MEMORY`; `ERR_BUSY` when the table is borrowed.
     #[allow(dead_code, reason = "the kernel's reader tracking calls it (todo)")]
     pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
-        self.in_use().claim(super::busy_adapters::READER_OWNER, path)
+        self.in_use()
+            .claim(super::busy_adapters::READER_OWNER, path)
     }
 
     /// The reader closed the book at `path` (it opened another, or left).
