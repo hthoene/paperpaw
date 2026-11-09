@@ -115,10 +115,19 @@ impl Kernel {
             return self.recognized(recognized);
         };
         match self.native_gesture(self.now, &gesture) {
-            // A replace that made a key or a finger is not a gesture: the
-            // original goes on (the count of refusals told it).
+            // A replace that made a key or a finger is refused (counted by the
+            // chain) and passes the original; `Replaced` does not come here.
             Native::Pass | Native::Replaced(_) => self.recognized(recognized),
-            Native::Gesture(made) => self.recognized(input::Recognized::Gesture(made)),
+            Native::Gesture(made) => {
+                // As a touch does (see `native_filtered`): the part it is in
+                // and the screen a long press of it belongs to.
+                self.pane_touched(made.start);
+                self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
+                self.recognized(input::Recognized::Gesture(made));
+            }
+            // Taken or cancelled, a recognized gesture is only dropped: the
+            // finger's input was recognized (and passed) already, so unlike a
+            // cancelled key or pointer there is nothing more of it to drop.
             Native::Taken | Native::Cancelled => {}
             Native::Run(action) => {
                 if let Ok(action) = Id::parse(&action) {

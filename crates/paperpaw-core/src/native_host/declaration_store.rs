@@ -643,8 +643,9 @@ impl DeclarationStore {
     /// A number that differs after every change to what the store declares:
     /// an owner added or replaced, or taken out. What was read from the store
     /// is good while it stays the same (an owner that stops without being
-    /// taken out is not seen here: the reader drops what it kept when a call
-    /// to it fails).
+    /// taken out is not seen here). The input filter list leaves a filter out
+    /// whose calls failed three inputs in a row and keeps that until this
+    /// number changes (`input_chain::FilterCache`).
     pub(crate) fn revision(&self) -> u64 {
         u64::from(self.incarnation) << 32 | u64::from(self.removed)
     }

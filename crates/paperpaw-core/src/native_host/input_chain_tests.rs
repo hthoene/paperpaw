@@ -5,7 +5,7 @@
 use super::*;
 use crate::native_host::codec;
 use alloc::vec;
-use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::{Direction, Gesture, GestureKind};
 
 fn all(_: u64) -> bool {
@@ -233,6 +233,52 @@ fn a_filter_replaces_a_key_with_a_known_one_and_an_unknown_one_passes() {
         run(press("up"), vec![replace(buttons::POWER)]),
         (Native::Pass, 1, 1)
     );
+}
+
+#[test]
+fn a_gesture_replaced_by_a_key_or_a_finger_is_refused_and_counted() {
+    let gesture = Record::InputGesture(wire::InputGesture {
+        now_ms: 5,
+        kind: 0,
+        x: 10,
+        y: 20,
+    });
+    let key = Record::InputKey(wire::InputKey {
+        now_ms: 5,
+        key: "down",
+        state: 0,
+    });
+    let finger_down = Record::InputPointer(wire::InputPointer {
+        now_ms: 5,
+        x: 10,
+        y: 20,
+        phase: 0,
+        contact: Some(1),
+    });
+    for made in [&key, &finger_down] {
+        let mut chain = InputFilters::new();
+        let mut runner = Scripted {
+            answers: vec![Ok(stage::FilterVerdict::new(4, "", batch(made), ""))],
+            called: 0,
+        };
+        let policy = Policy {
+            touch: true,
+            secret: false,
+            runs: &all,
+            declared: &none,
+        };
+        let original = finger(PointerPhase::Up, 10, 20);
+        let (native, refused) = run_record(
+            &mut chain,
+            &mut runner,
+            &[filter(1)],
+            &policy,
+            &gesture,
+            &original,
+            (5, DISPLAY, &KEYS),
+        );
+        assert_eq!((native, refused), (Native::Pass, 1));
+    }
 }
 
 #[test]
@@ -923,4 +969,30 @@ mod kernel {
         }
         assert_eq!(calls.get(), 6);
     }
+}
+
+#[test]
+fn a_host_refusal_for_now_does_not_count_against_the_filter() {
+    let given_up = |status: i32| {
+        let mut cache = FilterCache::new(0, vec![filter(1)]).unwrap();
+        for _ in 0..5 {
+            let mut runner = Watching {
+                inner: Scripted {
+                    answers: vec![Err(status)],
+                    called: 0,
+                },
+                failed: [(0, 0); crate::native_host::ui_input::MAX_FILTERS],
+                count: 0,
+            };
+            let _ = runner.call(&filter(1), &[], &mut [0; 64]);
+            let failed = runner.failed.get(..runner.count).unwrap().to_vec();
+            cache.settle(&failed);
+        }
+        cache.filters.is_empty()
+    };
+    // Busy or out of memory for now: kept, however often.
+    assert!(!given_up(ERR_BUSY));
+    assert!(!given_up(ERR_NO_MEMORY));
+    // A failure of the plugin's own: left out after three inputs.
+    assert!(given_up(ERR_STATE));
 }

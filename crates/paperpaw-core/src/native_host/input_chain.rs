@@ -23,7 +23,7 @@ use super::{
     ui_input::{BrokerRunner, Dispatched, FilterRunner, InputFilters, Policy, Routed, schema},
 };
 use alloc::{string::String, vec::Vec};
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::{
     ButtonState, InputEvent, Point, PointerEvent, PointerPhase, PointerTool, buttons,
 };
@@ -225,7 +225,10 @@ pub(crate) struct FilterCache {
 
 /// A filter whose call failed this many inputs in a row is left out of the
 /// list (until the declarations change), so that one that keeps failing costs
-/// no call, no list read and no warning at every key.
+/// no call, no list read and no warning at every key. Only a failure the
+/// plugin caused counts (a trap, a stopped plugin, a refused or bad reply): a
+/// transient host refusal (`ERR_BUSY`, `ERR_NO_MEMORY`) does not, or three
+/// keys under memory pressure would switch a filter off until the next start.
 const GIVE_UP: u8 = 3;
 
 impl FilterCache {
@@ -282,7 +285,9 @@ impl<R: FilterRunner> FilterRunner for Watching<R> {
         reply: &mut [u8],
     ) -> Result<usize, i32> {
         let answer = self.inner.call(filter, payload, reply);
-        if answer.is_err()
+        if let Err(error) = answer
+            && error != ERR_BUSY
+            && error != ERR_NO_MEMORY
             && let Some(slot) = self.failed.get_mut(self.count)
         {
             *slot = (filter.plugin, filter.token);
@@ -369,14 +374,14 @@ pub(crate) fn run_record(
     runner: &mut dyn FilterRunner,
     filters: &[Subscription<'_>],
     policy: &Policy<'_>,
-    record: &Record<'_>,
+    input: &Record<'_>,
     event: &InputEvent,
     (_, display, device_keys): (u64, (u16, u16), &[&'static str]),
 ) -> (Native, usize) {
     let Ok(Dispatched {
         routed,
         mut refused,
-    }) = chain.dispatch(runner, filters, policy, record)
+    }) = chain.dispatch(runner, filters, policy, input)
     else {
         return (Native::Pass, 0);
     };
@@ -385,7 +390,14 @@ pub(crate) fn run_record(
         Routed::Replaced(next) => match next.record().ok().and_then(|record| {
             gesture_of(&record, event, display)
                 .map(Native::Gesture)
-                .or_else(|| event_of(&record, event, display, device_keys).map(Native::Replaced))
+                // A gesture is replaced by a gesture only: a key or a finger
+                // made from it is refused (the original goes on).
+                .or_else(|| {
+                    if matches!(input, Record::InputGesture(_)) {
+                        return None;
+                    }
+                    event_of(&record, event, display, device_keys).map(Native::Replaced)
+                })
         }) {
             Some(native) => native,
             None => {
