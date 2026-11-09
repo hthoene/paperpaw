@@ -90,6 +90,24 @@ pub trait CodeLoader {
         code: &CodeFile<'_>,
     ) -> Result<Box<dyn Plugin>, PluginProblem>;
 
+    /// Whether the code of `code.id` is an interface-7 native plugin, and if
+    /// so, hosted and ready to be admitted ([`NativeAdmission`]). Asked before
+    /// [`load`](Self::load), once per plugin: `Ok(None)` is "not one of
+    /// mine, load it as before", an error is why it cannot run (as for
+    /// `load`). The code runs nothing of the plugin's before the kernel
+    /// admits it: the kernel registers its declarations (screens, settings,
+    /// actions, …) with the callbacks it committed, all or none.
+    ///
+    /// # Errors
+    /// Why the code is refused, as [`load`](Self::load).
+    fn load_native(
+        &mut self,
+        _storage: &dyn Storage,
+        _code: &CodeFile<'_>,
+    ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
+        Ok(None)
+    }
+
     /// Every code plugin of this start is loaded (in safe mode, none
     /// was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
@@ -109,6 +127,21 @@ pub trait CodeLoader {
     ) -> Option<crate::native_host::HyphenTables> {
         None
     }
+}
+
+/// A hosted native plugin the shell hands the kernel to admit
+/// ([`CodeLoader::load_native`]): the shell's own host type stays inside it
+/// (`Kernel::register_native_in` is generic over it).
+pub trait NativeAdmission {
+    /// Admits the plugin with the kernel, once and before the first frame.
+    /// `folder` is the plugin's folder on the storage, which the font and
+    /// hyphenation files its declarations name are relative to. All or
+    /// nothing: on an error nothing of the plugin is registered and the
+    /// hosted plugin is destroyed.
+    ///
+    /// # Errors
+    /// Why the plugin was refused, as a code plugin's problem.
+    fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem>;
 }
 
 /// A code plugin's file to load ([`CodeLoader::load`]).
@@ -236,6 +269,19 @@ impl Kernel {
                 sha256,
                 host: &host,
             };
+            match loader.load_native(storage.as_ref(), &file) {
+                Ok(None) => {}
+                Ok(Some(admission)) => {
+                    self.add_native_plugin(&plugin, disabled, admission);
+                    continue;
+                }
+                Err(problem) => {
+                    let message = format!("{path}: not loaded ({problem:?})");
+                    self.warn(WarningSource::Plugin(id.clone()), None, message);
+                    self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
+                    continue;
+                }
+            }
             let loaded = loader.load(storage.as_ref(), &file).and_then(|code| {
                 if code.manifest().id == id {
                     Ok(code)
@@ -272,6 +318,38 @@ impl Kernel {
         loader.finish(storage.as_ref());
         self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
+    }
+
+    /// A native plugin the shell hosted: admitted through the kernel before
+    /// anything is registered of its folder's data, so a refusal leaves
+    /// nothing of it behind (it is listed as failed, with why). Its code runs
+    /// as the owner `plugin`'s id names.
+    fn add_native_plugin(
+        &mut self,
+        plugin: &DataPlugin,
+        disabled: &[String],
+        admission: Box<dyn NativeAdmission>,
+    ) {
+        let manifest = plugin.manifest();
+        let id = manifest.id.clone();
+        let taken = self.shared.plugins.get(id.as_str()).is_some()
+            || crate::plugins::RESERVED_IDS.contains(&id.as_str());
+        let admitted = if taken {
+            Err(PluginProblem::Mismatch)
+        } else {
+            admission.admit(self, plugin.folder())
+        };
+        match admitted {
+            Ok(()) => {
+                self.register_plugin(plugin, manifest);
+                self.set_code_info(&id, None);
+            }
+            Err(problem) => {
+                let message = format!("{}: not loaded ({problem:?})", plugin.folder());
+                self.warn(WarningSource::Plugin(id), None, message);
+                self.list_code_plugin(plugin, disabled, PluginState::Failed, problem);
+            }
+        }
     }
 
     /// A code plugin installed while PaperPaw runs (`Command::LoadPlugin`):
@@ -393,6 +471,23 @@ mod tests {
         ids: Rc<RefCell<Vec<String>>>,
         finished: Rc<RefCell<bool>>,
         answers: Vec<(&'static str, Result<&'static str, PluginProblem>)>,
+        /// The paths of native libraries, and how their admission goes.
+        natives: Vec<(&'static str, Result<(), PluginProblem>)>,
+        /// The folders the kernel admitted.
+        admitted: Rc<RefCell<Vec<String>>>,
+    }
+
+    /// A hosted native plugin: admitting it notes its folder.
+    struct Admit {
+        result: Result<(), PluginProblem>,
+        admitted: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl NativeAdmission for Admit {
+        fn admit(self: Box<Self>, _: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
+            self.admitted.borrow_mut().push(String::from(folder));
+            self.result
+        }
     }
 
     impl CodeLoader for Loader {
@@ -417,6 +512,23 @@ mod tests {
                 Some(Err(problem)) => Err(problem),
                 None => Err(PluginProblem::Damaged),
             }
+        }
+
+        fn load_native(
+            &mut self,
+            _: &dyn Storage,
+            code: &CodeFile<'_>,
+        ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
+            Ok(self
+                .natives
+                .iter()
+                .find(|(path, _)| *path == code.path)
+                .map(|(_, result)| {
+                    Box::new(Admit {
+                        result: *result,
+                        admitted: self.admitted.clone(),
+                    }) as Box<dyn NativeAdmission>
+                }))
         }
 
         fn finish(&mut self, _: &dyn Storage) {
@@ -511,6 +623,44 @@ mod tests {
         );
         let native = kernel.shared.native.as_ref().unwrap();
         assert_eq!(native.safe_mode, None);
+    }
+
+    /// A native library is admitted by the kernel once, before the plugin is
+    /// registered, and never loaded the other way; a refusal lists the plugin
+    /// as failed with why, and the others still load.
+    #[test]
+    fn a_native_library_is_admitted_once_and_a_refusal_is_listed() {
+        let loader = Loader {
+            natives: alloc::vec![("plugins/hello/code.ppn", Ok(()))],
+            ..loader()
+        };
+        let first = kernel(&loader, "", None);
+        assert_eq!(*loader.admitted.borrow(), ["plugins/hello"]);
+        assert_eq!(*loader.asked.borrow(), ["plugins/zeta/code.ppn"]);
+        let hello = info(&first, "hello");
+        assert_eq!(
+            (hello.state, hello.kind, hello.problem),
+            (PluginState::Running, PluginKind::Code, None)
+        );
+        assert_eq!(first.translator().get("hello.greeting"), Some("Hi"));
+        assert_eq!(info(&first, "zeta").problem, None, "the other loads");
+
+        let refused = Loader {
+            natives: alloc::vec![("plugins/hello/code.ppn", Err(PluginProblem::NoRoom))],
+            ..self::loader()
+        };
+        let second = kernel(&refused, "", None);
+        assert_eq!(*refused.admitted.borrow(), ["plugins/hello"]);
+        let hello = info(&second, "hello");
+        assert_eq!(
+            (hello.state, hello.kind, hello.problem),
+            (
+                PluginState::Failed,
+                PluginKind::Code,
+                Some(PluginProblem::NoRoom)
+            )
+        );
+        assert_eq!(info(&second, "zeta").state, PluginState::Running);
     }
 
     #[test]

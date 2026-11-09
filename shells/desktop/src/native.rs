@@ -123,9 +123,9 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 
 /// Loads code plugins built for this computer.
 ///
-/// An interface-7 library (only with the developer switch on) is loaded as a
-/// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
-/// pinned owner; every such plugin of this loader shares one
+/// An interface-7 library (only with the developer switch on) is hosted over
+/// its pinned owner and admitted by the kernel
+/// ([`CodeLoader::load_native`]); every such plugin of this loader shares one
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug)]
 pub struct HostLoader {
@@ -179,10 +179,32 @@ impl CodeLoader for HostLoader {
         // runs from), never on the heap a plugin's budget counts.
         crate::budget::untracked(|| {
             let bytes = read_installed(storage, &installed)?;
+            // An interface-7 library is the kernel's to admit
+            // ([`Self::load_native`]), never an interface-6 plugin.
             if dev_switch() && is_interface7(&bytes) {
-                return self.flat(&bytes, code);
+                return Err(PluginProblem::Unsupported);
             }
             load_bytes(&bytes, &installed)
+        })
+    }
+
+    /// An interface-7 library (only with the developer switch on) is hosted
+    /// for the kernel to admit with everything it declares.
+    fn load_native(
+        &mut self,
+        storage: &dyn Storage,
+        code: &CodeFile<'_>,
+    ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
+        let installed = Installed::of(code);
+        crate::budget::untracked(|| {
+            if !dev_switch() {
+                return Ok(None);
+            }
+            let bytes = read_installed(storage, &installed)?;
+            if !is_interface7(&bytes) {
+                return Ok(None);
+            }
+            self.native(&bytes, code).map(Some)
         })
     }
 
@@ -223,17 +245,18 @@ impl CodeLoader for HostLoader {
 }
 
 impl HostLoader {
-    /// The interface-7 library `bytes` of `code`, as a flat plugin over the
-    /// kernel's adapter: nothing of it runs but `make`, and what it declared
-    /// is applied or the plugin is refused here, never loaded without it.
+    /// The interface-7 library `bytes` of `code`, checked and hosted for the
+    /// kernel to admit: nothing of it runs but what the kernel's admission
+    /// calls (`make`), and what it declared is registered with it or the
+    /// plugin is refused, never loaded without it.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn flat(
+    fn native(
         &mut self,
         bytes: &[u8],
         code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+    ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         use crate::native_runtime::Refusal;
-        use paperpaw_core::native_host::flat::{FlatDepth, FlatError, FlatPlugin};
+        use paperpaw_core::native_host::flat::FlatDepth;
         let id = code.id.as_str();
         if self.depth.is_none() {
             self.depth = Some(FlatDepth::try_new().map_err(|_| PluginProblem::NoRoom)?);
@@ -251,41 +274,21 @@ impl HostLoader {
             .as_ref()
             .and_then(paperpaw_core::native_host::HostResources::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
-        let instance = crate::native_runtime::load_flat_with_resources(id, bytes, resources)
-            .map_err(|why| {
-                eprintln!("code plugin {id}: {why}");
-                match why {
-                    Refusal::Declared(_) => PluginProblem::Unsupported,
-                    _ => PluginProblem::Damaged,
-                }
-            })?;
-        // The folder's data names and versions it (`plugin.ini`); this is the
-        // code's own, which the kernel replaces by that version.
-        let manifest =
-            FlatPlugin::try_manifest(code.id, id, paperpaw_core::sdk::Version::new(0, 0, 0))
-                .map_err(|_| PluginProblem::NoRoom)?;
-        let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(|why| {
+        crate::native_runtime::admission(id, bytes, resources, depth).map_err(|why| {
             eprintln!("code plugin {id}: {why}");
             match why {
-                FlatError::Allocation => PluginProblem::NoRoom,
-                _ => PluginProblem::Unsupported,
+                Refusal::Allocation => PluginProblem::NoRoom,
+                _ => PluginProblem::Damaged,
             }
-        })?;
-        let layout = Layout::new::<FlatPlugin>();
-        // SAFETY: nonzero exact layout, null is checked before initialization.
-        let allocation = unsafe { std::alloc::alloc(layout) }.cast::<FlatPlugin>();
-        if allocation.is_null() {
-            return Err(PluginProblem::NoRoom);
-        }
-        // SAFETY: uniquely owned, initialized Box storage of the exact layout.
-        Ok(unsafe {
-            allocation.write(plugin);
-            Box::from_raw(allocation)
         })
     }
 
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    fn flat(&self, _: &[u8], _: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+    fn native(
+        &mut self,
+        _: &[u8],
+        _: &CodeFile<'_>,
+    ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         Err(PluginProblem::Unsupported)
     }
 }
