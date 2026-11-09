@@ -211,8 +211,16 @@ bench = false
 [[bin]]
 name = "update"
 path = "src/bin/update.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "transfer"
 path = "src/bin/transfer.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "sleep"
 path = "src/bin/sleep.rs"
 test = false

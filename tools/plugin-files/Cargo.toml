@@ -41,14 +41,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "koreader"
-path = "src/bin/koreader.rs"
-name = "kosync"
-path = "src/bin/kosync.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "news"
 path = "src/bin/news.rs"
 test = false
@@ -97,20 +89,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "reading-goal"
-path = "src/bin/reading-goal.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "stats"
-path = "src/bin/stats.rs"
-name = "translate"
-path = "src/bin/translate.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "vocabulary"
 path = "src/bin/vocabulary.rs"
 test = false
@@ -139,14 +117,10 @@ paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
-paperpaw-plugin-koreader = { path = "../../plugins/koreader" }
-paperpaw-plugin-kosync = { path = "../../plugins/kosync" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
-paperpaw-plugin-stats = { path = "../../plugins/stats" }
-paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }

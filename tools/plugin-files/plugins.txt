@@ -16,10 +16,8 @@ format-docx reading
 format-images reading
 # joplin notes  (no file until the store build moves to interface 7, #228)
 # keys system  (no file until the store build moves to interface 7, #228)
-koreader sync
 # kosync sync  (no file until the store build moves to interface 7, #228)
 # koreader sync  (no file until the store build moves to interface 7, #228)
-kosync sync
 mail news
 # menu-editor look  (no file until the store build moves to interface 7, #228)
 news news
