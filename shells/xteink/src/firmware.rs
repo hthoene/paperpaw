@@ -191,10 +191,10 @@ impl Firmware {
         // Here, on the kernel in its place: a local in `kernel()` or `start()`
         // would copy it (+4 KB on the frame).
         #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-        if core::hint::black_box(false) {
-            if let Some(table) = &self.device_table {
-                crate::native::register_linked_probe(&mut self.kernel, table);
-            }
+        if core::hint::black_box(false)
+            && let Some(table) = &self.device_table
+        {
+            crate::native::register_linked_probe(&mut self.kernel, table);
         }
         let effects = self.kernel.start(now());
         self.apply(effects);

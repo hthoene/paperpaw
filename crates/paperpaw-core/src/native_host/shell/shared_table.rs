@@ -14,7 +14,7 @@ impl<S: Services> SharedTable<S> {
 }
 
 /// The table every plugin hosted with `S` is handed, as the loader hands it
-/// ([`SharedTable`]). A shell that exposes the same table under a name of its
+/// (`SharedTable`). A shell that exposes the same table under a name of its
 /// own (a static for a code scan) can check at start that it is this table:
 /// see [`same_table`].
 #[must_use]
@@ -28,7 +28,7 @@ pub fn handed_table<S: Services>() -> &'static PpHost {
 #[must_use]
 pub fn same_table(a: &PpHost, b: &PpHost) -> bool {
     const WORD: usize = core::mem::size_of::<usize>();
-    const _: () = assert!(core::mem::size_of::<PpHost>() % WORD == 0);
+    const _: () = assert!(core::mem::size_of::<PpHost>().is_multiple_of(WORD));
     let words = core::mem::size_of::<PpHost>() / WORD;
     let (a, b) = (
         core::ptr::from_ref(a).cast::<usize>(),

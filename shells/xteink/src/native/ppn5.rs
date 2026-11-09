@@ -366,7 +366,7 @@ mod x4 {
     /// than the one a plugin calls through; checked before the first file is
     /// placed, a few words compared.
     #[cfg(feature = "esp32s3")]
-    pub(super) fn scanned_table_is_handed() -> bool {
+    pub(in crate::native) fn scanned_table_is_handed() -> bool {
         shell::same_table(
             &PAPERPAW_HOST_TABLE_ANCHOR,
             shell::handed_table::<X4Services>(),
