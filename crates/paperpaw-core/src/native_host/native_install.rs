@@ -10,7 +10,9 @@ use super::{
     shell,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
+use paperpaw_native::host_glue::{
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services,
+};
 use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
@@ -690,6 +692,11 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
 ) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
+    // The host's own id is reserved: no plugin's action passes for a host
+    // one (ui.md 4.3).
+    if view.plugin == crate::RESERVED_PLUGIN_ID {
+        return Err(ERR_DENIED);
+    }
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
