@@ -178,9 +178,10 @@ def _fields(record):
         secret = 'secret' in field
         _require(not secret or (field['secret'] is True and items is None
                                 and (kind == 'str' and is_growth_command(record)
+                                     or kind == 'str' and name.startswith('event.')
                                      or kind in ('str', 'bytes') and name.startswith('service.'))),
-                 f'{name}.{label}: secret must be true, on a str field of a command or a '
-                 'str or bytes field of a service record, not a list')
+                 f'{name}.{label}: secret must be true, on a str field of a command or an '
+                 'event, or a str or bytes field of a service record, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
                         secret=secret,
                         since=field['since'],

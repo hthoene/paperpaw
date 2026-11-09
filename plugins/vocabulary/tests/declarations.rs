@@ -66,7 +66,35 @@ fn the_settings_and_the_start_are_declared() {
     for batch in batches(|sink| declarations::events(sink)) {
         count += records_decode(&batch).unwrap().len();
     }
-    assert_eq!(count, 1, "the start");
+    assert_eq!(count, 2, "the start and the minute tick");
+}
+
+#[test]
+fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
+    let all = records(|sink| declarations::ui(sink));
+    for needle in [
+        "\"cards\"",
+        "\"review\"",
+        "vocabulary.cards.title",
+        "vocabulary.review.title",
+        "\"flash-cards\"",
+        "core.tools",
+        "vocabulary.flash-cards",
+        "stack-2",
+    ] {
+        assert!(all.contains(needle), "{needle} is declared: {all}");
+    }
+    // Nothing is offered that ends in a refusal: the words' screen, the phone,
+    // the SD card, the sleep card and the widget are declared with their ports.
+    for absent in [
+        "vocabulary.open",
+        "phone",
+        "sd-menu",
+        "sleep-card",
+        "widget",
+    ] {
+        assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
+    }
 }
 
 /// Every record is well formed for the host and admitted (`native_host/declarations.rs`: checked, then
@@ -76,9 +104,10 @@ fn the_settings_and_the_start_are_declared() {
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 2] = [
+    let builders: [(&str, Build); 3] = [
         ("settings", |sink| declarations::settings(sink)),
         ("events", |sink| declarations::events(sink)),
+        ("ui", |sink| declarations::ui(sink)),
     ];
     let mut waiting = Vec::new();
     for (name, build) in builders {

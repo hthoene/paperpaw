@@ -5,9 +5,9 @@
 
 use alloc::vec::Vec;
 
-use paperpaw_sdk::document::MAX_INLINE_LANGS;
+use paperpaw_sdk::document::{DocumentError, MAX_INLINE_LANGS};
 use paperpaw_sdk::lang::{Direction, Lang};
-use paperpaw_sdk::xml::{Attrs, decode, local_name};
+use paperpaw_sdk::xml::{Attrs, local_name, try_decode};
 
 use super::{Converter, MAX_MARGIN};
 
@@ -42,34 +42,37 @@ pub(crate) fn is_rtl_language(lang: Lang) -> bool {
 
 /// The direction an element sets: its `dir` attribute, else its CSS
 /// `direction` (`css`).
-pub(crate) fn own_dir(attrs: &Attrs<'_>, css: Option<Direction>) -> Option<Direction> {
-    attrs
-        .get("dir")
+pub(crate) fn own_dir(
+    attrs: &Attrs<'_>,
+    css: Option<Direction>,
+) -> Result<Option<Direction>, DocumentError> {
+    let dir = attrs.try_get("dir").map_err(|_| crate::fallible::OOM)?;
+    Ok(dir
         .and_then(|dir| crate::css::parse_direction(&dir))
-        .or(css)
+        .or(css))
 }
 
 /// The language an element sets: `xml:lang` or `lang`.
-pub(crate) fn own_lang(attrs: &Attrs<'_>) -> Option<Lang> {
-    attrs
-        .iter()
-        .find(|(name, _)| local_name(name) == "lang")
-        .map(|(_, value)| Lang::parse(&decode(value)))
-        .filter(|lang| !lang.is_none())
+pub(crate) fn own_lang(attrs: &Attrs<'_>) -> Result<Option<Lang>, DocumentError> {
+    let Some((_, value)) = attrs.iter().find(|(name, _)| local_name(name) == "lang") else {
+        return Ok(None);
+    };
+    let value = try_decode(value).map_err(|_| crate::fallible::OOM)?;
+    Ok(Some(Lang::parse(&value)).filter(|lang| !lang.is_none()))
 }
 
 /// The place of `lang` among a block's inline languages, from 1 as
 /// [`TextStyle`](paperpaw_sdk::document::TextStyle) keeps it: added where
 /// it is new and there is room, else 0 (the block's own).
-pub(crate) fn inline_index(langs: &mut Vec<Lang>, lang: Lang) -> u8 {
+pub(crate) fn inline_index(langs: &mut Vec<Lang>, lang: Lang) -> Result<u8, DocumentError> {
     if let Some(i) = langs.iter().position(|l| *l == lang) {
-        return u8::try_from(i + 1).unwrap_or(0);
+        return Ok(u8::try_from(i + 1).unwrap_or(0));
     }
     if langs.len() >= usize::from(MAX_INLINE_LANGS) {
-        return 0;
+        return Ok(0);
     }
-    langs.push(lang);
-    u8::try_from(langs.len()).unwrap_or(0)
+    crate::fallible::push(langs, lang)?;
+    Ok(u8::try_from(langs.len()).unwrap_or(0))
 }
 
 /// A direction as the cache keeps it.
@@ -120,26 +123,25 @@ pub(crate) fn inline_controls(
     tag: &str,
     attrs: &Attrs<'_>,
     paragraphs: bool,
-) -> Option<(char, char)> {
+) -> Result<Option<(char, char)>, DocumentError> {
     if paragraphs
         || matches!(
             tag,
             "td" | "th" | "tr" | "table" | "thead" | "tbody" | "tfoot"
         )
     {
-        return None;
+        return Ok(None);
     }
-    let dir = attrs
-        .get("dir")
-        .and_then(|dir| crate::css::parse_direction(&dir));
-    match (tag, dir) {
+    let dir = attrs.try_get("dir").map_err(|_| crate::fallible::OOM)?;
+    let dir = dir.and_then(|dir| crate::css::parse_direction(&dir));
+    Ok(match (tag, dir) {
         ("bdo", Some(Direction::Rtl)) => Some(('\u{202E}', '\u{202C}')),
         ("bdo", Some(Direction::Ltr)) => Some(('\u{202D}', '\u{202C}')),
         (_, Some(Direction::Rtl)) => Some(('\u{2067}', PDI)),
         (_, Some(Direction::Ltr)) => Some(('\u{2066}', PDI)),
         ("bdi", _) | (_, Some(_)) => Some(('\u{2068}', PDI)),
         _ => None,
-    }
+    })
 }
 
 /// Spaces and controls that draw nothing: left out at a block's end, and
@@ -152,29 +154,30 @@ impl Converter<'_> {
     /// Opens the text of an inline element with `open` (see
     /// [`inline_controls`]). A space before the element stays before it,
     /// outside: within, it would go to the other side of the text.
-    pub(super) fn open_inline(&mut self, open: char) {
+    pub(super) fn open_inline(&mut self, open: char) -> Result<(), DocumentError> {
         if self.hidden > 0 {
-            return;
+            return Ok(());
         }
         if self.space && !self.text.is_empty() && !self.text.ends_with(['\n', ' ']) {
             self.origin = self.space_origin.take();
-            self.push_styled(' ', self.space_style);
+            self.push_styled(' ', self.space_style)?;
         }
         self.space = false;
-        self.push(open);
+        self.push(open)
     }
 
     /// Closes the text of the elements from the `open`th on, the innermost
     /// first; the closing control stays out of a block it did not open in
     /// only where that block is still empty.
-    pub(super) fn close_inline(&mut self, open: usize) {
+    pub(super) fn close_inline(&mut self, open: usize) -> Result<(), DocumentError> {
         if self.hidden > 0 || self.text.is_empty() {
-            return;
+            return Ok(());
         }
         for i in (open..self.stack.len()).rev() {
             if let Some(close) = self.stack.get(i).and_then(|f| f.closer) {
-                self.push(close);
+                self.push(close)?;
             }
         }
+        Ok(())
     }
 }

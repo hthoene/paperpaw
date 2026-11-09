@@ -4,8 +4,19 @@ use paperpaw_sdk::native::events::Event;
 
 use paperpaw_sdk::native::Error;
 
-use super::{EVENTS, Edge, answer_of, edge, figure};
+use super::{EVENTS, Edge, answer_of, edge, figure, settle};
 use crate::model::Kept;
+use paperpaw_core::native_host::registrations::{
+    EventResume, EventStopping, EventSuspend, Record, records_encode,
+};
+
+/// `record` as the host frames it, decoded as the plugin sees it (event
+/// variants are not built by hand outside the SDK).
+fn delivered(record: Record<'_>, check: impl FnOnce(&Event<'_>)) {
+    let mut bytes = [0_u8; 64];
+    let len = records_encode(&[record], &mut bytes).unwrap();
+    check(&Event::decode(&bytes[..len]).unwrap());
+}
 
 fn told(day: i32, seconds: u32) -> [u8; 8] {
     let mut bytes = [0u8; 8];
@@ -42,19 +53,24 @@ fn no_figure_leaves_what_was_kept_and_the_next_answer_replaces_it() {
 
 #[test]
 fn other_events_and_tokens_are_not_edges() {
-    assert_eq!(edge(EVENTS, &Event::Resume { now_ms: 1 }), None);
-    assert_eq!(edge(7, &Event::Suspend { now_ms: 1 }), None);
+    delivered(Record::EventResume(EventResume { now_ms: 1 }), |event| {
+        assert_eq!(edge(EVENTS, event), None);
+    });
+    delivered(Record::EventSuspend(EventSuspend { now_ms: 1 }), |event| {
+        assert_eq!(edge(7, event), None);
+    });
 }
 
 #[test]
 fn the_device_sleeping_or_stopping_is_an_edge() {
-    assert_eq!(
-        edge(EVENTS, &Event::Suspend { now_ms: 1 }),
-        Some(Edge::Sleeping)
-    );
-    assert_eq!(
-        edge(EVENTS, &Event::Stopping { now_ms: 1 }),
-        Some(Edge::Sleeping)
+    delivered(Record::EventSuspend(EventSuspend { now_ms: 1 }), |event| {
+        assert_eq!(edge(EVENTS, event), Some(Edge::Sleeping));
+    });
+    delivered(
+        Record::EventStopping(EventStopping { now_ms: 1 }),
+        |event| {
+            assert_eq!(edge(EVENTS, event), Some(Edge::Sleeping));
+        },
     );
 }
 
@@ -87,4 +103,49 @@ fn only_the_statistics_are_heard() {
     }
     // The statistics failing is no figure.
     assert_eq!(answer_of("stats", Err(Error::NotFound), &[]), None);
+}
+
+#[test]
+fn a_widget_drawn_at_12_minutes_is_told_when_the_first_tick_finds_13() {
+    // The draw notes what it showed; without it the first tick would only
+    // record the new figure and the widget would stay stale.
+    let mut shown = Some(12);
+    let mut told = 0;
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!((told, shown), (1, Some(13)));
+    // The same figure again: nothing to tell.
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!(told, 1);
+}
+
+#[test]
+fn a_refused_notice_is_tried_again_at_the_next_tick() {
+    let mut shown = Some(12);
+    settle(&mut shown, Ok(13), || Err(Error::NoMemory));
+    assert_eq!(shown, Some(12));
+    let mut told = 0;
+    settle(&mut shown, Ok(13), || {
+        told += 1;
+        Ok(())
+    });
+    assert_eq!((told, shown), (1, Some(13)));
+}
+
+#[test]
+fn a_widget_never_drawn_records_the_figure_without_telling() {
+    // Nothing was on the screen to be out of date.
+    let mut shown = None;
+    settle(&mut shown, Ok(5), || panic!("nothing to tell"));
+    assert_eq!(shown, Some(5));
+    // A failed reading changes nothing.
+    settle(&mut shown, Err(Error::NoMemory), || {
+        panic!("nothing to tell")
+    });
+    assert_eq!(shown, Some(5));
 }

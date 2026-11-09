@@ -135,6 +135,16 @@ admits callback registrations only.
 
 `EVENT_TICK_TAG` is emitted from the schema for host event dispatch.
 
+- [D] **Tick delivery (todo 255).** The host sends `event.tick` to every plugin that registered
+  it, whether or not one of its widgets or screens is live: plugins use the minute for more than
+  widgets (time read, goals, timers), and a filter would make them miss minutes silently. It sends
+  at most one a minute, only while the device is awake, at the wake the shell already makes for
+  the clock and battery (`Kernel::set_status`, about once a minute); it never schedules a wake of
+  its own for a tick. Asleep or suspended there is none and none is caught up afterwards; `now_ms`
+  tells the elapsed time. Registrations are fixed for the run: interface 7 has no unsubscribe,
+  and adding one is a contract change after 1.0. A plugin therefore keeps a tick with nothing to
+  show cheap: no storage write, no `command.widget_changed` unless a shown value changed.
+
 The byte limit is `REGISTRATION_MAX_BYTES = 4096`; registrations also have
 `REGISTRATION_MAX_RECORDS = 8`. Exceeding either limit returns `ERR_NO_SPACE`.
 Malformed input returns `ERR_INVALID`. An insufficient output buffer returns

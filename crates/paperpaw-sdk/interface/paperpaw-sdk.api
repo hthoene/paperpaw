@@ -3125,6 +3125,9 @@ pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::commands
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::InstallRoot
+pub paperpaw_sdk::native::commands::InstallRoot::Data
+pub paperpaw_sdk::native::commands::InstallRoot::Files
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::KeyBinding<'a>
 pub paperpaw_sdk::native::commands::KeyBinding::Action(&'a str)
 pub paperpaw_sdk::native::commands::KeyBinding::Default
@@ -3194,8 +3197,10 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_stop_scan(&mut 
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_take_back(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::install_plugin(&mut self, u32, paperpaw_sdk::native::commands::InstallRoot, &str, bool, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::remove_plugin(&mut self, u32, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_then(&mut self, paperpaw_sdk::native::ui::Open<'_>, paperpaw_sdk::native::commands::PowerAction) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::sleep(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -3206,6 +3211,8 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_leave(&mut se
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_on(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::lookup_ready(&mut self, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
@@ -3256,6 +3263,7 @@ pub paperpaw_sdk::native::declare::EventKind::HttpDone
 pub paperpaw_sdk::native::declare::EventKind::HttpProgress
 pub paperpaw_sdk::native::declare::EventKind::InstallDone
 pub paperpaw_sdk::native::declare::EventKind::LibraryChanged
+pub paperpaw_sdk::native::declare::EventKind::LookupReady
 pub paperpaw_sdk::native::declare::EventKind::NetworkIdle
 pub paperpaw_sdk::native::declare::EventKind::NetworkWanted
 pub paperpaw_sdk::native::declare::EventKind::PageTurned
@@ -3900,6 +3908,9 @@ pub const paperpaw_sdk::native::events::kinds::InstallDone::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::LibraryChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::LibraryChanged
 pub const paperpaw_sdk::native::events::kinds::LibraryChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::LookupReady
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::LookupReady
+pub const paperpaw_sdk::native::events::kinds::LookupReady::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::NetworkIdle
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::NetworkIdle
 pub const paperpaw_sdk::native::events::kinds::NetworkIdle::TAG: u32
@@ -3969,6 +3980,9 @@ pub const paperpaw_sdk::native::events::kinds::Stopping::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::Suspend
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Suspend
 pub const paperpaw_sdk::native::events::kinds::Suspend::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::TextTyped
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::TextTyped
+pub const paperpaw_sdk::native::events::kinds::TextTyped::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::Tick
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Tick
 pub const paperpaw_sdk::native::events::kinds::Tick::TAG: u32
@@ -4033,6 +4047,8 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::InstallDone::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::LibraryChanged
 pub const paperpaw_sdk::native::events::kinds::LibraryChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::LookupReady
+pub const paperpaw_sdk::native::events::kinds::LookupReady::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::NetworkIdle
 pub const paperpaw_sdk::native::events::kinds::NetworkIdle::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::NetworkWanted
@@ -4079,6 +4095,8 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::Stopping::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Suspend
 pub const paperpaw_sdk::native::events::kinds::Suspend::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::TextTyped
+pub const paperpaw_sdk::native::events::kinds::TextTyped::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Tick
 pub const paperpaw_sdk::native::events::kinds::Tick::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::WidgetChanged
@@ -4136,72 +4154,75 @@ pub paperpaw_sdk::native::events::BookKind::Closed
 pub paperpaw_sdk::native::events::BookKind::Finished
 pub paperpaw_sdk::native::events::BookKind::Opened
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
-pub paperpaw_sdk::native::events::Event::ActionRun
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ActionRun
 pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
 pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Answered
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Answered
 pub paperpaw_sdk::native::events::Event::Answered::answer: paperpaw_sdk::native::events::Answered
 pub paperpaw_sdk::native::events::Event::Answered::now_ms: u64
-pub paperpaw_sdk::native::events::Event::BatteryMeasured
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BatteryMeasured
 pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Bluetooth(paperpaw_sdk::native::events::BluetoothChange<'a>)
-pub paperpaw_sdk::native::events::Event::Book
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Book
 pub paperpaw_sdk::native::events::Event::Book::kind: paperpaw_sdk::native::events::BookKind
 pub paperpaw_sdk::native::events::Event::Book::reading: paperpaw_sdk::native::events::ReadingView<'a>
 pub paperpaw_sdk::native::events::Event::Book::reason: u32
-pub paperpaw_sdk::native::events::Event::BookMoved
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BookMoved
 pub paperpaw_sdk::native::events::Event::BookMoved::from: &'a str
 pub paperpaw_sdk::native::events::Event::BookMoved::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BookMoved::path: &'a str
-pub paperpaw_sdk::native::events::Event::BookRemoved
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BookRemoved
 pub paperpaw_sdk::native::events::Event::BookRemoved::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BookRemoved::path: &'a str
 pub paperpaw_sdk::native::events::Event::Broadcast(paperpaw_sdk::native::sockets::BroadcastEvent<'a>)
-pub paperpaw_sdk::native::events::Event::ChargeChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::FirmwareChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::FirmwareChanged
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::request: core::option::Option<paperpaw_sdk::native::device::DeviceRequest>
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::state: paperpaw_sdk::native::device::FirmwareState
 pub paperpaw_sdk::native::events::Event::HttpDone(paperpaw_sdk::native::net::HttpDone)
 pub paperpaw_sdk::native::events::Event::HttpProgress(paperpaw_sdk::native::net::HttpProgress)
 pub paperpaw_sdk::native::events::Event::InstallDone(paperpaw_sdk::native::events::InstallDone<'a>)
-pub paperpaw_sdk::native::events::Event::LibraryChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::LibraryChanged
 pub paperpaw_sdk::native::events::Event::LibraryChanged::generation: u32
 pub paperpaw_sdk::native::events::Event::LibraryChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::LibraryChanged::path: &'a str
 pub paperpaw_sdk::native::events::Event::LibraryChanged::what: paperpaw_sdk::native::events::LibraryChanges
-pub paperpaw_sdk::native::events::Event::NetworkIdle
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::LookupReady
+pub paperpaw_sdk::native::events::Event::LookupReady::now_ms: u64
+pub paperpaw_sdk::native::events::Event::LookupReady::provider: &'a str
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::NetworkIdle
 pub paperpaw_sdk::native::events::Event::NetworkIdle::now_ms: u64
-pub paperpaw_sdk::native::events::Event::NetworkWanted
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::NetworkWanted
 pub paperpaw_sdk::native::events::Event::NetworkWanted::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::ReadingView<'a>)
-pub paperpaw_sdk::native::events::Event::PluginAnswered
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginAnswered
 pub paperpaw_sdk::native::events::Event::PluginAnswered::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PluginAnswered::outcome: paperpaw_sdk::native::commands::PluginOutcome
 pub paperpaw_sdk::native::events::Event::PluginAnswered::plugin: &'a str
 pub paperpaw_sdk::native::events::Event::PluginAnswered::request: paperpaw_sdk::native::events::PluginRequestId
-pub paperpaw_sdk::native::events::Event::PluginsChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginsChanged
 pub paperpaw_sdk::native::events::Event::PluginsChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::PluginsRequested
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginsRequested
 pub paperpaw_sdk::native::events::Event::PluginsRequested::by: &'a str
 pub paperpaw_sdk::native::events::Event::PluginsRequested::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PluginsRequested::plugins: paperpaw_sdk::native::events::RequestedPlugins<'a>
 pub paperpaw_sdk::native::events::Event::PluginsRequested::request: paperpaw_sdk::native::events::PluginRequestId
 pub paperpaw_sdk::native::events::Event::PowerChanged(paperpaw_sdk::native::events::PowerChange<'a>)
-pub paperpaw_sdk::native::events::Event::PreviewChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PreviewChanged
 pub paperpaw_sdk::native::events::Event::PreviewChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::RegistryChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::RegistryChanged
 pub paperpaw_sdk::native::events::Event::RegistryChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::RegistryChanged::what: paperpaw_sdk::native::events::RegistryChanges
-pub paperpaw_sdk::native::events::Event::Resume
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Resume
 pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
-pub paperpaw_sdk::native::events::Event::ScreenClosed
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenClosed
 pub paperpaw_sdk::native::events::Event::ScreenClosed::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::ScreenClosed::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenClosed::screen: &'a str
-pub paperpaw_sdk::native::events::Event::ScreenOpened
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenOpened
 pub paperpaw_sdk::native::events::Event::ScreenOpened::again: bool
 pub paperpaw_sdk::native::events::Event::ScreenOpened::handover: core::option::Option<paperpaw_sdk::native::ui::HandoverId>
 pub paperpaw_sdk::native::events::Event::ScreenOpened::instance: paperpaw_sdk::native::ui::Instance
@@ -4211,60 +4232,65 @@ pub paperpaw_sdk::native::events::Event::ScreenOpened::restored: bool
 pub paperpaw_sdk::native::events::Event::ScreenOpened::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenOpened::slot: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenOpened::text_bytes: u32
-pub paperpaw_sdk::native::events::Event::ScreenReady
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenReady
 pub paperpaw_sdk::native::events::Event::ScreenReady::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::ScreenReady::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenReady::screen: &'a str
-pub paperpaw_sdk::native::events::Event::ScreenShown
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenShown
 pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
 pub paperpaw_sdk::native::events::Event::ScreenShown::instance: core::option::Option<paperpaw_sdk::native::ui::Instance>
+pub paperpaw_sdk::native::events::Event::ScreenShown::last_input: core::option::Option<paperpaw_sdk::keys::InputMode>
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
-pub paperpaw_sdk::native::events::Event::SettingChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::SettingChanged
 pub paperpaw_sdk::native::events::Event::SettingChanged::key: &'a str
 pub paperpaw_sdk::native::events::Event::SettingChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::SettingChanged::old: core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
 pub paperpaw_sdk::native::events::Event::Socket(paperpaw_sdk::native::sockets::SocketEvent)
-pub paperpaw_sdk::native::events::Event::Spoken
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Spoken
 pub paperpaw_sdk::native::events::Event::Spoken::cookie: u32
 pub paperpaw_sdk::native::events::Event::Spoken::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Spoken::status: paperpaw_sdk::native::events::SpeechStatus
-pub paperpaw_sdk::native::events::Event::StackChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StackChanged
 pub paperpaw_sdk::native::events::Event::StackChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::StageCall
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StageCall
 pub paperpaw_sdk::native::events::Event::StageCall::payload: &'a [u8]
 pub paperpaw_sdk::native::events::Event::StageCall::schema: u32
 pub paperpaw_sdk::native::events::Event::StageCall::stage: &'a str
-pub paperpaw_sdk::native::events::Event::Started
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Started
 pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
-pub paperpaw_sdk::native::events::Event::StatusChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StatusChanged
 pub paperpaw_sdk::native::events::Event::StatusChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Stopping
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Stopping
 pub paperpaw_sdk::native::events::Event::Stopping::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Suspend
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Suspend
 pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Tick
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::TextTyped
+pub paperpaw_sdk::native::events::Event::TextTyped::done: bool
+pub paperpaw_sdk::native::events::Event::TextTyped::now_ms: u64
+pub paperpaw_sdk::native::events::Event::TextTyped::text: paperpaw_sdk::native::events::TypedText<'a>
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Tick
 pub paperpaw_sdk::native::events::Event::Tick::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetChanged
 pub paperpaw_sdk::native::events::Event::WidgetChanged::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetDropped
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetDropped
 pub paperpaw_sdk::native::events::Event::WidgetDropped::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetDropped::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetMade
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetMade
 pub paperpaw_sdk::native::events::Event::WidgetMade::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetMade::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WidgetMade::place: &'a str
 pub paperpaw_sdk::native::events::Event::WidgetMade::widget: &'a str
-pub paperpaw_sdk::native::events::Event::WifiChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WifiChanged
 pub paperpaw_sdk::native::events::Event::WifiChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WifiChanged::state: paperpaw_sdk::native::events::WifiLinkState
 pub paperpaw_sdk::native::events::Event::WifiDone(paperpaw_sdk::native::events::WifiDone<'a>)
-pub paperpaw_sdk::native::events::Event::WifiScanned
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WifiScanned
 pub paperpaw_sdk::native::events::Event::WifiScanned::networks: u32
 pub paperpaw_sdk::native::events::Event::WifiScanned::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WorkAllowed
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WorkAllowed
 pub paperpaw_sdk::native::events::Event::WorkAllowed::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WorkDue(paperpaw_sdk::native::work::WorkDue<'a>)
 pub paperpaw_sdk::native::events::Event::WorkRefused(paperpaw_sdk::native::work::WorkRefused<'a>)
@@ -4383,6 +4409,11 @@ impl<'a> paperpaw_sdk::native::events::RequestedPlugins<'a>
 pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::is_empty(self) -> bool
 pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::iter(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str> + core::clone::Clone
 pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::len(self) -> usize
+pub struct paperpaw_sdk::native::events::TypedText<'a>(_)
+impl<'a> paperpaw_sdk::native::events::TypedText<'a>
+pub const fn paperpaw_sdk::native::events::TypedText<'a>::as_str(&self) -> &'a str
+impl core::fmt::Debug for paperpaw_sdk::native::events::TypedText<'_>
+pub fn paperpaw_sdk::native::events::TypedText<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::native::events::WifiDone<'a>
 impl<'a> paperpaw_sdk::native::events::WifiDone<'a>
 pub const fn paperpaw_sdk::native::events::WifiDone<'a>::failure(&self) -> core::option::Option<paperpaw_sdk::native::events::WifiFailure>
@@ -4439,6 +4470,8 @@ pub paperpaw_sdk::native::fonts::FontRole::Ui
 pub paperpaw_sdk::native::fonts::FontRole::UiBold
 pub struct paperpaw_sdk::native::fonts::Font<'cb>
 impl paperpaw_sdk::native::fonts::Font<'_>
+pub fn paperpaw_sdk::native::fonts::Font<'_>::covers(&self, impl core::convert::AsRef<str>) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::fonts::Font<'_>
 pub fn paperpaw_sdk::native::fonts::Font<'_>::ink(&self, f32, impl core::convert::AsRef<str>) -> core::result::Result<core::option::Option<paperpaw_sdk::native::fonts::InkBounds>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'_>::read_line_metrics(&self, f32) -> core::result::Result<paperpaw_text::font::LineMetrics, paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::fonts::Font<'cb>
@@ -4449,6 +4482,12 @@ pub fn paperpaw_sdk::native::fonts::Font<'cb>::release(self) -> core::result::Re
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::render_text(&self, &paperpaw_sdk::native::canvas::Canvas<'_>, f32, paperpaw_sdk::native::fonts::TextOrigin, paperpaw_platform::pixel::Color, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>
 impl core::ops::drop::Drop for paperpaw_sdk::native::fonts::Font<'_>
 pub fn paperpaw_sdk::native::fonts::Font<'_>::drop(&mut self)
+pub struct paperpaw_sdk::native::fonts::IconGlyph
+impl paperpaw_sdk::native::fonts::IconGlyph
+pub fn paperpaw_sdk::native::fonts::IconGlyph::as_str(&self) -> &str
+pub fn paperpaw_sdk::native::fonts::IconGlyph::named(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl core::fmt::Debug for paperpaw_sdk::native::fonts::IconGlyph
+pub fn paperpaw_sdk::native::fonts::IconGlyph::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::native::fonts::InkBounds
 pub paperpaw_sdk::native::fonts::InkBounds::bottom: i32
 pub paperpaw_sdk::native::fonts::InkBounds::left: i32
@@ -4461,6 +4500,106 @@ pub paperpaw_sdk::native::fonts::TextOrigin::baseline: i32
 pub paperpaw_sdk::native::fonts::TextOrigin::x: f32
 impl paperpaw_sdk::native::fonts::TextOrigin
 pub const fn paperpaw_sdk::native::fonts::TextOrigin::new(f32, i32) -> Self
+pub mod paperpaw_sdk::native::format
+#[non_exhaustive] pub enum paperpaw_sdk::native::format::FormatOp
+pub paperpaw_sdk::native::format::FormatOp::Block
+pub paperpaw_sdk::native::format::FormatOp::Close
+pub paperpaw_sdk::native::format::FormatOp::Cover
+pub paperpaw_sdk::native::format::FormatOp::Fonts
+pub paperpaw_sdk::native::format::FormatOp::Image
+pub paperpaw_sdk::native::format::FormatOp::LinkTarget
+pub paperpaw_sdk::native::format::FormatOp::Links
+pub paperpaw_sdk::native::format::FormatOp::Locate
+pub paperpaw_sdk::native::format::FormatOp::Meta
+pub paperpaw_sdk::native::format::FormatOp::MetaText
+pub paperpaw_sdk::native::format::FormatOp::Open
+pub paperpaw_sdk::native::format::FormatOp::PageLabel
+pub paperpaw_sdk::native::format::FormatOp::Prepare
+pub paperpaw_sdk::native::format::FormatOp::Progress
+pub paperpaw_sdk::native::format::FormatOp::Sections
+pub paperpaw_sdk::native::format::FormatOp::Sniff
+pub paperpaw_sdk::native::format::FormatOp::Toc
+pub paperpaw_sdk::native::format::FormatOp::TocTarget
+pub paperpaw_sdk::native::format::FormatOp::Xpointer
+#[non_exhaustive] #[repr(u32)] pub enum paperpaw_sdk::native::format::LinkKind
+pub paperpaw_sdk::native::format::LinkKind::External = 1
+pub paperpaw_sdk::native::format::LinkKind::Footnote = 2
+pub paperpaw_sdk::native::format::LinkKind::Internal = 0
+pub struct paperpaw_sdk::native::format::FormatCall<'a>
+impl paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_accept(&self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_closed(&self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_decline(&self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_label(&self, &str, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_position(&self, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_progress(&self, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_state(&self, &str, paperpaw_sdk::native::format::FormatState, paperpaw_sdk::native::format::FormatFeatures, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_xpointer(&self, &str, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_image(&self, &str, u32, u32, u32, bool, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::rows<'w>(&self, &'w mut [u8]) -> core::result::Result<paperpaw_sdk::native::format::FormatRows<'w>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata(&self, &paperpaw_document::Metadata, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata_text(&self, &paperpaw_document::Metadata, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::format::FormatCall<'a>
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::background(&self) -> bool
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::color(&self) -> bool
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::conversion(&self) -> u64
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::cover_side(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::cursor(&self) -> u32
+pub fn paperpaw_sdk::native::format::FormatCall<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::document(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::flags(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::generation(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::image_side(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::index(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::offset(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::operation(&self) -> paperpaw_sdk::native::format::FormatOp
+pub fn paperpaw_sdk::native::format::FormatCall<'a>::options(&self) -> paperpaw_sdk::native::format::FormatOptions<'a>
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::publisher_styles(&self) -> bool
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::section(&self) -> u32
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::sniff_bytes(&self) -> &'a [u8]
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::text(&self) -> &'a str
+impl core::fmt::Debug for paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::format::FormatFeatures(_)
+impl paperpaw_sdk::native::format::FormatFeatures
+pub const fn paperpaw_sdk::native::format::FormatFeatures::cache_made(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::embedded_fonts(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::new() -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::page_labels(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::right_to_left(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::table_of_contents(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::whole_pages(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::xpointers(self) -> Self
+pub struct paperpaw_sdk::native::format::FormatOption<'a>(_)
+impl<'a> paperpaw_sdk::native::format::FormatOption<'a>
+pub const fn paperpaw_sdk::native::format::FormatOption<'a>::key(self) -> &'a str
+pub const fn paperpaw_sdk::native::format::FormatOption<'a>::value(self) -> &'a str
+pub struct paperpaw_sdk::native::format::FormatOptions<'a>(_)
+impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::format::FormatOptions<'a>
+pub type paperpaw_sdk::native::format::FormatOptions<'a>::Item = core::result::Result<paperpaw_sdk::native::format::FormatOption<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatOptions<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::format::FormatRows<'w>
+impl paperpaw_sdk::native::format::FormatRows<'_>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::finish(self, paperpaw_sdk::native::format::PageEnd) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::font(&mut self, u32, u32, bool, bool, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::len(&self) -> usize
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::link(&mut self, u32, u32, paperpaw_sdk::native::format::LinkKind, &str) -> core::result::Result<bool, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::section(&mut self, u32, u32, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::toc(&mut self, u32, u32, u32, u32, bool, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl core::fmt::Debug for paperpaw_sdk::native::format::FormatRows<'_>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::format::FormatState
+impl paperpaw_sdk::native::format::FormatState
+pub const fn paperpaw_sdk::native::format::FormatState::failed(paperpaw_sdk::native::Error) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::format::FormatState::preparing(u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::format::FormatState::ready() -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::format::PageEnd
+impl paperpaw_sdk::native::format::PageEnd
+pub const fn paperpaw_sdk::native::format::PageEnd::last(u32, u32) -> Self
+pub const fn paperpaw_sdk::native::format::PageEnd::more(u32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::formatting
 #[non_exhaustive] pub enum paperpaw_sdk::native::formatting::Arg<'a>
 pub paperpaw_sdk::native::formatting::Arg::Count(i64)
@@ -4627,6 +4766,11 @@ impl<'a> paperpaw_sdk::native::library::Book<'a>
 pub const fn paperpaw_sdk::native::library::Book<'a>::tags(self) -> u32
 impl<'a> paperpaw_sdk::native::library::Book<'a>
 pub const fn paperpaw_sdk::native::library::Book<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::library::BookKey<'a>(_)
+impl<'a> paperpaw_sdk::native::library::BookKey<'a>
+pub const fn paperpaw_sdk::native::library::BookKey<'a>::fingerprint(&self) -> &'a str
+pub const fn paperpaw_sdk::native::library::BookKey<'a>::key(&self) -> &'a str
+pub const fn paperpaw_sdk::native::library::BookKey<'a>::size(&self) -> u64
 pub struct paperpaw_sdk::native::library::BookRef<'a>(_)
 impl<'a> paperpaw_sdk::native::library::BookRef<'a>
 pub fn paperpaw_sdk::native::library::BookRef<'a>::catalog(u32, u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
@@ -4706,6 +4850,10 @@ pub fn paperpaw_sdk::native::library::Library::set_field(&self, &paperpaw_sdk::n
 pub fn paperpaw_sdk::native::library::Library::set_finished(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, bool, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::state(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::CatalogState, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::book_key<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::BookKey<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::position<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Position<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::set_position(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &paperpaw_sdk::native::library::PositionWrite<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::facets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, paperpaw_sdk::native::library::Facet, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FacetPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::fields<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::FieldCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FieldPage<'a>, paperpaw_sdk::native::Error>
@@ -4722,6 +4870,25 @@ impl paperpaw_sdk::native::library::LibraryPageEnd
 pub const fn paperpaw_sdk::native::library::LibraryPageEnd::generation(self) -> u32
 pub const fn paperpaw_sdk::native::library::LibraryPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::library::CatalogCursor>
 pub const fn paperpaw_sdk::native::library::LibraryPageEnd::total(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::Position<'a>
+pub paperpaw_sdk::native::library::Position::conversion: core::option::Option<u64>
+pub paperpaw_sdk::native::library::Position::from_sync: bool
+pub paperpaw_sdk::native::library::Position::insert: u32
+pub paperpaw_sdk::native::library::Position::offset: u32
+pub paperpaw_sdk::native::library::Position::progress_ppm: u32
+pub paperpaw_sdk::native::library::Position::section: u32
+pub paperpaw_sdk::native::library::Position::updated: u64
+pub paperpaw_sdk::native::library::Position::xpointer: core::option::Option<&'a str>
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::PositionWrite<'a>
+impl<'a> paperpaw_sdk::native::library::PositionWrite<'a>
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::confirmed(self) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::conversion(self, u64) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::insert(self, u32) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::new(u32, u32) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::progress_ppm(self, u32) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::sync(self) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::updated(self, u64) -> Self
+pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::xpointer(self, &'a str) -> Self
 pub struct paperpaw_sdk::native::library::Query<'a>
 impl<'a> paperpaw_sdk::native::library::Query<'a>
 pub const fn paperpaw_sdk::native::library::Query<'a>::added_since(self, u32) -> Self
@@ -5464,6 +5631,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a>::
 pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
 impl<'a> paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a>
 pub const fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a>::new(&'a str, &'a str, &'a str) -> Self
+pub struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_book_badge_v1::Record<'_>) -> core::result::Result<(), i32>
 pub struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -5471,6 +5645,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'_>
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_book_badge_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_book_badge_v1::Record<'_>) -> core::result::Result<(), i32>
 pub const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BADGE_ASK_BADGE_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BADGE_ASK_KEYS_ITEM_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BADGE_ASK_KEYS_MAX_BYTES: usize
@@ -5802,6 +5983,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes::decode(&[u8]
 pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
 impl paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes
 pub const fn paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes::new(u32) -> Self
+pub struct paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_format_v1::Record<'_>) -> core::result::Result<(), i32>
 pub struct paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -5809,6 +5997,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'_>::le
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_format_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_format_v1::Record<'_>) -> core::result::Result<(), i32>
 pub const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_AT_TAG: u32
 pub const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_BLOCK_LANG_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_BLOCK_TAG: u32
@@ -5894,6 +6089,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
 impl<'a> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>
 pub const fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::new(u32, &'a str, &'a [u8], &'a str) -> Self
+pub struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_input_filter_v1::Record<'_>) -> core::result::Result<(), i32>
 pub struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -5901,6 +6103,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_input_filter_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_input_filter_v1::Record<'_>) -> core::result::Result<(), i32>
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_INPUT_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_TAG: u32
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_ACTION_MAX_BYTES: usize
@@ -5927,6 +6136,13 @@ pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record::LookupAsk(paper
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record::LookupEntry(paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>)
 impl<'a> paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a>
 pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a>::tag(&self) -> u32
+pub struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'_>) -> core::result::Result<(), i32>
 #[non_exhaustive] pub struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk::context: &'a str
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk::cursor: u32
@@ -5955,6 +6171,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'_>::le
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'_>) -> core::result::Result<(), i32>
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::INPUT_TAGS: &[u32]
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::KEY: &str
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_CONTEXT_MAX_BYTES: usize
@@ -5983,6 +6206,13 @@ pub paperpaw_sdk::native::stage_schemas::core_status_v1::Record::StatusAsk(paper
 pub paperpaw_sdk::native::stage_schemas::core_status_v1::Record::StatusValue(paperpaw_sdk::native::stage_schemas::core_status_v1::StatusValue<'a>)
 impl<'a> paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a>
 pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a>::tag(&self) -> u32
+pub struct paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'_>) -> core::result::Result<(), i32>
 pub struct paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -5990,6 +6220,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'_>::le
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a>, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'_>) -> core::result::Result<(), i32>
 #[non_exhaustive] pub struct paperpaw_sdk::native::stage_schemas::core_status_v1::StatusAsk<'a>
 pub paperpaw_sdk::native::stage_schemas::core_status_v1::StatusAsk::context: &'a [u8]
 pub paperpaw_sdk::native::stage_schemas::core_status_v1::StatusAsk::items: &'a str
@@ -6041,6 +6278,13 @@ pub paperpaw_sdk::native::stage_schemas::core_widget_v1::Record::WidgetTarget(pa
 pub paperpaw_sdk::native::stage_schemas::core_widget_v1::Record::WidgetTargets(paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets)
 impl paperpaw_sdk::native::stage_schemas::core_widget_v1::Record
 pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::Record::tag(&self) -> u32
+pub struct paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::InputWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_widget_v1::Record) -> core::result::Result<(), i32>
 pub struct paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -6048,6 +6292,13 @@ pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'_>::le
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'a>
 pub type paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'a>::Item = core::result::Result<paperpaw_sdk::native::stage_schemas::core_widget_v1::Record, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::RecordStream<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>
+impl<'w> paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>::finish(self) -> core::result::Result<usize, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>::len(&self) -> usize
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>::new(&'w mut [u8]) -> core::result::Result<Self, i32>
+pub fn paperpaw_sdk::native::stage_schemas::core_widget_v1::ReplyWriter<'w>::push(&mut self, &paperpaw_sdk::native::stage_schemas::core_widget_v1::Record) -> core::result::Result<(), i32>
 #[non_exhaustive] pub struct paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure
 pub paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure::instance: u32
 pub paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure::width: u32
@@ -9971,6 +10222,7 @@ pub fn paperpaw_sdk::Env<'a>::work(&self) -> &'a paperpaw_sdk::work::WorkStates
 impl<'a> paperpaw_sdk::Env<'a>
 pub fn paperpaw_sdk::Env<'a>::device_name(&self) -> alloc::string::String
 pub fn paperpaw_sdk::Env<'a>::device_within(&self, paperpaw_platform::geometry::Rect) -> paperpaw_platform::DeviceInfo
+pub fn paperpaw_sdk::Env<'a>::each_slot_screen(&self, &str, &mut dyn core::ops::function::FnMut(&'a paperpaw_sdk::Id) -> bool)
 pub fn paperpaw_sdk::Env<'a>::screen_title(&self, &paperpaw_sdk::Id) -> core::option::Option<&'a str>
 pub fn paperpaw_sdk::Env<'a>::slot_choice(&self, &str) -> core::option::Option<&'a paperpaw_sdk::Id>
 pub fn paperpaw_sdk::Env<'a>::slot_screen(&self, &str) -> core::option::Option<&'a paperpaw_sdk::Id>

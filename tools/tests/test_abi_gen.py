@@ -383,6 +383,23 @@ class SchemaTests(unittest.TestCase):
         field['ordinal'] = field['default'] = None
         self.reject(new)
 
+    def test_marking_a_field_secret_keeps_it_and_unmarking_breaks(self):
+        # `secret` keeps a value out of Debug and changes no wire byte (#228,
+        # draft 30): adding the mark is compatible, dropping it is not.
+        record = next(r for r in self.base['records'] if r['name'] == 'event.text_typed')
+        text = next(f for f in record['fields'] if f['name'] == 'text')
+        marked = text.pop('secret', None)
+        self.assertIs(marked, True)
+        unmarked = copy.deepcopy(self.base)
+        text['secret'] = True
+        ABI.compatible(unmarked, self.base)
+        self.reject(unmarked)
+        # Any other change to the field still breaks, mark or not.
+        resized = copy.deepcopy(self.base)
+        next(f for f in next(r for r in resized['records'] if r['name'] == 'event.text_typed')
+             ['fields'] if f['name'] == 'text')['max_bytes'] = 512
+        self.reject(resized)
+
     def test_required_fields_and_defaults_cannot_change(self):
         self.base.pop('record_codec', None)
         self.base.pop('command_codec', None)

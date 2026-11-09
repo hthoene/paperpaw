@@ -2655,7 +2655,7 @@ and the eight-per-plugin subscription limit are checked by the host at commit.
 A subscription's `order` controls its position and its `signature` contributes to
 layout invalidation when the stage changes layout.
 
-A subscriber receives `native::events::Event::StageCall { stage, schema, payload }`
+A subscriber receives `native::events::Event::StageCall { stage, schema, payload, .. }`
 at its declared token. Check the stage and schema, decode `payload` with the
 stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
@@ -2686,6 +2686,44 @@ operation version and buffer limits before calling the host. Explicitly consume
 the handle with `release(host)` when done; teardown also releases it. There is
 no automatic Drop release because the handle retains no callback host. Per-family
 typed wrappers define the input and output records.
+### Format provider callbacks
+
+A format's declared token receives `core.format` major 1 stage calls. Decode
+its payload with `native::format::FormatCall::decode` and dispatch using
+`FormatOp`. These provider operation ids differ from the document service's
+ids. The call borrows its text and sniff bytes; `document()` and `conversion()`
+identify the state the provider owns for this document. Close releases it.
+
+Use `FormatState::preparing` to report incremental work and `ready` or `failed`
+to finish preparation. `reply_state` keeps the call's document and conversion
+identity. Scalar reply helpers validate the request operation before encoding
+into caller-owned output. Pass the returned bytes through `native::reply::Reply`.
+
+Lists (sections, table of contents, links, fonts) are written with
+`FormatCall::rows(out)` and its typed row methods. A row that does not fit is
+`NoSpace`: end the page with `PageEnd::more(total, next, generation)`; the host asks
+again with `next` and that generation. The last page is `PageEnd::last(total, generation)`. `total` is the whole list's row
+count and `generation` the format's own for this document, never 0, the same on every
+page; a call with a stale generation is answered `State`.
+Pages always keep room for their closing record. A link whose `href` is over 1,024
+bytes is skipped (`Ok(false)`). `reply_image` answers cover and image requests with
+the cache path, the picture's own index and size.
+
+`reply_metadata` borrows the existing `document::Metadata`; title and series
+previews advertise UTF-8 cuts with flags. `reply_metadata_text` returns the
+requested value in UTF-8 parts, preserving its total byte length. It allocates
+no strings and refuses offsets inside a character. `reply_position` preserves
+the provider's source section and offset without reader insert ordinals.
+
+During a permitted format callback, `native::storage::Root::DocumentCache`
+selects root 6, `Book` root 3 and `UserCss` root 4 (root 2 is the plugin's install folder). An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats read
+relative paths within root 3; for siblings, the call's `text()` names the
+opened file unless the operation uses text for an XPointer or href. Root 3 is
+read only. Root 4 is read only and available during open/prepare only. The host
+enforces the callback's scope, cache quota and reserved `.complete`/`.host/`
+paths. Never retain a callback's `Host`; `.complete` belongs to the host.
+
 ### Secrets and device randomness
 
 Open `native::secrets::Secrets` once with the metadata-declared `core.secrets`
@@ -2718,6 +2756,18 @@ Input buffers of 1,280 bytes cover all calls. Output needs 4,096 bytes for list
 or 1,280 bytes for get, keep, remove and random. Views cannot outlive or reuse
 their output buffer while borrowed; a caller clears its value output after use.
 
+### Book key and reading position
+
+`Library::book_key(host, book, input, out)` returns the book's key (the folder name for
+the plugin's own per-book data, changed by a move) and its KOReader fingerprint and
+size, which together identify the book on other devices. Keys come only from the host.
+`Library::position` reads the stored position; `Library::set_position` writes a
+`PositionWrite`. A local write always wins. A `.sync()` write wins only over an older
+sync position; otherwise it answers `State` and stores nothing, so the plugin can ask
+the user and write again with `.confirmed()`. `.confirmed()` without `.sync()` is
+refused as `Invalid` and stores nothing. `out` of 4,096 bytes always suffices. The input
+buffer is 1,024 bytes for `book_key` and `position` and 2,048 bytes for `set_position`.
+
 ### Book fields and badges
 
 Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
@@ -2744,7 +2794,7 @@ Subscribe with `Declarations::subscribe_event(kind, token)`. A host returns
 never start a stopped plugin.
 
 The matching `native::events::Event` variants borrow callback bytes. Book session
-edges use `Event::Book { kind, reason, reading }`; page turns and book edges share
+edges use `Event::Book { kind, reason, reading, .. }`; page turns and book edges share
 `ReadingView`, whose accessors expose the complete path, reading position, titles
 and optional page counters. Reason 1 denotes a restored open or a sleep/shutdown
 close; reserved reasons become 0. Book-finished reason is always 0.

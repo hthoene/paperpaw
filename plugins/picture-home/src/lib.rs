@@ -28,10 +28,21 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod add;
 mod bar;
 mod dashboard;
+pub mod native_pick;
 pub mod native_picture;
+pub mod native_plugin;
 mod orient;
 mod pages;
 mod pick;

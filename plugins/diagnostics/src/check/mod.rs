@@ -774,7 +774,7 @@ impl Check {
     #[inline(never)]
     pub fn event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
         match *event {
-            Event::Tick { now_ms } => {
+            Event::Tick { now_ms, .. } => {
                 self.now = now_ms;
                 if self.timer.due(now_ms) {
                     self.timer.clear();
@@ -782,7 +782,7 @@ impl Check {
                 }
                 Ok(())
             }
-            Event::BatteryMeasured { now_ms } | Event::ChargeChanged { now_ms, .. }
+            Event::BatteryMeasured { now_ms, .. } | Event::ChargeChanged { now_ms, .. }
                 if self.step == Some(Step::Battery) =>
             {
                 self.now = now_ms;
@@ -808,7 +808,7 @@ impl Check {
                 }
                 self.redraw_page(host)
             }
-            Event::Suspend { now_ms }
+            Event::Suspend { now_ms, .. }
                 if self.step == Some(Step::Sleep) && self.sleep_asked.is_some() =>
             {
                 self.now = now_ms;
@@ -817,7 +817,7 @@ impl Check {
                 self.results.set(Step::Sleep, Mark::Asleep);
                 self.save(host)
             }
-            Event::Resume { now_ms }
+            Event::Resume { now_ms, .. }
                 if self.step == Some(Step::Sleep)
                     && self.results.get(Step::Sleep) == Some(&Mark::Asleep) =>
             {
