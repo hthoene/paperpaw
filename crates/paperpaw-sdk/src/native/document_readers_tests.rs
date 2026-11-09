@@ -131,3 +131,47 @@ fn bad_scopes_and_malformed_pages_are_refused() {
         Error::Unsupported
     );
 }
+
+#[test]
+fn more_malformed_pages_are_refused() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 256], [0; 4096]);
+    let start = ReaderCursor::start();
+    let nine = "a\nb\nc\nd\ne\nf\ng\nh\ni";
+    let eight = "a\nb\nc\nd\ne\nf\ng\nh";
+    let mut ask = |rows: &[Record<'_>]| {
+        reply(&state, rows);
+        docs.readers(&host, "", start, &mut input, &mut out)
+            .map(|page| page.len())
+    };
+    assert_eq!(ask(&[reader("a.r", eight), end(1, 1, 3, 1)]), Ok(1));
+    assert_eq!(
+        ask(&[reader("a.r", nine), end(1, 1, 3, 1)]),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        ask(&[reader("a.r", "a\n\nb"), end(1, 1, 3, 1)]),
+        Err(Error::Invalid)
+    );
+    // A row after the end, bytes after the end and a record of another kind.
+    assert_eq!(
+        ask(&[end(1, 0, 3, 0), reader("a.r", "")]),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        ask(&[Record::ServiceLibResult(wire::ServiceLibResult {
+            path: "",
+            status: 0,
+            flags: 0
+        })]),
+        Err(Error::Invalid)
+    );
+    // 33 rows are more than a page holds; 32 are fine.
+    let rows: Vec<Record<'static>> = (0..33).map(|_| reader("a.r", "")).collect();
+    let mut thirty_three = rows.clone();
+    thirty_three.push(end(1, 33, 3, 33));
+    assert_eq!(ask(&thirty_three), Err(Error::Invalid));
+    let mut thirty_two = rows[..32].to_vec();
+    thirty_two.push(end(1, 32, 3, 32));
+    assert_eq!(ask(&thirty_two), Ok(32));
+}

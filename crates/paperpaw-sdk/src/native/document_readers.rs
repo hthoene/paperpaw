@@ -45,7 +45,8 @@ impl<'a> Reader<'a> {
         self.0.title
     }
 
-    /// The format ids this reader shows, at most 8; empty for every format (see
+    /// The format ids this reader shows, at most 8 (a page with more is refused);
+    /// none for every format (see
     /// [`reads_every_format`](Self::reads_every_format)).
     pub fn formats(&self) -> impl Iterator<Item = &'a str> + use<'a> {
         self.0
@@ -106,9 +107,23 @@ impl<'a> ReaderPage<'a> {
             if count > schema::PAGE_MAX_ROWS {
                 return Err(Error::Invalid);
             }
-            record
+            let row = record
                 .decode::<wire::ServiceDocReader<'a>>()
                 .map_err(|_| Error::Invalid)?;
+            // At most 8 format ids, one per line, none empty.
+            if !row.formats.is_empty()
+                && (row
+                    .formats
+                    .split(wire::SERVICE_DOC_READER_FORMATS_SEPARATOR)
+                    .any(str::is_empty)
+                    || row
+                        .formats
+                        .split(wire::SERVICE_DOC_READER_FORMATS_SEPARATOR)
+                        .count()
+                        > wire::SERVICE_DOC_READER_FORMATS_MAX_ITEMS)
+            {
+                return Err(Error::Invalid);
+            }
         };
         if !rest.is_empty() || end.generation == 0 {
             return Err(Error::Invalid);
@@ -184,7 +199,8 @@ impl Documents {
     /// is 256 bytes; `out` 4,096.
     ///
     /// # Errors
-    /// Invalid for a scope over 128 bytes (nothing is sent) or a malformed page;
+    /// Invalid for a scope over 128 bytes (nothing is sent) or a malformed page
+    /// (also a reader with more than 8 format ids or an empty one);
     /// State for a cursor whose list changed (start again from
     /// [`ReaderCursor::start`]); otherwise the host's refusals.
     pub fn readers<'a>(
