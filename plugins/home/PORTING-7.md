@@ -331,8 +331,8 @@ Differences from interface 6 (each deliberate):
   the generation changes or when the tick finds that what the widget shows changed. A file that
   goes with the list unchanged is noticed then, not at the next draw. The tick itself asks only the
   catalog's list (one query per instance). At most ten rows are read, and only until the books
-  shown are found. The buffers (1 KiB and 4 KiB more per read) are on the device measurement list
-  below.
+  shown are found. The buffers (1 KiB and 4 KiB more per draw read; the tick's read has none, so a
+  read peaks at about 13 KiB) are on the device measurement list below.
 - Each tick asks the library once per card or shelf instance, and each draw takes two 4 KiB buffers
   for the query, two more for the book calls, and one 1 KiB and one 4 KiB for each cover: both are measured on the device before
   activation (they are on the activation gate list).

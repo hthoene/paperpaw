@@ -74,6 +74,10 @@ impl Known {
         if held.0 != generation {
             *held = (generation, Vec::new());
         }
+        // At most the rows one page holds: the cache never grows past what a read asks.
+        if held.1.len() >= PAGE {
+            return Ok(());
+        }
         mem::push(&mut held.1, (key, gone))
     }
 
@@ -123,15 +127,19 @@ fn recent(
         let query = Query::new().sort(Sort::RecentlyOpened);
         let page = library.query(host, &query, &mut input, &mut out)?;
         let generation = page.end().generation();
-        let (mut ask, mut answer) = (mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?);
+        // The book calls need buffers of their own; the tick's read has none.
+        let mut asking = match known {
+            Some(_) => Some((mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?)),
+            None => None,
+        };
         let mut books = Vec::new();
         let mut seen = 0;
-        for row in page.rows() {
+        for row in page.rows().take(PAGE) {
             let row = row?;
             if !row.opened() || seen == want {
                 break;
             }
-            if let Some(known) = known {
+            if let (Some(known), Some((ask, answer))) = (known, asking.as_mut()) {
                 let (key, buffers) = (row.key(), (&mut ask[..], &mut answer[..]));
                 if gone(host, library, (known, generation, key), buffers)? {
                     continue;
@@ -172,7 +180,8 @@ fn gone(
         Err(Error::State) => return Ok(false),
         Err(error) => return Err(error),
     };
-    known.remember(generation, key, gone)?;
+    // A cache write that fails costs the next read one more call, not the draw.
+    known.remember(generation, key, gone).ok();
     Ok(gone)
 }
 
@@ -310,6 +319,33 @@ mod tests {
             1.0,
             1.0,
         );
+    }
+
+    #[test]
+    fn what_the_host_said_is_kept_for_its_generation_and_forgotten() {
+        let known = Known::default();
+        assert_eq!(known.gone(1, 7), None);
+        known.remember(1, 7, true).unwrap();
+        known.remember(1, 8, false).unwrap();
+        assert_eq!(known.gone(1, 7), Some(true));
+        assert_eq!(known.gone(1, 8), Some(false));
+        // Another generation asks anew, and holds only its own.
+        assert_eq!(known.gone(2, 7), None);
+        known.remember(2, 9, true).unwrap();
+        assert_eq!(known.gone(1, 7), None);
+        assert_eq!(known.gone(2, 9), Some(true));
+        known.forget();
+        assert_eq!(known.gone(2, 9), None);
+    }
+
+    #[test]
+    fn the_cache_holds_no_more_than_a_page_of_books() {
+        let known = Known::default();
+        for key in 0..(PAGE as u32 + 5) {
+            known.remember(1, key, false).unwrap();
+        }
+        assert_eq!(known.held.borrow().1.len(), PAGE);
+        assert_eq!(known.gone(1, PAGE as u32 + 1), None);
     }
 
     #[test]
