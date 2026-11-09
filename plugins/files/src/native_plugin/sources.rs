@@ -141,7 +141,7 @@ pub(super) struct NameReplies<'a, 'h> {
 
 impl Source<CatalogCursor, NameLine> for NameReplies<'_, '_> {
     fn read(&mut self, from: CatalogCursor) -> Result<Replied<CatalogCursor, NameLine>, Error> {
-        let query = Query::new().cursor(from);
+        let query = self.shelf.query(from);
         let page =
             self.library
                 .facets(self.host, &query, self.shelf.facet(), self.input, self.out)?;

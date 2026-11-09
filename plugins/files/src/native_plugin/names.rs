@@ -226,6 +226,10 @@ impl NativeFiles {
                             return Ok(());
                         };
                         let (shelf, start) = (view.shelf, view.window.start);
+                        if shelf == Shelf::Letters {
+                            let letter = copy(&name.text)?;
+                            return self.open_letter(host, &letter);
+                        }
                         let scope = if name.cut {
                             // Held cut: the host has the whole name.
                             let whole = self.whole_name(host, shelf, start, at)?;

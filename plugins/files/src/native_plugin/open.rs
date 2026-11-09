@@ -58,8 +58,18 @@ impl NativeFiles {
 
     /// Opens a list of books of `scope`.
     pub(super) fn open_shelf(&mut self, host: &Host<'_>, scope: &Scope) -> Result<(), Error> {
-        self.ensure(host)?;
         let (kind, value) = scope.params();
+        self.open_list(host, kind, value)
+    }
+
+    /// Opens a list of books for the parameters `kind` and `value`.
+    pub(super) fn open_list(
+        &mut self,
+        host: &Host<'_>,
+        kind: &str,
+        value: &str,
+    ) -> Result<(), Error> {
+        self.ensure(host)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let params = [Param::new(KIND, kind)?, Param::new(VALUE, value)?];
         let handover = self
@@ -96,16 +106,6 @@ impl NativeFiles {
         Ok(found)
     }
 
-    /// The scope a list was opened for; the library for none.
-    pub(super) fn scope_of(
-        &self,
-        host: &Host<'_>,
-        handover: Option<HandoverId>,
-    ) -> Result<Scope, Error> {
-        let [kind, value] = self.handover_params(host, handover, [KIND, VALUE])?;
-        Scope::from_params(&kind, &value)
-    }
-
     pub(super) fn opened(
         &mut self,
         host: &Host<'_>,
@@ -138,15 +138,19 @@ impl NativeFiles {
                 cover: info.cover,
             })
         } else {
-            let scope = if token == BROWSER_TOKEN {
-                Scope::Library
+            let [kind, value] = if token == BROWSER_TOKEN {
+                [String::new(), String::new()]
             } else {
-                self.scope_of(host, handover)?
+                self.handover_params(host, handover, [KIND, VALUE])?
             };
+            if kind == LETTER {
+                return self.opened_letter(host, instance, &value);
+            }
             let selection = Selection {
                 filter: Filter::All,
                 order: Self::order(host)?,
-                scope,
+                scope: Scope::from_params(&kind, &value)?,
+                fixed: false,
             };
             View::Books(self.read_browser(
                 host,

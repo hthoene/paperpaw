@@ -247,7 +247,18 @@ fn run(
     screen: &str,
     params: &'static [(&'static str, &'static str)],
 ) -> i32 {
-    script_library(host, log);
+    run_with(host, log, token, screen, params, script_library)
+}
+
+fn run_with(
+    host: &ScriptedHost,
+    log: &Log,
+    token: u32,
+    screen: &str,
+    params: &'static [(&'static str, &'static str)],
+    script: fn(&ScriptedHost, &Log),
+) -> i32 {
+    script(host, log);
     script_ui(host, params);
     host.add_catalogs_in(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"))
         .unwrap();
@@ -277,6 +288,8 @@ fn the_shelves_count_the_favourites_and_each_list_and_leave_the_next_books_alone
             "facets 1 show 0 cursor 0",
             "facets 2 show 0 cursor 0",
             "facets 4 show 0 cursor 0",
+            // The count of the letters row: how many letters there are.
+            "facets 3 show 0 cursor 0",
         ]
     );
 }
@@ -364,6 +377,182 @@ fn no_refusal_of_the_library_makes_a_screen_abort() {
         let results = sweep(Slot::ServiceOpen, -5, |host, _| {
             run(host, &Log::default(), token, screen, params)
         });
+        assert!(
+            results.iter().skip(1).all(|(_, status)| *status <= 0),
+            "{screen}"
+        );
+    }
+}
+
+/// A library of 100 books by title, read 32 at a time, with the letters A (the
+/// first book 0), B (60) and C (98), D (no jump). The log says what was
+/// asked of it: facet, show, flags (bit 1 the archive left out), sort, cursor.
+fn script_letters(host: &ScriptedHost, log: &Log) {
+    const TOTAL: u32 = 100;
+    let log = log.clone();
+    host.service("core.library", 1, 0, move |op, input| {
+        let batch = records_decode(input).map_err(|_| -1)?;
+        let rows: Vec<Record<'_>> = batch.iter().collect();
+        match (op, rows.first()) {
+            (STATE, _) => Ok(stream(&[Record::ServiceLibState(ServiceLibState {
+                state: 2,
+                books: TOTAL,
+                generation: GENERATION,
+                walk_ppm: 1_000_000,
+            })])),
+            (FACETS, Some(Record::ServiceLibQuery(query))) => {
+                log.borrow_mut().push(format!(
+                    "facets {} show {} flags {} cursor {}",
+                    query.facet, query.show, query.flags, query.cursor
+                ));
+                let mut out: Vec<Record<'_>> = [
+                    ("A", 40, 0),
+                    ("B", 38, 60),
+                    ("C", 2, 98),
+                    ("D", 1, u32::MAX),
+                ]
+                .into_iter()
+                .map(|(text, count, first)| {
+                    Record::ServiceLibFacet(ServiceLibFacet { text, count, first })
+                })
+                .collect();
+                out.push(Record::ServiceEnd(ServiceEnd {
+                    flags: 1,
+                    total: 4,
+                    generation: GENERATION,
+                    next: 4,
+                    cursor: None,
+                }));
+                Ok(stream(&out))
+            }
+            (QUERY, Some(Record::ServiceLibQuery(query))) => {
+                log.borrow_mut().push(format!(
+                    "query sort {} flags {} cursor {}",
+                    query.sort, query.flags, query.cursor
+                ));
+                let end_at = (query.cursor + 32).min(TOTAL);
+                let mut out: Vec<Record<'_>> = (query.cursor..end_at)
+                    .map(|key| {
+                        Record::ServiceLibEntry(ServiceLibEntry {
+                            key,
+                            title: "A book",
+                            author: "",
+                            series: "",
+                            number: "",
+                            progress: 255,
+                            flags: 0,
+                            added: 0,
+                            badges: "",
+                        })
+                    })
+                    .collect();
+                out.push(Record::ServiceEnd(ServiceEnd {
+                    flags: u32::from(end_at == TOTAL),
+                    total: TOTAL,
+                    generation: GENERATION,
+                    next: end_at,
+                    cursor: None,
+                }));
+                Ok(stream(&out))
+            }
+            _ => Err(-1),
+        }
+    });
+}
+
+fn letter(host: &ScriptedHost, log: &Log, value: &'static str) -> i32 {
+    let params: &'static [(&str, &str)] = match value {
+        "A" => &[("kind", "letter"), ("value", "A")],
+        "C" => &[("kind", "letter"), ("value", "C")],
+        "D" => &[("kind", "letter"), ("value", "D")],
+        _ => &[("kind", "letter"), ("value", "Z")],
+    };
+    run_with(
+        host,
+        log,
+        SHELF_TOKEN,
+        "files.shelf",
+        params,
+        script_letters,
+    )
+}
+
+#[test]
+fn the_letters_screen_asks_for_the_books_the_library_lists() {
+    let host = ScriptedHost::new();
+    let log = Log::default();
+    let params: &[(&str, &str)] = &[("kind", "letters")];
+    let status = run_with(
+        &host,
+        &log,
+        NAMES_TOKEN,
+        "files.names",
+        params,
+        script_letters,
+    );
+    assert_eq!(status, 0);
+    // All books, the archive left out: what the library's own list holds.
+    assert_eq!(*log.borrow(), ["facets 3 show 0 flags 2 cursor 0"]);
+}
+
+#[test]
+fn a_letter_opens_the_library_by_title_at_the_window_with_its_first_book() {
+    // The first book of C is the 99th: the second window, read by stepping
+    // from the start (three replies, then one), and read again to be shown.
+    let host = ScriptedHost::new();
+    let log = Log::default();
+    assert_eq!(letter(&host, &log, "C"), 0);
+    let asked = log.borrow();
+    let first = "query sort 0 flags 2 cursor";
+    assert_eq!(
+        *asked,
+        [
+            "facets 3 show 0 flags 2 cursor 0".to_string(),
+            format!("{first} 0"),
+            format!("{first} 32"),
+            format!("{first} 64"),
+            format!("{first} 96"),
+            format!("{first} 96"),
+        ]
+    );
+    drop(asked);
+    // A first book in the first window needs no stepping.
+    let host = ScriptedHost::new();
+    let log = Log::default();
+    assert_eq!(letter(&host, &log, "A"), 0);
+    // The window is read once to find the book, once to show it.
+    assert_eq!(log.borrow().len(), 1 + 3 + 3);
+}
+
+#[test]
+fn a_letter_that_is_gone_or_has_no_jump_opens_the_list_from_its_start() {
+    for value in ["Z", "D"] {
+        let host = ScriptedHost::new();
+        let log = Log::default();
+        assert_eq!(letter(&host, &log, value), 0, "{value}");
+        let asked = log.borrow();
+        assert_eq!(asked.len(), 1 + 3, "{value}");
+        assert_eq!(
+            asked.last().map(String::as_str),
+            Some("query sort 0 flags 2 cursor 64")
+        );
+    }
+}
+
+#[test]
+fn no_refusal_of_the_library_makes_the_letters_abort() {
+    for (token, screen, params) in [
+        (NAMES_TOKEN, "files.names", &[("kind", "letters")][..]),
+        (
+            SHELF_TOKEN,
+            "files.shelf",
+            &[("kind", "letter"), ("value", "C")][..],
+        ),
+    ] {
+        let results = sweep(Slot::ServiceCall, -5, |host, _| {
+            run_with(host, &Log::default(), token, screen, params, script_letters)
+        });
+        assert_eq!(results[0].1, 0, "{screen}");
         assert!(
             results.iter().skip(1).all(|(_, status)| *status <= 0),
             "{screen}"

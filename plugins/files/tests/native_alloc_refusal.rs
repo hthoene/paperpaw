@@ -8,7 +8,7 @@ use paperpaw_plugin_files::{
     native_choose, native_covers,
     native_info::{self, Info},
     native_list::{self, BookList, Metrics, Row},
-    native_model::{self, BookLine, Filter, Order, Say, Scope, Selection, Window},
+    native_model::{self, BookLine, Filter, Order, Replied, Say, Scope, Selection, Source, Window},
     native_sheet::{self, Action},
     native_shelves::{self, Begun, NameLine, SeriesNames, SeriesSource, Shelf},
     native_states::Condition,
@@ -159,6 +159,7 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
         scope: Scope::Search("x".into()),
         filter: Filter::All,
         order: Order::Name,
+        fixed: false,
     };
     let later = [CatalogCursor::start()];
     let info = Info {
@@ -240,6 +241,34 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
         native_choose::join("", "Crime")?;
         native_choose::folder_name("  Sci/Fi: *new*? ")?;
         native_choose::folder_name("...")?;
+        Ok(())
+    });
+}
+
+/// 250 books, 96 to a reply; the cursor is the offset.
+struct Long(BookLine);
+impl Source<u32> for Long {
+    fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
+        let end = (from + 96).min(250);
+        // The fixture's rows are the test's own allocation.
+        let books = fail_alloc::exempt(|| (from..end).map(|_| self.0.clone()).collect());
+        Ok(Replied {
+            books,
+            generation: 1,
+            total: 250,
+            next: (end < 250).then_some(end),
+        })
+    }
+}
+
+#[test]
+fn finding_a_window_survives_refused_allocations() {
+    let mut long = Long(book(false, None, false));
+    fail_alloc::sweep(|| {
+        let found = native_model::find_window(&mut long, 0, 200)?;
+        assert_eq!(found.starts.len(), 2);
+        let selection = Selection::default();
+        drop(selection.try_clone()?);
         Ok(())
     });
 }

@@ -70,12 +70,14 @@ const SEARCH_LIMIT: usize = 256;
 
 mod books;
 mod choose;
+mod find;
 mod names;
 mod open;
 mod plan;
 mod sheet;
 mod sources;
 
+use find::LETTER;
 use plan::{Plan, Reading, Then, cursors, step_back, step_on};
 use sources::{NameReplies, Replies, Speaker};
 
@@ -403,8 +405,14 @@ impl NativeFiles {
             let Some(View::Books(old)) = self.screens.top(token) else {
                 continue;
             };
+            // A list found by letter keeps its order: its cursors are by title.
+            let order = if old.selection.fixed {
+                old.selection.order
+            } else {
+                Self::order(host)?
+            };
             let selection = Selection {
-                order: Self::order(host)?,
+                order,
                 ..old.selection.try_clone()?
             };
             let (held, focus) = (old.window.books.len(), old.list.focus());

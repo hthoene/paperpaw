@@ -280,6 +280,20 @@ impl NativeFiles {
 }
 
 impl Browser {
+    /// Focus on the row of the book at `at` of the window (the first book
+    /// where the window has no such row).
+    pub(super) fn focus_book(&mut self, at: usize) {
+        match self
+            .list
+            .cells()
+            .iter()
+            .position(|cell| cell.row == ListRow::Book(at))
+        {
+            Some(index) => self.list.set_focus(index),
+            None => self.focus_first_book(),
+        }
+    }
+
     /// Focus on the first book (after the filter row and the way back).
     pub(super) fn focus_first_book(&mut self) {
         let at = self.list.first_book().unwrap_or(0);
