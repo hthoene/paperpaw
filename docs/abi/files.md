@@ -284,7 +284,11 @@ above. A refused call changes nothing.
 | Re-entry into `core.files` from its own call | `ERR_BUSY` |
 
 - [D] **Paths in use.** The host keeps a small table of paths it holds open or writes (the reader's
-  book, DEV's staged copies, NET's save files and `.pp-staged` files, NET's request bodies while
+  book: every book a plugin holds open through `core.document` op 1 `open`, under any root and
+  background index builds too, from the `open` until that document ends by `close`, its opener or
+  format stopping, the card going, the book moved or removed, or its place given to a book to
+  show; counted per path, and an `open` whose hold cannot be taken is `ERR_FULL`; DEV's staged
+  copies, NET's save files and `.pp-staged` files, NET's request bodies while
   they arrive). A change to such a path, to a folder holding one, or a move onto one answers
   `ERR_BUSY` and changes nothing; the plugin tries again later. This holds for the `core.files` ops
   and for the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a

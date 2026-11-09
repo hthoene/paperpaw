@@ -89,6 +89,17 @@ and keys and text together are bounded by the byte budget the host gives the
 stage. Without that budget, 8 commands of about 4 KiB text each could retain
 about 32 KiB per callback; a profile sets it within its boundary memory budget.
 
+**Dropped after `OK`.** A command `submit` accepted can still be dropped when
+the host applies it (a guarded setting re-checked at apply, a preset's values,
+item states, no memory, a plugin stopping before its batch drains). There is no
+general "dropped" event, as in interface 6, whose commands were fire-and-forget.
+Instead, a command whose result a plugin waits for always ends with its own
+event, dropped or not: `image_prepare` with `event.image_ready` for its cookie
+(`status` 5 no memory, else 2), installs, removals, checks and firmware with
+`event.install_done`, radio commands with `event.wifi_done`. Every other drop is
+logged only, and the plugin sees the state as it is through its reads and the
+change events (`setting_changed` does not come for a value that was not set).
+
 ## Not covered
 
 No other command kinds, and no `Notify`. Slot 15 allows writing another

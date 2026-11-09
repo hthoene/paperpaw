@@ -144,24 +144,29 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 - [D] **Admission.** A host admits a tag in this family once it has the producer. Until then a
   registration naming it is `ERR_UNSUPPORTED` for the batch, as for any tag without an encoder. A
   host that produces a tag admits it on every device, even where it never fires (Wi-Fi on a device
-  without Wi-Fi): a plugin's registrations never depend on the device.
-- [D] **Hints (70-74) may be coalesced:** at most one of each is pending per plugin; a newer one
-  replaces it, and it is encoded from the current state at delivery. That is 5 bits per plugin in
-  the host's per-plugin entry, no allocation. A coalesced hint is not reported.
+  without Wi-Fi): a plugin's registrations never depend on the device. **65-67** (book opened,
+  closed, finished) are the exception: they are admitted now and delivered once the reader port
+  produces them (section 3.1), so the plugins that follow reading (rules, setup) load before it; a
+  registration for them never fires until then, as on a device without the capability.
+- [D] **Hints (70-74, and 76 `preview_changed`) may be coalesced:** at most one of each is
+  pending per plugin; a newer one replaces it, and it is encoded from the current state at
+  delivery. That is one bit per hint in the host's per-plugin entry (76 has its own: two hints
+  never share a bit), no allocation. A coalesced hint is not reported.
 - [D] **Edges (64-69) are never coalesced.** Edges waiting for a busy plugin are kept encoded in the
   host's held-event store: at most 16 edges and 4 KiB per plugin, and at most 8 KiB device-wide on
   the X4. An edge that does not fit, or cannot be delivered (the plugin is stopping or its callback
   fails), takes the `event_dropped` path (section 1.5 of the events proposal) and is logged, never
   retried; for 64 the drop is replaced by the empty-key event above. That event has its own
-  pending bit per plugin (a sixth bit beside the five hint bits), not a slot in the store, so it can
+  pending bit per plugin (beside the hint bits), not a slot in the store, so it can
   be raised when the store is full. The store is allocated fallibly; a failed allocation takes the
   same `event_dropped` path. A profile that applies 200
   settings therefore costs each subscriber at most 16 held edges plus one empty-key event.
 - [D] **Lazy start.** A plugin that is not running gets no events; registering for one does not
   start it. A plugin that must follow the library while stopped reads the state at its next start.
 - [D] **Cost on the X4.** The host encodes into a stack buffer (the largest record, 65-67, is under
-  1.1 KB, as `event.page_turned`); one registration entry per plugin and tag, 6 pending bits per
-  plugin (5 hints and the empty-key setting event) and the held-event store above.
+  1.1 KB, as `event.page_turned`); one registration entry per plugin and tag, 7 pending bits per
+  plugin (the hints 70-74 and 76, and the empty-key setting event: one byte) and the held-event
+  store above.
 - [D] **Declared uses.** The store lists a plugin's registrations for 37 and 65-69 as "reads your
   reading activity" among its declared uses, taken from the declaration index; no new
   metadata field.
