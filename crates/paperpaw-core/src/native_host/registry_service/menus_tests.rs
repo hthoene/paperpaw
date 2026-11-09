@@ -687,7 +687,7 @@ fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
 }
 
 #[test]
-fn op_15_lists_the_steps_that_apply_in_order_merged_with_the_declared_ones() {
+fn op_15_lists_every_step_in_order_with_what_applies_merged_with_the_declared_ones() {
     let kernel = kernel();
     let step = |name, order, flags, key, value, need, capability| {
         Record::SetupStep(wire::SetupStep {
@@ -722,6 +722,8 @@ fn op_15_lists_the_steps_that_apply_in_order_merged_with_the_declared_ones() {
     assert_eq!(
         rows,
         [
+            // A code plugin's step that does not apply is listed, bit 0 clear.
+            "step demo.never 1 demo.main 5 0 demo.step.never",
             "step nat.off 0 demo.flag 5 1 nat.step",
             // The host's own steps are the environment's too.
             "step core.setup.language 0 core.language 10 1 Language",
@@ -736,12 +738,15 @@ fn op_15_lists_the_steps_that_apply_in_order_merged_with_the_declared_ones() {
             "step core.setup.time-zone 0 core.time-zone 40 1 Time zone",
         ]
     );
-    // The environment's steps alone, and the step that never applies is not listed.
+    // The environment's steps alone; the step that never applies is listed too.
     let rows = rows_of(&kernel, None, schema::OP_SETUP, "", 0);
-    assert_eq!(rows.len(), 4);
-    assert!(!rows.iter().any(|row| row.contains("never")));
+    assert_eq!(rows.len(), 5);
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("step demo.never ") && row.contains(" 5 0 "))
+    );
     let (rows, end) = page(&kernel, schema::OP_SETUP, "ignored");
-    assert_eq!((rows.len(), end.total), (4, 4));
+    assert_eq!((rows.len(), end.total), (5, 5));
 }
 
 fn widget(

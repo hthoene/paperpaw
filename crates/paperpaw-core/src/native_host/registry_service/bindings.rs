@@ -23,6 +23,8 @@ fn layer(
     layer: &str,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
+    // `bindings` collects the one layer's bindings: at most one an input of
+    // the device (a few dozen) at about 32 bytes, however many plugins bind.
     for (input, action, from) in sources.env.keys().bindings(layer) {
         let row = Record::ServiceRegBinding(wire::ServiceRegBinding {
             layer,

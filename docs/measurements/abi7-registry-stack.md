@@ -11,6 +11,7 @@ measurement with `tools/stack-frames.py` on a `riscv32imc` release build, as in
 | --- | ---: | --- |
 | list op, row building (`reg_plugin`, `reg_item`, ...) | a few hundred bytes | `Fixed<N>` strings of at most 128 bytes, no heap |
 | `reg_setting` (op 1, 2) with `Encoded<64>` | about 0.2 KiB | the value cap of the row |
+| `menus::row` (op 12), one row | about 0.7 KiB | the `Fixed` strings of the row (`by` 64, icon 64, describe and item 128 each, title up to 128) plus the item's state and the record's references; the largest frame of the menu ops; the helpers it calls (`menu_native::*`) return `Fixed` values of at most 128 bytes |
 | `reg_value` (op 18) with `Encoded<512>` | about 1.6 KiB | `bytes: [u8; 512]` + the encoder's `[MaybeUninit<u8>; 512]` + the returned value; the deepest chain of the service |
 
 The `Encoded<512>` chain (preset and placement values) is the largest and stays under the gate

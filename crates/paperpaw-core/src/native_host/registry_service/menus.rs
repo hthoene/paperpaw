@@ -55,6 +55,11 @@ pub(super) fn menus(
     let env = sources.env;
     let menus = env.menus();
     let translator = env.i18n();
+    // Allocation: the SDK builds this list of references (4 or 8 bytes an
+    // entry) as the kernel itself does for every menu it shows. Its size is
+    // bounded by the entries the plugins declared, each of which the kernel
+    // already holds in at least 64 bytes, so a failure here is a failure of
+    // the kernel's own menus first; it is not a growth the caller controls.
     let ids = menus.menu_ids();
     let mut item = |id: &str, flags: u32| {
         let title = menus
@@ -134,11 +139,17 @@ pub(super) fn menu(
         None => None,
     };
     let menus = env.menus();
+    // Allocation: the SDK builds this list of references (4 or 8 bytes an
+    // entry) as the kernel itself does for every menu it shows. Its size is
+    // bounded by the entries the plugins declared, each of which the kernel
+    // already holds in at least 64 bytes, so a failure here is a failure of
+    // the kernel's own menus first; it is not a growth the caller controls.
+    let contributed = menus.contributed_ids(scope);
     let call = Call {
         env,
         native: guard.as_deref().map(|store| Native::new(store, env.caps())),
         menu: scope,
-        contributed: menus.contributed_ids(scope),
+        contributed,
         customized: menus.is_customized(scope),
         declared_view: flags & DECLARED != 0,
     };
@@ -456,6 +467,8 @@ fn screen_title<'a>(env: &Env<'a>, item: &str) -> Option<&'a str> {
 /// shown as that submenu.
 fn is_menu(call: &Call<'_>, item: &str) -> bool {
     let menus = call.env.menus();
+    // `contributed_ids` allocates one reference an entry of that menu, as
+    // above (and no more than the entries the kernel holds for it).
     menus.is_customized(item)
         || !menus.contributed_ids(item).is_empty()
         || call.native.as_ref().is_some_and(|n| n.names_menu(item))

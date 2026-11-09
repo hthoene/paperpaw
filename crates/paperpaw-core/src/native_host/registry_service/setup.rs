@@ -2,8 +2,8 @@
 //! `flags` bit 0 where the step applies now.
 //!
 //! Two sources, merged by `order` (the environment's first where equal): the
-//! steps code plugins added (`SetupSteps`, whose `applying` evaluates their
-//! `AppliesFn` here, in the host's process) and the `setup.step` declarations
+//! steps code plugins added (`SetupSteps`, whose `AppliesFn` is evaluated here,
+//! in the host's process; a step that does not apply is listed with bit 0 clear) and the `setup.step` declarations
 //! of native plugins in the declaration store, whose applicability is
 //! evaluated from the declaration (`registry.md` section 6, rules 1 to 3).
 use super::{
@@ -82,8 +82,7 @@ fn merged(
     store: Option<&DeclarationStore>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
-    let steps = env.setup().applying(env);
-    let mut own = steps.iter();
+    let mut own = env.setup().iter();
     let mut ahead = own.next();
     let mut after: Option<Sort> = None;
     let mut declared =
@@ -98,7 +97,8 @@ fn merged(
         };
         if env_first {
             if let Some(step) = ahead {
-                env_row(env, step, visit)?;
+                let applies = step.applies.as_ref().is_none_or(|applies| applies(env));
+                env_row(env, step, applies, visit)?;
             }
             ahead = own.next();
             continue;
@@ -115,10 +115,11 @@ fn merged(
     }
 }
 
-/// The row of a step a code plugin added, which applies (`applying` kept only those).
+/// The row of a step a code plugin added; `applies` is its `AppliesFn` now.
 fn env_row(
     env: &Env<'_>,
     step: &paperpaw_sdk::setup::SetupStepSpec,
+    applies: bool,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let (page_kind, page) = match &step.page {
@@ -139,7 +140,7 @@ fn env_row(
         page_kind,
         page,
         order: step.order,
-        flags: APPLIES,
+        flags: if applies { APPLIES } else { 0 },
         title: translated(env.i18n(), key, caps::TITLE),
     }))
 }
