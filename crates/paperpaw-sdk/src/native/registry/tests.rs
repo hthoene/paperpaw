@@ -573,6 +573,33 @@ fn remaining_list_operations_use_the_declared_schema_and_accept_empty_pages() {
     );
 }
 
+/// The widget list leaves bit 0 of the flags unset (`registry.md`, op 19): the
+/// host then leaves out the widgets that only preview a settings group, so a
+/// widget picker (the home plugin's) offers no preview widget. Bit 0 lists
+/// only those.
+#[test]
+fn the_widget_list_never_asks_for_preview_widgets() {
+    let table = table();
+    let mut fixture = Fixture::default();
+    *fixture.response.borrow_mut() = encode(&[end(0, 0, 1, true)]);
+    let host = host(&table, &mut fixture);
+    let registry = Registry::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for scope in ["", "home"] {
+        registry
+            .widgets(&host, scope, PageCursor::start(), &mut input, &mut out)
+            .unwrap();
+    }
+    assert_eq!(
+        &*fixture.queries.borrow(),
+        &[
+            (schema::OP_WIDGETS, 0, 0, 0),
+            (schema::OP_WIDGETS, 0, 0, 0)
+        ]
+    );
+}
+
 #[test]
 fn host_id_caps_remain_independent_of_plugin_loader_validation() {
     let id = "p".repeat(wire::SERVICE_REG_PLUGIN_ID_MAX_BYTES);
