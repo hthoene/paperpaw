@@ -360,6 +360,9 @@ fn previews_show_values_without_keeping_them() {
         ),
     ]);
     assert!(s.previewing());
+    // In the preview set, also a value that stays as kept; not those left out.
+    assert!(s.is_previewed("widgets.clock.date") && s.is_previewed("widgets.clock.size"));
+    assert!(!s.is_previewed("widgets.none") && !s.is_previewed("widgets.clock@4.date"));
     assert!(!s.bool("widgets.clock.date"));
     // Not set, while shown: the default, not the value kept.
     assert_eq!(s.int("widgets.clock.size"), 5);
@@ -369,7 +372,7 @@ fn previews_show_values_without_keeping_them() {
     assert!(s.with_placement(Some("widgets.clock@3"), || s.bool("widgets.clock.date")));
     assert!(!s.with_placement(Some("widgets.clock@4"), || s.bool("widgets.clock.date")));
     s.set_preview(Vec::new());
-    assert!(!s.previewing());
+    assert!(!s.previewing() && !s.is_previewed("widgets.clock.date"));
     assert_eq!(s.int("widgets.clock.size"), 7);
     assert!(s.bool("widgets.clock.date"));
     assert!(s.is_set("widgets.clock@2.date"));

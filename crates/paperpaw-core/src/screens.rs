@@ -445,6 +445,7 @@ impl Kernel {
 
     /// Binds an input for the user (see [`Command::Bind`]).
     pub(crate) fn bind(&mut self, layer: &str, input: &str, action: Option<Id>) {
+        self.shared.registry_generation.bump();
         let valid_layer = layer == GLOBAL_KEYMAP_LAYER || Id::parse(layer).is_ok();
         if !valid_layer || !keymap::is_input(input) {
             return self.warn_runtime(format!("cannot bind `{input}` in `{layer}`"));
