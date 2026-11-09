@@ -1357,12 +1357,6 @@ impl Bonded {
         }
     }
 
-    /// The plugins it is given to (the Bluetooth manager's view).
-    #[cfg(any(feature = "kernel", test))]
-    pub fn given_plugins(&self) -> &[Id] {
-        &self.given
-    }
-
     #[cfg(any(feature = "kernel", feature = "testing", test))]
     #[must_use]
     pub fn given_to(mut self, plugins: Vec<Id>) -> Self {
@@ -1401,12 +1395,6 @@ impl Bluetooth {
 
     pub fn set_manager(&mut self, manager: Option<Id>) {
         self.manager = manager;
-    }
-
-    /// The bonded devices, for a shell that tells its own host services of
-    /// them (`core.device`, op 11).
-    pub fn bonded_devices(&self) -> &[Bonded] {
-        &self.bonded
     }
 }
 

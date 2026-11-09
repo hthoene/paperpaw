@@ -394,11 +394,11 @@ fn start() -> Firmware {
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
     }
-    // The device follows what the kernel keeps from the start: Wi-Fi, power
-    // (and Bluetooth), which only exist now.
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
     #[cfg(feature = "ppn5")]
     {
-        device_host::sync(&firmware.device, &firmware.kernel);
+        device_host::present(&firmware.device, &firmware.kernel);
         device_host::check(&firmware.device);
     }
     power::mark(power::at::START_KERNEL);

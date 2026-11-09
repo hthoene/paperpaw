@@ -316,8 +316,6 @@ impl Firmware {
         self.poll_frame();
         self.usb();
         self.tick();
-        #[cfg(feature = "ppn5")]
-        crate::device_host::sync(&self.device, &self.kernel);
         self.poll_frame();
         self.rest(battery, installing);
     }
@@ -973,9 +971,6 @@ impl Firmware {
         // From the first work not written back: work coming again and
         // again does not put it off.
         self.state.unsynced.get_or_insert(now().0);
-        // What the kernel changed is read from `core.device` from here on.
-        #[cfg(feature = "ppn5")]
-        crate::device_host::sync(&self.device, &self.kernel);
         // The light as set (or shown while a slider moves) at once, not
         // after the frame that shows the setting.
         self.light();

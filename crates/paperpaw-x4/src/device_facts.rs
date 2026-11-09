@@ -9,7 +9,7 @@ use alloc::string::String;
 use paperpaw_core::native_host::device_service::{MemoryFacts, caps};
 use paperpaw_platform::MemoryClass;
 use paperpaw_platform::firmware::Text;
-use paperpaw_sdk::bluetooth::{Bluetooth, DeviceKind, RadioState};
+use paperpaw_sdk::bluetooth::{Bluetooth, RadioState};
 use paperpaw_sdk::memory::MemoryUse;
 use paperpaw_sdk::native::{CodeRoom, Native, NotInstalledReason, SafeModeReason};
 use paperpaw_sdk::power::{PowerControls, Start};
@@ -209,32 +209,6 @@ pub fn bluetooth_facts(bluetooth: &Bluetooth) -> BluetoothState {
     BluetoothState {
         radio: u32::from(bluetooth.state == RadioState::On),
         max_links: u32::from(bluetooth.max_links),
-    }
-}
-
-/// `dev_bonded.kind`: 0 other, 1 keyboard, 2 remote, 3 sensor, 4 phone.
-#[must_use]
-pub fn device_kind_code(kind: DeviceKind) -> u32 {
-    match kind {
-        DeviceKind::Keyboard => 1,
-        DeviceKind::Remote => 2,
-        DeviceKind::Sensor => 3,
-        DeviceKind::Phone => 4,
-        _ => 0,
-    }
-}
-
-/// One row of op 11 from a device the kernel keeps bonded. `given` is the
-/// first plugin it is given to (op 11 has room for one).
-#[must_use]
-pub fn bonded_row(bonded: &paperpaw_sdk::bluetooth::Bonded) -> Bonded<'_> {
-    Bonded {
-        device: bonded.id.number(),
-        name: &bonded.name,
-        kind: device_kind_code(bonded.kind),
-        connected: bonded.connected,
-        remote_keys: bonded.keys,
-        given: bonded.given_plugins().first().map_or("", |id| id.as_str()),
     }
 }
 
@@ -466,32 +440,12 @@ mod tests {
     }
 
     #[test]
-    fn bluetooth_facts_follow_the_radio_and_bonds_keep_their_flags() {
-        use paperpaw_sdk::bluetooth::{Bonded as Sdk, DeviceId};
+    fn bluetooth_facts_follow_the_radio() {
         let mut bluetooth = Bluetooth::new(2);
         assert_eq!(bluetooth_facts(&bluetooth).radio, 0);
         assert_eq!(bluetooth_facts(&bluetooth).max_links, 2);
         bluetooth.state = RadioState::On;
         assert_eq!(bluetooth_facts(&bluetooth).radio, 1);
-        let mut remote = Sdk::new(DeviceId::new(7), "Page turner", DeviceKind::Remote);
-        remote.connected = true;
-        remote.keys = true;
-        let row = bonded_row(&remote);
-        assert_eq!(
-            (
-                row.device,
-                row.name,
-                row.kind,
-                row.connected,
-                row.remote_keys,
-                row.given
-            ),
-            (7, "Page turner", 2, true, true, "")
-        );
-        assert_eq!(device_kind_code(DeviceKind::Keyboard), 1);
-        assert_eq!(device_kind_code(DeviceKind::Sensor), 3);
-        assert_eq!(device_kind_code(DeviceKind::Phone), 4);
-        assert_eq!(device_kind_code(DeviceKind::Other), 0);
     }
 
     /// A device whose Wi-Fi and Bluetooth parts are not told to it yet says so

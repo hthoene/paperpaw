@@ -387,13 +387,6 @@ impl X4Device {
         true
     }
 
-    /// [`set_power`](Self::set_power), but nothing is copied where the power is
-    /// what is held (the main loop calls this after every step of the kernel).
-    pub fn sync_power(&self, power: &Power) -> bool {
-        let same = self.power.try_borrow().is_ok_and(|held| *held == *power);
-        same || self.set_power(power.clone())
-    }
-
     /// The power level and mode the kernel reports now (op 12). False where a
     /// visitor is reading it (it is then as it was): never a panic.
     pub fn set_power(&self, power: Power) -> bool {
@@ -1406,25 +1399,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(seen, [("home".to_string(), -50), ("cafe".to_string(), -60)]);
-    }
-
-    #[test]
-    fn the_power_is_copied_only_where_it_changed() {
-        let device = device(&[]);
-        let normal = Power::default();
-        assert!(device.sync_power(&normal));
-        let saving = Power::new(
-            paperpaw_sdk::power::PowerLevel::Saving,
-            paperpaw_sdk::power::NORMAL,
-            true,
-            4,
-        );
-        assert!(device.sync_power(&saving));
-        let mut seen = None;
-        device
-            .power(&mut |power| seen = Some(power.clone()))
-            .unwrap();
-        assert_eq!(seen, Some(saving));
     }
 
     #[test]
