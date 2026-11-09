@@ -82,11 +82,15 @@ pub enum EventKind {
     /// Something happened to a broadcast of this plugin. Needed before the
     /// first `broadcast`.
     Broadcast,
-    /// Work of this plugin came due (`core.work`).
+    /// Work of this plugin came due (`core.work`). Needed before `Work::declare`
+    /// (without it the call answers `State`); the event goes only to the plugin
+    /// that declared the work.
     WorkDue,
-    /// Work of this plugin was taken out for good.
+    /// Work of this plugin was taken out for good. Optional: without it a refused
+    /// work just vanishes from the work list.
     WorkRefused,
-    /// What held work back no longer does (a hint, coalesced).
+    /// What held work back no longer does (a hint, coalesced). Optional: without
+    /// it the plugin tries again at its next work or event.
     WorkAllowed,
 }
 
