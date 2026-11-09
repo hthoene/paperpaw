@@ -4,45 +4,18 @@
 //! fallible (a refused allocation is `NoMemory`, never an abort) and free of
 //! slicing that could panic; each part is tested to give the same answers.
 //!
-//! Members of the arguments are found with the kit's `raw_member` (it allocates
-//! nothing) and their text made with its fallible reader
-//! (`paperpaw_ui_kit::json`), so a hostile message costs no more than the
-//! framing's bound ([`max_message`]) and a refused allocation is `NoMemory`.
+//! Members of the arguments are read with `paperpaw_sdk::json` until Kernel's
+//! fallible reader (#414) is on integration: it allocates without a refusal
+//! path, so what it takes is bounded by the longest message the framing lets
+//! through ([`max_message`]), not by this crate (`PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{digest::sha1::Sha1, files::is_plain_name, native::Error};
+use paperpaw_sdk::{MemoryClass, digest::sha1::Sha1, files::is_plain_name, json, native::Error};
 use paperpaw_ui_kit::{
     mem::{push, wipe},
     text::{concat, copy, decimal},
 };
 
-/// The ports Calibre listens on for a device looking for it.
-pub const BROADCAST_PORTS: [u16; 5] = [54982, 48123, 39001, 44044, 59678];
-/// The port Calibre takes for devices unless set otherwise.
-pub const DEFAULT_PORT: u16 = 9090;
-
-/// The opcodes PaperPaw knows.
-pub mod op {
-    pub const OK: u8 = 0;
-    pub const SET_CALIBRE_DEVICE_INFO: u8 = 1;
-    pub const SET_CALIBRE_DEVICE_NAME: u8 = 2;
-    pub const GET_DEVICE_INFORMATION: u8 = 3;
-    pub const TOTAL_SPACE: u8 = 4;
-    pub const FREE_SPACE: u8 = 5;
-    pub const GET_BOOK_COUNT: u8 = 6;
-    pub const SEND_BOOKLISTS: u8 = 7;
-    pub const SEND_BOOK: u8 = 8;
-    pub const GET_INITIALIZATION_INFO: u8 = 9;
-    pub const BOOK_DONE: u8 = 11;
-    pub const NOOP: u8 = 12;
-    pub const DELETE_BOOK: u8 = 13;
-    pub const GET_BOOK_FILE_SEGMENT: u8 = 14;
-    pub const GET_BOOK_METADATA: u8 = 15;
-    pub const SEND_BOOK_METADATA: u8 = 16;
-    pub const DISPLAY_MESSAGE: u8 = 17;
-    pub const CALIBRE_BUSY: u8 = 18;
-    pub const SET_LIBRARY_INFO: u8 = 19;
-    pub const ERROR: u8 = 20;
-}
+pub use crate::protocol::{BROADCAST_PORTS, DEFAULT_PORT, op};
 
 /// A message: its opcode and its arguments as JSON (an object).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +24,15 @@ pub struct Message {
     pub args: String,
 }
 
-/// Longest message read on a device of the small class (an X4) or any other: a
-/// book's metadata with its description and cover thumbnail is the largest, a
-/// few dozen kilobytes. A message is held whole.
+/// Longest message read on a device with `memory`: a book's metadata with
+/// its description and cover thumbnail is the largest, a few dozen
+/// kilobytes. A message is held whole.
 #[must_use]
-pub const fn max_message(small: bool) -> usize {
-    if small { 64 * 1024 } else { 1 << 20 }
+pub const fn max_message(memory: MemoryClass) -> usize {
+    match memory {
+        MemoryClass::Small => 64 * 1024,
+        _ => 1 << 20,
+    }
 }
 
 /// `op` with `args` (a JSON object) as it goes on the connection.
@@ -235,7 +211,7 @@ pub fn parse(body: &str) -> Result<Option<Message>, Error> {
 /// Member `key` of `object`, as it is written.
 #[must_use]
 pub fn member<'a>(object: &'a str, key: &str) -> Option<&'a str> {
-    paperpaw_ui_kit::json::raw_member(object, key)
+    json::raw_member(object, key)
 }
 
 /// Member `key` of `object` as text: a JSON string decoded, other values as
@@ -247,7 +223,7 @@ pub fn text(object: &str, key: &str) -> Result<Option<String>, Error> {
     let Some(raw) = member(object, key) else {
         return Ok(None);
     };
-    match paperpaw_ui_kit::json::unquote(raw)? {
+    match json::unquote(raw) {
         Some(text) => Ok(Some(text)),
         None => copy(raw).map(Some),
     }
@@ -259,80 +235,12 @@ pub fn number(object: &str, key: &str) -> Option<u64> {
     member(object, key)?.parse::<f64>().ok().map(|n| n as u64)
 }
 
-/// The strings of the array member `key` of `object` (other elements are
-/// left out, as are the strings after one that is cut short).
-///
-/// # Errors
-/// `NoMemory` when the strings cannot be kept.
-pub fn strings(object: &str, key: &str) -> Result<Vec<String>, Error> {
-    let mut out = Vec::new();
-    let Some(array) = member(object, key) else {
-        return Ok(out);
-    };
-    let Some(mut rest) = array.trim().strip_prefix('[') else {
-        return Ok(out);
-    };
-    loop {
-        rest = rest.trim_start_matches([' ', '\t', '\r', '\n', ',']);
-        if !rest.starts_with('"') {
-            // Not a string: skipped up to the next comma at this level.
-            match skip_value(rest) {
-                Some(after) if !after.is_empty() && !after.starts_with(']') => rest = after,
-                _ => return Ok(out),
-            }
-            continue;
-        }
-        let Some(end) = string_end(rest) else {
-            return Ok(out);
-        };
-        let (literal, after) = rest.split_at(end);
-        if let Some(text) = paperpaw_ui_kit::json::unquote(literal)? {
-            push(&mut out, text)?;
-        }
-        rest = after;
-    }
-}
-
-/// The byte just after the string literal `text` starts with.
-fn string_end(text: &str) -> Option<usize> {
-    let mut escaped = false;
-    for (at, c) in text.char_indices().skip(1) {
-        match c {
-            _ if escaped => escaped = false,
-            '\\' => escaped = true,
-            '"' => return Some(at + 1),
-            _ => {}
-        }
-    }
-    None
-}
-
-/// What follows the value (a number, a literal, a nested array or object)
-/// `text` starts with, up to the next element: the rest from its comma or
-/// closing bracket.
-fn skip_value(text: &str) -> Option<&str> {
-    let mut depth = 0usize;
-    let mut quoted = false;
-    let mut escaped = false;
-    for (at, c) in text.char_indices() {
-        if quoted {
-            match c {
-                _ if escaped => escaped = false,
-                '\\' => escaped = true,
-                '"' => quoted = false,
-                _ => {}
-            }
-            continue;
-        }
-        match c {
-            '"' => quoted = true,
-            '[' | '{' => depth += 1,
-            ']' | '}' if depth > 0 => depth -= 1,
-            ',' | ']' if depth == 0 => return text.get(at..),
-            _ => {}
-        }
-    }
-    None
+/// The strings of the array member `key` of `object`.
+#[must_use]
+pub fn strings(object: &str, key: &str) -> Vec<String> {
+    member(object, key)
+        .map(json::string_array)
+        .unwrap_or_default()
 }
 
 /// `text` as a JSON string literal.
@@ -639,7 +547,8 @@ pub fn queue(messages: &mut Vec<Message>, message: Message) -> Result<(), Error>
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     use super::*;
-    use alloc::{format, vec};
+    use crate::protocol as old;
+    use alloc::{format, string::ToString};
 
     const ARGS: [&str; 7] = [
         "{}",
@@ -652,159 +561,160 @@ mod tests {
     ];
 
     #[test]
-    fn frames_are_the_length_then_the_message() {
+    fn frames_are_what_interface_6_wrote() {
         for op in [0u8, 7, 9, 20, 255] {
             for args in ARGS {
-                let body = format!("[{op}, {args}]");
-                let expected = format!("{}{body}", body.len());
-                assert_eq!(frame(op, args).unwrap(), expected.into_bytes());
+                assert_eq!(frame(op, args).unwrap(), old::frame(op, args));
             }
         }
     }
 
     #[test]
-    fn messages_are_read_in_any_chunking_and_hostile_bytes_are_refused() {
+    fn messages_are_read_as_before_in_any_chunking_and_hostile_bytes_are_refused() {
         let mut wire = String::new();
         for (n, args) in ARGS.iter().enumerate() {
             wire.push_str(core::str::from_utf8(&frame(n as u8, args).unwrap()).unwrap());
         }
         for chunk in [1usize, 2, 3, 7, 64, usize::MAX] {
-            let mut framing = Framing::default();
+            let (mut new, mut oldf) = (Framing::default(), old::Framing::default());
             let mut rest = wire.as_str();
-            let mut got = Vec::new();
             while !rest.is_empty() {
-                let mut n = (framing.wanted() as usize).min(chunk).min(rest.len());
+                let n = (new.wanted() as usize).min(chunk).min(rest.len());
+                let mut n = n;
                 while !rest.is_char_boundary(n) {
                     n += 1;
                 }
+                assert_eq!(new.wanted(), oldf.wanted());
                 let (part, tail) = rest.split_at(n);
                 rest = tail;
-                if let Some(message) = framing.feed(part).unwrap() {
-                    got.push((message.op, message.args));
+                let got = new.feed(part).map_err(Refused::words);
+                let was = oldf.feed(part);
+                match (got, was) {
+                    (Ok(Some(a)), Ok(Some(b))) => assert_eq!((a.op, a.args), (b.op, b.args)),
+                    (a, b) => assert_eq!(a.map(|m| m.is_some()), b.map(|m| m.is_some())),
                 }
             }
-            // "not json" is not an object but is a message all the same.
-            assert_eq!(got.len(), ARGS.len(), "chunk {chunk}");
-            for (n, (op, args)) in got.iter().enumerate() {
-                assert_eq!((*op, args.as_str()), (n as u8, ARGS[n]));
+        }
+        for hostile in [
+            "x",
+            "[",
+            "0[",
+            "123456789[",
+            "9999999[",
+            "5[0]",
+            "7[a, {}]",
+            "7 [0, {}]",
+            "0",
+            "12",
+            "3[]]",
+        ] {
+            let (mut new, mut oldf) = (Framing::new(1000), old::Framing::new(1000));
+            let a = new
+                .feed(hostile)
+                .map_err(Refused::words)
+                .map(|m| m.map(|m| (m.op, m.args)));
+            let b = oldf.feed(hostile).map(|m| m.map(|m| (m.op, m.args)));
+            assert_eq!(a, b, "{hostile:?}");
+        }
+    }
+
+    #[test]
+    fn the_members_are_read_as_before() {
+        for args in ARGS {
+            for key in [
+                "title",
+                "authors",
+                "thumbnail",
+                "n",
+                "a",
+                "b",
+                "x",
+                "y",
+                "none",
+            ] {
+                assert_eq!(member(args, key), old::member(args, key));
+                assert_eq!(text(args, key).unwrap(), old::text(args, key));
+                assert_eq!(number(args, key), old::number(args, key));
+                assert_eq!(strings(args, key), old::strings(args, key));
+                assert_eq!(
+                    without_member(args, key).unwrap(),
+                    old::without_member(args, key),
+                    "{args:?} {key}"
+                );
             }
         }
-        for (hostile, why) in [
-            ("x", Refused::NotAMessage),
-            ("[", Refused::NoLength),
-            ("0[", Refused::BadLength),
-            ("123456789[", Refused::LengthTooLong),
-            ("9999999[", Refused::BadLength),
+        for body in [
+            "[0, {}]",
+            " [3,{\"a\":1}] ",
+            "[x, {}]",
+            "0, {}",
+            "[1]",
+            "[]",
+            "[300, {}]",
         ] {
-            let mut framing = Framing::new(1000);
-            assert_eq!(framing.feed(hostile).unwrap_err(), why, "{hostile:?}");
-        }
-        for bad in ["3[0]", "7[a, {}]", "3[]]"] {
-            let mut framing = Framing::new(1000);
             assert_eq!(
-                framing.feed(bad).unwrap_err(),
-                Refused::BadMessage,
-                "{bad:?}"
+                parse(body).unwrap(),
+                old::parse(body).map(|m| Message {
+                    op: m.op,
+                    args: m.args
+                })
             );
         }
-        // What has not come yet is waited for, not refused.
-        for partial in ["0", "12", "12[0, ", "7"] {
-            let mut framing = Framing::new(1000);
-            assert!(framing.feed(partial).unwrap().is_none(), "{partial:?}");
-        }
     }
 
     #[test]
-    fn the_members_are_read() {
-        let book = ARGS[2];
-        assert_eq!(text(book, "title").unwrap().as_deref(), Some("Bücher ✓"));
-        assert_eq!(number(book, "n"), Some(1));
-        assert_eq!(strings(book, "authors").unwrap(), vec!["A", "B"]);
-        assert_eq!(text(book, "none").unwrap(), None);
-        assert_eq!(number(book, "title"), None);
-        assert_eq!(text(ARGS[3], "a").unwrap().as_deref(), Some("q\"uote\\"));
-        // Written, not a string: as written.
-        assert_eq!(text(ARGS[3], "b").unwrap().as_deref(), Some("null"));
-        assert_eq!(member(ARGS[6], "y"), Some("2"));
-        for args in ["not json", "{}", ARGS[6]] {
-            assert!(strings(args, "authors").unwrap().is_empty());
-        }
-        // Other elements and hostile arrays give what is there, never a panic.
-        assert_eq!(
-            strings(r#"{"t": ["a", 1, [2, "x"], {"k": "v"}, "b"]}"#, "t").unwrap(),
-            ["a", "b"]
-        );
-        for cut in [
-            r#"{"t": ["a", "b"#,
-            r#"{"t": ["a", "#,
-            r#"{"t": [,,"a","#,
-            r#"{"t": ["#,
-        ] {
-            let got = strings(cut, "t").unwrap();
-            assert!(got.len() <= 1, "{cut:?} {got:?}");
-        }
-    }
-
-    #[test]
-    fn without_member_cuts_the_thumbnail() {
-        let cut = |args: &str| without_member(args, "thumbnail").unwrap();
-        assert_eq!(
-            cut(ARGS[2]),
-            r#"{"title": "Bücher ✓", "authors": ["A", "B"], "n": 1.0}"#
-        );
-        assert_eq!(cut(ARGS[6]), r#"{"x": 1, "y": 2}"#);
-        assert_eq!(cut(ARGS[4]), "{}");
-        assert_eq!(cut("not json"), "not json");
-        assert_eq!(cut(ARGS[0]), "{}");
-    }
-
-    #[test]
-    fn a_body_is_a_message_or_nothing() {
-        let message = |body: &str| parse(body).unwrap().map(|m| (m.op, m.args));
-        assert_eq!(message("[0, {}]"), Some((0, "{}".into())));
-        assert_eq!(message(" [3,{\"a\":1}] "), Some((3, "{\"a\":1}".into())));
-        for body in ["[x, {}]", "0, {}", "[1]", "[]", "[300, {}]"] {
-            assert_eq!(message(body), None, "{body:?}");
-        }
-    }
-
-    const INIT_HEAD: &str = "{\"versionOK\": true, \"maxBookContentPacketLen\": 65536, \"acceptedExtensions\": [\"epub\", \"fb2\", \"fb2.zip\", \"txt\"], \"extensionPathLengths\": {}, \"canStreamBooks\": true, \"canStreamMetadata\": true, \"canReceiveBookBinary\": true, \"canDeleteMultipleBooks\": true, \"canUseCachedMetadata\": false, \"cacheUsesLpaths\": true, \"canSendOkToSendbook\": false, \"canAcceptLibraryInfo\": true, \"willAskForUpdateBooks\": false, \"useUuidFileNames\": false, \"coverHeight\": 240, \"deviceKind\": \"PaperPaw\", \"deviceName\": \"My \\\"Reader\\\"\", \"appName\": \"PaperPaw\", \"ccVersionNumber\": \"1.0.9\", \"passwordHash\": \"";
-
-    #[test]
-    fn the_device_speaks_as_interface_6_did() {
+    fn the_device_speaks_as_before() {
         let extensions = ["epub", "fb2", "fb2.zip", "txt"];
-        for (challenge, password, hash) in [
-            ("", None, ""),
-            ("abc", None, ""),
-            (
-                "abc",
-                Some("pw"),
-                "cf2b7e4e50a003a1a04361027f6a339c2dda6bb1",
-            ),
+        for (challenge, password) in [
+            ("", None),
+            ("abc", None),
+            ("abc", Some("pw")),
+            ("", Some("pw")),
         ] {
-            let device = Device {
+            let new = Device {
                 name: "My \"Reader\"",
                 extensions: &extensions,
                 challenge,
                 password,
                 version: "1.0.9",
             };
-            assert_eq!(
-                initialization(&device).unwrap(),
-                format!("{INIT_HEAD}{hash}\"}}")
-            );
+            let oldd = old::Device {
+                name: new.name,
+                extensions: new.extensions,
+                challenge,
+                password,
+                version: new.version,
+            };
+            assert_eq!(initialization(&new).unwrap(), old::initialization(&oldd));
         }
-        let version = "\"version\": \"1.0.9\", \"device_version\": \"1.0.9\"}";
-        for (stored, info) in [
-            (None, "{\"device_name\": \"Name \\\"x\\\"\"}"),
-            (Some("{\"k\": 1}"), "{\"k\": 1}"),
-            (Some("nonsense"), "{\"device_name\": \"Name \\\"x\\\"\"}"),
+        for stored in [
+            None,
+            Some("{\"k\": 1}"),
+            Some("  {\"k\": 1}"),
+            Some("nonsense"),
         ] {
             assert_eq!(
                 device_information(stored, "Name \"x\"", "1.0.9").unwrap(),
-                format!("{{\"device_info\": {info}, {version}")
+                old::device_information(stored, "Name \"x\"", "1.0.9")
             );
         }
+        assert_eq!(
+            initialization(&Device {
+                name: "n",
+                extensions: &[],
+                challenge: "",
+                password: None,
+                version: "v"
+            })
+            .unwrap(),
+            old::initialization(&old::Device {
+                name: "n",
+                extensions: &[],
+                challenge: "",
+                password: None,
+                version: "v"
+            })
+        );
     }
 
     #[test]
@@ -852,94 +762,84 @@ mod tests {
     }
 
     #[test]
-    fn paths_never_leave_the_folder() {
+    fn paths_are_as_before_and_never_leave_the_folder() {
         let extensions = ["epub", "fb2.zip", "txt"];
-        // (lpath, the path below the library folder, the same for a book).
-        let cases: [(&str, Option<&str>, Option<&str>); 21] = [
-            ("a.epub", Some("a.epub"), Some("a.epub")),
-            (
-                "dir/sub/b.EPUB",
-                Some("dir/sub/b.EPUB"),
-                Some("dir/sub/b.EPUB"),
-            ),
-            (
-                "dir\\sub\\c.txt",
-                Some("dir/sub/c.txt"),
-                Some("dir/sub/c.txt"),
-            ),
-            ("./x/./y.txt", Some("x/y.txt"), Some("x/y.txt")),
-            ("../evil.epub", None, None),
-            ("a/../b.txt", None, None),
-            (".paperpaw/x.epub", None, None),
-            ("x/.hidden.epub", None, None),
-            (" lead.epub", None, None),
-            ("trail .epub", Some("trail .epub"), Some("trail .epub")),
-            ("a:b.epub", None, None),
-            ("x.epub.", None, None),
-            ("", None, None),
-            ("/", None, None),
-            ("///", None, None),
-            (".epub", None, None),
-            ("a.fb2.zip", Some("a.fb2.zip"), Some("a.fb2.zip")),
-            ("a.zip", Some("a.zip"), None),
-            ("ünï/ö.TXT", Some("ünï/ö.TXT"), Some("ünï/ö.TXT")),
-            ("con\u{1}trol.txt", None, None),
-            ("é.txt", Some("é.txt"), Some("é.txt")),
-        ];
-        for (lpath, safe, book) in cases {
-            assert_eq!(safe_path(lpath).unwrap().as_deref(), safe, "{lpath:?}");
+        for lpath in [
+            "a.epub",
+            "dir/sub/b.EPUB",
+            "dir\\sub\\c.txt",
+            "./x/./y.txt",
+            "../evil.epub",
+            "a/../b.txt",
+            ".paperpaw/x.epub",
+            "x/.hidden.epub",
+            " lead.epub",
+            "trail .epub",
+            "a:b.epub",
+            "x.epub.",
+            "",
+            "/",
+            "///",
+            ".epub",
+            "a.fb2.zip",
+            "a.zip",
+            "ünï/ö.TXT",
+            "con\u{1}trol.txt",
+            "é.txt",
+            "x.t\u{e9}xt",
+        ] {
             assert_eq!(
-                book_path(lpath, &extensions).unwrap().as_deref(),
-                book,
+                safe_path(lpath).unwrap(),
+                old::safe_path(lpath),
+                "{lpath:?}"
+            );
+            assert_eq!(
+                book_path(lpath, &extensions).unwrap(),
+                old::book_path(lpath, &extensions),
                 "{lpath:?}"
             );
         }
     }
 
     #[test]
-    fn calibres_answers_to_the_broadcast_are_read() {
-        for (answer, port, name) in [
-            (
-                "calibre wireless device client (on pc);59678,9090",
-                Some(9090),
-                Some("pc"),
-            ),
-            (
-                "calibre wireless device client (on pc);9090",
-                Some(9090),
-                Some("pc"),
-            ),
-            ("calibre wireless device client", None, None),
-            ("calibre wireless device client (on ", None, None),
-            (
-                "calibre wireless device client (on é);1,2,x",
-                None,
-                Some("é"),
-            ),
-            ("other", None, None),
-            ("calibre wireless device client (on );70000", None, Some("")),
+    fn calibres_answers_to_the_broadcast_are_read_as_before() {
+        for answer in [
+            "calibre wireless device client (on pc);59678,9090",
+            "calibre wireless device client (on pc);9090",
+            "calibre wireless device client",
+            "calibre wireless device client (on ",
+            "calibre wireless device client (on pc",
+            "calibre wireless device client (on é);1,2,x",
+            "other",
+            "",
+            "calibre wireless device client (on );70000",
         ] {
-            assert_eq!(port_of_answer(answer), port, "{answer:?}");
-            assert_eq!(name_of_answer(answer), name, "{answer:?}");
+            assert_eq!(
+                port_of_answer(answer),
+                old::port_of_answer(answer),
+                "{answer:?}"
+            );
+            assert_eq!(
+                name_of_answer(answer),
+                old::name_of_answer(answer),
+                "{answer:?}"
+            );
         }
     }
 
     #[test]
-    fn json_strings_are_quoted_and_escaped() {
-        for (text, quoted) in [
-            ("", "\"\""),
-            ("plain", "\"plain\""),
-            ("q\"uote", "\"q\\\"uote\""),
-            ("back\\slash", "\"back\\\\slash\""),
-            ("a\nb\rc\td", "\"a\\nb\\rc\\td\""),
-            ("\u{1}\u{1f}", "\"\\u0001\\u001f\""),
-            ("ünï 😀", "\"ünï 😀\""),
+    fn json_strings_are_as_before() {
+        for text in [
+            "",
+            "plain",
+            "q\"uote",
+            "back\\slash",
+            "a\nb\rc\td",
+            "\u{1}\u{1f}",
+            "ünï 😀",
         ] {
-            assert_eq!(json_string(text).unwrap(), quoted, "{text:?}");
-            assert_eq!(
-                paperpaw_ui_kit::json::unquote(quoted).unwrap().as_deref(),
-                Some(text)
-            );
+            assert_eq!(json_string(text).unwrap(), json::string(text), "{text:?}");
         }
+        assert_eq!(format!("{}", 1), 1.to_string());
     }
 }
