@@ -256,3 +256,13 @@ fn the_hand_over_names_a_deck_and_a_card() {
     assert_eq!(ok(&[("deck", "1"), ("deck", "1")]).unwrap().0, Some(1));
     assert_eq!(ok(&[("deck", "1"), ("deck", "2")]), Err(Error::Invalid));
 }
+
+#[test]
+fn a_storage_failure_is_told_by_what_it_was() {
+    use paperpaw_sdk::StorageError;
+    assert_eq!(storage_error(StorageError::TooLarge), Error::NoMemory);
+    assert_eq!(storage_error(StorageError::OutOfMemory), Error::NoMemory);
+    assert_eq!(storage_error(StorageError::Full), Error::Full);
+    assert_eq!(storage_error(StorageError::Io), Error::Io);
+    assert_eq!(storage_error(StorageError::NotFound), Error::Io);
+}

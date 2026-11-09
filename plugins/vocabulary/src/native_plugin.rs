@@ -214,11 +214,18 @@ impl NativeVocabulary {
 
     /// The minute tick: a card answered *Again* may be due in the review.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let Some(screen) = self.reviews.top(REVIEW_TOKEN) else {
+        let Some(instance) = self.reviews.top_instance(REVIEW_TOKEN) else {
+            return Ok(());
+        };
+        self.ensure(host)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let Some(screen) = self.reviews.get(instance) else {
             return Ok(());
         };
         let data = DataStorage::new(host);
-        screen.tick(host, &DataFolder(&data)).map(|_| ())
+        screen
+            .tick(host, &DataFolder(&data), ui, instance)
+            .map(|_| ())
     }
 }
 
