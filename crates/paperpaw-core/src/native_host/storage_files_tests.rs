@@ -141,11 +141,11 @@ fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     let sources = resources.hosts().busy_sources();
     assert!(sources.has(BusyKind::Network));
-    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
+    assert!(sources.has(BusyKind::ReaderBook), "the in-use table counts books");
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     assert!(resources.hosts().files().is_none(), "nothing half wired");
-    // The reader's book was the last: now it wires, once.
-    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
+    // The library's move job was the last: now it wires, once.
+    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
     resources.wire(wiring()).unwrap();
     assert!(resources.hosts().files().is_some());
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
@@ -155,12 +155,11 @@ fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
 fn the_wired_host_asks_the_device_sources() {
     let resources = HostResources::try_new().unwrap();
     let sources = resources.hosts().busy_sources();
-    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    let reader = Rc::new(Source {
+    let moving = Rc::new(Source {
         busy: Cell::new(true),
         moving: Cell::new(true),
     });
-    sources.register(BusyKind::ReaderBook, reader).unwrap();
+    sources.register(BusyKind::LibraryMoves, moving).unwrap();
     resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &resources.hosts().files().unwrap().0;
     assert!(files.busy("Books/a.epub", Access::Write));
@@ -179,7 +178,6 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
     assert!(sources.has(BusyKind::Network));
     assert!(!sources.complete());
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
     assert!(hosts.net().is_none() && hosts.sockets().is_none());
     resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &hosts.files().unwrap().0;

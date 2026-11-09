@@ -367,20 +367,23 @@ impl HostServices {
         self.in_use.get_or_init(Default::default)
     }
 
-    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
-    /// source of the busy answers of `core.files`, once for the device.
+    /// Makes the in-use table a source of the busy answers of `core.files`,
+    /// once for the device, for both kinds it answers: what `core.net` and
+    /// `core.sockets` hold, and the books the document service has open
+    /// ([`reader_book_opened`](Self::reader_book_opened): "the reader's book"
+    /// is every book a plugin has open through the document service).
     ///
     /// # Errors
     /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
     pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
+        use super::storage_files::BusyKind;
         let sources = self.busy_sources();
-        if sources.has(super::storage_files::BusyKind::Network) {
-            return Ok(());
+        for kind in [BusyKind::Network, BusyKind::ReaderBook] {
+            if !sources.has(kind) {
+                sources.register(kind, self.in_use().clone())?;
+            }
         }
-        sources.register(
-            super::storage_files::BusyKind::Network,
-            self.in_use().clone(),
-        )
+        Ok(())
     }
 
     /// The library's move job is a busy source of `core.files`: called by the
@@ -401,37 +404,26 @@ impl HostServices {
         )
     }
 
-    /// The kernel tracks the reader's open book: it is a path in use (the
-    /// in-use table, claimed by [`READER_OWNER`](super::busy_adapters::READER_OWNER))
-    /// and the table is the reader-book source of `core.files`. Called by the
-    /// kernel once, before it reports the first book.
-    ///
-    /// # Errors
-    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the kernel's reader tracking registers it (todo)")]
-    pub(crate) fn register_reader_book_source(&self) -> Result<(), i32> {
-        let sources = self.busy_sources();
-        if sources.has(super::storage_files::BusyKind::ReaderBook) {
-            return Ok(());
-        }
-        sources.register(
-            super::storage_files::BusyKind::ReaderBook,
-            self.in_use().clone(),
-        )
-    }
-
-    /// The reader opened the book at `path`: the host holds it.
+    /// A document of the book at `path` was opened through the document
+    /// service: the host holds the book until the document ends
+    /// ([`reader_book_closed`](Self::reader_book_closed)). Counted per path:
+    /// several documents may hold one book. The document service calls it once
+    /// when a document opens and refuses the open on an error, so a book is
+    /// never left unguarded.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`; `ERR_BUSY` when the table is borrowed.
-    #[allow(dead_code, reason = "the kernel's reader tracking calls it (todo)")]
+    #[allow(dead_code, reason = "the document service calls it (Host Engineer, train 6)")]
     pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
         self.in_use()
             .claim(super::busy_adapters::READER_OWNER, path)
     }
 
-    /// The reader closed the book at `path` (it opened another, or left).
-    #[allow(dead_code, reason = "the kernel's reader tracking calls it (todo)")]
+    /// A document of the book at `path` ended (an explicit close, its opener
+    /// or format stopping, the card going, the book moved or removed, its
+    /// place lost to another book): one hold on the path is given back. The
+    /// document service calls it once for each document that ended.
+    #[allow(dead_code, reason = "the document service calls it (Host Engineer, train 6)")]
     pub(crate) fn reader_book_closed(&self, path: &str) {
         self.in_use()
             .release(super::busy_adapters::READER_OWNER, path);

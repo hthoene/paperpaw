@@ -1,2 +1,2 @@
 ### Added
-- The library's move job and the book the reader has open can be registered as busy sources of `core.files` (the library host with its `Moves` and `MoveHost`, the kernel for the reader's book); `core.files` is wired once both have, and a path either holds answers `ERR_BUSY`.
+- The books the document service has open count as paths in use: `HostServices::reader_book_opened(path)` and `reader_book_closed(path)` (counted per path), for the document service to call when a document opens and when it ends. The library's move job can be registered as a busy source of `core.files` (`register_library_moves`); `core.files` is wired once it is, and a path either holds answers `ERR_BUSY`.
