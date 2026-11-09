@@ -144,6 +144,7 @@
     }
   ],
   "services": [
+    "core.library",
     "core.net",
     "core.registry",
     "core.secrets",
@@ -151,6 +152,10 @@
   ],
   "features": [
     "uses.network",
+    {
+      "key": "uses.library",
+      "required": false
+    },
     "uses.storage"
   ]
 }

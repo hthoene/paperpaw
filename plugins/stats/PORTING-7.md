@@ -360,5 +360,70 @@ events) is still in place. It is removed in the PR that finishes the port.
 - The widget *Books this year* (needs the library for books without a finishing date: `uses.library`, the
   metadata of both targets) and the
   status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
+
+## Ported: *Books this year* (the widget)
+
+- `src/native_widget_year.rs`, token 45 (`stats.widget.year`): the books read to the end this year towards a yearly goal
+  (off, 6, 12, 24, 36 or 52) as a bar, a ring (the count inside, "of 12" below it) or a dot a book (60 at most, in as few
+  rows as let them be large), the headline ("3 of 12 books", "3 / 12" or the number alone where it is too wide), how the
+  year goes ("2 ahead of plan", behind, on plan, reached) and the title of the book finished last. Same layout rules as
+  interface 6 (the caption goes before a note, the notes that fit as many as there is room for, the plan first, the
+  ring beside its notes where the place is much wider than high). Settings in declaration order (`Opt::PartHelp` for the
+  plan's help); `widgets_parity.rs` compares all five widgets with interface 6. A tap opens the books (`stats.books`;
+  `Tap::Books`), not the overview.
+- **`books.ini` is streamed** (`store::each_book`): `Tally` holds the count, the title of the book finished last (cut to
+  80 bytes with `…`, `book_list::cut`) and, of the books without a finishing date that were opened this year, the
+  `LIBRARY_LOOKUPS` (24) opened last (id, last open, path, title cut): the memory does not grow with the library (tested
+  for 300 and 3,000 books). A file that cannot be read whole counts as no books, as in interface 6 (a refused allocation
+  is an error).
+- **The library lookup** (books without a date count in the year they were last opened if the library has them read to the end):
+  through the SDK's `native::library::Library::book` (`core.library` op 3; progress 100), opened once for the
+  at most 24 lookups of a refresh and released in the same callback. The metadata of both targets name the service
+  `core.library` and the feature `uses.library` as *optional* (`"required": false`, so that a host without the library
+  still loads the plugin): where it cannot be opened, or a book is unknown to it, that book is not counted (only the dated
+  ones are). A refused allocation is the callback's error. Two 4 KiB buffers live while the lookups run.
+- The figures (the year, the count, the last title, the day of the year) are cached per widget instance (`Slot.year`; key:
+  the stamp of the day and the sizes of the log and of `books.ini`): `books.ini` and the library are read again only when
+  that changed, not at each draw. The cache is not unit-tested (it needs the host's `Cx`). A book marked read in the
+  library, with no reading recorded, changes neither file: it counts when the day or a file changes (interface 6 had the
+  same stamp).
+- **Differences from interface 6, on purpose:** the year and the day of the year are UTC (as everywhere in this port until
+  draft 25); the height reserves the line of the last book where its part is shown, even in a year with no book finished
+  (the height cannot wait for the books: it is asked without the cache; interface 6 had no such line then); ring and bar are
+  the kit's rounded rectangles and the ring a run of short segments (as for *Daily goal*, which supplies `arc`, `disc` and
+  `point_at`); two books finished at the same moment: the smaller id is the last (interface 6: the first of the id-sorted
+  list, the same), an undated one never replaces a dated one at a tie; the list is in file order, not id order, but nothing
+  depends on it.
+- Tested here: the day of the year (leap years), the plan, the year of a moment (clamped), counting by year with and without
+  the library's answer, the tie rules, the 24 most recently opened being asked (newest first), the title's cut, a refused
+  allocation, the dots' rows, the streamed file (peak memory for 300 and 3,000 books), a file that cannot be read, that
+  instances of the widget come and go with the scripted host. **Not tested:** the drawing and the height (`Cx` needs the
+  host's fonts; the scripted host has none) and the lookup against a real `core.library` (no scripted library service
+  answers `book` here).
+
+## Ported: the status items "Time left in chapter" and "Time left in book"
+
+- `src/native_left.rs`: the items `stats.status.left-chapter` and `stats.status.left-book` (declared in `ui()` as
+  `StatusItemDecl`s, priority 128 as interface 6's default, token 3) and the plugin's subscription to the stage `core.status`
+  (`events()`, same token). The stage answers one text per item asked for ("Chapter: 12 min", "Book: 3 h 05 min", same
+  catalog keys, `stats.left.chapter`/`stats.left.book`, and the same duration text); an item that has nothing to say
+  (too little read for a speed, the reader has not counted the pages) is answered with an empty text, which the reader
+  hides (interface 6 left the item without a value: the same to the reader), and is then cached by the reader.
+- The speed (seconds a page over the last 30 days, 10 pages at least) is worked out where interface 6 did: when a book
+  is opened (not again for the same book while there is a speed) and then every 50 pages turned, every 10 while there is
+  none, ahead of the recording of the same event, and kept in `NativeStats.left`; the stage only does the sum
+  from the context (`pages`, `progress`, `chapters`), never reads the log.
+- Differences: a context parameter that cannot be read is skipped (interface 6 had no such case); the first of a key that
+  comes twice is read. `store::days` (up to 48 KiB, as the widgets read it) is read at each recount.
+- Tested here: the sum of pages left to the next chapter or the end (all shapes of the context), the recount rules and the
+  wrap of the page counter. **Not tested end to end:** the stage's reply (the scripted host lends an event no reply buffer,
+  so a status call cannot be answered there: the same is open for Power and Bluetooth), and the host calling the stage for
+  plugin items (Core todo 76).
+
+## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+
+- The pixels of every widget (a kernel-backed harness), and the end-to-end answer of the status stage.
+- Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
+  (Services todo 79).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
 - The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.

@@ -447,7 +447,7 @@ fn sin_cos(degrees: i32) -> (i32, i32) {
 
 /// The point at `degrees` (clockwise from the top) on the circle of `radius`
 /// around `center`.
-fn point_at(center: Point, radius: i32, degrees: i32) -> Point {
+pub(crate) fn point_at(center: Point, radius: i32, degrees: i32) -> Point {
     let (sin, cos) = sin_cos(degrees);
     Point::new(
         center.x + (sin * radius + 500).div_euclid(1000),
@@ -456,7 +456,7 @@ fn point_at(center: Point, radius: i32, degrees: i32) -> Point {
 }
 
 /// A disc of `diameter` around `at`.
-fn disc(
+pub(crate) fn disc(
     out: &mut Vec<Paint>,
     at: Point,
     diameter: u32,
@@ -475,7 +475,7 @@ fn disc(
 /// An arc of the ring around `center` of the outer `radius`, `thick` wide,
 /// from `from` degrees `sweep` degrees on, as segments each a little shorter
 /// than the line is thick (at most [`MOST`]).
-fn arc(
+pub(crate) fn arc(
     out: &mut Vec<Paint>,
     (center, radius, thick): (Point, u32, u32),
     (from, sweep): (i32, u32),

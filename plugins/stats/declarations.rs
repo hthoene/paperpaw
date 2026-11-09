@@ -2,7 +2,7 @@
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl, StageDecl, WidgetDecl,
+    MenuEntryDecl, ScreenDecl, SpecDecl, StageDecl, StatusItemDecl, SubscribeDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -27,8 +27,20 @@ pub const WEEK_TOKEN: u32 = 41;
 pub const RING_TOKEN: u32 = 42;
 pub const STREAK_TOKEN: u32 = 43;
 pub const CALENDAR_WIDGET_TOKEN: u32 = 44;
+pub const YEAR_TOKEN: u32 = 45;
+/// The status items "Time left in chapter" and "Time left in book".
+pub const STATUS_TOKEN: u32 = 3;
 
 pub const GROUP: &str = "stats.group";
+
+/// The status items: their names (relative to the plugin) and titles.
+pub const STATUS_ITEMS: [(&str, &str); 2] = [
+    ("status.left-chapter", "stats.status.left-chapter"),
+    ("status.left-book", "stats.status.left-book"),
+];
+/// How much they matter where a line has no room for all of its items (what
+/// interface 6 gave an item by default).
+pub const STATUS_PRIORITY: u8 = 128;
 
 /// The group, and the three settings: recording on or off, and the shortest and
 /// longest stay on a page that count (KOReader's rule).
@@ -106,11 +118,21 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         declarations.menu_entry(entry)?;
     }
     declarations.icon("stats.open", "chart-bar")?;
+    // The status items of the reader's lines: the time left, estimated from the
+    // reading speed (names relative to the plugin: `stats.status.left-chapter`).
+    for (name, title) in STATUS_ITEMS {
+        declarations.status_item(
+            StatusItemDecl::new(name, title, STATUS_TOKEN)
+                .map_err(|_| DeclareError::Empty("status item"))?
+                .priority(STATUS_PRIORITY),
+        )?;
+    }
     declarations.submit()
 }
 
 /// What makes the plugin record: the book's session and pages, the device's
-/// sleep and start, the clock becoming known, a book moved.
+/// sleep and start, the clock becoming known, a book moved; and the status
+/// stage, which asks for the time left.
 pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     for kind in [
@@ -130,6 +152,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     declarations.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
     declarations.subscribe_event(EventKind::SettingChanged, EVENTS_TOKEN)?;
+    // The reader asks for the values of the status items.
+    declarations.subscribe(SubscribeDecl::new("core.status", STATUS_TOKEN))?;
     declarations.submit()
 }
 
@@ -192,6 +216,18 @@ pub const CALENDAR_WEEKS: [&str; 4] = [
 ];
 /// The days' shape.
 pub const CALENDAR_CELLS: [&str; 2] = ["stats.cells.square", "stats.cells.round"];
+
+/// Books a year to read, or none.
+pub const YEAR_GOALS: [&str; 6] = [
+    "stats.books.goal.off",
+    "stats.books.goal.6",
+    "stats.books.goal.12",
+    "stats.books.goal.24",
+    "stats.books.goal.36",
+    "stats.books.goal.52",
+];
+/// How the way to the yearly goal shows: a bar, a ring, a dot a book.
+pub const YEAR_STYLES: [&str; 3] = ["stats.year.bar", "stats.year.ring", "stats.year.dots"];
 
 /// A widget of the plugin.
 #[derive(Debug, Clone, Copy)]
@@ -336,8 +372,30 @@ const CALENDAR_OWN: &[Opt] = &[
     Opt::Part("total", "stats.part.total", true),
 ];
 
+const YEAR_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.left"),
+    Opt::Choice(
+        "goal",
+        "stats.setting.books-goal",
+        &YEAR_GOALS,
+        "stats.books.goal.12",
+        "stats.setting.books-goal.help",
+    ),
+    Opt::Choice(
+        "style",
+        "stats.setting.year-style",
+        &YEAR_STYLES,
+        "stats.year.bar",
+        "stats.setting.year-style.help",
+    ),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::PartHelp("plan", "stats.part.plan", true, "stats.part.plan.help"),
+    Opt::Part("last", "stats.part.last-book", true),
+];
+
 /// The widgets, with their own settings (the shared look comes first).
-pub const WIDGETS: [Def; 5] = [
+pub const WIDGETS: [Def; 6] = [
     Def {
         name: "widget.today",
         token: TODAY_TOKEN,
@@ -362,6 +420,11 @@ pub const WIDGETS: [Def; 5] = [
         name: "widget.calendar",
         token: CALENDAR_WIDGET_TOKEN,
         options: CALENDAR_OWN,
+    },
+    Def {
+        name: "widget.year",
+        token: YEAR_TOKEN,
+        options: YEAR_OWN,
     },
 ];
 

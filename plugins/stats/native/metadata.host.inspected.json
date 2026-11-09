@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.library",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.network",
       "required": false,
       "revision": 1
@@ -38,6 +43,12 @@
     "pointer_bits": 64
   },
   "services": [
+    {
+      "key": "core.library",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
     {
       "key": "core.net",
       "major": 1,
@@ -64,5 +75,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 206
+  "total_bytes": 250
 }

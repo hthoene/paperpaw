@@ -17,9 +17,11 @@ fn the_screens_show_time_streaks_calendar_and_books() {
 }
 
 #[test]
-#[ignore = "the widgets of today, the week, the daily goal, the streak and the calendar are native (tests/scripted_widgets.rs, widgets_parity.rs); their pixels need a kernel-backed harness, and the year widget and the status item are not ported yet"]
+#[ignore = "every widget and the status items are native (tests/scripted_widgets.rs, widgets_parity.rs, src/native_widget_year/tests.rs, src/native_left/tests.rs); what is left is their pixels (a kernel-backed harness), the year widget's lookup against a real core.library and the status stage's reply, which the scripted host cannot give an event"]
 fn the_widgets_and_the_status_item_show_todays_reading() {
-    unreachable!("year widget; left.rs status item");
+    unreachable!(
+        "pixels of the widgets; books this year with the library; the time-left status text"
+    );
 }
 
 #[test]

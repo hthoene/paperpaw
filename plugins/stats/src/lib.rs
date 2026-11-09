@@ -33,6 +33,7 @@ mod declarations;
 mod native_calendar;
 mod native_chart;
 mod native_entry;
+mod native_left;
 mod native_overview;
 mod native_screens;
 mod native_sync_screen;
@@ -44,6 +45,7 @@ mod native_widget_ring;
 mod native_widget_streak;
 mod native_widget_today;
 mod native_widget_week;
+mod native_widget_year;
 mod native_widgets;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

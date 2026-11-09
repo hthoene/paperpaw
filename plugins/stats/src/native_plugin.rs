@@ -18,6 +18,7 @@ use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
+use crate::native_left::Left;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
 use crate::native_sync_screen::SyncView;
@@ -72,6 +73,8 @@ pub struct NativeStats {
     widgets: Widgets,
     /// The sync with the WebDAV folder.
     sync: SyncShell,
+    /// The reading speed for the status items "time left".
+    left: Left,
 }
 
 impl core::fmt::Debug for NativeStats {
@@ -169,16 +172,24 @@ impl Plugin for NativeStats {
                 with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
                 return Ok(());
             }
-            Event::PageTurned(view) => with_cx(host, view.now_ms(), |cx| {
-                self.recorder.page_turned(cx, &reading(&view))
-            }),
+            Event::PageTurned(view) => {
+                // The speed first, as interface 6 registered it ahead of the
+                // recording.
+                self.left.page_turned(host);
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.page_turned(cx, &reading(&view))
+                })
+            }
             Event::Book {
                 kind: paperpaw_sdk::native::events::BookKind::Opened,
                 reading: view,
                 ..
-            } => with_cx(host, view.now_ms(), |cx| {
-                self.recorder.book_opened(cx, &reading(&view))
-            }),
+            } => {
+                self.left.book_opened(host, view.path());
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.book_opened(cx, &reading(&view))
+                })
+            }
             Event::Book {
                 kind: paperpaw_sdk::native::events::BookKind::Closed,
                 reading: view,
@@ -221,7 +232,7 @@ impl Plugin for NativeStats {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        // A tap on a widget opens the statistics.
+        // A tap on a widget opens the statistics (the year's, the books).
         match self.widgets.tapped(host, &input)? {
             Some(Tap::Statistics) => {
                 self.open_overview(host)?;
@@ -229,6 +240,11 @@ impl Plugin for NativeStats {
             }
             Some(Tap::Goal) => {
                 native_screens::open_settings(host, self.ui(host)?)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Books) => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.books")?)?;
                 return Ok(Handled::Yes);
             }
             None => {}
@@ -261,7 +277,8 @@ impl Plugin for NativeStats {
 }
 
 impl NativeStats {
-    /// What the widgets make of an event: `None` where it is none of theirs.
+    /// What the widgets and the status items make of an event: `None` where it
+    /// is none of theirs.
     fn widget_event(
         &mut self,
         host: &Host<'_>,
@@ -282,6 +299,14 @@ impl NativeStats {
                 payload,
                 ..
             } => self.widgets.stage(host, payload, reply),
+            // The reader asks for the time left (the status items).
+            Event::StageCall {
+                stage: "core.status",
+                payload,
+                ..
+            } if token == crate::declarations::STATUS_TOKEN => {
+                self.left.status(host, payload, reply)
+            }
             Event::Tick { .. } => {
                 if token == crate::declarations::TICK_TOKEN {
                     self.widgets.tick(host);

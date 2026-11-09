@@ -90,8 +90,9 @@ fn the_events_are_the_ones_reading_is_recorded_from() {
     }
     // Started, resume, suspend, stopping, page turned, book opened, closed,
     // finished and moved, the status (the clock becoming known) and the
-    // minute tick (the widgets' new day), a changed setting (the goal) and the
-    // end of a request (the sync with the WebDAV folder).
+    // minute tick (the widgets' new day), a changed setting (the goal), the
+    // end of a request (the sync with the WebDAV folder) and the status stage
+    // (the time left).
     assert_eq!(count, 13);
 }
 
