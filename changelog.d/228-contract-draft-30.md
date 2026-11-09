@@ -11,4 +11,7 @@
   `Decoded::try_open` open a decoded picture without aborting when memory is
   short. Lookup providers that went online tell the reader when their answer
   is ready (`Event::LookupReady`, `CommandSender::lookup_ready`), and
-  `Font::covers` says whether a font has the glyphs for a text.
+  `Font::covers` says whether a font has the glyphs for a text. Each stage
+  codec has a `ReplyWriter` and an `InputWriter` that write a batch record by
+  record, so a format plugin answers 64 rows without a slice of them on the
+  stack.

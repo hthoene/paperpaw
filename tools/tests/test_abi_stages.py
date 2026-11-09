@@ -468,6 +468,19 @@ class MirrorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exactly the fields'):
             validate_stages(schema)
 
+    def test_every_stage_module_has_both_batch_writers(self):
+        source = source_stages(self.schema)
+        modules = source.count('\npub mod ')
+        self.assertGreater(modules, 0)
+        for side in ('Reply', 'Input'):
+            self.assertEqual(source.count(f"pub struct {side}Writer<'w>"), modules, side)
+        # The one-byte count needs at most 127 rows a side.
+        from abi_records import local_codec_source
+        stage = copy.deepcopy(self.format_stage(copy.deepcopy(self.schema)))
+        stage['reply_rows'] = 128
+        with self.assertRaisesRegex(ValueError, 'at most 127 rows'):
+            local_codec_source(stage)
+
     def test_reply_kinds_are_capped_at_32_and_input_kinds_at_8(self):
         schema = copy.deepcopy(self.schema)
         stage = self.format_stage(schema)
