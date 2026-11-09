@@ -22,7 +22,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_home::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "home",
-        &["core.registry", "core.ui"],
+        &["core.library", "core.registry", "core.ui"],
     )
 }
 

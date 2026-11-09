@@ -1,10 +1,11 @@
 //! The home screen's own widgets on the flat native boundary: the host makes an
 //! instance when a screen shows one, asks it for its height and where it sits,
 //! and calls the plugin to draw it. Nothing of a callback is kept; an instance
-//! is the widget's id with its placement. The widgets are the date and the
-//! clock; the status line, the continue card and the recent shelf follow
+//! is the widget's id with its placement. The widgets are the date, the clock,
+//! the continue card and the recent shelf; the status line follows
 //! (`PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
+use core::cell::Cell;
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -12,14 +13,16 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
         fonts::{Font, FontRole},
+        image::ImageStyle,
         reply::Reply,
-        ui::{Instance, WidgetTarget, stages::WidgetCall},
+        ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
     },
 };
-use paperpaw_ui_kit::{mem::buffer, paint, text::copy, widget::Cx};
+use paperpaw_ui_kit::{icons, mem::buffer, paint, text::copy, widget::Cx};
 
-use crate::declarations::{CLOCK, DATE};
-use crate::{native_clock, native_date};
+use crate::declarations::{CARD, CLOCK, DATE, SHELF};
+use crate::native_recent::{self, Pictures};
+use crate::{native_card, native_clock, native_date, native_shelf};
 
 /// The most bytes of a stage reply (sizes and no targets).
 const REPLY: usize = 256;
@@ -34,6 +37,9 @@ struct Item {
     /// What it showed when the tick last looked; `None` until the first tick,
     /// which only records it (the draw does not set it).
     shown: Option<u64>,
+    /// A cover it drew was still being made: the next tick asks the screen to
+    /// draw it again.
+    waiting: Cell<bool>,
 }
 
 /// The instances the screens made of the widgets.
@@ -48,6 +54,8 @@ fn token_of(widget: &str) -> Option<u32> {
     match paperpaw_ui_kit::widget::settings::base(widget) {
         "home.date" => Some(DATE),
         "home.clock" => Some(CLOCK),
+        "home.continue" => Some(CARD),
+        "home.recent" => Some(SHELF),
         _ => None,
     }
 }
@@ -69,6 +77,7 @@ impl Widgets {
             token,
             widget: copy(widget)?,
             shown: None,
+            waiting: Cell::new(false),
         });
         Ok(())
     }
@@ -85,7 +94,8 @@ impl Widgets {
     }
 
     /// Answers a call of the `core.widget` stage: the height of an instance, where it
-    /// sits, its targets (none: a tap on these does nothing).
+    /// sits, its targets (none for the date and the clock: a tap on these does
+    /// nothing; the card's and the shelf's books).
     ///
     /// # Errors
     /// [`Error::NotFound`] for an instance that is not ours here, [`Error::Unsupported`]
@@ -103,20 +113,40 @@ impl Widgets {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 let mut cx = Cx::open(host, &item.widget)?;
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
-                let height = match item.token {
-                    DATE => native_date::height(&mut cx, width)?,
-                    _ => native_clock::height(&mut cx, width)?,
+                let (height, least) = match item.token {
+                    DATE => same(native_date::height(&mut cx, width)?),
+                    CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
+                    SHELF => native_shelf::height(&cx, width)?,
+                    _ => same(native_clock::height(&mut cx, width)?),
                 };
-                call.reply_size(u32::from(height), u32::from(height), &mut out)?
+                call.reply_size(u32::from(height), u32::from(least), &mut out)?
             }
             WidgetCall::Place { instance, .. } => {
                 self.find(instance.get()).ok_or(Error::NotFound)?;
                 call.reply_place(&mut out)?
             }
-            WidgetCall::Targets { instance, .. } => {
-                self.find(instance.get()).ok_or(Error::NotFound)?;
-                let none: [WidgetTarget; 0] = [];
-                call.reply_targets(&none, &mut out)?
+            WidgetCall::Targets { instance, rect } => {
+                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let mut found: Vec<WidgetTarget> = Vec::new();
+                match item.token {
+                    CARD => found.push(WidgetTarget::new(native_card::TARGET, rect)),
+                    SHELF => {
+                        let mut cx = Cx::open(host, &item.widget)?;
+                        let clamp = paperpaw_ui_kit::geometry::clamp_u16;
+                        let area = Rect::new(
+                            clamp(i64::from(rect.x)),
+                            clamp(i64::from(rect.y)),
+                            clamp(i64::from(rect.width)),
+                            clamp(i64::from(rect.height)),
+                        );
+                        for (id, at) in native_shelf::targets(&mut cx, area)? {
+                            let target = WidgetTarget::new(id, paint::frame_rect(at));
+                            paperpaw_ui_kit::mem::push(&mut found, target)?;
+                        }
+                    }
+                    _ => {}
+                }
+                call.reply_targets(&found, &mut out)?
             }
             _ => return Err(Error::Unsupported),
         };
@@ -142,10 +172,19 @@ impl Widgets {
             clamp(i64::from(frame.rect.height)),
         );
         let mut out = Vec::new();
+        let mut pictures = Pictures::default();
+        let icons = if item.token == CARD {
+            icons::font(host)?
+        } else {
+            None
+        };
         match item.token {
             DATE => native_date::draw(&mut cx, &mut out, area)?,
+            CARD => native_card::draw(&mut cx, &mut out, icons.as_ref(), &mut pictures, area)?,
+            SHELF => native_shelf::draw(&mut cx, &mut out, &mut pictures, area)?,
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
+        item.waiting.set(pictures.busy);
         let bold = if out
             .iter()
             .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
@@ -154,7 +193,55 @@ impl Widgets {
         } else {
             None
         };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+        paint::replay_all(&mut frame, &cx.font, (bold.as_ref(), icons.as_ref()), &out)?;
+        // The covers go where nothing else is drawn. One the host no longer has
+        // (it ended the id for room) or cannot draw is left out: the next draw asks
+        // for it again.
+        for (image, at) in &pictures.placed {
+            frame
+                .draw_canvas()?
+                .draw_image(*image, paint::frame_rect(*at), ImageStyle::new().small())
+                .ok();
+        }
+        Ok(())
+    }
+
+    /// A tap on a target of the card or the shelf opens the book it shows (the
+    /// card with no book: the library). Anything else is not handled.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn input(
+        &self,
+        host: &Host<'_>,
+        ui: &Ui,
+        instance: Instance,
+        target: u32,
+        kind: WidgetInputKind,
+    ) -> Result<bool, Error> {
+        let Some(item) = self.find(instance.get()) else {
+            return Ok(false);
+        };
+        if kind != WidgetInputKind::Tap || target == 0 {
+            return Ok(false);
+        }
+        let book = match item.token {
+            CARD => native_recent::read(host, 0, 1)?.into_iter().next(),
+            SHELF => {
+                let cx = Cx::open(host, &item.widget)?;
+                let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
+                native_shelf::books(&cx)?.into_iter().nth(at)
+            }
+            _ => return Ok(false),
+        };
+        let mut scratch = [0; 256];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        match book {
+            Some(book) => open_book(host, ui, &book)?,
+            None if item.token == CARD => commands.run_action("core.library")?,
+            None => return Ok(false),
+        }
+        Ok(true)
     }
 
     /// The minute came: tells the makers whose widget shows something new since
@@ -166,18 +253,51 @@ impl Widgets {
         for item in &mut self.items {
             let now = match item.token {
                 DATE => native_date::shows(host),
+                CARD => native_card::shows(host),
+                SHELF => native_shelf::shows(host, &item.widget),
                 _ => native_clock::shows(host),
             };
             let Ok(now) = now else {
                 continue;
             };
             let instance = item.instance;
-            if item.shown.is_some_and(|before| before != now)
+            // A cover that was being made is drawn again at the next minute, whatever
+            // the books show.
+            let waited = item.waiting.replace(false);
+            if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()
             {
+                item.waiting.set(waited);
                 continue;
             }
             item.shown = Some(now);
         }
     }
+}
+
+/// A height that is its own least.
+const fn same(height: u16) -> (u16, u16) {
+    (height, height)
+}
+
+/// Opens `book` in the reader the user bound to `core.reader`: a hand-over with
+/// its path (`document.md` section 1). A book gone from the catalog is not opened.
+fn open_book(host: &Host<'_>, ui: &Ui, book: &native_recent::Book) -> Result<(), Error> {
+    use paperpaw_sdk::native::library::BookRef;
+    let (mut input, mut out) = (buffer(4096)?, buffer(4096)?);
+    let path = native_recent::with_library(host, |library| {
+        let reference = BookRef::catalog(book.key, book.generation)?;
+        match library.book(host, reference, &mut input, &mut out) {
+            Ok(found) => copy(found.path()).map(Some),
+            Err(Error::State | Error::NotFound) => Ok(None),
+            Err(error) => Err(error),
+        }
+    })?;
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let params = [Param::new("path", &path)?];
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
+    let mut scratch = [0; 256];
+    CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
 }

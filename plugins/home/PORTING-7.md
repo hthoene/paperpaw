@@ -285,8 +285,7 @@ Differences from interface 6 (each deliberate):
 
 ### Gaps
 
-- The status line, the continue card and the recent shelf are still interface-6 widgets
-  (`blocks.rs`); the next slices.
+- The status line is still an interface-6 widget (`blocks.rs`); the next slice.
 - Drawing and sizing go through the host (H1/H3 composition, #827): the cases `home-builtin-widgets`
   and `home-dashboard` stay ignored. The scripted host has no fonts, so the drawing is covered by the
   pure parts (`split_time`, the shares) and the declaration tests; the widgets' draw is not run
@@ -294,6 +293,50 @@ Differences from interface 6 (each deliberate):
 - Worst-case memory: the widgets keep one small record per instance (id, token, last shown); the
   text of a draw is a few short strings and at most a dozen paint operations; frames stay far under
   2,048 B. Not measured on the device.
+
+## Slice 4b: the continue card and the recent shelf
+
+`declarations.rs`: the widgets `home.continue` and `home.recent` (category *Books*, not read each
+minute), each with a group of settings named as it, and the settings of interface 6 in its order
+(the shared look with the card's frame *line* and left alignment, its *Cover* and *Progress*
+switches; the shelf's *Heading* and *Titles* switches and the number of books, 1 to 8, 6). `Def`
+gained the frame a widget has at first and whether it is live. `tests/widgets_declarations.rs`
+compares all four widgets with the interface-6 registration.
+
+`src/native_recent.rs`: the books opened last, one `core.library` query sorted *recently opened*
+(one page, at most 10 rows, the list ends at the first book never opened), a book's cover as an
+image id (`library.cover`, side 0: the list's size, kept in the host's cover cache), the fitting of
+a picture in its place and the signature of what the books show. `src/native_card.rs` and
+`src/native_shelf.rs` are the two widgets, with the arithmetic of `blocks.rs`: the card's cover on
+the left where the text keeps room, the title as large as fits in two lines, then the progress with
+its bar and the caption where there is room; the shelf's covers 3:4 across the screen (at most one
+per 18 mm), the heading above and the titles below, a frame with the title for a book without a
+cover. A tap on the card or on a book of the shelf opens it in the reader bound to `core.reader`
+(a hand-over with the book's path); the card with no book opens the library (`core.library`).
+Targets are owner-defined ids: the card's is 1, a shelf book's is its place from 1.
+
+Differences from interface 6 (each deliberate):
+
+- The cover is the host's (`library.cover`, drawn by `canvas.draw_image`), not a thumbnail kept
+  beside the book (`home-card`/`home-shelf` variants): the host's cover cache replaces it. A cover
+  the host is still making (`Busy`) is drawn as a title only and asked for again at the next minute
+  (the widget tells its maker it changed); an image id the host ended is asked for again on the next
+  draw. The plugin may hold 8 image ids: a card and a shelf of six use seven, so a second shelf
+  on the screen may show titles alone.
+- A book gone from the card is not left out of the list (interface 6 checked each file); the
+  library's catalog says so when it walks again. A tap on it opens nothing.
+- The titles are the library's row titles (cut by the host at 128 bytes), not the file's.
+- The book count of the shelf is limited by one library page (at most 9 books after the current
+  one; the setting's largest is 8).
+- The accessibility description of the card's and the shelf's books (`Canvas::describe`) has no
+  native call yet.
+- The order of the host's *recently opened* sort (the one opened last first) is the library's
+  contract; it is not exercised here without a host that has a catalog (the scripted host has none).
+
+### Gaps
+
+- The status line is still interface 6 (`blocks.rs`): the next slice (it is composed through
+  `ui.compose`, #827).
 
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
@@ -308,7 +351,7 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | dashboard slice (`HOME-dashboard-slice`) | the dashboard measures widgets | (a) done in slices 3b–3d; the stale blocker is gone |
 | cell hints (`KERNEL-cell-hints`) | a widget's declared cells | (a) done (#824) |
 | subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (c) the host does not deliver `event.widget_changed` (86) yet (core has only its codec; `command.widget_changed` is unsupported too) |
-| built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a). (c) plugin work for the other three (composition #827 is wired by H3a); the covers and books need library calls and the image slots (SDK facade #692) |
+| built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a); the continue card and the recent shelf native (slice 4b: `core.library`, `library.cover`, `canvas.draw_image`). (c) the status line (composition #827 is wired by H3a) |
 | status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
 | reflow (`HOME-reflow-slice`, was in `HOME-dashboard-slice`) | the setting-change handler | (c) plugin work, host ready: event 64 admitted (#763) |
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
