@@ -192,13 +192,7 @@ impl Fixture {
     }
 
     /// `id` declared as `owner` with `rows`, its callbacks reached by `lease`.
-    fn install_lease(
-        &self,
-        lease: NativeLease,
-        id: &'static str,
-        owner: u64,
-        rows: &[Record<'_>],
-    ) {
+    fn install_lease(&self, lease: NativeLease, id: &'static str, owner: u64, rows: &[Record<'_>]) {
         let mut bytes = [0; 512];
         let length = wire::records_encode(rows, &mut bytes).unwrap();
         let bytes = &bytes[..length];
