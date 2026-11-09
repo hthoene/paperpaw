@@ -31,7 +31,7 @@ pub const fn max_catalogs(small: bool) -> usize {
 }
 
 /// A catalog the user added.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Catalog {
     pub name: String,
@@ -50,6 +50,22 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    /// A second copy of the catalog.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            name: copy(&self.name)?,
+            url: copy(&self.url)?,
+            user: copy(&self.user)?,
+            folder: copy(&self.folder)?,
+            sync: self.sync,
+            webdav: self.webdav,
+            legacy: self.legacy.try_clone()?,
+        })
+    }
+
     /// A new catalog at `url`, named after its host.
     ///
     /// # Errors
@@ -264,7 +280,11 @@ pub fn password(vault: &dyn Vault, catalog: &Catalog) -> Result<Option<Secret>, 
     match vault.read(&keep::name_of(&catalog.url)?) {
         Ok(Some(secret)) => Ok(Some(secret)),
         Ok(None) | Err(Error::Unsupported) => {
-            Ok((!catalog.legacy.is_empty()).then(|| catalog.legacy.clone()))
+            if catalog.legacy.is_empty() {
+                Ok(None)
+            } else {
+                catalog.legacy.try_clone().map(Some)
+            }
         }
         Err(error) => Err(error),
     }

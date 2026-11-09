@@ -19,7 +19,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Style,
-    mem::{SERVICE_BUFFER, buffer, join, push},
+    mem::{SERVICE_BUFFER, buffer, collect, join, push},
     paint::frame_rect,
     text::{concat, copy, decimal_u64},
 };
@@ -64,16 +64,21 @@ impl BrowseView {
 
     /// The entries whose rows were drawn in the last frame (the first few
     /// before any was drawn).
-    fn visible(&self) -> Vec<usize> {
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn visible(&self) -> Result<Vec<usize>, Error> {
         let first = usize::from(self.browser.feed().search.is_some());
         let count = self.browser.feed().entries.len();
-        let drawn: Vec<usize> = (0..count)
-            .filter(|i| self.list.rect_of(i + first).is_some())
-            .collect();
+        let drawn = collect(
+            (0..count)
+                .filter(|i| self.list.rect_of(i + first).is_some())
+                .map(Ok),
+        )?;
         if drawn.is_empty() {
-            (0..count.min(MAX_LIVE)).collect()
+            collect((0..count.min(MAX_LIVE)).map(Ok))
         } else {
-            drawn
+            Ok(drawn)
         }
     }
 
@@ -319,7 +324,10 @@ impl NativeOpds {
             }
         };
         self.reload(host)?;
-        let catalog = self.catalogs.get(index).cloned().unwrap_or_default();
+        let catalog = match self.catalogs.get(index) {
+            Some(found) => found.try_clone()?,
+            None => catalogs::Catalog::default(),
+        };
         let password = catalogs::password(&self.vault(host), &catalog)?;
         let mut browser = Browser::new(catalog, password, &self.folder, self.small)?;
         browser.start(host, &mut self.web)?;
@@ -528,7 +536,7 @@ impl NativeOpds {
         if view.covers.is_none() {
             return Ok(());
         }
-        let visible = view.visible();
+        let visible = view.visible()?;
         let (generation, count) = (view.browser.generation(), view.browser.feed().entries.len());
         let Some(held) = view.covers.as_mut() else {
             return Ok(());

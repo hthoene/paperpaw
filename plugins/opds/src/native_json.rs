@@ -19,7 +19,10 @@ use paperpaw_sdk::{
     native::Error,
     xml::try_decode,
 };
-use paperpaw_ui_kit::{mem::push, text::copy};
+use paperpaw_ui_kit::{
+    mem::{buffer, push},
+    text::copy,
+};
 
 use crate::native_model::{
     Book, CHUNK, Entry, Feed, Limits, MAX_AUTHORS, MAX_BOOKS, MAX_MIME, MAX_URL, Search, Source,
@@ -390,7 +393,7 @@ pub fn read(source: &mut impl Source, base: &str, limits: Limits) -> Result<Feed
         ..Builder::default()
     };
     let mut parser = Parser::default();
-    let mut buf = [0u8; CHUNK];
+    let mut buf = buffer(CHUNK)?;
     let mut offset = 0;
     loop {
         let n = source.read_at(offset, &mut buf)?;

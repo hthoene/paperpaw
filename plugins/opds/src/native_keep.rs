@@ -26,10 +26,18 @@ const NAME_LEN: usize = 16;
 
 /// A text that is a secret: zeroed when it is dropped, also on an early
 /// return, and never shown by `Debug`.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct Secret(String);
 
 impl Secret {
+    /// A second copy of the secret (both are zeroed when dropped).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        copy(&self.0).map(Self)
+    }
+
     /// A copy of `text`.
     ///
     /// # Errors

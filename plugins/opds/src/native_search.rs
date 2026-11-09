@@ -8,6 +8,8 @@ use paperpaw_sdk::{
     xml::{Token, Tokenizer, local_name},
 };
 
+use paperpaw_ui_kit::mem::buffer;
+
 use crate::native_model::{CHUNK, MAX_URL, Source, join_url};
 
 /// A description larger than this is not read.
@@ -23,7 +25,7 @@ pub fn template(source: &mut impl Source, base: &str) -> Result<Option<String>, 
     let mut found: Option<String> = None;
     let mut failed = false;
     let mut tokenizer = Tokenizer::new();
-    let mut buf = [0u8; CHUNK];
+    let mut buf = buffer(CHUNK)?;
     let mut offset = 0u64;
     let mut emit = |token: Token<'_>| {
         if failed || found.is_some() {

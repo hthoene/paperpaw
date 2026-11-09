@@ -18,7 +18,7 @@ use paperpaw_sdk::{
     xml::{Token, Tokenizer, local_name, try_decode},
 };
 use paperpaw_ui_kit::{
-    mem::push,
+    mem::{buffer, push},
     text::{concat, copy},
 };
 
@@ -597,7 +597,7 @@ pub fn read(source: &mut impl Source, base: &str, limits: Limits) -> Result<Feed
         ..Reader::default()
     };
     let mut tokenizer = Tokenizer::new();
-    let mut buf = [0u8; CHUNK];
+    let mut buf = buffer(CHUNK)?;
     let mut offset = 0;
     loop {
         let n = source.read_at(offset, &mut buf)?;

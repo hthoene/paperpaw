@@ -562,7 +562,10 @@ impl Sync {
             };
             push(&mut found, item)?;
         }
-        let ids: Vec<&str> = found.iter().map(|item| item.id.as_str()).collect();
+        let mut ids: Vec<&str> = Vec::new();
+        ids.try_reserve_exact(found.len())
+            .map_err(|_| Error::NoMemory)?;
+        ids.extend(found.iter().map(|item| item.id.as_str()));
         let path = record_path(&run.job.catalog.url)?;
         let synced = match recorded(files, &path, &ids) {
             Ok(synced) => synced,

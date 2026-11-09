@@ -102,7 +102,7 @@ fn a_list_that_cannot_be_read_is_an_error_and_never_an_empty_list() {
 fn a_list_that_would_pass_the_cap_is_not_written() {
     let mut one = Catalog::new("https://a.example").unwrap();
     one.name = "x".repeat(1000);
-    let list = vec![one; 100];
+    let list: Vec<Catalog> = (0..100).map(|_| one.try_clone().unwrap()).collect();
     let mem = Mem::default();
     mem.put("catalogs.txt", b"kept\thttps://k.example\n");
     assert_eq!(catalogs::save(&mem, &list), Err(Error::NoSpace));

@@ -111,7 +111,10 @@ impl NativeOpds {
             }
         };
         self.reload(host)?;
-        let catalog = self.catalogs.get(index).cloned().unwrap_or_default();
+        let catalog = match self.catalogs.get(index) {
+            Some(found) => found.try_clone()?,
+            None => Catalog::default(),
+        };
         let mut view = EditView {
             index,
             catalog,
@@ -156,7 +159,7 @@ impl NativeOpds {
         };
         let mut view = EditView {
             index: top.index,
-            catalog: top.catalog.clone(),
+            catalog: top.catalog.try_clone()?,
             list: ItemList::default(),
         };
         view.list.set_focus(top.list.focus());
@@ -232,7 +235,7 @@ impl NativeOpds {
         let Some(view) = self.edit_view() else {
             return Ok(());
         };
-        let (index, catalog) = (view.index, view.catalog.clone());
+        let (index, catalog) = (view.index, view.catalog.try_clone()?);
         self.reload(host)?;
         if self.unreadable {
             return Self::notice_key(host, "opds.unreadable");

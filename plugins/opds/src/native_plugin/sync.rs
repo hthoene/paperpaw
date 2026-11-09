@@ -44,7 +44,7 @@ impl NativeOpds {
             };
             if wanted {
                 let password = catalogs::password(&vault, catalog)?;
-                push(&mut jobs, Job::new(catalog.clone(), password))?;
+                push(&mut jobs, Job::new(catalog.try_clone()?, password))?;
             }
         }
         Ok(jobs)

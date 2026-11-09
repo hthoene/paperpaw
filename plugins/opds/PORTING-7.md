@@ -9,7 +9,7 @@ the other native ports; the default app no longer installs Catalogs and `opds` l
 for the activation of native plugins (Core #944, Host #417) and the shells' production `core.net`, work,
 library and image wiring (`tests/acceptance_pending.rs`). X4 file size and peak memory are not measured.
 
-Version 1.0.5: Beta 3 was 1.0.3, 1.0.4 was a slice before this, so one bump in all.
+Version 1.0.4: Beta 3 was 1.0.3 and the first slice bumped it; no further bump before 1.0.
 
 ## What it does
 
@@ -46,7 +46,7 @@ Version 1.0.5: Beta 3 was 1.0.3, 1.0.4 was a slice before this, so one bump in a
   `cover.tmp`, `sync-feed.tmp`, `sync-book.tmp`) that goes once it is handled, at a stop and at the first open;
   an answer for another request is ignored; links are resolved where the answer came from after redirects
   (`Net::answer`); the catalog's password goes only to the catalog's own address (scheme, host, port), never to
-  a link elsewhere or in clear. Back stops a download, else goes back through the feeds, else leaves. Search by
+  a link elsewhere (the password goes with Basic as the catalog is entered, so a catalog at `http://` sends it without TLS, as in Beta 3). Back stops a download, else goes back through the feeds, else leaves. Search by
   template or by description (asks where to search first). A line below says how a load or a download goes (its
   share every 10 % or 5 s, or its size).
 - Downloads (`native_download.rs`): the book goes to `book.tmp`, is checked by its first bytes (a page to sign
