@@ -47,12 +47,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "readwise"
-path = "src/bin/readwise.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "read-later-cloud"
 path = "src/bin/read-later-cloud.rs"
 test = false
@@ -113,7 +107,6 @@ paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
-paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }

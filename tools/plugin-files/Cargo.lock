@@ -148,7 +148,6 @@ dependencies = [
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-read-later-cloud",
- "paperpaw-plugin-readwise",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
@@ -227,13 +226,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-read-later-cloud"
 version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-readwise"
-version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]

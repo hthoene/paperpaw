@@ -91,7 +91,6 @@ pub const STORE_PLUGINS: [&str; 15] = [
     "notes-vault",
     "picture-home",
     "read-later-cloud",
-    "readwise",
     "vocabulary",
     "widgets",
 ];
@@ -162,7 +161,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "news",
     "opds",
     "read-later-cloud",
-    "readwise",
     "store",
     "transfer",
     "update",
@@ -273,7 +271,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         _ => StorePlugins::Off(&|_| false),
     };
     b = offered(b, shipped_off, paperpaw_plugin_browser::Browser);
-    b = offered(b, shipped_off, paperpaw_plugin_readwise::Readwise);
     b = offered(
         b,
         shipped_off,

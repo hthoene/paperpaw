@@ -125,6 +125,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "readwise"
+path = "src/bin/readwise.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rules"
 path = "src/bin/rules.rs"
 test = false
@@ -258,6 +264,7 @@ paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", featur
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
+paperpaw-plugin-readwise = { path = "../../plugins/readwise", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }

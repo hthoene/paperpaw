@@ -12,5 +12,6 @@ keys
 menu-editor
 profiles
 notes-overview
+readwise
 rules
 weather

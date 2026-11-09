@@ -34,7 +34,6 @@ store-plugins = [
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-browser",
-    "dep:paperpaw-plugin-readwise",
     "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-mail",
 ]
@@ -113,7 +112,6 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
