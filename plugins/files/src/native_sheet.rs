@@ -9,6 +9,7 @@ use paperpaw_ui_kit::{
 
 /// What the sheet offers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Action {
     Open,
     /// Marks the book finished.

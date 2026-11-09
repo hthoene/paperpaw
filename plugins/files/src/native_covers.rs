@@ -14,6 +14,7 @@ pub const MOST: usize = 6;
 
 /// What the cover of one book is up to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Slot {
     /// Not asked for (or given back: asked again when it shows).
     #[default]

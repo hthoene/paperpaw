@@ -82,7 +82,12 @@ const CASES: [Case; 13] = [
     Case {
         name: "menus-help-hints-and-the-home-search-gesture",
         golden: None,
-        blocked_by: &["menu-place-944", "help-hint-admission", "home-swipe-binding", "H4"],
+        blocked_by: &[
+            "menu-place-944",
+            "help-hint-admission",
+            "home-swipe-binding",
+            "H4",
+        ],
     },
 ];
 

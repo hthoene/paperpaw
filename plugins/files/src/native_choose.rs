@@ -15,6 +15,7 @@ pub const MOST_FOLDERS: usize = 256;
 
 /// What a row does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Pick {
     /// Use the shown folder.
     Use,

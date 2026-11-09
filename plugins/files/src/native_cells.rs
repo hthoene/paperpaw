@@ -32,6 +32,7 @@ pub struct Facts<'a> {
 
 /// The cells, and what an empty list says (both empty when it is not empty).
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Built {
     pub cells: Vec<Cell>,
     pub empty: String,

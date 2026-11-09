@@ -6,6 +6,7 @@ use paperpaw_sdk::native::{Error, library::CatalogPhase};
 
 /// What the library is up to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Condition {
     /// The catalog is made: the books are the library's.
     Ready,

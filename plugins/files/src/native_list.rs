@@ -15,6 +15,7 @@ use paperpaw_ui_kit::{Page, mem::push};
 
 /// What a cell of the list is, and so what choosing it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Row {
     /// Steps the filter.
     Filter,
@@ -32,6 +33,7 @@ pub enum Row {
 
 /// One cell of the list.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Cell {
     pub row: Row,
     /// A book's title, or what the row says.
@@ -217,6 +219,7 @@ pub fn pages(cells: &[Cell], metrics: &Metrics, grid: bool) -> Result<Vec<Vec<Pl
 
 /// What an input means to the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ListStep {
     /// The focus goes to this cell.
     Focus(usize),
