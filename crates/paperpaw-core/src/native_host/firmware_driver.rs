@@ -143,10 +143,10 @@ impl Driver {
             kept.outcome = None;
             return;
         }
-        if self.kept.len() >= KEPT_MAX {
-            if let Some(at) = (0..self.kept.len()).find(|&at| self.free_slot(&self.kept[at])) {
-                self.kept.remove(at);
-            }
+        if self.kept.len() >= KEPT_MAX
+            && let Some(at) = self.kept.iter().position(|kept| self.free_slot(kept))
+        {
+            self.kept.remove(at);
         }
         self.kept.push(Kept {
             owner,
