@@ -181,6 +181,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        let networked = host.features().feature(crate::work::USES_NETWORK).is_ok();
         self.shared
             .native_instances
             .adopt_pool(
@@ -273,6 +274,10 @@ impl crate::Kernel {
                 .native_instances
                 .abandon(key)
                 .map_err(shell::Error::Status)?;
+        } else {
+            // With `uses.network` its network settings and policy (never a
+            // refusal: a failure warns).
+            self.admit_native_network(&owner, networked);
         }
         result
     }
@@ -349,6 +354,8 @@ impl crate::Kernel {
         // defined go with it (the reader's values stay for its next load).
         self.shared.actions.remove_plugin(owner.as_str());
         self.shared.settings.remove_plugin(owner.as_str());
+        // Its network policy goes; its network settings stay for its next load.
+        self.forget_native_network(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
