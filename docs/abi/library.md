@@ -430,9 +430,18 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 - [D] `provide` (`lib_provided`: `lib_ref`, `title`, `author`, `series`, `number`, `tags` one per
   line at most 32, `flags` bit n: field n is provided, the rest left alone) sets what another source
-  knows better than the file (interface 6 `library::provide`). Provided values win over the file's,
-  and the user's own edits (a later REG or files action) win over provided ones; the last provider
-  wins among providers. Kept per book with the book's data (it follows moves).
+  knows and the file does not name (interface 6 `library::provide`, Beta 3's rule): on (re)index
+  the file's own title, author, series, number and tags win where it names them, and provided
+  values stay where it names nothing. Until the book is indexed again, views can show the
+  provider's values, the title too. The last provider's values replace earlier ones; there is one
+  tag list per book (tags replace it whole, at most 32, else `ERR_NO_SPACE`) and no provider id is
+  kept. Kept per book with the book's data (it follows moves). A provided value is never empty or
+  blank (only Unicode whitespace; nothing clears a field: leave it out) and holds no control
+  character: none that `char::is_control` names (C0, DEL and C1, U+0080 to U+009F, so no tab or
+  line break either; tags are separated by line breaks only) and neither U+2028 nor U+2029; each is
+  `ERR_INVALID`, as are `flags` 0 (nothing provided) and `flags` bits above 4; a value or tag over
+  its size (1121) is `ERR_NO_SPACE`. Making the provider's values
+  win over the file's would be a new feature, not parity (post-1.0 at the earliest).
 
 ## 6. Keys, moves, power loss, card failure
 
