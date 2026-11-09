@@ -293,6 +293,10 @@ events) is still in place. It is removed in the PR that finishes the port.
   letters fit). Same layout rules as interface 6: marks beside the text where the place is wide and low, else
   below it, the weekdays and then the caption left out before the marks. Settings in declaration order with
   `Opt::PartHelp` for the marks' help; `widgets_parity.rs` compares all four widgets with interface 6.
+- The streak and the marks are cached per widget instance (`Slot.streak`, as interface 6 kept its figures per
+  widget): the day log (up to 4,096 days, 48 KiB) is read again only when the stamp (the day and the sizes of the
+  log and the books), the least seconds that count or the number of days shown changed, not at each draw. The cache
+  itself is a streak and at most 14 marks. The cache is not unit-tested (it needs the host's `Cx`).
 - Difference on purpose: the marks are the kit's rounded rectangles (a disc is a rectangle with half its side
   as radius; an outline is a stroked one), the check two segments in the paper's colour. Not pixel-tested.
 - `paperpaw_ui_kit::widget::Opt` is `#[non_exhaustive]` now (a new kind of setting is no break for outside

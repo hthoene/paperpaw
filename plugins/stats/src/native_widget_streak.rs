@@ -4,8 +4,8 @@
 //! the others, today's darker while it does not count yet.
 use crate::declarations::{STREAK_COUNTS, STREAK_DAYS, STREAK_MARKS};
 use crate::native_widgets::{
-    caption_room, captioned, days, goal, middle, mm, number_if_narrow, pick_caption, text_at,
-    text_size,
+    caption_room, captioned, days, goal, middle, mm, number_if_narrow, pick_caption, stamp,
+    text_at, text_size,
 };
 use crate::texts::{date_of, seconds_on, weekday_short};
 use crate::totals::{self, Streaks};
@@ -49,12 +49,33 @@ fn count(cx: &Cx<'_>) -> Result<usize, Error> {
     })
 }
 
-fn shown(cx: &Cx<'_>) -> Result<Option<Shown>, Error> {
+/// What a streak widget worked out, and what it was worked out for: the stamp
+/// of the day and the statistics' files, the least seconds that count and the
+/// days shown. The day log (up to 48 KiB) is read again only when one of them
+/// changed, never at each draw.
+#[derive(Debug, Default)]
+pub(crate) struct Cache(core::cell::RefCell<Option<((u64, u32, usize), Shown)>>);
+
+/// The streak and the marks, from the cache where nothing changed.
+fn shown(cx: &Cx<'_>, cache: &Cache) -> Result<Option<Shown>, Error> {
+    let (least, count) = (least(cx)?, count(cx)?);
+    let key = (stamp(cx.host)?, least, count);
+    if let Some((kept, shown)) = cache.0.borrow().as_ref()
+        && *kept == key
+    {
+        return Ok(Some(shown.clone()));
+    }
+    let made = work_out(cx, least, count)?;
+    if let Some(shown) = &made {
+        *cache.0.borrow_mut() = Some((key, shown.clone()));
+    }
+    Ok(made)
+}
+
+fn work_out(cx: &Cx<'_>, least: u32, count: usize) -> Result<Option<Shown>, Error> {
     let Some((today, days)) = days(cx)? else {
         return Ok(None);
     };
-    let least = least(cx)?;
-    let count = count(cx)?;
     let mut marks = Vec::new();
     marks
         .try_reserve_exact(count)
@@ -150,9 +171,14 @@ fn texts(cx: &mut Cx<'_>, streaks: Streaks) -> Result<(String, String), Error> {
 ///
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
-pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+pub fn draw(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    slot: &crate::native_widgets::Slot,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let Some(shown) = shown(cx)? else {
+    let Some(shown) = shown(cx, &slot.streak)? else {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
     };
     body(cx, out, &look, &shown)
@@ -395,7 +421,7 @@ fn body(cx: &mut Cx<'_>, out: &mut Vec<Paint>, look: &Look, shown: &Shown) -> Re
         // them taken from the marks where the two would not fit together
         // otherwise.
         let space = gap_px;
-        let needs = cx.font.measure_text(head, &first)? as u16 + 1;
+        let needs = (cx.font.measure_text(head, &first)? as u16).saturating_add(1);
         let least_marks = (mm3 * count as u32) as u16;
         let side = needs
             .max(area.width * 2 / 5)
