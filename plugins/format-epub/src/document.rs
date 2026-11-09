@@ -845,7 +845,7 @@ impl Document for EpubDocument {
             )
             .inspect_err(|e| crate::pictures::note_failure(storage, &base, e))?;
         }
-        Ok(crate::pictures::open(storage, &base, self.color))
+        crate::pictures::try_open(storage, &base, self.color)
     }
 
     fn sections(&self) -> u32 {

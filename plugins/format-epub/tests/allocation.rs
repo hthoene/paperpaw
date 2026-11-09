@@ -847,3 +847,73 @@ fn a_refused_allocation_while_a_fictionbook_cover_is_made_leaves_no_mark() {
         );
     }
 }
+
+/// The cover of an EPUB: an allocation refused while it is decoded or looked
+/// for is `OutOfMemory` or a cover as the clean run has it, never a mark
+/// that hides it; the next try, with memory, finds it whole.
+#[test]
+fn a_refused_allocation_while_an_epub_cover_is_made_leaves_no_mark() {
+    // A small PNG cover: the decoder of JPEG (`paperpaw-image`, Kernel's)
+    // still grows its component list without a way to refuse.
+    let package = common::opf(
+        "<dc:title>Cover</dc:title><dc:identifier id=\"uid\">urn:test</dc:identifier>",
+        &[
+            ("cov", "cover.png", "image/png", "cover-image"),
+            ("c0", "c0.xhtml", "application/xhtml+xml", ""),
+        ],
+        &["c0"],
+    );
+    let book = common::zip(
+        &[
+            (
+                "META-INF/container.xml",
+                common::container("OEBPS/content.opf").into_bytes(),
+            ),
+            ("OEBPS/content.opf", package.into_bytes()),
+            ("OEBPS/c0.xhtml", common::xhtml("<p>Text</p>").into_bytes()),
+            ("OEBPS/cover.png", PNG.to_vec()),
+        ],
+        false,
+    );
+    let fresh = || Host(MemoryStorage::new().with("k.epub", book.clone()));
+    let open = |storage: &Host| {
+        let doc = EpubDocument::open(storage, "k.epub")?;
+        Ok::<_, DocumentError>(host(|| Box::new(doc)))
+    };
+    let storage = fresh();
+    let doc = open(&storage).expect("opens");
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    let clean = doc.cover(&storage);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let clean = clean.expect("a clean run answers").expect("the cover");
+    assert!(total > 5, "{total} allocations is not representative");
+    for nth in 1..=total {
+        let storage = fresh();
+        let doc = open(&storage).expect("opens");
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let result = doc.cover(&storage);
+        ARMED.with(|armed| armed.set(false));
+        assert!(
+            matches!(result, Ok(Some(_)) | Err(DocumentError::OutOfMemory)),
+            "allocation {nth} refused: {result:?}"
+        );
+        assert_eq!(
+            cache_files_ending(&storage, ".bad"),
+            0,
+            "allocation {nth} refused: the cover is marked undecodable"
+        );
+        let doc = open(&storage).expect("opens again");
+        assert_eq!(
+            doc.cover(&storage)
+                .expect("answers")
+                .map(|i| (i.width, i.height)),
+            Some((clean.width, clean.height)),
+            "allocation {nth} refused: the cover is missing on the next read"
+        );
+    }
+}
