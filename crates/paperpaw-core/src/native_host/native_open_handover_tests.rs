@@ -5,39 +5,21 @@
 use super::*;
 use crate::native_host::{
     commands::{CommandScope, CommandStage, WireCommand, commands_encode},
-    ui_guard::UiStackView,
-    ui_service::{UiHost, UiServices},
+    shared::Shared,
+    ui_service::UiServices,
     ui_store::{Limits, Param, Stamp, UiStore},
 };
-use alloc::{borrow::ToOwned, rc::Rc};
+use alloc::borrow::ToOwned;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_platform::Instant;
 
-struct Host;
-impl UiHost for Host {
-    fn callback_epoch(&self) -> u64 {
-        1
-    }
-    fn calling_instance(&self, _: u64) -> Option<u32> {
-        None
-    }
-    fn with_stack(&self, _: &mut dyn FnMut(&dyn UiStackView)) {}
-    fn x4(&self) -> bool {
-        false
-    }
-    fn close_dialog(&self, _: u32) {}
-}
-
 /// A kernel with the factory plugin installed (its screen is offered for
 /// `core.translate`), the pool wired to a hand-over store.
-fn wired() -> (crate::Kernel, Rc<UiStore>) {
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+fn wired() -> (crate::Kernel, Shared<UiStore>) {
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = crate::native_host::HostResources::try_new().unwrap();
     pool.hosts()
-        .wire_ui(UiServices {
-            store: Rc::clone(&store),
-            host: Rc::new(Host),
-        })
+        .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
         .unwrap();
     POOL.with(|slot| *slot.borrow_mut() = Some(pool));
     reset(NORMAL);
