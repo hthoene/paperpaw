@@ -94,6 +94,21 @@ pub trait CodeLoader {
     /// was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
     fn finish(&mut self, _storage: &dyn Storage) {}
+
+    /// Where the declared hyphenation tables of the data plugins go, if this
+    /// shell serves `text.hyphenate` (`storage`: the card the tables are read
+    /// from). Asked once, after [`finish`](Self::finish); from then on every
+    /// plugin added or removed and every change of the card reaches the sink
+    /// ([`HyphenTables`](crate::native_host::HyphenTables)). A shell makes
+    /// its one `HostResources::wire` call here, so it wires its other host
+    /// views (`core.ui`) with the tables: a refused wiring leaves them all
+    /// unwired, and the shell says so.
+    fn hyphenation_sink(
+        &mut self,
+        _storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<crate::native_host::HyphenTables> {
+        None
+    }
 }
 
 /// A code plugin's file to load ([`CodeLoader::load`]).
@@ -255,6 +270,7 @@ impl Kernel {
         }
         drop(installed);
         loader.finish(storage.as_ref());
+        self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
     }
 

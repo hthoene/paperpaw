@@ -34,6 +34,9 @@ std::thread_local! {
     static REPORTS: Cell<u32> = const { Cell::new(0) };
     static STAMPS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
     static EVENTS: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
+    /// What each `screen_opened` said of the hand-over: instance, hand-over,
+    /// params, text bytes.
+    static OPENED: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
 struct ScreenState {
@@ -351,7 +354,17 @@ unsafe extern "C" fn screen_event(
         Err(error) => return error,
     };
     let row = match record {
-        wire::Record::EventScreenOpened(event) => (79, event.instance, event.flags, event.params),
+        wire::Record::EventScreenOpened(event) => {
+            OPENED.with(|opened| {
+                opened.borrow_mut().push((
+                    event.instance,
+                    event.handover,
+                    event.params,
+                    event.text_bytes,
+                ));
+            });
+            (79, event.instance, event.flags, event.params)
+        }
         wire::Record::EventScreenShown(event) => (38, event.instance.unwrap_or(0), 0, 0),
         wire::Record::EventScreenClosed(event) => (80, event.instance, 0, 0),
         _ => return ERR_INVALID,
@@ -433,6 +446,7 @@ fn kernel(flags: u32) -> crate::Kernel {
     DESTROYED.with(|value| value.set(0));
     REPORTS.with(|value| value.set(0));
     EVENTS.with(|events| events.borrow_mut().clear());
+    OPENED.with(|opened| opened.borrow_mut().clear());
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -1420,6 +1434,8 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
     );
 }
 
+#[path = "native_open_handover_tests.rs"]
+mod open_handover;
 #[path = "native_resources_tests.rs"]
 mod resources;
 #[path = "native_slot_offers_tests.rs"]

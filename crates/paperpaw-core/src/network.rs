@@ -454,7 +454,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         if let Some(text) = text {
-            self.shared.clipboard = clipped(&text);
+            self.shared.clipboard = crate::commands::clipped(&text);
         }
         for (reply, params) in self.io.clipboard.answered() {
             self.reply_clipboard(reply, params);
