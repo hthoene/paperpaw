@@ -703,3 +703,147 @@ fn a_refused_reconversion_is_never_taken_for_the_chapter_the_book_had() {
     }
     assert!(refusals > 0, "no refusal answered OutOfMemory");
 }
+
+/// A picture noted when its chapter is converted is decoded by
+/// `prepare_image` when its page is laid out. An allocation refused then
+/// leaves no mark: the picture is not said undecodable and no partly made
+/// file stays, so the next try, with memory, shows it.
+#[test]
+fn a_refused_allocation_in_prepare_image_leaves_no_mark() {
+    let fresh = || Host(MemoryStorage::new().with("book.epub", epub_fixture()));
+    // The picture's reference, as a reader finds it in the chapter.
+    let image_of = |storage: &Host| {
+        let doc = open_epub(storage).expect("opens");
+        let mut found = None;
+        let mut at = Locator::new(0, 0);
+        while let Some(block) = doc.block_at(storage, at).expect("reads") {
+            at = Locator::new(0, block.end);
+            if let Some(image) = block.image {
+                found = Some(image);
+            }
+        }
+        (doc, found.expect("the chapter shows a picture"))
+    };
+    // A clean decode, counting what it allocates.
+    let storage = fresh();
+    let (doc, image) = image_of(&storage);
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    let decoded = doc.prepare_image(&storage, &image);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let clean = decoded.expect("a clean decode shows the picture");
+    let whole = host(|| paperpaw_sdk::read_file(&storage, &clean.path, 1 << 20)).expect("the file");
+    assert!(total > 5, "{total} allocations is not representative");
+    for nth in 1..=total {
+        let storage = fresh();
+        let (doc, image) = image_of(&storage);
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let _ = doc.prepare_image(&storage, &image);
+        ARMED.with(|armed| armed.set(false));
+        assert_eq!(
+            cache_files_ending(&storage, ".bad"),
+            0,
+            "allocation {nth} refused: the picture is marked undecodable"
+        );
+        // Memory is back: a reader opening the book again gets the picture,
+        // made now or already there whole.
+        let (doc, image) = image_of(&storage);
+        let again = doc.prepare_image(&storage, &image);
+        let shown = again.or_else(|| {
+            paperpaw_sdk::image::ImageFile::open(&storage, &image.path)
+                .filter(|f| f.width > 0 && f.height > 0)
+                .map(|f| paperpaw_sdk::document::ImageRef {
+                    path: f.path,
+                    width: f.width,
+                    height: f.height,
+                })
+        });
+        // The file is whole, as a clean decode makes it (not cut short).
+        assert_eq!(
+            host(|| paperpaw_sdk::read_file(&storage, &clean.path, 1 << 20)).ok(),
+            Some(whole.clone()),
+            "allocation {nth} refused: the picture file is not whole"
+        );
+        assert_eq!(
+            shown.map(|i| (i.width, i.height)),
+            Some((clean.width, clean.height)),
+            "allocation {nth} refused: the picture is missing on the next read ({:?})",
+            files_under(&storage, "")
+        );
+    }
+}
+
+/// Every file of the storage with its size (for a failure message).
+fn files_under(storage: &Host, dir: &str) -> Vec<(String, u64)> {
+    let mut found = Vec::new();
+    let _ = storage.list(dir, &mut |entry| {
+        found.push((entry.name.to_string(), entry.is_dir));
+    });
+    let mut out = Vec::new();
+    for (name, is_dir) in found {
+        let path = if dir.is_empty() {
+            name
+        } else {
+            format!("{dir}/{name}")
+        };
+        if is_dir {
+            out.extend(files_under(storage, &path));
+        } else {
+            let size = storage.size(&path).unwrap_or(0);
+            out.push((path, size));
+        }
+    }
+    out
+}
+
+/// The cover of a FictionBook: an allocation refused while it is decoded or
+/// looked for is no cover that is not there. It is never marked
+/// undecodable, and the next try, with memory, finds it.
+#[test]
+fn a_refused_allocation_while_a_fictionbook_cover_is_made_leaves_no_mark() {
+    let book = fb2_fixture().replace(
+        "<lang>en</lang>",
+        "<coverpage><image l:href=\"#pic\"/></coverpage><lang>en</lang>",
+    );
+    let fresh = || Host(MemoryStorage::new().with("b/book.fb2", book.clone().into_bytes()));
+    let storage = fresh();
+    let doc = open_fb2(&storage).expect("opens");
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    let clean = doc.cover(&storage);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let clean = clean.expect("a clean run answers").expect("the cover");
+    assert!(total > 5, "{total} allocations is not representative");
+    for nth in 1..=total {
+        let storage = fresh();
+        let doc = open_fb2(&storage).expect("opens");
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let result = doc.cover(&storage);
+        ARMED.with(|armed| armed.set(false));
+        assert!(
+            matches!(result, Ok(_) | Err(DocumentError::OutOfMemory)),
+            "allocation {nth} refused: {result:?}"
+        );
+        assert_eq!(
+            cache_files_ending(&storage, ".bad"),
+            0,
+            "allocation {nth} refused: the cover is marked undecodable"
+        );
+        let doc = open_fb2(&storage).expect("opens again");
+        assert_eq!(
+            doc.cover(&storage)
+                .expect("answers")
+                .map(|i| (i.width, i.height)),
+            Some((clean.width, clean.height)),
+            "allocation {nth} refused: the cover is missing on the next read"
+        );
+    }
+}

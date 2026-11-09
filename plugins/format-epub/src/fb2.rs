@@ -894,7 +894,7 @@ impl Document for Fb2Document {
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }
-        let cache = crate::pictures::file(&base, self.color);
+        let cache = crate::pictures::try_file(&base, self.color)?;
         decode_binaries(
             storage,
             &self.path,
@@ -903,7 +903,9 @@ impl Document for Fb2Document {
             &self.paths.dir,
             self.color,
         )?;
-        let cover = crate::pictures::open(storage, &base, self.color);
+        // No room to look is no answer, not a cover that is not there: it
+        // is never marked undecodable.
+        let cover = crate::pictures::try_open(storage, &base, self.color)?;
         if cover.is_none() {
             // Not in the book, or not decodable: the whole book is not read
             // through again for it each time it is listed.
