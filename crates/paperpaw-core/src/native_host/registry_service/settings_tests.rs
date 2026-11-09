@@ -495,6 +495,15 @@ fn flags_say_what_the_setting_is_and_where_its_value_comes_from() {
     assert_eq!(flags_of(row(&rows, "cfg.mode")) & 256, 256);
     assert!(row(&rows, "cfg.mode").ends_with("value=Text(\"cfg.mode.b\")"));
     assert_eq!(flags_of(row(&rows, "cfg.name")) & 256, 0);
+    // A preview that equals the kept value is still in the preview set.
+    let kept = kernel.shared.settings.get("cfg.name").cloned().unwrap();
+    kernel
+        .shared
+        .settings
+        .set_preview(std::vec![(id("cfg.name"), Some(kept))]);
+    let rows = page(&kernel, schema::OP_SETTINGS, "cfg").0;
+    assert_eq!(flags_of(row(&rows, "cfg.name")) & 256, 256);
+    assert_eq!(flags_of(row(&rows, "cfg.mode")) & 256, 0);
 }
 
 #[test]
