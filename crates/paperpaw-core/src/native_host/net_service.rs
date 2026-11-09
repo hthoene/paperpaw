@@ -108,6 +108,10 @@ pub(crate) struct NetProfile {
     pub(crate) max_body: u32,
     /// Whether the cable server (`serve` port 0) exists.
     pub(crate) cable: bool,
+    /// `SERVERS`: servers open at once over all plugins, from `serve` until
+    /// they stop, fail or end (1 on the X4, 2 on the X4 Pro and Classic, 8
+    /// elsewhere). A `serve` past it answers `ERR_BUSY` and opens nothing.
+    pub(crate) servers: u32,
 }
 
 impl NetProfile {
@@ -120,6 +124,7 @@ impl NetProfile {
         connections: 2,
         max_body: 45_056,
         cable: true,
+        servers: 1,
     };
     /// Devices without a pool (Android, the emulator).
     pub(crate) const OTHER: Self = Self {
@@ -128,6 +133,7 @@ impl NetProfile {
         connections: 6,
         max_body: 1_048_576,
         cable: false,
+        servers: 8,
     };
 }
 
@@ -359,7 +365,8 @@ fn own(text: &str) -> Result<String, i32> {
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use serving::{
-    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_owner,
+    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_failed,
+    server_owner, server_started,
 };
 #[allow(
     unused_imports,
