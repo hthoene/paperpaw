@@ -113,8 +113,12 @@ fn a_call_naming_the_network_and_core_files_together_wires_both() {
     }
     let resources = HostResources::try_new().unwrap();
     let sources = resources.hosts().busy_sources();
-    sources.register(BusyKind::LibraryMoves, Rc::new(Quiet)).unwrap();
-    sources.register(BusyKind::ReaderBook, Rc::new(Quiet)).unwrap();
+    sources
+        .register(BusyKind::LibraryMoves, Rc::new(Quiet))
+        .unwrap();
+    sources
+        .register(BusyKind::ReaderBook, Rc::new(Quiet))
+        .unwrap();
     let wired = resources
         .wire(
             HostWiring::new()
