@@ -29,6 +29,8 @@ struct Probe {
     last: Rc<Cell<i32>>,
     /// Its name and the log of who was called, in order (fairness).
     order: Option<(char, Rc<RefCell<Vec<char>>>)>,
+    /// A setting of its own, for the command kind 3.
+    setting: &'static str,
 }
 
 impl NativeInstance for Probe {
@@ -57,8 +59,12 @@ impl NativeInstance for Probe {
             let mut bytes = [0; 64];
             let command = match self.command.get() {
                 0 => WireCommand::Redraw { mode: 0 },
-                // Not on the list of a run's commands (a preview, say).
-                2 => WireCommand::PreviewEnd { flags: 0 },
+                // Not on the list of a run's commands (closing its screen).
+                2 => WireCommand::CloseScreen,
+                3 => WireCommand::SetSetting {
+                    key: self.setting,
+                    value: crate::abi7::settings_wire::SettingValueRef::Bool(true),
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -129,6 +135,7 @@ fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
         command: Rc::clone(&command),
         last: Rc::clone(&last),
         order: order.clone().map(|log| ('a', log)),
+        setting: "a.toggle",
     };
     let lease = NativeLease::try_new(probe()).unwrap();
     let owner = kernel
@@ -422,9 +429,10 @@ fn add_b(w: &mut World, order: &Rc<RefCell<Vec<char>>>) -> u64 {
         answer: Rc::new(Cell::new(Ok(OK))),
         calls: Rc::new(Cell::new(0)),
         submits: true,
-        command: Rc::new(Cell::new(0)),
+        command: Rc::new(Cell::new(3)),
         last: Rc::new(Cell::new(OK)),
         order: Some(('b', Rc::clone(order))),
+        setting: "b.toggle",
     })
     .unwrap();
     w.kernel
@@ -439,6 +447,20 @@ fn a_plugin_whose_events_all_stage_does_not_keep_the_others_waiting() {
     let order = Rc::new(RefCell::new(Vec::new()));
     let mut w = world_with(true, Some(Rc::clone(&order)));
     let b = add_b(&mut w, &order);
+    // Each stages a setting of its own: no screen needs to be on top.
+    for key in ["a.toggle", "b.toggle"] {
+        w.kernel
+            .shared
+            .settings
+            .define(paperpaw_sdk::SettingSpec::switch(
+                key,
+                "toggle",
+                false,
+                paperpaw_sdk::builtin::groups::OTHER,
+            ))
+            .unwrap();
+    }
+    w.command.set(3);
     let svc = Svc::default();
     svc.queue
         .borrow_mut()
@@ -489,7 +511,7 @@ fn a_runs_network_events_are_quiet_too() {
 #[test]
 fn a_run_may_only_stage_what_is_listed() {
     use paperpaw_native::host_glue::ERR_STATE;
-    // A command not named for runs (here `preview_end`) is refused there by
+    // A command not named for runs (here `close_screen`) is refused there by
     // default, and staged anywhere else.
     let mut w = world(true);
     w.command.set(2);
