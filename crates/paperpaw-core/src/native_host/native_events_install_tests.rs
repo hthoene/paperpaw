@@ -63,7 +63,7 @@ fn the_book_events_register_and_book_closed_comes_before_suspend() {
     use paperpaw_sdk::builtin::events as builtin;
     EVENTS.with(|events| events.borrow_mut().clear());
     EMPTY.with(|value| value.set(true));
-    let (mut kernel, result) = regs_kernel(13);
+    let (mut kernel, result) = regs_kernel(14);
     EMPTY.with(|value| value.set(false));
     result.unwrap();
     let key = kernel.shared.native_instances.find("factory").unwrap();

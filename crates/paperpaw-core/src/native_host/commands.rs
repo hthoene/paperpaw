@@ -143,6 +143,9 @@ pub struct CommandStage<'a> {
     room: core::cell::RefCell<Option<items::ItemRoom>>,
     /// The checked `command.set_hint` copies, applied after the callback.
     staged_hints: Vec<super::hint_labels::HintSet>,
+    /// The checked `command.widget_changed` instances, applied after the
+    /// callback.
+    staged_widgets: Vec<u32>,
     staged_policies: Vec<nav::PolicyChange>,
 }
 
@@ -184,6 +187,7 @@ impl<'a> CommandStage<'a> {
             staged_presets: Vec::new(),
             room: core::cell::RefCell::new(None),
             staged_hints: Vec::new(),
+            staged_widgets: Vec::new(),
             staged_policies: Vec::new(),
         }
     }
@@ -312,6 +316,10 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_hints(batch) {
             return error;
         }
+        let start_widgets = self.staged_widgets.len();
+        if let Err(error) = self.reserve_widgets(batch) {
+            return error;
+        }
         let start_policies = self.staged_policies.len();
         if let Err(error) = self.reserve_policies(batch) {
             return error;
@@ -334,6 +342,7 @@ impl<'a> CommandStage<'a> {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
+            self.staged_widgets.truncate(start_widgets);
             self.staged_policies.truncate(start_policies);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
@@ -353,6 +362,17 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// Room for the instances of the batch's `command.widget_changed`.
+    fn reserve_widgets(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let count = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::WidgetChanged { .. }))
+            .count();
+        self.staged_widgets
+            .try_reserve(count)
+            .map_err(|_| ERR_NO_MEMORY)
     }
 
     /// Every command of a batch but the item states and the dev commands:
@@ -411,6 +431,7 @@ impl<'a> CommandStage<'a> {
                     command,
                     WireCommand::Redraw { .. }
                         | WireCommand::SetHint { .. }
+                        | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
@@ -475,6 +496,11 @@ impl<'a> CommandStage<'a> {
             }
             // Copied and listed ahead (`reserve_hints`).
             if matches!(command, WireCommand::SetHint { .. }) {
+                continue;
+            }
+            // Listed for the table, not a kernel command; room is reserved.
+            if let WireCommand::WidgetChanged { instance } = command {
+                self.staged_widgets.push(instance);
                 continue;
             }
             // Kept apart, applied before the others (`stage_policy`).

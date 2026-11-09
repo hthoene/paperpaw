@@ -16,6 +16,9 @@ pub(super) struct UiContext<'a> {
         &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
         bool,
     )>,
+    /// The widget table and the caller's owner key, to check
+    /// `command.widget_changed` (without it the command is `ERR_UNSUPPORTED`).
+    widgets: Option<(&'a crate::native_host::ui_service::UiServices, u64)>,
     /// The kernel's stack and the submitter's owner id, for the navigation
     /// commands (`commands_nav.rs`); without it they are `ERR_UNSUPPORTED`.
     stack: Option<super::nav::NavStack<'a>>,
@@ -55,9 +58,32 @@ impl<'a> CommandStage<'a> {
             hop,
             open_budget,
             labels: None,
+            widgets: None,
             stack: None,
         });
         self
+    }
+
+    /// Admits `command.widget_changed` for owner `owner_key`: the instance
+    /// must be one of its own widgets in `ui`'s table.
+    #[must_use]
+    pub(crate) fn with_widgets(
+        mut self,
+        ui: Option<&'a crate::native_host::ui_service::UiServices>,
+        owner_key: u64,
+    ) -> Self {
+        if let (Some(context), Some(ui)) = (&mut self.ui, ui) {
+            context.widgets = Some((ui, owner_key));
+        }
+        self
+    }
+
+    /// The checked widget changes, in order, for the host to apply after the
+    /// callback ([`UiServices::widgets_changed`]); call it before
+    /// [`Self::into_commands`].
+    #[must_use]
+    pub(crate) fn take_widget_changes(&mut self) -> Vec<u32> {
+        core::mem::take(&mut self.staged_widgets)
     }
 
     /// Admits `command.set_hint`: `labels` keeps what instances relabel,
@@ -259,6 +285,11 @@ impl<'a> CommandStage<'a> {
                 crate::native_host::hint_labels::check(action, kind, label)?;
                 self.own_top()?;
                 Ok(action.len() + label.len())
+            }
+            WireCommand::WidgetChanged { instance } => {
+                let (ui, owner) = ui.widgets.ok_or(ERR_UNSUPPORTED)?;
+                ui.widget_check_changed(owner, instance)?;
+                Ok(0)
             }
             _ => Err(ERR_UNSUPPORTED),
         }
