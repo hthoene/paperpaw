@@ -96,7 +96,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         });
         let frame = self.frame(env, epoch.epoch(), instance, directory.as_deref());
         // What the callback froze of the stages it ran ends with it.
-        let _release = super::stage_members::Release::new(directory.as_deref(), epoch.epoch());
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
         match stage {
             Some(stage) => shell::dispatch_token_staged(
                 batch,
@@ -153,7 +157,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
-        let _release = super::stage_members::Release::new(directory.as_deref(), epoch.epoch());
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
         shell::dispatch_token_draw(
             batch,
             token,
@@ -218,6 +226,11 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
         shell::dispatch_stage(
             batch,
             token,
