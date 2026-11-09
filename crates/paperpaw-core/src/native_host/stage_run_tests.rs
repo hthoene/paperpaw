@@ -554,3 +554,37 @@ fn a_small_device_blocks_stage_runs_until_its_stack_gate_passes() {
         "no subscriber was called"
     );
 }
+
+#[test]
+fn the_frozen_lists_are_freed_when_the_callback_ends() {
+    use crate::native_host::stage_members::Release;
+    let fixture = Fixture::new();
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (7, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            ask(frame, STAGE, 0, b"", &mut out).unwrap();
+            assert!(!fixture.directory.members.borrow().is_empty());
+            // A nested callback's end (another epoch) leaves the list alone.
+            drop(Release::new(Some(&fixture.directory), 8));
+            assert!(!fixture.directory.members.borrow().is_empty());
+        },
+    );
+    drop(Release::new(Some(&fixture.directory), 7));
+    assert!(fixture.directory.members.borrow().is_empty());
+    // The next callback freezes a fresh list from the store.
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (9, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 0, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "first");
+        },
+    );
+}
