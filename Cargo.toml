@@ -36,6 +36,7 @@ members = [
     "crates/paperpaw-ui-kit",
     "crates/paperpaw-hid",
     "crates/paperpaw-sort",
+    "crates/paperpaw-default-packs",
     "plugins/diagnostics",
     "plugins/dictionary",
     "plugins/fonts-default",
@@ -147,6 +148,7 @@ paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.3" }
 paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.3" }
 paperpaw-core = { path = "crates/paperpaw-core", version = "0.6.0-beta.3" }
 paperpaw-hyphen = { path = "crates/paperpaw-hyphen", version = "0.6.0-beta.3" }
+paperpaw-default-packs = { path = "crates/paperpaw-default-packs", version = "0.6.0-beta.3" }
 paperpaw-image = { path = "crates/paperpaw-image", version = "0.6.0-beta.3" }
 paperpaw-app = { path = "crates/paperpaw-app", version = "0.6.0-beta.3" }
 paperpaw-fs = { path = "crates/paperpaw-fs", version = "0.6.0-beta.3" }

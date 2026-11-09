@@ -1516,6 +1516,7 @@ dependencies = [
  "ndk",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-fs",
  "paperpaw-graphics",
@@ -1632,6 +1633,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-default-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphen",
+ "paperpaw-hyphenation-packs",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-dev"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -1677,6 +1688,7 @@ dependencies = [
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-i18n",
@@ -2883,6 +2895,7 @@ name = "paperpaw-web"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
@@ -2898,8 +2911,10 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-config",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-graphics",
+ "paperpaw-hyphen",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-update",

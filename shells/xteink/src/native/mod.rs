@@ -25,6 +25,7 @@ mod hot;
 pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
+pub mod seed;
 #[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use ppn5::register_linked_probe;
 #[cfg(feature = "esp32s3")]

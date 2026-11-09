@@ -2319,6 +2319,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-default-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphenation-packs",
+ "paperpaw-platform",
+]
+
+[[package]]
 name = "paperpaw-digest"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2360,6 +2368,13 @@ version = "0.6.0-beta.3"
 [[package]]
 name = "paperpaw-hyphen"
 version = "0.6.0-beta.3"
+
+[[package]]
+name = "paperpaw-hyphenation-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphen",
+]
 
 [[package]]
 name = "paperpaw-i18n"
@@ -2734,6 +2749,7 @@ dependencies = [
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-fat",
  "paperpaw-graphics",
