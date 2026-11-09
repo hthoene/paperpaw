@@ -389,16 +389,8 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "boox-lock-pin",
-        profile: "boox-go-7",
-        book: None,
-        // Setting up a screen lock: the keypad for a new PIN.
-        sets: &[],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:300,tap-on:Screen lock,wait:300,tap:600:200,wait:300,tap-on:PIN,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
+    // The screen lock's PIN keypad (`boox-lock-pin`) is gone with the interface-6 lock; it
+    // returns with the native lock screen when the host runs native plugins (#228).
     // The screens one passes through most, on the X4 (buttons alone,
     // black and white) and on the Boox (touch): the main menu and the
     // tools, the library, the reader's menus, the contents, the
