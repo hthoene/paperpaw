@@ -4,9 +4,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
+use paperpaw_plugin_mail::native_model::fail::Fail;
 use paperpaw_plugin_mail::native_model::imap::{self, Fault};
-use paperpaw_plugin_mail::native_model::{codec, header, html, mem, smtp};
+use paperpaw_plugin_mail::native_model::{codec, header, html, mem, render, smtp, store};
 use paperpaw_sdk::native::Error;
+use paperpaw_sdk::{DirEntry, Storage, StorageError};
+use std::cell::{Cell, RefCell};
 
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
@@ -192,4 +195,183 @@ fn the_smtp_reader_survives_refused_allocations() {
         smtp::data("a\n.b\n..c\n")?;
         Ok(())
     });
+}
+
+/// A card of fixed files that never allocates (each file has its room), so that
+/// a refused allocation is the code's own and never the test double's.
+struct Slots(Vec<Slot>);
+
+struct Slot {
+    name: &'static str,
+    data: RefCell<Vec<u8>>,
+    exists: Cell<bool>,
+}
+
+impl Slots {
+    fn new(names: &[&'static str]) -> Self {
+        Self(
+            names
+                .iter()
+                .map(|name| Slot {
+                    name,
+                    data: RefCell::new(Vec::with_capacity(96 * 1024)),
+                    exists: Cell::new(false),
+                })
+                .collect(),
+        )
+    }
+
+    fn slot(&self, path: &str) -> Result<&Slot, StorageError> {
+        self.0
+            .iter()
+            .find(|s| s.name == path)
+            .ok_or(StorageError::InvalidPath)
+    }
+
+    /// Puts `data` in `path` (within its room: no allocation).
+    fn put(&self, path: &str, data: &[u8]) {
+        let slot = self.slot(path).unwrap();
+        let mut file = slot.data.borrow_mut();
+        file.clear();
+        file.extend_from_slice(data);
+        slot.exists.set(true);
+    }
+
+    fn get(&self, path: &str) -> Vec<u8> {
+        self.slot(path).unwrap().data.borrow().clone()
+    }
+}
+
+impl Storage for Slots {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        let slot = self.slot(path)?;
+        if !slot.exists.get() {
+            return Err(StorageError::NotFound);
+        }
+        let data = slot.data.borrow();
+        let from = usize::try_from(offset).unwrap().min(data.len());
+        let n = buf.len().min(data.len() - from);
+        buf[..n].copy_from_slice(&data[from..from + n]);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        let slot = self.slot(path)?;
+        if !slot.exists.get() {
+            return Err(StorageError::NotFound);
+        }
+        Ok(slot.data.borrow().len() as u64)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.slot(path)?;
+        self.put(path, data);
+        Ok(())
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        let slot = self.slot(path)?;
+        slot.data.borrow_mut().extend_from_slice(data);
+        slot.exists.set(true);
+        Ok(())
+    }
+    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        let slot = self.slot(path)?;
+        slot.data.borrow_mut().clear();
+        slot.exists.set(false);
+        Ok(())
+    }
+}
+
+/// A `Fail` as the sweep wants it: a refusal passes, anything else is a bug.
+fn refused(fail: Fail) -> Error {
+    match fail {
+        Fail::NoMemory => Error::NoMemory,
+        other => panic!("not a refusal: {other:?}"),
+    }
+}
+
+const MAIL: &[u8] = b"From: =?utf-8?Q?J=C3=BCrgen?= <j@x.org>\r\nTo: a@x.org, \"B, C\" <b@x.org>\r\n\
+Subject: =?iso-8859-1?Q?caf=E9?= hello\r\nDate: Tue, 3 Nov 2026 10:00:00 +0100\r\nMessage-ID: <id@x>\r\n\
+References: <a@x> <b@x>\r\nContent-Type: multipart/mixed; boundary=m\r\n\r\n--m\r\n\
+Content-Type: multipart/alternative; boundary=a\r\n\r\n--a\r\nContent-Type: text/plain; charset=iso-8859-1\r\n\
+Content-Transfer-Encoding: quoted-printable\r\n\r\ncaf=E9 au lait=\r\n et plus\r\n--a\r\nContent-Type: text/html\r\n\r\n\
+<p>html</p>\r\n--a--\r\n--m\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: base64\r\n\r\nPHA+aGk8L3A+\r\n--m\r\n\
+Content-Type: application/pdf; name=\"a.pdf\"\r\nContent-Disposition: attachment; filename=\"a.pdf\"\r\n\r\nJVBERi0=\r\n--m--\r\n";
+
+#[test]
+fn rendering_and_the_store_survive_refused_allocations() {
+    let card = Slots::new(&[
+        "raw.eml",
+        "out.txt",
+        "m1.txt",
+        "m1.txt.tmp",
+        "i.txt",
+        "f.txt",
+        "s.txt",
+    ]);
+    swept("render", || {
+        card.put("raw.eml", MAIL);
+        let info = render::render(&card, "raw.eml", "out.txt", 24 * 1024).map_err(refused)?;
+        assert_eq!(info.attachments.len(), 1);
+        // And cut short.
+        render::render(&card, "raw.eml", "out.txt", 9).map_err(refused)?;
+        Ok(())
+    });
+    swept("letter", || {
+        card.put("raw.eml", MAIL);
+        let letter = store::make_letter(&card, "raw.eml", "m1.txt").map_err(refused)?;
+        assert!(letter.text.contains("caf\u{e9}"));
+        let read = store::read_letter(&card, "m1.txt").map_err(refused)?;
+        assert!(read.is_some());
+        Ok(())
+    });
+    // Made before the sweeps: the test's own allocations are not the code's.
+    let seen = vec!["\\Seen".to_string()];
+    swept("index and counts", || {
+        let row =
+            store::Row::from_headers(3, &seen, 9, 100, b"From: A <a@x>\r\nSubject: s\r\n\r\n")
+                .map_err(refused)?;
+        store::write_index(&card, "i.txt", &[row]).map_err(refused)?;
+        let rows = store::read_index(&card, "i.txt").map_err(refused)?;
+        assert_eq!(rows.len(), 1);
+        let counts = store::Counts::default();
+        card.put("s.txt", counts.line().map_err(refused)?.as_bytes());
+        // A cache that cannot be read for want of memory is no counts.
+        store::Counts::read(&card, "s.txt");
+        Ok(())
+    });
+    swept("folders and names", || {
+        let mut folders = Vec::new();
+        for (raw, flag) in [
+            ("INBOX", ""),
+            ("Sent", "\\sent"),
+            ("Zeta", ""),
+            ("alpha", ""),
+        ] {
+            let mut flags = Vec::new();
+            if !flag.is_empty() {
+                mem::push(&mut flags, mem::copy(flag)?)?;
+            }
+            mem::push(
+                &mut folders,
+                store::Folder::new(raw, flags).map_err(refused)?,
+            )?;
+        }
+        store::sort_folders(&mut folders);
+        store::write_folders(&card, "f.txt", &folders).map_err(refused)?;
+        assert_eq!(
+            store::read_folders(&card, "f.txt").map_err(refused)?.len(),
+            4
+        );
+        store::index_file(1, "INBOX").map_err(refused)?;
+        store::text_file(1, "Archiv/2026", 7).map_err(refused)?;
+        store::field(" a\tb\n ").map_err(refused)?;
+        Ok(())
+    });
+    assert_eq!(
+        card.get("raw.eml").len(),
+        0,
+        "the letter took the raw message away"
+    );
 }

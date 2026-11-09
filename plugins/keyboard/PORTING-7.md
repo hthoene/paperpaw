@@ -46,6 +46,22 @@ linked entry, construction in the kernel's registered scope (refused as `Unsuppo
 host admits every declaration family, #944). `tests/acceptance_pending.rs`: ignored cases that
 name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H4).
 
+- Layouts other plugins add (interface 6 point `keyboard.layouts`, now the stage
+  `keyboard.layouts@1`): the schema is `stages/keyboard.layouts@1.def` (input `layouts.ask`: the UI
+  language; reply: up to 3 `layouts.layout` records of `id`, `code`, `letters`, `variants`, at most
+  3,200 bytes), the codec `src/stages.rs` (generated: `python3 tools/stage-codec.py stages
+  src/stages.rs --plugin keyboard`), the declaration `declarations::stages`, and the reading
+  `src/native_layouts.rs`. The dialog and the chooser run the stage (`stage.run`, metadata gains it)
+  and take the rules of the old point: the id is also the translation key of the name (a layout
+  without one shows as its id), at most 4 visible characters of code, 6 rows of 16 letters, 16
+  variants a letter; an id that names a built-in layout, *Automatic* or one added before is left
+  out. Tests compare the reading with the old `parse` on samples and edge cases, sweep every
+  allocation, round-trip the largest answer through the codec, and pin the stage's declaration and
+  bounds to the schema. **Differences:** a subscriber answers records, not lines (the variants are
+  one field of `e=éèë` pairs, at most 512 bytes; a plugin gives up to 3 layouts a run and 16 are
+  taken in all); where the host does not run stages (nothing subscribed, or not wired) there are no
+  added layouts and the built-in ones work as before.
+
 ## Not ported yet (explicit; each is an ignored acceptance case)
 
 - Text from a hardware keyboard or a remote control (interface 6 `type-text`): needs the host event
@@ -53,10 +69,7 @@ name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H
 - Hiding layouts the fonts cannot draw (interface 6 `has_char`): needs the host call
   `text.covers` (draft 22, slot 39). Until then every built-in layout is offered; on the X4 packs
   a layout in a script they lack would show question marks.
-- Layouts other plugins add (interface 6 point `keyboard.layouts`; only tests use it): Kernel's
-  answer is a plugin-defined stage `keyboard.layouts@1` (schema plus `tools/stage-codec.py
-  --plugin keyboard`) that adding plugins subscribe to and the keyboard collects with `stage.run`.
-  Not written yet; the built-in layouts work without it.
+- Hiding the added layouts' variants the fonts cannot draw (see the glyph query above).
 - Right-to-left mirroring (title, hint, buttons, cursor): the kit's style has no direction yet.
 - Wrapped lines of several lines are broken at spaces and a run of spaces is shown as one.
 - Peak memory on the X4 is not measured (device gate open). The keyboard is built into the
