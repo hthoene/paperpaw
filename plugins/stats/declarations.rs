@@ -23,6 +23,7 @@ pub const TODAY_TOKEN: u32 = 40;
 pub const WEEK_TOKEN: u32 = 41;
 pub const RING_TOKEN: u32 = 42;
 pub const STREAK_TOKEN: u32 = 43;
+pub const CALENDAR_WIDGET_TOKEN: u32 = 44;
 
 pub const GROUP: &str = "stats.group";
 
@@ -150,6 +151,18 @@ pub const STREAK_MARKS: [&str; 2] = ["stats.marks.dots", "stats.marks.checks"];
 /// How many days the marks show.
 pub const STREAK_DAYS: [&str; 2] = ["stats.marks.7", "stats.marks.14"];
 
+/// This month as a calendar, or the last weeks as a heat map.
+pub const CALENDAR_STYLES: [&str; 2] = ["stats.calendar.month", "stats.calendar.weeks"];
+/// The weeks of the heat map (fewer where they do not fit).
+pub const CALENDAR_WEEKS: [&str; 4] = [
+    "stats.weeks.8",
+    "stats.weeks.12",
+    "stats.weeks.16",
+    "stats.weeks.26",
+];
+/// The days' shape.
+pub const CALENDAR_CELLS: [&str; 2] = ["stats.cells.square", "stats.cells.round"];
+
 /// A widget of the plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Def {
@@ -263,8 +276,38 @@ const STREAK_OWN: &[Opt] = &[
     Opt::Part("weekdays", "stats.part.weekdays", true),
 ];
 
+const CALENDAR_OWN: &[Opt] = &[
+    Opt::Align("core.align.center"),
+    Opt::Choice(
+        "style",
+        "stats.setting.calendar",
+        &CALENDAR_STYLES,
+        "stats.calendar.month",
+        "stats.setting.calendar.help",
+    ),
+    Opt::Choice(
+        "weeks",
+        "stats.setting.weeks",
+        &CALENDAR_WEEKS,
+        "stats.weeks.12",
+        "stats.setting.weeks.help",
+    ),
+    Opt::Choice(
+        "cells",
+        "stats.setting.cells",
+        &CALENDAR_CELLS,
+        "stats.cells.square",
+        "stats.setting.cells.help",
+    ),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::Part("weekdays", "stats.part.weekdays", true),
+    Opt::Part("numbers", "stats.part.numbers", true),
+    Opt::Part("streak", "stats.part.streak", true),
+    Opt::Part("total", "stats.part.total", true),
+];
+
 /// The widgets, with their own settings (the shared look comes first).
-pub const WIDGETS: [Def; 4] = [
+pub const WIDGETS: [Def; 5] = [
     Def {
         name: "widget.today",
         token: TODAY_TOKEN,
@@ -284,6 +327,11 @@ pub const WIDGETS: [Def; 4] = [
         name: "widget.streak",
         token: STREAK_TOKEN,
         options: STREAK_OWN,
+    },
+    Def {
+        name: "widget.calendar",
+        token: CALENDAR_WIDGET_TOKEN,
+        options: CALENDAR_OWN,
     },
 ];
 

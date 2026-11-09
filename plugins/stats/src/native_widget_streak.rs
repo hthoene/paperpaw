@@ -26,7 +26,7 @@ struct Mark {
 }
 
 /// What the widget shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct Shown {
     streaks: Streaks,
     marks: Vec<Mark>,
@@ -59,20 +59,26 @@ pub(crate) struct Cache(core::cell::RefCell<Option<(Key, Shown)>>);
 /// What the figures were worked out for.
 type Key = (u64, u32, usize);
 
-/// The streak and the marks, from the cache where nothing changed.
-fn shown(cx: &Cx<'_>, cache: &Cache) -> Result<Option<Shown>, Error> {
+/// Makes the cache hold the streak and the marks for what they are drawn for
+/// (worked out again only where something changed); whether it holds them (not
+/// where the device does not know the time). Nothing is copied: the draw reads
+/// them in the cache.
+fn refresh(cx: &Cx<'_>, cache: &Cache) -> Result<bool, Error> {
     let (least, count) = (least(cx)?, count(cx)?);
     let key = (stamp(cx.host)?, least, count);
-    if let Some((kept, shown)) = cache.0.borrow().as_ref()
-        && *kept == key
+    if cache
+        .0
+        .borrow()
+        .as_ref()
+        .is_some_and(|(kept, _)| *kept == key)
     {
-        return Ok(Some(shown.clone()));
+        return Ok(true);
     }
-    let made = work_out(cx, least, count)?;
-    if let Some(shown) = &made {
-        *cache.0.borrow_mut() = Some((key, shown.clone()));
-    }
-    Ok(made)
+    let Some(made) = work_out(cx, least, count)? else {
+        return Ok(false);
+    };
+    *cache.0.borrow_mut() = Some((key, made));
+    Ok(true)
 }
 
 fn work_out(cx: &Cx<'_>, least: u32, count: usize) -> Result<Option<Shown>, Error> {
@@ -181,10 +187,14 @@ pub fn draw(
     slot: &crate::native_widgets::Slot,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let Some(shown) = shown(cx, &slot.streak)? else {
+    if !refresh(cx, &slot.streak)? {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
+    }
+    let kept = slot.streak.0.borrow();
+    let Some((_, shown)) = kept.as_ref() else {
+        return Err(Error::State);
     };
-    body(cx, out, &look, &shown)
+    body(cx, out, &look, shown)
 }
 
 /// The streak and the note below it laid out for an area.

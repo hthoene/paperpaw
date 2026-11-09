@@ -302,9 +302,27 @@ events) is still in place. It is removed in the PR that finishes the port.
 - `paperpaw_ui_kit::widget::Opt` is `#[non_exhaustive]` now (a new kind of setting is no break for outside
   matchers).
 
+## Ported: *Reading calendar* (the widget)
+
+- `src/native_widget_calendar.rs`, token 44 (`stats.widget.calendar`; the screen `stats.calendar` keeps its token 23):
+  this month as a calendar (weekday names, the days shaded by `level`, today ringed, the numbers where they fit,
+  "October 2026" or the month alone as caption) or the last 8 to 26 weeks as a heat map (a column a week, a row a
+  weekday), and below a footer with the streak and the time read in the days shown ("5 days in a row · 6 h 20 min in
+  October"), the whole footer, else the total, else the streak. Same layout rules as interface 6 (footer goes first,
+  then the weekdays, where the days would be small). Settings parity with interface 6 in `widgets_parity.rs`.
+- The figures (the shades, the total, the streak) are cached per widget instance like the streak's (`Slot.calendar`;
+  key: the stamp, the goal, the style, the weeks and the first day of the week), the day log is not read at each draw.
+- `draw_day`, `draw_month` and `draw_weeks` are `#[inline(never)]` so that no frame holds a whole view. Stack
+  frames on the X4 are not measured (no build of the plugin files here).
+- Difference on purpose: days are rounded rectangles (the kit's `Paint::Focus`; the "round" cell is a rectangle with
+  half its side as radius), shades are solid grays (as in the other widgets; the "bar instead of a dark shade"
+  rule for panels with up to 4 grays is kept), the dots of empty days are small discs the same way.
+- No float `clamp` in the new code (`.min().max()`), as Firmware asked (it drags in panic formatting on the X4).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The widgets *Reading calendar* and *Books this year*, and the
+- The widget *Books this year* (needs the library for books without a finishing date: `uses.library`, the
+  metadata of both targets) and the
   status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).
