@@ -3276,6 +3276,8 @@ pub paperpaw_sdk::native::declare::EventKind::RegistryChanged
 pub paperpaw_sdk::native::declare::EventKind::Resume
 pub paperpaw_sdk::native::declare::EventKind::ScreenReady
 pub paperpaw_sdk::native::declare::EventKind::ScreenShown
+pub paperpaw_sdk::native::declare::EventKind::ServedRequest
+pub paperpaw_sdk::native::declare::EventKind::Server
 pub paperpaw_sdk::native::declare::EventKind::SettingChanged
 pub paperpaw_sdk::native::declare::EventKind::Socket
 pub paperpaw_sdk::native::declare::EventKind::StackChanged
@@ -3953,6 +3955,12 @@ pub const paperpaw_sdk::native::events::kinds::ScreenReady::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ScreenShown
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenShown
 pub const paperpaw_sdk::native::events::kinds::ScreenShown::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ServedRequest
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ServedRequest
+pub const paperpaw_sdk::native::events::kinds::ServedRequest::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::Server
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Server
+pub const paperpaw_sdk::native::events::kinds::Server::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::SettingChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::SettingChanged
 pub const paperpaw_sdk::native::events::kinds::SettingChanged::TAG: u32
@@ -4077,6 +4085,10 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::ScreenReady::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenShown
 pub const paperpaw_sdk::native::events::kinds::ScreenShown::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ServedRequest
+pub const paperpaw_sdk::native::events::kinds::ServedRequest::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Server
+pub const paperpaw_sdk::native::events::kinds::Server::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::SettingChanged
 pub const paperpaw_sdk::native::events::kinds::SettingChanged::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::Socket
@@ -4243,6 +4255,8 @@ pub paperpaw_sdk::native::events::Event::ScreenShown::last_input: core::option::
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
+pub paperpaw_sdk::native::events::Event::ServedRequest(paperpaw_sdk::native::net::ServedRequest<'a>)
+pub paperpaw_sdk::native::events::Event::Server(paperpaw_sdk::native::net::ServerEvent<'a>)
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::SettingChanged
 pub paperpaw_sdk::native::events::Event::SettingChanged::key: &'a str
 pub paperpaw_sdk::native::events::Event::SettingChanged::now_ms: u64
@@ -4969,6 +4983,14 @@ pub paperpaw_sdk::native::net::Reason::Timeout
 pub paperpaw_sdk::native::net::Reason::Tls
 pub paperpaw_sdk::native::net::Reason::TooLarge
 pub paperpaw_sdk::native::net::Reason::WorkEnded
+#[non_exhaustive] pub enum paperpaw_sdk::native::net::ServerState<'a>
+pub paperpaw_sdk::native::net::ServerState::Failed
+pub paperpaw_sdk::native::net::ServerState::Failed::reason: paperpaw_sdk::native::net::Reason
+pub paperpaw_sdk::native::net::ServerState::Other(u32)
+pub paperpaw_sdk::native::net::ServerState::Started
+pub paperpaw_sdk::native::net::ServerState::Started::address: &'a str
+pub paperpaw_sdk::native::net::ServerState::Stopped
+pub paperpaw_sdk::native::net::ServerState::Stopped::reason: paperpaw_sdk::native::net::Reason
 pub struct paperpaw_sdk::native::net::Answer<'a>(_)
 impl<'a> paperpaw_sdk::native::net::Answer<'a>
 pub const fn paperpaw_sdk::native::net::Answer<'a>::body_len(&self) -> u32
@@ -5029,6 +5051,19 @@ pub struct paperpaw_sdk::native::net::RequestId(_)
 impl paperpaw_sdk::native::net::RequestId
 pub const fn paperpaw_sdk::native::net::RequestId::get(self) -> u32
 pub const fn paperpaw_sdk::native::net::RequestId::new(u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::net::ServedRequest<'a>
+impl<'a> paperpaw_sdk::native::net::ServedRequest<'a>
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::body_len(&self) -> core::option::Option<u64>
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::method(&self) -> &'a str
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::now_ms(&self) -> u64
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::request(&self) -> u32
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::server(&self) -> u32
+pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::target(&self) -> &'a str
+pub struct paperpaw_sdk::native::net::ServerEvent<'a>
+impl<'a> paperpaw_sdk::native::net::ServerEvent<'a>
+pub const fn paperpaw_sdk::native::net::ServerEvent<'a>::now_ms(&self) -> u64
+pub const fn paperpaw_sdk::native::net::ServerEvent<'a>::server(&self) -> u32
+pub const fn paperpaw_sdk::native::net::ServerEvent<'a>::state(&self) -> paperpaw_sdk::native::net::ServerState<'a>
 pub const paperpaw_sdk::native::net::BODY_PART: usize
 pub const paperpaw_sdk::native::net::MAX_HEADERS: usize
 pub const paperpaw_sdk::native::net::MAX_INLINE_BODY: usize

@@ -3,7 +3,8 @@ use super::*;
 use crate::native::declare::records_wire::Record;
 use alloc::format;
 use wire::{
-    EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
+    EventActionRun, EventPageTurned, EventScreenShown, EventServedRequest, EventServer,
+    InputAction, Registration, records_encode,
 };
 
 // Same scalar vectors as core's abi7_events::simple_events_round_trip_with_distinct_tags.
@@ -614,5 +615,85 @@ fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
             Err(Error::Invalid),
             "{flags}"
         );
+    }
+}
+
+#[test]
+fn server_events_tell_started_failed_and_stopped_with_their_reasons() {
+    use crate::native::net::{Reason, ServerState};
+    let mut bytes = [0; 256];
+    let cases = [
+        (
+            0,
+            0,
+            "192.168.1.20:8080",
+            ServerState::Started {
+                address: "192.168.1.20:8080",
+            },
+        ),
+        (0, 0, "", ServerState::Started { address: "" }),
+        (
+            1,
+            5,
+            "",
+            ServerState::Failed {
+                reason: Reason::Refused,
+            },
+        ),
+        (
+            2,
+            1,
+            "",
+            ServerState::Stopped {
+                reason: Reason::NoNetwork,
+            },
+        ),
+        (2, 0, "", ServerState::Stopped { reason: Reason::Ok }),
+        (9, 0, "", ServerState::Other(9)),
+    ];
+    for (state, reason, address, want) in cases {
+        let record = Record::EventServer(EventServer {
+            now_ms: 7,
+            server: 3,
+            state,
+            reason,
+            address,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::Server(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a server event")
+        };
+        assert_eq!((got.now_ms(), got.server(), got.state()), (7, 3, want));
+    }
+}
+
+#[test]
+fn a_served_request_borrows_its_text_and_tells_a_body_only_when_flagged() {
+    let mut bytes = [0; 1400];
+    for (flags, body, want) in [(1, 5_000_000_000, Some(5_000_000_000)), (0, 0, None)] {
+        let record = Record::EventServedRequest(EventServedRequest {
+            now_ms: 7,
+            server: 3,
+            request: 77,
+            method: "POST",
+            target: "/upload?x=1",
+            flags,
+            body_len: body,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::ServedRequest(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a served request")
+        };
+        assert_eq!(
+            (
+                got.server(),
+                got.request(),
+                got.method(),
+                got.target(),
+                got.body_len()
+            ),
+            (3, 77, "POST", "/upload?x=1", want)
+        );
+        assert!(bytes.as_ptr_range().contains(&got.target().as_ptr()));
     }
 }

@@ -488,6 +488,11 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
+    /// A server of this plugin started, failed or stopped (`core.net`).
+    Server(super::net::ServerEvent<'a>),
+    /// A server of this plugin got a request; its body, if any, is readable
+    /// only in this callback.
+    ServedRequest(super::net::ServedRequest<'a>),
     /// Something happened to a socket of this plugin (`core.sockets`); read
     /// arrived bytes in this callback.
     Socket(super::sockets::SocketEvent),
