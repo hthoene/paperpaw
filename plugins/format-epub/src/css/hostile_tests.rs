@@ -23,7 +23,7 @@ fn cases(cases: u32) -> ProptestConfig {
 /// Rules of `css` fed in pieces cut at `cuts` (character counts).
 fn fed_in_pieces(css: &str, cuts: &[usize]) -> Rules {
     let mut rules = Rules::default();
-    let mut parser = Parser::new("OEBPS/");
+    let mut parser = Parser::new("OEBPS/").unwrap();
     let chars: Vec<char> = css.chars().collect();
     let mut at = 0;
     for &cut in cuts {
@@ -39,7 +39,7 @@ fn fed_in_pieces(css: &str, cuts: &[usize]) -> Rules {
 
 fn whole(css: &str) -> Rules {
     let mut rules = Rules::default();
-    Parser::new("OEBPS/").feed(css, &mut rules);
+    Parser::new("OEBPS/").unwrap().feed(css, &mut rules);
     rules
 }
 

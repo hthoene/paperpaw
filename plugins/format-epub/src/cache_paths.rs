@@ -2,7 +2,10 @@
 
 use alloc::string::String;
 
+use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::{Storage, StorageError};
+
+use crate::fallible;
 
 /// Paths of a chapter's cache files, in a folder of the chapter's own:
 /// made beside those of hundreds of other chapters, each file would be
@@ -26,21 +29,24 @@ pub(crate) struct CachePaths {
 
 impl CachePaths {
     /// The files of chapter `name` (`0`, `12`, …) in the cache `dir`.
-    pub fn new(dir: &str, name: &str) -> Self {
-        let folder = alloc::format!("{dir}/sections/{name}");
-        let file = |extension: &str| alloc::format!("{folder}/{extension}");
-        CachePaths {
-            dir: String::from(dir),
-            text: file("txt"),
-            index: file("idx"),
-            anchors: file("anc"),
-            links: file("lnk"),
-            positions: file("pos"),
-            xpointers: file("xpt"),
-            pictures: file("pic"),
-            end: file("end"),
+    ///
+    /// # Errors
+    /// `OutOfMemory` where a path finds no room.
+    pub fn new(dir: &str, name: &str) -> Result<Self, DocumentError> {
+        let folder = fallible::try_format!("{dir}/sections/{name}")?;
+        let file = |extension: &str| fallible::try_format!("{folder}/{extension}");
+        Ok(CachePaths {
+            dir: fallible::string(dir)?,
+            text: file("txt")?,
+            index: file("idx")?,
+            anchors: file("anc")?,
+            links: file("lnk")?,
+            positions: file("pos")?,
+            xpointers: file("xpt")?,
+            pictures: file("pic")?,
+            end: file("end")?,
             folder,
-        }
+        })
     }
 }
 

@@ -199,6 +199,11 @@ impl OwnerResources {
         self.owner
     }
 
+    /// The device's wired host views (a slot reaches its family here).
+    pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
+        &self.table.hosts
+    }
+
     pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {
         self.table.try_clone().map(|table| OwnerResourceView {
             table,

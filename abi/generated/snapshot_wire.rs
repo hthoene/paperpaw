@@ -8,6 +8,11 @@ pub const SNAPSHOT_MAX_BYTES: usize = 128;
 const BATTERY: u32 = 1;
 const VOLTAGE: u32 = 2;
 const UNIX: u32 = 4;
+const UTC_OFFSET: u32 = 8;
+/// The least UTC offset a snapshot carries, in minutes (UTC-12:00).
+pub const SNAPSHOT_UTC_OFFSET_MIN: i16 = -720;
+/// The greatest UTC offset a snapshot carries, in minutes (UTC+14:00).
+pub const SNAPSHOT_UTC_OFFSET_MAX: i16 = 840;
 
 /// A local, owned view of the environment. No Rust layout crosses the ABI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +34,10 @@ pub struct Snapshot {
     pub touch: bool,
     /// Display pixel format.
     pub pixel: PixelFormat,
+    /// Minutes east of UTC of the user's time zone now (daylight saving
+    /// included), in SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX,
+    /// when known.
+    pub utc_offset_minutes: Option<i16>,
 }
 
 impl Snapshot {
@@ -43,6 +52,7 @@ impl Snapshot {
             dpi,
             touch: false,
             pixel,
+            utc_offset_minutes: None,
         }
     }
 }
@@ -162,7 +172,11 @@ pub fn snapshot_encode(
     value: &Snapshot,
     out: &mut [core::mem::MaybeUninit<u8>],
 ) -> Result<usize, i32> {
-    if value.battery.is_some_and(|battery| battery.percent > 100) {
+    if value.battery.is_some_and(|battery| battery.percent > 100)
+        || value.utc_offset_minutes.is_some_and(|minutes| {
+            !(SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX).contains(&minutes)
+        })
+    {
         return Err(-2);
     }
     if out.len() < SNAPSHOT_BYTES {
@@ -183,6 +197,10 @@ pub fn snapshot_encode(
     if let Some(unix) = value.unix_seconds {
         presence |= UNIX;
         bytes[24..32].copy_from_slice(&unix.to_le_bytes());
+    }
+    if let Some(minutes) = value.utc_offset_minutes {
+        presence |= UTC_OFFSET;
+        bytes[49..51].copy_from_slice(&minutes.to_le_bytes());
     }
     bytes[0..4].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
     bytes[4..8].copy_from_slice(&(SNAPSHOT_BYTES as u32).to_le_bytes());
@@ -235,17 +253,23 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
         return Err(-2);
     }
     let presence = u32::from_le_bytes(scalar(bytes, 8));
-    if presence & !(BATTERY | VOLTAGE | UNIX) != 0 {
+    if presence & !(BATTERY | VOLTAGE | UNIX | UTC_OFFSET) != 0 {
         return Err(-1);
     }
     if presence & VOLTAGE != 0 && presence & BATTERY == 0 {
         return Err(-2);
     }
-    if bytes[12..16].iter().any(|&byte| byte != 0) || bytes[49..52].iter().any(|&byte| byte != 0) {
+    if bytes[12..16].iter().any(|&byte| byte != 0) || bytes[51..52].iter().any(|&byte| byte != 0) {
         return Err(-2);
     }
     let unix = i64::from_le_bytes(scalar(bytes, 24));
     if presence & UNIX == 0 && unix != 0 {
+        return Err(-2);
+    }
+    let minutes = i16::from_le_bytes(scalar(bytes, 49));
+    if (presence & UTC_OFFSET == 0 && minutes != 0)
+        || !(SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX).contains(&minutes)
+    {
         return Err(-2);
     }
     let percent = bytes[43];
@@ -288,5 +312,10 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
             u16::from_le_bytes(scalar(bytes, 40)),
             bytes[42],
         )?,
+        utc_offset_minutes: if presence & UTC_OFFSET == 0 {
+            None
+        } else {
+            Some(minutes)
+        },
     })
 }

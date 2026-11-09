@@ -78,9 +78,10 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     );
 }
 
-/// The host admits every one of them now, so none waits.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     let mut waiting = Vec::new();
     for batch in batches() {
         for record in records_decode(&batch).unwrap().iter() {
