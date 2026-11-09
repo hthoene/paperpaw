@@ -290,7 +290,13 @@ impl Servers7 {
         };
         let length = file.as_ref().map_or(reply.body.len() as u64, |f| f.size);
         let mut out = http::response_head(status, &reply.content_type, &reply.headers, length);
-        if file.is_none() && out.try_reserve(reply.body.len()).is_ok() {
+        if file.is_none() {
+            // The head promised `length` bytes: where the body cannot be had,
+            // the answer is 503, never a head with no body behind it.
+            if out.try_reserve(reply.body.len()).is_err() {
+                slot.refuse(503, now);
+                return;
+            }
             out.extend_from_slice(&reply.body);
         }
         slot.phase = Phase::Sending {
@@ -448,6 +454,9 @@ impl Slot {
             Ok(None) if lost(socket) || now.0 > self.since + HEAD_MS => self.again(net, port),
             Ok(None) => {}
             Err(_) => self.refuse(400, now),
+            // A chunked upload is not decoded: refused at the head, before
+            // core is asked and before any body is taken.
+            Ok(Some((request, _))) if request.chunked => self.refuse(411, now),
             Ok(Some((request, used))) => {
                 let first = head.split_off(used);
                 let head_len = used as u32;
