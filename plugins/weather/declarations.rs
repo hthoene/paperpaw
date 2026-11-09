@@ -1,9 +1,8 @@
-//! What the weather plugin declares (slice 1), compared with the interface-6
-//! registration by the declaration tests: the settings group, the place
-//! (edited on its own screen), the units and how often the weather is
-//! fetched, the coordinates, the place's screen, the actions to choose the
-//! place and to fetch, and the icons. The two widgets and their settings
-//! follow with the widget pack's kit (`PORTING-7.md`).
+//! What the weather plugin declares: the settings group, the place (edited
+//! on its own screen), the units and how often the weather is fetched, the
+//! coordinates, the place's screen, the actions to choose the place and to
+//! fetch, the icons, the two widgets with their settings and the events the
+//! plugin subscribes to. `build.rs` turns it into the image's batches.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
     ScreenDecl, SpecDecl, WidgetDecl,
