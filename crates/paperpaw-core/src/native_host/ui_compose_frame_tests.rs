@@ -21,7 +21,7 @@ use alloc::{rc::Rc, rc::Weak, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_native::host_glue::ERR_DENIED;
-use paperpaw_platform::{PixelFormat, Rect};
+use paperpaw_platform::{MemoryClass, PixelFormat, Rect};
 use paperpaw_sdk::Id;
 
 const OWNER: u64 = u64::MAX;
@@ -111,6 +111,10 @@ struct World {
 }
 
 fn world() -> World {
+    world_on(crate::tests::DEVICE)
+}
+
+fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
     let pool = Rc::new(HostResources::try_new().unwrap());
     pool.hosts()
         .wire_ui(UiServices::new(
@@ -175,9 +179,7 @@ fn world() -> World {
         pool,
         directory,
         depth,
-        kernel: crate::Kernel::builder(crate::tests::DEVICE)
-            .build()
-            .unwrap(),
+        kernel: crate::Kernel::builder(device).build().unwrap(),
         seen,
         answer,
         dropped,
@@ -319,4 +321,31 @@ fn a_stopped_owner_is_the_childs_failure_not_the_callers() {
         Ok(())
     );
     assert!(w.seen.borrow().is_empty());
+}
+
+#[test]
+fn a_small_device_blocks_compose_until_its_stack_gate_passes() {
+    // Every memory class but `Large` is the small one (`ui_store::is_x4`: a
+    // class added later fails closed), and the small one answers slot 35
+    // `ERR_UNSUPPORTED` whatever the handle is: the X4, the X3 and any later
+    // ESP32-C3 profile (`shells/desktop` pins their classes).
+    assert!(crate::native_host::ui_store::is_x4(MemoryClass::Small));
+    assert!(!crate::native_host::ui_store::is_x4(MemoryClass::Large));
+    let w = world_on(crate::tests::DEVICE.with_memory(MemoryClass::Small));
+    let caller = crate::abi7::calls::Instance::new();
+    let _outer = caller.enter(&w.depth.as_depth().0).unwrap();
+    assert_eq!(
+        w.run(World::stamp(), w.generation(), true, &w.request()),
+        Err(ERR_UNSUPPORTED)
+    );
+    assert!(w.seen.borrow().is_empty());
+    // The same call on a large device draws.
+    let large = world();
+    let caller = crate::abi7::calls::Instance::new();
+    let _outer = caller.enter(&large.depth.as_depth().0).unwrap();
+    assert_eq!(
+        large.run(World::stamp(), large.generation(), true, &large.request()),
+        Ok(())
+    );
+    assert_eq!(large.seen.borrow().len(), 1);
 }

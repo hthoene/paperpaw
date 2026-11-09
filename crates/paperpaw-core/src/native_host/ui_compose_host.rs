@@ -15,6 +15,11 @@
 //! - **The owner.** A running owner is drawn with the handle's token; one that
 //!   is lazy or stopped cannot be, which is the child's failure (logged, the
 //!   caller's frame stays, `Ok`).
+//! - **Memory.** The child's dispatch (`dispatch_token_draw`) encodes the draw
+//!   frame into a 320-byte stack array and calls the owner's `draw` with no
+//!   reply buffer, so a nested draw allocates nothing on the heap: no
+//!   fallible allocation is needed and an out-of-memory sweep has nothing to
+//!   refuse. The pool and directory handles it holds are counted clones.
 //! - **The X4.** Until its stack gate passes (two plugin frames and the host
 //!   frame between them on the main stack, section 5.1) the answer is
 //!   `ERR_UNSUPPORTED`: `gate_open` is false there. The host frames this adds
