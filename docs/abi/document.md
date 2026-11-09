@@ -307,6 +307,12 @@ host passes them on after checking them.
   of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
   conversion key is made, so an open with 0 and one with the same sides spelled out share one
   cache; ops 2, 17 and 18 always carry both sides, set by the host.
+- [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
+  `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
+  `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for
+  this document (never 0; a call whose `generation` is not it is `ERR_STATE`, start again at 0).
+  The host forwards `cursor` and `generation` as the caller gave them. Op 8's blocks end as
+  section 4 says (bit 1 `more`).
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
