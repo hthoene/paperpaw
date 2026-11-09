@@ -119,6 +119,8 @@ pub enum Step {
 #[derive(Debug)]
 struct Download {
     id: paperpaw_sdk::native::net::RequestId,
+    /// Where it comes from, for what is said of it.
+    url: String,
     title: String,
     name: String,
     received: u64,
@@ -560,6 +562,7 @@ impl Browser {
                     self.note = Note::Downloading(copy(&title)?);
                     self.download = Some(Download {
                         id,
+                        url,
                         title,
                         name,
                         received: 0,
@@ -636,7 +639,7 @@ impl Browser {
             return Ok(Step::Nothing);
         };
         let ended = web::ended(done);
-        if !self.told(ended, "")? {
+        if !self.told(ended, &download.url)? {
             files::remove(files, BOOK_FILE);
             return Ok(Step::Nothing);
         }

@@ -17,7 +17,6 @@ use paperpaw_sdk::native::{
     device::{Device, DeviceCapability, DeviceClass},
     document::{Documents, FormatCursor},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
-    formatting::Arg,
     library::Library,
     registrations,
     reply::Reply,
@@ -27,7 +26,7 @@ use paperpaw_sdk::native::{
     work::Work,
 };
 use paperpaw_ui_kit::{
-    Item, ItemList, Messages, Screens,
+    Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push, wipe},
     read_event,
     text::copy,
@@ -105,6 +104,8 @@ pub struct NativeOpds {
     extensions: Vec<String>,
     screens: Screens<View>,
     pending: Option<Pending>,
+    /// The path of the book just saved, while the choice to read it is open.
+    saved_path: Option<String>,
     asked: Option<(AskId, Ask)>,
     /// The catalogs, as the list last said; `unreadable` when the list could
     /// not be read (it is left as it is, and changes to it are not kept).
@@ -503,16 +504,6 @@ impl NativeOpds {
         text
     }
 
-    /// The text of the catalog key `key` with the host `host_name`.
-    fn text_with(
-        host: &Host<'_>,
-        say: &mut Messages,
-        key: &str,
-        args: &[Arg<'_>],
-    ) -> Result<String, Error> {
-        say.format(host, key, args)
-    }
-
     /// The screen closed: what it held goes, and a download or a load under
     /// way for it is not waited for.
     fn closed(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
@@ -523,10 +514,5 @@ impl NativeOpds {
     /// The plugin stops: what is under way is cancelled and its files go.
     fn stopping(&mut self, host: &Host<'_>) {
         self.stop_all(host);
-    }
-
-    /// A screen of the list's own was asked for: the rows are made anew.
-    fn item_rows(items: Vec<Item>) -> ItemList {
-        ItemList::new(items)
     }
 }
