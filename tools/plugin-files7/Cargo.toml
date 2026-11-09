@@ -184,6 +184,12 @@ path = "src/bin/wikipedia.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "fonts-browser"
+path = "src/bin/fonts-browser.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
@@ -214,6 +220,7 @@ paperpaw-plugin-koreader = { path = "../../plugins/koreader", features = ["nativ
 paperpaw-plugin-lock = { path = "../../plugins/lock", features = ["native-entry"] }
 paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entry"] }
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
+paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]
