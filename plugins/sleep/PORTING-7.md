@@ -56,6 +56,13 @@ time it shows (not for `page`).
 - **Hidden hints** (kernel's H1b, #851, not merged): interface 6 hid the hints row of the screen while asleep
   (`set_screen_hints(…, Hidden)`); there is no declaration of a screen's hint visibility yet. Named step: declare
   it for `sleep.screen` when #851 lands (`acceptance_pending.rs`, `sleep-buttons-and-hints`).
+- **Power while the picture is made (device gate, Port Reviewer's remark on #874):** the screen draws the message first,
+  then the picture after the asynchronous decode (`event.image_ready`), then a full refresh. Whether the device stays
+  awake until `image_ready` arrives is not named in any contract (`document.md` 5, `work.md`); it is unmeasured, and the
+  case `sleep-images` is blocked by it, by the image host (#692, merged, not run on a real host: H1) and by the alpha
+  of PNG and GIF.
+- **Size and files:** the embedded cat (75,778 B) and the logo are written to the data folder at the first sleep
+  (once). The X4 file is 220,040 B with the picker and 183,032 B before it, against Beta 3's interface-6 sleep.
 - **Clear parts of a PNG or a GIF over the page**, **a picture named under another plugin's folder**, **a
   widget that cannot be made, known only at draw time**, the **custom logo**, the **image description** and the
   **gray-levels hint**: item 2 and 3 below, each with what it needs from the host.
