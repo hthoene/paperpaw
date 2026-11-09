@@ -42,8 +42,8 @@ mod native_key;
 mod native_page;
 /// The interface-7 plugin.
 pub mod native_plugin;
-mod native_web;
 pub mod native_transfer;
+mod native_web;
 mod phone;
 mod plugins;
 mod web;
