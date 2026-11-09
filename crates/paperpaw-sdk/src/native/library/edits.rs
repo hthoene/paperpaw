@@ -185,7 +185,6 @@ impl<'a> AnnotationEdit<'a> {
         if self.percent > 100
             || self.client_key.len() > wire::SERVICE_LIB_EDIT_CLIENT_KEY_MAX_BYTES
             || matches!(self.action, Action::Upsert) && self.client_key.is_empty()
-            || matches!(self.kind, AnnotationKind::Highlight) && self.start > self.end
             || matches!(self.kind, AnnotationKind::Other(n) if n.checked_add(2).is_none())
             || u32::try_from(self.text.len()).is_err()
         {
@@ -564,9 +563,12 @@ impl Library {
             core::array::from_fn(|at| edits.get(at).unwrap_or(blank).record());
         let mut records: [&dyn wire::WireEncode; 4] = [&reference, &rows[0], &rows[1], &rows[2]];
         let records = &mut records[..=edits.len()];
-        // From here a failure leaves a half-staged transaction.
+        // A local encoding failure (an `input` that is too small) sends nothing and
+        // leaves the transaction as it was; from the call on, a failure leaves it
+        // half staged.
+        let (cap, sent) = self.annotation_encode(schema::OP_EDIT_ADD, records, input)?;
         transaction.broken = true;
-        let n = self.annotation_call(host, schema::OP_EDIT_ADD, records, input, out)?;
+        let n = self.annotation_send(host, schema::OP_EDIT_ADD, cap, &input[..sent], out)?;
         if n != 0 {
             return Err(Error::Invalid);
         }
