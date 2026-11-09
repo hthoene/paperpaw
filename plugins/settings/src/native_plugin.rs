@@ -1193,8 +1193,14 @@ impl NativeSettings {
         // settings stay.
         if model::unplaced(group).is_some() {
             let mut scratch = buffer(512)?;
-            CommandSender::new(host, &mut scratch).reset_setting(ResetTarget::Placement(group))?;
-            return Self::notify(host, "settings.reset-done");
+            return match CommandSender::new(host, &mut scratch)
+                .reset_setting(ResetTarget::Placement(group))
+            {
+                Ok(()) => Self::notify(host, "settings.reset-done"),
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                // Refused (not allowed, queue full): said, not silent.
+                Err(_) => Self::notify(host, "settings.reset-failed"),
+            };
         }
         let mut reader = Reader::open(host)?;
         let found = (|| {

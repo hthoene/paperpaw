@@ -234,6 +234,7 @@ fn a_placement_id_names_its_widget_and_its_settings() {
         "widgets.clock@x",
         "@2",
         "a@2b",
+        "x@2@3",
         "",
     ] {
         assert_eq!(unplaced(none), None, "{none}");
@@ -253,6 +254,9 @@ fn a_placement_id_names_its_widget_and_its_settings() {
         "widgets.clock@.face",
         "@2.face",
         "x@y",
+        "a@2b.x",
+        "x@2@3.face",
+        "x@2.f@3",
     ] {
         assert_eq!(unplaced_key(none).unwrap(), None, "{none}");
     }
