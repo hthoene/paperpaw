@@ -73,6 +73,7 @@ packs = ["paperpaw-plugin-fonts-default/packs"]
 native-linked = [
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
+    "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-plugin-manager",
@@ -83,6 +84,7 @@ native-linked = [
     "paperpaw-plugin-help/linked",
     "paperpaw-plugin-plugin-manager/linked",
     "paperpaw-plugin-power/linked",
+    "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
     "paperpaw-plugin-keyboard/linked",
     "paperpaw-plugin-lock/linked",
@@ -133,7 +135,7 @@ paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }
 paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
-paperpaw-plugin-file-manager.workspace = true
+paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true

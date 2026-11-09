@@ -602,15 +602,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-file-manager",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         // The power button: the sleep screen, the device asleep.
         name: "x4-sleep",
         profile: "xteink-x4",
@@ -695,15 +686,6 @@ const CASES: &[Case] = &[
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
         script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-file-manager",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300,tap-on:books,wait:300",
         colour: 0,
         fixtures: false,
     },
