@@ -195,6 +195,7 @@ dependencies = [
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-help",
+ "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
  "paperpaw-plugin-koreader",
@@ -222,6 +223,15 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-joplin"
+version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+ "paperpaw-xml",
 ]
 
 [[package]]

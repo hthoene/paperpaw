@@ -6,7 +6,7 @@
 //! The notes go to where Joplin synchronises to, so they reach every
 //! device the user runs Joplin on at its next sync, with no computer
 //! running: Joplin Cloud, Joplin Server or a WebDAV folder such as
-//! Nextcloud (see [`Service`]). *Joplin* in the tools sets up the
+//! Nextcloud (see [`native_joplin::Service`]). *Joplin* in the tools sets up the
 //! account; the password is kept with the other passwords and keys (see
 //! `paperpaw_sdk::secrets`). What cannot be sent (no connection, Joplin
 //! down) waits and is sent later: with the next export, by the action
