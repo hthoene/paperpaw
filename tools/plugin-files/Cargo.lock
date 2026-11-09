@@ -360,6 +360,7 @@ name = "paperpaw-plugin-picture-home"
 version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
