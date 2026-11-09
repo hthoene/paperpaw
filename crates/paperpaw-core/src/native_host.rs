@@ -152,21 +152,14 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
-#[allow(
-    dead_code,
-    reason = "the library moves owner runs it from the kernel's pump (next slice)"
-)]
 pub(crate) mod lib_moves_carry;
-#[allow(
-    dead_code,
-    reason = "the library moves owner composes it with the catalog carry (next slice)"
-)]
 pub(crate) mod lib_moves_host;
+pub(crate) mod lib_moves_journal;
 #[allow(
     dead_code,
-    reason = "the card's MoveHost uses it (library moves, next slice)"
+    reason = "the kernel's service pump calls `pump_library_moves` (Core wires it)"
 )]
-pub(crate) mod lib_moves_journal;
+pub(crate) mod lib_moves_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]

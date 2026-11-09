@@ -1,0 +1,2 @@
+### Added
+- The library follows a move of the user's files: the catalog carry (every book's details, place in the lists and plugins' book data to its new key, folder reader choices, folder settings, the book-moved events) runs as bounded steps of the main loop over the kernel's `Env`, with the one move job and its busy source made when `core.files` is wired. A root-1 `move` of `core.files` is that job. Third slice of the production library moves; the kernel's service pump still has to call `pump_library_moves`.
