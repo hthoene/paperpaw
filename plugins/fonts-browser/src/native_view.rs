@@ -76,6 +76,14 @@ pub const fn should_fetch(asked: bool, in_flight: bool) -> bool {
     !asked && !in_flight
 }
 
+/// The page of *Your own fonts*: its title, a blank line, the help's text.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn own_page(title: &str, text: &str) -> Result<String, Error> {
+    paperpaw_ui_kit::text::concat(&[title, "\n\n", text.trim(), "\n"])
+}
+
 /// The fonts that are installed: their plugins' ids and versions.
 #[derive(Debug, Default)]
 pub struct Installed {
@@ -161,6 +169,14 @@ mod tests {
     #[test]
     fn no_stop_once_the_host_is_asked_to_install() {
         assert!(rows(&font("1.0.0"), None, true, true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_page_of_your_own_fonts_is_its_title_and_the_help() {
+        assert_eq!(
+            own_page("Your own fonts", "\nA font of your own.\n").unwrap(),
+            "Your own fonts\n\nA font of your own.\n"
+        );
     }
 
     #[test]

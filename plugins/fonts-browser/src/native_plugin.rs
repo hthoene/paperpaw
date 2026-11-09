@@ -10,7 +10,7 @@ use crate::{
     declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN},
     native_catalog::{Catalog, Font},
     native_job::Job,
-    native_view::{Installed, Row, Trouble, rows, should_fetch},
+    native_view::{Installed, Row, Trouble, own_page, rows, should_fetch},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -28,7 +28,7 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::{self, SettingValue},
         storage::DataStorage,
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -60,6 +60,8 @@ const KEPT: &str = "catalog.json";
 const PART: &str = "catalog.json.part";
 /// The largest list of fonts taken from a library.
 const MAX_LIST_FILE: u64 = 512 * 1024;
+/// The page of *Your own fonts*, in the data folder.
+const OWN_FILE: &str = "own.txt";
 /// The screen's parameter that carries the font.
 const FONT_PARAM: &str = "font";
 /// Pages of the plugins read for the fonts installed (about seventy plugins).
@@ -156,12 +158,10 @@ impl Plugin for NativeFontsBrowser {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("fonts-browser.list")?)
             }
-            // BLOCKED (#228): *Your own fonts* shows a page of the help in the
-            // reader (`command.open` into `core.reader`, root 5 "handed").
             Event::ActionRun {
                 action: "fonts-browser.own",
                 ..
-            } if token == OWN => Err(Error::Unsupported),
+            } if token == OWN => self.show_own(host),
             Event::HttpDone(done) if token == DOWNLOADED => {
                 if done.token() == CATALOG_REQUEST && self.fetching == Some(done.id()) {
                     self.fetching = None;
@@ -299,6 +299,45 @@ impl NativeFontsBrowser {
             self.net = Some(Net::open(host)?);
         }
         self.net.as_ref().ok_or(Error::State)
+    }
+
+    /// *Your own fonts*: the help's part about them, kept in the data folder
+    /// and opened in the reader (`command.open` into `core.reader` with the
+    /// hand-over `root` 0 and `path`, which the reader opens as root 5). Where
+    /// it cannot be shown the user is told so.
+    fn show_own(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut messages = Messages::new()?;
+        let page = own_page(
+            &messages.copy(host, "fonts-browser.own")?,
+            &messages.copy(host, "fonts-browser.own.text")?,
+        )?;
+        drop(messages);
+        let kept = paperpaw_sdk::Storage::write(&DataStorage::new(host), OWN_FILE, page.as_bytes());
+        let opened = match kept {
+            Ok(()) => self.open_own(host),
+            Err(_) => Err(Error::Io),
+        };
+        match opened {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Self::tell(host, "fonts-browser.how-failed"),
+        }
+    }
+
+    /// Hands the reader the file of the page of *Your own fonts*.
+    fn open_own(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let params = [Param::new("root", "0")?, Param::new("path", OWN_FILE)?];
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let handover = self.ui(host)?.handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    }
+
+    /// Says `key` as it is.
+    fn tell(host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 384];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
 
     /// Whether this device takes font files rather than packs.
