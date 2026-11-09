@@ -43,10 +43,10 @@ extern crate alloc;
     reason = "the build script and the declaration test also use the builders"
 )]
 pub mod declarations;
-mod native_entry;
 #[doc(hidden)]
 pub mod native_account;
 mod native_backing;
+mod native_entry;
 #[doc(hidden)]
 pub mod native_flow;
 #[doc(hidden)]
@@ -60,4 +60,3 @@ pub mod native_sync;
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
-

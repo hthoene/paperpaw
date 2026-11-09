@@ -142,7 +142,13 @@ impl Account {
     /// `NoMemory`.
     pub fn rows(&self) -> Result<Vec<Row>, Error> {
         let mut rows = Vec::new();
-        for row in [Row::Server, Row::User, Row::Password, Row::SignIn, Row::Create] {
+        for row in [
+            Row::Server,
+            Row::User,
+            Row::Password,
+            Row::SignIn,
+            Row::Create,
+        ] {
             push(&mut rows, row)?;
         }
         if !self.signed_in.is_empty() {
@@ -286,7 +292,13 @@ mod tests {
         let rows = account("").rows().unwrap();
         assert_eq!(
             rows,
-            [Row::Server, Row::User, Row::Password, Row::SignIn, Row::Create]
+            [
+                Row::Server,
+                Row::User,
+                Row::Password,
+                Row::SignIn,
+                Row::Create
+            ]
         );
         assert_eq!(account("anna").rows().unwrap().last(), Some(&Row::SignOut));
     }
@@ -342,7 +354,11 @@ mod tests {
             let mut a = account("");
             a.typed_user("anna").unwrap();
             a.busy = true;
-            assert_eq!(a.answered(created, status).unwrap(), ok, "{created} {status}");
+            assert_eq!(
+                a.answered(created, status).unwrap(),
+                ok,
+                "{created} {status}"
+            );
             assert!(!a.busy);
             assert_eq!(a.signed_in == "anna", ok);
         }
@@ -363,14 +379,21 @@ mod tests {
     #[test]
     fn another_server_signs_out_the_same_one_does_not() {
         let mut a = account("anna");
-        assert_eq!(a.typed_server("sync.example.org/", "https://sync.example.org").unwrap(), None);
+        assert_eq!(
+            a.typed_server("sync.example.org/", "https://sync.example.org")
+                .unwrap(),
+            None
+        );
         assert_eq!(a.signed_in, "anna");
-        let url = a.typed_server("other.example", "https://sync.example.org").unwrap();
+        let url = a
+            .typed_server("other.example", "https://sync.example.org")
+            .unwrap();
         assert_eq!(url.as_deref(), Some("https://other.example"));
         assert!(a.signed_in.is_empty());
         assert_eq!(a.message, Some(Message::ServerSet { signed_out: true }));
         // Signed out already: only the new server is said.
-        a.typed_server("third.example", "https://other.example").unwrap();
+        a.typed_server("third.example", "https://other.example")
+            .unwrap();
         assert_eq!(a.message, Some(Message::ServerSet { signed_out: false }));
     }
 

@@ -33,11 +33,11 @@ use crate::declarations::{
     SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
+use crate::native_backing as backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
 use crate::native_model::{self, MAX_ANSWER, Remote, failure, percent_text, progress_body};
 use crate::native_store as store;
 use crate::native_sync::{Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, Position};
-use crate::native_backing as backing;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/kosync_declarations.rs"));
@@ -62,7 +62,9 @@ struct View {
 
 impl core::fmt::Debug for View {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("View").field("account", &self.account).finish_non_exhaustive()
+        f.debug_struct("View")
+            .field("account", &self.account)
+            .finish_non_exhaustive()
     }
 }
 
@@ -502,7 +504,13 @@ impl NativeKosync {
             return Ok(false);
         };
         let target = concat(&["/syncs/progress/", &digest])?;
-        let call = Call::server(&Self::server(host)?, "GET", &target, None, Some((&user, &key)))?;
+        let call = Call::server(
+            &Self::server(host)?,
+            "GET",
+            &target,
+            None,
+            Some((&user, &key)),
+        )?;
         store::drop_key(key);
         let pending = Pending {
             id: RequestId::new(1)?,
@@ -641,7 +649,9 @@ impl NativeKosync {
         match pending.purpose {
             Purpose::Pull => self.pulled(host, now, &pending, done, status),
             Purpose::Push => {
-                if status != 200 && let Some(engine) = &mut self.engine {
+                if status != 200
+                    && let Some(engine) = &mut self.engine
+                {
                     engine.not_sent();
                 }
                 Ok(())
@@ -667,7 +677,13 @@ impl NativeKosync {
         };
         let ctx = self.ctx(host, now_ms)?;
         let mut out = Vec::new();
-        let answer = Answer::new(&pending.path, pending.manual, pending.local, status, remote.as_ref());
+        let answer = Answer::new(
+            &pending.path,
+            pending.manual,
+            pending.local,
+            status,
+            remote.as_ref(),
+        );
         self.engine(host, now_ms)?.pulled(ctx, &answer, &mut out)?;
         self.run(host, ctx, out)
     }
@@ -683,7 +699,13 @@ impl NativeKosync {
         let (mut input, mut out) = (buffer(REPLY)?, buffer(REPLY)?);
         let mut at = 0;
         while at < len {
-            let part = net.body(host, done.id(), u32::try_from(at).unwrap_or(u32::MAX), &mut input, &mut out)?;
+            let part = net.body(
+                host,
+                done.id(),
+                u32::try_from(at).unwrap_or(u32::MAX),
+                &mut input,
+                &mut out,
+            )?;
             if part.is_empty() {
                 break;
             }
@@ -781,7 +803,11 @@ impl NativeKosync {
             }
             return Ok(());
         }
-        let Some(at) = self.offers.iter().position(|a| a.request == answer.request()) else {
+        let Some(at) = self
+            .offers
+            .iter()
+            .position(|a| a.request == answer.request())
+        else {
             return Ok(());
         };
         let asked = self.offers.swap_remove(at);
@@ -816,7 +842,8 @@ impl NativeKosync {
     /// `false` where the place cannot be found (it is then as if closed).
     fn go_there(&mut self, host: &Host<'_>, offer: &Offer) -> Result<bool, Error> {
         let progress = offer.percentage.parse::<f64>().unwrap_or(0.0);
-        let Some((section, offset)) = backing::locate(host, &offer.path, &offer.xpointer, progress)?
+        let Some((section, offset)) =
+            backing::locate(host, &offer.path, &offer.xpointer, progress)?
         else {
             return Ok(false);
         };
@@ -833,7 +860,8 @@ impl NativeKosync {
             .ok_or(Error::State)?
             .handover(host, &params, &mut input, &mut out)?;
         let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))?;
+        CommandSender::new(host, &mut scratch)
+            .open(Open::slot("core.reader")?.handover(handover))?;
         Ok(true)
     }
 
@@ -863,10 +891,17 @@ impl NativeKosync {
         let mut items = Vec::new();
         for row in view.account.rows()? {
             let item = match row {
-                Row::Server => Item::row(&say.copy(host, "kosync.server")?, native_model::server_label(url))?,
+                Row::Server => Item::row(
+                    &say.copy(host, "kosync.server")?,
+                    native_model::server_label(url),
+                )?,
                 Row::User => Item::row(&say.copy(host, "kosync.user")?, &view.account.user)?,
                 Row::Password => {
-                    let dots = if view.account.has_password() { "••••••" } else { "" };
+                    let dots = if view.account.has_password() {
+                        "••••••"
+                    } else {
+                        ""
+                    };
                     Item::row(&say.copy(host, "kosync.password")?, dots)?
                 }
                 Row::SignIn => Item::row(&say.copy(host, "kosync.sign-in")?, "›")?,
@@ -902,8 +937,14 @@ impl NativeKosync {
                         host,
                         "kosync.signed-in",
                         &[
-                            Arg::Text { name: "user", value: &account.signed_in },
-                            Arg::Text { name: "server", value: server },
+                            Arg::Text {
+                                name: "user",
+                                value: &account.signed_in,
+                            },
+                            Arg::Text {
+                                name: "server",
+                                value: server,
+                            },
                         ],
                     )
                 }
@@ -913,14 +954,24 @@ impl NativeKosync {
             Some(Message::Connecting) => say.copy(host, "kosync.connecting"),
             Some(Message::ServerSet { signed_out }) => say.format(
                 host,
-                if signed_out { "kosync.server-changed" } else { "kosync.server-set" },
-                &[Arg::Text { name: "server", value: server }],
+                if signed_out {
+                    "kosync.server-changed"
+                } else {
+                    "kosync.server-set"
+                },
+                &[Arg::Text {
+                    name: "server",
+                    value: server,
+                }],
             ),
             Some(Message::Taken) => say.copy(host, "kosync.taken"),
             Some(Message::Failed(status)) => say.format(
                 host,
                 failure(status),
-                &[Arg::Text { name: "status", value: digits(status, &mut number) }],
+                &[Arg::Text {
+                    name: "status",
+                    value: digits(status, &mut number),
+                }],
             ),
         }
     }
@@ -991,12 +1042,22 @@ impl NativeKosync {
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let asked = ui.ask(host, question, &mut input, &mut out).and_then(|request| {
-            if let Some(initial) = &initial {
-                ui.text_write(host, request.text(), 0, initial, TextWrite::Last, &mut input, &mut out)?;
-            }
-            Ok(request)
-        });
+        let asked = ui
+            .ask(host, question, &mut input, &mut out)
+            .and_then(|request| {
+                if let Some(initial) = &initial {
+                    ui.text_write(
+                        host,
+                        request.text(),
+                        0,
+                        initial,
+                        TextWrite::Last,
+                        &mut input,
+                        &mut out,
+                    )?;
+                }
+                Ok(request)
+            });
         wipe(&mut input);
         wipe(&mut out);
         self.typing = Some((asked?, field));
@@ -1036,8 +1097,7 @@ impl NativeKosync {
         if let Some(url) = new_server {
             let signed_in = self.key.is_some();
             let mut scratch = [0; 1200];
-            CommandSender::new(host, &mut scratch)
-                .set_setting(SERVER, SettingValue::Text(&url))?;
+            CommandSender::new(host, &mut scratch).set_setting(SERVER, SettingValue::Text(&url))?;
             self.server = Some(url);
             if signed_in {
                 self.clear_account(host)?;
@@ -1051,17 +1111,30 @@ impl NativeKosync {
         let Some(view) = self.screens.top(token) else {
             return Ok(());
         };
-        let (Some(key), user) = (view.account.key().map(copy).transpose()?, copy(&view.account.user)?) else {
+        let (Some(key), user) = (
+            view.account.key().map(copy).transpose()?,
+            copy(&view.account.user)?,
+        ) else {
             return Ok(());
         };
         let base = Self::server(host)?;
         let call = if create {
-            Call::server(&base, "POST", "/users/create", Some(create_body(&user, &key)?), None)?
+            Call::server(
+                &base,
+                "POST",
+                "/users/create",
+                Some(create_body(&user, &key)?),
+                None,
+            )?
         } else {
             Call::server(&base, "GET", "/users/auth", None, Some((&user, &key)))?
         };
         store::drop_key(key);
-        let purpose = if create { Purpose::Create } else { Purpose::Authorize };
+        let purpose = if create {
+            Purpose::Create
+        } else {
+            Purpose::Authorize
+        };
         let pending = Pending {
             id: RequestId::new(1)?,
             purpose,
@@ -1163,8 +1236,10 @@ impl NativeKosync {
 }
 
 /// A notice is best effort: the work it reports is done all the same.
-fn best_effort(result: Result<(), Error>) {
-    let _ = result;
+fn best_effort<T>(result: Result<T, Error>) {
+    match result {
+        Ok(_) | Err(_) => {}
+    }
 }
 
 /// `Ok(None)` for a service the device does not offer or the plugin may not use.
@@ -1175,4 +1250,3 @@ fn optional<T>(opened: Result<T, Error>) -> Result<Option<T>, Error> {
         Err(error) => Err(error),
     }
 }
-

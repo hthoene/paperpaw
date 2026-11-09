@@ -177,7 +177,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "calibre",
     "fonts-browser",
     "joplin",
-    "kosync",
     "mail",
     "news",
     "opds",

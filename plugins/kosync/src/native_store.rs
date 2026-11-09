@@ -165,12 +165,7 @@ pub fn read_key(secrets: &Secrets, host: &Host<'_>) -> Result<Option<String>, Er
 /// # Errors
 /// What the service says (`Unsupported` where the device keeps no secrets);
 /// `NoMemory`.
-pub fn keep_key(
-    secrets: &Secrets,
-    host: &Host<'_>,
-    label: &str,
-    key: &str,
-) -> Result<(), Error> {
+pub fn keep_key(secrets: &Secrets, host: &Host<'_>, label: &str, key: &str) -> Result<(), Error> {
     let mut input = buffer(INPUT)?;
     let mut reply = buffer(REPLY)?;
     let result = SecretName::new(KEY)
@@ -189,8 +184,8 @@ pub fn keep_key(
 pub fn remove_key(secrets: &Secrets, host: &Host<'_>) -> Result<(), Error> {
     let mut input = buffer(INPUT)?;
     let mut reply = buffer(REPLY)?;
-    let result = SecretName::new(KEY)
-        .and_then(|name| secrets.remove(host, name, &mut input, &mut reply));
+    let result =
+        SecretName::new(KEY).and_then(|name| secrets.remove(host, name, &mut input, &mut reply));
     wipe(&mut input);
     wipe(&mut reply);
     result
@@ -211,18 +206,37 @@ mod tests {
         let old = include_str!("../testdata/account.ini.v1");
         assert!(value_of(old, "key").unwrap().is_some());
         assert_eq!(value_of("", "key").unwrap(), None);
-        assert_eq!(value_of("[a]\nkey = 1\nkey = 2\n", "key").unwrap().as_deref(), Some("2"));
+        assert_eq!(
+            value_of("[a]\nkey = 1\nkey = 2\n", "key")
+                .unwrap()
+                .as_deref(),
+            Some("2")
+        );
         assert_eq!(value_of("junk\n=\nkey\n", "key").unwrap(), None);
-        assert_eq!(value_of("[d]\nid = \"A B\"\n", "id").unwrap().as_deref(), Some("A B"));
+        assert_eq!(
+            value_of("[d]\nid = \"A B\"\n", "id").unwrap().as_deref(),
+            Some("A B")
+        );
     }
 
     #[test]
     fn the_device_text_and_id() {
         let id = id_from(b"seed").unwrap();
         assert_eq!(id.len(), 32);
-        assert!(id.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b)));
-        assert_eq!(device_text(&id).unwrap(), alloc::format!("[device]\nid = {id}\n"));
-        assert_eq!(value_of(&device_text(&id).unwrap(), "id").unwrap().as_deref(), Some(id.as_str()));
+        assert!(
+            id.bytes()
+                .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+        );
+        assert_eq!(
+            device_text(&id).unwrap(),
+            alloc::format!("[device]\nid = {id}\n")
+        );
+        assert_eq!(
+            value_of(&device_text(&id).unwrap(), "id")
+                .unwrap()
+                .as_deref(),
+            Some(id.as_str())
+        );
         assert_ne!(id, id_from(b"other").unwrap());
     }
 }

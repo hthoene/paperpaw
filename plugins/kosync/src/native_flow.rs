@@ -94,7 +94,9 @@ impl Call {
 
     /// The headers, name and value.
     pub fn headers(&self) -> impl Iterator<Item = (&'static str, &str)> {
-        self.headers.iter().map(|(name, value)| (*name, value.as_str()))
+        self.headers
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
     }
 
     /// The body, if any.
@@ -198,6 +200,7 @@ pub fn create_body(user: &str, key: &str) -> Result<String, Error> {
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     use super::*;
+    use alloc::format;
 
     #[test]
     fn a_request_carries_what_interface_6_sent() {
@@ -266,7 +269,13 @@ mod tests {
 
     #[test]
     fn every_purpose_has_its_own_token() {
-        let tokens = [Purpose::Pull, Purpose::Push, Purpose::Authorize, Purpose::Create].map(Purpose::token);
+        let tokens = [
+            Purpose::Pull,
+            Purpose::Push,
+            Purpose::Authorize,
+            Purpose::Create,
+        ]
+        .map(Purpose::token);
         for (n, a) in tokens.iter().enumerate() {
             for b in &tokens[n + 1..] {
                 assert_ne!(a, b);

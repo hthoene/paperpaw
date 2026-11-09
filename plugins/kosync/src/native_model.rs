@@ -140,11 +140,19 @@ pub fn progress_text(progress: f64) -> Result<String, Error> {
 /// # Errors
 /// `NoMemory`.
 pub fn percent_text(progress: f64) -> Result<String, Error> {
-    let x = if progress.is_finite() { progress * 100.0 } else { 0.0 };
+    let x = if progress.is_finite() {
+        progress * 100.0
+    } else {
+        0.0
+    };
     let x = x.clamp(0.0, 999_999.0);
     let floor = x - x % 1.0;
     let rest = x - floor;
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped above")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped above"
+    )]
     let floor = floor as u32;
     let whole = if rest > 0.5 || (rest == 0.5 && floor % 2 == 1) {
         floor + 1
@@ -390,44 +398,42 @@ pub fn send_left_behind(
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     use super::*;
-    use alloc::{format, string::ToString};
+    use alloc::format;
 
     #[test]
-    fn server_addresses_are_made_base_urls_as_before() {
-        for text in [
-            "",
-            "  ",
-            "sync.example.org",
-            "sync.example.org/",
-            "  https://sync.example.org// ",
-            "http://192.168.1.5:8080/",
-            "webdavs://x/y",
-            "ftp",
-            "1ab://x",
-            "a b",
-            "://x",
+    fn server_addresses_are_made_base_urls() {
+        for (text, want) in [
+            ("", DEFAULT_SERVER),
+            ("  ", DEFAULT_SERVER),
+            ("sync.example.org", "https://sync.example.org"),
+            ("sync.example.org/", "https://sync.example.org"),
+            ("  https://sync.example.org// ", "https://sync.example.org"),
+            ("http://192.168.1.5:8080/", "http://192.168.1.5:8080"),
+            ("webdavs://x/y", "webdavs://x/y"),
+            ("ftp", "https://ftp"),
+            ("1ab://x", "https://1ab://x"),
+            ("a b", "https://a b"),
+            ("://x", "https://://x"),
         ] {
-            assert_eq!(
-                normalize_server(text).unwrap(),
-                crate::normalize_server(text),
-                "{text:?}"
-            );
+            assert_eq!(normalize_server(text).unwrap(), want, "{text:?}");
         }
-        assert_eq!(
-            server_label("https://a.b"),
-            crate::server_label("https://a.b")
-        );
+        assert_eq!(server_label("https://a.b"), "a.b");
         assert_eq!(server_label("http://a.b"), "http://a.b");
     }
 
     #[test]
-    fn failures_name_the_same_texts_as_before() {
-        for status in [0u32, 200, 400, 401, 403, 404, 500, 502] {
-            assert_eq!(
-                failure(status),
-                crate::failure(&status.to_string()),
-                "{status}"
-            );
+    fn failures_name_the_texts_shown() {
+        for (status, want) in [
+            (0u32, "kosync.unreachable"),
+            (200, "kosync.server-error"),
+            (400, "kosync.server-error"),
+            (401, "kosync.wrong"),
+            (403, "kosync.wrong"),
+            (404, "kosync.server-error"),
+            (500, "kosync.server-error"),
+            (502, "kosync.server-error"),
+        ] {
+            assert_eq!(failure(status), want, "{status}");
         }
     }
 
@@ -441,7 +447,9 @@ mod tests {
 
     #[test]
     fn percent_is_written_as_the_format_macro_rounds_it() {
-        for progress in [0.0, 0.004, 0.005, 0.0125, 0.125, 0.135, 0.5, 0.505, 0.994, 0.995, 1.0, 0.3333, 0.665] {
+        for progress in [
+            0.0, 0.004, 0.005, 0.0125, 0.125, 0.135, 0.5, 0.505, 0.994, 0.995, 1.0, 0.3333, 0.665,
+        ] {
             assert_eq!(
                 percent_text(progress).unwrap(),
                 format!("{:.0}", progress * 100.0),
@@ -535,26 +543,25 @@ mod tests {
     }
 
     #[test]
-    fn answers_are_read_as_before() {
-        for text in [
-            "{}",
-            "  { }  ",
-            "",
-            "[]",
-            "nonsense",
-            "{\"percentage\":0.5}",
-            "{\"percentage\":\"0.25\"}",
-            "{\"percentage\":1.5}",
-            "{\"percentage\":-0.1}",
-            "{\"percentage\":\"x\"}",
-            "{\"device\":\"Boox\"}",
-            "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
+    fn answers_are_read() {
+        for (text, want) in [
+            ("{}", Some(0.0)),
+            ("  { }  ", Some(0.0)),
+            ("", None),
+            ("[]", None),
+            ("nonsense", None),
+            ("{\"percentage\":0.5}", Some(0.5)),
+            ("{\"percentage\":\"0.25\"}", Some(0.25)),
+            ("{\"percentage\":1.5}", None),
+            ("{\"percentage\":-0.1}", None),
+            ("{\"percentage\":\"x\"}", None),
+            ("{\"device\":\"Boox\"}", Some(0.0)),
+            (
+                "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
+                Some(0.75),
+            ),
         ] {
-            assert_eq!(
-                remote_progress(text).unwrap(),
-                crate::remote_progress(text, &json::object(text)),
-                "{text:?}"
-            );
+            assert_eq!(remote_progress(text).unwrap(), want, "{text:?}");
         }
         let remote = read_answer(
             "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",

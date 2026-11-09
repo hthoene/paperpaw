@@ -40,12 +40,17 @@ named below and in `tests/acceptance_pending.rs`.
 - **The book's fingerprint** (`core.library` op 25 `book_key`) and **a place's XPointer** (`core.document`
   `xpointer`) have no SDK facade yet (`src/native_backing.rs` answers "unavailable"): the plugin then
   makes no fetch and sends nothing, as interface 6 did for a book it could not read. Signing in, the key,
-  the account screen, *Sync progress*'s account prompt and sign out all work.
+  the account screen, *Sync progress*'s account prompt and sign out all work. Services' PR #651 now has
+  `Library::book_key`, `position` and `set_position`; `native_backing.rs` takes them over once it merges
+  and is blessed. The `core.document` client (`xpointer`, `locate`) follows.
 - **Go there** needs `core.document` `locate`; without it the offer is treated as closed (*not now*).
   It opens the book through `core.reader` with `path`, `section` and `offset` (the reader reads them
   since #629).
 - **Stored positions** (`core.library` ops 13 and 14, written with `sync` and, after *Go there*, `confirmed`)
   have no facade: the sync does not write the position it fetched into the library.
+- **Not linked into the app yet** (`NATIVE_PLUGINS`; waits for device activation, #944/#417): the app's
+  interface-6 install and its `NETWORK_SETTINGS` entry are gone, so the *Progress sync* row is missing from
+  the settings snapshot until then (`tests/snapshots/settings.txt` updated, as for notes-overview).
 - Acceptance of the account screen on the scripted host and of the frames against the interface-6
   snapshots waits for the UI host (H1-H4) and the network host.
 

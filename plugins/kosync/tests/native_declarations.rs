@@ -4,39 +4,42 @@
 use paperpaw_core::native_host::{declarations::validate_batch, registrations::records_decode};
 
 #[path = "../declarations.rs"]
+#[allow(dead_code, reason = "tokens the plugin uses, not the declarations")]
 mod declarations;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/kosync_declarations.rs"));
 }
 
-type Declare = fn(
-    &mut paperpaw_sdk::native::declare::Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>,
-) -> Result<(), paperpaw_sdk::native::declare::DeclareError>;
-
-fn built(declare: Declare) -> Vec<Vec<u8>> {
-    let mut out: Vec<Vec<u8>> = Vec::new();
-    {
-        let mut sink = |batch: &[u8]| {
-            out.push(batch.to_vec());
-            Ok(())
-        };
-        let mut d = paperpaw_sdk::native::declare::Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
-        declare(&mut d).unwrap();
-    }
-    out
+/// The batches a declare function sends (a macro: each function is
+/// instantiated with the sink's own lifetime).
+macro_rules! built {
+    ($declare:path) => {{
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        {
+            let mut sink = |batch: &[u8]| -> Result<(), i32> {
+                out.push(batch.to_vec());
+                Ok(())
+            };
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(&mut sink);
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
 }
 
 fn batches() -> Vec<Vec<u8>> {
-    built(declarations::settings)
+    built!(declarations::settings)
 }
 
-fn all() -> [(Vec<Vec<u8>>, &'static [&'static [u8]]); 4] {
+type Image = &'static [&'static [u8]];
+
+fn all() -> [(Vec<Vec<u8>>, Image); 4] {
     [
-        (built(declarations::settings), image::SETTINGS),
-        (built(declarations::screens), image::SCREENS),
-        (built(declarations::navigation), image::NAVIGATION),
-        (built(declarations::events), image::EVENTS),
+        (built!(declarations::settings), image::SETTINGS),
+        (built!(declarations::screens), image::SCREENS),
+        (built!(declarations::navigation), image::NAVIGATION),
+        (built!(declarations::events), image::EVENTS),
     ]
 }
 
@@ -64,8 +67,19 @@ fn the_host_admits_every_batch() {
 fn the_tokens_are_distinct() {
     use declarations::*;
     let mut tokens = [
-        ACCOUNT, SYNC_NOW, STARTED, SETTING_CHANGED, BOOK_OPENED, BOOK_CLOSED, PAGE_TURNED,
-        SUSPEND, RESUME, WORK_DUE, WORK_ALLOWED, HTTP_DONE, SCREEN_SHOWN,
+        ACCOUNT,
+        SYNC_NOW,
+        STARTED,
+        SETTING_CHANGED,
+        BOOK_OPENED,
+        BOOK_CLOSED,
+        PAGE_TURNED,
+        SUSPEND,
+        RESUME,
+        WORK_DUE,
+        WORK_ALLOWED,
+        HTTP_DONE,
+        SCREEN_SHOWN,
     ];
     tokens.sort_unstable();
     assert!(tokens.windows(2).all(|w| w[0] != w[1]));
