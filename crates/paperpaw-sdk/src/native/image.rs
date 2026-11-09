@@ -22,8 +22,9 @@ pub const PREPARED_MAX: usize = 8;
 /// Most prepare requests waiting at once per plugin.
 pub const WAITING_MAX: usize = 4;
 
-/// Bit of `doc_image.flags` from `image.info` and of `image_prepare.flags`.
+/// Bits of `doc_image.flags` (from `image.info`); bit 0 is also `image_prepare.flags`.
 const COLOUR: u32 = 1;
+const NOT_DECODED: u32 = 1 << 1;
 /// Bits of `canvas.draw_image` flags.
 const FILL: u32 = 1;
 const SMALL: u32 = 1 << 1;
@@ -60,6 +61,7 @@ pub struct ImageInfo {
     width: u32,
     height: u32,
     colour: bool,
+    not_decoded: bool,
 }
 
 impl ImageInfo {
@@ -92,6 +94,7 @@ impl ImageInfo {
             width: row.width,
             height: row.height,
             colour: row.flags & COLOUR != 0,
+            not_decoded: row.flags & NOT_DECODED != 0,
         })
     }
 
@@ -111,6 +114,13 @@ impl ImageInfo {
     #[must_use]
     pub const fn colour(&self) -> bool {
         self.colour
+    }
+
+    /// Whether the format has not decoded the picture yet: ask for it again
+    /// (`doc_image_ask`) before drawing. Other flag bits are ignored.
+    #[must_use]
+    pub const fn not_decoded(&self) -> bool {
+        self.not_decoded
     }
 }
 

@@ -98,7 +98,7 @@ fn image_ids_are_never_zero() {
 }
 
 #[test]
-fn info_reads_the_size_and_only_the_colour_bit() {
+fn info_reads_the_size_and_the_colour_and_not_decoded_bits_only() {
     let table = table();
     let mut ctx = Context::default();
     let host = Host {
