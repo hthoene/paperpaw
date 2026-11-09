@@ -647,6 +647,23 @@ impl DeclarationStore {
         if others + pending.of_kind(Kind::Format).len() > super::format_index::DEVICE {
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
+        // And 16 reading apps on the device, counted the same way.
+        let readers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Reader).len())
+            .sum();
+        if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {
             store: self,

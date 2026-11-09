@@ -144,3 +144,17 @@ fn a_reader_shows_one_screen_of_its_own_plugin() {
         Err(ERR_INVALID)
     );
 }
+
+#[test]
+fn a_plugin_declares_four_reading_apps_and_the_fifth_is_invalid() {
+    let names = ["a", "b", "c", "d", "e"];
+    let rows: Vec<Record<'_>> = names
+        .iter()
+        .map(|name| reader(name, "epub.main", ""))
+        .collect();
+    let mut all = vec![screen("main")];
+    all.extend(rows[..4].iter().copied());
+    assert_eq!(finish(&[&all[..3], &all[3..]]), Ok(()));
+    all.push(rows[4]);
+    assert_eq!(finish(&[&all[..3], &all[3..]]), Err(ERR_INVALID));
+}

@@ -18,6 +18,8 @@ const KIND_ACTION: u8 = 6;
 const KIND_MENU_SECTION: u8 = 26;
 /// Index category of `format.spec`.
 const KIND_FORMAT: u8 = 31;
+/// Index category of `reader.spec`.
+const KIND_READER: u8 = 32;
 
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
@@ -170,6 +172,17 @@ impl<'a> View<'a> {
             .count();
         if formats > super::format_index::PER_PLUGIN {
             return Err(ERR_FULL);
+        }
+        // At most 4 reading apps per plugin: the fifth refuses the batch
+        // (`ERR_INVALID`); the 16 of the device are the store's.
+        let readers = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == KIND_READER)
+            .count();
+        if readers > super::format_index::READERS_PER_PLUGIN {
+            return Err(ERR_INVALID);
         }
         let mut result = Ok(());
         self.visit(&mut |record| {

@@ -182,3 +182,28 @@ fn thirty_two_formats_fit_the_device_and_the_thirty_third_is_full() {
     install(&mut store, &plugins[4], &[batch(&[format("z", "zzz", 0)])]).unwrap();
     assert_eq!(formats(&store).len(), 25);
 }
+
+#[test]
+fn sixteen_reading_apps_fit_the_device_and_the_seventeenth_is_full() {
+    let ids = ["p0", "p1", "p2", "p3", "p4"];
+    let names = ["a", "b", "c", "d"];
+    let mut store = DeclarationStore::default();
+    let plugins: Vec<Rc<Plugin>> = ids
+        .iter()
+        .enumerate()
+        .map(|(n, id)| plugin(id, n as u64 + 1))
+        .collect();
+    for p in plugins.iter().take(4) {
+        let rows: Vec<Record<'_>> = names.iter().map(|name| reader(name)).collect();
+        install(&mut store, p, &[batch(&rows)]).unwrap();
+    }
+    let mut count = 0;
+    store.each_reader(&mut |_| count += 1);
+    assert_eq!(count, 16);
+    assert_eq!(
+        install(&mut store, &plugins[4], &[batch(&[reader("z")])]),
+        Err(ERR_FULL)
+    );
+    store.remove_host_owner(2);
+    install(&mut store, &plugins[4], &[batch(&[reader("z")])]).unwrap();
+}
