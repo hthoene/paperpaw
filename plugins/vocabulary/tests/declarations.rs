@@ -90,13 +90,7 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     }
     // Nothing is offered that ends in a refusal: the phone,
     // the SD card, the sleep card and the widget are declared with their ports.
-    for absent in [
-        "vocabulary.open",
-        "phone",
-        "sd-menu",
-        "sleep-card",
-        "widget",
-    ] {
+    for absent in ["phone", "sd-menu", "sleep-card", "widget", "scan-card"] {
         assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
     }
 }
