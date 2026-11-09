@@ -1,39 +1,20 @@
-//! The host's choice dialog (slot `core.choice`): the options of a question
-//! (`docs/abi/ui.md` 3.1, kind 1) as a sheet, answered through the request
-//! store with the line chosen (outcome 0, `choice` its index). Made with no
-//! request (an interface 6 caller, until its cleanup) it replies with an event
-//! as the SDK screen did. *Back*, or a
-//! close with no answer, cancels (the stack's close tells the store).
+//! The host's choice dialog (slot `core.choice`): the lines of a question
+//! (`docs/abi/ui.md` 3.1, kind 1) as a sheet, taken as given (display text the
+//! asker formatted, commas and equal lines included), answered through the
+//! request store with the index of the line chosen (outcome 0). *Back*, or a
+//! close with no answer, cancels (the stack's close tells the store). No event
+//! is sent and no interface 6 screen is inside.
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_sdk::builtin::{actions, params};
+use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::{self, ListChange, ListView, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, Rect, RefreshMode,
-    Screen,
+    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Rect, RefreshMode, Screen,
 };
 
-/// The options, separated by commas.
-pub(super) const OPTIONS: &str = "options";
-/// Translation keys of the options: this, then the option.
-pub(super) const LABELS: &str = "labels";
 /// Lines of the title, at most.
 const TITLE_LINES: usize = 3;
-
-/// What option `option` says: the translation of `labels` followed by
-/// it, or, without labels, an action's title where it names one (options
-/// that are actions, such as the other ways to open a book).
-fn label(env: &Env<'_>, labels: &str, option: &str) -> String {
-    if labels.is_empty()
-        && let Some(action) = env.actions().get(option)
-    {
-        return env.i18n().tr(action.title()).to_string();
-    }
-    env.i18n()
-        .tr(&alloc::format!("{labels}{option}"))
-        .to_string()
-}
 
 /// The choice overlay; see the [module documentation](self).
 pub(crate) struct Choice {
@@ -44,30 +25,22 @@ pub(crate) struct Choice {
     /// Below the options when they take more than one page.
     pager: Option<ui::Pager>,
     title_text: String,
-    /// Where the answer goes; none for a dialog made with no request.
-    answer: Option<super::Answerer>,
-    /// With no request (an interface 6 caller, until its cleanup): the
-    /// context and the event the choice is replied with.
-    path: String,
-    reply: Option<Id>,
-    labels: String,
+    answer: super::Answerer,
     options: Vec<String>,
 }
 
 impl Choice {
-    pub(crate) fn new(env: &Env<'_>, params: &Params, answer: Option<super::Answerer>) -> Self {
+    pub(crate) fn new(
+        env: &Env<'_>,
+        title: &str,
+        options: Vec<String>,
+        answer: super::Answerer,
+    ) -> Self {
         let style = UiStyle::new(env);
         let display = env.device().display;
         // A sheet in the readable column where the screen is wider than that.
         let column = ui::readable(env, &style, Rect::new(0, 0, display.width, display.height));
-        let options: Vec<String> = params
-            .get(OPTIONS)
-            .unwrap_or_default()
-            .split(',')
-            .filter(|o| !o.is_empty())
-            .map(ToString::to_string)
-            .collect();
-        let title_text = params.get(params::TITLE).unwrap_or_default().to_string();
+        let title_text = title.to_string();
         let row = style.row() as u16;
         // A long title takes up to three lines.
         let lines = style.font(env).map_or((1, 0.0), |font| {
@@ -132,11 +105,6 @@ impl Choice {
             pager,
             title_text,
             answer,
-            path: params.get(params::PATH).unwrap_or_default().to_string(),
-            reply: params
-                .get(params::REPLY)
-                .and_then(|reply| Id::parse(reply).ok()),
-            labels: params.get(LABELS).unwrap_or_default().to_string(),
             options,
         }
     }
@@ -155,25 +123,8 @@ impl Choice {
     }
 
     fn choose(&self, index: usize, cx: &mut Cx<'_, '_>) {
-        // An index the list does not hold is a cancel, never a choice.
-        let answer = u32::try_from(index)
-            .ok()
-            .filter(|_| index < self.options.len())
-            .map_or((1, 0), |index| (0, index));
-        if let Some(to) = &self.answer {
-            to.answer(answer.0, answer.1);
-        }
+        self.answer.choose(index, self.options.len());
         cx.command(Command::Back);
-        if self.answer.is_none()
-            && let (Some(option), Some(reply)) = (self.options.get(index), &self.reply)
-        {
-            cx.command(Command::Emit(
-                reply.clone(),
-                Params::new()
-                    .with(params::PATH, self.path.clone())
-                    .with("option", option.clone()),
-            ));
-        }
     }
 }
 
@@ -235,11 +186,10 @@ impl Screen for Choice {
                 }
             }
         }
-        let (options, labels) = (&self.options, &self.labels);
+        let options = &self.options;
         self.list
             .draw(&mut ui, options.len(), |ui, index, rect, focused| {
-                let label = label(env, labels, &options[index]);
-                ui::Row::plain(&label).focused(focused).draw(ui, rect);
+                ui::Row::plain(&options[index]).focused(focused).draw(ui, rect);
             });
         if let Some(pager) = &self.pager {
             let page = ui::Paging::new(self.list.page(), self.list.pages(options.len()));

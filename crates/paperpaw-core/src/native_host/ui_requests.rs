@@ -747,6 +747,21 @@ impl UiStore {
         Ok(())
     }
 
+    /// A host dialog's answer was not taken (a choice outside its list): the
+    /// pump logs it.
+    pub(crate) fn note_refused(&self) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.refused = inner.refused.saturating_add(1);
+        }
+    }
+
+    /// How many answers were refused since the last call.
+    pub(crate) fn take_refused(&self) -> u32 {
+        self.inner
+            .try_borrow_mut()
+            .map_or(0, |mut inner| core::mem::take(&mut inner.refused))
+    }
+
     /// The question of a request whose dialog the host is about to open: for
     /// the host's own dialogs, which are made with it.
     pub(crate) fn starting_question<R>(

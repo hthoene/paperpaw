@@ -8,8 +8,7 @@
 //! Kinds 0 (text) and 3 (folder) have no host dialog: without a dialog plugin
 //! they end as cancelled, as the pump leaves them.
 use super::{shared::Shared, ui_store::UiStore};
-use alloc::{string::ToString, vec::Vec};
-use paperpaw_sdk::{Params, builtin::params};
+use alloc::{string::String, vec::Vec};
 
 #[path = "dialogs/choice.rs"]
 mod choice;
@@ -19,9 +18,15 @@ mod confirm;
 pub(crate) use choice::Choice;
 pub(crate) use confirm::Confirm;
 
-/// A comma inside a line of a choice would split it in two: this stands in for
-/// it (a low quotation mark, which looks like one).
-const COMMA: char = '\u{201a}';
+/// The question of a request, copied out of the store to make its dialog:
+/// the lines as the asker wrote them (no split on commas, equal lines kept).
+pub(crate) struct Asked {
+    pub(crate) kind: u32,
+    pub(crate) flags: u32,
+    pub(crate) title: String,
+    pub(crate) text: String,
+    pub(crate) lines: Vec<String>,
+}
 
 /// Where a host dialog's answer goes: the request, and the one instance the
 /// host opened for it.
@@ -41,52 +46,29 @@ impl Answerer {
     }
 
     /// The final answer. Refused (the first answer won already, or the request
-    /// is gone): the dialog closes all the same.
+    /// is gone): the dialog closes all the same; an answer the store does not
+    /// take with a `choice` is a cancel, noted for the log.
     pub(super) fn answer(&self, outcome: u32, choice: u32) {
-        let _ = self
+        if self
             .store
-            .answer(self.instance, self.request, outcome, choice);
+            .answer(self.instance, self.request, outcome, choice)
+            .is_err()
+            && outcome == 0
+        {
+            self.store.note_refused();
+            let _ = self.store.answer(self.instance, self.request, 1, 0);
+        }
     }
-}
 
-/// The question as params for the dialog of `kind` (1 choice, 2 confirm), the
-/// form both dialogs read; `None` for any other kind.
-pub(super) fn params_of(
-    kind: u32,
-    flags: u32,
-    title: &str,
-    text: &str,
-    choices: &str,
-) -> Option<Params> {
-    let base = Params::new()
-        .with(params::TITLE, title.to_string())
-        .with(params::TEXT, text.to_string());
-    match kind {
-        1 => {
-            let options: Vec<alloc::string::String> = choices
-                .split('\n')
-                .map(|line| line.replace(',', &COMMA.to_string()))
-                .collect();
-            Some(base.with(choice::OPTIONS, options.join(",")))
+    /// The line `index` of `lines` chosen: its own index; one the list does not
+    /// hold is a cancel, noted for the log.
+    pub(super) fn choose(&self, index: usize, lines: usize) {
+        match u32::try_from(index).ok().filter(|_| index < lines) {
+            Some(index) => self.answer(0, index),
+            None => {
+                self.store.note_refused();
+                self.answer(1, 0);
+            }
         }
-        2 => {
-            let mut params = base;
-            let mut words = choices.split('\n');
-            if let Some(yes) = words.next().filter(|w| !w.is_empty()) {
-                params.set(confirm::YES_LABEL, yes.to_string());
-            }
-            if let Some(no) = words.next().filter(|w| !w.is_empty()) {
-                params.set(confirm::NO_LABEL, no.to_string());
-            }
-            // `only_yes` (bit 8) and `focus_yes` (bit 9).
-            if flags & (1 << 8) != 0 {
-                params.set(confirm::ONLY_YES, "1");
-            }
-            if flags & (1 << 9) != 0 {
-                params.set(confirm::FOCUS_YES, "1");
-            }
-            Some(params)
-        }
-        _ => None,
     }
 }

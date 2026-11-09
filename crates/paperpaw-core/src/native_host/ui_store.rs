@@ -250,6 +250,8 @@ pub(super) struct Inner {
     pub(super) secret_memory: usize,
     /// The questions kept.
     pub(super) question_memory: usize,
+    /// Answers of a host dialog the store did not take, not yet logged.
+    pub(super) refused: u32,
 }
 
 /// The store.
@@ -405,6 +407,7 @@ impl UiStore {
                 text_memory: 0,
                 secret_memory: 0,
                 question_memory: 0,
+                refused: 0,
             }),
         }
     }

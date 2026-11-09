@@ -1,30 +1,21 @@
 //! The host's confirm dialog (slot `core.confirm`): a yes or no question
 //! (`docs/abi/ui.md` 3.1, kind 2) in a box in the middle of the screen,
 //! answered through the request store (outcome 0, `choice` 1 for yes and 0 for
-//! no). Made with no request (an interface 6 caller, until its cleanup) it
-//! replies with an event as the SDK screen did. *Back*, a tap outside the box
-//! or a close with no answer cancels.
+//! no). *Back*, a tap outside the box or a close with no answer cancels. No
+//! event is sent and no interface 6 screen is inside.
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::builtin::{actions, params};
-use paperpaw_sdk::event::EventData;
+use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::{Dialog, Ui, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, Id, Params, Rect, RefreshMode,
-    Screen,
+    Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, Id, Rect, RefreshMode, Screen,
 };
 
-/// The word on the yes button, e.g. *Delete*.
-pub(super) const YES_LABEL: &str = "yes-label";
-/// The word on the no button, e.g. *Keep*.
-pub(super) const NO_LABEL: &str = "no-label";
-/// Set: the focus starts on yes, where yes is the answer to expect and
-/// harmless.
-pub(super) const FOCUS_YES: &str = "focus-yes";
-/// Set: one button only, yes (by default *OK*): a text shown to be read
-/// whole, which the page buttons scroll where it is long.
-pub(super) const ONLY_YES: &str = "only-yes";
+/// `ask` flag bit 8 (`only_yes`): one button, by default *OK*.
+const ONLY_YES: u32 = 1 << 8;
+/// `ask` flag bit 9 (`focus_yes`): the focus starts on yes.
+const FOCUS_YES: u32 = 1 << 9;
 
 /// The buttons, in their order.
 const YES: usize = 0;
@@ -37,41 +28,45 @@ pub(crate) struct Confirm {
     focus: usize,
     /// The buttons' words, for the hint below the confirming button.
     labels: [String; 2],
-    /// Where the answer goes; none for a dialog made with no request.
-    answer: Option<super::Answerer>,
-    /// With no request (an interface 6 caller, until its cleanup): the
-    /// question's parameters and the event the answer is replied with.
-    params: Params,
-    reply: Option<Id>,
+    answer: super::Answerer,
 }
 
 impl Confirm {
-    pub(crate) fn new(env: &Env<'_>, params: &Params, answer: Option<super::Answerer>) -> Self {
+    /// The question as the asker formatted it: `yes` and `no` are the buttons'
+    /// words, empty for the dialog's own; `flags` the `ask` flags.
+    pub(crate) fn new(
+        env: &Env<'_>,
+        title: &str,
+        text: &str,
+        (yes, no): (&str, &str),
+        flags: u32,
+        answer: super::Answerer,
+    ) -> Self {
         let style = UiStyle::new(env);
-        let label = |key: &str, fallback: &str| -> String {
-            match params.get(key) {
-                Some(label) if !label.is_empty() => String::from(label),
-                _ => String::from(env.i18n().tr(fallback)),
+        let label = |word: &str, fallback: &str| -> String {
+            if word.is_empty() {
+                String::from(env.i18n().tr(fallback))
+            } else {
+                String::from(word)
             }
         };
-        let only_yes = params.get(ONLY_YES).is_some();
+        let only_yes = flags & ONLY_YES != 0;
         let (yes, no) = (
             label(
-                YES_LABEL,
+                yes,
                 if only_yes {
                     "core.confirm.ok"
                 } else {
                     "core.confirm.yes"
                 },
             ),
-            label(NO_LABEL, "core.confirm.no"),
+            label(no, "core.confirm.no"),
         );
-        let text: Vec<&str> = params
-            .get(params::TEXT)
-            .filter(|t| !t.is_empty())
-            .map(|t| t.split('\n').collect())
-            .unwrap_or_default();
-        let title = params.get(params::TITLE).unwrap_or_default();
+        let text: Vec<&str> = if text.is_empty() {
+            Vec::new()
+        } else {
+            text.split('\n').collect()
+        };
         let buttons: &[&str] = if only_yes {
             &[yes.as_str()]
         } else {
@@ -84,34 +79,20 @@ impl Confirm {
         Self {
             style,
             dialog,
-            focus: if only_yes || params.get(FOCUS_YES).is_some() {
+            focus: if only_yes || flags & FOCUS_YES != 0 {
                 YES
             } else {
                 NO
             },
             labels: [yes, no],
             answer,
-            params: params.clone(),
-            reply: params
-                .get(params::REPLY)
-                .and_then(|reply| Id::parse(reply).ok()),
         }
     }
 
     /// Closes, and answers `yes`.
     fn answer(&self, yes: bool, cx: &mut Cx<'_, '_>) {
-        if let Some(to) = &self.answer {
-            to.answer(0, u32::from(yes));
-        }
+        self.answer.answer(0, u32::from(yes));
         cx.command(Command::Back);
-        if self.answer.is_none()
-            && let Some(reply) = &self.reply
-        {
-            cx.command(Command::Emit(
-                reply.clone(),
-                paperpaw_sdk::replies::Confirmed::new(yes, self.params.clone()).to_params(),
-            ));
-        }
     }
 }
 
