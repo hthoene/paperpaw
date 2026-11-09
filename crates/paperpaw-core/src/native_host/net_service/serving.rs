@@ -536,6 +536,11 @@ pub(crate) fn served_head(
             .iter()
             .find(|s| s.key == key)
             .ok_or(ERR_NOT_FOUND)?;
+        // A server the shell has not reported open has told its plugin
+        // nothing: no request is taken for it.
+        if !server.opened {
+            return Ok(Decision::Reject(503));
+        }
         (server.token, server.owner, server.max_body)
     };
     if head_len > HEAD_MAX {

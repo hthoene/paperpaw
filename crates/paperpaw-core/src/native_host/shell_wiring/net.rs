@@ -301,9 +301,12 @@ pub trait ShellHttp {
     fn listen(&self, server: u32, port: u32, address: &mut [u8]) -> Result<usize, ServerReason>;
     /// Stops listening; the server's connections end. Core calls it also when
     /// it refuses an address `listen` returned (one that is not text, or that
-    /// it cannot keep), and for a server the shell reported failed, so a
-    /// refused server does not go on listening: a no-op for a listener that
-    /// never opened.
+    /// it cannot keep), when the plugin stops a server (also one whose open
+    /// has not been reported yet), and for a server the shell reported failed.
+    /// It **cancels an open that is still pending** as well as closing an open
+    /// listener, and is a no-op only for one the shell has already given up. A
+    /// shell whose late [`NetReports::server_started`] gets `ERR_NOT_FOUND`
+    /// must close that listener.
     fn unlisten(&self, server: u32);
     /// Sends the answer of a served request and closes it.
     ///
@@ -572,8 +575,11 @@ impl NetReports {
     /// at the shell's next step.
     ///
     /// # Errors
-    /// `ERR_NOT_FOUND` for a server that stopped or failed meanwhile;
-    /// `ERR_STATE` when it was reported already; `ERR_BUSY`.
+    /// `ERR_NOT_FOUND` for a server that stopped or failed meanwhile: the
+    /// plugin has been told, so **the shell must close that listener** (core
+    /// called [`ShellHttp::unlisten`] for it, which a shell with an open
+    /// still pending must cancel); `ERR_STATE` when it was reported already;
+    /// `ERR_BUSY`.
     pub fn server_started(&self, server: u32, address: &str) -> Result<(), i32> {
         net_service::server_started(&*self.0, server, address)
     }
@@ -581,8 +587,8 @@ impl NetReports {
     /// The listener of `server` could not be opened (or went away). The
     /// plugin is told `event.server` `failed` with reason `refused`, whatever
     /// the `reason` (it is for the shell's log), and the server's slot is
-    /// free for a new `serve`. Core calls [`ShellHttp::unlisten`] for it
-    /// too: a shell treats that as a no-op for a listener that never opened.
+    /// free for a new `serve`. Core calls [`ShellHttp::unlisten`] for it too
+    /// (nothing to close for a listener that never opened).
     ///
     /// # Errors
     /// `ERR_NOT_FOUND` for a server that stopped meanwhile; `ERR_BUSY`.

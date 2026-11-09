@@ -814,6 +814,9 @@ fn a_server_stopped_before_its_listener_opened_is_told_stopped_and_the_late_repo
     let key = key_of(&fake);
     stop_serving_as(&fake, OWNER, 1);
     assert_eq!(drain(&fake, OWNER), [server_event(1, 2, 0, "")]);
+    // The shell was told to cancel the open that was still pending, so its
+    // late report finds nothing and the listener is not left behind.
+    assert_eq!(*fake.unlistened.borrow(), [key]);
     assert_eq!(serving::server_started(&fake, key, "x"), Err(ERR_NOT_FOUND));
     assert_eq!(serving::server_failed(&fake, key), Err(ERR_NOT_FOUND));
     assert_eq!(drain(&fake, OWNER), []);
@@ -875,4 +878,21 @@ fn the_device_has_a_cap_of_servers_over_all_plugins_and_a_serve_past_it_is_busy_
         Err(ERR_BUSY),
         "8 in all"
     );
+}
+
+#[test]
+fn a_request_on_a_server_not_yet_reported_open_is_refused() {
+    let fake = Fake::x4();
+    serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let key = key_of(&fake);
+    assert_eq!(
+        served_head(&fake, key, "GET", "/", None, false, 10).unwrap(),
+        Decision::Reject(503)
+    );
+    assert_eq!(drain(&fake, OWNER), [], "the plugin heard of nothing");
+    serving::server_started(&fake, key, "192.168.1.20:8080").unwrap();
+    assert!(matches!(
+        served_head(&fake, key, "GET", "/", None, false, 10).unwrap(),
+        Decision::Accept { .. }
+    ));
 }
