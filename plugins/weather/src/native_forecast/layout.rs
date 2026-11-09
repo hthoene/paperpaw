@@ -166,7 +166,9 @@ pub fn row(
         // As the symbol is placed below: at least a name's height.
         let room = |high: f32| -> Result<bool, Error> {
             let name = fonts.line(name_of(high))?;
-            Ok(height.saturating_sub(words_of(high, with_low)?.saturating_add(gap.saturating_mul(2))) >= name)
+            Ok(height
+                .saturating_sub(words_of(high, with_low)?.saturating_add(gap.saturating_mul(2)))
+                >= name)
         };
         let mut smaller = high;
         while !room(smaller)? && smaller > set.text {
@@ -199,9 +201,10 @@ pub fn row(
         0
     };
     let side = if side < name_h { 0 } else { side };
-    let total = words
-        .saturating_add(side)
-        .saturating_add(if side > 0 { gap.saturating_mul(2) } else { 0 });
+    let total =
+        words
+            .saturating_add(side)
+            .saturating_add(if side > 0 { gap.saturating_mul(2) } else { 0 });
     Ok(Row {
         column,
         high,
@@ -384,7 +387,10 @@ pub fn list(
         x = x.saturating_add(rain_w).saturating_add(gap);
     }
     let high_x = width.saturating_sub(high_w);
-    let room = high_x.saturating_sub(x.saturating_add(low_w).saturating_add(gap.saturating_mul(2)));
+    let room = high_x.saturating_sub(
+        x.saturating_add(low_w)
+            .saturating_add(gap.saturating_mul(2)),
+    );
     let bars = wants.bars && low_w > 0 && room >= (gap.saturating_mul(2)).max(set.mm6);
     let low_x = if bars {
         x
