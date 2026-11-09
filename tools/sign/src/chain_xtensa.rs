@@ -244,11 +244,26 @@ impl Budget {
 #[derive(Debug)]
 struct Function {
     path: String,
+    /// The raw symbol (`_ZN…E`, with its hash): the one name no other function
+    /// has.
+    symbol: String,
+    /// What the problems call the function: its path, or its symbol when
+    /// another function of the image has the same path (the path drops the
+    /// generics, so every `drop_in_place<…>` is `core::ptr`).
+    shown: String,
     start: u32,
     /// 0: the symbol table gives it no size.
     size: u32,
     /// The executable section it is in, and where in its bytes.
     code: (usize, usize),
+}
+
+impl Function {
+    /// Whether `name`, as an `allow` line gives it, is this function's: its
+    /// path or its raw symbol.
+    fn is(&self, name: &str) -> bool {
+        self.path == name || self.symbol == name
+    }
 }
 
 /// What the code of a function does that matters here.
@@ -499,7 +514,10 @@ fn resolve(
         };
         entries.push(to);
     }
-    if entries.is_empty() && insns.iter().any(|i| i.is_jx()) {
+    // The function's own start does not count as an address to jump to: a
+    // vtable or a function pointer holds it, a jump table does not. Jump
+    // tables are taken to hold absolute addresses of the instructions.
+    if entries.iter().all(|&n| n == 0) && insns.iter().any(|i| i.is_jx()) {
         return give_up(reads);
     }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
@@ -645,6 +663,8 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         }
         let function = Function {
             path: path(&s.name),
+            symbol: s.name.clone(),
+            shown: String::new(),
             start: s.value,
             size: s.size,
             code: (k, from),
@@ -657,8 +677,25 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
             }
         }
     }
+    let mut funcs: Vec<Function> = found.into_values().collect();
+    let mut by_path: BTreeMap<&str, u32> = BTreeMap::new();
+    for f in &funcs {
+        *by_path.entry(&f.path).or_default() += 1;
+    }
+    let shared: BTreeSet<String> = by_path
+        .into_iter()
+        .filter(|&(_, n)| n > 1)
+        .map(|(p, _)| p.to_string())
+        .collect();
+    for f in &mut funcs {
+        f.shown = if shared.contains(&f.path) {
+            f.symbol.clone()
+        } else {
+            f.path.clone()
+        };
+    }
     Ok(Image {
-        funcs: found.into_values().collect(),
+        funcs,
         exec,
         data,
         exec_rw,
@@ -786,7 +823,7 @@ impl Image<'_> {
 fn follow(
     image: &Image<'_>,
     budget: &Budget,
-    caller: &str,
+    caller: &Function,
     edges: &[u32],
     used: &mut [bool],
     report: &mut Report,
@@ -807,7 +844,7 @@ fn follow(
         let by_address = format!("{target:#x}");
         if !allowed(budget, used, &|a| {
             matches!(a, Allow::Call { caller: c, callee: e }
-                if c == caller && (*e == callee || *e == by_address))
+                if caller.is(c) && (*e == callee || *e == by_address))
         }) {
             let where_ = if image.in_image(target) {
                 "code of the image with no symbol"
@@ -815,7 +852,8 @@ fn follow(
                 "outside the image (ROM or a blob)"
             };
             report.problems.push(format!(
-                "`{caller}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)"
+                "`{}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)",
+                caller.shown
             ));
         }
     }
@@ -892,7 +930,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         if frame >= budget.limit {
             report.problems.push(format!(
                 "`{}` takes a frame of {frame} bytes (limit {})",
-                f.path, budget.limit
+                f.shown, budget.limit
             ));
         }
     }
@@ -900,48 +938,48 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         && !allowed(
             budget,
             used,
-            &|a| matches!(a, Allow::Sp { caller: c } if *c == f.path),
+            &|a| matches!(a, Allow::Sp { caller: c } if f.is(c)),
         )
     {
         report.problems.push(format!(
             "`{}` changes the stack pointer other than by `entry` ({pc:#x}): its frame cannot be bounded",
-            f.path
+            f.shown
         ));
     }
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
-            f.path
+            f.shown
         ));
     }
     if let Some(pc) = reads.entry_other {
         report.problems.push(format!(
             "`{}` has an `entry` of a register other than a1 ({pc:#x}): its frame cannot be bounded",
-            f.path
+            f.shown
         ));
     }
     for (&form, &pc) in &reads.forms {
         if !allowed(
             budget,
             used,
-            &|a| matches!(a, Allow::Form { caller: c, form: n } if *c == f.path && n == form),
+            &|a| matches!(a, Allow::Form { caller: c, form: n } if f.is(c) && n == form),
         ) {
             report.problems.push(format!(
                 "`{}` uses `{form}` ({pc:#x}): it leaves a1 alone, but the budget does not say so (name it with `allow form`)",
-                f.path
+                f.shown
             ));
         }
     }
     if let Some(pc) = reads.unknown {
         report.problems.push(format!(
             "`{}` has an instruction of a form this scan does not classify ({pc:#x}): not known to leave a1 alone",
-            f.path
+            f.shown
         ));
     }
     if let Some(pc) = reads.unreadable {
         report.problems.push(format!(
             "`{}` has code this scan cannot read ({pc:#x})",
-            f.path
+            f.shown
         ));
     }
 }
@@ -969,15 +1007,14 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let f = &funcs[i];
         report.checked += 1;
         if f.size == 0 {
-            let name = f.path.clone();
             if !allowed(
                 budget,
                 &mut used,
-                &|a| matches!(a, Allow::NoSize { name: n } if *n == name),
+                &|a| matches!(a, Allow::NoSize { name: n } if f.is(n)),
             ) {
                 report.problems.push(format!(
                     "`{}` ({:#x}) has no size in the symbol table: assembly this scan does not read",
-                    f.path, f.start
+                    f.shown, f.start
                 ));
             }
             continue;
@@ -986,7 +1023,6 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let data = image.exec[k].1;
         let to = (from + f.size as usize).min(data.len());
         let reads = read_function(&data[from..to], f.start, &around);
-        let caller = f.path.clone();
         judge(f, &reads, budget, &mut used, &mut report);
         report.indirect += reads.indirect;
         report.resolved += reads.resolved;
@@ -995,23 +1031,48 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             if !allowed(
                 budget,
                 &mut used,
-                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if *c == caller && *n == count),
+                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
             ) {
                 report.problems.push(format!(
                     "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
-                    f.path
+                    f.shown
                 ));
             }
         }
         follow(
             &image,
             budget,
-            &caller,
+            f,
             &reads.edges,
             &mut used,
             &mut report,
             (&mut queue, &mut seen),
         );
+    }
+    // A line names one function: its path (which drops the generics, so
+    // several can share it) must not match more than one function reached;
+    // the raw symbol of each names it alone.
+    for (allow, _) in &budget.allow {
+        let name = match allow {
+            Allow::Call { caller: n, .. }
+            | Allow::Sp { caller: n }
+            | Allow::Indirect { caller: n, .. }
+            | Allow::Form { caller: n, .. }
+            | Allow::NoSize { name: n } => n,
+        };
+        let named: Vec<&str> = seen
+            .iter()
+            .map(|&i| &funcs[i])
+            .filter(|f| f.is(name))
+            .map(|f| f.symbol.as_str())
+            .collect();
+        if named.len() > 1 {
+            report.problems.push(format!(
+                "an `allow` line names {} functions, `{name}` is the path of each: name one by its symbol ({})",
+                named.len(),
+                named.join(", ")
+            ));
+        }
     }
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {

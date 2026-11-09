@@ -357,13 +357,17 @@ jobs:
       # host table's entries and what they reach (every direct call, and every
       # call through an `l32r` literal), each held under the 2 KiB band; the calls
       # it cannot follow are listed one by one in the budget, with their reasons
-      # (`shells/xteink/frame-budget-s3.txt`).
+      # (`shells/xteink/frame-budget-s3.txt`, and `-classic.txt` for the X4 Classic).
       - name: The S3's host frames and calls fit under the band
-        if: matrix.device == 'x4-pro'
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
         run: |
+          # The X4 Pro and the X4 Classic are two builds with their own symbols:
+          # one budget each.
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
           cargo run -q --release -p paperpaw-sign -- frames-s3 \
             shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
-            --budget shells/xteink/frame-budget-s3.txt
+            --budget "$budget"
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
       - name: The install image fits CrossPoint's slot

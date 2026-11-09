@@ -871,6 +871,9 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     ];
     let (lits, funcs) = root_of(&code);
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
+    // A word that holds the function's own start (a vtable or a function
+    // pointer) is no table: the function still gives up.
+    assert_eq!(outcome(&lits, &funcs, &[at]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -967,4 +970,58 @@ fn a_literal_in_a_writable_section_is_not_read() {
     let elf = Elf::parse(&bytes).unwrap();
     let report = check(&elf, &Budget::parse("root root\n").unwrap()).unwrap();
     assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
+    // Two instantiations of one generic: the same path, two symbols (legacy
+    // mangling drops the generics from the path, keeps the hash in the symbol).
+    let (s1, s2) = (
+        "_ZN4core3ptr13drop_in_place17h0000000000000001E",
+        "_ZN4core3ptr13drop_in_place17h0000000000000002E",
+    );
+    let a = BASE;
+    let root = f(&[
+        &entry(32),
+        &call(8, a + 3, a + 16),
+        &call(8, a + 6, a + 32),
+        &RETW_N,
+    ]);
+    let one = f(&[&entry(32), &callx_reg(8, 2), &RETW_N]);
+    let funcs = [("root", root), (s1, one.clone()), (s2, one)];
+    // Bare: both are reported, each by its symbol (the path alone would not
+    // tell them apart).
+    let bare = run(&funcs, &["root"], "");
+    assert_eq!(bare.problems.len(), 2, "{:?}", bare.problems);
+    assert!(bare.problems.iter().any(|p| p.contains(s1)));
+    assert!(bare.problems.iter().any(|p| p.contains(s2)));
+    // A line by the path names two functions: an error.
+    let by_path = run(
+        &funcs,
+        &["root"],
+        "allow indirect core::ptr::drop_in_place 1 both\n",
+    );
+    assert!(
+        by_path
+            .problems
+            .iter()
+            .any(|p| p.contains("names 2 functions") && p.contains(s1) && p.contains(s2)),
+        "{:?}",
+        by_path.problems
+    );
+    // By symbol, one line each: passes.
+    let by_symbol = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect {s2} 1 second\n"),
+    );
+    assert!(by_symbol.problems.is_empty(), "{:?}", by_symbol.problems);
+    // One of them named by symbol and the other by the path is still an error
+    // (the path names both).
+    let mixed = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect core::ptr::drop_in_place 1 second\n"),
+    );
+    assert!(!mixed.problems.is_empty());
 }
