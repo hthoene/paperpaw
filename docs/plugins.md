@@ -2791,6 +2791,15 @@ list changed answers `State`: start again from `ReaderCursor::start()`. No permi
 A reader opens a book through `command.open` with its `screen` and the slot `core.reader`.
 `input` is 256 bytes and `out` 4,096.
 
+`Documents::format_for(host, root, path, sniff, input, out)` tells which format reads a file
+(`Root::Data`, or `Root::Library` for the user's files, which needs `uses.storage`): by its extension,
+and when none matches and `sniff` is set, by the file's first 512 bytes. The answer is a `Format`
+(`id()`, `title()`, `extensions()`, `priority()`); `NotFound` means no format reads it, so a file
+manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
+the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
+pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
+`formats`; `out` 1,536 and 4,096.
+
 ### Book fields and badges
 
 Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
