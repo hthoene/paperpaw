@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 5] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
     // network, typing its password and forgetting one work. The screens are
     // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
@@ -18,15 +18,6 @@ const CASES: [Case; 6] = [
         name: "wifi-pages",
         golden: None,
         blocked_by: &["SCRIPTED-i18n"],
-    },
-    // The radio follows the policy: on when a plugin wants the network, joins
-    // the network joined before, off after the idle time. Needs the events
-    // `wifi_scanned`, `wifi_done`, `network_wanted` and `network_idle`
-    // (92-95), which have no subscription or decoder in the SDK yet.
-    Case {
-        name: "wifi-radio-events",
-        golden: None,
-        blocked_by: &["EVT-wifi-radio"],
     },
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
@@ -42,11 +33,12 @@ const CASES: [Case; 6] = [
     // asks for is `native_known`; the screens read the names kept (run in
     // `tests/scripted_networks.rs`); the `wifi.ini` is read at a start and its
     // networks kept (`native_ini`, compared with the old reading); keeping a
-    // password once the device is in the network is run with the radio's events.
+    // password once the device is in the network is wired (`native_plugin::events`); its typed-password
+    // path is not run over the scripted dialogs yet.
     Case {
         name: "wifi-passwords",
         golden: None,
-        blocked_by: &["EVT-wifi-radio"],
+        blocked_by: &["SCRIPTED-typed-password"],
     },
     // The own network opened for the phone: its name and drawn password, the
     // token of its page, the join code (`native_own`), with the bytes from
@@ -82,31 +74,25 @@ fn wifi_pages() {
 }
 
 #[test]
-#[ignore = "BLOCKED EVT-wifi-radio: no SDK subscription or decoder for events 92-95"]
-fn wifi_radio_events() {
+#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
+fn wifi_phone() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
-fn wifi_phone() {
-    CASES[2].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED EVT-wifi-radio: no radio events to keep a password once the device is in the network"]
+#[ignore = "BLOCKED SCRIPTED-typed-password: the typed password kept once online is not run over the scripted dialogs"]
 fn wifi_passwords() {
-    CASES[3].refuse().unwrap();
+    CASES[2].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED NET-serve: opening the own network and the served page"]
 fn wifi_own_network() {
-    CASES[4].refuse().unwrap();
+    CASES[3].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn wifi_status_item() {
-    CASES[5].refuse().unwrap();
+    CASES[4].refuse().unwrap();
 }

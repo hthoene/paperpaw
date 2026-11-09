@@ -111,6 +111,14 @@ impl SetupSteps {
         self.steps.shrink_to_fit();
     }
 
+    /// Every step, in order, whether or not it applies on this device
+    /// (`core.registry` lists them with their applicability).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn iter(&self) -> impl Iterator<Item = &SetupStepSpec> {
+        self.steps.iter()
+    }
+
     /// The steps asked on this device, in order.
     pub fn applying<'a>(&'a self, env: &Env<'_>) -> Vec<&'a SetupStepSpec> {
         self.steps

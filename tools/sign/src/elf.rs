@@ -72,6 +72,8 @@ pub struct Symbol {
     pub value: u32,
     pub size: u32,
     pub info: u8,
+    /// `st_other`: its visibility in the low two bits.
+    pub other: u8,
     /// The section it is defined in, or `SHN_UNDEF`, `SHN_ABS`, ...
     pub shndx: u16,
 }
@@ -80,6 +82,13 @@ impl Symbol {
     /// Its type (`STT_SECTION`, for instance).
     pub fn kind(&self) -> u8 {
         self.info & 15
+    }
+
+    /// Whether no other object can bind to it: `STV_INTERNAL` or `STV_HIDDEN`.
+    /// A linker may leave such a symbol global in the output (the Xtensa one
+    /// does) but it is no export.
+    pub fn hidden(&self) -> bool {
+        matches!(self.other & 3, 1 | 2)
     }
 }
 
@@ -210,6 +219,7 @@ impl<'a> Elf<'a> {
                     value: le32(s, 4),
                     size: le32(s, 8),
                     info: s[12],
+                    other: s[13],
                     shndx: le16(s, 14),
                 })
             })
@@ -347,9 +357,17 @@ pub mod build {
                 value,
                 size,
                 info: if local { 0 } else { 0x10 },
+                other: 0,
                 shndx,
             });
             self.symbols.len() as u32
+        }
+
+        /// Makes the last symbol added hidden (`STV_HIDDEN`).
+        pub fn hide_last_symbol(&mut self) {
+            if let Some(last) = self.symbols.last_mut() {
+                last.other = 2;
+            }
         }
 
         /// Adds a function symbol (`STT_FUNC`, global unless `local`) of
@@ -410,7 +428,7 @@ pub mod build {
                 symtab.extend_from_slice(&symbol.value.to_le_bytes());
                 symtab.extend_from_slice(&symbol.size.to_le_bytes());
                 symtab.push(symbol.info);
-                symtab.push(0);
+                symtab.push(symbol.other);
                 symtab.extend_from_slice(&symbol.shndx.to_le_bytes());
             }
             let symtab_index = (self.sections.len() + self.relas.len() + 1) as u32;

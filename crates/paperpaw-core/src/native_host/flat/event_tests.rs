@@ -400,7 +400,9 @@ fn later_listeners_run_after_an_earlier_plugin_refuses() {
 
 #[test]
 fn unsupported_callbacks_refuse_the_entire_instance_at_construction() {
-    for tags in [&[3][..], &[2][..], &[32, 3][..], &[32, 2][..], &[38][..]] {
+    // `event.tick` (3) is routed now (`native_tick`); 2 and 38 are not events a
+    // flat plugin subscribes to.
+    for tags in [&[2][..], &[32, 2][..], &[38][..]] {
         let seen = Observed::new();
         let observed = Rc::clone(&seen);
         let tags = tags.to_vec();

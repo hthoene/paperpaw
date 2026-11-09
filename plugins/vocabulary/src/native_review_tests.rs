@@ -8,12 +8,14 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 
 use paperpaw_i18n::{Arg as Message, Catalog, Translator};
-use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::formatting::Arg;
+use paperpaw_sdk::{MemoryStorage, Storage};
 
 use super::*;
+use crate::alloc_refusal_tests::Quiet;
 use crate::cards::{Texts, add, add_deck};
+use crate::sync::tests::heap::{armed, fixture};
 
 struct English(Translator);
 
@@ -26,9 +28,15 @@ fn english() -> English {
 
 impl Words for English {
     fn copy(&mut self, key: &str) -> Result<String, Error> {
-        Ok(self.0.tr(key).to_string())
+        Ok(fixture(|| self.0.tr(key).to_string()))
     }
     fn format(&mut self, key: &str, args: &[Arg<'_>]) -> Result<String, Error> {
+        fixture(|| self.format_of(key, args))
+    }
+}
+
+impl English {
+    fn format_of(&mut self, key: &str, args: &[Arg<'_>]) -> Result<String, Error> {
         let mut named: Vec<(&str, Message<'_>)> = Vec::new();
         let mut count = None;
         for arg in args {
@@ -79,7 +87,7 @@ fn deck(storage: &MemoryStorage, cards: &[(&str, &str)]) -> u32 {
     id
 }
 
-fn start(storage: &MemoryStorage, clock: &Clock, deck: Option<u32>) -> Review {
+fn start(storage: &dyn Storage, clock: &Clock, deck: Option<u32>) -> Review {
     Review::new(storage, clock, &mut english(), SETTINGS, deck, None).unwrap()
 }
 
@@ -255,4 +263,53 @@ fn the_hand_over_names_a_deck_and_a_card() {
     assert_eq!(ok(&[("first", "4")]).unwrap(), (None, None));
     assert_eq!(ok(&[("deck", "1"), ("deck", "1")]).unwrap().0, Some(1));
     assert_eq!(ok(&[("deck", "1"), ("deck", "2")]), Err(Error::Invalid));
+}
+
+#[test]
+fn a_storage_failure_is_told_by_what_it_was() {
+    use paperpaw_sdk::StorageError;
+    assert_eq!(storage_error(StorageError::TooLarge), Error::NoMemory);
+    assert_eq!(storage_error(StorageError::OutOfMemory), Error::NoMemory);
+    assert_eq!(storage_error(StorageError::Full), Error::Full);
+    assert_eq!(storage_error(StorageError::Io), Error::Io);
+    assert_eq!(storage_error(StorageError::NotFound), Error::Io);
+}
+
+#[test]
+fn when_the_heap_refuses_an_again_answer_the_card_stays_and_can_be_answered_again() {
+    // Every allocation of the answer is refused in turn. Room for the card to
+    // come again is made first, so a refusal leaves the card shown (it was a
+    // blank screen with the card lost for the session).
+    let build = || {
+        // The storage's own allocations are not the plugin's.
+        let storage = Quiet(MemoryStorage::new());
+        deck(&storage.0, &[("Hund", "dog")]);
+        let clock = Clock(Cell::new(NOON));
+        let review = start(&storage, &clock, None);
+        (storage, clock, review)
+    };
+    let (storage, clock, mut review) = fixture(build);
+    let mut words = fixture(english);
+    let (whole, count) = armed(usize::MAX, || {
+        review.answer(&storage, &clock, &mut words, Grade::Again)
+    });
+    assert!(whole.is_ok());
+    assert!(count > 0);
+    for at in 1..=count {
+        let (storage, clock, mut review) = fixture(build);
+        let mut words = fixture(english);
+        let (result, _) = armed(at, || {
+            review.answer(&storage, &clock, &mut words, Grade::Again)
+        });
+        match result {
+            Err(error) => {
+                assert_eq!(error, Error::NoMemory, "refusing allocation {at}");
+                assert!(
+                    review.current.is_some() || review.left() == 1,
+                    "the card is not lost, refusing allocation {at}"
+                );
+            }
+            Ok(_) => assert_eq!(review.left(), 1, "refusing allocation {at}"),
+        }
+    }
 }

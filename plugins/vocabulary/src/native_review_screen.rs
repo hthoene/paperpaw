@@ -14,9 +14,10 @@ use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
 use paperpaw_sdk::native::fonts::{Font, FontRole};
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::snapshot;
-use paperpaw_sdk::native::ui::Notify;
+use paperpaw_sdk::native::ui::{Instance, Notify, Ui, UiCursor};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{Color, Handled, Point, Rect, Storage};
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::paint::push;
 use paperpaw_ui_kit::{Messages, Page, Paint, Style, geometry, header, paint, text};
 
@@ -121,16 +122,24 @@ impl ReviewScreen {
         self.review.close(storage);
     }
 
-    /// The minute tick: a card answered *Again* may be due. `true` where the
-    /// screen changed (it is drawn again).
+    /// The minute tick: a card answered *Again* may be due. The screen is
+    /// drawn again only where it is the one on top (a redraw under another
+    /// screen costs a refresh for nothing; it is drawn when it shows again).
+    /// `true` where the screen changed.
     ///
     /// # Errors
     /// [`Error::NoMemory`] and what the host says.
-    pub(crate) fn tick(&mut self, host: &Host<'_>, storage: &dyn Storage) -> Result<bool, Error> {
+    pub(crate) fn tick(
+        &mut self,
+        host: &Host<'_>,
+        storage: &dyn Storage,
+        ui: &Ui,
+        instance: Instance,
+    ) -> Result<bool, Error> {
         let time = HostTime::read(host, storage)?;
         let mut words = HostWords::new(host)?;
         let changed = self.review.tick(storage, &time, &mut words)?;
-        if changed {
+        if changed && on_top(host, ui, instance)? {
             redraw(host)?;
         }
         Ok(changed)
@@ -518,4 +527,15 @@ fn centred(
 
 fn redraw(host: &Host<'_>) -> Result<(), Error> {
     CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)
+}
+
+/// Whether `instance` is the screen on top of the stack (the stack is read
+/// top first; a screen the host leaves out as guarded is not ours).
+fn on_top(host: &Host<'_>, ui: &Ui, instance: Instance) -> Result<bool, Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
+    match page.into_iter().next() {
+        Some(row) => Ok(row?.instance() == instance),
+        None => Ok(false),
+    }
 }

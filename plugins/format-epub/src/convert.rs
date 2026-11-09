@@ -152,12 +152,16 @@ pub(crate) enum Source<'a> {
 /// the converter. XHTML needs none.
 pub(crate) trait Dialect {
     /// Element `tag` entered.
-    fn enter(&mut self, tag: &str, attrs: &paperpaw_sdk::xml::Attrs<'_>) -> Entered;
+    fn enter(
+        &mut self,
+        tag: &str,
+        attrs: &paperpaw_sdk::xml::Attrs<'_>,
+    ) -> Result<Entered, DocumentError>;
     /// Element `tag` left: the HTML element it was read as.
-    fn leave(&mut self, tag: &str) -> String;
+    fn leave(&mut self, tag: &str) -> Result<String, DocumentError>;
     /// Where the picture `href` points is kept as, if not as a path
     /// relative to the chapter.
-    fn picture(&self, href: &str) -> Option<String>;
+    fn picture(&self, href: &str) -> Result<Option<String>, DocumentError>;
 }
 
 /// An element of a [`Dialect`] entered.
@@ -532,7 +536,11 @@ impl Converter<'_> {
     /// An image block for `href` (relative to the chapter; in a
     /// FictionBook, `#` and a binary's id).
     fn image(&mut self, href: &str, alt: &str) -> Result<(), DocumentError> {
-        let path = match self.dialect.as_ref().and_then(|d| d.picture(href)) {
+        let own = match self.dialect.as_ref() {
+            Some(dialect) => dialect.picture(href)?,
+            None => None,
+        };
+        let path = match own {
             Some(path) => path,
             None => crate::package::try_resolve(&self.base, href)?.0,
         };
@@ -678,7 +686,10 @@ impl Converter<'_> {
         }
         self.end_node();
         let tag = element_name(name)?;
-        let entered = self.dialect.as_mut().map(|d| d.enter(&tag, &attrs));
+        let entered = match self.dialect.as_mut() {
+            Some(dialect) => Some(dialect.enter(&tag, &attrs)?),
+            None => None,
+        };
         let tag = match entered {
             Some(entered) => {
                 if let Some(id) = entered.anchor {
@@ -937,7 +948,7 @@ impl Converter<'_> {
         self.end_node();
         let tag = element_name(name)?;
         let tag = match self.dialect.as_mut() {
-            Some(dialect) => dialect.leave(&tag),
+            Some(dialect) => dialect.leave(&tag)?,
             None => tag,
         };
         if self.overflow > 0 {
