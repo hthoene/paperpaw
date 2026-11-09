@@ -136,6 +136,7 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
     use super::*;
 
     #[test]
@@ -149,5 +150,21 @@ mod tests {
         // Full: nothing more is told of, and nothing is lost or overwritten.
         assert!(!warned.first(1_000));
         assert!(!warned.first(1));
+    }
+
+    /// A plugin id is not reserved yet: `core.evil.x` is that plugin's action,
+    /// not the host's, so it does not run under a guard; `core.menu` does.
+    #[test]
+    fn an_action_of_a_plugin_whose_id_begins_with_core_is_not_the_hosts() {
+        let mut kernel = Kernel::builder(crate::tests::DEVICE).build().unwrap();
+        kernel
+            .shared
+            .native_instances
+            .test_insert(Id::try_parse("core.evil").unwrap(), None, true)
+            .unwrap();
+        assert!(kernel.is_host_action(&Id::try_parse("core.menu").unwrap()));
+        assert!(kernel.is_host_action(&Id::try_parse("core.page-next").unwrap()));
+        assert!(!kernel.is_host_action(&Id::try_parse("core.evil.x").unwrap()));
+        assert!(!kernel.is_host_action(&Id::try_parse("other.run").unwrap()));
     }
 }
