@@ -295,6 +295,34 @@ fn widest<'a>(
     Ok(ceil(most))
 }
 
+/// Where the parts do not fit across, the symbol goes, then the chance of
+/// rain, then the lowest: their widths (`side`, `rain_w`, `low_w`) as kept.
+fn give_up(
+    width: u16,
+    (name_w, high_w, gap): (u16, u16, u16),
+    (mut side, mut rain_w, mut low_w): (u16, u16, u16),
+) -> (u16, u16, u16) {
+    let after = |w: u16| if w > 0 { w.saturating_add(gap) } else { 0 };
+    let needs = |side: u16, rain_w: u16, low_w: u16| {
+        name_w
+            .saturating_add(gap)
+            .saturating_add(after(side))
+            .saturating_add(after(rain_w))
+            .saturating_add(after(low_w))
+            .saturating_add(high_w)
+    };
+    if needs(side, rain_w, low_w) > width {
+        side = 0;
+    }
+    if needs(side, rain_w, low_w) > width {
+        rain_w = 0;
+    }
+    if needs(side, rain_w, low_w) > width {
+        low_w = 0;
+    }
+    (side, rain_w, low_w)
+}
+
 /// The rows for the days in a place `width` by `height`.
 ///
 /// # Errors
@@ -309,12 +337,12 @@ pub fn list(
     let count = u16::try_from(texts.highs.len().max(1)).unwrap_or(u16::MAX);
     let height = height / count;
     let gap = set.gap;
-    let mut side = if wants.symbol {
+    let side = if wants.symbol {
         ((f32::from(height) * 0.8) as u16).min(width / 6)
     } else {
         0
     };
-    let mut rain_w = widest(
+    let rain_w = widest(
         fonts,
         set.small,
         texts.rains.iter().flatten().map(String::as_str),
@@ -351,31 +379,12 @@ pub fn list(
     let names = texts.names.get(chosen).copied().unwrap_or(&[]);
     let name_w = widest(fonts, size, names.iter().map(String::as_str))?;
     let high_w = widest(fonts, size, texts.highs.iter().map(String::as_str))?;
-    let mut low_w = if wants.low {
+    let low_w = if wants.low {
         widest(fonts, size, texts.lows.iter().map(String::as_str))?
     } else {
         0
     };
-    // Where the parts do not fit across, the symbol goes, then the chance of
-    // rain, then the lowest.
-    let after = |w: u16| if w > 0 { w.saturating_add(gap) } else { 0 };
-    let needs = |side: u16, rain_w: u16, low_w: u16| {
-        name_w
-            .saturating_add(gap)
-            .saturating_add(after(side))
-            .saturating_add(after(rain_w))
-            .saturating_add(after(low_w))
-            .saturating_add(high_w)
-    };
-    if needs(side, rain_w, low_w) > width {
-        side = 0;
-    }
-    if needs(side, rain_w, low_w) > width {
-        rain_w = 0;
-    }
-    if needs(side, rain_w, low_w) > width {
-        low_w = 0;
-    }
+    let (side, rain_w, low_w) = give_up(width, (name_w, high_w, gap), (side, rain_w, low_w));
     // From the left: name, symbol, rain; from the right: highest, bar, lowest.
     let mut x = name_w.saturating_add(gap);
     let symbol_x = x;
