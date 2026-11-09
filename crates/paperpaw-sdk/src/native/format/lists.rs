@@ -10,6 +10,8 @@ const TOC_LEVEL_MAX: u32 = 15;
 const TOC_TITLE_CUT: u32 = 2;
 /// `fmt.end` flag: the last page.
 const END_LAST: u32 = 1;
+/// Largest embedded font file (`document.md` 6: interface 6's EPUB cap, 16 MiB).
+const FONT_BYTES_MAX: u32 = 16 * 1024 * 1024;
 /// Bytes kept free after the rows for the closing `fmt.end` record: its framing, four
 /// `u32` fields and the optional cursor, rounded up.
 const END_RESERVE: usize = 32;
@@ -107,7 +109,8 @@ impl FormatCall<'_> {
     ///
     /// # Errors
     /// State outside cover and image; Invalid for a path over 256 bytes or an
-    /// empty one; NoSpace for a short output buffer.
+    /// empty one, a cover whose `index` is not `u32::MAX`, or an image whose
+    /// `index` is not the one asked for; NoSpace for a short output buffer.
     pub fn reply_image(
         &self,
         path: &str,
@@ -118,7 +121,12 @@ impl FormatCall<'_> {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         self.require(&[FormatOp::Cover, FormatOp::Image])?;
-        if path.is_empty() || path.len() > schema::FMT_IMAGE_PATH_MAX_BYTES {
+        let wanted = if self.operation() == FormatOp::Cover {
+            u32::MAX
+        } else {
+            self.index()
+        };
+        if index != wanted || path.is_empty() || path.len() > schema::FMT_IMAGE_PATH_MAX_BYTES {
             return Err(Error::Invalid);
         }
         schema::FmtImage::new(path, index, width, height, u32::from(!decoded))
@@ -239,8 +247,9 @@ impl FormatRows<'_> {
     /// (written whole to `fonts/<index>` in the cache).
     ///
     /// # Errors
-    /// State when the request is not `fonts`; Invalid for an index of 124 or more
-    /// or a family outside 1 to 31; NoSpace when the row does not fit.
+    /// State when the request is not `fonts`; Invalid for an index of 124 or more,
+    /// a family outside 1 to 31 or a file over 16 MiB; NoSpace when the row does
+    /// not fit.
     pub fn font(
         &mut self,
         index: u32,
@@ -250,7 +259,7 @@ impl FormatRows<'_> {
         bytes: u32,
     ) -> Result<(), Error> {
         self.expect(FormatOp::Fonts)?;
-        if index >= FONT_FACES || !(1..=31).contains(&family) {
+        if index >= FONT_FACES || !(1..=31).contains(&family) || bytes > FONT_BYTES_MAX {
             return Err(Error::Invalid);
         }
         self.row(
@@ -266,10 +275,11 @@ impl FormatRows<'_> {
     /// End the page and return the reply's length in the output buffer.
     ///
     /// # Errors
-    /// Invalid for generation 0. Rows always leave room for this record, so it is
+    /// Invalid for generation 0, and for a continued page with no row (nothing
+    /// would advance the list). Rows always leave room for this record, so it is
     /// never short of space.
     pub fn finish(mut self, end: PageEnd) -> Result<usize, Error> {
-        if end.generation == 0 {
+        if end.generation == 0 || (!end.last && self.writer.is_empty()) {
             return Err(Error::Invalid);
         }
         self.writer

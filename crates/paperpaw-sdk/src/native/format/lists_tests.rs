@@ -56,6 +56,14 @@ fn a_continued_page_names_the_next_cursor_and_generation() {
     let c = call(9, &mut input);
     let rows = c.rows(&mut out).unwrap();
     assert_eq!(rows.finish(PageEnd::last(5, 0)), Err(Error::Invalid));
+    // A continued page with no row advances nothing.
+    let mut out = [0; 3840];
+    let rows = call(9, &mut input).rows(&mut out).unwrap();
+    assert_eq!(rows.finish(PageEnd::more(5, 0, 1)), Err(Error::Invalid));
+    // An empty last page is a valid, empty list.
+    let mut out = [0; 3840];
+    let rows = call(9, &mut input).rows(&mut out).unwrap();
+    assert!(rows.finish(PageEnd::last(0, 1)).is_ok());
 }
 
 #[test]
@@ -81,7 +89,11 @@ fn rows_check_the_operation_and_their_fields() {
             Err(Error::Invalid)
         );
     }
-    fonts.font(123, 31, true, true, 9).unwrap();
+    assert_eq!(
+        fonts.font(0, 1, false, false, 16 * 1024 * 1024 + 1),
+        Err(Error::Invalid)
+    );
+    fonts.font(123, 31, true, true, 16 * 1024 * 1024).unwrap();
     let c = call(14, &mut input);
     let mut out4 = [0; 3840];
     let mut links = c.rows(&mut out4).unwrap();
@@ -148,13 +160,19 @@ fn a_full_page_can_always_be_ended() {
         let mut out = alloc::vec![0xa5; size];
         let c = call(7, &mut input);
         let Ok(mut rows) = c.rows(&mut out) else {
+            assert!(size < 33, "{size}");
             continue;
         };
         let mut pushed = 0;
         while rows.section(pushed, 1, false).is_ok() {
             pushed += 1;
         }
-        let n = rows.finish(PageEnd::more(1000, pushed, 1)).unwrap();
+        let end = if pushed == 0 {
+            PageEnd::last(0, 1)
+        } else {
+            PageEnd::more(1000, pushed, 1)
+        };
+        let n = rows.finish(end).unwrap();
         let got = records(&out[..n]);
         assert_eq!(got.len(), pushed as usize + 1, "{size}");
     }
@@ -199,11 +217,61 @@ fn a_picture_reply_checks_the_operation_and_path() {
         Err(Error::Invalid)
     );
     assert_eq!(
-        call(5, &mut input).reply_image("a", 0, 1, 1, true, &mut out),
+        call(5, &mut [0; 256]).reply_image("a", 0, 1, 1, true, &mut out),
         Err(Error::State)
     );
-    let n = call(18, &mut input)
-        .reply_image("a", 3, 1, 1, true, &mut out)
+    // A cover is index u32::MAX; an image carries the index it was asked for.
+    assert_eq!(
+        c.reply_image("a", 0, 1, 1, true, &mut out),
+        Err(Error::Invalid)
+    );
+    let mut input2 = [0; 256];
+    let img = call(18, &mut input2); // asked for index 0
+    assert_eq!(
+        img.reply_image("a", 4, 1, 1, true, &mut out),
+        Err(Error::Invalid)
+    );
+    assert!(img.reply_image("a", 0, 1, 1, true, &mut out).is_ok());
+    let n = call(18, &mut [0; 256])
+        .reply_image("a", 0, 1, 1, true, &mut out)
         .unwrap();
     assert!(matches!(records(&out[..n])[0], schema::Record::FmtImage(r) if r.flags == 0));
+}
+
+/// Every list ends cleanly however the page fills, for toc rows and links too.
+#[test]
+fn full_toc_and_link_pages_can_be_ended() {
+    let mut input = [0; 256];
+    let title = "t".repeat(100);
+    let href = "#".repeat(300);
+    for size in [64usize, 200, 500, 1000, 3840] {
+        let mut out = alloc::vec![0xa5; size];
+        let mut rows = call(9, &mut input).rows(&mut out).unwrap();
+        let mut pushed = 0;
+        while rows.toc(pushed, 1, 0, 0, false, &title).is_ok() {
+            pushed += 1;
+        }
+        let n = if pushed == 0 {
+            rows.finish(PageEnd::last(0, 1)).unwrap()
+        } else {
+            rows.finish(PageEnd::more(9999, pushed, 1)).unwrap()
+        };
+        assert_eq!(records(&out[..n]).len(), pushed as usize + 1, "toc {size}");
+        let mut out = alloc::vec![0xa5; size];
+        let mut rows = call(14, &mut input).rows(&mut out).unwrap();
+        let mut pushed = 0;
+        while rows.link(0, 1, LinkKind::Internal, &href) == Ok(true) {
+            pushed += 1;
+        }
+        let n = if pushed == 0 {
+            rows.finish(PageEnd::last(0, 1)).unwrap()
+        } else {
+            rows.finish(PageEnd::more(9999, pushed, 1)).unwrap()
+        };
+        assert_eq!(
+            records(&out[..n]).len(),
+            pushed as usize + 1,
+            "links {size}"
+        );
+    }
 }
