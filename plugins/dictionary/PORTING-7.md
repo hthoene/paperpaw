@@ -31,7 +31,7 @@ list) is still in place beside the native one. It is removed in the PR that fini
 - `NativeDictionary::event` answers a `core.lookup` stage call from the folder setting (default
   `dictionaries`) and, when indexes are missing, keeps their builders and declares the work
   `dictionary.index` (`core.work`, event `WorkDue`, token 21); each `work_due` does one 64 KiB step of
-  the first builder and declares the work again until all are made. An index that cannot be made ends
+  the first builder and declares the work again until all are made. An index that cannot be made (or a refused allocation while making it) ends
   the work and is not tried again until the next start (interface 6 kept a `failed` file with the
   files' sizes: not ported yet; a restart tries again).
 - Metadata: services `core.files`, `core.work`, feature `uses.storage`, the `storage.*` and
