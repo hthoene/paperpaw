@@ -1,9 +1,0 @@
-{
-  "replaces_sha256": "7f9251c46718ac57fe1c66c00cfbd31caacdbcdb4c035788154c3628e3253190",
-  "lock_sha256": "4089330924ec676ed8c2d91f4cae7d07d38e25aa6004daee880db3636f523eab",
-  "reason": "interface 7 is unreleased (draft 32): core.device gains op 16 leaves_out at revision 0 (device.md 5.1 has had it since draft 31; the service schema missed it); service.reg_widget gains the optional previews field (str 128, appended, empty default)",
-  "ticket": "#228",
-  "waives": [
-    "compatible"
-  ]
-}

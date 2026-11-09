@@ -42,9 +42,9 @@ use crate::Kernel;
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 
-/// The most events one plugin's queue can hold (16 edges, 10 bits): a drain
+/// The most events one plugin's queue can hold (16 edges, 11 bits): a drain
 /// of one plugin ends within it.
-const QUEUE_MAX: usize = 26;
+const QUEUE_MAX: usize = 27;
 
 /// The lifecycle events that are edges, held encoded.
 const EDGE_TAGS: [u32; 3] = [

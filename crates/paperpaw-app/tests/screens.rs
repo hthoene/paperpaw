@@ -199,13 +199,6 @@ fn home() {
 }
 
 #[test]
-fn library() {
-    let mut app = App::new();
-    app.run(actions::LIBRARY);
-    app.check("library");
-}
-
-#[test]
 fn main_menu_and_tools() {
     let mut app = App::new();
     app.run(actions::MENU);

@@ -329,3 +329,51 @@ fn a_plugin_names_a_book_data_folder_once_on_both_storage_paths() {
         }
     }
 }
+
+#[test]
+fn a_repeated_input_name_or_hint_is_refused_and_distinct_ones_stand() {
+    let input = |name| {
+        Record::InputSpec(InputSpec {
+            name,
+            title: "fixture.input.title",
+            kind: 0,
+            need: 0,
+            capability: 0,
+            flags: 0,
+        })
+    };
+    let hint = |screen, input, text| {
+        Record::HelpHint(HelpHint {
+            screen,
+            input,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            text,
+        })
+    };
+    let fine = [
+        input("chord"),
+        input("shake"),
+        hint("reader.page", 0, "fixture.help.page"),
+        hint("reader.page", 1, "fixture.help.page"),
+        hint("reader.page", 0, "fixture.help.other"),
+        hint("fixture.main", 0, "fixture.help.page"),
+    ];
+    let twice = [
+        [input("chord"), input("chord")],
+        [
+            hint("reader.page", 1, "fixture.help.page"),
+            hint("reader.page", 1, "fixture.help.page"),
+        ],
+    ];
+    for owned in [false, true] {
+        for collision in [false, true] {
+            assert_eq!(check(&fine, owned, collision), Ok(()));
+            for records in &twice {
+                assert_eq!(check(records, owned, collision), Err(ERR_INVALID));
+            }
+        }
+    }
+}

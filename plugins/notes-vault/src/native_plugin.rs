@@ -4,6 +4,8 @@
 //! format and the home widgets are later slices (`PORTING-7.md`).
 use alloc::string::String;
 
+use paperpaw_plugin_format_epub::NativeIo;
+use paperpaw_plugin_format_epub::provider::FormatProvider;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, Input};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
@@ -18,6 +20,9 @@ use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::{Messages, Screens, read_event, uitext};
 
 use crate::declarations::{HOME, LIST, OPEN, TAGS, WORK_DUE};
+use crate::fallible;
+use crate::native_card::with_card_or_none;
+use crate::native_format;
 use crate::native_home::{self, Home, Next as HomeNext, Slice};
 use crate::native_list::{self, List, MODE, Next as ListNext, WHAT};
 use crate::native_notice::{Notice, Why};
@@ -66,12 +71,23 @@ pub struct NativeNotesVault {
     work: Option<Work>,
     screens: Screens<Slot>,
     asked: Option<(RequestId, Asked)>,
+    /// The Markdown format's documents, kept between `core.format` calls.
+    format: Option<FormatProvider>,
 }
 
 impl Plugin for NativeNotesVault {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS.iter().chain(image::UI) {
             registrations::submit(host, batch)?;
+        }
+        // The Markdown format: a host that takes no format plugins yet (its
+        // document service is not wired) answers `Unsupported`, and the plugin
+        // goes on without it (`PORTING-7.md`).
+        for batch in image::FORMATS {
+            match registrations::submit(host, batch) {
+                Ok(()) | Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
         }
         // `core.ui` is opened by the first callback: opening needs a live frame.
         Ok(Self::default())
@@ -82,11 +98,20 @@ impl Plugin for NativeNotesVault {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::WorkDue, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::WorkDue, kinds::Answered, kinds::StageCall)
         else {
             return Ok(());
+        };
+        // A call of the host's document service needs no screen.
+        let event = match event {
+            Event::StageCall {
+                stage: "core.format",
+                payload,
+                ..
+            } => return self.format_call(host, payload, reply),
+            other => other,
         };
         self.ensure_ui(host)?;
         match event {
@@ -180,7 +205,34 @@ impl Plugin for NativeNotesVault {
     }
 }
 
+/// The most a `core.format` reply takes (the host's payload).
+const FORMAT_REPLY: usize = 3_840;
+
 impl NativeNotesVault {
+    /// Answers one `core.format` call of the Markdown format: the book and the
+    /// document's cache from the call's roots, the card (read only) for what
+    /// the vault adds.
+    fn format_call(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        if self.format.is_none() {
+            self.format = Some(native_format::markdown_provider()?);
+        }
+        let provider = self.format.as_mut().ok_or(Error::State)?;
+        let base = NativeIo::new(
+            host,
+            fallible::string(provider.cache()).map_err(|_| Error::NoMemory)?,
+        );
+        let mut out = buffer(FORMAT_REPLY)?;
+        let written = with_card_or_none(host, |card| {
+            native_format::call(provider, &base, card, payload, &mut out)
+        })?;
+        reply.write(out.get(..written).ok_or(Error::NoSpace)?)
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
