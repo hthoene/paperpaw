@@ -822,10 +822,30 @@ fn the_literal_must_be_the_same_on_every_path_to_the_call() {
 }
 
 #[test]
-fn a_jx_reaches_the_addresses_a_word_of_the_image_points_at() {
+fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
     let at = BASE + 0x40;
-    // entry; jx a3; l32r a8; callx8 a8; retw.n. Only the jump table gets to
-    // the `l32r` or to the `callx8`.
+    // entry; l32r a8; mov.n; callx8 a8; retw.n: resolved on its own.
+    let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
+    assert_eq!(outcome(&lits, &funcs, &[]), (1, 0));
+    // A word of data holding the address of the `callx8` (a jump table of
+    // another function, or of this one): the call can be entered with nothing
+    // loaded, so it is not resolved.
+    let callx_at = at + 3 + 3 + 2;
+    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (0, 1));
+    // At the `l32r` itself (it loads before the call on every path): resolved.
+    assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
+    // A word that is no address of this function changes nothing.
+    assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
+    // An address inside an instruction: the reading is out of step, the
+    // function's calls are not resolved.
+    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (0, 1));
+}
+
+#[test]
+fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
+    let at = BASE + 0x40;
+    // entry; jx a3; l32r a8; callx8 a8; retw.n. Only a table gets to the
+    // `l32r` or to the `callx8`.
     let code = [
         &entry(32)[..],
         &[0xa0, 0x03, 0x00],
@@ -834,15 +854,23 @@ fn a_jx_reaches_the_addresses_a_word_of_the_image_points_at() {
         &RETW_N,
     ];
     let (lits, funcs) = root_of(&code);
-    // No table: nothing reaches the call, which stays indirect (the `jx` is
-    // counted as one too).
+    // No table: the `jx` cannot be placed, nothing is resolved (the `jx` is
+    // counted as one indirect call too).
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
-    // The table holds the `l32r`: the call is reached with the literal.
+    // The table holds the `l32r`: reached, the literal loaded.
     assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
     // The table holds the `callx8`: reached with nothing loaded.
     assert_eq!(outcome(&lits, &funcs, &[at + 9]), (0, 2));
-    // A word that is no address of this function changes nothing.
-    assert_eq!(outcome(&lits, &funcs, &[at + 6, 0x1234_5678]), (1, 1));
+    // A `jx` after a resolvable call: with no table the whole function gives up.
+    let code = [
+        &entry(32)[..],
+        &l32r(8, at + 3, BASE),
+        &callx_reg(8, 8),
+        &[0xa0, 0x03, 0x00],
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.

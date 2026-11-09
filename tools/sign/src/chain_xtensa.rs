@@ -459,8 +459,9 @@ type Regs = [Held; 16];
 /// its literal; a write of a register, a call (the registers from its rotation
 /// up), `entry` or a window register makes the registers it takes unknown; the
 /// state where paths meet keeps a register only if all of them agree. The
-/// flow goes by fall-through, branch targets and, for a `jx`, every address a
-/// word of the image points at inside the function (a jump table).
+/// flow goes by fall-through and branch targets, and every address a word of
+/// the image points at inside the function (a jump table) is an entry with
+/// nothing known.
 ///
 /// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
 /// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
@@ -468,7 +469,9 @@ type Regs = [Held; 16];
 /// wrong. It fails closed, leaving every call of the function indirect (counted
 /// and listed in the budget): at a branch form `regs` does not model, a branch
 /// into the middle of an instruction, a hardware `loop` (its back edge is no
-/// instruction's), and for a site the flow never reaches. An instruction `regs`
+/// instruction's), a `jx` in a function that has no address to jump to, an
+/// address the image points at that is no instruction's start, and for a site
+/// the flow never reaches. An instruction `regs`
 /// does not name makes every register unknown after it.
 fn resolve(
     insns: &[Insn],
@@ -483,11 +486,22 @@ fn resolve(
     let give_up = |reads: &mut Reads| reads.indirect += sites.len() as u32;
     let end = insns.last().map_or(start_addr, |i| i.next());
     let index: BTreeMap<u32, usize> = insns.iter().enumerate().map(|(n, i)| (i.pc, n)).collect();
-    let table: Vec<usize> = around
-        .pointed
-        .range(start_addr..end)
-        .filter_map(|p| index.get(p).copied())
-        .collect();
+    // Every address inside the function that a word of the image points at is
+    // a place the flow may enter from outside this function's own
+    // instructions (a jump table, here or in another function): an entry with
+    // nothing known. One that is no instruction's start leaves the reading out
+    // of step, and a `jx` with no such address to go to is a jump this reading
+    // cannot place: both give the function up.
+    let mut entries: Vec<usize> = Vec::new();
+    for p in around.pointed.range(start_addr..end) {
+        let Some(&to) = index.get(p) else {
+            return give_up(reads);
+        };
+        entries.push(to);
+    }
+    if entries.is_empty() && insns.iter().any(|i| i.is_jx()) {
+        return give_up(reads);
+    }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
     for (n, i) in insns.iter().enumerate() {
         let Some(targets) = i.targets() else {
@@ -508,13 +522,13 @@ fn resolve(
         if !i.ends_flow() && n + 1 < insns.len() {
             next[n].push(n + 1);
         }
-        if i.is_jx() {
-            next[n].extend(&table);
-        }
     }
     let mut state: Vec<Option<Regs>> = vec![None; insns.len()];
-    state[0] = Some([Held::Unknown; 16]);
     let mut work: VecDeque<usize> = VecDeque::from([0]);
+    for &n in std::iter::once(&0).chain(&entries) {
+        state[n] = Some([Held::Unknown; 16]);
+        work.push_back(n);
+    }
     while let Some(n) = work.pop_front() {
         let Some(mut held) = state[n] else { continue };
         match insns[n].writes() {
