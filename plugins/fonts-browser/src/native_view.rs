@@ -39,14 +39,22 @@ pub enum Row {
 }
 
 /// The rows the page of `font` offers: while its download goes on only
-/// *Stop*; where it is not installed only *Download*; else choosing it, an
+/// *Stop* (and nothing once the host's install question is open: it cannot be
+/// stopped from here); where it is not installed only *Download*; else choosing it, an
 /// update where a newer version is offered, and removing it.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn rows(font: &Font, installed: Option<Version>, downloading: bool) -> Result<Vec<Row>, Error> {
+pub fn rows(
+    font: &Font,
+    installed: Option<Version>,
+    downloading: bool,
+    installing: bool,
+) -> Result<Vec<Row>, Error> {
     let mut rows = Vec::new();
-    if downloading {
+    if downloading && installing {
+        // The host's question is open; the job stays until `install_done`.
+    } else if downloading {
         push(&mut rows, Row::Stop)?;
     } else if installed.is_none() {
         push(&mut rows, Row::Download)?;
@@ -117,7 +125,7 @@ mod tests {
 
     #[test]
     fn a_font_that_is_not_installed_is_offered_for_download() {
-        let rows = rows(&font("1.0.0"), None, false).unwrap();
+        let rows = rows(&font("1.0.0"), None, false, false).unwrap();
         assert_eq!(rows, [Row::Download]);
     }
 
@@ -125,11 +133,11 @@ mod tests {
     fn an_installed_font_is_chosen_updated_or_removed() {
         let here = Some(Version::parse("1.0.0").unwrap());
         assert_eq!(
-            rows(&font("1.0.0"), here, false).unwrap(),
+            rows(&font("1.0.0"), here, false, false).unwrap(),
             [Row::Read, Row::Status, Row::Remove]
         );
         assert_eq!(
-            rows(&font("1.1.0"), here, false).unwrap(),
+            rows(&font("1.1.0"), here, false, false).unwrap(),
             [Row::Read, Row::Status, Row::Update, Row::Remove]
         );
     }
@@ -144,7 +152,15 @@ mod tests {
 
     #[test]
     fn a_download_going_on_is_only_stopped() {
-        assert_eq!(rows(&font("1.0.0"), None, true).unwrap(), [Row::Stop]);
+        assert_eq!(
+            rows(&font("1.0.0"), None, true, false).unwrap(),
+            [Row::Stop]
+        );
+    }
+
+    #[test]
+    fn no_stop_once_the_host_is_asked_to_install() {
+        assert!(rows(&font("1.0.0"), None, true, true).unwrap().is_empty());
     }
 
     #[test]
