@@ -13,6 +13,8 @@
 #![no_std]
 
 pub mod display;
+pub mod firmware;
+pub mod firmware_fake;
 pub mod geometry;
 pub mod input;
 pub mod pixel;
@@ -21,6 +23,7 @@ pub mod storage;
 pub mod tree;
 
 pub use display::{ColorPanel, Display, DisplayInfo, FrameView, RefreshMode, Rotation};
+pub use firmware::{CheckFacts, FirmwareHost, Reason, Running, Signer, Step, Text};
 pub use geometry::{Point, Rect};
 pub use input::{
     ButtonState, InputCaps, InputEvent, Instant, PointerEvent, PointerPhase, PointerTool, buttons,
