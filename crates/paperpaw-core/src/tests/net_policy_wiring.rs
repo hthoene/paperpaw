@@ -200,6 +200,8 @@ fn at_boot_a_plugin_disabled_in_the_saved_settings_is_refused_and_an_allowed_one
         )
         .unwrap();
     let (mut kernel, policy, log) = booting(storage);
+    // `start` ends in `finish`, which fills the policy before it delivers
+    // `STARTED` (the plugins' first callback).
     kernel.start(Instant(0));
     // The first thing each plugin heard was answered by the user's choice,
     // not by an unfilled policy: no allowed plugin was told `network_off`.
