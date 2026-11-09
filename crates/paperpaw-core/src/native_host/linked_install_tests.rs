@@ -477,6 +477,7 @@ fn plugins_sharing_the_devices_depth_counter_are_all_admitted_and_another_is_ref
     assert_eq!(status(other), paperpaw_native::host_glue::ERR_STATE);
     assert_eq!(MAKES.with(Cell::get), 2);
     assert!(kernel.shared.native_instances.find("third").is_none());
+}
 
 const NETWORK: &str = "uses.network";
 const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
