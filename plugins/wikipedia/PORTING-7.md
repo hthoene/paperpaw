@@ -1,47 +1,52 @@
-# Wikipedia lookup on interface 7 (slice 1, partly ported)
+# Wikipedia lookup on interface 7 (ported, with named gaps)
 
-Status: **not complete.** The interface-6 plugin (the summary screen, the provider, the slot
-binding, the line in *About*) is still in place beside the native one. It is removed in the PR
-that finishes the port.
+Status: **native only.** The interface-6 plugin (its summary screen, provider and slot binding),
+its kernel tests and its registration in the app are removed. Version 1.0.3 (Beta 3 is 1.0.2:
+no further bump).
 
-Version 1.0.3. Native plugin: `src/native_plugin.rs` (`NativeWikipedia`), declarations in
-`declarations.rs` built into the image by `build.rs`, the host-free parts in
-`src/native_model.rs`, metadata in `native/` (regenerate with
-`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
-native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
+Native plugin: `src/native_plugin.rs` (`NativeWikipedia`), the screen in `src/native_view.rs`, the
+wrapped text and what an input means in `src/native_page.rs`, the host-free answers in
+`src/native_model.rs`, declarations in `declarations.rs` built into the image by `build.rs`,
+metadata in `native/` (regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise
+`metadata.host.*`).
 
-## Ported in slice 1
+## What it does
 
-- Declarations: the screen `wikipedia.lookup` (an overlay, as the interface-6 screen drew in a
-  `region`) with the interface-6 id and the title key `wikipedia.title`; the en/de texts are the
-  existing ones. The lookup provider `wikipedia.summary` (online only, any language) is declared
-  and built into the image too, but **not submitted**: the host answers a lookup provider with
-  `ERR_UNSUPPORTED` until the stage `core.lookup` is live, and a `make` that fails would keep the
-  whole plugin from being admitted. `tests/native_declarations.rs` pins that refusal; when the host
-  admits providers it fails, and `make` then submits `image::PROVIDER`.
-- Model (host-free, each part the interface-6 code made fallible and tested to give the same
-  answers): the wiki of a language, the address of a summary and of its article (spaces as `_`,
-  other bytes percent-encoded), and the summary read from an answer: a status of 200 to 299 with a
-  non-blank `extract` is a summary (with the article's `title` when there is one), 404 or no
-  extract is "not found", status 0 "unreachable", any other status "failed".
-- The answer is read like interface 6 reads it (the members `title` and `extract` of its object),
-  the texts unescaped into a fallible buffer (`paperpaw_ui_kit::json`): kept whole, refused memory
-  is `NoMemory`, not an abort. A body over `MAX_BODY` (16 KiB, the request's `max_body`) is refused
-  with `NoSpace`. A member that is not a string (`null`, a number) is no summary or title, as in
-  interface 6.
-- Tests: parity with interface 6 (ids and titles of the screen and the provider, addresses for
-  eight languages and seven words, the summary for nine bodies, the statuses), the declarations
-  against the host's validation, the texts in both languages, the linked entry, and a refusal
-  sweep of every allocation (`tests/native_alloc_refusal.rs`).
+- Declarations: the overlay screen `wikipedia.lookup` (title `wikipedia.title`), offered for the slot
+  `core.lookup-online` (`slot_offer`; another plugin can take its place), and the subscription to
+  `event.http_done` (token 3). The metadata has `uses.network` and the services `core.net`, `core.ui`.
+- The screen takes `word` and `language` from its hand-over (a word over 256 bytes and a language over
+  35 are cut or dropped; a hand-over that cannot be read is a screen for no word, "no article"). The
+  language is the interface's where none is given. It asks `core.net` for the summary of the article
+  (`GET`, `User-Agent` and `Accept` headers, `max_body` 16 KiB) as soon as it opens; leaving the screen
+  cancels the request. *Loading* shows meanwhile.
+- The answer is read by `native_model::outcome` (status 200 to 299 with a non-blank `extract` is a summary,
+  with the article's `title` as the heading; 404 or no extract is "no article"). The body is read in
+  parts into one text (at most 16 KiB; a longer or not-UTF-8 body is "did not answer as expected").
+  What the end of a request says: the offline power mode, a hold or network off say "needs a network
+  connection"; no network, DNS, TLS, timeout or refusal say "could not be reached"; any other end says
+  "did not answer as expected".
+- The summary shows with its source and licence below it (CC BY-SA asks for both), wrapped by words
+  into at most 600 lines over the lower 55 % of the screen. Buttons: next/previous page, up/down,
+  left/right scroll a page; confirm and back close. Touch: the right part scrolls on, the left goes back
+  (or closes on the first page), outside closes. A scroll key at the ends is taken (it must not reach
+  the page below).
+- Memory: every allocation is fallible (`NoMemory` is returned, never an abort; sweep in
+  `tests/native_alloc_refusal.rs`); the font is released on every draw path.
 
-## What the slice loses (each returns in a later slice or with its host piece)
+## Not ported (each is an ignored case in `tests/acceptance_pending.rs` or a named gap)
 
-- **Fetching and showing the summary** (the screen's draw, scrolling, the offer to go online in
-  offline mode): needs the network host (`core.net`), the screen hosts (H1, H3, H4).
-- **The provider** (declared, not submitted, see above) and its answer: a provider that must
-  fetch is answered `ERR_UNSUPPORTED` by the host until the asynchronous stage reply exists
-  (`document.md` 7). Until then Wikipedia is not listed in the user's order of providers.
-- **The slot** `core.lookup-online` (a `command.bind_slot` in the plugin's first event) and the
-  line in *About* naming the source and the licence (the stage `about.lines`).
-
-Each loss is an ignored case in `tests/acceptance_pending.rs`.
+- **The offer to go online** in the offline mode: interface 6 asked first. The host lets a request that
+  the user's input started through in the offline mode (`network.md` 3.2, 2,000 ms), so the screen
+  just asks; when the host refuses it anyway the text says a network connection is needed.
+- **The provider** (declared, not submitted): the host answers a lookup provider with `ERR_UNSUPPORTED`
+  until the stage `core.lookup` is live, and a provider that must fetch needs the asynchronous stage
+  reply (todo 98). Until then the dictionary panel has no *Online ›* source; the summary is reached
+  through the slot only. `tests/native_declarations.rs` pins the refusal; when the host admits it, the
+  test fails and `make` submits `image::PROVIDER`.
+- **The summary given by the dictionary's panel** (`text`): the panel does not offer one without the
+  provider; the screen always fetches.
+- **The line in *About*** naming the source and the licence (the stage `about.lines`).
+- **Goldens**: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
+- The screen shows the page the same way the dictionary's panel does but has no "page n of m" note.

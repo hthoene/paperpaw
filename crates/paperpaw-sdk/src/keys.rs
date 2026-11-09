@@ -248,6 +248,12 @@ impl fmt::Debug for GestureSpec {
     }
 }
 
+/// What a walk of one layer's bindings calls: the input's name, the action
+/// (`None`: bound to nothing on purpose) and the origin; `Break` ends it.
+#[cfg(any(test, feature = "kernel"))]
+pub type BindingVisit<'a> =
+    dyn FnMut(&str, Option<&Id>, BindingOrigin) -> core::ops::ControlFlow<()> + 'a;
+
 /// The bindings in effect.
 pub trait KeyBindings {
     /// The action `input` runs, looked up in `layers` from the most
@@ -261,6 +267,35 @@ pub trait KeyBindings {
     fn bindings(&self, layer: &str) -> Vec<(String, Option<Id>, BindingOrigin)> {
         let _ = layer;
         Vec::new()
+    }
+
+    /// Every layer that has a binding, by name in a stable order, without a
+    /// list: `visit` ends the walk with `Break` (and so does the result).
+    /// Kernel only (the registry's op 13 with an empty scope); the default
+    /// has no layers.
+    #[cfg(any(test, feature = "kernel"))]
+    fn each_layer(
+        &self,
+        visit: &mut dyn FnMut(&str) -> core::ops::ControlFlow<()>,
+    ) -> core::ops::ControlFlow<()> {
+        let _ = visit;
+        core::ops::ControlFlow::Continue(())
+    }
+
+    /// [`bindings`](Self::bindings) of one layer without a list: `visit` gets
+    /// each input's name, the action and the origin, until it says `Break`.
+    /// A host that can names the inputs without allocating overrides it; the
+    /// default walks [`bindings`](Self::bindings).
+    #[cfg(any(test, feature = "kernel"))]
+    fn each_binding(
+        &self,
+        layer: &str,
+        visit: &mut BindingVisit<'_>,
+    ) -> core::ops::ControlFlow<()> {
+        for (input, action, origin) in self.bindings(layer) {
+            visit(&input, action.as_ref(), origin)?;
+        }
+        core::ops::ControlFlow::Continue(())
     }
 
     /// A question asked after this release, by its key and parameters
