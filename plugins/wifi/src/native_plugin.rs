@@ -14,6 +14,7 @@ use paperpaw_sdk::native::{
     device::{Device, DeviceCursor, WifiState},
     events::{AnswerOutcome, Answered, Event, Incoming},
     formatting::Arg,
+    net::Net,
     registrations,
     reply::Reply,
     secrets::Secrets,
@@ -29,18 +30,19 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     NETWORK_IDLE, NETWORK_WANTED, NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN,
-    PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SCREEN_SHOWN, STARTED, STATUS_CHANGED,
-    WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
+    PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SCREEN_SHOWN, SERVED_REQUEST,
+    SERVER_EVENT, STARTED, STATUS_CHANGED, WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
 };
 use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
 use crate::native_model::{
     self, Link, Network, PageRow, Pick, is_kept, next_idle, note_keys, page_rows, pick,
 };
-use crate::native_own::Own;
+use crate::native_phone::Action as PhoneAction;
 use crate::native_policy::{Password, Policy, Radio, Step};
 
 mod events;
+mod phone;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/wifi_declarations.rs"));
@@ -68,6 +70,8 @@ struct Info {
     busy: bool,
     /// Work waits for the network.
     wanted: bool,
+    /// Phones that joined the device's own network.
+    guests: u32,
 }
 
 #[derive(Debug)]
@@ -82,11 +86,16 @@ struct Networks {
     list: ItemList,
 }
 
+// The phone setup is the one big view; screens are few, so no indirection.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the phone setup is the one big view and screens are few; a box would allocate unfallibly"
+)]
 #[derive(Debug)]
 enum View {
     Page(Page),
     Networks(Networks),
-    Phone(ItemList),
+    Phone(phone::PhoneView),
 }
 
 /// The interface-7 Wi-Fi plugin.
@@ -95,6 +104,8 @@ pub struct NativeWifi {
     device: Option<Device>,
     ui: Option<Ui>,
     secrets: Option<Secrets>,
+    /// Opened with the setup with a phone.
+    net: Option<Net>,
     screens: Screens<View>,
     policy: Policy,
     /// The password being asked for, and the network it is for.
@@ -159,29 +170,45 @@ impl Plugin for NativeWifi {
                 self.charging(host, now_ms, false)
             }
             Event::WorkDue(due) if token == WORK => self.work_due(host, &due),
+            Event::Server(server) if token == SERVER_EVENT => {
+                self.phone_server(host, server.state())
+            }
+            Event::ServedRequest(request) if token == SERVED_REQUEST => {
+                self.phone_request(host, &request)
+            }
             Event::Answered { answer, .. } => self.answered(host, answer),
-            Event::ScreenOpened { instance, .. }
-                if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN =>
-            {
-                self.opened(host, token, instance)
+            Event::ScreenOpened {
+                instance, now_ms, ..
+            } if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN => {
+                self.opened(host, token, instance, now_ms)
             }
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
             } if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN => {
                 self.screens.shown(token, instance)?;
+                if token == PHONE_TOKEN {
+                    return self.phone_shown(host);
+                }
                 self.reread(host)
             }
             Event::ScreenShown { now_ms, .. } if token == SCREEN_SHOWN => {
                 self.screen_shown(host, now_ms)
             }
             Event::ScreenClosed { instance, .. } => {
-                // The setup screen showed a password: wiped, not just dropped.
-                if let Some(View::Phone(list)) = self.screens.get(instance) {
-                    list.wipe();
+                // The setup screen showed a password: the page is not served
+                // any more, the own network closed, and what showed it wiped.
+                let phone = matches!(self.screens.get(instance), Some(View::Phone(_)));
+                let result = if phone {
+                    self.phone_closed(host)
+                } else {
+                    Ok(())
+                };
+                if let Some(View::Phone(view)) = self.screens.get(instance) {
+                    view.wipe();
                 }
                 self.screens.close(instance);
-                Ok(())
+                result
             }
             _ => Ok(()),
         }
@@ -200,9 +227,10 @@ impl Plugin for NativeWifi {
                 view.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
-            View::Phone(list) => {
+            View::Phone(view) => {
                 let title = messages.copy(host, "wifi.phone.title")?;
-                list.draw_with(host, &mut frame, &title, true, Footer::None)
+                let (list, footer) = view.drawn();
+                list.draw_with(host, &mut frame, &title, true, footer)
             }
         }
     }
@@ -211,10 +239,28 @@ impl Plugin for NativeWifi {
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
+        // The setup with a phone goes by steps: the page keys are its own.
+        if matches!(view, View::Phone(_))
+            && let Input::Action { action, .. } = input
+        {
+            let step = match action {
+                "core.next-page" => Some(PhoneAction::NextPage),
+                "core.prev-page" => Some(PhoneAction::PrevPage),
+                _ => None,
+            };
+            if let Some(step) = step
+                && self.phone_action(host, step)?
+            {
+                return Ok(Handled::Yes);
+            }
+        }
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
         let list = match view {
             View::Page(view) => &mut view.list,
             View::Networks(view) => &mut view.list,
-            View::Phone(list) => list,
+            View::Phone(view) => &mut view.list,
         };
         let step = list.input(host, &input)?;
         match step {
@@ -273,6 +319,7 @@ impl NativeWifi {
             scanning: info.scanning(),
             busy: info.busy(),
             wanted: info.wanted(),
+            guests: info.guests(),
         })
     }
 
@@ -516,52 +563,13 @@ impl NativeWifi {
         })
     }
 
-    /// The setup with a phone, as far as the host allows: the device's own
-    /// network is prepared from a fully random draw, or not at all. Opening
-    /// it and serving the page wait for the host (`NET-serve`).
-    fn read_phone(&mut self, host: &Host<'_>) -> Result<ItemList, Error> {
-        let name = {
-            let device = self.device.as_ref().ok_or(Error::State)?;
-            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-            copy(device.device(host, &mut input, &mut out)?.model())?
-        };
-        let own = match self.secrets(host)? {
-            Some(secrets) => {
-                let mut draw = |bytes: &mut [u8]| -> Result<bool, Error> {
-                    let (mut input, mut out) = (buffer(128)?, buffer(512)?);
-                    let drawn = secrets.random(host, bytes.len(), &mut input, &mut out);
-                    let result = drawn.map(|drawn| {
-                        bytes.copy_from_slice(drawn.bytes());
-                        drawn.strong()
-                    });
-                    wipe(&mut out);
-                    result
-                };
-                Own::draw(&name, &mut draw)?
-            }
-            None => None,
-        };
-        let mut say = Messages::new()?;
-        let mut items = Vec::new();
-        match own {
-            Some(own) => {
-                let title = say.copy(host, "wifi.phone.name")?;
-                push(&mut items, Item::row(&title, own.ssid())?)?;
-                let title = say.copy(host, "wifi.phone.password")?;
-                let grouped = crate::native_own::grouped(own.password().as_str())?;
-                let item = Item::row(&title, &grouped);
-                paperpaw_ui_kit::mem::wipe_text(grouped);
-                push(&mut items, item?)?;
-            }
-            None => {
-                let text = say.copy(host, "wifi.phone.no-random")?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
-        }
-        Ok(ItemList::new(items))
-    }
-
-    fn opened(&mut self, host: &Host<'_>, token: u32, instance: Instance) -> Result<(), Error> {
+    fn opened(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: Instance,
+        now: u64,
+    ) -> Result<(), Error> {
         self.ensure(host)?;
         let view = if token == PAGE_TOKEN {
             self.search_if_idle(host)?;
@@ -569,7 +577,15 @@ impl NativeWifi {
         } else if token == NETWORKS_TOKEN {
             View::Networks(self.read_networks_view(host)?)
         } else {
-            View::Phone(self.read_phone(host)?)
+            match self.phone_view(host, now) {
+                Ok(view) => View::Phone(view),
+                Err(_) => {
+                    // The setup could not be made (no memory, no device): said,
+                    // and the screen closed, not a failed callback.
+                    native_model::best_effort(Self::notice(host, "wifi.phone.not-opened"));
+                    return CommandSender::new(host, &mut [0; 64]).back();
+                }
+            }
         };
         self.screens.open(instance, view)
     }
@@ -732,6 +748,11 @@ impl NativeWifi {
                     }
                     redraw(host)
                 }
+            }
+            Some(View::Phone(_)) => {
+                // Only the button's row is selectable in effect: choosing it
+                // goes to the other step.
+                self.phone_action(host, PhoneAction::Confirm).map(|_| ())
             }
             _ => Ok(()),
         }

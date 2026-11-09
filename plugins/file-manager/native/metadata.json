@@ -80,10 +80,13 @@
     }
   ],
   "services": [
+    "core.document",
     "core.files",
+    "core.library",
     "core.ui"
   ],
   "features": [
-    "uses.storage"
+    "uses.storage",
+    "uses.library"
   ]
 }

@@ -484,6 +484,27 @@ fn keys_and_fields_are_the_same() {
     );
     assert_eq!(new_store::draft_file(3).unwrap(), "a3/draft.txt");
     assert_eq!(new_store::outbox_file(3).unwrap(), "a3/outbox.eml");
+    // Unsent mail stays where interface 6 left it: the data folder (storage
+    // root 0) is `.paperpaw/plugins/mail/`, so the old path is the new one
+    // under it and nothing is copied or removed at the first native start.
+    for account in 1..=3 {
+        assert_eq!(
+            old_store::draft_file(account),
+            format!(
+                "{}/{}",
+                old_store::root(),
+                new_store::draft_file(account).unwrap()
+            )
+        );
+        assert_eq!(
+            old_store::outbox_file(account),
+            format!(
+                "{}/{}",
+                old_store::root(),
+                new_store::outbox_file(account).unwrap()
+            )
+        );
+    }
     for text in [
         "plain",
         "  padded  ",

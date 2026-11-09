@@ -36,6 +36,17 @@ pub(crate) trait NativeInstance: Dispatch {
     fn service_event(&self, _bytes: &[u8], _env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
+    /// As [`Self::service_event`], the callback lent the command `stage` (every
+    /// callback but `draw` gets one). An instance without a stage path takes
+    /// the event without one.
+    fn service_event_staged(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.service_event(bytes, env)
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -72,6 +83,15 @@ impl NativeLease {
         env: &paperpaw_sdk::Env<'_>,
     ) -> Result<i32, i32> {
         self.live()?.service_event(bytes, env)
+    }
+    /// As [`Self::service_event`], with the callback's command stage.
+    pub(crate) fn service_event_staged(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.service_event_staged(bytes, env, stage)
     }
 }
 
@@ -155,9 +175,18 @@ pub(crate) struct NativeInstances {
     /// may try again after a refusal.
     service_buffer: core::cell::RefCell<Vec<u8>>,
     service_retry: Cell<Option<u64>>,
+    /// Where the event pump goes on (the running plugin it starts at).
+    service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
     /// `work_pump`): bit 0 seen at all, bit 1 network up, bit 2 charging.
     work_seen: Cell<u8>,
+    /// What the image pump keeps between passes (see `image_pump`).
+    pub(super) image_pump: super::image_pump::ImagePump,
+    /// The queues of `event.setting_changed` (see `setting_events`).
+    pub(super) setting_events: super::setting_events::SettingEvents,
+    /// The commands a callback staged, till the kernel runs them (see
+    /// `event_call`).
+    pub(super) outbox: super::event_call::Outbox,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
@@ -607,6 +636,19 @@ impl NativeInstances {
     /// The device's `core.work` host, once the shell wired it.
     pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
         self.pool.as_ref()?.hosts().work()
+    }
+
+    /// The device's wired host views (none before a pool is adopted).
+    pub(crate) fn hosts(&self) -> Option<&super::host_services::HostServices> {
+        self.pool.as_ref().map(|pool| pool.hosts())
+    }
+
+    pub(crate) fn service_cursor(&self) -> usize {
+        self.service_cursor.get()
+    }
+
+    pub(crate) fn set_service_cursor(&self, at: usize) {
+        self.service_cursor.set(at);
     }
 
     pub(crate) fn set_service_more(&self, more: bool) {
