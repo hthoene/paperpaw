@@ -1144,13 +1144,16 @@ mod tests {
     }
 
     /// The device is made once on the heap; the struct stays small enough for
-    /// that to be the only frame that holds it.
+    /// that to be the only frame that holds it. The bound is a tripwire on the
+    /// host's 64-bit layout (the X4's 32-bit pointers make the struct smaller):
+    /// growing past it is a decision, and slice E measures the frame of
+    /// `shared` in the linked firmware.
     #[test]
     fn the_device_is_shared_and_small() {
         let shared = X4Device::shared(identity(), list(&[]));
         assert_eq!(Rc::strong_count(&shared), 1);
         assert!(
-            core::mem::size_of::<X4Device>() <= 1_024,
+            core::mem::size_of::<X4Device>() <= 1_280,
             "{}",
             core::mem::size_of::<X4Device>()
         );
