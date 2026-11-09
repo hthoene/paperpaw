@@ -261,6 +261,13 @@ impl UiServices {
         Ok(())
     }
 
+    /// A callback of `plugin` returned a failure: the questions it asked in it
+    /// never start (`ui.md` 3.1, a failed start cancels).
+    pub(crate) fn callback_failed(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        self.store
+            .callback_failed(super::ui_store::Stamp::new(plugin, callback)?)
+    }
+
     /// Event 73 or the minute tick: cached status values go.
     pub(crate) fn status_changed(&self) -> Result<(), i32> {
         self.widgets

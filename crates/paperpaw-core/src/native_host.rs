@@ -127,6 +127,7 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+pub(crate) mod dialog_pump;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
