@@ -7,6 +7,17 @@
 //! polled, and a call allocates nothing (strings are borrowed from the
 //! identity and the list the image carries, rows are visited one at a time).
 //!
+//! **Setters belong to the main loop.** Every `set_*` is called from the
+//! firmware's main loop only: never from inside a visitor of this host (the
+//! lists are borrowed while a visitor runs, and a setter that finds one in use
+//! changes nothing and says so), never from an interrupt or another thread
+//! (the cells are not `Sync`). A reader that runs between two setters sees one
+//! state or the other, never a mix, because every setter replaces one whole
+//! value.
+//!
+//! The device is made once at start with [`X4Device::shared`] and kept on the
+//! heap behind an `Rc` (the kernel's `DeviceServices` holds that `Rc`).
+//!
 //! This part answers ops 1 (the device), 2 (named values), 3 (the running
 //! firmware), 4 (the plugins built into the image), 5 (what a code plugin must
 //! be built for), 7 (memory), 8 and 9 (the Wi-Fi radio and the networks
@@ -16,7 +27,7 @@
 //! [`Identity::caps`] carries only the bits of the parts that are answered
 //! (`check_caps_agree` is the test of it).
 
-use alloc::string::String;
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
@@ -29,6 +40,7 @@ use paperpaw_core::native_host::device_service::{
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::firmware::{PROJECT_MAX, Running, Text, VERSION_MAX};
 use paperpaw_sdk::firmware::Plugins;
+use paperpaw_sdk::native::{DRAFT, INTERFACE};
 use paperpaw_sdk::power::Power;
 
 /// What the firmware is, from its constants.
@@ -76,8 +88,6 @@ struct Own {
 /// start (op 5), from the loader.
 #[derive(Clone, Copy, Debug)]
 pub struct NativeState {
-    /// The interface draft.
-    pub abi_draft: u32,
     /// The chip id a code plugin is built for (5 ESP32-C3, 9 ESP32-S3).
     pub target: u32,
     /// The code file (`code.ppn`).
@@ -123,6 +133,9 @@ struct Found {
     secured: bool,
 }
 
+/// The longest plugin id (and what is kept of a longer one).
+const ID_MAX: usize = 64;
+
 /// What reads the heap and the stack (nothing to say: `None`).
 pub type MemoryProbe = fn() -> Option<MemoryFacts>;
 
@@ -143,7 +156,7 @@ pub struct X4Device {
     probe: Cell<Option<MemoryProbe>>,
     clock_ms: Cell<Option<fn() -> u64>>,
     memory: ProbeCache<MemoryFacts>,
-    not_installed: RefCell<Vec<(String, u32)>>,
+    not_installed: RefCell<Vec<(Text<ID_MAX>, u32)>>,
     wifi: Cell<Option<WifiState>>,
     /// The networks the last scan found, strongest first.
     networks: RefCell<Vec<Found>>,
@@ -182,6 +195,15 @@ impl X4Device {
             power: RefCell::new(Power::default()),
             generation: Cell::new(1),
         }
+    }
+
+    /// [`X4Device::new`] on the heap behind an `Rc`, where the firmware keeps
+    /// it (the one frame that holds the whole struct is this one's, once, at
+    /// start).
+    #[inline(never)]
+    #[must_use]
+    pub fn shared(identity: Identity, list: &'static [u8]) -> Rc<Self> {
+        Rc::new(Self::new(identity, list))
     }
 
     /// The running firmware (op 3), as the updates know it; `Identity::caps`
@@ -229,14 +251,23 @@ impl X4Device {
         }));
         kept.sort_unstable_by_key(|row| core::cmp::Reverse(row.signal));
         kept.truncate(MAX_NETWORKS as usize);
-        *self.networks.borrow_mut() = kept;
+        // A list in use by a visitor is left as it is: never a panic.
+        let Ok(mut list) = self.networks.try_borrow_mut() else {
+            return false;
+        };
+        *list = kept;
         self.bump();
         true
     }
 
-    /// The power level and mode the kernel reports now (op 12).
-    pub fn set_power(&self, power: Power) {
-        *self.power.borrow_mut() = power;
+    /// The power level and mode the kernel reports now (op 12). False where a
+    /// visitor is reading it (it is then as it was): never a panic.
+    pub fn set_power(&self, power: Power) -> bool {
+        let Ok(mut held) = self.power.try_borrow_mut() else {
+            return false;
+        };
+        *held = power;
+        true
     }
 
     fn bump(&self) {
@@ -254,15 +285,13 @@ impl X4Device {
         if kept.try_reserve_exact(rows.len()).is_err() {
             return false;
         }
-        for &(id, reason) in rows {
-            let mut text = String::new();
-            if text.try_reserve_exact(id.len()).is_err() {
-                return false;
-            }
-            text.push_str(id);
-            kept.push((text, reason));
-        }
-        *self.not_installed.borrow_mut() = kept;
+        // Each id is kept in place, cut at 64 bytes (a plugin id's cap).
+        kept.extend(rows.iter().map(|&(id, reason)| (Text::new(id), reason)));
+        // A list in use by a visitor is left as it is: never a panic.
+        let Ok(mut list) = self.not_installed.try_borrow_mut() else {
+            return false;
+        };
+        *list = kept;
         self.bump();
         true
     }
@@ -368,8 +397,8 @@ impl DeviceHost for X4Device {
         let state = self.native.get().ok_or(ERR_NOT_FOUND)?;
         let not_installed = u32::try_from(self.not_installed.borrow().len()).unwrap_or(u32::MAX);
         visit(&NativeFacts {
-            abi_major: 7,
-            abi_draft: state.abi_draft,
+            abi_major: u32::from(INTERFACE),
+            abi_draft: u32::from(DRAFT),
             target: state.target,
             code_file: state.code_file,
             safe_mode: state.safe_mode,
@@ -399,7 +428,7 @@ impl DeviceHost for X4Device {
     ) -> Result<(), i32> {
         for (plugin, reason) in self.not_installed.borrow().iter() {
             let row = NotInstalledRow {
-                plugin,
+                plugin: plugin.as_str(),
                 reason: *reason,
             };
             if visit(&row).is_break() {
@@ -679,7 +708,6 @@ mod tests {
 
     fn native_state() -> NativeState {
         NativeState {
-            abi_draft: 31,
             target: 5,
             code_file: "code.ppn",
             safe_mode: 1,
@@ -776,8 +804,8 @@ mod tests {
         assert_eq!(
             seen.unwrap(),
             (
-                7,
-                31,
+                u32::from(INTERFACE),
+                u32::from(DRAFT),
                 5,
                 "code.ppn".to_string(),
                 1,
@@ -957,11 +985,97 @@ mod tests {
         let mut saving = Power::default();
         saving.level = PowerLevel::Saving;
         saving.stretch = 4;
-        device.set_power(saving);
+        assert!(device.set_power(saving));
         let mut seen = None;
         device
             .power(&mut |p| seen = Some((p.level, p.stretch)))
             .unwrap();
         assert_eq!(seen, Some((PowerLevel::Saving, 4)));
+    }
+
+    /// A setter called from inside a visitor changes nothing and says so; it
+    /// never panics on the borrow the visitor holds.
+    #[test]
+    fn a_setter_inside_a_visitor_is_refused_not_a_panic() {
+        let device = device(&[]);
+        assert!(device.set_not_installed(&[("a", 2)]));
+        let mut inside = None;
+        device
+            .not_installed(&mut |_| {
+                inside = Some(device.set_not_installed(&[("b", 1)]));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(inside, Some(false));
+        let mut ids = Vec::new();
+        device
+            .not_installed(&mut |row| {
+                ids.push(row.plugin.to_string());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(ids, ["a"]);
+    }
+
+    /// A stored id is cut at 64 bytes, a plugin id's cap.
+    #[test]
+    fn a_long_id_is_cut_at_64_bytes() {
+        let device = device(&[]);
+        let long = "x".repeat(100);
+        assert!(device.set_not_installed(&[(long.as_str(), 2)]));
+        let mut len = None;
+        device
+            .not_installed(&mut |row| {
+                len = Some(row.plugin.len());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(len, Some(64));
+    }
+
+    /// The interface and its draft are the SDK's, not a copy.
+    #[test]
+    fn the_interface_is_the_sdks() {
+        let device = device(&[]);
+        device.set_native(native_state());
+        let mut seen = None;
+        device
+            .native(&mut |f| seen = Some((f.abi_major, f.abi_draft)))
+            .unwrap();
+        assert_eq!(seen, Some((u32::from(INTERFACE), u32::from(DRAFT))));
+    }
+
+    /// The device is made once on the heap; the struct stays small enough for
+    /// that to be the only frame that holds it.
+    #[test]
+    fn the_device_is_shared_and_small() {
+        let shared = X4Device::shared(identity(), list(&[]));
+        assert_eq!(Rc::strong_count(&shared), 1);
+        assert!(
+            core::mem::size_of::<X4Device>() <= 1_024,
+            "{}",
+            core::mem::size_of::<X4Device>()
+        );
+    }
+
+    /// The Wi-Fi and power setters are refused, not panicked, inside a visitor.
+    #[test]
+    fn the_networks_and_power_setters_are_refused_inside_a_visitor() {
+        let device = device(&[]);
+        device.set_wifi(radio());
+        assert!(device.set_networks(&[("home", -40, true)]));
+        let mut inside = None;
+        device
+            .networks(&mut |_| {
+                inside = Some(device.set_networks(&[("other", -30, false)]));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(inside, Some(false));
+        let mut power_inside = None;
+        device
+            .power(&mut |_| power_inside = Some(device.set_power(Power::default())))
+            .unwrap();
+        assert_eq!(power_inside, Some(false));
     }
 }
