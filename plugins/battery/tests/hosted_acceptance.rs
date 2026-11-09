@@ -61,9 +61,15 @@ fn start(config: &str) -> Session {
     .expect("installed")
 }
 
-/// A folder of this test's own (tests of one process run in parallel; none sets the environment).
+/// The path of a folder of this test's own for the evidence of a mismatch (tests of one process
+/// run in parallel; none sets the environment). Not made: the kit makes it when it writes.
 fn scratch(test: &str) -> PathBuf {
-    let folder = std::env::temp_dir().join(format!("paperpaw-kit-{}-{test}", std::process::id()));
+    std::env::temp_dir().join(format!("paperpaw-kit-{}-{test}", std::process::id()))
+}
+
+/// [`scratch`], made, for a test that writes files of its own into it.
+fn made(test: &str) -> PathBuf {
+    let folder = scratch(test);
     std::fs::create_dir_all(&folder).unwrap();
     folder
 }
@@ -146,7 +152,7 @@ fn another_languages_golden_is_not_the_screen() {
 /// The kit's own comparison: exact, with the evidence of a difference written out.
 #[test]
 fn the_comparison_is_exact_and_leaves_evidence() {
-    let folder = scratch("comparison");
+    let folder = made("comparison");
     let mut gray = vec![255_u8; 8 * 4];
     gray[9] = 0;
     let png = folder.join("tiny.png");
@@ -191,7 +197,7 @@ fn the_comparison_is_exact_and_leaves_evidence() {
 /// palette and a color one (rounded as `Pixel::luma` does), never a false pass.
 #[test]
 fn goldens_of_other_depths_and_colors_compare_as_grays() {
-    let folder = scratch("depths");
+    let folder = made("depths");
     let frame = Frame {
         width: 4,
         height: 1,
