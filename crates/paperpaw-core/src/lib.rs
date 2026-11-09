@@ -1286,6 +1286,8 @@ struct Shared {
     fonts: Fonts,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
+    /// The generation of `core.registry`, bumped when a list it reads changes.
+    registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
     formats: Formats,
     hyphenation: Hyphenation,
     hyphen_feed: hyphen_feed::HyphenFeed,
@@ -1480,15 +1482,6 @@ fn hovering(event: &InputEvent) -> bool {
             ..
         })
     )
-}
-
-/// `text` cut to what the clipboard holds, at a character boundary.
-fn clipped(text: &str) -> String {
-    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    String::from(&text[..end])
 }
 
 /// Whether this build renders OpenType/TrueType fonts.

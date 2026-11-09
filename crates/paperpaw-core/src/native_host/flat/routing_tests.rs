@@ -191,6 +191,7 @@ impl Plugin for ReentryDriver {
         let drops = Rc::clone(&self.drops);
         let meter = Rc::clone(&self.host.meter);
         let font_removals = Rc::clone(&self.host.font_removals);
+        let registry_generation = Rc::clone(&self.host.registry_generation);
         r.subscribe(
             builtin::STARTED,
             Box::new(move |env, _, _| {
@@ -204,6 +205,7 @@ impl Plugin for ReentryDriver {
                         directory: None,
                         stack_rows: alloc::rc::Rc::new(Default::default()),
                         font_removals: Rc::clone(&font_removals),
+                        registry_generation: Rc::clone(&registry_generation),
                     },
                 };
                 deliver(
@@ -237,6 +239,7 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
                     directory: None,
                     stack_rows: Rc::clone(&code.host.stack_rows),
                     font_removals: Rc::clone(&code.host.font_removals),
+                    registry_generation: Rc::clone(&code.host.registry_generation),
                 },
             }))
         },

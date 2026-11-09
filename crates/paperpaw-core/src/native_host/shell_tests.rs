@@ -795,6 +795,9 @@ mod instance_tests {
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
             ),
+            registry_generation: alloc::rc::Rc::new(
+                crate::native_host::registry_generation::RegistryGeneration::new(),
+            ),
         };
         let manifest = paperpaw_sdk::Manifest::new(
             paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
@@ -847,6 +850,9 @@ mod instance_tests {
                 stack_rows: alloc::rc::Rc::new(Default::default()),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
+                ),
+                registry_generation: alloc::rc::Rc::new(
+                    crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),
             };
             let manifest = paperpaw_sdk::Manifest::new(
@@ -934,6 +940,9 @@ mod instance_tests {
             stack_rows: alloc::rc::Rc::new(Default::default()),
             font_removals: alloc::rc::Rc::new(
                 crate::native_host::font_removals::FontRemovals::new(),
+            ),
+            registry_generation: alloc::rc::Rc::new(
+                crate::native_host::registry_generation::RegistryGeneration::new(),
             ),
         }
     }
