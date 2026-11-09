@@ -124,3 +124,20 @@ still not an error (the storage's rule).
   folders): `core.library` (op 15 / Services) and `core.format`.
 - Reading `size` for the row text (`ops::shown_size`, from the SDK) and the page-turn
   state of the screen.
+
+## What blocks removing interface 6 (checked 2026-11-09, base `abi7/integration`)
+
+The interface-6 `impl Plugin` stays until these exist; each is asked of Services (the manager
+queued them):
+
+- **`Documents::readers`** (DOC op 21, `document.md`) in `native::document`: *Open with* and
+  *Reading app* list the plugins that can read a file; the native plugin has no way to ask.
+- **`Library::delete`** (LIB op 10, #668, only on the draft-30 base): deleting a book also removes
+  the data kept for it, as Beta 3 does (today the native plugin leaves it, see the gap above).
+  `Library::can_delete` (op 9) is the preflight.
+- **Not blocking:** moves. The host follows `core.files` moves itself (journal and job in
+  `files_service` and `lib_service/moves.rs`, `files.md` 2.6), so the library is told by the host
+  and the `not-told` line can go once host acceptance is possible. `Library::move` and the
+  2,000-book limit are not needed.
+
+Version: 1.0.4 is above Beta 3 (1.0.3): no bump when the port finishes.
