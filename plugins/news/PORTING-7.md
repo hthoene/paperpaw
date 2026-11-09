@@ -44,7 +44,12 @@ host activates native plugins (then it goes together, no shim).
   (`make_page` over `paperpaw_ui_kit::files::Volume`): the feed is read 2 KiB at a time into the
   converter, the page is appended in calls of at most 4 KiB (`MAX_DATA`) and synced, a feed over
   4 MiB or without an article is `Failure::Failed` and leaves no page, a refused allocation is
-  `Failure::Memory`. `src/native_book_tests.rs` compares the page and the result with
+  `Failure::Memory`. The page is appended straight to `page`, with no staging file: the caller
+  imports it only after `Ok`, and a power cut (or a failed write whose clean-up fails too) leaves a
+  stale, partial `page` that the next call removes before it starts (`a_cut_leaves_a_stale_page_…`
+  cuts after every append). `Failure::Failed` merges the causes (no feed, too large, no article, a
+  card that does not read or write); the caller only needs "keep the book there is", and the
+  counts of the run do not tell them apart. `src/native_book_tests.rs` compares the page and the result with
   `convert::convert` on the corpus of the converter's tests and sweeps refusals. Next: the
   fetch over `core.net` (saved with `save_to`, at most 4 MiB with `max_file`), the book put in the
   library with `core.library` `import` (name `Title (mark).html` in the folder `News`; needs
@@ -77,7 +82,9 @@ host activates native plugins (then it goes together, no shim).
   feed counts as failed. The plugin is not listed as complete and is not in the app yet.
 - An article's text is cut at 8 KiB (`MAX_TEXT_SMALL`) on every device: the native snapshot has no
   memory class, and interface 6 gave 64 KiB to the larger ones. An open question for Kernel (the
-  memory class in the snapshot or `core.device`).
+  memory class in the snapshot or `core.device`). The fetch passes `MAX_TEXT_SMALL` to `make_page`
+  on the X4 because the peak is about 4 × `max_text` per article (the converter's field, the
+  paragraphs, the escaped text and the page piece); 64 KiB would be ~256 KiB, the whole heap.
 - A feed's name is not yet cleaned for a file name (`web::try_clean_name` is there; the library's
   import names the book, next slice).
 

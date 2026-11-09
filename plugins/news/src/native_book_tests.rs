@@ -68,6 +68,81 @@ fn no_file_and_a_file_over_the_limit_are_no_page() {
     assert!(big.get("page.tmp").is_none());
 }
 
+/// A volume whose power is cut after `left` appends: from then on every
+/// call that changes a file fails and nothing is cleaned up.
+struct Cut<'a> {
+    mem: &'a Mem,
+    left: core::cell::Cell<usize>,
+}
+
+impl Volume for Cut<'_> {
+    fn size(&self, name: &str) -> Result<u64, Error> {
+        self.mem.size(name)
+    }
+
+    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
+        self.mem.read_at(name, at, out)
+    }
+
+    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
+        self.mem.write(name, data)
+    }
+
+    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
+        let left = self.left.get();
+        if left == 0 {
+            return Err(Error::Invalid);
+        }
+        self.left.set(left - 1);
+        self.mem.append(name, data)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
+        self.mem.rename(from, to)
+    }
+
+    fn remove(&self, name: &str) -> Result<(), Error> {
+        if self.left.get() == 0 {
+            return Err(Error::Invalid);
+        }
+        self.mem.remove(name)
+    }
+
+    fn sync(&self) -> Result<(), Error> {
+        self.mem.sync()
+    }
+}
+
+#[test]
+fn a_cut_leaves_a_stale_page_the_next_call_replaces() {
+    let feed = &feeds()[3];
+    let (_, whole) = old(feed.as_bytes(), 30, 64 * 1024);
+    // How many appends a whole page takes.
+    let mem = Mem::with("feed.tmp", feed.as_bytes());
+    let count = Cut {
+        mem: &mem,
+        left: core::cell::Cell::new(usize::MAX),
+    };
+    make_page(&count, ("feed.tmp", "page.tmp"), (30, 64 * 1024), &day_text).unwrap();
+    let appends = usize::MAX - count.left.get();
+    assert!(appends > 2);
+    for left in 1..appends {
+        let mem = Mem::with("feed.tmp", feed.as_bytes());
+        let cut = Cut {
+            mem: &mem,
+            left: core::cell::Cell::new(left),
+        };
+        let got = make_page(&cut, ("feed.tmp", "page.tmp"), (30, 64 * 1024), &day_text);
+        // The caller imports only after Ok: a cut is never Ok.
+        assert_eq!(got, Err(Failure::Failed), "cut after {left}");
+        let stale = mem.get("page.tmp").unwrap();
+        assert!(stale.len() < whole.len(), "cut after {left}");
+        // The next call starts afresh and makes the whole page.
+        make_page(&mem, ("feed.tmp", "page.tmp"), (30, 64 * 1024), &day_text).unwrap();
+        assert_eq!(mem.get("page.tmp").unwrap(), whole);
+    }
+}
+
 /// A volume that allocates nothing: it reads one feed and counts what is
 /// written, so a sweep refuses only the plugin's own allocations.
 struct Sink<'a> {
