@@ -152,7 +152,13 @@ pub(crate) fn format_into(
         core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<MaybeUninit<u8>>(), room)
     };
     let length = format_message(translator, key, &args, slots);
-    usize::try_from(length).map_err(|_| length)
+    // The renderer answers the length the text needs even where `out` held
+    // less (the count `format` gives): a text over `out` is no text here.
+    let length = usize::try_from(length).map_err(|_| length)?;
+    if length > room {
+        return Err(ERR_NO_SPACE);
+    }
+    Ok(length)
 }
 
 /// Convert ASCII digits using the current UI language's digit characters.

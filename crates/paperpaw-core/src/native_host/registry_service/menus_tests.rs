@@ -675,7 +675,9 @@ fn push(
     let push =
         crate::native_host::item_state::ItemPush::copied(item, flags, (label, b""), (badge, b""))
             .unwrap();
-    directory.items.borrow_mut().apply(plugin, push).unwrap();
+    let mut states = directory.items.borrow_mut();
+    states.reserve(plugin, 1).unwrap();
+    states.apply(plugin, push).unwrap();
 }
 
 #[test]

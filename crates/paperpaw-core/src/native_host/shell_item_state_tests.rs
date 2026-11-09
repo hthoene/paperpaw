@@ -98,7 +98,9 @@ fn run(
 fn pushed(kernel: &crate::Kernel, item: &str) -> Option<u32> {
     let directory = kernel.shared.registry.native_declarations.as_ref()?;
     let states = directory.items.borrow();
-    states.get("fake", item).map(|p| p.flags)
+    states
+        .get("fake", item)
+        .map(crate::native_host::item_state::ItemPush::flags)
 }
 
 #[test]
@@ -154,6 +156,52 @@ fn a_batch_with_a_bad_record_is_refused_whole() {
         badge_args: &[],
     };
     refused(&mut kernel, &[unknown], ERR_NOT_FOUND);
+}
+
+fn catalog(kernel: &mut crate::Kernel) {
+    let long = "x".repeat(200);
+    kernel.shared.translator.add(
+        paperpaw_i18n::Catalog::parse(alloc::borrow::Cow::Owned(alloc::format!(
+            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\n\
+             fake.label = Hello {{name}}\nfake.plain = Plain\nfake.long = {long}\n"
+        )))
+        .unwrap(),
+    );
+}
+
+#[test]
+fn label_and_badge_arguments_are_decoded_at_submit() {
+    let mut kernel = kernel(1, true);
+    catalog(&mut kernel);
+    let with =
+        |label: &'static str, args: &'static [u8], badge: &'static str| WireCommand::SetItemState {
+            item: "s0",
+            flags: 0,
+            label,
+            label_args: args,
+            badge,
+            badge_args: &[],
+        };
+    let mut refused = |command: WireCommand<'_>, status: i32| {
+        let (submitted, _) = run(&mut kernel, &[command], OK);
+        assert_eq!(submitted, status, "{command:?}");
+        assert_eq!(pushed(&kernel, "s0"), None, "nothing is kept");
+    };
+    // (Arguments without a key never get here: the wire refuses them.)
+    // Bytes that are no argument batch.
+    refused(with("fake.label", b"\xff\xff\xff", ""), ERR_INVALID);
+    // A text no menu could show whole.
+    refused(
+        with("fake.long", b"", ""),
+        paperpaw_native::host_glue::ERR_NO_SPACE,
+    );
+    refused(
+        with("", b"", "fake.long"),
+        paperpaw_native::host_glue::ERR_NO_SPACE,
+    );
+    // A key that resolves, with and without arguments.
+    let (submitted, _) = run(&mut kernel, &[with("fake.plain", b"", "")], OK);
+    assert_eq!(submitted, OK);
 }
 
 #[test]

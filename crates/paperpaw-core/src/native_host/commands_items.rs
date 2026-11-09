@@ -7,9 +7,12 @@
 //! does), at most one record per item (`ERR_INVALID`), the item is one of
 //! the plugin's own actions, settings or setup steps (`ERR_NOT_FOUND`;
 //! `switch` on a setting is `ERR_INVALID`), the label and badge keys are in
-//! the catalogs (`ERR_NOT_FOUND`), and the net result fits the limits
-//! (`ERR_FULL`). The argument batches are checked when the item is shown
-//! (an item whose key cannot be resolved then shows its title).
+//! the catalogs and resolve with their argument batches, as slot 27 would
+//! (`ERR_NOT_FOUND`, `ERR_INVALID`, `ERR_NO_SPACE`; arguments without a key
+//! are `ERR_INVALID`), and the net result fits the limits (`ERR_FULL`). The
+//! room for the states is reserved before the batch is answered `OK`
+//! (`ERR_NO_MEMORY` otherwise), so applying it after the callback allocates
+//! nothing. The texts are resolved again each time the item is shown.
 use super::{CommandStage, WireCommand};
 use crate::native_host::{
     declaration_store::Kind,
@@ -18,8 +21,31 @@ use crate::native_host::{
 };
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
+
+/// The longest label and badge text a menu shows (`registry.md`: a title is
+/// at most 128 bytes, a badge 64); a longer one is `ERR_NO_SPACE` at submit.
+const LABEL_ROOM: usize = 128;
+const BADGE_ROOM: usize = 64;
+
+/// A pushed label or badge at submit: no key means no arguments; otherwise
+/// the key resolves with them, in the reader's language now.
+fn resolves(
+    translator: &paperpaw_i18n::Translator,
+    key: &str,
+    args: &[u8],
+    room: &mut [u8],
+) -> Result<(), i32> {
+    if key.is_empty() {
+        return if args.is_empty() {
+            Ok(())
+        } else {
+            Err(ERR_INVALID)
+        };
+    }
+    crate::native_host::formatting::format_into(translator, key, args, room).map(|_| ())
+}
 
 /// Where the item states live: with the declarations (the registry reads
 /// them there too).
@@ -102,7 +128,7 @@ impl<'a> CommandStage<'a> {
             else {
                 continue;
             };
-            if pushes.iter().any(|p| &*p.item == item) {
+            if pushes.iter().any(|p| p.item() == item) {
                 return Err(ERR_INVALID);
             }
             let mut buffer = [0_u8; 192];
@@ -116,11 +142,8 @@ impl<'a> CommandStage<'a> {
             if setting && flags & SWITCH != 0 {
                 return Err(ERR_INVALID);
             }
-            for key in [label, badge] {
-                if !key.is_empty() && env.i18n().get(key).is_none() {
-                    return Err(ERR_NOT_FOUND);
-                }
-            }
+            resolves(env.i18n(), label, label_args, &mut [0_u8; LABEL_ROOM])?;
+            resolves(env.i18n(), badge, badge_args, &mut [0_u8; BADGE_ROOM])?;
             pushes.push(ItemPush::copied(
                 item,
                 flags,
@@ -134,10 +157,15 @@ impl<'a> CommandStage<'a> {
             .map_err(|_| ERR_NO_MEMORY)?;
         all.extend(self.staged_items.iter());
         all.extend(pushes.iter());
+        admit.states()?.fits(self.owner.as_str(), &all)?;
+        // Room for every state this callback can add, and the plugin's slot.
+        let adding = all.iter().filter(|p| !p.is_default()).count();
         admit
-            .states()?
-            .fits(self.owner.as_str(), &all)
-            .map_err(|status| if status == ERR_FULL { ERR_FULL } else { status })?;
+            .directory
+            .items
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .reserve(self.owner.as_str(), adding)?;
         let bytes = pushes.iter().map(ItemPush::bytes).sum();
         Ok((pushes, bytes))
     }

@@ -410,9 +410,9 @@ fn row(
     }
     let (mut label_text, mut badge_text) = ([0_u8; caps::TITLE], [0_u8; 64]);
     let pushed_label =
-        push.and_then(|p| shown(translator, &p.label, &p.label_args, &mut label_text));
+        push.and_then(|p| shown(translator, p.label(), p.label_args(), &mut label_text));
     let pushed_badge =
-        push.and_then(|p| shown(translator, &p.badge, &p.badge_args, &mut badge_text));
+        push.and_then(|p| shown(translator, p.badge(), p.badge_args(), &mut badge_text));
     if !state.shown && !user_row {
         if !all {
             return ControlFlow::Continue(());
