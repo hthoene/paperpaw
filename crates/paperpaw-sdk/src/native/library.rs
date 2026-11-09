@@ -6,6 +6,11 @@ use super::{
     services::Service,
 };
 
+mod edits;
+pub use edits::{
+    AnnotationEdit, Committed, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Receipt, ReceiptAction,
+    ReceiptCursor, ReceiptPage, Transaction,
+};
 mod facets;
 pub use facets::{Facet, FacetPage, FacetRow};
 mod anchors;
