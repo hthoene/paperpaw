@@ -93,6 +93,15 @@ step).
   with reason 0, 8, 9 or 14 (the page reads these as "another firmware"); a check that names another reason
   is shown as *This update cannot be installed* with it.
 
+## Before activation
+
+- `update.check` is declared (the action, its icon and its place) and answers `Unsupported` until the online flow
+  is native: it must be **implemented or dropped before the plugin is listed in `NATIVE_PLUGINS`** (the plugin is
+  gated while it stays).
+- A refused `firmware_restart` (after an install, or the *Restart now* row) shows `update.restart-failed` and keeps
+  the *Restart now* row. *Installed* ("Restarting …") has an *OK* row to leave the page where the restart does not
+  come.
+
 ## Blocked and next steps
 
 1. ~~`CommandSender::check_file`~~ **Done in slice 3** (SDK #738): the card flow's found, newer, older, same,

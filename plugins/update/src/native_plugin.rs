@@ -73,6 +73,8 @@ enum View {
     Installing(Option<i64>),
     /// In place; with a button to restart where the plugin did not do it.
     Installed(bool),
+    /// In place, but the host refused to restart: says so, and the button asks again.
+    RestartFailed,
     /// Not installed, for this reason.
     Failed(DeviceOutcome),
 }
@@ -460,7 +462,16 @@ impl NativeUpdate {
         let mut commands = buffer(COMMANDS)?;
         match button {
             Some(Button::Close) => CommandSender::new(host, &mut commands).close_screen(),
-            Some(Button::Restart) => CommandSender::new(host, &mut commands).firmware_restart(),
+            Some(Button::Restart) => {
+                if CommandSender::new(host, &mut commands)
+                    .firmware_restart()
+                    .is_err()
+                {
+                    drop(commands);
+                    return self.show(host, View::RestartFailed);
+                }
+                Ok(())
+            }
             Some(Button::Install) => {
                 if self.job.is_some() {
                     return Ok(());
@@ -539,9 +550,13 @@ impl NativeUpdate {
                 };
                 let mut commands = buffer(COMMANDS)?;
                 let restarted = CommandSender::new(host, &mut commands).firmware_restart();
-                self.show(host, View::Installed(false))?;
-                kept?;
-                restarted
+                let view = if restarted.is_ok() {
+                    View::Installed(false)
+                } else {
+                    View::RestartFailed
+                };
+                self.show(host, view)?;
+                kept
             }
             // Nothing happened: the file is offered as it was.
             Ended::Refused => self.show(host, view_of(Some(job.found))),
@@ -788,7 +803,7 @@ fn rows_of(
             )?;
             return Ok(rows);
         }
-        View::Installed(true) => {
+        View::Installed(true) | View::RestartFailed => {
             row(
                 host,
                 messages,
@@ -802,7 +817,7 @@ fn rows_of(
     }
     let close = match view {
         View::Ready(_) | View::Checking => "update.later",
-        View::Installing(_) | View::Installed(false) => return Ok(rows),
+        View::Installing(_) => return Ok(rows),
         _ => "update.ok",
     };
     row(host, messages, &mut rows, close, "", Button::Close)?;
@@ -902,6 +917,7 @@ fn texts(
             "update.installed.restart-help",
             false,
         ),
+        View::RestartFailed => ("update.installed.title", "update.restart-failed", false),
         View::Failed(outcome) => {
             let why = messages.copy(host, reason(*outcome))?;
             let arguments = [
