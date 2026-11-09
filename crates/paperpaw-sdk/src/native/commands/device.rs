@@ -303,7 +303,9 @@ impl CommandSender<'_, '_> {
     /// also needs `uses.storage`. The host checks the image, **always asks the
     /// user** (whatever grant the plugin has) and writes the other flash slot
     /// in bounded steps. `request` is the caller's own non-zero number: the end
-    /// is `install_done` (kind 1) and `Device::install` its state. Installing
+    /// is `install_done` (kind 1) and `Device::install` its state. The flags the
+    /// options set are the only ones the contract has: the host refuses any
+    /// other bit as `Invalid`, and this method sets no other. Installing
     /// does not restart: [`firmware_restart`](Self::firmware_restart) starts
     /// the installed image.
     ///
@@ -334,12 +336,17 @@ impl CommandSender<'_, '_> {
         })
     }
 
-    /// Start the firmware image installed before (`uses.firmware`); the host
-    /// asks nothing more, the user said yes at the install.
+    /// Start the firmware image an install of this plugin left waiting
+    /// (`uses.firmware`, `docs/abi/device.md` 5.3). Only the plugin whose install
+    /// is waiting may restart: another plugin gets `Denied`, and with no image
+    /// waiting the host answers `State`. **The host always asks the user again**
+    /// (decision 134); declining keeps the image installed, and it starts at the
+    /// next start.
     ///
     /// # Errors
     /// Returns buffer limits or the host's refusal (`Denied` without
-    /// `uses.firmware`).
+    /// `uses.firmware` or for an install that is not this plugin's, `State` with
+    /// no image waiting).
     pub fn firmware_restart(&mut self) -> Result<(), Error> {
         self.submit(wire::Command::FirmwareRestart {})
     }
