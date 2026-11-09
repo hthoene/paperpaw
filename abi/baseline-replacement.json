@@ -1,0 +1,10 @@
+{
+  "replaces_sha256": "59b89896b9c6ac2414908127698183578d976caed223f8606cfbb5b5be12a6f0",
+  "lock_sha256": "7f9251c46718ac57fe1c66c00cfbd31caacdbcdb4c035788154c3628e3253190",
+  "reason": "interface 7 is unreleased (draft 30): every stage codec gains generated ReplyWriter and InputWriter (records written one by one into the output, byte-identical to reply_encode/input_encode, no slice of records on the 2,048 B frame; core.format replies of 64 rows), no wire, tag or bound changes; core.registry gains op 22 setup_step at revision 0 (registry.md has had it since draft 28; the service schema missed it)",
+  "ticket": "#228",
+  "waives": [
+    "compatible",
+    "emitted_stages"
+  ]
+}

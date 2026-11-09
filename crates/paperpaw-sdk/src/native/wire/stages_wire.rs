@@ -549,6 +549,139 @@ pub mod core_book_badge_v1 {
         }
         Ok(offset)
     }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
     impl<'a> BadgeAsk<'a> {
         /// Local tag of this record.
         pub const TAG: u32 = BADGE_ASK_TAG;
@@ -2654,6 +2787,139 @@ pub mod core_format_v1 {
         }
         Ok(offset)
     }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            record.write_bitmap(out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            record.write_bitmap(out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
     impl<'a> FmtCall<'a> {
         /// Local tag of this record.
         pub const TAG: u32 = FMT_CALL_TAG;
@@ -3553,6 +3819,139 @@ pub mod core_input_filter_v1 {
         }
         Ok(offset)
     }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
     impl<'a> FilterInput<'a> {
         /// Local tag of this record.
         pub const TAG: u32 = FILTER_INPUT_TAG;
@@ -4044,6 +4443,139 @@ pub mod core_lookup_v1 {
         }
         Ok(offset)
     }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
     impl<'a> LookupAsk<'a> {
         /// Local tag of this record.
         pub const TAG: u32 = LOOKUP_ASK_TAG;
@@ -4525,6 +5057,139 @@ pub mod core_status_v1 {
             record.write(out, &mut offset);
         }
         Ok(offset)
+    }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
     }
     impl<'a> StatusAsk<'a> {
         /// Local tag of this record.
@@ -5187,6 +5852,139 @@ pub mod core_widget_v1 {
             record.write(out, &mut offset);
         }
         Ok(offset)
+    }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
     }
     impl WidgetMeasure {
         /// Local tag of this record.

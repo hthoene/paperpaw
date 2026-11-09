@@ -213,6 +213,7 @@ fn shown(p: &paperpaw_scripted_host::Plugin<'_>) -> Callback {
         p,
         PANEL_TOKEN,
         Record::EventScreenShown(EventScreenShown {
+            last_input: 0,
             now_ms: 0,
             screen: "translate.panel",
             width: 480,

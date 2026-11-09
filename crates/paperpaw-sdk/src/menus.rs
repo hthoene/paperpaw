@@ -627,6 +627,14 @@ impl Menus {
         self.custom.contains_key(menu)
     }
 
+    /// The menus the user redefined (also empty ones), in the order they were
+    /// set; no plugin menus, no allocation.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn customized(&self) -> impl Iterator<Item = &Id> + '_ {
+        self.custom.keys()
+    }
+
     /// Every menu: those plugins contribute to and those the user defined.
     pub fn menu_ids(&self) -> Vec<&Id> {
         let mut ids: Vec<&Id> = self
@@ -932,6 +940,20 @@ mod tests {
                 "m.b"
             ]
         );
+    }
+
+    #[test]
+    fn customized_lists_the_users_menus_only() {
+        let mut menus = Menus::new();
+        menus.add(entry("m.a", 10));
+        assert_eq!(menus.customized().count(), 0);
+        menus.customize(Id::new_static("u.empty"), Vec::new());
+        menus.customize(Id::new_static("m.menu"), vec![Id::new_static("m.a")]);
+        let mut listed: Vec<&str> = menus.customized().map(|id| id.as_str()).collect();
+        listed.sort_unstable();
+        assert_eq!(listed, ["m.menu", "u.empty"]);
+        menus.reset("u.empty");
+        assert_eq!(menus.customized().count(), 1);
     }
 
     #[test]

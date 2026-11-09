@@ -35,6 +35,9 @@ mod native_chart;
 mod native_entry;
 mod native_overview;
 mod native_screens;
+mod native_widget_today;
+mod native_widget_week;
+mod native_widgets;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
