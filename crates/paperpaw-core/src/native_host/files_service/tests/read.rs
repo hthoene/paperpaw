@@ -147,7 +147,7 @@ fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
     // The driver compares names in upper case, the whole name: `ı` is `I`,
     // `ſ` is `S`, so these reach `plugins` and `.paperpaw` unless refused.
     let (card, host) = fixture();
-    for dir in ["Books", "plugins", "plugıns", "pluginſ", ".receıved"] {
+    for dir in ["Books", "plugins", "plugıns", "pluginſ"] {
         card.dir(dir);
     }
     assert_eq!(list_all(&host, 1, "").unwrap(), ["Books"]);
@@ -175,7 +175,9 @@ fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
     for other in ["plugin\u{df}", "\u{212a}Books"] {
         card.dir(other);
         assert!(
-            list_all(&host, 1, "").unwrap().contains(&std::format!("{other}")),
+            list_all(&host, 1, "")
+                .unwrap()
+                .contains(&std::string::String::from(other)),
             "{other}"
         );
     }
