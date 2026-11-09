@@ -120,6 +120,69 @@ fn push<T>(list: &mut Vec<T>, item: T) -> Result<(), TryReserveError> {
     Ok(())
 }
 
+/// What a source provides for one book ([`try_provide`]), borrowed: `None` for
+/// a field it does not provide. `tags` is one per line.
+#[cfg(any(test, feature = "kernel"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProvidedText<'a> {
+    pub title: Option<&'a str>,
+    pub author: Option<&'a str>,
+    pub series: Option<&'a str>,
+    pub series_index: Option<&'a str>,
+    pub tags: Option<&'a str>,
+}
+
+/// [`provide`](super::provide) for the host (`core.library` op 24), from
+/// borrowed text and with the error left in: what the source provides is kept
+/// where the book's own file names nothing (it is read from the book anew,
+/// `indexed` off), a blank value provides nothing, and a list of tags replaces
+/// the tags of the book (an empty one leaves them). The book's details are
+/// read and copied with `try_reserve`; the details are written as
+/// [`save`](super::save) writes them.
+///
+/// # Errors
+/// [`Error::OutOfMemory`] for memory; the storage's errors where the book's
+/// file is gone (`NotFound`) or its details could not be read or written
+/// (`TooLarge` where they would be over what is read back).
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn try_provide(
+    storage: &dyn Storage,
+    path: &str,
+    provided: &ProvidedText<'_>,
+) -> Result<(), Error> {
+    let mut book = super::book_for_update(storage, path)?;
+    fn some(text: Option<&str>) -> Option<&str> {
+        text.filter(|text| !text.trim().is_empty())
+    }
+    // Everything is copied before anything is changed: a memory error
+    // leaves the book as it was.
+    let own = |text: Option<&str>| -> Result<Option<String>, Error> {
+        some(text)
+            .map(copy)
+            .transpose()
+            .map_err(|_| Error::OutOfMemory)
+    };
+    let title = own(provided.title)?;
+    let author = own(provided.author)?;
+    let series = own(provided.series)?;
+    let series_index = own(provided.series_index)?;
+    let mut tags: Vec<String> = Vec::new();
+    for tag in some(provided.tags).into_iter().flat_map(|t| t.split('\n')) {
+        let tag = copy(tag).map_err(|_| Error::OutOfMemory)?;
+        push(&mut tags, tag).map_err(|_| Error::OutOfMemory)?;
+    }
+    book.title = title.or(book.title);
+    book.author = author.or(book.author);
+    book.series = series.or(book.series);
+    book.series_index = series_index.or(book.series_index);
+    if !tags.is_empty() {
+        book.tags = tags;
+    }
+    book.indexed = false;
+    super::write_details(storage, path, &book)
+}
+
 /// The details in `source` as a [`Book`]; the memory error leaves no
 /// book.
 pub(super) fn try_parse_details(source: &str) -> Result<Book, TryReserveError> {
