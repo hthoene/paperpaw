@@ -331,3 +331,33 @@ fn hints_of_a_screen_come_in_plugin_then_record_order() {
         want(&[("second", "second.m")])
     );
 }
+
+/// A store that is borrowed answers `ERR_BUSY`, and nothing is visited.
+#[test]
+fn hints_of_a_borrowed_store_are_busy() {
+    let directory = NativeDeclarations::default();
+    let live = Rc::new(Cell::new(1));
+    publish_hints(&directory, "first", 1, &live, &[("s.main", "first.a")]);
+    let held = directory.store.borrow_mut();
+    let mut seen = 0;
+    let got = directory.hints("s.main", &mut |_| {
+        seen += 1;
+        core::ops::ControlFlow::Continue(())
+    });
+    assert_eq!((got, seen), (Err(ERR_BUSY), 0));
+    drop(held);
+}
+
+/// Installing or removing a plugin that declares hints changes what a page
+/// holds, and the registry generation moves with it (`BumpOnExit` around
+/// install and removal in `plugins.rs`): a cursor held across it is stale.
+/// Here the directory alone: the rows of the removed plugin are gone at once.
+#[test]
+fn hints_of_a_removed_plugin_are_gone_between_two_pages() {
+    let directory = NativeDeclarations::default();
+    let live = Rc::new(Cell::new(1));
+    publish_hints(&directory, "first", 1, &live, &[("s.main", "first.a")]);
+    assert_eq!(hints_of(&directory, "s.main").len(), 1);
+    directory.store.borrow_mut().remove_host_owner(1);
+    assert!(hints_of(&directory, "s.main").is_empty());
+}

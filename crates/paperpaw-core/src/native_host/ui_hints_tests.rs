@@ -260,3 +260,37 @@ fn a_flag_this_build_does_not_know_is_refused() {
         assert_eq!(w.call("a.b", 0, 0, 1).err(), Some(ERR_UNSUPPORTED));
     });
 }
+
+#[test]
+fn a_cursor_past_the_end_is_invalid() {
+    world(std::vec![hint("a.b", "x", "x.t")], |w| {
+        // The first page gives the generation; the cursor past `total` is no page.
+        let (_, end) = w.call("a.b", 0, 0, 0).unwrap();
+        assert_eq!(
+            w.call("a.b", 2, end.generation, 0).err(),
+            Some(paperpaw_native::host_glue::ERR_INVALID)
+        );
+        // A cursor at `total` is the empty last page.
+        let (rows, last) = w.call("a.b", 1, end.generation, 0).unwrap();
+        assert!(rows.is_empty());
+        assert_eq!((last.next, last.flags), (1, 1));
+    });
+}
+
+/// An owner id over the row's 64 bytes cannot be framed: the row is skipped in
+/// the counting walk and the page walk alike, so `total` and the cursor agree.
+#[test]
+fn a_row_that_cannot_be_framed_is_skipped_in_both_walks() {
+    const LONG: &str = "an-owner-id-that-is-much-longer-than-the-sixty-four-bytes-a-row-holds";
+    let hints = std::vec![
+        hint("a.b", "x", "x.one"),
+        hint("a.b", LONG, "long.text"),
+        hint("a.b", "y", "y.two"),
+    ];
+    world(hints, |w| {
+        let (rows, end) = w.call("a.b", 0, 0, 0).unwrap();
+        let texts: Vec<&str> = rows.iter().map(|r| r.2.as_str()).collect();
+        assert_eq!(texts, ["x.one", "y.two"]);
+        assert_eq!((end.total, end.next, end.flags), (2, 2, 1));
+    });
+}
