@@ -94,17 +94,6 @@ build moves to interface 7 (`tools/plugin-files7` packs it).
   `read-later-cloud`, name `token` / `account` (`secrets.md` 1.2, 7: the first segment is the owner), so
   Beta 3's token is found and not asked for again; nothing is migrated by the plugin.
 
-## Open: the library
-
-- The host side of the fetch: `HostWire` (core.net, core.secrets), `HostShelf` (core.library `import`
-  into the folder `Reader`, `delete`), the subscriptions (`http_done`, `page_turned`, `work_due`,
-  `stopping`), the set-up screen and the token question (copy `plugins/readwise/src/native_plugin.rs`
-  and `plugins/wallabag` on `port-b/wallabag-fetch-228`), `build.rs`, `native_entry.rs`, the metadata,
-  the notices (`read-later-cloud.fetching`, `.done`, ... exist in `i18n/`), and then the deletion of
-  the interface-6 code, `tests/fetch.rs` and the cases of `tests/acceptance_pending.rs` that are
-  done, the changelog fragment and the move from `tools/plugin-files` to `tools/plugin-files7`.
-  These wait for `Library::import`/`delete` in the SDK.
-
 ## The set-up and the fetch (`src/native_plugin.rs`, `src/native_fetch.rs`, `src/native_lists.rs`, `src/native_secret.rs`)
 
 - **The set-up** is a screen of `core.ui` rows (*Access token*, *Fetch articles*), as wallabag's: a masked
@@ -147,6 +136,8 @@ build moves to interface 7 (`tools/plugin-files7` packs it).
 - **A fetch a rule runs** is declared work that runs at once (`WorkSpec::new(..).network()`), as Joplin's;
   interface 6 declared it `when_cheap` after an hour where the reader was not the foreground plugin.
   The native action cannot tell foreground from background, so the fetch is the same in both.
+  If the host refuses the work declaration, the rule's fetch does not run and says nothing (the
+  action has no screen to tell it on); the fetch from the set-up screen is not affected.
 - A title, a location and an author are cut to 256 bytes (see above); the text of an article is still cut
   at 1 MiB.
 - `how` texts (`how/en.txt`, `how/de.txt`) are not registered: the registry has no "how it works" text

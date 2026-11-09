@@ -30,7 +30,7 @@ const CASES: [Case; 4] = [
         golden: None,
         blocked_by: &["NET", "FS", "EVENT-page-turned", "ANNOTATIONS"],
     },
-    // A fetch started by a rule runs as declared work at a cheap moment.
+    // A fetch started by a rule runs as declared work, at once.
     Case {
         name: "read-later-cloud-fetch-due",
         golden: None,
