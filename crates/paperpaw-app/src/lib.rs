@@ -238,17 +238,14 @@ pub fn install_with(
         .plugin(paperpaw_plugin_hyphenation::Hyphenation)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
-    // Files, Home and Menu keep their order; Files and Menu are native
-    // plugins, linked (`NATIVE_PLUGINS`), where the feature says.
+    // Files and Home keep their order; Files is a native plugin, linked
+    // (`NATIVE_PLUGINS`), where the feature says. The menu is native only: it
+    // has no interface-6 version left.
     #[cfg(not(feature = "native-linked"))]
     {
         b = b.plugin(paperpaw_plugin_files::Files);
     }
     b = b.plugin(paperpaw_plugin_home::Home);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_menu::Menu);
-    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_kosync::Kosync);
