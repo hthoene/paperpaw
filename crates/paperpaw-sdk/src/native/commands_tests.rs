@@ -903,3 +903,82 @@ fn a_host_refusal_of_lookup_ready_comes_back() {
     let mut sender = CommandSender::new(&host, &mut scratch);
     assert_eq!(sender.lookup_ready("word", "en"), Err(Error::State));
 }
+
+#[test]
+fn install_and_remove_commands_encode_with_their_flags() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender
+        .install_plugin(3, InstallRoot::Data, "staging/fonts-x", true, false)
+        .unwrap();
+    sender
+        .install_plugin(4, InstallRoot::Files, "a.ppn", false, true)
+        .unwrap();
+    sender.remove_plugin(5, "fonts-x").unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 3);
+    assert!(batches[0][0].contains("request: 3") && batches[0][0].contains("root: 0"));
+    assert!(batches[0][0].contains("flags: 1") && batches[0][0].contains("staging/fonts-x"));
+    assert!(batches[1][0].contains("root: 1") && batches[1][0].contains("flags: 2"));
+    assert!(batches[2][0].contains("request: 5") && batches[2][0].contains("fonts-x"));
+}
+
+#[test]
+fn install_and_remove_commands_refuse_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(
+        sender.install_plugin(0, InstallRoot::Data, "a", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_plugin(1, InstallRoot::Data, "", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(sender.remove_plugin(0, "a"), Err(Error::Invalid));
+    assert_eq!(sender.remove_plugin(1, ""), Err(Error::Invalid));
+    let long = "x".repeat(600);
+    assert!(
+        sender
+            .install_plugin(1, InstallRoot::Data, &long, false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(1, &long).is_err());
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn install_and_remove_commands_keep_the_wire_limits() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (path, id) = ("p".repeat(512), "i".repeat(64));
+    sender
+        .install_plugin(1, InstallRoot::Data, &path, false, false)
+        .unwrap();
+    sender.remove_plugin(2, &id).unwrap();
+    assert!(
+        sender
+            .install_plugin(3, InstallRoot::Data, &"p".repeat(513), false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(4, &"i".repeat(65)).is_err());
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}

@@ -3125,6 +3125,9 @@ pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::commands
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::InstallRoot
+pub paperpaw_sdk::native::commands::InstallRoot::Data
+pub paperpaw_sdk::native::commands::InstallRoot::Files
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::KeyBinding<'a>
 pub paperpaw_sdk::native::commands::KeyBinding::Action(&'a str)
 pub paperpaw_sdk::native::commands::KeyBinding::Default
@@ -3194,8 +3197,10 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_stop_scan(&mut 
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_take_back(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::install_plugin(&mut self, u32, paperpaw_sdk::native::commands::InstallRoot, &str, bool, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::remove_plugin(&mut self, u32, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_then(&mut self, paperpaw_sdk::native::ui::Open<'_>, paperpaw_sdk::native::commands::PowerAction) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::sleep(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>

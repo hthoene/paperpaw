@@ -2342,6 +2342,7 @@ enum paperpaw_sdk::native::callbacks::InputGestureKind { Tap, LongPress, SwipeLe
 enum paperpaw_sdk::native::callbacks::KeyState { Press, Release, Repeat }
 enum paperpaw_sdk::native::callbacks::PointerPhase { Down, Move, Up, Cancel }
 enum paperpaw_sdk::native::commands::RedrawMode { RedrawOnly, Fast, Partial, Full }
+enum paperpaw_sdk::native::commands::device::InstallRoot { Data, Files }
 enum paperpaw_sdk::native::commands::device::PowerAction { Sleep, PowerOff, Restart }
 enum paperpaw_sdk::native::commands::registry::KeyBinding<'a> { Action(0: &'a str), None, Default }
 enum paperpaw_sdk::native::commands::registry::PluginEnabled { On, Off }

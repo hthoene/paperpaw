@@ -16,7 +16,7 @@ mod lookup;
 pub(crate) mod menu_alloc_tests;
 mod registry;
 mod uix;
-pub use device::PowerAction;
+pub use device::{InstallRoot, PowerAction};
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };
