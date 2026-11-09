@@ -94,6 +94,23 @@ pub fn plan<'a, S: AsRef<str>, C: AsRef<str>>(
     }
 }
 
+/// What to do at start and on `plugins-changed` (event 70) for the stored
+/// `value`: bind another plugin's mode that is offered now, but only while the
+/// slot's binding is not the reader's (`reg_slot.flags` bit 0 clear:
+/// `user_bound` false). Never unbinds, and binds nothing for a mode of the
+/// plugin's own, an empty value or one nobody offers. The host does not resolve
+/// slots from `sleep.show`; this is the plugin's job.
+#[must_use]
+pub fn plan_stored<'a, S: AsRef<str>>(value: &str, offered: &'a [S], user_bound: bool) -> Bind<'a> {
+    if user_bound {
+        return Bind::Leave;
+    }
+    match binding(value, offered) {
+        Some(screen) => Bind::Screen(screen),
+        None => Bind::Leave,
+    }
+}
+
 /// What is at hand when the screen opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools, reason = "one fact each")]

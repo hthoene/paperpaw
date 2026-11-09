@@ -431,3 +431,33 @@ fn a_change_unbinds_only_a_sleep_mode_and_binds_an_offered_one() {
     apply(&mut slot, plan(GOAL, &[GOAL], None, &[GOAL]));
     assert_eq!(slot.as_deref(), Some(GOAL));
 }
+
+/// A stored value of Beta 3 (`reading-goal.sleep`) binds the slot at the first
+/// start and when the plugins change, where the reader has not bound it.
+#[test]
+fn a_beta_3_stored_value_binds_at_first_start() {
+    assert_eq!(plan_stored(GOAL, &[GOAL], false), Bind::Screen(GOAL));
+    // Its plugin is gone, or it is not offered for the slot: nothing to bind.
+    assert_eq!(plan_stored(GOAL, &["other.sleep"], false), Bind::Leave);
+    assert_eq!(plan_stored(GOAL, &[] as &[&str], false), Bind::Leave);
+    assert_eq!(plan_stored(OWN_SCREEN, &[OWN_SCREEN], false), Bind::Leave);
+    // Never an unbinding, whatever is stored.
+    for value in BUILT {
+        assert_eq!(plan_stored(value, &[GOAL], false), Bind::Leave, "{value:?}");
+    }
+}
+
+/// The reader's binding (bit 0) survives the start, event 70 (the same call)
+/// and a reset (the empty key runs the change's reconcile: a binding that is
+/// not a sleep mode stays, whatever `sleep.show` holds).
+#[test]
+fn a_binding_of_a_non_sleep_screen_survives_start_event_70_and_a_reset() {
+    for value in [GOAL, CAT, "gone.mode", ""] {
+        // Start and event 70: the reader's binding is never touched.
+        assert_eq!(plan_stored(value, &[GOAL], true), Bind::Leave, "{value:?}");
+        // A reset: the slot is bound to a screen no choice of `sleep.show`
+        // names, so a foreign value binds only if offered, and nothing unbinds.
+        let after = plan(value, &[] as &[&str], Some("other.tool-screen"), &[GOAL]);
+        assert_eq!(after, Bind::Leave, "{value:?}");
+    }
+}

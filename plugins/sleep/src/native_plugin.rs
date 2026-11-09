@@ -6,7 +6,7 @@
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 use crate::{
-    declarations::{EVENTS, SCREEN, SETTING_CHANGED},
+    declarations::{EVENTS, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
     native_screen::{Sleeping, read_text},
     native_sleep,
 };
@@ -73,6 +73,8 @@ impl Plugin for NativeSleep {
         let Some(event) = read_event!(
             incoming;
             kinds::Resume,
+            kinds::Started,
+            kinds::PluginsChanged,
             kinds::SettingChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
@@ -93,12 +95,17 @@ impl Plugin for NativeSleep {
                 Ok(())
             }
             Event::Resume { .. } if token == EVENTS => self.woke(host),
-            // Only an actual change of `sleep.show` binds or unbinds: at start,
-            // and for the empty key that asks every setting to be read again,
-            // the slot's binding is the reader's and stays.
-            Event::SettingChanged {
-                key: "sleep.show", ..
-            } if token == SETTING_CHANGED => self.bind_mode(host),
+            // At start and when the plugins changed: a stored foreign mode
+            // binds the slot where the reader has not bound it, never unbinds.
+            Event::Started { .. } if token == STARTED => self.bind_stored(host),
+            Event::PluginsChanged { .. } if token == PLUGINS_CHANGED => self.bind_stored(host),
+            // A change of `sleep.show`, or a bulk reset or import (the empty
+            // key): bind an offered foreign mode, unbind only a sleep mode.
+            Event::SettingChanged { key, .. }
+                if token == SETTING_CHANGED && matches!(key, "" | "sleep.show") =>
+            {
+                self.bind_mode(host)
+            }
             _ => Ok(()),
         }
     }
@@ -165,7 +172,7 @@ impl NativeSleep {
         if native_sleep::is_foreign(&value) {
             offered = self.candidates(host)?;
         } else {
-            current = self.bound(host)?;
+            current = self.bound(host)?.map(|(screen, _)| screen);
             choices = self.foreign_choices(host)?;
         }
         let screen = match native_sleep::plan(&value, &offered, current.as_deref(), &choices) {
@@ -182,8 +189,44 @@ impl NativeSleep {
         }
     }
 
-    /// The screen `core.sleep` is bound to now, by the reader or by default.
-    fn bound(&mut self, host: &Host<'_>) -> Result<Option<String>, Error> {
+    /// The start or a change of the plugins: binds a stored foreign mode that is
+    /// offered, unless the reader has bound the slot. Never unbinds. The same
+    /// rules for errors as [`Self::bind_mode`].
+    fn bind_stored(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        match self.try_bind_stored(host) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(()) | Err(_) => Ok(()),
+        }
+    }
+
+    fn try_bind_stored(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let value = read_text(host, "sleep.show")?;
+        if !native_sleep::is_foreign(&value) {
+            return Ok(());
+        }
+        let user_bound = self.bound(host)?.is_some_and(|(_, user)| user);
+        let offered = if user_bound {
+            Vec::new()
+        } else {
+            self.candidates(host)?
+        };
+        let native_sleep::Bind::Screen(screen) =
+            native_sleep::plan_stored(&value, &offered, user_bound)
+        else {
+            return Ok(());
+        };
+        let mut scratch = [0; BIND_SCRATCH];
+        match CommandSender::new(host, &mut scratch).bind_slot(native_sleep::SLOT, Some(screen)) {
+            Ok(()) | Err(Error::Invalid | Error::NotFound | Error::Denied | Error::Unsupported) => {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The screen `core.sleep` is bound to now, and whether the reader bound it
+    /// (`reg_slot.flags` bit 0).
+    fn bound(&mut self, host: &Host<'_>) -> Result<Option<(String, bool)>, Error> {
         let registry = self.registry(host)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut cursor = PageCursor::start();
@@ -191,7 +234,7 @@ impl NativeSleep {
             let page = registry.slots(host, cursor, &mut input, &mut out)?;
             for row in page.rows() {
                 if row.id() == native_sleep::SLOT {
-                    return Ok(Some(copy(row.screen())?));
+                    return Ok(Some((copy(row.screen())?, row.flags() & 1 != 0)));
                 }
             }
             match page.end().next_cursor() {

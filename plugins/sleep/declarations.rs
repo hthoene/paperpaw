@@ -10,6 +10,10 @@ use paperpaw_sdk::native::declare::{
 pub const SCREEN: u32 = 11;
 /// The event subscription's token.
 pub const EVENTS: u32 = 12;
+/// The start and the plugins changed (event 70): a stored foreign mode binds the
+/// slot where the reader has not bound it (`native_plugin`).
+pub const STARTED: u32 = 13;
+pub const PLUGINS_CHANGED: u32 = 15;
 /// A setting changed: a change of `sleep.show` binds or unbinds the slot
 /// (`native_plugin`); a start binds nothing.
 pub const SETTING_CHANGED: u32 = 14;
@@ -175,11 +179,15 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// The device waking closes the screen (`event.resume`); a change of
-/// `sleep.show` binds the slot `core.sleep` for the mode chosen.
+/// `sleep.show` (or a reset of every setting) binds or unbinds the slot
+/// `core.sleep` for the mode chosen, and the start and a change of the plugins
+/// bind a stored foreign mode where the reader has not bound the slot.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Resume, EVENTS)?;
+    d.subscribe_event(EventKind::Started, STARTED)?;
+    d.subscribe_event(EventKind::PluginsChanged, PLUGINS_CHANGED)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()
 }
