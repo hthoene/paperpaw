@@ -6,11 +6,14 @@ FIELDS = [('monotonic_ms', 'u64'), ('unix_seconds', 'i64'), ('width', 'u16'),
           ('height', 'u16'), ('dpi', 'u16'), ('pixel_kind', 'u16'),
           ('pixel_code', 'u16'), ('pixel_bits', 'u8'), ('percent', 'u8'),
           ('millivolts', 'u16'), ('charging', 'u8'), ('saver', 'u8'),
-          ('touch', 'u8'), ('reserved_tail', 'bytes3')]
+          ('touch', 'u8'), ('utc_offset_minutes', 'i16'), ('reserved_tail', 'bytes1')]
+PRESENCE = [('battery', 1), ('voltage', 2), ('unix', 4), ('utc_offset', 8)]
+# Minutes east of UTC: UTC-12:00 to UTC+14:00, every zone in use.
+UTC_OFFSET_MIN, UTC_OFFSET_MAX = -720, 840
 PIXELS = [('mono1', 'Mono1', 1), ('gray2', 'Gray2', 2), ('gray4', 'Gray4', 4),
           ('gray8', 'Gray8', 8), ('rgb565', 'Rgb565', 16), ('rgb888', 'Rgb888', 24),
           ('other', 'Other', 0)]
-SIZES = {'u8': 1, 'u16': 2, 'u32': 4, 'u64': 8, 'i64': 8, 'bytes3': 3}
+SIZES = {'u8': 1, 'u16': 2, 'i16': 2, 'u32': 4, 'u64': 8, 'i64': 8, 'bytes1': 1}
 
 
 def _require(ok, message):
@@ -39,8 +42,8 @@ def validate_snapshot(schema):
         _require(descriptor[key] == [dict(name=n, type=t) for n, t in expected],
                  'snapshot ' + key + ' shape')
     presence = descriptor['presence']
-    _require(type(presence) is list and len(presence) == 3, 'snapshot presence shape')
-    for item, (name, bit) in zip(presence, [('battery', 1), ('voltage', 2), ('unix', 4)]):
+    _require(type(presence) is list and len(presence) == len(PRESENCE), 'snapshot presence shape')
+    for item, (name, bit) in zip(presence, PRESENCE):
         _require(type(item) is dict and set(item) == {'name', 'bit'} and
                  item['name'] == name, 'snapshot presence shape')
         _integer(item['bit'], bit, bit)
@@ -99,6 +102,8 @@ def rust_snapshot(schema):
         replacements['@K_' + item['name'].upper() + '@'] = item['tag']
     for item in schema['statuses']:
         replacements['@' + item['name'] + '@'] = item['value']
+    replacements['@UTC_MIN@'] = UTC_OFFSET_MIN
+    replacements['@UTC_MAX@'] = UTC_OFFSET_MAX
     source = RUST
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
@@ -115,6 +120,11 @@ pub const SNAPSHOT_MAX_BYTES: usize = @MAX@;
 const BATTERY: u32 = @P_BATTERY@;
 const VOLTAGE: u32 = @P_VOLTAGE@;
 const UNIX: u32 = @P_UNIX@;
+const UTC_OFFSET: u32 = @P_UTC_OFFSET@;
+/// The least UTC offset a snapshot carries, in minutes (UTC-12:00).
+pub const SNAPSHOT_UTC_OFFSET_MIN: i16 = @UTC_MIN@;
+/// The greatest UTC offset a snapshot carries, in minutes (UTC+14:00).
+pub const SNAPSHOT_UTC_OFFSET_MAX: i16 = @UTC_MAX@;
 
 /// A local, owned view of the environment. No Rust layout crosses the ABI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,6 +146,10 @@ pub struct Snapshot {
     pub touch: bool,
     /// Display pixel format.
     pub pixel: PixelFormat,
+    /// Minutes east of UTC of the user's time zone now (daylight saving
+    /// included), in SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX,
+    /// when known.
+    pub utc_offset_minutes: Option<i16>,
 }
 
 impl Snapshot {
@@ -150,6 +164,7 @@ impl Snapshot {
             dpi,
             touch: false,
             pixel,
+            utc_offset_minutes: None,
         }
     }
 }
@@ -269,7 +284,11 @@ pub fn snapshot_encode(
     value: &Snapshot,
     out: &mut [core::mem::MaybeUninit<u8>],
 ) -> Result<usize, i32> {
-    if value.battery.is_some_and(|battery| battery.percent > 100) {
+    if value.battery.is_some_and(|battery| battery.percent > 100)
+        || value.utc_offset_minutes.is_some_and(|minutes| {
+            !(SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX).contains(&minutes)
+        })
+    {
         return Err(@ERR_INVALID@);
     }
     if out.len() < SNAPSHOT_BYTES {
@@ -290,6 +309,10 @@ pub fn snapshot_encode(
     if let Some(unix) = value.unix_seconds {
         presence |= UNIX;
         bytes[@UNIX_SECONDS_OFFSET@..@UNIX_SECONDS_END@].copy_from_slice(&unix.to_le_bytes());
+    }
+    if let Some(minutes) = value.utc_offset_minutes {
+        presence |= UTC_OFFSET;
+        bytes[@UTC_OFFSET_MINUTES_OFFSET@..@UTC_OFFSET_MINUTES_END@].copy_from_slice(&minutes.to_le_bytes());
     }
     bytes[@VERSION_OFFSET@..@VERSION_END@].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
     bytes[@TOTAL_BYTES_OFFSET@..@TOTAL_BYTES_END@].copy_from_slice(&(SNAPSHOT_BYTES as u32).to_le_bytes());
@@ -342,7 +365,7 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
         return Err(@ERR_INVALID@);
     }
     let presence = u32::from_le_bytes(scalar(bytes, @PRESENCE_OFFSET@));
-    if presence & !(BATTERY | VOLTAGE | UNIX) != 0 {
+    if presence & !(BATTERY | VOLTAGE | UNIX | UTC_OFFSET) != 0 {
         return Err(@ERR_UNSUPPORTED@);
     }
     if presence & VOLTAGE != 0 && presence & BATTERY == 0 {
@@ -353,6 +376,12 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
     }
     let unix = i64::from_le_bytes(scalar(bytes, @UNIX_SECONDS_OFFSET@));
     if presence & UNIX == 0 && unix != 0 {
+        return Err(@ERR_INVALID@);
+    }
+    let minutes = i16::from_le_bytes(scalar(bytes, @UTC_OFFSET_MINUTES_OFFSET@));
+    if (presence & UTC_OFFSET == 0 && minutes != 0)
+        || !(SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX).contains(&minutes)
+    {
         return Err(@ERR_INVALID@);
     }
     let percent = bytes[@PERCENT_OFFSET@];
@@ -395,6 +424,11 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
             u16::from_le_bytes(scalar(bytes, @PIXEL_CODE_OFFSET@)),
             bytes[@PIXEL_BITS_OFFSET@],
         )?,
+        utc_offset_minutes: if presence & UTC_OFFSET == 0 {
+            None
+        } else {
+            Some(minutes)
+        },
     })
 }
 '''

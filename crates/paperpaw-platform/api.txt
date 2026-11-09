@@ -225,6 +225,7 @@ pub paperpaw_platform::storage::StorageError::InvalidPath
 pub paperpaw_platform::storage::StorageError::Io
 pub paperpaw_platform::storage::StorageError::NotFound
 pub paperpaw_platform::storage::StorageError::Other(u16)
+pub paperpaw_platform::storage::StorageError::OutOfMemory
 pub paperpaw_platform::storage::StorageError::TooLarge
 pub paperpaw_platform::storage::StorageError::Unsupported
 impl paperpaw_platform::storage::StorageError
@@ -445,6 +446,7 @@ pub paperpaw_platform::StorageError::InvalidPath
 pub paperpaw_platform::StorageError::Io
 pub paperpaw_platform::StorageError::NotFound
 pub paperpaw_platform::StorageError::Other(u16)
+pub paperpaw_platform::StorageError::OutOfMemory
 pub paperpaw_platform::StorageError::TooLarge
 pub paperpaw_platform::StorageError::Unsupported
 impl paperpaw_platform::storage::StorageError

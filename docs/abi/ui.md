@@ -200,6 +200,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 | 1551 | `command.show_hints` | (none) |
 | 1552 | `command.raise_input` | `input: str 64` |
 | 1563 | `command.screen_policy` | `instance: u32`, `flags: u32` |
+| 1594 | `command.set_hint` | `action: str 128`, `kind: u32`, `label: str 64` |
 
 - [D] `open.mode`: 0 `screen` (open screen `target` on top), 1 `slot` (show the screen bound to slot
   `target`; if that slot is open already, close the screens above it and pass it the new hand-over),
@@ -225,6 +226,23 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   instance. Outside its own top screen `ERR_STATE`.
 - [D] `show_hints`: shows the row of button hints for a few seconds on a device with a hint row
   (`menu.need` 5); elsewhere `OK` and nothing.
+- [D] `set_hint` (draft 29, interface 6 `Screen::hint`): how the row of button hints labels the
+  button bound to `action` (a full action id, as key maps name it: `core.back`, the plugin's own)
+  while the submitter's own top instance shows. `kind` 0 the action's usual name (removes an
+  earlier `set_hint` for it), 1 the words in `label` (the plugin's own text, already translated;
+  empty `ERR_INVALID`), 2 the icon named by `label` (an `icon.spec` name or a host icon; unknown
+  `ERR_NOT_FOUND`), 3 hidden (the button does nothing here); other kinds `ERR_INVALID`, and
+  `label` is empty for kinds 0 and 3. Kind 3 is `ERR_DENIED` for the actions that are the user's
+  way out: `core.back`, the pinned actions (the main menu's opener, the settings editor's entry,
+  sleep, power off, restart; `registry.md` section 4.2) and the Power key's escape; their hint is
+  never hidden by a plugin. The labels go with the instance and end when it closes; a second
+  `set_hint` for one action replaces the first; at most 8 actions per instance (a ninth
+  `ERR_NO_SPACE`). Outside its own top screen `ERR_STATE`. On a device without a hint row `OK` and
+  nothing, as `show_hints`. The host draws the words with its own rules (smaller, two lines, then
+  shortened); a label never moves or adds a button. **Memory:** the host keeps each label as
+  given, at most 8 × (128 + 64 + 4) = 1,568 bytes per instance on the X4, charged to the
+  submitter's heap budget (`abi/heap-word.md` section 4; `ERR_NO_MEMORY` when it is spent, the
+  earlier labels kept), and frees them when the instance closes.
 - [D] `raise_input`: raises an input as written in key maps (`button.menu`, `double-tap.center`,
   or the submitter's own `input.<plugin>.<name>` / `gesture.<plugin>.<name>`): it runs what the
   layers shown bind it to, as if it came from the device. Another plugin's input or gesture, the
@@ -241,7 +259,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   | Slot | Shows | Hand-over params |
   | --- | --- | --- |
   | `core.home` | the start screen | none |
-  | `core.reader` | a book | `path` (required), `root` |
+  | `core.reader` | a book | `path` (required), `root`, `page`, `section`, `offset`, `conversion` (`document.md` 1) |
   | `core.library` | the library | none |
   | `core.menu` | a menu, an overlay | `menu` (required: the menu id, rows by `core.registry` op 12), `depth`, `mode` (the menu screen's own) |
   | `core.panel` | a menu as a panel of controls, an overlay | `menu` (required), as `core.menu` |
@@ -580,7 +598,13 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   widget kinds or a catalog key of the plugin's own, `previews` the settings group it previews
   (empty for none), `cells` columns in bits 0-7 and rows in bits 8-15 (0: the grid's width and the
   rows it needs), `token` its callback state; `flags` bit 0 `live` (read each minute; without it
-  only after events). REG op 19 lists them.
+  only after events), bit 2 `square` (as wide as high; interface 6 `SizeHint::square`). **Size
+  hint (draft 29, interface 6 `SizeHint`):** `cells` bits 16-23 the least columns and bits 24-31
+  the least rows (0: one); a declared column or row count under its least, a square widget that
+  declares two different sides, or a square widget's declared side under either least, is
+  `ERR_INVALID` at admission (a square widget's side is at least the larger least). The host and
+  a home screen never lay a widget out below its least, and keep a square one square. REG op 19 lists them,
+  with `cells` and `square` (`reg_widget`).
 - [D] `widget.place` declares where widgets show (interface 6 `WidgetPlace`): `list_keys` the
   settings that list them (full ids, one per line, at most 8: a grid's pages each one), `layout`
   0 grid, 1 stack; `shown_if_key` and `shown_if_value`: the place shows only while that setting
@@ -808,6 +832,9 @@ its caps (hand-off).
 
 ### 8.2 Memory (X4)
 
+"The X4" in the limits of this section and of `core.ui` means the 256 KiB heap profile: the X4
+and every device of that profile (the X3 too), not the model.
+
 - Instances: one entry per open instance (about 16 bytes; the stack is at most 16 deep, deeper opens
   are `ERR_FULL`) plus its hand-over's params, kept while it is open, stored encoded (at most 1,313
   bytes each). On the X4 the params of all instances share 1,536 bytes (op 16 `ERR_FULL` beyond):
@@ -858,7 +885,13 @@ its caps (hand-off).
   answer `ERR_UNSUPPORTED` on the X4 until it passes.
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
-  bytes); each table is one allocation of its cap, made at its first use.
+  bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
+  listed for its owner until `event.widget_dropped` (85) is delivered at the widget's token, so
+  live instances and drops not yet delivered share the cap: op 4 answers `ERR_FULL` while the
+  waiting drops fill it (#599), and makes again once they are delivered. The entry ends at the
+  first delivery attempt, whatever its outcome (the callback returned, failed or trapped), and at
+  once when delivery cannot happen: the owner stopped (`owner_stopped`), unloaded or switched off,
+  or the start went without code plugins (safe mode). A dead owner never pins the cap.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
 - Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4

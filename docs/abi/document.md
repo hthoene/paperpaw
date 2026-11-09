@@ -82,6 +82,17 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
+- [D] **Opening a book at a place** (interface 6: open, then the reader's `goto`; notes-overview,
+  vocabulary, stats, search, todo 167): the hand-over may also carry `section` and `offset` (decimal
+  `u32`, the format's text coordinates as in `lib_position` and `lib_annotation`'s start) and
+  optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
+  opens the book there instead of at its last position, as if the user had jumped there (the place
+  is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
+  is not the document's (the book was prepared again since), or the place is past the section's end,
+  the reader opens at the last position as without them: never an error, never a wrong place. A
+  `section` without `offset` (or the reverse), or a value that is not a decimal number, is ignored
+  the same way. The host passes the params through unchecked (`ui.md` section 1); the readers read
+  them (Plugin's reader ports). No host change, no new record.
 
 ## 2. The service `core.document` (major 1)
 
@@ -225,13 +236,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `doc_meta` (interface 6 `Metadata`): `title: str 512`, `language: str 35`, `series: str 512`,
   `series_index: str 32`, `direction` (0 left to right, 1 right to left), `writing_mode` (0
-  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `authors`, `subjects`
-  (their counts, no cap), `description_bytes`, `flags` (bit 0 the title was cut, bit 1 the series).
-  Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`, `kind` 0 title, 1 author, 2
-  subject, 3 description, 4 series; `index` below the count, else `ERR_NOT_FOUND`; `offset`) answers
-  one `doc_text` (`kind`, `index`, `total` its whole length, `text` at most 1,024 bytes from
-  `offset`, cut at a UTF-8 boundary): an opener lists every author and subject by index and reads
-  any text whole by offsets. Nothing is cut for good and nothing is left out.
+  horizontal, 1 vertical right to left, 2 vertical left to right, 3 and 4 sideways, section 4),
+  `sections`, `authors`, `subjects` (their counts, no cap), `description_bytes`, `flags` (bit 0 the
+  title was cut, bit 1 the series). Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`,
+  `kind` 0 title, 1 author, 2 subject, 3 description, 4 series; `index` below the count, else
+  `ERR_NOT_FOUND`; `offset`) answers one `doc_text` (`kind`, `index`, `total` its whole length,
+  `text` at most 1,024 bytes from `offset`, cut at a UTF-8 boundary): an opener lists every author
+  and subject by index and reads any text whole by offsets. Nothing is cut for good and nothing is
+  left out.
 
 ### 2.3 Navigation and links
 
@@ -383,6 +395,24 @@ meaning (the format's own split of a very long paragraph).
   `i32::MIN` / `u32::MAX` for "the reader's" (interface 6 `None`); `style` the interface-6
   `TextStyle` bits unchanged (they are already a stable `u32`); `lang` a BCP 47 tag, empty for
   unknown.
+- [D] **Direction, writing mode, language** (interface 6 `Block.dir`, `writing_mode`, `lang`,
+  `inline_langs`; the SDK's `lang::Direction`, `lang::WritingMode`, `Lang`): `dir` 0 auto (the first
+  strong letter, UAX #9 P2/P3), 1 left to right, 2 right to left; `writing_mode` 0 horizontal top to
+  bottom, 1 vertical right to left, 2 vertical left to right, 3 sideways right to left, 4 sideways
+  left to right (`doc_meta.writing_mode` uses the same numbers). A later value the reader does not
+  know reads as 0 (auto, horizontal), never an error, so a newer format still opens in an older
+  reader; the reader lays out horizontal lines only, as interface 6. `lang` is interface 6's
+  `Block.lang` as a BCP 47 tag (language, script, region; `Lang`'s text form): the element's own
+  (`lang`, `xml:lang`, inherited), else the book's (`doc_meta.language`), as the format resolves it;
+  empty only when neither is known (`Lang::NONE`). The `doc_inline_lang`s are `inline_langs` in
+  order: a run's `TextStyle::lang_index` n names the n-th (from 1), 0 the block's `lang`; an index
+  past the list reads as the block's `lang`.
+- [D] **Annotations** (`doc_ruby`, interface 6 `Annotation`, now re-exported as
+  `paperpaw_sdk::document::{Annotation, AnnotationKind}`): `kind` 0 ruby, 1 phonetic, 2 gloss, 3+n
+  `Other(n)` (n at most 65,535); a value the reader does not know reads as a gloss, as
+  `AnnotationKind::Other` says. `size` is the percent of the text below, 0 for the reader's. A
+  footnote or note text is **not** an annotation: it stays a link to its target (`doc_link`, section
+  2.3) as in interface 6; a format sends a gloss only for a text meant to stand above the words.
 - [D] Inserted blocks and `leading_above` are the reader's (its text filters, #964); formats answer
   none, as in interface 6.
 
@@ -447,7 +477,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
   is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
   `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
-  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
+  resumable decoder replaces this rule if it fails. A `side` above 1,600 is clamped to 1,600, not
+  refused (`image_prepare` and op 16 alike); `event.image_ready` reports the width and height
+  actually made. `event.image_ready` (to the
   caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
@@ -478,7 +510,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
   when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
   or another picture holds it), dithers each call on its own (Atkinson within the call), never an
-  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
+  columns, so a part redrawn alone matches the whole; for a wider rectangle, or where the device's
+  draw scratch does not hold the full width, only the visible columns are dithered and a redrawn
+  part may differ slightly (never an error). These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
   spends its own heap under its own budget.
   Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
   not flags.
@@ -497,13 +532,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
-  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
-  MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
-  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the
-  document's opener: for any other plugin `ERR_NOT_FOUND`), which the host
-  resolves to that cache file and renders from the card like a card font. A damaged font is
-  `ERR_INVALID` at `font.acquire` (the reader falls back to the user's font and counts it, interface
-  6 `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
+  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16 MiB,
+  interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a font
+  handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the document's
+  opener: for any other plugin `ERR_NOT_FOUND`), which the host resolves to that cache file and
+  renders from the card like a card font. Face `index` i is the root-6 file `fonts/<i>` (decimal, no
+  extension), the format's to write; the host opens nothing else, and a file whose size is not the
+  row's `bytes` is `ERR_INVALID` at `font.acquire`. A damaged font is `ERR_INVALID` at
+  `font.acquire` (the reader falls back to the user's font and counts it, interface 6
+  `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
   text call) and are released as usual.
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws

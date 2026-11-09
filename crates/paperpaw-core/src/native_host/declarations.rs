@@ -458,8 +458,8 @@ fn spec_check(plugin_id: &str, spec: &SettingSpec<'_>) -> Check {
     }
 }
 
-/// 1 to 32 distinct, non-empty values of at most 96 bytes; `default` is one.
-/// Refused as soon as a 33rd value starts, so at most 32 values are compared.
+/// 1 to 64 distinct, non-empty values of at most 96 bytes; `default` is one.
+/// Refused as soon as a 65th value starts, so at most 64 values are compared.
 fn choices_check(choices: &str, default: &str) -> Check {
     let mut count = 0;
     let mut found = false;

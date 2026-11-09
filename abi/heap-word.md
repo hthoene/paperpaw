@@ -171,8 +171,9 @@ typedef struct PpHeap {
   and name the plugin. Never unwinds into the host.
 - [D] **No usable heap word.** Where the word is 0, the table's `size` does not cover `abort`, or
   the word is missing, the panic handler has nowhere to report: it executes the profile's trap
-  instruction (`unimp` on RISC-V, `ud2` on x86_64). The X4's crash slot then blames the frame owner as
-  for any fault. A test builds a plugin whose word is 0 and shows the trap path is taken.
+  instruction (`unimp` on RISC-V, `ill` on Xtensa, `ud2` on x86_64). The X4's crash slot then
+  blames the frame owner as for any fault. A test builds a plugin whose word is 0 and shows the trap
+  path is taken.
 - [D] **No re-entry by formatting.** The handler copies a literal message (`as_str`) without
   formatting; only a message with arguments is formatted, which runs the plugin's own `Display`
   code. A panic inside that code re-enters the handler and recurses until the stack overflows (no
@@ -201,6 +202,74 @@ typedef struct PpHeap {
     dispatch entries after #235) count against `LIMIT` too; their budget is checked in #254.
   - Firmware sets the constants in #250 and #252.
   Hosted targets end the process on the overflow.
+- [D] **The ESP32-S3's band (X4 Pro, X4 Classic; decision 142, draft 29).** The S3 has neither
+  the X4's store trigger over a 2 KiB region (its data breakpoints cover at most 64 bytes, and
+  esp-hal and esp-rtos already use one for the task guard words) nor a stack-pointer monitor (the
+  debug assistant's SP monitor is absent on the S3; it would also see the radio tasks' stacks).
+  The band is the **debug assistant's region monitor** instead: `ASSIST_DEBUG` DRAM0 area 0, write
+  monitoring, on the core that runs plugin calls (core 1 too where started). It watches any range,
+  sees every CPU store into it, the window spills' `s32e` included, and never sees another task's
+  stack. Rejected: the 64-byte watchpoint (any frame over 64 bytes steps over it), the PMS/World
+  Controller (block and split-line granularity, built for isolation, not a band), and a canary with
+  a headroom check (after the fact; a headroom check at entry bounds nothing the plugin does after
+  it). The paint check (`stack::check`) and esp-hal's guard word stay as they are.
+  - **It is an interrupt, not an exception.** The store into the band completes and the interrupt
+    follows a few instructions later; the band is spare stack, so that store harms nothing. It runs
+    at the highest level esp-hal lets Rust handle (`Priority3`). The host never runs plugin code at
+    an interrupt level of 3 or more: the dispatch entry reads `PS.INTLEVEL` and refuses the call
+    when it is not 0 (logged once, the plugin is not run), and the packer refuses plugin code that
+    can raise it (below). The handler first disables the monitor, then panics like the X4's band
+    (crash slot, frame owner blamed).
+  - **Window spills (Xtensa only).** A windowed function stores nothing when it is entered: `entry`
+    only moves `a1`, and the return address stays in a register. A frame's own stores lie at or
+    above its `sp - 16` (the 16-byte base save area below each `sp` holds its caller's `a0`-`a3`
+    once spilled; the call8 extra save area lies inside the caller's frame). So a chain of frames
+    can walk `sp` through the band with no store, and the store that catches it is a spill: the
+    caller of the first frame whose `sp` lies in the band spills into that frame's base save area,
+    inside the band. Spills happen at the latest when the register file overflows, and at every
+    interrupt or exception (xtensa-lx-rt spills all windows on entry). With 64 address registers
+    and call8 (a rotation of 8), at most 7 windows are live; the caller and the frame in the band
+    take 2, so at most **6 frames** run below the band before the spill, each under `LIMIT`.
+  - **Rules:** `LIMIT` = 2,048 bytes as on the X4, counted as the `entry` operand plus the 16-byte
+    base save area. `BAND` = 2,048 bytes, 16-aligned (no power-of-two alignment needed): every frame
+    moves `sp` by less than `BAND - 16`, so some frame's `sp` lands in `[band + 16, band + BAND]`
+    and its base save area lies in the band. `RESERVE = 6 * LIMIT + DEPTH`, with `DEPTH` the larger
+    of the handler's and an interrupt's measured depth plus 256 bytes (2,048 assumed, the S3's
+    exception frame being 256 bytes plus the spills): 14,336 bytes between the stack's end and the
+    band, 16 KiB with the band. The S3's `STACK_FLOOR` grows by that over the measured deepest path
+    (some 33 KiB): about 50 KiB, from the internal heap (`HEAP_SIZE`); PSRAM keeps the rest.
+  - **Firmware on the chain (Senior M1).** The six-frame bound holds for the whole call chain,
+    not only the plugin's code: a plugin calls into the firmware (host slots, shared-table
+    entries, the dispatch entries), and those frames run on the same stack below the band. So on
+    the S3, as on the X4, every firmware function a plugin's call can reach keeps its frame
+    (`entry` operand plus 16) under `LIMIT`, and the whole chain calls with `call8` or `call12`
+    only: a `call4` chain (ROM or C code compiled for it, reached through a host slot) fits up to
+    14 windows in the register file and could run 14 frames below the band before the spill. The
+    S3 firmware build runs the same frame and call-width scan over every function reachable from
+    the host table and the shared table (Firmware's check, `frame-budget-ppn5.txt`); the band is
+    armed, and `band_armed()` can be true, only in a build where that check passed. A firmware
+    function that fails it is fixed (smaller frame, `call8`), never waived; a ROM function called
+    with `call4` is wrapped or not reachable from a host slot.
+  - **Packer, target 9:** refuses in plugin code `call0`, `callx0`, `call4` and `callx4` (more
+    windows per register file; `call8` and `call12` stay); any write to `a1` but `entry`'s
+    (`movsp`, `mov`, `addi`, loads into `a1`); and the instructions that change the interrupt level
+    or the window state: `rsil`, `wsr`, `xsr`, `rotw`, `s32e`, `l32e`, `waiti` and every `rf*`
+    return-from-exception. `rsr`, `rur` and `wur` stay (no ring or level is changed by them).
+  - **Armed:** `stack::band_armed()` is true on the S3 only after the monitor's bounds and enables
+    read back as set and a self-test at start passed: with its interrupt not yet enabled, one store
+    into the band sets the monitor's raw bit, which is then cleared and the interrupt enabled. The
+    loader refuses every format-5 file while it is false, as on the X4.
+  - **Device checklist (S3), owner-approved tests:** S1 the monitor fires on a plain store and on a
+    window-overflow `s32e` into the band, both bounds' inclusiveness, and the store-to-handler
+    latency; S2 the start self-test passes on the X4 Pro and the X4 Classic; S3 `HANDLER` and
+    `INTERRUPT` measured (the stack note, as G7); S4 the overflow test: a test plugin descends with
+    `call8` frames just under `LIMIT` that store nothing, and the crash slot blames it with the
+    paint below the reserve intact, once with Wi-Fi traffic arriving at the band; S5 no false
+    firing in an hour of reading with Wi-Fi and Bluetooth on; S6 the deepest legitimate path on
+    the S3 fits above the band (the stack note's `left`); S7 the 16 KiB of band and reserve come
+    out of the S3's internal RAM (`STACK_FLOOR` about 50 KiB, `HEAP_SIZE` less by as much): the
+    X4 Pro and X4 Classic start, connect to Wi-Fi (and Bluetooth on the Pro) and open a large book
+    with the smaller internal heap, its low-water mark logged.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
 

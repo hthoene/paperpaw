@@ -87,7 +87,6 @@ use alloc::vec::Vec;
 
 use paperpaw_document::ImageRef;
 use paperpaw_graphics::Canvas;
-use paperpaw_image::GrayFile;
 use paperpaw_platform::{Color, Point, Rect, Storage};
 
 use crate::builtin::{actions, fonts, settings};

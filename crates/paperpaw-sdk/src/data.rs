@@ -114,6 +114,9 @@ pub enum Error {
     /// Not text, or not as the format says.
     Unreadable,
     Storage(StorageError),
+    /// The memory to read the file was not there: nothing was read or
+    /// changed, and the file is not to be taken for missing or empty.
+    OutOfMemory,
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
@@ -133,6 +136,7 @@ impl From<Error> for StorageError {
     fn from(e: Error) -> Self {
         match e {
             Error::Storage(e) => e,
+            Error::OutOfMemory => StorageError::OutOfMemory,
             Error::Newer(_) | Error::Unreadable | Error::Other(_) => StorageError::InvalidData,
         }
     }
@@ -205,6 +209,45 @@ impl Format {
             Err(e) => return Err(Error::Storage(e)),
         };
         Ok(Some(self.read(&text)?.into_owned()))
+    }
+
+    /// [`Format::load`] without an infallible allocation: the file is read
+    /// once into one fallible reservation, and its first line of version
+    /// is cut off in place, so a device short of memory gets
+    /// [`Error::OutOfMemory`] instead of an abort. A file of an older
+    /// version is upgraded by the format's steps, which allocate as
+    /// they always did (the library's [`Format::FIRST`] has none).
+    ///
+    /// # Errors
+    /// As [`Format::load`], and [`Error::OutOfMemory`].
+    pub fn try_load(
+        &self,
+        storage: &dyn Storage,
+        path: &str,
+        limit: usize,
+    ) -> Result<Option<String>, Error> {
+        let loaded = crate::files::try_load_text_for_update(storage, path, limit);
+        let mut text = match loaded {
+            Ok(Some(text)) => text,
+            Ok(None) => return Ok(None),
+            Err(Error::Storage(StorageError::InvalidData)) => return Err(Error::Unreadable),
+            Err(e) => return Err(e),
+        };
+        let version = Self::version_of(&text);
+        if version > self.version {
+            return Err(Error::Newer(version));
+        }
+        if version == 0 {
+            return Err(Error::Unreadable);
+        }
+        if version < self.version {
+            return Ok(Some(self.read(&text)?.into_owned()));
+        }
+        if version > 1 {
+            let cut = text.find('\n').map_or(text.len(), |at| at + 1);
+            text.drain(..cut);
+        }
+        Ok(Some(text))
     }
 
     /// `body` as a file of this version: with its first line from version

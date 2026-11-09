@@ -1264,7 +1264,10 @@ impl Settings {
     /// the default is the setting's own or the device's. The default only:
     /// the reader's own value may be set over it ([`Settings::is_set`]).
     pub fn default_from(&self, id: &str) -> Option<&Id> {
-        self.defaults_by.get(id).map(|set| &set.by)
+        self.defaults_by
+            .get(id)
+            .and_then(|set| set.layers.last())
+            .map(|layer| &layer.by)
     }
 
     paperpaw_table::shared! {
