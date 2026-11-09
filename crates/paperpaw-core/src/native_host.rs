@@ -145,6 +145,7 @@ pub(crate) mod host_services;
 )]
 pub(crate) mod hyphen_card;
 pub(crate) mod hyphen_service;
+pub(crate) mod dialog_pump;
 pub(crate) mod image_pump;
 #[allow(
     dead_code,

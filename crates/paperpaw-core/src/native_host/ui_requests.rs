@@ -400,6 +400,53 @@ impl UiStore {
         Ok(())
     }
 
+    /// The asker's callback of `who` returned a failure: what it asked in that
+    /// callback never starts (`not_started`, no dialog opens).
+    pub(crate) fn callback_failed(&self, who: Stamp) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        for at in 0..inner.requests.len() {
+            let request = &inner.requests[at];
+            if request.asker == who.owner && request.phase == (Phase::Asked { epoch: who.epoch }) {
+                Self::cancel_at(&mut inner, at, NOT_STARTED);
+            }
+        }
+        Ok(())
+    }
+
+    /// No callback is running (the dialog pump runs between callbacks): every
+    /// request still asked has had its callback return, so it starts, or is
+    /// cancelled with `not_started` when its initial text was left begun.
+    pub(crate) fn callbacks_over(&self) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        for at in 0..inner.requests.len() {
+            if !matches!(inner.requests[at].phase, Phase::Asked { .. }) {
+                continue;
+            }
+            let request = &inner.requests[at];
+            if request.text.bytes > 0 && !request.text.committed {
+                Self::cancel_at(&mut inner, at, NOT_STARTED);
+            } else {
+                inner.requests[at].phase = Phase::Starting;
+            }
+        }
+        Ok(())
+    }
+
+    /// The oldest request whose dialog the stack has yet to open.
+    pub(crate) fn next_starting(&self) -> Option<Start> {
+        let inner = self.inner.try_borrow().ok()?;
+        inner
+            .requests
+            .iter()
+            .find(|r| r.phase == Phase::Starting)
+            .map(|r| Start {
+                request: r.id,
+                kind: r.kind,
+                remote: r.remote,
+                secret: r.secret,
+            })
+    }
+
     /// The stack opened the dialog of a starting request.
     pub(crate) fn dialog_opened(&self, request: u32, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner()?;
@@ -652,6 +699,13 @@ impl UiStore {
             length: answer.length,
             flags,
         })
+    }
+
+    /// Whether an answer waits for `asker`.
+    pub(crate) fn has_delivery(&self, asker: u64) -> bool {
+        self.inner
+            .try_borrow()
+            .is_ok_and(|inner| inner.requests.iter().any(|r| r.asker == asker && r.pending.is_some() && !r.delivering))
     }
 
     /// The callback that delivered `request` returned: a final answer frees the
