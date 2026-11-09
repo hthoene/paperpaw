@@ -41,6 +41,8 @@ use embedded_hal::spi::SpiDevice;
 use paperpaw_platform::{FrameView, PixelFormat, Rotation};
 
 use crate::bands::{self, Window};
+
+mod rect;
 use crate::waveform;
 
 /// The panel, as the controller addresses it.
@@ -235,6 +237,9 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     /// The panel shows grays ([`Display::refresh_gray`]): the next refresh
     /// drives every pixel.
     gray: bool,
+    /// The next fast refresh leaves the grays on the panel as they are
+    /// ([`Display::start_refresh_keeping_grays`], #218).
+    keep_grays: bool,
     /// How dark the grays between come out.
     tone: GrayTone,
     /// How fast refreshes are shown, in place of the panel's own, while
@@ -262,6 +267,7 @@ where
             fresh: true,
             rotation: Rotation::Deg0,
             gray: false,
+            keep_grays: false,
             tone: GrayTone::default(),
             experiment: None,
             buffer: Vec::new(),
@@ -490,14 +496,17 @@ where
     /// waiting for it: the processor works on meanwhile (the bus is free
     /// for the card). [`Display::wait`] before anything else is sent.
     pub fn start_refresh(&mut self, refresh: Refresh, power_off: bool) -> Result<(), Error> {
-        // After grays, every pixel is driven back to black or white.
-        let refresh = if self.fresh || (self.gray && refresh == Refresh::Fast) {
+        // After grays, every pixel is driven back to black or white, unless
+        // both memories were made the frame shown in black and white and
+        // only the pixels that differ are to change (#218).
+        let keep = core::mem::take(&mut self.keep_grays) && self.gray && !self.fresh;
+        let refresh = if self.fresh || (self.gray && !keep && refresh == Refresh::Fast) {
             Refresh::Half
         } else {
             refresh
         };
         self.fresh = false;
-        self.gray = false;
+        self.gray = keep;
         // A fast refresh compares with the frame shown; the others
         // drive every pixel.
         let compare = if refresh == Refresh::Fast { 0x00 } else { 0x40 };
@@ -628,6 +637,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    mod rect;
     use super::*;
     use alloc::rc::Rc;
     use alloc::vec;

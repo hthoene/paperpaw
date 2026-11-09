@@ -79,6 +79,10 @@ remote = [
 # X4's panel is driven, with other waveforms than the stock ones. The X4
 # only; developer builds.
 waveform-lab = []
+# Experiment (#218, `src/firmware/gray_clock.rs`): on an X4 with a gray home
+# screen, a change of the clock drives only the clock's rectangle and keeps
+# the grays; chosen by `gray-clock.txt` on the card. Not for release.
+gray-clock = []
 # The frame test built in (`samples/frame-test`, ADR 0030), for measuring
 # frames a second, blits and the heap on the device: test builds only.
 frame-test = ["dep:paperpaw-sample-frame-test"]
