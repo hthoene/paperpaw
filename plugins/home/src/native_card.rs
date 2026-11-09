@@ -17,7 +17,7 @@ use paperpaw_ui_kit::{
     },
 };
 
-use crate::native_recent::{self, Book, Covered, Pictures};
+use crate::native_recent::{self, Book, Covered, Known, Pictures};
 
 /// The card's one target: a tap on it opens the book, or the library.
 pub const TARGET: u32 = 1;
@@ -139,12 +139,12 @@ pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     icons: Option<&Font<'_>>,
-    pictures: &mut Pictures,
+    (pictures, known): (&mut Pictures, &Known),
     area: Rect,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let host = cx.host;
-    let Some(book) = native_recent::read(host, 0, 1)?.into_iter().next() else {
+    let Some(book) = native_recent::read(host, known, 0, 1)?.into_iter().next() else {
         return empty(cx, out, icons, &look);
     };
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
@@ -320,5 +320,7 @@ fn empty(
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
 pub fn shows(host: &paperpaw_sdk::native::Host<'_>) -> Result<u64, Error> {
-    Ok(native_recent::signature(&native_recent::read(host, 0, 1)?))
+    Ok(native_recent::signature(&native_recent::read_listed(
+        host, 0, 1,
+    )?))
 }

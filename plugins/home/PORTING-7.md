@@ -110,8 +110,9 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
   which writes with `set_setting` as *Add* does.
 - The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
   a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
-- The host admits every declaration home makes and refuses `make` at the commit
-  (`Lifecycle(DeclarationViewsUnavailable)`, #944, `tests/hosted_construction.rs`).
+- The host admits every declaration home makes and `make` runs to the end in the real registered
+  scope (`tests/hosted_construction.rs`; it was refused with `DeclarationViewsUnavailable` before
+  the registry views were wired).
 
 ### What legacy removal deletes
 
@@ -323,14 +324,17 @@ Differences from interface 6 (each deliberate):
   (the widget tells its maker it changed); an image id the host ended is asked for again on the next
   draw. The plugin may hold 8 image ids: a card and a shelf of six use seven, so a second shelf
   on the screen may show titles alone.
-- A book gone from the card is not left out of the card or the shelf (interface 6 checked each
-  file): a card whose newest book is gone shows that book where interface 6 showed the next one, and
-  a tap on a gone book does nothing. The host tells a gone book only on library op 3
-  (`lib_book.flags` bit 8 `missing`), which the SDK's `library::Book` does not expose yet (asked of
-  Kernel: `Book::missing()`); the follow-up reads op 3 for the books of a draw (not of a tick, so the
-  tick's library cost stays one query per instance) with fallible buffers.
+- A book whose file is gone is left out, as in interface 6 (which filtered once when it built the
+  shelf): the instance asks the library about each book it shows (`library.book`, op 3,
+  `Book::missing()`, draft 34; the host looks at the card for each) once per catalog generation
+  and keeps the answer (key and gone), so a redraw or a tap does not ask again. It asks anew when
+  the generation changes or when the tick finds that what the widget shows changed. A file that
+  goes with the list unchanged is noticed then, not at the next draw. The tick itself asks only the
+  catalog's list (one query per instance). At most ten rows are read, and only until the books
+  shown are found. The buffers (1 KiB and 4 KiB more per read) are on the device measurement list
+  below.
 - Each tick asks the library once per card or shelf instance, and each draw takes two 4 KiB buffers
-  for the query and one 1 KiB and one 4 KiB for each cover: both are measured on the device before
+  for the query, two more for the book calls, and one 1 KiB and one 4 KiB for each cover: both are measured on the device before
   activation (they are on the activation gate list).
 - The titles are the library's row titles (cut by the host at 128 bytes), not the file's.
 - The book count of the shelf is limited by one library page (at most 9 books after the current
@@ -365,4 +369,4 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
 | options' *Settings* (`HOME-item-settings`) | | (c) plugin work |
 | grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
-| hosted construction | #944 | host admits all declarations; refuses at the commit until the registry views are wired (`DeclarationViewsUnavailable`); hosted harness #788 (train 6) |
+| hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |

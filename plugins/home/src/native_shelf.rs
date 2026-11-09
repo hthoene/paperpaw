@@ -18,7 +18,7 @@ use paperpaw_ui_kit::{
     },
 };
 
-use crate::native_recent::{self, Book, Covered, MOST, Pictures};
+use crate::native_recent::{self, Book, Covered, Known, MOST, Pictures};
 use crate::native_source::mm;
 
 /// How wide a cover's place is at least, in millimetres.
@@ -50,9 +50,9 @@ fn columns(settings: &Settings<'_, '_>, dpi: u16, width: u16) -> Result<(usize, 
 ///
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
-pub fn books(cx: &Cx<'_>) -> Result<Vec<Book>, Error> {
+pub fn books(cx: &Cx<'_>, known: &Known) -> Result<Vec<Book>, Error> {
     let (fit, _) = cx_columns(cx, cx.snapshot.display_width())?;
-    native_recent::read(cx.host, 1, fit)
+    native_recent::read(cx.host, known, 1, fit)
 }
 
 fn cx_columns(cx: &Cx<'_>, width: u16) -> Result<(usize, u16), Error> {
@@ -80,8 +80,8 @@ fn labels(cx: &Cx<'_>) -> Result<(u16, u16), Error> {
 ///
 /// # Errors
 /// The host's refusals, font refusals and [`Error::NoMemory`].
-pub fn height(cx: &Cx<'_>, width: u16) -> Result<(u16, u16), Error> {
-    if books(cx)?.is_empty() {
+pub fn height(cx: &Cx<'_>, known: &Known, width: u16) -> Result<(u16, u16), Error> {
+    if books(cx, known)?.is_empty() {
         return Ok((0, 0));
     }
     let (_, cell) = cx_columns(cx, width)?;
@@ -174,8 +174,8 @@ fn parts(cx: &mut Cx<'_>, area: Rect, count: usize) -> Result<Parts, Error> {
 ///
 /// # Errors
 /// The host's refusals, font refusals and [`Error::NoMemory`].
-pub fn targets(cx: &mut Cx<'_>, area: Rect) -> Result<Vec<(u32, Rect)>, Error> {
-    let count = books(cx)?.len();
+pub fn targets(cx: &mut Cx<'_>, known: &Known, area: Rect) -> Result<Vec<(u32, Rect)>, Error> {
+    let count = books(cx, known)?.len();
     let inner = cx.shape.look(area).area;
     let parts = parts(cx, inner, count)?;
     let mut found = Vec::new();
@@ -193,10 +193,10 @@ pub fn targets(cx: &mut Cx<'_>, area: Rect) -> Result<Vec<(u32, Rect)>, Error> {
 pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
-    pictures: &mut Pictures,
+    (pictures, known): (&mut Pictures, &Known),
     area: Rect,
 ) -> Result<(), Error> {
-    let books = books(cx)?;
+    let books = books(cx, known)?;
     // Nothing read before the current book: nothing to show.
     if books.is_empty() {
         return Ok(());
@@ -310,7 +310,6 @@ pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
     let snapshot = capture_snapshot(host)?;
     let settings = Settings::new(host, widget);
     let (fit, _) = columns(&settings, snapshot.display_dpi(), snapshot.display_width())?;
-    Ok(native_recent::signature(&native_recent::read(
-        host, 1, fit,
-    )?))
+    let listed = native_recent::read_listed(host, 1, fit)?;
+    Ok(native_recent::signature(&listed))
 }

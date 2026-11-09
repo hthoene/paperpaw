@@ -21,7 +21,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{icons, mem::buffer, paint, text::copy, widget::Cx};
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF};
-use crate::native_recent::{self, Pictures};
+use crate::native_recent::{self, Known, Pictures};
 use crate::{native_card, native_clock, native_date, native_shelf};
 
 /// The most bytes of a stage reply (sizes and no targets).
@@ -40,6 +40,8 @@ struct Item {
     /// A cover it drew was still being made: the next tick asks the screen to
     /// draw it again.
     waiting: Cell<bool>,
+    /// The books of the card or the shelf whose files the host found gone.
+    known: Known,
 }
 
 /// The instances the screens made of the widgets.
@@ -78,6 +80,7 @@ impl Widgets {
             widget: copy(widget)?,
             shown: None,
             waiting: Cell::new(false),
+            known: Known::default(),
         });
         Ok(())
     }
@@ -116,7 +119,7 @@ impl Widgets {
                 let (height, least) = match item.token {
                     DATE => same(native_date::height(&mut cx, width)?),
                     CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
-                    SHELF => native_shelf::height(&cx, width)?,
+                    SHELF => native_shelf::height(&cx, &item.known, width)?,
                     _ => same(native_clock::height(&mut cx, width)?),
                 };
                 call.reply_size(u32::from(height), u32::from(least), &mut out)?
@@ -142,7 +145,7 @@ impl Widgets {
                             clamp(i64::from(rect.width)),
                             clamp(i64::from(rect.height)),
                         );
-                        for (id, at) in native_shelf::targets(&mut cx, area)? {
+                        for (id, at) in native_shelf::targets(&mut cx, &item.known, area)? {
                             let target = WidgetTarget::new(id, paint::frame_rect(at));
                             paperpaw_ui_kit::mem::push(&mut found, target)?;
                         }
@@ -183,8 +186,14 @@ impl Widgets {
         };
         match item.token {
             DATE => native_date::draw(&mut cx, &mut out, area)?,
-            CARD => native_card::draw(&mut cx, &mut out, icons.as_ref(), &mut pictures, area)?,
-            SHELF => native_shelf::draw(&mut cx, &mut out, &mut pictures, area)?,
+            CARD => native_card::draw(
+                &mut cx,
+                &mut out,
+                icons.as_ref(),
+                (&mut pictures, &item.known),
+                area,
+            )?,
+            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, &item.known), area)?,
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         item.waiting.set(pictures.busy);
@@ -229,11 +238,13 @@ impl Widgets {
             return Ok(false);
         }
         let book = match item.token {
-            CARD => native_recent::read(host, 0, 1)?.into_iter().next(),
+            CARD => native_recent::read(host, &item.known, 0, 1)?
+                .into_iter()
+                .next(),
             SHELF => {
                 let cx = Cx::open(host, &item.widget)?;
                 let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
-                native_shelf::books(&cx)?.into_iter().nth(at)
+                native_shelf::books(&cx, &item.known)?.into_iter().nth(at)
             }
             _ => return Ok(false),
         };
@@ -266,6 +277,10 @@ impl Widgets {
             let instance = item.instance;
             // A cover that was being made is drawn again at the next minute, whatever
             // the books show.
+            if item.shown.is_some_and(|before| before != now) {
+                // The books changed: the card is asked about their files anew.
+                item.known.forget();
+            }
             let waited = item.waiting.replace(false);
             if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()

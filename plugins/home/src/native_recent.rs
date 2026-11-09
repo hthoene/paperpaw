@@ -2,6 +2,7 @@
 //! last, from the library service (the catalog follows the reading events, so any
 //! reader plugin works), and a book's cover as a picture the host draws.
 use alloc::{string::String, vec::Vec};
+use core::cell::RefCell;
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -46,13 +47,70 @@ pub fn with_library<T>(
     Ok(done)
 }
 
-/// The `take` books opened after the first `skip`, the one opened last first.
-/// A book never opened is not recent: the list ends there. An empty or walking
-/// catalog has none yet.
+/// Which books of a catalog generation the host found gone, kept by an instance
+/// so that a redraw or a tap does not ask the card again: asked once per book
+/// and generation (the host looks at the card for each `library.book`), and
+/// again when the generation changes or the instance forgets (the tick found
+/// what it shows changed).
+#[derive(Debug, Default)]
+pub struct Known {
+    held: RefCell<(u32, Vec<(u32, bool)>)>,
+}
+
+impl Known {
+    fn gone(&self, generation: u32, key: u32) -> Option<bool> {
+        let held = self.held.borrow();
+        if held.0 != generation {
+            return None;
+        }
+        held.1
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, gone)| *gone)
+    }
+
+    fn remember(&self, generation: u32, key: u32, gone: bool) -> Result<(), Error> {
+        let mut held = self.held.borrow_mut();
+        if held.0 != generation {
+            *held = (generation, Vec::new());
+        }
+        mem::push(&mut held.1, (key, gone))
+    }
+
+    /// What the host said is not kept any more.
+    pub fn forget(&self) {
+        *self.held.borrow_mut() = (0, Vec::new());
+    }
+}
+
+/// The `take` books opened after the first `skip` whose files are on the card,
+/// the one opened last first. A book never opened is not recent: the list ends
+/// there. An empty or walking catalog has none yet. A book's file is looked up
+/// by the host when it answers `library.book` (op 3), so a gone book costs one
+/// call more; only as many books as are shown are asked about.
 ///
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
-pub fn read(host: &Host<'_>, skip: usize, take: usize) -> Result<Vec<Book>, Error> {
+pub fn read(host: &Host<'_>, known: &Known, skip: usize, take: usize) -> Result<Vec<Book>, Error> {
+    recent(host, Some(known), skip, take)
+}
+
+/// [`read`] without asking about the files: the books the catalog lists, for
+/// telling at each tick whether what a widget shows changed (the draw asks
+/// about the files, so the tick's library cost stays one query).
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub fn read_listed(host: &Host<'_>, skip: usize, take: usize) -> Result<Vec<Book>, Error> {
+    recent(host, None, skip, take)
+}
+
+fn recent(
+    host: &Host<'_>,
+    known: Option<&Known>,
+    skip: usize,
+    take: usize,
+) -> Result<Vec<Book>, Error> {
     let want = skip.saturating_add(take).min(PAGE);
     if want <= skip {
         return Ok(Vec::new());
@@ -65,13 +123,22 @@ pub fn read(host: &Host<'_>, skip: usize, take: usize) -> Result<Vec<Book>, Erro
         let query = Query::new().sort(Sort::RecentlyOpened);
         let page = library.query(host, &query, &mut input, &mut out)?;
         let generation = page.end().generation();
+        let (mut ask, mut answer) = (mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?);
         let mut books = Vec::new();
-        for (n, row) in page.rows().enumerate().take(want) {
+        let mut seen = 0;
+        for row in page.rows() {
             let row = row?;
-            if !row.opened() {
+            if !row.opened() || seen == want {
                 break;
             }
-            if n < skip {
+            if let Some(known) = known {
+                let (key, buffers) = (row.key(), (&mut ask[..], &mut answer[..]));
+                if gone(host, library, (known, generation, key), buffers)? {
+                    continue;
+                }
+            }
+            seen += 1;
+            if seen <= skip {
                 continue;
             }
             books.try_reserve(1).map_err(|_| Error::NoMemory)?;
@@ -84,6 +151,29 @@ pub fn read(host: &Host<'_>, skip: usize, take: usize) -> Result<Vec<Book>, Erro
         }
         Ok(books)
     })
+}
+
+/// Whether the file of the book `key` is not on the card now. A book the
+/// catalog no longer has (a newer generation) is not asked about again: it is
+/// kept, as the query just listed it.
+fn gone(
+    host: &Host<'_>,
+    library: &Library,
+    (known, generation, key): (&Known, u32, u32),
+    (ask, answer): (&mut [u8], &mut [u8]),
+) -> Result<bool, Error> {
+    if let Some(gone) = known.gone(generation, key) {
+        return Ok(gone);
+    }
+    let reference = BookRef::catalog(key, generation)?;
+    let gone = match library.book(host, reference, ask, answer) {
+        Ok(book) => book.missing(),
+        Err(Error::NotFound) => true,
+        Err(Error::State) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    known.remember(generation, key, gone)?;
+    Ok(gone)
 }
 
 /// What `books` show, to tell when it changed: their keys, titles and how far
