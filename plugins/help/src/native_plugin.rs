@@ -48,6 +48,7 @@ struct Row {
     screen: String,
     instance: Instance,
     setup: bool,
+    waits: bool,
 }
 
 /// The hints over a screen.
@@ -125,10 +126,7 @@ impl Plugin for NativeHelp {
                 ..
             } => self.shown(host, token, instance),
             Event::ScreenReady { screen, .. } if token == READY => self.explain(host, screen),
-            Event::StackChanged { .. } if token == STACK => {
-                let rows = self.stack(host)?;
-                self.covered(host, &rows)
-            }
+            Event::StackChanged { .. } if token == STACK => self.stacked(host),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -218,6 +216,7 @@ impl NativeHelp {
                         screen: copy(row.screen())?,
                         instance: row.instance(),
                         setup: row.slot() == paperpaw_sdk::builtin::slots::SETUP.as_str(),
+                        waits: row.waits_ready(),
                     },
                 )?;
             }
@@ -240,6 +239,21 @@ impl NativeHelp {
             }
         }
         Ok(())
+    }
+
+    /// The stack changed: hints another screen covers close, and the screen now
+    /// on top gets its hints as it comes back to the top (interface 6 opened
+    /// them whenever a screen returned there), unless it waits until it is
+    /// ready: `event.screen_ready` opens those.
+    fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let rows = self.stack(host)?;
+        self.covered(host, &rows)?;
+        match rows.first() {
+            Some(top) if top.screen != OVERLAY_SCREEN && !top.waits => {
+                self.explain_with(host, &top.screen, &rows)
+            }
+            _ => Ok(()),
+        }
     }
 
     fn explain(&mut self, host: &Host<'_>, screen: &str) -> Result<(), Error> {
@@ -275,6 +289,8 @@ impl NativeHelp {
             _ => true,
         };
         if !on
+            // Hints are open already (or about to be): not twice.
+            || rows.first().is_some_and(|row| row.screen == OVERLAY_SCREEN)
             || rows.iter().any(|row| row.setup)
             || screen.split('.').next() == Some("help")
             || !has_hints(host, self.ui()?, screen)?

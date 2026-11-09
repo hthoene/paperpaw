@@ -12,10 +12,11 @@ with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata
 
 The plugin registers for `event.screen_ready` (87: the host raises it after the first draw of
 another plugin's screen, or the screen sends it itself when it `waits_ready`) and for
-`event.stack_changed` (81: hints that another screen now covers are closed; the top of the stack
-covers nothing). It does not register for `event.screen_shown` (38): the host refuses that
+`event.stack_changed` (81: hints that another screen now covers are closed, and the screen now on
+top gets its hints when it is not waiting for ready, as interface 6 did whenever a screen returned
+to the top; hints already on top are not opened twice). It does not register for `event.screen_shown` (38): the host refuses that
 registration, 38 goes to a screen's own token, which is how the plugin's own screens learn they
-are shown. A test pins that no event registration names 38 or 39.
+are shown. A test pins that the host takes both registrations (it refuses 38 and 39).
 
 ## Ported
 
