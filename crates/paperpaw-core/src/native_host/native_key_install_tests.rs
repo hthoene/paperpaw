@@ -95,6 +95,16 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             ],
             &mut bytes,
         ),
+        // Conditioned on a setting nobody declares: never bound.
+        109 => wire::records_encode(
+            &[bind(
+                "factory.screen",
+                "long.menu",
+                "factory.done",
+                ("nobody.declares-this", "true"),
+            )],
+            &mut bytes,
+        ),
         _ => return ERR_INVALID,
     }
     .unwrap();
@@ -175,19 +185,41 @@ fn a_binding_with_a_condition_binds_while_the_setting_holds_it() {
     assert!(kernel.native_key_when("core.night-pictures"));
     assert!(!kernel.native_key_when("core.other"));
     assert!(!kernel.native_key_when(""));
+    // The kernel's own hook for a changed setting builds it (`config.rs`).
+    let id = crate::Id::parse("core.night-pictures").unwrap();
     kernel
         .shared
         .settings
-        .set(
-            "core.night-pictures",
-            paperpaw_sdk::SettingValue::Bool(true),
-        )
+        .set(id.as_str(), paperpaw_sdk::SettingValue::Bool(true))
         .unwrap();
-    kernel.rebuild_keymap();
+    kernel.setting_changed(&id);
     assert_eq!(
         bound(&kernel, "factory.screen", "long.menu").as_deref(),
         Some("factory.done")
     );
+    // And off again: the binding leaves the key map.
+    kernel
+        .shared
+        .settings
+        .set(id.as_str(), paperpaw_sdk::SettingValue::Bool(false))
+        .unwrap();
+    kernel.setting_changed(&id);
+    assert_eq!(bound(&kernel, "factory.screen", "long.menu"), None);
+    // A change of another setting leaves the key map as it is.
+    let other = crate::Id::parse("core.night-mode").unwrap();
+    kernel.setting_changed(&other);
+    assert_eq!(bound(&kernel, "factory.screen", "long.menu"), None);
+}
+
+#[test]
+fn a_binding_on_a_setting_nobody_declares_stays_off() {
+    let mut kernel = fresh();
+    install_with(&mut kernel, 109).unwrap();
+    assert_eq!(rows(&kernel), 1);
+    kernel.rebuild_keymap();
+    assert_eq!(bound(&kernel, "factory.screen", "long.menu"), None);
+    // It is a condition on that setting, so a change of it is watched.
+    assert!(kernel.native_key_when("nobody.declares-this"));
 }
 
 #[test]

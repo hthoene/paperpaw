@@ -6,8 +6,9 @@
 //! built (`Kernel::rebuild_keymap`), after the plugins' key map sources and
 //! before the device's and the user's, so the user's bindings win. A row with
 //! a condition (`when_key`, `when_value`) binds while that setting has that
-//! value, as `shown_if` reads it; a change of that setting builds the key map
-//! anew.
+//! value; a setting nobody declares holds nothing, so the binding stays off
+//! (interface 6 read a missing switch as off). A change of that setting builds
+//! the key map anew.
 use super::{
     declaration_store::Kind, native_declarations::NativeDeclarations, registrations::Record,
     registry_service::rules::value_holds,
@@ -15,6 +16,13 @@ use super::{
 use crate::keymap::Keymap;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Settings;
+
+/// Whether a binding's condition holds: none, or the declared setting has the
+/// value. A setting that is not declared is off (unlike `shown_if`, which shows
+/// what it cannot judge), so a binding never acts on a switch nobody owns.
+fn condition_holds(settings: &Settings, key: &str, value: &str) -> bool {
+    key.is_empty() || (settings.spec(key).is_some() && value_holds(settings, key, value))
+}
 
 impl NativeDeclarations {
     /// Each declared binding whose condition holds, as `(layer, input,
@@ -28,7 +36,7 @@ impl NativeDeclarations {
         store.keys(Kind::KeyBind, &mut |key| {
             store.with_record(key, &mut |record| {
                 if let Record::KeyBind(bind) = record
-                    && value_holds(settings, bind.when_key, bind.when_value)
+                    && condition_holds(settings, bind.when_key, bind.when_value)
                 {
                     visit(bind.layer, bind.input, bind.action);
                 }
