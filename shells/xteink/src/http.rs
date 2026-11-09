@@ -82,6 +82,11 @@ const UPLOAD_PART: usize = 1024;
 enum Phase {
     /// Waiting for the network, or for a free connection.
     Waiting,
+    /// A request core made (interface 7) that was redirected from `http` to
+    /// `https`: the plain connection is closed, the request waits as it is
+    /// (URL, redirects so far, method, body, headers) until core starts it
+    /// again, which it does once the one TLS session is its.
+    Parked,
     Resolving(net::Query, u16),
     Exchanging {
         link: Link,
@@ -122,6 +127,12 @@ struct Call {
     /// connection takes it.
     waiter: Option<Waiter>,
     slot: Option<Slot>,
+    /// Core's (interface 7): `save_to` is a staged file that exists, written
+    /// by appends and never renamed or removed here; a redirect from `http`
+    /// to `https` parks the request.
+    staged: bool,
+    /// Parked just now: core is not yet told.
+    just_parked: bool,
 }
 
 /// The requests going on.
@@ -131,6 +142,8 @@ pub struct Calls {
     /// A connection stalled without an answer: the radio starts anew
     /// before its request is made once more ([`Calls::take_restart`]).
     restart: bool,
+    /// Requests parked since the last [`Calls::take_parked`].
+    parked: Vec<u32>,
 }
 
 impl Calls {
@@ -138,7 +151,18 @@ impl Calls {
     /// replaces it (the kernel passes over the earlier one's answer), so
     /// that two never write one file.
     pub fn add(&mut self, call: HttpCall) {
-        if let Some(path) = &call.save_to {
+        self.add_as(call, false);
+    }
+
+    /// Starts a request of core (interface 7): its `save_to` is the staged
+    /// file core made (empty), which this appends to and never renames.
+    #[cfg(feature = "ppn5")]
+    pub fn add_staged(&mut self, call: HttpCall) {
+        self.add_as(call, true);
+    }
+
+    fn add_as(&mut self, call: HttpCall, staged: bool) {
+        if !staged && let Some(path) = &call.save_to {
             for earlier in &mut self.calls {
                 if earlier
                     .call
@@ -151,6 +175,11 @@ impl Calls {
             }
         }
         let sink = match &call.save_to {
+            Some(path) if staged => Sink::File {
+                part: path.clone(),
+                buf: Vec::new(),
+                started: true,
+            },
             Some(path) => Sink::File {
                 part: alloc::format!("{path}.part"),
                 buf: Vec::new(),
@@ -173,7 +202,64 @@ impl Calls {
             again: false,
             waiter: None,
             slot: None,
+            staged,
+            just_parked: false,
         });
+    }
+
+    /// The ids of requests parked since the last call.
+    #[cfg(feature = "ppn5")]
+    pub fn take_parked(&mut self) -> Vec<u32> {
+        core::mem::take(&mut self.parked)
+    }
+
+    /// Core starts a parked request again: it goes on as it was (the
+    /// redirects so far and the address it was sent to stay). `false` when
+    /// no request `id` is parked.
+    #[cfg(feature = "ppn5")]
+    pub fn resume(&mut self, id: u32) -> bool {
+        let Some(call) = self
+            .calls
+            .iter_mut()
+            .find(|c| c.call.id == id && matches!(c.phase, Phase::Parked))
+        else {
+            return false;
+        };
+        call.phase = Phase::Waiting;
+        call.until = now_ms() + OFFLINE_MS;
+        true
+    }
+
+    /// Whether request `id` is parked.
+    #[cfg(feature = "ppn5")]
+    pub fn is_parked(&self, id: u32) -> bool {
+        self.calls
+            .iter()
+            .any(|c| c.call.id == id && matches!(c.phase, Phase::Parked))
+    }
+
+    /// Drops request `id` with no answer: its connection is let go, and no
+    /// storage is touched (core removes the staged file after this).
+    #[cfg(feature = "ppn5")]
+    pub fn abort(&mut self, id: u32, net: Option<&mut Net>) {
+        if let Some(at) = self.calls.iter().position(|c| c.call.id == id) {
+            let mut call = self.calls.remove(at);
+            if let Some(net) = net {
+                call.stop(net);
+            }
+        }
+    }
+
+    /// Drops every request with no answer (the network went; core was told).
+    #[cfg(feature = "ppn5")]
+    pub fn clear(&mut self, net: Option<&mut Net>) {
+        let mut net = net;
+        for mut call in core::mem::take(&mut self.calls) {
+            if let Some(net) = net.as_deref_mut() {
+                call.stop(net);
+            }
+        }
+        self.parked.clear();
     }
 
     /// Whether the radio is to start anew (once taken, until a connection
@@ -203,7 +289,7 @@ impl Calls {
 
     /// Requests are going on.
     pub fn busy(&self) -> bool {
-        !self.calls.is_empty()
+        self.calls.iter().any(|c| !matches!(c.phase, Phase::Parked))
     }
 
     /// Moves every request on; the answers of those done. `net` is `None`
@@ -222,12 +308,12 @@ impl Calls {
             let open = self
                 .calls
                 .iter()
-                .filter(|c| !matches!(c.phase, Phase::Waiting))
+                .filter(|c| !matches!(c.phase, Phase::Waiting | Phase::Parked))
                 .count();
             let secure = self
                 .calls
                 .iter()
-                .filter(|c| !matches!(c.phase, Phase::Waiting) && c.secure())
+                .filter(|c| !matches!(c.phase, Phase::Waiting | Phase::Parked) && c.secure())
                 .count();
             if self.calls[at].replaced {
                 let mut call = self.calls.remove(at);
@@ -247,6 +333,9 @@ impl Calls {
                 None => Some(Err("no network")),
                 Some(net) => call.step(net, storage, may_open),
             };
+            if core::mem::take(&mut call.just_parked) {
+                self.parked.push(call.call.id);
+            }
             if let Some(Err(SILENT)) = outcome
                 && paperpaw_x4::stall::stalled(false, call.again)
                     == paperpaw_x4::stall::Stalled::Again
@@ -312,15 +401,16 @@ impl Call {
     /// One step on; the outcome once there is one.
     fn step(&mut self, net: &mut Net, storage: &dyn Storage, may_open: bool) -> Option<Outcome> {
         let now = now_ms();
-        if now > self.deadline {
+        if now > self.deadline && !matches!(self.phase, Phase::Parked) {
             return Some(Err("timed out"));
         }
-        if net.address().is_none() && !matches!(self.phase, Phase::Waiting) {
+        if net.address().is_none() && !matches!(self.phase, Phase::Waiting | Phase::Parked) {
             // The address went: what was open on it is gone.
             return Some(Err("no network"));
         }
         match self.phase {
             Phase::Waiting => self.start(net, storage, may_open, now),
+            Phase::Parked => None,
             Phase::Resolving(query, port) => {
                 let resolved = net.resolved(query);
                 if resolved.is_some() {
@@ -530,8 +620,18 @@ impl Call {
             self.call.body_from = None;
         }
         redirect.keep(&mut self.call.headers);
+        let upgrade = self.staged
+            && !Url::parse(&self.url).is_some_and(|url| url.https)
+            && Url::parse(&redirect.url).is_some_and(|url| url.https);
         self.stop(net);
         self.url = redirect.url;
+        if upgrade {
+            // The plain connection is closed; core starts the request again
+            // when the TLS session is its.
+            self.phase = Phase::Parked;
+            self.just_parked = true;
+            return None;
+        }
         self.phase = Phase::Waiting;
         self.until = now_ms() + OFFLINE_MS;
         None
@@ -540,7 +640,7 @@ impl Call {
     /// Lets the connection or lookup go.
     fn stop(&mut self, net: &mut Net) {
         match core::mem::replace(&mut self.phase, Phase::Waiting) {
-            Phase::Waiting => {}
+            Phase::Waiting | Phase::Parked => {}
             Phase::Resolving(query, _) => net.forget(query),
             Phase::Exchanging { link, .. } => net.release(link.socket),
         }
@@ -554,6 +654,15 @@ impl Call {
                 // Kept to the most the request takes.
                 answer.truncated = self.got > body.len() as u64;
                 answer.body = body;
+            }
+            Sink::File { part, buf, .. } if self.staged => {
+                // Core's staged file: what is gathered is appended, and
+                // core renames it over the target.
+                if !buf.is_empty() && storage.append(&part, &buf).is_err() {
+                    let reason = "could not write the file";
+                    return HttpResponse::failed(self.call.id, HttpError::Io, reason);
+                }
+                answer.saved = true;
             }
             Sink::File { part, buf, started } => {
                 let path = self.call.save_to.as_deref().unwrap_or_default();
@@ -579,6 +688,10 @@ impl Call {
 
     /// Removes what a failed request wrote.
     fn discard(&self, storage: &dyn Storage) {
+        // Core's staged file is core's to remove.
+        if self.staged {
+            return;
+        }
         if let Sink::File {
             part,
             started: true,

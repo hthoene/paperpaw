@@ -21,6 +21,8 @@
 //! and the `Instant` given to [`Kernel::tick`] are the same one, so that the
 //! deadline the kernel wakes at is the services'.
 
+mod http;
+
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -28,14 +30,15 @@ use core::cell::{Cell, RefCell};
 
 use log::{info, warn};
 use paperpaw_core::native_host::shell_wiring::{
-    Connect, NetPowerEnd, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls, SockTransport,
-    TlsFailure, TlsOpen, UntrustedWhy,
+    Connect, NetPowerEnd, NetReports, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls,
+    SockTransport, TlsFailure, TlsOpen, UntrustedWhy,
 };
 use paperpaw_core::sdk::{CertificateHash, Distrust, KeyHash, SocketError, Trust};
 use paperpaw_core::{Effects, Kernel, SocketCall, SocketEvent, TlsSetup};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY};
-use paperpaw_platform::Instant;
+use paperpaw_platform::{Instant, Storage};
 
+use crate::http::Calls;
 use crate::net::Net;
 use crate::sockets::Sockets;
 
@@ -52,7 +55,6 @@ const HANDSHAKE_MS: u32 = 30_000;
 const BROADCAST_MS: u32 = 11_000;
 
 /// What one step of the sockets came to, before it is reported.
-#[derive(Debug)]
 enum Out {
     /// A socket's event.
     Socket(SocketEvent),
@@ -60,11 +62,14 @@ enum Out {
     Writable(u32),
     /// The network went: every socket core holds ends.
     NetworkLost,
+    /// What the HTTP requests came to.
+    Net(http::NetOut),
 }
 
 /// The reports core gave the shell to make them with.
 struct Wired {
-    sockets: SockReports,
+    net: Option<NetReports>,
+    sockets: Option<SockReports>,
 }
 
 struct Inner {
@@ -84,6 +89,18 @@ struct Inner {
     reports: Option<Wired>,
     /// A network was up at the last step.
     was_up: bool,
+    /// The HTTP requests of core (`core.net`).
+    http: Calls,
+    /// The card, for the answers written to a staged file.
+    storage: Option<Rc<dyn Storage>>,
+    /// Requests core ended (or never resumed): their connections go.
+    aborts: Vec<u32>,
+    /// Requests' most body bytes (request, bytes).
+    caps: Vec<(u32, usize)>,
+    /// Requests were going on at the last step with a network.
+    http_was: bool,
+    /// A request stalled without an answer: the radio starts anew.
+    restart: bool,
 }
 
 /// The shell side of `core.sockets`, shared by the loader (which wires core
@@ -113,6 +130,12 @@ impl Bridge {
                 retry: Vec::new(),
                 reports: None,
                 was_up: false,
+                http: Calls::default(),
+                storage: None,
+                aborts: Vec::new(),
+                caps: Vec::new(),
+                http_was: false,
+                restart: false,
             }),
             up: Cell::new(false),
             online: Cell::new(true),
@@ -120,27 +143,36 @@ impl Bridge {
     }
 
     /// Keeps the reports core gave for what was wired.
-    pub fn wired(&self, sockets: Option<&SockReports>) {
-        if let Some(sockets) = sockets {
-            self.inner.borrow_mut().reports = Some(Wired {
-                sockets: sockets.clone(),
-            });
-        }
+    pub fn wired(
+        &self,
+        storage: Rc<dyn Storage>,
+        net: Option<&NetReports>,
+        sockets: Option<&SockReports>,
+    ) {
+        let mut inner = self.inner.borrow_mut();
+        inner.storage = Some(storage);
+        inner.reports = Some(Wired {
+            net: net.cloned(),
+            sockets: sockets.cloned(),
+        });
     }
 
     /// Whether a socket is open or asked for: the radio stays awake and the
     /// main loop comes by again soon.
     pub fn moving(&self) -> bool {
         self.inner.try_borrow().map_or(true, |inner| {
-            !inner.calls.is_empty() || !inner.retry.is_empty() || inner.sockets.moving()
+            !inner.calls.is_empty()
+                || !inner.retry.is_empty()
+                || inner.sockets.moving()
+                || inner.http.busy()
         })
     }
 
     /// Whether a socket is open (the radio does not doze).
     pub fn open(&self) -> bool {
-        self.inner
-            .try_borrow()
-            .map_or(true, |inner| inner.sockets.any() || !inner.calls.is_empty())
+        self.inner.try_borrow().map_or(true, |inner| {
+            inner.sockets.any() || !inner.calls.is_empty() || inner.http.busy()
+        })
     }
 
     /// One step with the radio on a network: what core asked is done, what
@@ -180,12 +212,15 @@ impl Bridge {
             out.push(Out::Socket(event));
         }
         inner.settle(&mut out);
+        if inner.http_online(net, clock_ready, &mut out) {
+            inner.restart = true;
+        }
         out
     }
 
     /// One step with no network up: what was open is let go and core is told
     /// the network is gone, once.
-    fn step_offline(&self, net: Option<&mut Net>) -> Vec<Out> {
+    fn step_offline(&self, mut net: Option<&mut Net>) -> Vec<Out> {
         self.up.set(false);
         let mut out = Vec::new();
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
@@ -195,7 +230,7 @@ impl Bridge {
         // Released on the network they were opened on; core hears one
         // `network_lost`, not a failure per socket.
         let had = inner.sockets.any() || !inner.calls.is_empty() || inner.was_up;
-        drop(inner.sockets.lost_events(net));
+        drop(inner.sockets.lost_events(net.as_deref_mut()));
         inner.forget_all();
         inner.calls.clear();
         inner.connects.clear();
@@ -203,6 +238,7 @@ impl Bridge {
         if had {
             out.push(Out::NetworkLost);
         }
+        inner.http_offline(net, &mut out);
         out.append(&mut inner.retry);
         out
     }
@@ -211,17 +247,17 @@ impl Bridge {
     /// that core took; the kernel's effects for the main loop to apply.
     fn report(&self, out: Vec<Out>, kernel: &mut Kernel, now: Instant) -> Vec<Effects> {
         let mut effects = Vec::new();
-        let Some(sockets) = self
-            .inner
-            .try_borrow()
-            .ok()
-            .and_then(|inner| inner.reports.as_ref().map(|w| w.sockets.clone()))
-        else {
+        let Some((net, sockets)) = self.inner.try_borrow().ok().and_then(|inner| {
+            inner
+                .reports
+                .as_ref()
+                .map(|wired| (wired.net.clone(), wired.sockets.clone()))
+        }) else {
             return effects;
         };
         let mut later = Vec::new();
         for item in out {
-            match self.report_one(&sockets, item) {
+            match self.report_one(net.as_ref(), sockets.as_ref(), item) {
                 Ok(()) => effects.push(kernel.tick(now)),
                 Err(item) => later.push(item),
             }
@@ -234,12 +270,28 @@ impl Bridge {
         effects
     }
 
-    /// One report; the item again where core had the table borrowed.
-    fn report_one(&self, sockets: &SockReports, item: Out) -> Result<(), Out> {
+    /// One report; the item again where core had the table borrowed. A
+    /// report for a service that is not wired is dropped.
+    fn report_one(
+        &self,
+        net: Option<&NetReports>,
+        sockets: Option<&SockReports>,
+        item: Out,
+    ) -> Result<(), Out> {
+        if let Out::Net(report) = item {
+            let Some(net) = net else {
+                return Ok(());
+            };
+            return self.report_net(net, report).map_err(Out::Net);
+        }
+        let Some(sockets) = sockets else {
+            return Ok(());
+        };
         let result = match &item {
             Out::Writable(id) => sockets.writable(*id),
             Out::NetworkLost => sockets.network_lost(),
             Out::Socket(event) => self.report_socket(sockets, event),
+            Out::Net(_) => return Ok(()),
         };
         match result {
             Err(ERR_BUSY) => Err(item),
@@ -612,6 +664,14 @@ impl Bridge {
             Some(net) => self.step_online(net, now, clock_ready),
             None => self.step_offline(radio.net()),
         };
+        if self
+            .inner
+            .try_borrow_mut()
+            .is_ok_and(|mut inner| core::mem::take(&mut inner.restart))
+        {
+            // A request stalled without any answer: the radio starts anew.
+            radio.restart();
+        }
         let effects = self.report(out, kernel, now);
         self.log_counts();
         effects
