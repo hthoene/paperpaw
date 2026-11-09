@@ -17,8 +17,13 @@ pub(super) enum Writes {
     Nothing,
     /// This `a` register.
     Reg(u32),
-    /// A call, `entry` or a return: the registers of the window are not the
-    /// ones before it.
+    /// `call4`/`call8`/`call12` or `callx*` (the number is the rotation, 4, 8
+    /// or 12; 0 for `call0`): the registers of the caller from that number up
+    /// are the callee's, so they hold something else after it returns; the ones
+    /// below are kept.
+    Call(u32),
+    /// `entry`, a return or a write of a window register: the registers are
+    /// not the ones before it.
     Window,
     /// A form this reader does not name.
     Unknown,
@@ -63,6 +68,19 @@ impl Insn {
         let t = (w >> 4) & 0xF;
         let snm0 = self.wide && w & 0xF == 0 && (w >> 12) & 0xF == 0 && (w >> 16) & 0xFF == 0;
         (snm0 && t >= 0xE).then_some((w >> 8) & 0xF)
+    }
+
+    /// Whether this is a `loop`, `loopnez` or `loopgtz`: a hardware loop has an
+    /// edge from its end back to its body that no instruction names.
+    pub fn is_loop(self) -> bool {
+        let w = self.word;
+        self.wide && w & 0x3F == 0x76 && matches!((w >> 12) & 0xF, 8..=10)
+    }
+
+    /// Whether this is a `jx`: a jump through a register.
+    pub fn is_jx(self) -> bool {
+        let w = self.word;
+        self.wide && w & 0xF == 0 && (w >> 4) & 0xF == 0xA && (w >> 12) & 0xFFF == 0
     }
 
     /// The `a` registers this instruction writes.
@@ -147,7 +165,7 @@ fn moves_window(sr: u32) -> bool {
 
 /// The 24-bit forms, as `frames_xtensa::wide_class` names them.
 fn wide(w: u32) -> Writes {
-    use Writes::{Nothing, Reg, Unknown, Window};
+    use Writes::{Call, Nothing, Reg, Unknown, Window};
     let op0 = w & 0xF;
     let t = (w >> 4) & 0xF;
     let s = (w >> 8) & 0xF;
@@ -161,7 +179,7 @@ fn wide(w: u32) -> Writes {
             (0, 0) => match r {
                 0 => match t {
                     0 | 8..=10 => Nothing,
-                    12..=15 => Window,
+                    12..=15 => Call((t & 3) * 4),
                     _ => Unknown,
                 },
                 1 | 6 => Reg(t),
@@ -220,7 +238,7 @@ fn wide(w: u32) -> Writes {
             _ => Unknown,
         },
         // `call0`, `call4`, `call8`, `call12`.
-        5 => Window,
+        5 => Call(((w >> 4) & 3) * 4),
         6 => match ((w >> 4) & 3, (w >> 6) & 3) {
             // `entry` moves the window.
             (3, 0) => Window,

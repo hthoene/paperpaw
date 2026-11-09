@@ -719,16 +719,11 @@ fn a_literal_out_of_the_image_is_a_call_out_of_the_image() {
 }
 
 #[test]
-fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
+fn a_callx_whose_register_holds_no_literal_on_every_path_stays_indirect() {
     // Each is a call through a register the scan must not follow: the budget
     // lists it (`allow indirect`) or the scan fails.
     type Middle = Box<dyn Fn(u32) -> Vec<u8>>;
     let cases: Vec<(&str, Middle)> = vec![
-        // Another path enters at the call: `beqz a3` to the `callx8`.
-        (
-            "a branch target",
-            Box::new(|pc: u32| f(&[&beqz(3, pc, pc + 5), &[0x3d, 0xf0]])),
-        ),
         // The register is written again.
         ("a write of the register", Box::new(|_| vec![0x8d, 0x03])),
         // A call moves the window.
@@ -736,10 +731,10 @@ fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
             "a call in between",
             Box::new(|pc: u32| call(8, pc, BASE + 0x40).to_vec()),
         ),
-        // A `j` before the call: what follows it starts a run of its own.
+        // A window register moves the registers.
         (
-            "after a jump",
-            Box::new(|pc: u32| jump(pc, pc + 3).to_vec()),
+            "a write of WINDOWBASE",
+            Box::new(|_| vec![0x20, 0x48, 0x13]),
         ),
     ];
     for (what, middle) in &cases {
@@ -767,70 +762,92 @@ fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
     assert_eq!((other.resolved, other.indirect), (0, 1));
 }
 
-#[test]
-fn an_address_a_word_of_the_image_points_at_is_a_place_another_path_enters() {
-    // A word of data holding the address of the `callx8` (a jump table's
-    // entry): the walk does not step back over it.
+/// A function `root` of the instructions `parts` at `BASE + 0x40` (the first
+/// literal is the helper's address, the second the same address again), and
+/// the helper after it.
+fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
-    let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
-    let callx_at = root_at + 3 + 3 + 2;
-    let report = run_lit(&lits, &funcs, &[callx_at], "");
-    assert_eq!(
-        (report.resolved, report.indirect),
-        (0, 1),
-        "{:?}",
-        report.problems
-    );
-    // An entry at the `l32r` itself is no other path into the walk.
-    let report = run_lit(&lits, &funcs, &[root_at + 3], "");
-    assert_eq!((report.resolved, report.indirect), (1, 0));
-    let report = run_lit(&lits, &funcs, &[0x1234_5678], "");
-    assert_eq!((report.resolved, report.indirect), (1, 0));
+    let root = f(parts);
+    let helper_at = (root_at + root.len() as u32 + 15) & !15;
+    let helper = f(&[&entry(64), &RETW_N]);
+    (
+        vec![helper_at, helper_at],
+        vec![("root", root), ("helper", helper)],
+    )
+}
+
+fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
+    let report = run_lit(lits, funcs, data, "");
+    (report.resolved, report.indirect)
 }
 
 #[test]
-fn the_branch_targets_are_read_as_the_assembler_makes_them() {
-    use super::regs::Insn;
-    // `xtensa-esp32s3-elf-as`: each of these at `pc` branches to 0x22.
-    let wide = |pc, word| Insn {
-        pc,
-        word,
-        wide: true,
-    };
-    for (pc, word) in [
-        (0x00, 0x1e1237), // beq a2, a3
-        (0x03, 0x01b216), // beqz a2
-        (0x06, 0x184226), // beqi a2, 4
-        (0x09, 0x1582b6), // bltui a2, 8
-        (0x0c, 0x126237), // bbci a2, 3
-        (0x0f, 0x00f2d6), // bgez a2
-        (0x19, 0x000146), // j
-    ] {
+fn the_literal_must_be_the_same_on_every_path_to_the_call() {
+    let at = BASE + 0x40;
+    // A register loaded before a loop and called inside it: a5 is kept by a
+    // `call8` (the registers below its rotation are), a8 is not (it holds
+    // what the callee left on the second time round).
+    for (reg, want) in [(5, (1, 0)), (8, (0, 1))] {
+        let (lits, funcs) = root_of(&[
+            &entry(32),
+            &l32r(reg, at + 3, BASE),
+            &callx_reg(8, reg),
+            &beqz(3, at + 9, at + 6),
+            &RETW_N,
+        ]);
+        assert_eq!(outcome(&lits, &funcs, &[]), want, "a{reg} in a loop");
+    }
+    // A path that skips the `l32r`.
+    let (lits, funcs) = root_of(&[
+        &entry(32),
+        &beqz(3, at + 3, at + 9),
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ]);
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 1), "a path without it");
+    // The same literal on both arms of a branch resolves; two literals (even
+    // of the same value) do not.
+    for (second, want) in [(BASE, (1, 0)), (BASE + 4, (0, 1))] {
+        let (lits, funcs) = root_of(&[
+            &entry(32),
+            &beqz(3, at + 3, at + 12),
+            &l32r(8, at + 6, BASE),
+            &jump(at + 9, at + 15),
+            &l32r(8, at + 12, second),
+            &callx_reg(8, 8),
+            &RETW_N,
+        ]);
         assert_eq!(
-            wide(pc, word).targets(),
-            Some([Some(0x22), None]),
-            "{word:#x}"
+            outcome(&lits, &funcs, &[]),
+            want,
+            "second literal {second:#x}"
         );
     }
-    for (pc, word) in [(0x12, 0xc28c), (0x14, 0xa3cc)] {
-        // beqz.n, bnez.n
-        let insn = Insn {
-            pc,
-            word,
-            wide: false,
-        };
-        assert_eq!(insn.targets(), Some([Some(0x22), None]), "{word:#x}");
-    }
-    // `loop a2`: the body and the end.
-    assert_eq!(
-        wide(0x16, 0x088276).targets(),
-        Some([Some(0x19), Some(0x22)])
-    );
-    // `ret` and `j` end the flow; `nop` does not.
-    assert!(wide(0x22, 0x000080).ends_flow() && wide(0x19, 0x000146).ends_flow());
-    assert!(!wide(0x1c, 0x0020f0).ends_flow());
-    // `l32r a8, <literal>` of a real image: 0x42239829 reads 0x4221e66c.
-    assert_eq!(wide(0x4223_9829, 0x939081).l32r(), Some((8, 0x4221_e66c)));
+}
+
+#[test]
+fn a_jx_reaches_the_addresses_a_word_of_the_image_points_at() {
+    let at = BASE + 0x40;
+    // entry; jx a3; l32r a8; callx8 a8; retw.n. Only the jump table gets to
+    // the `l32r` or to the `callx8`.
+    let code = [
+        &entry(32)[..],
+        &[0xa0, 0x03, 0x00],
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    // No table: nothing reaches the call, which stays indirect (the `jx` is
+    // counted as one too).
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
+    // The table holds the `l32r`: the call is reached with the literal.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
+    // The table holds the `callx8`: reached with nothing loaded.
+    assert_eq!(outcome(&lits, &funcs, &[at + 9]), (0, 2));
+    // A word that is no address of this function changes nothing.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6, 0x1234_5678]), (1, 1));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -840,18 +857,18 @@ fn bf_bt(r: u32, pc: u32, target: u32) -> [u8; 3] {
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
-/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, `retw.n`, then
-/// `tail` (at `BASE + 0x40 + 13`), and the helper the literal gives.
+/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, then `tail` (at
+/// `BASE + 0x40 + 11`), `retw.n`, and the helper the literal gives.
 fn root_with_tail(tail: &dyn Fn(u32) -> Vec<u8>) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
-    let tail = tail(root_at + 13);
+    let tail = tail(root_at + 11);
     let root = f(&[
         &entry(32),
         &l32r(8, root_at + 3, BASE),
         &[0xad, 0x03],
         &callx_reg(8, 8),
-        &RETW_N,
         &tail,
+        &RETW_N,
     ]);
     let helper_at = (root_at + root.len() as u32 + 15) & !15;
     let helper = f(&[&entry(64), &RETW_N]);
@@ -871,7 +888,7 @@ fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
         plain.problems
     );
     // A `bf`/`bt` after the call back to the `mov.n` between the `l32r` and the
-    // call: another path enters there, the call is not proven.
+    // call: the path round again has a8 from the callee, the call is not proven.
     for r in [0, 1] {
         let (lits, funcs) = root_with_tail(&|pc| bf_bt(r, pc, root_at + 6).to_vec());
         let report = run_lit(&lits, &funcs, &[], "");

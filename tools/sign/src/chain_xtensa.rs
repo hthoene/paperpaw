@@ -436,17 +436,35 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
     reads
 }
 
-/// Follows each `callx8`/`callx12` of `sites` back to the `l32r` that loaded
-/// its register: the call is then a direct one to the literal's address.
+/// What a register holds at a point of a function, for [`resolve`]: the
+/// address of the `l32r` literal every path to the point loaded into it, or
+/// nothing known.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Held {
+    Literal(u32),
+    Unknown,
+}
+
+type Regs = [Held; 16];
+
+/// Follows each `callx8`/`callx12` of `sites` to the `l32r` literal its
+/// register holds, on every path to it: the call is then a direct one to the
+/// literal's address. A forward analysis over the function's own instructions:
+/// the state at the entry is "nothing known"; an `l32r` makes its register hold
+/// its literal; a write of a register, a call (the registers from its rotation
+/// up), `entry` or a window register makes the registers it takes unknown; the
+/// state where paths meet keeps a register only if all of them agree. The
+/// flow goes by fall-through, branch targets and, for a `jx`, every address a
+/// word of the image points at inside the function (a jump table).
+///
 /// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
 /// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
 /// register would read other addresses, and the literals this finds would be
-/// wrong. Sound by narrowness: the walk goes back through straight-line code only,
-/// and gives up (the call stays indirect, counted and listed) at an
-/// instruction another path can enter (a branch target, the start of what
-/// follows a `j`/`jx`/`ret`, an address a word of the image points at: a jump
-/// table), at a write of the register that is not the `l32r`, at a call or
-/// `entry` (the window moves) and at any form `regs` does not name.
+/// wrong. It fails closed, leaving every call of the function indirect (counted
+/// and listed in the budget): at a branch form `regs` does not model, a branch
+/// into the middle of an instruction, a hardware `loop` (its back edge is no
+/// instruction's), and for a site the flow never reaches. An instruction `regs`
+/// does not name makes every register unknown after it.
 fn resolve(
     insns: &[Insn],
     sites: &[usize],
@@ -457,57 +475,93 @@ fn resolve(
     if sites.is_empty() {
         return;
     }
+    let give_up = |reads: &mut Reads| reads.indirect += sites.len() as u32;
     let end = insns.last().map_or(start_addr, |i| i.next());
-    let starts: BTreeSet<u32> = insns.iter().map(|i| i.pc).collect();
-    let mut labels: BTreeSet<u32> = around.pointed.range(start_addr..end).copied().collect();
+    let index: BTreeMap<u32, usize> = insns.iter().enumerate().map(|(n, i)| (i.pc, n)).collect();
+    let table: Vec<usize> = around
+        .pointed
+        .range(start_addr..end)
+        .filter_map(|p| index.get(p).copied())
+        .collect();
+    let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
     for (n, i) in insns.iter().enumerate() {
-        // A branch form this reader does not model, or a branch into the
-        // middle of an instruction (code this reader decoded out of step):
-        // the labels are not known, so nothing of the function is resolved.
         let Some(targets) = i.targets() else {
-            reads.indirect += sites.len() as u32;
-            return;
+            return give_up(reads);
         };
-        for target in targets.into_iter().flatten() {
-            if (start_addr..end).contains(&target) && !starts.contains(&target) {
-                reads.indirect += sites.len() as u32;
-                return;
-            }
-            labels.insert(target);
+        if i.is_loop() {
+            return give_up(reads);
         }
-        if n > 0 && insns[n - 1].ends_flow() {
-            labels.insert(i.pc);
+        for target in targets.into_iter().flatten() {
+            if (start_addr..end).contains(&target) {
+                // Into the middle of an instruction: this reading is out of step.
+                let Some(&to) = index.get(&target) else {
+                    return give_up(reads);
+                };
+                next[n].push(to);
+            }
+        }
+        if !i.ends_flow() && n + 1 < insns.len() {
+            next[n].push(n + 1);
+        }
+        if i.is_jx() {
+            next[n].extend(&table);
         }
     }
-    'site: for &k in sites {
-        let Some(reg) = insns[k].callx() else {
-            reads.indirect += 1;
-            continue;
-        };
-        let mut i = k;
-        while i > 0 {
-            // Stepping back over `i` means no other path enters at `i`.
-            if labels.contains(&insns[i].pc) {
-                break;
+    let mut state: Vec<Option<Regs>> = vec![None; insns.len()];
+    state[0] = Some([Held::Unknown; 16]);
+    let mut work: VecDeque<usize> = VecDeque::from([0]);
+    while let Some(n) = work.pop_front() {
+        let Some(mut held) = state[n] else { continue };
+        match insns[n].writes() {
+            Writes::Nothing => {}
+            Writes::Reg(r) => {
+                held[r as usize] = match insns[n].l32r() {
+                    Some((_, literal)) => Held::Literal(literal),
+                    None => Held::Unknown,
+                };
             }
-            i -= 1;
-            match insns[i].writes() {
-                Writes::Nothing => {}
-                Writes::Reg(r) if r != reg => {}
-                Writes::Reg(_) => {
-                    if let Some((_, literal)) = insns[i].l32r()
-                        && let Some(target) = (around.word)(literal)
-                    {
-                        reads.edges.push(target);
-                        reads.resolved += 1;
-                        continue 'site;
-                    }
-                    break;
+            Writes::Call(rotation) => {
+                for h in &mut held[rotation as usize..] {
+                    *h = Held::Unknown;
                 }
-                Writes::Window | Writes::Unknown => break,
+            }
+            Writes::Window | Writes::Unknown => held = [Held::Unknown; 16],
+        }
+        for &to in &next[n] {
+            let joined = match state[to] {
+                None => held,
+                Some(old) => {
+                    let mut joined = old;
+                    for (a, b) in joined.iter_mut().zip(&held) {
+                        if a != b {
+                            *a = Held::Unknown;
+                        }
+                    }
+                    joined
+                }
+            };
+            if state[to] != Some(joined) {
+                state[to] = Some(joined);
+                work.push_back(to);
             }
         }
-        reads.indirect += 1;
+    }
+    for &k in sites {
+        let literal =
+            insns[k]
+                .callx()
+                .zip(state[k])
+                .and_then(|(reg, held)| match held[reg as usize] {
+                    Held::Literal(literal) => (around.word)(literal),
+                    Held::Unknown => None,
+                });
+        match literal {
+            Some(target) => {
+                reads.edges.push(target);
+                reads.resolved += 1;
+            }
+            None => reads.indirect += 1,
+        }
     }
 }
 
