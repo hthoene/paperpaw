@@ -556,7 +556,7 @@ fn a_privileged_form_fails_unless_its_function_and_form_are_named() {
 }
 
 #[test]
-fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
+fn the_window_registers_are_a_stack_pointer_change_and_a_form_names_its_register() {
     // wsr/xsr of WINDOWBASE (72) and WINDOWSTART (73): the stack-pointer rule,
     // whatever `allow form` says; only `allow sp` passes them.
     for (name, word) in [
@@ -570,7 +570,7 @@ fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
         assert_eq!(bare.problems.len(), 1, "{name}: {:?}", bare.problems);
         assert!(bare.problems[0].contains("stack pointer"), "{name}");
         let kind = &name[..3];
-        let line = format!("allow form root {kind} not enough\n");
+        let line = format!("allow form root {kind}.scompare1 not enough\n");
         let listed = run(&[("root", root.clone())], &["root"], &line);
         assert!(
             listed.problems.iter().any(|p| p.contains("stack pointer")),
@@ -580,27 +580,57 @@ fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
         let sp = run(&[("root", root)], &["root"], "allow sp root window moved\n");
         assert!(sp.problems.is_empty(), "{name}: {:?}", sp.problems);
     }
-    // PS (230): `wsr.ps` and `xsr.ps` are forms of their own; the generic
-    // `wsr` or `xsr` line does not cover them (and is then unused).
-    for (kind, word) in [("wsr", [0x20, 0xe6, 0x13]), ("xsr", [0x20, 0xe6, 0x61])] {
+    // The form names its register: a line for one register does not cover
+    // another (and is then unused), and a bare `wsr` or `xsr` is no form.
+    for (kind, word, other) in [
+        ("wsr", [0x20, 0xe6, 0x13], "scompare1"),
+        ("xsr", [0x20, 0xe6, 0x61], "vecbase"),
+    ] {
         let root = f(&[&entry(32), &word, &RETW_N]);
-        let generic = run(
+        let wrong = run(
             &[("root", root.clone())],
             &["root"],
-            &format!("allow form root {kind} wrong register\n"),
+            &format!("allow form root {kind}.{other} wrong register\n"),
         );
-        assert_eq!(generic.problems.len(), 2, "{kind}: {:?}", generic.problems);
+        assert_eq!(wrong.problems.len(), 2, "{kind}: {:?}", wrong.problems);
         let exact = run(
             &[("root", root)],
             &["root"],
             &format!("allow form root {kind}.ps restores the interrupt level\n"),
         );
         assert!(exact.problems.is_empty(), "{kind}.ps: {:?}", exact.problems);
+        assert!(Budget::parse(&format!("root a\nallow form a {kind} bare\n")).is_err());
     }
-    // Another special register (VECBASE, 231) is the generic form.
+    // VECBASE (231) and SCOMPARE1 (12) have their names; one not in the table is `sr<n>`.
     let vec = f(&[&entry(32), &[0x30, 0xe7, 0x13], &RETW_N]);
-    let ok = run(&[("root", vec)], &["root"], "allow form root wsr vecbase\n");
+    let ok = run(
+        &[("root", vec)],
+        &["root"],
+        "allow form root wsr.vecbase set\n",
+    );
     assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+    let scompare = f(&[&entry(32), &[0x20, 0x0c, 0x13], &RETW_N]);
+    let ok = run(
+        &[("root", scompare)],
+        &["root"],
+        "allow form root wsr.scompare1 compare value\n",
+    );
+    assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+    // LITBASE (5) is no form: the literal resolver assumes it off, so a write is
+    // refused and no line allows it; neither is the number of a named register.
+    let litbase = f(&[&entry(32), &[0x20, 0x05, 0x13], &RETW_N]);
+    let refused = run(&[("root", litbase)], &["root"], "");
+    assert!(
+        refused
+            .problems
+            .iter()
+            .any(|p| p.contains("does not classify")),
+        "{:?}",
+        refused.problems
+    );
+    assert!(Budget::parse("root a\nallow form a wsr.litbase no\n").is_err());
+    assert!(Budget::parse("root a\nallow form a wsr.sr12 no\n").is_err());
+    assert!(Budget::parse("root a\nallow form a wsr.sr200 an unnamed register\n").is_ok());
 }
 
 #[test]

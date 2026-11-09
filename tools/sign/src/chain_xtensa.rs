@@ -143,16 +143,86 @@ pub enum Allow {
     Form { caller: String, form: String },
 }
 
-/// The privileged forms an `allow form` line may name.
-pub const FORMS: [&str; 8] = [
-    "rsil", "waiti", "wsr", "xsr", "wsr.ps", "xsr.ps", "l32e", "s32e",
+/// The privileged forms an `allow form` line may name besides the ones of a
+/// special register: `wsr.<register>` and `xsr.<register>` (see [`is_form`]).
+pub const FORMS: [&str; 4] = ["rsil", "waiti", "l32e", "s32e"];
+
+const SR_LITBASE: u32 = 5;
+
+/// The special registers the firmware's critical sections and start-up code
+/// write, by their number (Xtensa ISA, `RSR`/`WSR`): a form names its register
+/// (`wsr.scompare1`), so that a line for one register does not cover another.
+/// Any other register is `sr<number>`.
+const SPECIAL_REGISTERS: [(u32, &str); 29] = [
+    (0, "lbeg"),
+    (1, "lend"),
+    (2, "lcount"),
+    (3, "sar"),
+    (4, "br"),
+    (12, "scompare1"),
+    (16, "acclo"),
+    (17, "acchi"),
+    (32, "m0"),
+    (33, "m1"),
+    (34, "m2"),
+    (35, "m3"),
+    (83, "ptevaddr"),
+    (99, "atomctl"),
+    (177, "epc1"),
+    (194, "depc"),
+    (209, "excsave1"),
+    (226, "interrupt"),
+    (228, "intenable"),
+    (231, "vecbase"),
+    (232, "exccause"),
+    (233, "debugcause"),
+    (234, "ccount"),
+    (236, "icount"),
+    (238, "excvaddr"),
+    (240, "ccompare0"),
+    (241, "ccompare1"),
+    (242, "ccompare2"),
+    (230, "ps"),
 ];
+
+/// A special register's name in a form: its name in the table, or `sr<number>`.
+fn sr_name(sr: u32) -> String {
+    SPECIAL_REGISTERS
+        .iter()
+        .find(|&&(n, _)| n == sr)
+        .map_or_else(|| format!("sr{sr}"), |&(_, name)| name.to_string())
+}
+
+/// Whether `form` is one an `allow form` line may name: a name of [`FORMS`], or
+/// `wsr.<register>` / `xsr.<register>` of a register in [`SPECIAL_REGISTERS`] or
+/// `sr<number>`. Not `litbase` (the literal resolver assumes it off, so a write
+/// is refused, never allowed) and not the window registers (`allow sp`).
+fn is_form(form: &str) -> bool {
+    if FORMS.contains(&form) {
+        return true;
+    }
+    let Some(register) = form
+        .strip_prefix("wsr.")
+        .or_else(|| form.strip_prefix("xsr."))
+    else {
+        return false;
+    };
+    if let Some(n) = register.strip_prefix("sr") {
+        return n.parse::<u32>().is_ok_and(|n| {
+            n <= 255
+                && n != SR_LITBASE
+                && n != SR_WINDOWBASE
+                && n != SR_WINDOWSTART
+                && sr_name(n) == register
+        });
+    }
+    SPECIAL_REGISTERS.iter().any(|&(_, name)| name == register)
+}
 
 /// The special registers that name the register window (`WINDOWBASE`,
 /// `WINDOWSTART`) and the processor state (`PS`).
 const SR_WINDOWBASE: u32 = 72;
 const SR_WINDOWSTART: u32 = 73;
-const SR_PS: u32 = 230;
 
 /// What the budget asks.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -230,9 +300,9 @@ impl Budget {
                     why.join(" "),
                 )),
                 ["allow", "form", caller, form, why @ ..] if !why.is_empty() => {
-                    if !FORMS.contains(form) {
+                    if !is_form(form) {
                         return Err(format!(
-                            "line {at}: `{form}` is not a form a line can allow (one of {})",
+                            "line {at}: `{form}` is not a form a line can allow (one of {}, or `wsr.<register>` / `xsr.<register>` naming the special register, such as `wsr.scompare1`)",
                             FORMS.join(", ")
                         ));
                     }
@@ -342,7 +412,7 @@ struct Reads {
     unknown: Option<u32>,
     /// The named privileged forms (see [`named_form`]) with the first address
     /// of each: they leave `a1` alone, and the budget must allow each.
-    forms: BTreeMap<&'static str, u32>,
+    forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
 }
@@ -372,7 +442,7 @@ fn callx_t(w: u32) -> Option<u32> {
 /// `WINDOWSTART`, which is a change of what `a1` names). `op0` is 0 (QRST) in
 /// all of them. Encodings as the S3 toolchain's assembler makes them
 /// (`tests.rs`); the special register is `r << 4 | s`.
-fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
+fn named_form(w: u32) -> Option<(String, Option<u32>, bool)> {
     let t = (w >> 4) & 0xF;
     let r = (w >> 12) & 0xF;
     let s = (w >> 8) & 0xF;
@@ -385,21 +455,21 @@ fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
     match (op1, op2) {
         // RST0 `st0`: `rsil at, imm` (r = 6) writes `at`; `waiti imm`
         // (r = 7, t = 0) writes no `a` register.
-        (0, 0) if r == 6 => Some(("rsil", Some(t), false)),
-        (0, 0) if r == 7 && t == 0 => Some(("waiti", None, false)),
-        // RST3: `wsr at, sr` (op2 = 1) writes a special register.
-        (3, 1) if sr == SR_PS => Some(("wsr.ps", None, false)),
-        (3, 1) => Some(("wsr", None, window)),
-        // RST1: `xsr at, sr` (op2 = 6) swaps `at` with a special register.
-        (1, 6) if sr == SR_PS => Some(("xsr.ps", Some(t), false)),
-        (1, 6) => Some(("xsr", Some(t), window)),
+        (0, 0) if r == 6 => Some(("rsil".to_string(), Some(t), false)),
+        (0, 0) if r == 7 && t == 0 => Some(("waiti".to_string(), None, false)),
+        // RST3: `wsr at, sr` (op2 = 1) writes a special register; RST1: `xsr
+        // at, sr` (op2 = 6) swaps `at` with one. The form names the register.
+        // LITBASE is no form: the literal resolver assumes it off.
+        (3, 1) | (1, 6) if sr == SR_LITBASE => None,
+        (3, 1) => Some((format!("wsr.{}", sr_name(sr)), None, window)),
+        (1, 6) => Some((format!("xsr.{}", sr_name(sr)), Some(t), window)),
         // LSC4 (op1 = 9): `l32e at, as, imm` (op2 = 0) writes `at`;
         // `s32e at, as, imm` (op2 = 4) writes memory.
-        (9, 0) => Some(("l32e", Some(t), false)),
-        (9, 4) => Some(("s32e", None, false)),
+        (9, 0) => Some(("l32e".to_string(), Some(t), false)),
+        (9, 4) => Some(("s32e".to_string(), None, false)),
         // RST0 `st1` `rotw` (op1 = 0, op2 = 4, `r` = 8): the window rotates by
         // the immediate, so `a1` names another frame (`allow sp`, never a form).
-        (0, 4) if r == 8 => Some(("rotw", None, true)),
+        (0, 4) if r == 8 => Some(("rotw".to_string(), None, true)),
         _ => None,
     }
 }
@@ -1085,7 +1155,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             f.shown
         ));
     }
-    for (&form, &pc) in &reads.forms {
+    for (form, &pc) in &reads.forms {
         if !allowed(
             budget,
             used,
