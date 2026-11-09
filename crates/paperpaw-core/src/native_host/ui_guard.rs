@@ -93,7 +93,9 @@ pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<u64> {
 /// Index of the instance that gets keys and pointers. Without a guard that is
 /// the top; with one it is the topmost instance that is not the host's own
 /// screen for a device state: the sleep screen shows above the guard but "gets
-/// no input while the guard is up" (section 4.3).
+/// no input while the guard is up" (section 4.3). A host screen that guards
+/// itself (the firmware confirmation, `device.md` 5.0) is the input target:
+/// no plugin filter, binding or raised input reaches it.
 pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     if invalid_view(view) {
         return None;
@@ -104,7 +106,7 @@ pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     }
     (0..=last)
         .rev()
-        .find(|&i| view.row(i).is_some_and(|r| !r.host))
+        .find(|&i| view.row(i).is_some_and(|r| !r.host || r.guards))
 }
 
 fn top(view: &dyn UiStackView) -> Option<Row> {
@@ -226,7 +228,8 @@ pub(crate) fn raise_allowed(view: &dyn UiStackView, submitter: u64) -> Result<()
 
 /// `command.screen_policy` turning `guards` on for `instance` (section 1.2):
 /// only the submitter's own instance that is the top of the whole stack, not
-/// counting the host's own screen for a device state. Anywhere else
+/// counting the host's own screen for a device state, and not while another
+/// plugin's screen guards. Anywhere else
 /// `ERR_STATE` (the whole batch is refused); another plugin's instance is
 /// `ERR_DENIED`; an instance not on the stack `ERR_NOT_FOUND`.
 pub(crate) fn guard_on_allowed(
@@ -245,11 +248,45 @@ pub(crate) fn guard_on_allowed(
         .rev()
         .find(|&i| view.row(i).is_some_and(|r| !r.host))
         .ok_or(ERR_STATE)?;
-    if index == top_index {
-        Ok(())
-    } else {
-        Err(ERR_STATE)
+    if index != top_index {
+        return Err(ERR_STATE);
     }
+    // While another plugin's screen guards, no plugin may become the guard:
+    // the lock's keyboard or a dialog above it would otherwise take the guard
+    // over, close the lock and let go (section 1.2).
+    if guard_owner(view).is_some_and(|guard| guard != submitter) {
+        return Err(ERR_STATE);
+    }
+    Ok(())
+}
+
+/// `command.screen_policy` for a non-zero `instance` (section 1.2): the
+/// submitter's own instance only (another plugin's is `ERR_DENIED`, one not on
+/// the stack `ERR_NOT_FOUND`); `guards` on only as [`guard_on_allowed`] says,
+/// where the instance does not guard already. Everything else, turning
+/// `guards` off and `secret` or `holds_edges` either way, is allowed.
+#[allow(
+    dead_code,
+    reason = "the stage uses it; test crates that include this file by path do not"
+)]
+pub(crate) fn policy_allowed(
+    view: &dyn UiStackView,
+    submitter: u64,
+    instance: u32,
+    guards_on: bool,
+) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
+    let index = find(view, instance).ok_or(ERR_NOT_FOUND)?;
+    let row = view.row(index).ok_or(ERR_NOT_FOUND)?;
+    if row.owner != submitter {
+        return Err(ERR_DENIED);
+    }
+    if guards_on && !row.guards {
+        return guard_on_allowed(view, submitter, instance);
+    }
+    Ok(())
 }
 
 fn find(view: &dyn UiStackView, instance: u32) -> Option<usize> {

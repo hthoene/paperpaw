@@ -54,8 +54,10 @@ pub use native_entry::NATIVE_ENTRY;
 pub mod native_add;
 pub mod native_add_screen;
 pub mod native_arrange;
+pub mod native_clock;
 pub mod native_dash;
 pub mod native_dashboard;
+pub mod native_date;
 pub mod native_drawer;
 pub mod native_focus;
 pub mod native_grid;
@@ -65,6 +67,7 @@ pub mod native_pages;
 pub mod native_plugin;
 pub mod native_shown;
 pub mod native_source;
+pub mod native_widgets;
 
 mod add;
 mod blocks;

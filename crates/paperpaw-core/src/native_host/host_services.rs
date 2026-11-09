@@ -57,6 +57,9 @@ pub(crate) struct HostServices {
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The library's move job and its card side, made when `core.files` is
+    /// wired (`lib_moves_service`).
+    pub(super) library_moves: OnceCell<Rc<super::lib_moves_service::LibraryMoves>>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
     /// The ids of the plugins linked into the firmware (root 2 of the file
@@ -130,6 +133,7 @@ impl HostServices {
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -449,7 +453,6 @@ impl HostServices {
     ///
     /// # Errors
     /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the library host registers its job (todo)")]
     pub(crate) fn register_library_moves(
         &self,
         moves: Rc<super::lib_service::moves::Moves>,

@@ -59,6 +59,7 @@ mod hints;
 mod hyphen_feed;
 mod input;
 mod io;
+mod key_guard;
 mod keymap;
 mod meter;
 pub mod native_host;
@@ -108,9 +109,10 @@ use paperpaw_sdk::{
 
 pub use crate::builder::KernelBuilder;
 pub use crate::card::CardTrouble;
-pub use crate::code_plugin::{CodeFile, CodeLoader, code_to_load};
+pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::{CORE, CorePlugin};
+pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
 pub use crate::io::cable::PREFIX as CABLE_PREFIX;
@@ -292,9 +294,7 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
-    /// The firmware install and check requests, queue and pump; none where
-    /// the shell gave no firmware host (`KernelBuilder::firmware_host`), where
-    /// every firmware command is unsupported.
+    /// Firmware requests, queue and pump; none without a firmware host.
     firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
@@ -502,36 +502,11 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // Plugins' input filters come first; while a screen guards the
-        // device, or a PIN or a password is entered, only those of its
-        // plugin.
-        let (verdict, delivered) = {
-            let asking = self.secret_owner();
-            let env = self.shared.env(now);
-            self.shared
-                .input_filters
-                .filter_of(&env, &event, asking.as_deref())
-        };
-        let event = match verdict {
-            InputVerdict::Take => {
-                // Taken from the recognizers that follow the finger too.
-                if let InputEvent::Pointer(p) = delivered {
-                    self.recognizers_lose(&p);
-                }
-                return self.finish();
-            }
-            InputVerdict::Run(action) => {
-                self.dispatch(action);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Cancel => {
-                self.cancel_input(&delivered);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Replace(other) => other,
-            _ => event,
+        // The native input filters first, then the interface-6 ones (while a
+        // screen guards the device or a secret is typed, only its plugin's).
+        let event = match self.filtered(now, event) {
+            Ok(event) => event,
+            Err(effects) => return effects,
         };
         self.shared.last_input = match event {
             InputEvent::Button { .. } => paperpaw_sdk::keys::InputMode::Buttons,
@@ -569,6 +544,77 @@ impl Kernel {
         self.run_commands();
         self.speak_focus();
         self.finish()
+    }
+
+    /// `event` after the native filters and then the interface-6 ones, or the
+    /// effects of an input one of them took, cancelled or ran an action for.
+    fn filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        let event = self.native_filtered(now, event)?;
+        self.legacy_filtered(now, event)
+    }
+
+    /// The interface-6 filters: while a screen guards the device, or a PIN or
+    /// a password is entered, only those of its plugin.
+    fn legacy_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        let (verdict, delivered) = {
+            let asking = self.secret_owner();
+            let env = self.shared.env(now);
+            self.shared
+                .input_filters
+                .filter_of(&env, &event, asking.as_deref())
+        };
+        let event = match verdict {
+            InputVerdict::Take => {
+                // Taken from the recognizers that follow the finger too.
+                if let InputEvent::Pointer(p) = delivered {
+                    self.recognizers_lose(&p);
+                }
+                return Err(self.finish());
+            }
+            InputVerdict::Run(action) => {
+                self.dispatch(action);
+                self.run_commands();
+                return Err(self.finish());
+            }
+            InputVerdict::Cancel => {
+                self.cancel_input(&delivered);
+                self.run_commands();
+                return Err(self.finish());
+            }
+            InputVerdict::Replace(other) => other,
+            _ => event,
+        };
+        Ok(event)
+    }
+
+    /// What the native input filters made of `event`: the input to go on with
+    /// (as it was, or replaced), or the effects of one that was taken,
+    /// cancelled or turned into an action.
+    fn native_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        use native_host::input_chain::Native;
+        match self.native_input(now, &event) {
+            Native::Pass => Ok(event),
+            Native::Replaced(other) => Ok(other),
+            Native::Taken => {
+                if let InputEvent::Pointer(p) = event {
+                    self.recognizers_lose(&p);
+                }
+                Err(self.finish())
+            }
+            Native::Cancelled => {
+                self.cancel_input(&event);
+                self.run_commands();
+                Err(self.finish())
+            }
+            Native::Run(action) => match Id::parse(&action) {
+                Ok(action) => {
+                    self.dispatch(action);
+                    self.run_commands();
+                    Err(self.finish())
+                }
+                Err(_) => Ok(event),
+            },
+        }
     }
 
     /// `event` with the page buttons the other way round while reading,
@@ -687,7 +733,7 @@ impl Kernel {
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {
-        self.guard().is_some() || self.stack.iter().any(|s| s.screen.secret())
+        self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
 
     /// The plugin of the screen that guards the device, else of the one a
@@ -695,7 +741,7 @@ impl Kernel {
     fn secret_owner(&self) -> Option<alloc::string::String> {
         let guard = self.guard().map(|at| &self.stack[at]);
         guard
-            .or_else(|| self.stack.iter().rev().find(|s| s.screen.secret()))
+            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
             .map(|s| alloc::string::String::from(s.id.namespace()))
     }
 
@@ -1182,14 +1228,16 @@ impl Kernel {
     /// [`events::SUSPEND`].
     pub fn suspend(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        // Fingers and keys held under a native filter's capture are let go.
+        self.shared.native_input.clear();
         self.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
+        self.firmware_suspend();
         let effects = self.finish();
-        // Asleep, no word is hyphenated: the tables open give their heap
-        // back (and the card may be another on waking).
+        // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
@@ -1217,6 +1265,7 @@ impl Kernel {
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
         self.woke(now);
         self.finish()
     }
@@ -1285,6 +1334,15 @@ struct Shared {
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,
+    /// The captures of the native `core.input-filter` chain.
+    native_input: native_host::ui_input::InputFilters,
+    /// The native input filters read from the declarations, until they change.
+    native_filters: Option<native_host::input_chain::FilterCache>,
+    /// Whether the last input had a native filter refused (told once).
+    native_input_refused: bool,
+    /// The shells' device-wide callback depth, kept from the first native
+    /// plugin: the host's own stage runs enter it at depth 0.
+    native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
@@ -1293,6 +1351,8 @@ struct Shared {
     translator: Translator,
     fonts: Fonts,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
+    /// The refused bindings told of while a screen guarded ([`key_guard`]).
+    key_guard_warned: key_guard::Warned,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     /// The generation of `core.registry`, bumped when a list it reads changes.
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
@@ -1431,3 +1491,10 @@ fn paperpaw_text_outlines() -> bool {
 
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 mod native_battery_pixel_tests;
+
+/// The host's own plugin id: no installed, linked or native plugin may take
+/// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
+/// The same literal is refused by `paperpaw_native::bundle` (`Bundle::read`),
+/// `paperpaw_sdk::install::is_plugin_name` and the hyphenation-packs check;
+/// change them together.
+pub(crate) const RESERVED_PLUGIN_ID: &str = "core";

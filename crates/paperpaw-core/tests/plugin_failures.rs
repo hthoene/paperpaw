@@ -312,13 +312,15 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
         "bad-version",
         "latin1",
         "huge",
+        // The host's own id: refused as a manifest, before any duplicate check.
+        "plugins/core/plugin.ini: invalid id `core`",
     ] {
         assert!(
             text.iter().any(|w| w.contains(name)),
             "{name} not reported: {text:#?}"
         );
     }
-    for id in ["core", "drv", "bad-keys", "bad-default", "bad-presets"] {
+    for id in ["drv", "bad-keys", "bad-default", "bad-presets"] {
         assert!(
             warnings
                 .iter()

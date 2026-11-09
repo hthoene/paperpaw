@@ -432,6 +432,15 @@ impl FirmwareInstall {
         !matches!(self.phase, Phase::Idle)
     }
 
+    /// Whether a device step can be taken now (not idle, not waiting for the
+    /// user's answer).
+    pub(crate) fn can_step(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Checking(..) | Phase::Writing(..) | Phase::Reading(..)
+        )
+    }
+
     /// `dev_firmware.state`.
     pub(crate) fn state(&self) -> State {
         match &self.phase {

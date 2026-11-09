@@ -28,7 +28,7 @@ use super::firmware_install::{
     Question,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
@@ -89,10 +89,20 @@ pub(crate) struct Driver {
     lost: u32,
     /// Answers and aborts that found the machine borrowed and did nothing
     /// (never from a callback; counted so a test or a log can see it).
-    skipped: u32,
+    skipped: Rc<Cell<u32>>,
+    /// Until when the pump does not try to tell again (a plugin that could
+    /// not be called); `None` when nothing is held back.
+    blocked_until: Option<u64>,
     /// The confirmation the host must show (an install's or a restart's),
     /// until [`Self::take_ask`].
     ask: Option<Ask>,
+    /// The confirmation that shows: its nonce and the question it asks. Only
+    /// an answer that carries the nonce is taken, once.
+    shown: Option<(u128, Question)>,
+    /// A yes to the restart came: the kernel restarts the device.
+    restart_wanted: bool,
+    /// The plugins were told PaperPaw stops for a restart; it comes next pass.
+    stopping: bool,
 }
 
 impl Driver {
@@ -106,15 +116,29 @@ impl Driver {
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
-            skipped: 0,
+            skipped: Rc::new(Cell::new(0)),
+            blocked_until: None,
             ask: None,
+            shown: None,
+            restart_wanted: false,
+            stopping: false,
         }
     }
 
     /// How many answers and aborts found the machine borrowed and did nothing.
     #[cfg(test)]
     pub(crate) fn skipped(&self) -> u32 {
-        self.skipped
+        self.skipped.get()
+    }
+
+    /// The counter of skips, for callers that cannot borrow the driver when
+    /// they skip (a stage's release, the apply after a callback).
+    pub(crate) fn skip_counter(&self) -> Rc<Cell<u32>> {
+        Rc::clone(&self.skipped)
+    }
+
+    fn skip(&self) {
+        self.skipped.set(self.skipped.get().saturating_add(1));
     }
 
     /// How many requests wait (the running one included).
@@ -306,9 +330,81 @@ impl Driver {
         self.room(owner, request, KIND_FIRMWARE)
     }
 
-    /// The confirmation to show, once.
-    pub(crate) fn take_ask(&mut self) -> Option<Ask> {
-        self.ask.take()
+    /// The confirmation waiting to be shown, if no other shows.
+    pub(crate) fn peek_ask(&self) -> Option<Ask> {
+        self.ask.filter(|_| self.shown.is_none())
+    }
+
+    /// The host opened the confirmation of `ask` with `nonce`.
+    pub(crate) fn ask_shown(&mut self, nonce: u128, ask: Ask) {
+        if self
+            .ask
+            .is_some_and(|waiting| waiting.question() == ask.question())
+        {
+            self.ask = None;
+            self.shown = Some((nonce, ask.question()));
+        }
+    }
+
+    /// The confirmation of `ask` could not be shown: it ends as dismissed.
+    pub(crate) fn ask_dismissed(&mut self, ask: Ask) {
+        if self
+            .ask
+            .is_some_and(|waiting| waiting.question() == ask.question())
+        {
+            self.ask = None;
+            self.answer(ask.question(), Answer::Dismissed);
+        }
+    }
+
+    /// The user's answer to the confirmation shown with `nonce`; any other
+    /// nonce, or none shown, changes nothing.
+    pub(crate) fn answer_shown(&mut self, nonce: u128, answer: Answer) -> Option<Event> {
+        let (shown, question) = self.shown?;
+        if shown != nonce {
+            return None;
+        }
+        self.shown = None;
+        Some(self.answer(question, answer))
+    }
+
+    /// The shown confirmation ends as dismissed (sleep); its nonce, so that
+    /// the screen can be closed.
+    pub(crate) fn dismiss_shown(&mut self) -> Option<u128> {
+        let (nonce, question) = self.shown.take()?;
+        self.answer(question, Answer::Dismissed);
+        Some(nonce)
+    }
+
+    /// A yes to the restart waits for the kernel to restart the device.
+    pub(crate) fn restart_wanted(&self) -> bool {
+        self.restart_wanted
+    }
+
+    /// Whether the plugins were told to stop for the restart; `now` sets it.
+    pub(crate) fn stopping(&mut self, now: bool) -> bool {
+        core::mem::replace(&mut self.stopping, now)
+    }
+
+    /// Restarts into the chosen image. It returns only where it cannot (then
+    /// `true`): the request ends with the device's reason (through `end`, so its place and
+    /// outcome are kept like any request's) and the image keeps waiting.
+    pub(crate) fn restart_now(&mut self) -> bool {
+        self.restart_wanted = false;
+        let outcome = match self.machine.try_borrow_mut() {
+            Ok(mut machine) => machine.restart(&mut *self.host),
+            Err(_) => {
+                self.skip();
+                None
+            }
+        };
+        match outcome {
+            Some(outcome) => {
+                self.end(outcome);
+                true
+            }
+            None => false,
+        }
     }
 
     /// `firmware_restart` at submit: only the plugin whose install waits may
@@ -350,7 +446,7 @@ impl Driver {
         let event = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.answer(question, answer, &mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 return Event::Quiet;
             }
         };
@@ -386,6 +482,7 @@ impl Driver {
         match event {
             Event::Ended(outcome) => self.end(outcome),
             Event::Ask(ask) => self.ask = Some(ask),
+            Event::Restart => self.restart_wanted = true,
             Event::Progress { owner, request, .. } => {
                 if let Some(entry) = self
                     .entries
@@ -468,9 +565,49 @@ impl Driver {
             .map_or(0, |machine| machine.state().number())
     }
 
-    /// Whether anything waits, runs or is not yet told (the pump asks again).
-    pub(crate) fn has_work(&self) -> bool {
-        !self.entries.is_empty() || !self.ready.is_empty() || self.ask.is_some()
+    fn tell_pending(&self) -> bool {
+        !self.ready.is_empty() || self.entries.iter().any(|entry| entry.changed)
+    }
+
+    /// Whether the pump has something to do now: a job that can take a step,
+    /// a queue head that can start, or something that can be told. A request
+    /// that waits for the user's answer, or behind one, is no work (the
+    /// answer or the dialog's end wakes the pump), and what could not be told
+    /// waits for [`Self::due`], so the device may idle.
+    pub(crate) fn has_work(&self, now: u64) -> bool {
+        let held = self.blocked_until.is_some_and(|until| now < until);
+        if self.restart_wanted || (!held && self.tell_pending()) {
+            return true;
+        }
+        self.machine.try_borrow().map_or(true, |machine| {
+            machine.can_step() || (!machine.busy() && !self.queue.is_empty())
+        })
+    }
+
+    /// When to look again for what could not be told, if anything waits.
+    pub(crate) fn due(&self) -> Option<u64> {
+        self.blocked_until.filter(|_| self.tell_pending())
+    }
+
+    /// Its plugin could not be called: no new try before `until`.
+    pub(crate) fn hold_back(&mut self, until: u64) {
+        self.blocked_until = Some(until);
+    }
+
+    /// Something was told: tries are free again.
+    pub(crate) fn released(&mut self) {
+        self.blocked_until = None;
+    }
+
+    /// The ended outcome of `owner`'s request, if it is still the oldest
+    /// one waiting; another one (the ready list changed during the callback)
+    /// is left alone.
+    pub(crate) fn take_ready_if(&mut self, owner: u64, request: u32, kind: u32) -> Option<Outcome> {
+        let first = self.ready.first()?;
+        if (first.owner, first.request, first.kind) != (owner, request, kind) {
+            return None;
+        }
+        self.take_ready()
     }
 
     /// The first request whose `firmware_changed` is due, left marked.
@@ -541,11 +678,14 @@ impl Driver {
     /// Suspend, shutdown or a card swap: the running job and every waiting
     /// one end with reason 20, each for its sender.
     pub(crate) fn abort_all(&mut self) {
+        // A restart that waited for the next pass does not come.
+        self.restart_wanted = false;
+        self.stopping = false;
         let mut got = true;
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 got = false;
                 None
             }
@@ -595,7 +735,7 @@ impl Driver {
 
     /// `owner` stopped: its waiting requests, its undelivered outcomes, its
     /// kept ones and its check result go. A job of its that runs is abandoned.
-    pub(crate) fn sender_stopped(&mut self, owner: u64) {
+    pub(crate) fn sender_stopped(&mut self, owner: u64) -> Option<u128> {
         // The one entry that is not queued is the job that runs.
         let running = self
             .entries
@@ -609,11 +749,22 @@ impl Driver {
             }
             machine.forget(owner);
         } else {
-            self.skipped = self.skipped.saturating_add(1);
+            self.skip();
         }
         self.entries.retain(|entry| entry.owner != owner);
         self.ready.retain(|outcome| outcome.owner != owner);
         self.kept.retain(|kept| kept.owner != owner);
+        // Its confirmation goes with it: nobody is left to answer for.
+        if self.ask.is_some_and(|ask| ask.owner == owner) {
+            self.ask = None;
+        }
+        match self.shown {
+            Some((nonce, question)) if question.owner == owner => {
+                self.shown = None;
+                Some(nonce)
+            }
+            _ => None,
+        }
     }
 
     fn queue_has(&self, entry: &Entry) -> bool {
