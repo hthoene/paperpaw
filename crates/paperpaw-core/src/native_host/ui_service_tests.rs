@@ -600,6 +600,9 @@ fn a_guard_denies_the_nested_question_and_the_answer_goes_to_the_asker() {
 /// A scheduler view of a device that is up and awake.
 struct WorkDevice;
 impl crate::native_host::work_sched::WorkEnv for WorkDevice {
+    fn subscribed(&self, _: u64, _: u32) -> bool {
+        true
+    }
     fn now_ms(&self) -> u64 {
         1_000
     }

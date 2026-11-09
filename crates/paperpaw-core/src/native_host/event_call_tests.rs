@@ -211,6 +211,9 @@ fn a_callback_that_stages_nothing_leaves_the_outbox_empty() {
 
 struct Env;
 impl WorkEnv for Env {
+    fn subscribed(&self, _: u64, _: u32) -> bool {
+        true
+    }
     fn now_ms(&self) -> u64 {
         1_000
     }
