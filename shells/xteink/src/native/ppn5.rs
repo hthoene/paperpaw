@@ -415,7 +415,10 @@ mod x4 {
     /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
     #[cfg(all(feature = "static-native", feature = "esp32c3"))]
     #[inline(never)]
-    pub(crate) fn register_linked_probe(kernel: &mut paperpaw_core::Kernel) {
+    pub(crate) fn register_linked_probe(
+        kernel: &mut paperpaw_core::Kernel,
+        table: &crate::native::DeviceTable,
+    ) {
         fn linked_report(_: &X4Services, tag: u32, status: i32) {
             warn!("native: linked: call {tag} ended with {status}");
         }
@@ -426,8 +429,8 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), crate::native::new_resources())
-        else {
+        // The loader's own table of handles (one for the device), not a second.
+        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), table.share()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
