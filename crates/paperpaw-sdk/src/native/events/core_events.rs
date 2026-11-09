@@ -6,6 +6,7 @@ use super::{
 use crate::{
     native::{
         declare::settings_value as settings,
+        image::ImageReady,
         net::{HttpDone, HttpProgress},
         settings::SettingValue,
         sockets::{BroadcastEvent, SocketEvent},
@@ -178,6 +179,10 @@ event_fn!(http_done, wire::EventHttpDone, |r| Event::HttpDone(
 event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
 });
+
+event_fn!(image_ready, wire::EventImageReady, |r| Event::ImageReady(
+    ImageReady::decode(r)?
+));
 
 event_fn!(socket, wire::EventSocket, |r| Event::Socket(
     SocketEvent::decode(r)?

@@ -488,6 +488,9 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
+    /// A picture the plugin asked the host to prepare is ready or failed
+    /// (`core.document`).
+    ImageReady(super::image::ImageReady),
     /// Something happened to a socket of this plugin (`core.sockets`); read
     /// arrived bytes in this callback.
     Socket(super::sockets::SocketEvent),

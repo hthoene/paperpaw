@@ -76,6 +76,8 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
+    /// A picture the plugin asked the host to prepare is ready or failed.
+    ImageReady,
     /// Something happened to a socket of this plugin (`core.sockets`). Needed
     /// before the first `connect`.
     Socket,
@@ -131,6 +133,7 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::ImageReady => records_wire::EVENT_IMAGE_READY_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
             Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
