@@ -133,10 +133,26 @@ reading and by the kit's own sweeps.
   atomically); a file that is no text or too large is left as it is and the widget
   says so. The settings (`count` is the first number setting of the pack) are
   checked by `settings_parity`.
-- **Not ported yet:** the list's own screen (add, edit, move, remove). The heading,
-  "more" and the empty list are the targets that open it; until it exists a tap on
-  them does nothing (`Handled::No`). The widget screen of interface 6 stays until
-  removal.
+- The list's own screen (`native_todo_screen`): *Add* first, then the items with
+  *Done* in the value column of those ticked (the box and the strike-through of
+  interface 6 are not drawn in the kit's list); a tap ticks an item off or on, a
+  hold or the menu button offers tick, edit, move up/down and remove (host
+  questions with the original words); the heading, "more" and an empty list of
+  the widget open it (action `widgets.todo.open`, icon `list-check`). One
+  question is open at a time. The widgets showing the list are told when it
+  changes. Ignored case `widgets-todo-screen-adds-ticks-and-moves` (H1/H2/H4).
+  Two differences from interface 6, both without a visible effect: the screen is
+  declared `Single` (interface 6: `PER_PARAMS`; the action opens it without
+  parameters, so one list is open either way), and the options of an item at the
+  top or the bottom of the list leave out *up* or *down* (interface 6 offered them
+  as no-ops). `tests/todo_declarations.rs` compares the screen, the action and the
+  icon with interface 6's.
+  If the rows cannot be rebuilt after a change (memory refused), they are dropped
+  and the screen says *The list could not be shown. It is saved; open it again.*
+  (`widgets.todo.not-shown`, also as the notice of a tap or the menu button) until
+  it is opened again, which reads the card (where the change was saved): a tap can
+  then never act on another item than the one shown.
+- Metadata now lists the `storage.*` host calls the quote and the to-do list use.
 - Pure model (`native_todo_list`) is tested with the interface-6 properties (round
   trip, any bytes, huge years, version 1 file); drawing and file calls need a host
   and have no refusal sweep until a mock host exists. Ignored case
