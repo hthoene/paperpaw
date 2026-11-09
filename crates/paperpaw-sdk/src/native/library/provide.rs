@@ -48,7 +48,7 @@ impl<'a> Provided<'a> {
     /// # Errors
     /// `Invalid` for an empty or blank one (a provided value never clears: leave
     /// the field out instead); `NoSpace` for a longer one.
-    pub const fn title(mut self, title: &'a str) -> Result<Self, Error> {
+    pub fn title(mut self, title: &'a str) -> Result<Self, Error> {
         if title.trim().is_empty() {
             return Err(Error::Invalid);
         }
@@ -65,7 +65,7 @@ impl<'a> Provided<'a> {
     /// # Errors
     /// `Invalid` for an empty or blank one (a provided value never clears: leave
     /// the field out instead); `NoSpace` for a longer one.
-    pub const fn author(mut self, author: &'a str) -> Result<Self, Error> {
+    pub fn author(mut self, author: &'a str) -> Result<Self, Error> {
         if author.trim().is_empty() {
             return Err(Error::Invalid);
         }
@@ -82,7 +82,7 @@ impl<'a> Provided<'a> {
     /// # Errors
     /// `Invalid` for an empty or blank one (a provided value never clears: leave
     /// the field out instead); `NoSpace` for a longer one.
-    pub const fn series(mut self, series: &'a str) -> Result<Self, Error> {
+    pub fn series(mut self, series: &'a str) -> Result<Self, Error> {
         if series.trim().is_empty() {
             return Err(Error::Invalid);
         }
@@ -99,7 +99,7 @@ impl<'a> Provided<'a> {
     /// # Errors
     /// `Invalid` for an empty or blank one (a provided value never clears: leave
     /// the field out instead); `NoSpace` for a longer one.
-    pub const fn number(mut self, number: &'a str) -> Result<Self, Error> {
+    pub fn number(mut self, number: &'a str) -> Result<Self, Error> {
         if number.trim().is_empty() {
             return Err(Error::Invalid);
         }
