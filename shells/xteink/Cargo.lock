@@ -2322,7 +2322,7 @@ dependencies = [
 name = "paperpaw-default-packs"
 version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-config",
+ "paperpaw-core",
  "paperpaw-hyphenation-packs",
  "paperpaw-platform",
 ]

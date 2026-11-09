@@ -175,11 +175,13 @@ fn a_pack_already_there_is_kept_as_it_is_and_marked() {
 /// without English: the pack is written over it, and only then is the mark.
 #[test]
 fn a_plugin_ini_that_is_no_plugin_does_not_stop_the_pack() {
-    let broken: [&[u8]; 5] = [
+    let broken: [&[u8]; 6] = [
         b"",
         b"\xff\xfe not text",
-        // Another id.
-        b"[plugin]\nid = stats\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
+        // A line the loader refuses the whole plugin for.
+        b"[plugin\nid = hyphenation\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
+        // An id that is no id.
+        b"[plugin]\nid = Not An Id\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
         // Made for formats before the section.
         b"[plugin]\nid = hyphenation\nformats = 4\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
         // Names a table that is not there.
@@ -188,10 +190,11 @@ fn a_plugin_ini_that_is_no_plugin_does_not_stop_the_pack() {
     for ini in broken {
         let card = Card::new();
         card.files.write(INI, ini).unwrap();
+        // The table the ini names is there: the ini is what is wrong.
+        card.files.write(TABLE, b"old").unwrap();
         assert!(!card.exists(MARK));
         assert_eq!(seed_hyphenation(&card), Seeded::Installed, "{ini:?}");
         assert!(card.exists(MARK));
-        assert!(card.exists(TABLE));
         let mut package = alloc::vec![0u8; card.size(INI).unwrap() as usize];
         card.read_at(INI, 0, &mut package).unwrap();
         assert!(
@@ -200,6 +203,80 @@ fn a_plugin_ini_that_is_no_plugin_does_not_stop_the_pack() {
                 .contains("id = hyphenation")
         );
     }
+}
+
+/// The loader takes the folder's name for a missing `id`: a pack the reader
+/// copied without one, with its own languages, is a plugin and is kept.
+#[test]
+fn a_plugin_ini_without_an_id_is_the_loaders_plugin_and_kept() {
+    let card = Card::new();
+    let ini: &[u8] = b"[plugin]\nformats = 5\n\n[hyphenation]\nde = hyphenation/de.pphp\n";
+    card.files.write(INI, ini).unwrap();
+    card.files
+        .write("plugins/hyphenation/hyphenation/de.pphp", b"german")
+        .unwrap();
+    assert_eq!(seed_hyphenation(&card), Seeded::Kept);
+    assert!(card.exists(MARK));
+    assert_eq!(card.size(INI).unwrap(), ini.len() as u64);
+    assert!(!card.exists(TABLE));
+}
+
+/// A write that fails over a folder with the reader's files takes back only
+/// what this start made: other languages' tables and notes stay.
+#[test]
+fn a_failed_write_over_a_broken_plugin_ini_keeps_the_readers_files() {
+    let card = Card::new();
+    let theirs = [
+        "plugins/hyphenation/hyphenation/de.pphp",
+        "plugins/hyphenation/notes.txt",
+    ];
+    for path in theirs {
+        card.files.write(path, b"mine").unwrap();
+    }
+    card.files.write(INI, b"").unwrap();
+    // One write works, the next fails.
+    card.writes.set(Some(1));
+    assert_eq!(seed_hyphenation(&card), Seeded::Failed);
+    for path in theirs {
+        assert!(card.exists(path), "{path}");
+    }
+    for &(path, _) in english() {
+        let at = format!("plugins/hyphenation/{path}");
+        assert!(!card.exists(&at), "{at} was left behind");
+    }
+    assert!(!card.exists(MARK));
+    // Tried again at the next start, with room: installed beside their files.
+    card.writes.set(None);
+    assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+    for path in theirs {
+        assert!(card.exists(path), "{path}");
+    }
+}
+
+/// The old, broken `plugin.ini` goes (and the card is synced) before the first
+/// table is written: a cut during the copy leaves no manifest that names a
+/// half-written table.
+#[test]
+fn the_old_plugin_ini_goes_before_a_table_is_written() {
+    let card = Card::new();
+    // Id and formats fine, the table it names (the package's own) missing.
+    card.files
+        .write(
+            INI,
+            b"[plugin]\nid = hyphenation\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
+        )
+        .unwrap();
+    // The very first write fails, as a cut would end it.
+    card.writes.set(Some(0));
+    assert_eq!(seed_hyphenation(&card), Seeded::Failed);
+    assert!(!card.exists(INI), "the old manifest was still there");
+    assert!(card.syncs.get() >= 1, "removed, but not written back");
+    assert!(!card.exists(MARK));
+    // A partial table now cannot be taken for a plugin: there is no manifest.
+    card.files.write(TABLE, b"half").unwrap();
+    card.writes.set(None);
+    assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+    assert!(card.size(TABLE).unwrap() > 4);
 }
 
 /// What the package puts on a card is a plugin by the same rule: with the mark

@@ -90,6 +90,27 @@ pub(crate) fn tables(
     found
 }
 
+/// The tables the loader takes from the `plugin.ini` `source` of the plugin
+/// folder `folder` (its name: the id of a plugin that names none): the paths
+/// `[hyphenation]` names, relative to the folder, in the order written. `Err`
+/// where the loader refuses the whole plugin (a line that does not parse, an
+/// invalid id or version, formats from a later PaperPaw). Formats before 5 give
+/// no tables. It is the loader's own code (`parse_manifest` and [`tables`]), so
+/// a shell that has to tell a usable hyphenation plugin from one that is not
+/// (the default pack's seeding) cannot drift from it. Whether a table's file
+/// is there, or holds, is not looked at here.
+///
+/// # Errors
+/// Why the loader refuses the plugin, in words.
+pub fn hyphenation_tables(source: &str, folder: &str) -> Result<Vec<String>, String> {
+    let (_, formats) = super::parse_manifest(source, folder)?;
+    let mut ignored = Vec::new();
+    Ok(tables(source, folder, formats, &mut ignored)
+        .into_iter()
+        .map(|table| table.path)
+        .collect())
+}
+
 /// Whether `tag` is a language tag a table may be named for: `[A-Za-z0-9-]`,
 /// 1 to 35 bytes.
 fn valid_tag(tag: &str) -> bool {

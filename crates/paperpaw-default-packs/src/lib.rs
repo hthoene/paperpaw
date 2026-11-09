@@ -22,12 +22,16 @@
 //!    folder, which removing the plugin deletes).
 //! 2. The plugin's `plugin.ini` is there (the flasher's, the store's, a
 //!    newer one, one a reader copied) **and the plugin is one the reader can
-//!    use** (it names itself `hyphenation`, says it is made for formats 5 or
-//!    later, and `[hyphenation]` names a table that is in its folder): it is
+//!    use** (by the loader's own rule, `paperpaw_core::hyphenation_tables`: it
+//!    parses, is made for formats 5 or later, and `[hyphenation]` names a table
+//!    that is in its folder; a missing `id` is the folder's name): it is
 //!    **kept** as it is, and the mark written. A `plugin.ini` that is no such
-//!    plugin (empty, damaged, another id, no table) does not stop the pack and
-//!    is written over by step 3, with no mark until it is: a broken file must
-//!    not keep a device without English for good. A file this cannot judge (too
+//!    plugin (empty, damaged, no table) does not stop the pack: it is removed
+//!    (and the card synced) before step 3 writes the files, with no mark until
+//!    then, so a power cut cannot leave it naming a half-written table. A
+//!    broken file must not keep a device without English for good; the
+//!    reader's other files in the folder (other languages' tables) stay, also
+//!    when a write fails: only the files this start made are taken back. A file this cannot judge (too
 //!    big, not readable, no room to read it) is left as it is, with no mark:
 //!    judged again at the next start.
 //! 3. Otherwise the files are written to `plugins/hyphenation/`, `plugin.ini`
@@ -117,19 +121,11 @@ enum Found {
     Unknown,
 }
 
-/// A file of the plugin's folder as `[hyphenation]` may name it: relative,
-/// no empty, `.`, `..` or dot-leading segment.
-fn plain_path(path: &str) -> bool {
-    !path.is_empty()
-        && path
-            .split('/')
-            .all(|segment| !segment.is_empty() && !segment.starts_with('.'))
-}
-
-/// Whether the plugin in `folder` is one the loader takes as hyphenation: it
-/// names itself `hyphenation`, is made for formats 5 or later (the ones with
-/// the `[hyphenation]` section), and names at least one table that is a file
-/// of its folder. (Whether a table's content holds is checked when its
+/// Whether the plugin in `folder` is one the loader takes as hyphenation:
+/// the loader's own rule (`paperpaw_core::hyphenation_tables`: the manifest
+/// parses, a missing `id` is the folder's name, made for formats 5 or later,
+/// `[hyphenation]` names tables) and at least one of the tables it names is a
+/// file of its folder. (Whether a table's content holds is checked when its
 /// language is first needed, as the loader does.)
 fn judge(storage: &dyn Storage, folder: &str) -> Found {
     let ini = format!("{folder}/plugin.ini");
@@ -150,37 +146,43 @@ fn judge(storage: &dyn Storage, folder: &str) -> Found {
     let Ok(text) = core::str::from_utf8(&bytes) else {
         return Found::Broken;
     };
-    let (mut named, mut formats, mut table) = (false, 0, false);
-    for entry in paperpaw_config::parse(text).filter_map(Result::ok) {
-        match (entry.section, entry.key) {
-            ("plugin", "id") => match entry.value.try_as_str() {
-                Ok(id) => named = id == HYPHENATION,
-                Err(_) => return Found::Unknown,
-            },
-            ("plugin", "formats") => formats = entry.value.as_u32().unwrap_or(0),
-            ("hyphenation", _) => match entry.value.try_as_str() {
-                Ok(path) => {
-                    let path = path.trim();
-                    table |= plain_path(path) && storage.exists(&format!("{folder}/{path}"));
-                }
-                Err(_) => return Found::Unknown,
-            },
-            _ => {}
+    match paperpaw_core::hyphenation_tables(text, HYPHENATION) {
+        Ok(tables)
+            if tables
+                .iter()
+                .any(|t| storage.exists(&format!("{folder}/{t}"))) =>
+        {
+            Found::Usable
         }
-    }
-    if named && formats >= 5 && table {
-        Found::Usable
-    } else {
-        Found::Broken
+        _ => Found::Broken,
     }
 }
 
-/// Removes what a failed start wrote, as far as the card lets it.
-fn take_back(storage: &dyn Storage, folder: &str) {
-    for &(path, _) in ENGLISH {
-        let _ = storage.remove(&format!("{folder}/{path}"));
+/// The most files of the package whose being there before is remembered (a
+/// larger package leaves the rest alone when a start fails).
+const MAX_FILES: usize = 32;
+
+/// What a failed start wrote is taken back, as far as the card lets it. Where
+/// the folder was not there (or empty), all of it goes. Where it held files
+/// before (a broken `plugin.ini` beside the reader's other tables), only the
+/// files this start made: never the folder, and never a file that was there.
+fn take_back(storage: &dyn Storage, folder: &str, before: Option<&[bool; MAX_FILES]>) {
+    for (at, &(path, _)) in ENGLISH.iter().enumerate() {
+        let there_before = before.is_some_and(|b| b.get(at).copied().unwrap_or(true));
+        if before.is_none() || !there_before {
+            let _ = storage.remove(&format!("{folder}/{path}"));
+        }
     }
-    let _ = storage.remove_dir_all(folder);
+    if before.is_none() {
+        let _ = storage.remove_dir_all(folder);
+    }
+}
+
+/// A start that failed to write: counted, to be tried again.
+fn failed(storage: &dyn Storage, folder: &str, before: Option<&[bool; MAX_FILES]>) -> Seeded {
+    take_back(storage, folder, before);
+    let _ = storage.append(TRIED, &[1]);
+    Seeded::Failed
 }
 
 /// Puts the English hyphenation package on `storage` if this device never
@@ -190,7 +192,9 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
         return Seeded::Kept;
     }
     let folder = format!("plugins/{HYPHENATION}");
-    if storage.exists(&format!("{folder}/plugin.ini")) {
+    let ini = format!("{folder}/plugin.ini");
+    let mut broken = false;
+    if storage.exists(&ini) {
         match judge(storage, &folder) {
             // Found, not made: only note it.
             Found::Usable => {
@@ -199,8 +203,8 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
             }
             // Not judged: left as it is, looked at again at the next start.
             Found::Unknown => return Seeded::Kept,
-            // No plugin: the pack goes on over it, `plugin.ini` last.
-            Found::Broken => {}
+            // No plugin: the pack goes on over it.
+            Found::Broken => broken = true,
         }
     }
     let tried = storage.size(TRIED).unwrap_or(0) as usize;
@@ -210,6 +214,25 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     if storage.free_space().is_some_and(|free| free < ROOM) {
         return Seeded::NoRoom;
     }
+    // Files that are there already (a broken `plugin.ini` beside the reader's
+    // other tables, tables with no manifest) are not this start's to take
+    // back if it fails.
+    let mut held = false;
+    let _ = storage.list(&folder, &mut |_| held = true);
+    let mut before = [false; MAX_FILES];
+    if held {
+        for (at, &(path, _)) in ENGLISH.iter().enumerate().take(MAX_FILES) {
+            before[at] = storage.exists(&format!("{folder}/{path}"));
+        }
+    }
+    let before = held.then_some(&before);
+    // The old, broken `plugin.ini` goes first, and is on the card (`sync`)
+    // before a table is written: a power cut while the tables are copied
+    // must not leave a manifest that names a half-written table, which the
+    // next start would take for a plugin and mark for good.
+    if broken && (storage.remove(&ini).is_err() || storage.sync().is_err()) {
+        return failed(storage, &folder, before);
+    }
     // `plugin.ini` last: without it the folder is no plugin. Everything
     // else is on the card (`sync`) before it is written, so a power cut
     // cannot leave a manifest over files that were not written back.
@@ -217,15 +240,11 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     for pass in [false, true] {
         for &(path, bytes) in ENGLISH.iter().filter(|(p, _)| manifest(p) == pass) {
             if storage.write(&format!("{folder}/{path}"), bytes).is_err() {
-                take_back(storage, &folder);
-                let _ = storage.append(TRIED, &[1]);
-                return Seeded::Failed;
+                return failed(storage, &folder, before);
             }
         }
         if !pass && storage.sync().is_err() {
-            take_back(storage, &folder);
-            let _ = storage.append(TRIED, &[1]);
-            return Seeded::Failed;
+            return failed(storage, &folder, before);
         }
     }
     let _ = storage.sync();
