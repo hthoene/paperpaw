@@ -94,6 +94,9 @@ pub struct NativeState {
     pub room_largest: u64,
 }
 
+/// What reads the heap and the stack (nothing to say: `None`).
+pub type MemoryProbe = fn() -> Option<MemoryFacts>;
+
 /// The X4's device, behind `core.device`.
 #[derive(Debug)]
 pub struct X4Device {
@@ -108,7 +111,7 @@ pub struct X4Device {
     own: Cell<Option<Own>>,
     native: Cell<Option<NativeState>>,
     /// What reads the heap and the stack, and the clock for its cache.
-    probe: Cell<Option<fn() -> Option<MemoryFacts>>>,
+    probe: Cell<Option<MemoryProbe>>,
     clock_ms: Cell<Option<fn() -> u64>>,
     memory: ProbeCache<MemoryFacts>,
     not_installed: RefCell<Vec<(String, u32)>>,
@@ -164,7 +167,7 @@ impl X4Device {
 
     /// What reads the memory (op 7) and the clock its answers are cached by
     /// (one real probe per `PROBE_WINDOW_MS`).
-    pub fn set_memory_probe(&self, probe: fn() -> Option<MemoryFacts>, clock_ms: fn() -> u64) {
+    pub fn set_memory_probe(&self, probe: MemoryProbe, clock_ms: fn() -> u64) {
         self.probe.set(Some(probe));
         self.clock_ms.set(Some(clock_ms));
     }
