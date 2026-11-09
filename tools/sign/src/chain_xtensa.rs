@@ -361,9 +361,22 @@ struct Function {
     size: u32,
     /// The executable section it is in, and where in its bytes.
     code: (usize, usize),
+    /// The other names (symbol, path) of the same address: the linker or the
+    /// compiler may fold identical functions or alias one, and a root or a
+    /// trait is matched by every name the code has, not by the one kept above.
+    aliases: Vec<(String, String)>,
 }
 
 impl Function {
+    /// Every (symbol, path) the code at this address has.
+    fn names(&self) -> impl Iterator<Item = (&str, &str)> {
+        core::iter::once((self.symbol.as_str(), self.path.as_str())).chain(
+            self.aliases
+                .iter()
+                .map(|(symbol, path)| (symbol.as_str(), path.as_str())),
+        )
+    }
+
     /// Whether `name`, as an `allow` line gives it, is this function's: its
     /// path, its stable symbol or its raw symbol. The stable symbol is the
     /// same for every instance of one generic function (the hash is what tells
@@ -813,11 +826,28 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
             start: s.value,
             size: s.size,
             code: (k, from),
+            aliases: Vec::new(),
         };
-        // Aliases are one function, with the larger size and the first name.
+        // Aliases are one function, with the larger size and the first name;
+        // the other names stay (`Function::aliases`), so a root or a trait is
+        // found by any of them.
         match found.get_mut(&s.value) {
-            Some(known) if known.size >= s.size => {}
-            _ => {
+            Some(known) if known.size >= s.size => {
+                if known.symbol != function.symbol {
+                    known.aliases.push((function.symbol, function.path));
+                }
+            }
+            Some(known) => {
+                let mut larger = function;
+                larger.aliases = core::mem::take(&mut known.aliases);
+                if known.symbol != larger.symbol {
+                    larger
+                        .aliases
+                        .push((known.symbol.clone(), known.path.clone()));
+                }
+                *known = larger;
+            }
+            None => {
                 found.insert(s.value, function);
             }
         }
@@ -1055,7 +1085,11 @@ fn seed(
 ) {
     for root in &budget.roots {
         let members: Vec<usize> = (0..image.funcs.len())
-            .filter(|&i| in_family(&image.funcs[i].path, root))
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(_, path)| in_family(path, root))
+            })
             .collect();
         if members.is_empty() {
             report
@@ -1071,7 +1105,11 @@ fn seed(
     }
     for ty in &budget.impl_roots {
         let members: Vec<usize> = (0..image.funcs.len())
-            .filter(|&i| impl_of(&image.funcs[i].symbol, ty))
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(symbol, _)| impl_of(symbol, ty))
+            })
             .collect();
         if members.is_empty() {
             report
@@ -1087,7 +1125,11 @@ fn seed(
     }
     for tr in &budget.trait_roots {
         let members: Vec<usize> = (0..image.funcs.len())
-            .filter(|&i| trait_of(&image.funcs[i].symbol, &image.funcs[i].path, tr))
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(symbol, path)| trait_of(symbol, path, tr))
+            })
             .collect();
         if members.is_empty() {
             report
@@ -1104,9 +1146,11 @@ fn seed(
     // A trait the budget says has no code yet: the day it has, the roots must
     // follow (its methods are what a `&dyn` call reaches).
     for (tr, why) in &budget.absent_traits {
-        if let Some(found) = (0..image.funcs.len())
-            .find(|&i| trait_of(&image.funcs[i].symbol, &image.funcs[i].path, tr))
-        {
+        if let Some(found) = (0..image.funcs.len()).find(|&i| {
+            image.funcs[i]
+                .names()
+                .any(|(symbol, path)| trait_of(symbol, path, tr))
+        }) {
             report.problems.push(format!(
                 "the trait `{tr}` has code in the image now (`{}`), but the budget says it has none ({why}): replace `absent trait {tr}` with `root trait {tr}` and review what it reaches",
                 image.funcs[found].path
