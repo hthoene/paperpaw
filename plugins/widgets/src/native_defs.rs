@@ -20,6 +20,8 @@ pub enum Tap {
     TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
+    /// It opens the book of the highlight shown at its place.
+    OpenHighlight,
     /// It runs the action with this id (the library's numbers open the
     /// library).
     Run(&'static str),
@@ -139,10 +141,18 @@ static LIBRARY: Behaviour = Behaviour {
     tap: Tap::Run("core.library"),
 };
 
+static HIGHLIGHT: Behaviour = Behaviour {
+    height: crate::native_highlight::height,
+    draw: crate::native_highlight::draw,
+    shows: crate::native_highlight::shows,
+    tap: Tap::OpenHighlight,
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
+        115 => Some(&HIGHLIGHT),
         114 => Some(&LIBRARY),
         113 => Some(&BATTERY),
         112 => Some(&TODO),
