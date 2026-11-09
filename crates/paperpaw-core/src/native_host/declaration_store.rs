@@ -70,6 +70,14 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
+impl DeclKey {
+    /// The place of the record: its owner's slot, its batch, its position in it.
+    /// Sorting by this gives plugin order, then record order.
+    pub(crate) fn order(self) -> (u16, u16, u16) {
+        (self.owner, self.batch, self.record)
+    }
+}
+
 const KIND_COUNT: usize = 31;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
