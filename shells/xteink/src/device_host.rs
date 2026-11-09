@@ -1,0 +1,138 @@
+//! `core.device` on the X4 (interface 7 builds): the device the kernel's host
+//! services answer from, made once at start with what is fixed for this
+//! boot. What changes while it runs is told to it by the main loop.
+//!
+//! The mappings from the firmware's types to what plugins read are
+//! `paperpaw_x4::device_facts`, tested on a computer; this is the calls.
+
+use alloc::rc::Rc;
+use paperpaw_core::native_host::device_service::{
+    DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts, check_caps_agree,
+};
+use paperpaw_core::native_host::shell::DATA_SERVICES;
+use paperpaw_native::metadata::Service;
+use paperpaw_platform::firmware::Running;
+use paperpaw_sdk::native::{NotInstalled, SafeMode};
+use paperpaw_sdk::power::Start;
+use paperpaw_x4::device_facts::{
+    Features, caps_for, class_of, controls_bits, memory_facts, native_state, start_code,
+};
+use paperpaw_x4::device_host::{Identity, X4Device};
+
+/// The readings op 2 lists: the USB lines' (diagnostics), and the Pro's light.
+#[cfg(feature = "x4-pro")]
+const VALUES: &[&str] = &["usb-pin-high", "usb-frames", "frontlight-percent"];
+#[cfg(not(feature = "x4-pro"))]
+const VALUES: &[&str] = &["usb-pin-high", "usb-frames"];
+
+/// The store's name for this device.
+#[cfg(feature = "x4-pro")]
+const CATALOG: &str = "x4-pro";
+#[cfg(feature = "x4-classic")]
+const CATALOG: &str = "x4-classic";
+#[cfg(not(any(feature = "x4-pro", feature = "x4-classic")))]
+const CATALOG: &str = "x4";
+
+/// The chip id a code plugin is built for (5 ESP32-C3, 9 ESP32-S3).
+const TARGET: u32 = if cfg!(feature = "esp32s3") { 9 } else { 5 };
+
+/// The heap and the stack as op 7 gives them.
+fn memory_probe() -> Option<MemoryFacts> {
+    crate::memory().map(|used| memory_facts(&used))
+}
+
+/// The clock the memory probe's cache goes by.
+fn clock_ms() -> u64 {
+    crate::micros() / 1000
+}
+
+/// The device for this start. `running` is the firmware's own facts where the
+/// updates run (no firmware bit in caps where they do not), `native` what code
+/// plugins stand on at this start, `start` how the start came about.
+#[inline(never)]
+pub fn make(
+    running: Option<&Running<'_>>,
+    not_installed: &[NotInstalled],
+    start: Start,
+) -> Rc<X4Device> {
+    let features = Features {
+        touch: crate::DEVICE.input.touch,
+        button_row: cfg!(any(feature = "x4", feature = "x4-classic", feature = "x3")),
+        // Told to the device where the main loop starts to (the next slice):
+        // a bit goes with its setter, or ops 8 to 11 answer "not found"
+        // under a caps bit that says they are there.
+        wifi: false,
+        bluetooth: false,
+        frontlight: cfg!(feature = "x4-pro"),
+        firmware: running.is_some(),
+    };
+    let identity = Identity {
+        id: crate::DEVICE.id,
+        model: crate::DEVICE.name,
+        catalog: CATALOG,
+        class: class_of(crate::DEVICE.memory),
+        caps: caps_for(&features),
+        controls: controls_bits(&crate::power_controls()),
+        tls_sessions: u32::from(crate::tls_slots::SESSIONS),
+        keys: crate::DEVICE.input.keys,
+        values: VALUES,
+    };
+    let device = X4Device::shared(identity, &crate::ota::PLUGINS);
+    device.set_start(start_code(start));
+    if let Some(running) = running {
+        device.set_firmware(running);
+    }
+    // The code plugins this start stood on; the room is told once the loader is done.
+    // Plugins that take effect only at the next start are the core's to count
+    // (it holds the registry): none are the shell's.
+    tell_native(&device, None);
+    // From the card: at most what op 14 lists is copied, and a copy that
+    // finds no room leaves the list empty (the start goes on).
+    let listed = &not_installed[..not_installed.len().min(MAX_NOT_INSTALLED as usize)];
+    let mut rows: alloc::vec::Vec<(&str, u32)> = alloc::vec::Vec::new();
+    if rows.try_reserve_exact(listed.len()).is_ok() {
+        rows.extend(listed.iter().map(|row| {
+            (
+                row.plugin.as_str(),
+                paperpaw_x4::device_facts::not_installed_reason(row.reason),
+            )
+        }));
+        if !device.set_not_installed(&rows) {
+            log::warn!("device: the list of plugins not installed could not be kept");
+        }
+    } else {
+        log::warn!("device: no room for the list of plugins not installed");
+    }
+    // The caps say what is answered: said in the log where they do not.
+    if let Err(why) = check_caps_agree(device.as_ref()) {
+        log::error!("device: its caps and its parts disagree: {why}");
+    }
+    device.set_memory_probe(memory_probe, clock_ms);
+    device
+}
+
+/// The services offered to admission: the data services and `core.device`
+/// (this host answers it), built once at compile time.
+pub static OFFERED: [Service<'static>; DATA_SERVICES.len() + DEVICE_SERVICES.len()] = {
+    let mut all = [DATA_SERVICES[0]; DATA_SERVICES.len() + DEVICE_SERVICES.len()];
+    let mut at = 0;
+    while at < DATA_SERVICES.len() {
+        all[at] = DATA_SERVICES[at];
+        at += 1;
+    }
+    let mut more = 0;
+    while more < DEVICE_SERVICES.len() {
+        all[at + more] = DEVICE_SERVICES[more];
+        more += 1;
+    }
+    all
+};
+
+/// Tells the device what code plugins stand on: the safe mode this start is
+/// in, if it is (no loader is made then, so the room stays 0). The plugins
+/// not installed are not part of it: op 14 has them ([`make`]).
+pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
+    let mut native = crate::native::this_firmware();
+    native.safe_mode = safe_mode.cloned();
+    device.set_native(native_state(&native, TARGET, 0, (0, 0), "code.ppn"));
+}

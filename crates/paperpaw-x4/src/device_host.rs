@@ -261,6 +261,17 @@ impl X4Device {
         self.native.set(Some(state));
     }
 
+    /// The code flash room (op 5's last two fields) as the loader found it
+    /// when it was done: free, and the largest free run. Ignored until
+    /// [`X4Device::set_native`] has said what code plugins stand on.
+    pub fn set_code_room(&self, free: u64, largest: u64) {
+        if let Some(mut state) = self.native.get() {
+            state.room_free = free;
+            state.room_largest = largest;
+            self.native.set(Some(state));
+        }
+    }
+
     /// What reads the memory (op 7) and the clock its answers are cached by
     /// (one real probe per `PROBE_WINDOW_MS`).
     pub fn set_memory_probe(&self, probe: MemoryProbe, clock_ms: fn() -> u64) {
@@ -1324,5 +1335,19 @@ mod tests {
         assert_eq!(device.generation(), first);
         assert!(device.set_not_installed(&[("a", 2)]));
         assert_ne!(device.generation(), first);
+    }
+
+    #[test]
+    fn the_code_room_is_set_once_the_native_state_is() {
+        let device = device(&[]);
+        device.set_code_room(1, 2);
+        assert_eq!(device.native(&mut |_| {}), Err(ERR_NOT_FOUND));
+        device.set_native(native_state());
+        device.set_code_room(300, 200);
+        let mut room = None;
+        device
+            .native(&mut |f| room = Some((f.room_free, f.room_largest)))
+            .unwrap();
+        assert_eq!(room, Some((300, 200)));
     }
 }
