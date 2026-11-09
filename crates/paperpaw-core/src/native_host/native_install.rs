@@ -86,6 +86,17 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::MenuSection(_)
         | Record::MenuHide(_)
         | Record::MenuDescribe(_) => Ok(None),
+        // A key binding stays in the declaration store too (charged there,
+        // removed with its owner); the key map is built from it
+        // (`native_keys`). One the key map cannot hold is refused here, never
+        // dropped later.
+        Record::KeyBind(bind) => {
+            if crate::keymap::native_binding_ok(bind.layer, bind.input, bind.action) {
+                Ok(None)
+            } else {
+                Err(ERR_INVALID)
+            }
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -133,7 +144,12 @@ impl crate::Kernel {
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
+        let keys_before = self.native_key_count();
         self.admit_native(host, depth, folder, report)?;
+        if self.native_key_count() != keys_before {
+            // Its bindings are in the key map from now on.
+            self.rebuild_keymap();
+        }
         if self.shared.registry.offers() != offers_before {
             // The slots now bound are known to plugins (`Env::has_slot`).
             self.refresh_slots();
@@ -251,6 +267,8 @@ impl crate::Kernel {
         key: u64,
         owner: &Id,
     ) -> Option<alloc::string::String> {
+        // Counted before the stop: a revoked owner's rows no longer show.
+        let keys_before = self.native_key_count();
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
@@ -266,6 +284,10 @@ impl crate::Kernel {
             if declarations.catalog.prune(&store).is_err() {
                 return None;
             }
+        }
+        if self.native_key_count() != keys_before {
+            // Its bindings leave the key map with it.
+            self.rebuild_keymap();
         }
         if self.native_owner_stopped(key).is_err() {
             return None;

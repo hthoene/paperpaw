@@ -204,15 +204,7 @@ impl InputKey {
         }
         let (kind, name) = key.split_once('.')?;
         // A Bluetooth remote's keys have a dot in their names (`hid.right`).
-        let button = |name: &str| {
-            let valid = !name.is_empty()
-                && !name.starts_with('.')
-                && !name.ends_with('.')
-                && name.bytes().all(|b| {
-                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'
-                });
-            valid.then(|| Cow::Owned(name.to_string()))
-        };
+        let button = |name: &str| button_name_ok(name).then(|| Cow::Owned(name.to_string()));
         match kind {
             "button" => button(name).map(InputKey::Button),
             "long" => button(name).map(InputKey::LongButton),
@@ -256,6 +248,63 @@ impl InputKey {
             _ => None,
         }
     }
+}
+
+/// A button's name: lower case letters, digits, `-` and `.` inside (a Bluetooth
+/// remote's keys have a dot in their names).
+fn button_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+}
+
+/// Whether `key` is an input a native plugin may bind: what
+/// [`InputKey::parse`] reads, except a layer's own zones (the key map sources
+/// name those). Allocates nothing, so the install can ask it where every
+/// allocation is fallible.
+fn native_input_ok(key: &str) -> bool {
+    if key == "tap2" {
+        return true;
+    }
+    let Some((kind, name)) = key.split_once('.') else {
+        return false;
+    };
+    let direction = |name: &str, id: fn(Direction) -> &'static str| {
+        [
+            Direction::Left,
+            Direction::Right,
+            Direction::Up,
+            Direction::Down,
+        ]
+        .into_iter()
+        .any(|d| id(d) == name)
+    };
+    match kind {
+        "button" | "long" | "double" => button_name_ok(name),
+        "tap" | "long-tap" | "double-tap" => Zone::from_id(name).is_some(),
+        "input" | "gesture" => crate::native_host::declarations::full_id(name).is_ok(),
+        "swipe" => direction(name, Direction::id),
+        "edge" => direction(name, side_id),
+        "gestures" => name == "policy",
+        "pinch" => name == "out" || name == "in",
+        "chord" => name
+            .split_once('_')
+            .is_some_and(|(a, b)| a != b && button_name_ok(a) && button_name_ok(b)),
+        _ => false,
+    }
+}
+
+/// Whether a `key.bind` of a native plugin names a layer, an input and an
+/// action the key map can hold (see [`Keymap::bind_native`]). Allocates
+/// nothing.
+pub(crate) fn native_binding_ok(layer: &str, input: &str, action: &str) -> bool {
+    use crate::native_host::declarations::full_id;
+    (layer == GLOBAL_KEYMAP_LAYER || full_id(layer).is_ok())
+        && native_input_ok(input)
+        && (action.is_empty() || full_id(action).is_ok())
 }
 
 /// A name of a layer's own zone: lower case letters, digits, `-` and `.`.
@@ -537,6 +586,36 @@ impl Keymap {
         problems
     }
 
+    /// One binding a native plugin declared (`key.bind`): the layer `global` or
+    /// a screen or slot id, an input as a key map names it, the action (empty:
+    /// explicitly unbound). A layer's own zones are the key map sources', so a
+    /// native plugin binds only the standard zones. `false` for a part that is
+    /// no layer, input or action: nothing is bound.
+    pub(crate) fn bind_native(&mut self, layer: &str, input: &str, action: &str) -> bool {
+        if layer != GLOBAL_KEYMAP_LAYER && Id::parse(layer).is_err() {
+            return false;
+        }
+        let input = match InputKey::parse(input) {
+            Some(InputKey::ZoneTap(..)) | None => return false,
+            Some(input) => input,
+        };
+        let action = if action.is_empty() {
+            None
+        } else if let Ok(id) = Id::parse(action) {
+            Some(id)
+        } else {
+            return false;
+        };
+        let bindings = self
+            .layers
+            .get_or_insert_with(String::from(layer), VecMap::new);
+        let origin = Origin::Plugin;
+        if bindings.get(&input).is_none_or(|b| origin >= b.origin) {
+            bindings.insert(input, Binding { action, origin });
+        }
+        true
+    }
+
     /// Resolves `input` through `layers`, most specific first. An explicit
     /// `none` binding stops the search.
     pub(crate) fn resolve(&self, layers: &[&str], input: &InputKey) -> Option<&Id> {
@@ -578,6 +657,66 @@ mod tests {
 
     fn button(name: &'static str) -> InputKey {
         InputKey::Button(Cow::Borrowed(name))
+    }
+
+    /// What a native plugin may bind is exactly what the parser reads, less a
+    /// layer's own zones; the check allocates nothing, the parser does.
+    #[test]
+    fn the_native_input_check_agrees_with_the_parser() {
+        for key in [
+            "long.back",
+            "button.page-forward",
+            "double.menu",
+            "button.hid.right",
+            "button.",
+            "button..x",
+            "long.Back",
+            "tap.center",
+            "long-tap.top-left",
+            "double-tap.bottom",
+            "tap.mine",
+            "long-tap.mine",
+            "double-tap.mine",
+            "tap2",
+            "swipe.up",
+            "swipe.sideways",
+            "edge.top",
+            "edge.up",
+            "pinch.out",
+            "pinch.in",
+            "pinch.diagonal",
+            "input.my.chord",
+            "input.My",
+            "gesture.my.shape",
+            "gestures.policy",
+            "gestures.other",
+            "chord.menu_up",
+            "chord.menu_menu",
+            "chord.menu",
+            "nonsense",
+            "factory.nonsense",
+            "",
+            ".",
+        ] {
+            let parsed = !matches!(InputKey::parse(key), None | Some(InputKey::ZoneTap(..)));
+            assert_eq!(native_input_ok(key), parsed, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn a_native_binding_is_checked_without_the_key_map() {
+        assert!(native_binding_ok(
+            "keyboard.screen",
+            "long.back",
+            "keyboard.done"
+        ));
+        assert!(native_binding_ok("global", "swipe.up", ""));
+        assert!(!native_binding_ok("Not A Layer", "long.back", "a.b"));
+        assert!(!native_binding_ok("a.b", "long.back", "Not An Action"));
+        assert!(!native_binding_ok("a.b", "tap.mine", "a.b"));
+        let mut keymap = Keymap::default();
+        assert!(keymap.bind_native("keyboard.screen", "long.back", "keyboard.done"));
+        assert!(!keymap.bind_native("keyboard.screen", "tap.mine", "keyboard.done"));
     }
 
     /// A layer's own zones are read from `[zones.<layer>]` and found by
