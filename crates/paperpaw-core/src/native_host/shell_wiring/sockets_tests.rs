@@ -235,7 +235,9 @@ fn events(resources: &HostResources) -> Vec<(u32, u32)> {
     let mut seen = Vec::new();
     let mut out = std::vec![0; 256];
     while let Ok(Some(used)) = sock_service::next_event(host, 7, &mut out) {
-        if let Record::EventSocket(e) = wire::record_decode_one(&out[..used]).unwrap() {
+        if let Record::EventSocket(e) =
+            crate::native_host::codec::decode_any_single(&out[..used]).unwrap()
+        {
             seen.push((e.kind, e.reason));
         }
         sock_service::event_delivered(host, 7).unwrap();

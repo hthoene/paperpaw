@@ -175,8 +175,9 @@ impl Inner {
         host.table().pool().release(give);
     }
 
-    /// The request ended: its work run is told, once (every way a request
-    /// ends comes here or to `owner_stopped`).
+    /// The request is done with: its work run is told, once. A request that
+    /// was told of its end goes at `event_delivered`, one that was never told
+    /// at `owner_stopped`; the run counts it until then.
     fn close_run(host: &dyn NetHost, r: &mut Req) {
         if let Some(run) = r.run
             && core::mem::take(&mut r.run_open)
@@ -270,7 +271,7 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
-        Self::close_run(host, r);
+        // The work run is told when the plugin has been told (`event_delivered`).
         // The session goes back after the transport has let go of it, before
         // the plugin is told: on every way a request ends.
         if r.tls {
@@ -929,6 +930,18 @@ pub(crate) fn next_event(
     owner: u64,
     out: &mut [u8],
 ) -> Result<Option<usize>, i32> {
+    Ok(next_event_run(host, owner, out)?.map(|(used, _)| used))
+}
+
+/// [`next_event`] with the work run the event belongs to (`None`: no run).
+///
+/// # Errors
+/// As [`next_event`].
+pub(crate) fn next_event_run(
+    host: &dyn NetHost,
+    owner: u64,
+    out: &mut [u8],
+) -> Result<Option<(usize, Option<u64>)>, i32> {
     let mut inner = host_table(host)?;
     let mut best: Option<(u64, Pick)> = None;
     for r in inner.reqs.iter().filter(|r| r.owner == owner) {
@@ -943,12 +956,16 @@ pub(crate) fn next_event(
     let Some((_, pick)) = best else {
         return Ok(None);
     };
+    let run = match pick {
+        Pick::Done(id) | Pick::Progress(id) => inner.index(id).and_then(|i| inner.reqs[i].run),
+        _ => None,
+    };
     let used = match pick {
         Pick::Done(id) => encode_done(&mut inner, id, out)?,
         Pick::Progress(id) => encode_progress(&mut inner, id, out)?,
         other => serving::encode(&mut inner, host.now_ms(), other, out)?,
     };
-    Ok(Some(used))
+    Ok(Some((used, run)))
 }
 
 fn take_min(best: &mut Option<(u64, Pick)>, stamp: u64, pick: Pick) {
@@ -970,7 +987,7 @@ fn encode_done(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, i32>
         flags: done.flags,
         body_len: done.body.len() as u32,
     });
-    let used = codec::encode_one(&record, out)?;
+    let used = codec::encode_event(&record, out)?;
     r.state = State::Held;
     Ok(used)
 }
@@ -987,7 +1004,7 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
         total: p.total,
         flags: p.flags,
     });
-    let used = codec::encode_one(&record, out)?;
+    let used = codec::encode_event(&record, out)?;
     r.pending = None;
     Ok(used)
 }
@@ -999,10 +1016,12 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
 pub(crate) fn event_delivered(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
     let mut inner = host_table(host)?;
     let mut freed = 0_u32;
-    inner.reqs.retain(|r| {
+    inner.reqs.retain_mut(|r| {
         let held = r.owner == owner && r.state == State::Held;
         if held {
             freed = freed.saturating_add(r.reserved);
+            // The plugin has been told of the end: the run lets go of it.
+            Inner::close_run(host, r);
         }
         !held
     });

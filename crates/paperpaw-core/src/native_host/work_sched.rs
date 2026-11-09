@@ -814,10 +814,19 @@ impl WorkSched {
         Ok(())
     }
 
-    /// A request or socket of the run ended.
-    pub(crate) fn resource_closed(&self, run: u32, now_ms: u64) {
-        self.with_run(run, |r| r.resources = r.resources.saturating_sub(1));
+    /// A request or socket of the run ended. `false`: the scheduler is in use
+    /// and nothing was done; the caller asks again.
+    pub(crate) fn resource_closed(&self, run: u32, now_ms: u64) -> bool {
+        {
+            let Ok(mut state) = self.state.try_borrow_mut() else {
+                return false;
+            };
+            if let Some(r) = state.runs.iter_mut().find(|r| r.id == run) {
+                r.resources = r.resources.saturating_sub(1);
+            }
+        }
         self.maybe_finish(run, now_ms);
+        true
     }
 
     /// A run past its limit, once: the shell ends its requests with

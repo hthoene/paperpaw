@@ -85,7 +85,7 @@ fn drain(
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
-            Ok(Some(len)) => {
+            Ok(Some((len, _run))) => {
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
                 let _ = lease.service_event(&buffer[..len], env);
@@ -107,6 +107,9 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
+        self.shared
+            .native_instances
+            .retry_run_closes(self.now.millis());
         let env = self.shared.env(self.now);
         let instances = &self.shared.native_instances;
         let more = pump(instances, &instances.event_services(), &env);
@@ -183,4 +186,4 @@ impl crate::Kernel {
 
 #[cfg(test)]
 #[path = "service_pump_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -1340,8 +1340,10 @@ fn turning_a_plugins_network_off_ends_what_it_has_open_at_the_next_pass() {
 }
 
 /// Every request of work run 7 that was stored told the run it opened, and
-/// told it exactly once that it ended.
+/// told it exactly once that it ended: after the plugin was told of the end
+/// (the events are delivered here), or at once when no event is left to tell.
 fn balanced(fake: &Fake, opened: usize) {
+    let _ = drain(fake, OWNER);
     assert_eq!(
         *fake.run_opened.borrow(),
         std::vec![7; opened],
@@ -1378,6 +1380,15 @@ fn a_request_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
         "alive: the run goes on"
     );
     finished(&fake, id, memory_answer()).unwrap();
+    // The run counts the request until the plugin has been told of its end.
+    assert!(fake.run_closed.borrow().is_empty(), "ended, not yet told");
+    assert!(next(&fake, OWNER).is_some());
+    assert!(
+        fake.run_closed.borrow().is_empty(),
+        "told, callback running"
+    );
+    event_delivered(&fake, OWNER).unwrap();
+    assert_eq!(*fake.run_closed.borrow(), [7], "the callback returned");
     balanced(&fake, 1);
     // A report that comes again changes nothing.
     finished(&fake, id, memory_answer()).unwrap();
@@ -1447,6 +1458,11 @@ fn a_request_replaced_by_the_same_plugin_gives_its_run_back_once() {
     request(&fake, OWNER, &save_to(1, 0, "a.bin")).unwrap();
     request(&fake, OWNER, &save_to(2, 0, "a.bin")).unwrap();
     assert_eq!(fake.run_opened.borrow().len(), 2);
+    assert!(
+        fake.run_closed.borrow().is_empty(),
+        "the first is not told yet"
+    );
+    let _ = drain(&fake, OWNER);
     assert_eq!(fake.run_closed.borrow().len(), 1, "the first, replaced");
     cancel(&fake, OWNER, 2).unwrap();
     balanced(&fake, 2);

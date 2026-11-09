@@ -15,6 +15,8 @@ use std::{collections::BTreeMap, string::ToString};
 mod admission;
 #[path = "tests/deadline.rs"]
 mod deadline;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/requests.rs"]
 mod requests;
 #[path = "tests/serving.rs"]
@@ -356,37 +358,48 @@ pub(crate) enum Event {
 pub(crate) fn next(fake: &dyn NetHost, owner: u64) -> Option<Event> {
     let mut out = std::vec![0; 2048];
     let used = next_event(fake, owner, &mut out).unwrap()?;
-    Some(match wire::record_decode_one(&out[..used]).unwrap() {
-        Record::EventHttpDone(e) => Event::Done {
-            id: e.id,
-            token: e.token,
-            status: e.status,
-            reason: e.reason,
-            flags: e.flags,
-            body_len: e.body_len,
+    // What the plugin's callback gets: the SDK frames it as a batch of one
+    // (the kernel's `service_event` reads its tag the same way), and decodes
+    // the kinds it has (99, 100; it has none yet for 101 and 102).
+    let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
+    if incoming.is::<paperpaw_sdk::native::events::kinds::HttpDone>()
+        || incoming.is::<paperpaw_sdk::native::events::kinds::HttpProgress>()
+    {
+        assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    }
+    Some(
+        match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
+            Record::EventHttpDone(e) => Event::Done {
+                id: e.id,
+                token: e.token,
+                status: e.status,
+                reason: e.reason,
+                flags: e.flags,
+                body_len: e.body_len,
+            },
+            Record::EventHttpProgress(e) => Event::Progress {
+                id: e.id,
+                received: e.received,
+                total: e.total,
+                flags: e.flags,
+            },
+            Record::EventServer(e) => Event::Server {
+                token: e.server,
+                state: e.state,
+                reason: e.reason,
+                address: e.address.to_string(),
+            },
+            Record::EventServedRequest(e) => Event::Served {
+                server: e.server,
+                request: e.request,
+                method: e.method.to_string(),
+                target: e.target.to_string(),
+                flags: e.flags,
+                body_len: e.body_len,
+            },
+            other => panic!("{other:?}"),
         },
-        Record::EventHttpProgress(e) => Event::Progress {
-            id: e.id,
-            received: e.received,
-            total: e.total,
-            flags: e.flags,
-        },
-        Record::EventServer(e) => Event::Server {
-            token: e.server,
-            state: e.state,
-            reason: e.reason,
-            address: e.address.to_string(),
-        },
-        Record::EventServedRequest(e) => Event::Served {
-            server: e.server,
-            request: e.request,
-            method: e.method.to_string(),
-            target: e.target.to_string(),
-            flags: e.flags,
-            body_len: e.body_len,
-        },
-        other => panic!("{other:?}"),
-    })
+    )
 }
 
 /// Every event of `owner`, then the callback returns.

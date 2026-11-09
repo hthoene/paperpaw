@@ -305,8 +305,9 @@ impl Inner {
         Ok(run)
     }
 
-    /// The socket ended: its work run is told, once (every way a socket ends
-    /// comes to `end` or to `owner_stopped`).
+    /// The socket is done with: its work run is told, once. A socket that was
+    /// told of its end goes at `event_delivered`, one that was never told at
+    /// `owner_stopped`; the run counts it until then.
     fn close_run(host: &dyn SockHost, s: &mut Sock) {
         if let Some(run) = s.run
             && core::mem::take(&mut s.run_open)
@@ -321,7 +322,6 @@ impl Inner {
         if !self.socks[index].live() {
             return;
         }
-        Self::close_run(host, &mut self.socks[index]);
         // The shell's session, then the lease, then the event.
         self.release_tls(host, index);
         if abort
@@ -1008,6 +1008,18 @@ pub(crate) fn next_event(
     owner: u64,
     out: &mut [u8],
 ) -> Result<Option<usize>, i32> {
+    Ok(next_event_run(host, owner, out)?.map(|(used, _)| used))
+}
+
+/// [`next_event`] with the work run the event belongs to (`None`: no run).
+///
+/// # Errors
+/// As [`next_event`].
+pub(crate) fn next_event_run(
+    host: &dyn SockHost,
+    owner: u64,
+    out: &mut [u8],
+) -> Result<Option<(usize, Option<u64>)>, i32> {
     let mut inner = table(host)?;
     let mut best: Option<(u64, usize, Pick)> = None;
     for (index, s) in inner
@@ -1039,7 +1051,9 @@ pub(crate) fn next_event(
         (sock, _) => sock.is_some(),
     };
     if !sock_first && let Some((_, index, pick)) = cast_best {
-        return cast::encode(&mut inner, index, pick, out).map(Some);
+        let run = inner.casts[index].run();
+        let used = cast::encode(&mut inner, index, pick, out)?;
+        return Ok(Some((used, run)));
     }
     let Some((_, index, pick)) = best else {
         return Ok(None);
@@ -1058,7 +1072,7 @@ pub(crate) fn next_event(
             .end
             .map_or((0, kind::FAILED, 0, 0), |(e, k, r)| (e.at, k, r, 0)),
     };
-    let used = codec::encode_one(
+    let used = codec::encode_event(
         &Record::EventSocket(wire::EventSocket {
             now_ms: at,
             socket: s.id,
@@ -1069,6 +1083,7 @@ pub(crate) fn next_event(
         }),
         out,
     )?;
+    let run = inner.socks[index].run;
     let s = &mut inner.socks[index];
     match pick {
         Pick::Connected => s.connected = None,
@@ -1088,7 +1103,7 @@ pub(crate) fn next_event(
             s.end = None;
         }
     }
-    Ok(Some(used))
+    Ok(Some((used, run)))
 }
 
 /// The callback of `owner` returned: the bytes it could read are freed, a
@@ -1124,6 +1139,8 @@ pub(crate) fn event_delivered(host: &dyn SockHost, owner: u64) -> Result<(), i32
         if s.owner == owner && !s.live() && !s.pending() && !s.held {
             let back = s.charge_queue.saturating_add(s.charge_read);
             inner.release(host, back);
+            // The plugin has been told of the end: the run lets go of it.
+            Inner::close_run(host, &mut inner.socks[index]);
             inner.socks.remove(index);
         } else {
             index += 1;
