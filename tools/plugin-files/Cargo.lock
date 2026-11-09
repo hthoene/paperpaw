@@ -117,19 +117,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-browser"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-aids",
- "paperpaw-plugin-browser",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",

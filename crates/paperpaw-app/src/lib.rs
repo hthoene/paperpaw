@@ -78,9 +78,8 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 12] = [
+pub const STORE_PLUGINS: [&str; 11] = [
     "aids",
-    "browser",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -152,7 +151,6 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "browser",
     "fonts-browser",
     "mail",
     "news",
@@ -256,7 +254,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         StorePlugins::Left => StorePlugins::Left,
         _ => StorePlugins::Off(&|_| false),
     };
-    b = offered(b, shipped_off, paperpaw_plugin_browser::Browser);
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b
 }

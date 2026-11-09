@@ -23,6 +23,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "browser"
+path = "src/bin/browser.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "calibre"
 path = "src/bin/calibre.rs"
 test = false
@@ -299,12 +305,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "browser"
-path = "src/bin/browser.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "home"
 path = "src/bin/home.rs"
 test = false
@@ -337,6 +337,7 @@ bench = false
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
+paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-entry"] }
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
@@ -383,7 +384,6 @@ paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["nativ
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
 paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
-paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
 paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
 paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }

@@ -25,3 +25,4 @@ koreader
 lock
 wikipedia
 wallabag
+browser
