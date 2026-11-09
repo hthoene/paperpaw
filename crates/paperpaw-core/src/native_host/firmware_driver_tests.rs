@@ -189,3 +189,113 @@ fn a_failed_start_ends_the_request_at_once_with_the_devices_reason() {
     assert!(matches!(event, Event::Ended(o) if o.reason == Reason::OTHER.0));
     assert_eq!(d.waiting(), 0);
 }
+
+/// Runs plugin 1's install to state 3 (request `request`).
+fn installed(d: &mut Driver, request: u32) {
+    d.submit_install(1, request, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(d) else {
+        panic!("always asked");
+    };
+    d.answer(ask.question(), Answer::Yes);
+    assert!(matches!(run(d), Event::Ended(o) if o.reason == 0));
+    // Its outcome is told and kept.
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+}
+
+#[test]
+fn a_restart_is_a_request_with_room_of_its_own_and_its_outcome_carries_the_number() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    // The restart takes a place in the table and room for its outcome.
+    let ask = d.request_restart(1).unwrap();
+    assert_eq!(d.waiting(), 1);
+    assert!(d.holds(1, 5));
+    // Three more fill the table; a fifth would be full.
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    d.submit_check(3, 1, "c.ppu").unwrap();
+    d.submit_check(4, 1, "d.ppu").unwrap();
+    assert_eq!(d.submit_check(5, 1, "e.ppu"), Err(ERR_FULL));
+    // "No" to the restart and a stop in the same pass: every sender is told
+    // exactly once, none is lost, the restart's outcome has its number.
+    let Event::Ended(declined) = d.answer(ask.question(), Answer::No) else {
+        panic!("a no ends it");
+    };
+    assert_eq!((declined.request, declined.reason), (5, 2));
+    d.abort_all();
+    let mut told = Vec::new();
+    while let Some(outcome) = d.take_ready() {
+        told.push((outcome.owner, outcome.request, outcome.reason));
+    }
+    told.sort_unstable();
+    assert_eq!(told, [(1, 5, 2), (2, 1, 20), (3, 1, 20), (4, 1, 20)]);
+    assert_eq!(d.lost, 0);
+}
+
+#[test]
+fn a_restart_waiting_for_its_answer_ends_with_reason_twenty_on_a_stop() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    d.request_restart(1).unwrap();
+    d.abort_all();
+    let outcome = d.take_ready().unwrap();
+    assert_eq!((outcome.owner, outcome.request, outcome.reason), (1, 5, 20));
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn an_outcome_only_fills_the_slot_of_its_own_request() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    let Event::Ended(first) = run(&mut d) else {
+        panic!("a check ends");
+    };
+    // The plugin asks again from the callback that is told of the first one:
+    // the late `delivered` of the first does not fill the second's slot.
+    d.submit_check(1, 2, "a.ppu").unwrap();
+    let first_told = d.take_ready().unwrap();
+    assert_eq!(first_told, first);
+    d.delivered(first_told);
+    assert_eq!(d.kept(1, KIND_CHECK), None);
+    let Event::Ended(second) = run(&mut d) else {
+        panic!("a check ends");
+    };
+    d.take_ready();
+    d.delivered(second);
+    assert_eq!(d.kept(1, KIND_CHECK).map(|o| o.request), Some(2));
+}
+
+#[test]
+fn slots_whose_outcome_never_came_are_evicted_for_new_plugins() {
+    let mut d = driver();
+    // Eight plugins each leave a slot with no outcome (their requests were
+    // taken back); a ninth is not refused for them.
+    for owner in 1..=8 {
+        d.submit_install(owner, 1, "a.ppu", None, 0).unwrap();
+        d.cancel(owner, 1);
+    }
+    assert_eq!(d.waiting(), 0);
+    d.submit_install(9, 1, "a.ppu", None, 0).unwrap();
+    assert!(d.holds(9, 1));
+}
+
+#[test]
+fn a_cancelled_check_gives_its_result_place_back() {
+    let mut d = driver();
+    for owner in 1..=4 {
+        d.submit_check(owner, 1, "a.ppu").unwrap();
+        d.cancel(owner, 1);
+    }
+    // Four cancelled checks do not keep the four result places.
+    d.submit_check(5, 1, "a.ppu").unwrap();
+}
+
+#[test]
+fn a_check_stopped_before_it_ran_leaves_a_result_not_a_busy_slot() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.abort_all();
+    let machine = d.machine();
+    let checked = machine.borrow().checked(1).unwrap();
+    assert_eq!((checked.request, checked.reason), (1, 20));
+}

@@ -29,7 +29,7 @@ use super::firmware_install::{
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
@@ -52,6 +52,8 @@ struct Entry {
 struct Kept {
     owner: u64,
     kind: u32,
+    /// The request the slot waits for: only its own outcome fills it.
+    request: u32,
     outcome: Option<Outcome>,
 }
 
@@ -64,6 +66,8 @@ pub(crate) struct Driver {
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
+    /// Outcomes that found no room (never in practice: see [`Self::end`]).
+    lost: u32,
 }
 
 impl Driver {
@@ -76,6 +80,7 @@ impl Driver {
             queue: Vec::new(),
             ready: Vec::new(),
             kept: Vec::new(),
+            lost: 0,
         }
     }
 
@@ -124,23 +129,31 @@ impl Driver {
         self.kept.iter().any(|kept| self.free_slot(kept))
     }
 
+    /// A slot nobody waits for: no request of its plugin and kind waits or has
+    /// an outcome not yet told. It may be empty (an outcome that never
+    /// reached its plugin) or hold an old outcome.
     fn free_slot(&self, kept: &Kept) -> bool {
-        kept.outcome.is_some()
+        let of_it = |owner: u64, kind: u32| (owner, kind) == (kept.owner, kept.kind);
+        !self
+            .entries
+            .iter()
+            .any(|entry| of_it(entry.owner, entry.kind))
             && !self
-                .entries
+                .ready
                 .iter()
-                .any(|entry| (entry.owner, entry.kind) == (kept.owner, kept.kind))
+                .any(|outcome| of_it(outcome.owner, outcome.kind))
     }
 
     /// Takes the plugin's slot for `kind`: its old outcome goes, and the slot
     /// waits (`None`) for the new request's. Room was reserved by [`Self::room`].
-    fn take_slot(&mut self, owner: u64, kind: u32) {
+    fn take_slot(&mut self, owner: u64, kind: u32, request: u32) {
         if let Some(kept) = self
             .kept
             .iter_mut()
             .find(|kept| (kept.owner, kept.kind) == (owner, kind))
         {
             kept.outcome = None;
+            kept.request = request;
             return;
         }
         if self.kept.len() >= KEPT_MAX
@@ -151,13 +164,14 @@ impl Driver {
         self.kept.push(Kept {
             owner,
             kind,
+            request,
             outcome: None,
         });
     }
 
     fn accept(&mut self, job: Job, kind: u32) {
         let (owner, request) = (job.owner, job.request);
-        self.take_slot(owner, kind);
+        self.take_slot(owner, kind, request);
         self.entries.push(Entry {
             owner,
             request,
@@ -204,17 +218,65 @@ impl Driver {
         Ok(())
     }
 
+    /// Takes back a request accepted by `submit_*` whose batch never applied
+    /// (a callback error, a refused drain). A job that already runs is left to
+    /// end: only a request still waiting in the queue goes. Its kept slot,
+    /// emptied at submit, stays until it is evicted or its plugin's next
+    /// request.
+    pub(crate) fn cancel(&mut self, owner: u64, request: u32) {
+        let queued = self
+            .queue
+            .iter()
+            .position(|job| (job.owner, job.request) == (owner, request));
+        if let Some(at) = queued {
+            let job = self.queue.remove(at);
+            let kind = self.kind_of(&job);
+            self.entries
+                .retain(|entry| (entry.owner, entry.request) != (owner, request));
+            if kind == KIND_CHECK
+                && let Ok(mut machine) = self.machine.try_borrow_mut()
+            {
+                // The result place reserved for the check goes with it.
+                machine.forget(owner);
+            }
+        }
+    }
+
+    /// The machine the device ops read (`HostServices::wire_firmware_install`).
+    pub(crate) fn machine(&self) -> Rc<RefCell<FirmwareInstall>> {
+        Rc::clone(&self.machine)
+    }
+
     /// `firmware_restart` at submit: only the plugin whose install waits may
-    /// ask; the returned question is the host's to show.
+    /// ask; the returned question is the host's to show. The restart is a
+    /// request of its own: it takes a place in the table and room for its
+    /// outcome like an install, and its `install_done` carries the number of
+    /// the install it restarts (the plugin's own), so it can be matched.
     ///
     /// # Errors
     /// `ERR_STATE` with none waiting, `ERR_DENIED` for another plugin,
-    /// `ERR_BUSY` while a job runs.
+    /// `ERR_BUSY` while a job runs, `ERR_FULL` with [`REQUESTS_MAX`] waiting,
+    /// `ERR_NO_MEMORY`. A refusal changes nothing.
     pub(crate) fn request_restart(&mut self, owner: u64) -> Result<Ask, i32> {
-        self.machine
+        let request = {
+            let machine = self.machine.try_borrow().map_err(|_| ERR_BUSY)?;
+            machine.restart_gate(owner)?;
+            machine.waiting_request().ok_or(ERR_STATE)?
+        };
+        self.room(owner, request, KIND_FIRMWARE)?;
+        let ask = self
+            .machine
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
-            .request_restart(owner, 0)
+            .request_restart(owner, request)?;
+        // Room was reserved above; the restart has no job in the queue.
+        self.take_slot(owner, KIND_FIRMWARE, request);
+        self.entries.push(Entry {
+            owner,
+            request,
+            kind: KIND_FIRMWARE,
+        });
+        Ok(ask)
     }
 
     /// The user answered the open confirmation.
@@ -265,10 +327,14 @@ impl Driver {
         }) {
             self.entries.remove(at);
         }
-        // Room for every entry was reserved at submit, so this never grows.
-        if self.ready.len() < self.ready.capacity() {
-            self.ready.push(outcome);
+        // Room for every entry (a restart's included) was reserved at submit,
+        // so this never grows; if it ever has to, it asks for room and, only
+        // if that fails, counts the loss where a test can see it.
+        if self.ready.len() == self.ready.capacity() && self.ready.try_reserve(1).is_err() {
+            self.lost = self.lost.saturating_add(1);
+            return;
         }
+        self.ready.push(outcome);
     }
 
     /// The oldest ended request's outcome, for its `install_done` edge.
@@ -286,6 +352,9 @@ impl Driver {
             .kept
             .iter_mut()
             .find(|kept| (kept.owner, kept.kind) == (outcome.owner, outcome.kind))
+            // A later request of the same kind (made from the callback that
+            // was just told) has its own slot state: its number differs.
+            .filter(|kept| kept.request == outcome.request)
         {
             kept.outcome = Some(outcome);
         }
@@ -315,10 +384,26 @@ impl Driver {
             } else {
                 KIND_FIRMWARE
             };
+            if kind == KIND_CHECK
+                && let Ok(mut machine) = self.machine.try_borrow_mut()
+            {
+                // The check never ran: its result slot says why, so ops 6 and
+                // 16 do not answer `ERR_BUSY` until its plugin's next check.
+                machine.stopped_check(job.owner, job.request, STOPPED);
+            }
             self.end(Outcome {
                 owner: job.owner,
                 request: job.request,
                 kind,
+                reason: STOPPED,
+            });
+        }
+        // What is left has no job: a restart that waits for its answer.
+        while let Some(entry) = self.entries.first().copied() {
+            self.end(Outcome {
+                owner: entry.owner,
+                request: entry.request,
+                kind: entry.kind,
                 reason: STOPPED,
             });
         }
