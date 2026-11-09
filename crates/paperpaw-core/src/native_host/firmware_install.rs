@@ -432,6 +432,15 @@ impl FirmwareInstall {
         !matches!(self.phase, Phase::Idle)
     }
 
+    /// Whether a device step can be taken now (not idle, not waiting for the
+    /// user's answer).
+    pub(crate) fn can_step(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Checking(..) | Phase::Writing(..) | Phase::Reading(..)
+        )
+    }
+
     /// `dev_firmware.state`.
     pub(crate) fn state(&self) -> State {
         match &self.phase {
@@ -793,6 +802,21 @@ impl FirmwareInstall {
                 self.phase = other;
                 Event::Quiet
             }
+        }
+    }
+
+    /// Whether the request runs for good: a check, or an install after the
+    /// user's yes (copy, check, write). Before that, and for a restart that
+    /// waits for its answer, it still waits (op 13 state 0).
+    pub(crate) fn runs(&self, owner: u64, request: u32) -> bool {
+        match &self.phase {
+            Phase::Writing(job, ..) | Phase::Reading(job, _) => {
+                (job.owner, job.request) == (owner, request)
+            }
+            Phase::Checking(job, _) => {
+                job.install.is_none() && (job.owner, job.request) == (owner, request)
+            }
+            Phase::Asking(..) | Phase::RestartAsking(_) | Phase::Idle => false,
         }
     }
 

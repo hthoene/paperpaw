@@ -38,6 +38,12 @@ mod work_service;
     reason = "the firmware commands and the kernel's pump wire it (slice B2a-2); tests do today"
 )]
 pub(crate) mod firmware_driver;
+#[path = "native_host/firmware_events.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell's main loop calls the pump (slice B2a-2 wiring); tests do today"
+)]
+mod firmware_events;
 #[path = "native_host/firmware_install.rs"]
 #[allow(
     dead_code,

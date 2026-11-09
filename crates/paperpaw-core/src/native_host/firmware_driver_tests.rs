@@ -20,11 +20,16 @@ impl BuiltIns for Names {
 }
 
 fn driver() -> Driver {
+    driver_sized(2)
+}
+
+/// A driver over an image of `blocks` write blocks.
+fn driver_sized(blocks: u32) -> Driver {
     let fake = FakeFirmware::new(
         "0.5.0",
         "paperpaw-x4",
         5,
-        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+        paperpaw_facts("0.6.0", "paperpaw-x4", blocks * WRITE_BLOCK),
     );
     Driver::new(
         Box::new(fake),
@@ -399,4 +404,97 @@ fn a_stop_with_the_machine_borrowed_tells_nobody_twice() {
         .collect();
     assert_eq!(told, [(2, 20)]);
     assert!(d.holds(1, 1));
+}
+
+#[test]
+fn many_steps_between_two_looks_leave_one_changed_mark() {
+    let mut d = driver_sized(16);
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    d.answer(ask.question(), Answer::Yes);
+    assert_eq!(d.peek_changed(), None);
+    // Steps (far apart in time, so each one reports progress) mark the one
+    // request; nothing queues however many pass before anyone looks.
+    let mut marks = 0;
+    for now in (100..20_000).step_by(100) {
+        if matches!(d.pump(&NoStorage, &Names, now), Event::Progress { .. }) {
+            marks += 1;
+        }
+        if d.peek_changed().is_some() && marks >= 2 {
+            break;
+        }
+    }
+    assert!(marks >= 2, "progress came more than once");
+    assert_eq!(d.peek_changed(), Some((1, 1)));
+    d.clear_changed(1, 1);
+    assert_eq!(d.peek_changed(), None);
+}
+
+#[test]
+fn op_13_state_is_waiting_until_yes_then_running_then_ended() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    // Queued.
+    assert_eq!(d.lookup(2, 1).unwrap().state, 0);
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    // Its confirmation shows: still waiting.
+    assert_eq!(d.lookup(1, 1).unwrap().state, 0);
+    d.answer(ask.question(), Answer::Yes);
+    assert_eq!(d.lookup(1, 1).unwrap().state, 1);
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    let ended = d.lookup(1, 1).unwrap();
+    assert_eq!((ended.state, ended.outcome.is_some()), (2, true));
+    // Kept after its edge is told, too.
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+    assert_eq!(d.lookup(1, 1).unwrap().state, 2);
+}
+
+#[test]
+fn a_request_waiting_for_the_user_is_no_work_and_a_held_back_outcome_waits_for_its_time() {
+    let mut d = driver();
+    assert!(!d.has_work(0));
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    // Queued: the head can start.
+    assert!(d.has_work(0));
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    // The confirmation shows (up to ten minutes): the device may idle.
+    assert!(!d.has_work(1_000));
+    assert_eq!(d.due(), None);
+    d.answer(ask.question(), Answer::Yes);
+    assert!(d.has_work(1_000), "a write step can be taken");
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    // Ended, to be told; its plugin cannot be called now: held back until 5000.
+    assert!(d.has_work(0));
+    d.hold_back(5_000);
+    assert!(!d.has_work(2_000));
+    assert_eq!(d.due(), Some(5_000));
+    assert!(d.has_work(5_000));
+    d.released();
+    assert_eq!(d.due(), None);
+}
+
+#[test]
+fn only_the_outcome_that_was_told_is_taken() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    let first = d.peek_ready().unwrap();
+    // The ready list changed during the callback (the plugin stopped).
+    d.sender_stopped(first.owner);
+    assert_eq!(
+        d.take_ready_if(first.owner, first.request, first.kind),
+        None
+    );
+    // The other outcome is not marked delivered in its place.
+    assert_eq!(d.peek_ready().unwrap().owner, 2);
 }

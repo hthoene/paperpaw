@@ -28,7 +28,7 @@ use super::firmware_install::{
     Question,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
@@ -43,12 +43,27 @@ pub(crate) const KEPT_MAX: usize = 8;
 /// Reason 20 (`ERR_CANCELLED`): the host stopped the job.
 const STOPPED: u8 = 20;
 
+/// What op 13 reads of one request (`dev_install.state`: 0 waiting in the
+/// queue, 1 running, 2 ended, its outcome in `outcome`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Lookup {
+    pub(crate) kind: u32,
+    pub(crate) state: u32,
+    pub(crate) outcome: Option<Outcome>,
+    pub(crate) done: u64,
+    pub(crate) total: u64,
+}
+
 /// One accepted request that has not ended.
 #[derive(Clone, Copy)]
 struct Entry {
     owner: u64,
     request: u32,
     kind: u32,
+    /// `firmware_changed` is due: set by progress, cleared once told. One
+    /// mark per request however many steps pass, so a progress flood never
+    /// queues anything; the event is encoded from the state at delivery.
+    changed: bool,
 }
 
 /// A kept outcome: `None` while the plugin's request of that kind waits.
@@ -74,7 +89,13 @@ pub(crate) struct Driver {
     lost: u32,
     /// Answers and aborts that found the machine borrowed and did nothing
     /// (never from a callback; counted so a test or a log can see it).
-    skipped: u32,
+    skipped: Rc<Cell<u32>>,
+    /// Until when the pump does not try to tell again (a plugin that could
+    /// not be called); `None` when nothing is held back.
+    blocked_until: Option<u64>,
+    /// The confirmation the host must show (an install's or a restart's),
+    /// until [`Self::take_ask`].
+    ask: Option<Ask>,
 }
 
 impl Driver {
@@ -88,14 +109,26 @@ impl Driver {
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
-            skipped: 0,
+            skipped: Rc::new(Cell::new(0)),
+            blocked_until: None,
+            ask: None,
         }
     }
 
     /// How many answers and aborts found the machine borrowed and did nothing.
     #[cfg(test)]
     pub(crate) fn skipped(&self) -> u32 {
-        self.skipped
+        self.skipped.get()
+    }
+
+    /// The counter of skips, for callers that cannot borrow the driver when
+    /// they skip (a stage's release, the apply after a callback).
+    pub(crate) fn skip_counter(&self) -> Rc<Cell<u32>> {
+        Rc::clone(&self.skipped)
+    }
+
+    fn skip(&self) {
+        self.skipped.set(self.skipped.get().saturating_add(1));
     }
 
     /// How many requests wait (the running one included).
@@ -193,6 +226,7 @@ impl Driver {
             owner,
             request,
             kind,
+            changed: false,
         });
         self.queue.push(job);
     }
@@ -270,6 +304,27 @@ impl Driver {
         Rc::clone(&self.machine)
     }
 
+    /// The submit gates of `firmware_restart`, and the room its request will
+    /// need (reserved now, so the apply after the callback cannot fail for
+    /// room). Nothing else changes.
+    ///
+    /// # Errors
+    /// `ERR_STATE` with none waiting, `ERR_DENIED` for another plugin,
+    /// `ERR_BUSY`, `ERR_FULL` (device-wide or per plugin), `ERR_NO_MEMORY`.
+    pub(crate) fn restart_gate(&mut self, owner: u64) -> Result<(), i32> {
+        let request = {
+            let machine = self.machine.try_borrow().map_err(|_| ERR_BUSY)?;
+            machine.restart_gate(owner)?;
+            machine.waiting_request().ok_or(ERR_STATE)?
+        };
+        self.room(owner, request, KIND_FIRMWARE)
+    }
+
+    /// The confirmation to show, once.
+    pub(crate) fn take_ask(&mut self) -> Option<Ask> {
+        self.ask.take()
+    }
+
     /// `firmware_restart` at submit: only the plugin whose install waits may
     /// ask; the returned question is the host's to show. The restart is a
     /// request of its own: it takes a place in the table and room for its
@@ -298,7 +353,9 @@ impl Driver {
             owner,
             request,
             kind: KIND_FIRMWARE,
+            changed: false,
         });
+        self.ask = Some(ask);
         Ok(ask)
     }
 
@@ -307,7 +364,7 @@ impl Driver {
         let event = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.answer(question, answer, &mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 return Event::Quiet;
             }
         };
@@ -340,8 +397,19 @@ impl Driver {
 
     /// Records what ended: the entry goes, the outcome waits for delivery.
     fn note(&mut self, event: Event) -> Event {
-        if let Event::Ended(outcome) = event {
-            self.end(outcome);
+        match event {
+            Event::Ended(outcome) => self.end(outcome),
+            Event::Ask(ask) => self.ask = Some(ask),
+            Event::Progress { owner, request, .. } => {
+                if let Some(entry) = self
+                    .entries
+                    .iter_mut()
+                    .find(|entry| (entry.owner, entry.request) == (owner, request))
+                {
+                    entry.changed = true;
+                }
+            }
+            _ => {}
         }
         event
     }
@@ -361,6 +429,126 @@ impl Driver {
             return;
         }
         self.ready.push(outcome);
+    }
+
+    /// What op 13 says of `owner`'s request `request`: waiting, running or
+    /// ended (the outcome kept for it), `None` for one it has not got.
+    pub(crate) fn lookup(&self, owner: u64, request: u32) -> Option<Lookup> {
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|entry| (entry.owner, entry.request) == (owner, request))
+        {
+            // Running only after the user's yes (or for a check): before it,
+            // queued or in front of its confirmation, it waits.
+            let machine = self.machine.try_borrow();
+            let running = machine
+                .as_ref()
+                .is_ok_and(|machine| machine.runs(owner, request));
+            let waiting = !running;
+            let (done, total) = machine.map_or((0, 0), |machine| machine.progress());
+            return Some(Lookup {
+                kind: entry.kind,
+                state: if waiting { 0 } else { 1 },
+                outcome: None,
+                done: if waiting { 0 } else { done },
+                total: if waiting { 0 } else { total },
+            });
+        }
+        // Ended: its edge may not have reached the plugin yet.
+        self.ready
+            .iter()
+            .copied()
+            .find(|outcome| (outcome.owner, outcome.request) == (owner, request))
+            .or_else(|| {
+                self.kept
+                    .iter()
+                    .filter(|kept| kept.owner == owner)
+                    .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
+            })
+            .map(|outcome| Lookup {
+                kind: outcome.kind,
+                state: 2,
+                outcome: Some(outcome),
+                done: 0,
+                total: 0,
+            })
+    }
+
+    /// `dev_firmware.state` now (0 while the machine is in use).
+    pub(crate) fn state(&self) -> u32 {
+        self.machine
+            .try_borrow()
+            .map_or(0, |machine| machine.state().number())
+    }
+
+    fn tell_pending(&self) -> bool {
+        !self.ready.is_empty() || self.entries.iter().any(|entry| entry.changed)
+    }
+
+    /// Whether the pump has something to do now: a job that can take a step,
+    /// a queue head that can start, or something that can be told. A request
+    /// that waits for the user's answer, or behind one, is no work (the
+    /// answer or the dialog's end wakes the pump), and what could not be told
+    /// waits for [`Self::due`], so the device may idle.
+    pub(crate) fn has_work(&self, now: u64) -> bool {
+        let held = self.blocked_until.is_some_and(|until| now < until);
+        if !held && self.tell_pending() {
+            return true;
+        }
+        self.machine.try_borrow().map_or(true, |machine| {
+            machine.can_step() || (!machine.busy() && !self.queue.is_empty())
+        })
+    }
+
+    /// When to look again for what could not be told, if anything waits.
+    pub(crate) fn due(&self) -> Option<u64> {
+        self.blocked_until.filter(|_| self.tell_pending())
+    }
+
+    /// Its plugin could not be called: no new try before `until`.
+    pub(crate) fn hold_back(&mut self, until: u64) {
+        self.blocked_until = Some(until);
+    }
+
+    /// Something was told: tries are free again.
+    pub(crate) fn released(&mut self) {
+        self.blocked_until = None;
+    }
+
+    /// The ended outcome of `owner`'s request, if it is still the oldest
+    /// one waiting; another one (the ready list changed during the callback)
+    /// is left alone.
+    pub(crate) fn take_ready_if(&mut self, owner: u64, request: u32, kind: u32) -> Option<Outcome> {
+        let first = self.ready.first()?;
+        if (first.owner, first.request, first.kind) != (owner, request, kind) {
+            return None;
+        }
+        self.take_ready()
+    }
+
+    /// The first request whose `firmware_changed` is due, left marked.
+    pub(crate) fn peek_changed(&self) -> Option<(u64, u32)> {
+        self.entries
+            .iter()
+            .find(|entry| entry.changed)
+            .map(|entry| (entry.owner, entry.request))
+    }
+
+    /// Its `firmware_changed` was told (or has nobody to tell).
+    pub(crate) fn clear_changed(&mut self, owner: u64, request: u32) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| (entry.owner, entry.request) == (owner, request))
+        {
+            entry.changed = false;
+        }
+    }
+
+    /// The oldest ended request's outcome, left in place.
+    pub(crate) fn peek_ready(&self) -> Option<Outcome> {
+        self.ready.first().copied()
     }
 
     /// The oldest ended request's outcome, for its `install_done` edge.
@@ -411,7 +599,7 @@ impl Driver {
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 got = false;
                 None
             }
@@ -475,7 +663,7 @@ impl Driver {
             }
             machine.forget(owner);
         } else {
-            self.skipped = self.skipped.saturating_add(1);
+            self.skip();
         }
         self.entries.retain(|entry| entry.owner != owner);
         self.ready.retain(|outcome| outcome.owner != owner);
