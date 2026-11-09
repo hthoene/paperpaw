@@ -13,6 +13,20 @@ impl EventTags {
     #[cfg(test)]
     pub(crate) const LIMIT: u32 = 256;
 
+    /// The tags in the set for which `has` says yes (asked once for each tag
+    /// the set can hold, word by word: no tag range is tested).
+    pub(crate) fn collect(mut has: impl FnMut(u32) -> bool) -> Self {
+        let mut set = Self::default();
+        for (first, word) in (0u32..).step_by(64).zip(set.0.iter_mut()) {
+            for bit in 0..64u32 {
+                if has(first + bit) {
+                    *word |= 1 << bit;
+                }
+            }
+        }
+        set
+    }
+
     /// Add `tag`; `ERR_INVALID` for a tag beyond the set (nothing is added).
     pub(crate) fn insert(&mut self, tag: u32) -> Result<(), i32> {
         let word = self.0.get_mut((tag / 64) as usize).ok_or(ERR_INVALID)?;
@@ -51,6 +65,20 @@ mod tests {
         assert_eq!(tags.insert(u32::MAX), Err(ERR_INVALID));
         assert_eq!(tags, EventTags::default());
         assert!(!tags.contains(EventTags::LIMIT) && !tags.contains(u32::MAX));
+    }
+
+    #[test]
+    fn collect_asks_every_tag_the_set_can_hold_once() {
+        let mut asked = [0u8; 256];
+        let tags = EventTags::collect(|tag| {
+            asked[tag as usize] += 1;
+            matches!(tag, 0 | 63 | 64 | 99 | 255)
+        });
+        assert!(asked.iter().all(|&n| n == 1));
+        for tag in [0, 63, 64, 99, 255] {
+            assert!(tags.contains(tag), "{tag}");
+        }
+        assert!(!tags.contains(1) && !tags.contains(65) && !tags.contains(100));
     }
 
     #[test]
