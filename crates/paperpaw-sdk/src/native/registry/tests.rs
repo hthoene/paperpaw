@@ -593,10 +593,7 @@ fn the_widget_list_never_asks_for_preview_widgets() {
     }
     assert_eq!(
         &*fixture.queries.borrow(),
-        &[
-            (schema::OP_WIDGETS, 0, 0, 0),
-            (schema::OP_WIDGETS, 0, 0, 0)
-        ]
+        &[(schema::OP_WIDGETS, 0, 0, 0), (schema::OP_WIDGETS, 0, 0, 0)]
     );
 }
 
