@@ -67,7 +67,8 @@ pub fn after_write<W, E>(written: Result<(), W>, announce: impl FnOnce() -> Resu
     if written.is_err() {
         return false;
     }
-    let _ = announce();
+    // Whatever the run does is not the export's: the notes are written.
+    announce().ok();
     true
 }
 
