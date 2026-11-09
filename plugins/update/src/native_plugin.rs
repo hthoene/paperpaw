@@ -185,6 +185,9 @@ pub struct NativeUpdate {
     version: String,
     /// What the device offers the page.
     caps: Caps,
+    /// The server was asked and knows no newer update: what the card's checks find
+    /// is *up to date* where it is no news.
+    searched: bool,
     /// The reader left for Wi-Fi transfer: back here, the card is looked at again.
     away: bool,
     online: online::Online,
@@ -566,7 +569,10 @@ impl NativeUpdate {
             _ => false,
         };
         if self.screens.top(PAGE).is_some() {
-            let view = self.view_for(host, found)?;
+            let mut view = self.view_for(host, found)?;
+            if core::mem::take(&mut self.searched) && no_news(&view) {
+                view = View::UpToDate;
+            }
             return self.show(host, view);
         }
         if offered {
@@ -923,6 +929,16 @@ const fn install_label(image: &Image) -> &'static str {
         (_, Ordering::Less) => "update.install-older",
         (_, Ordering::Equal) => "update.reinstall",
         _ => "update.install",
+    }
+}
+
+/// Whether a page's view says nothing a search for an update did not: nothing on
+/// the card, an image that is not newer, another firmware's.
+fn no_news(view: &View) -> bool {
+    match view {
+        View::Nothing | View::Unfit(_) | View::Foreign(_) => true,
+        View::Ready(image) => !image.order.is_gt(),
+        _ => false,
     }
 }
 

@@ -185,6 +185,7 @@ impl NativeUpdate {
     /// Asks the update server for a newer firmware; `quiet` where the reader did
     /// not ask (declared work). A question already in flight is not asked twice.
     pub(super) fn search(&mut self, host: &Host<'_>, quiet: bool) -> Result<(), Error> {
+        self.searched = false;
         // A question in flight is not asked twice; a reader who asks meanwhile
         // waits for its answer.
         if let Some((_, waited)) = self.online.asking.as_mut() {
@@ -315,6 +316,8 @@ impl NativeUpdate {
         {
             return Ok(());
         }
+        // The question has been sent: it is not kept.
+        storage::remove(host, Root::Data, QUESTION).ok();
         if matches!(done.reason(), Reason::Cancelled | Reason::Replaced) {
             return Ok(());
         }
@@ -357,14 +360,11 @@ impl NativeUpdate {
             return Ok(());
         }
         let mut page = self.look(host)?;
-        let none = match &page.view {
-            View::Nothing | View::Unfit(_) | View::Foreign(_) => true,
-            View::Ready(image) => !image.order.is_gt(),
-            _ => false,
-        };
-        if none {
+        if super::no_news(&page.view) {
             page = super::build(host, View::UpToDate, &self.current, self.caps)?;
         }
+        // The card's files are still being checked: what they find is told so too.
+        self.searched = matches!(page.view, View::Checking);
         self.show_page(host, page)
     }
 
@@ -385,7 +385,7 @@ impl NativeUpdate {
     /// finds it once it is whole.
     pub(super) fn download(&mut self, host: &Host<'_>, offer: Offer) -> Result<(), Error> {
         let Some(running) = self.firmware(host)? else {
-            return Ok(());
+            return self.refresh(host);
         };
         let path = concat(&[
             UPDATE_DIR,
