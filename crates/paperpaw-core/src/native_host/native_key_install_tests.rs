@@ -105,6 +105,14 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             )],
             &mut bytes,
         ),
+        // The global menu input replaced, and another input bound.
+        112 => wire::records_encode(
+            &[
+                bind("global", "button.menu", "factory.done", none),
+                bind("global", "swipe.up", "factory.done", none),
+            ],
+            &mut bytes,
+        ),
         _ => return ERR_INVALID,
     }
     .unwrap();
@@ -263,6 +271,32 @@ fn a_malformed_binding_refuses_the_whole_owner_without_a_panic() {
         // The same kernel installs the good batch afterwards.
         install_with(&mut kernel, 100).unwrap();
     }
+}
+
+#[test]
+fn a_global_binding_that_leaves_another_input_to_the_menu_is_bound() {
+    let mut kernel = fresh();
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("core.menu")
+    );
+    install_with(&mut kernel, 112).unwrap();
+    // The default key map reaches the menu by touch too, so the button may go.
+    // (The last input to it is dropped, never refused: the key map's own test
+    // covers that case.)
+    assert_eq!(rows(&kernel), 2);
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("factory.done")
+    );
+    assert_eq!(
+        bound(&kernel, "global", "tap.center").as_deref(),
+        Some("core.menu")
+    );
+    assert_eq!(
+        bound(&kernel, "global", "swipe.up").as_deref(),
+        Some("factory.done")
+    );
 }
 
 #[test]

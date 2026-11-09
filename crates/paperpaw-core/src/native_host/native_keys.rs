@@ -3,8 +3,11 @@
 //!
 //! The rows live in the declaration store, charged there, and leave with their
 //! owner (`begin_native_unload`); this module reads them when the key map is
-//! built (`Kernel::rebuild_keymap`), after the plugins' key map sources and
-//! before the device's and the user's, so the user's bindings win. A row with
+//! built (`Kernel::rebuild_keymap`), after the preset, the plugins' key map
+//! sources and the device's (whose bindings outrank a plugin's) and before the
+//! user's, so the user's bindings win. A global row that would leave the global
+//! layer without an input to the main menu is dropped (`Keymap::bind_native`);
+//! the other rows stay. A row with
 //! a condition (`when_key`, `when_value`) binds while that setting has that
 //! value; a setting nobody declares holds nothing, so the binding stays off
 //! (interface 6 read a missing switch as off). A change of that setting builds

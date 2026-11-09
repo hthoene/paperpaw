@@ -299,7 +299,8 @@ fn native_input_ok(key: &str) -> bool {
 
 /// Whether a `key.bind` of a native plugin names a layer, an input and an
 /// action the key map can hold (see [`Keymap::bind_native`]). Allocates
-/// nothing.
+/// nothing. The escape (held Power, 8 s) has no input name: the host checks the
+/// raw hold before the key map, so nothing here can take it.
 pub(crate) fn native_binding_ok(layer: &str, input: &str, action: &str) -> bool {
     use crate::native_host::declarations::full_id;
     (layer == GLOBAL_KEYMAP_LAYER || full_id(layer).is_ok())
@@ -606,14 +607,49 @@ impl Keymap {
         } else {
             return false;
         };
-        let bindings = self
-            .layers
-            .get_or_insert_with(String::from(layer), VecMap::new);
         let origin = Origin::Plugin;
-        if bindings.get(&input).is_none_or(|b| origin >= b.origin) {
-            bindings.insert(input, Binding { action, origin });
+        // A binding a stronger source (the preset) already holds stays; it is
+        // no loss either.
+        let wins = self
+            .layers
+            .get(layer)
+            .and_then(|bindings| bindings.get(&input))
+            .is_none_or(|b| origin >= b.origin);
+        if !wins {
+            return true;
         }
+        if layer == GLOBAL_KEYMAP_LAYER && self.would_lose_the_menu(&input, action.as_ref()) {
+            return false;
+        }
+        self.layers
+            .get_or_insert_with(String::from(layer), VecMap::new)
+            .insert(input, Binding { action, origin });
         true
+    }
+
+    /// Whether binding `action` (none: unbound) to `input` in the global layer
+    /// would leave that layer without an input to the main menu (`core.menu`).
+    /// Only a binding that replaces the last such input does. A binding to a
+    /// host-fixed escape is the host's, not the key map's (`registry.md`
+    /// section 4.2).
+    fn would_lose_the_menu(&self, input: &InputKey, action: Option<&Id>) -> bool {
+        const MENU: &str = "core.menu";
+        if action.is_some_and(|id| id.as_str() == MENU) {
+            return false;
+        }
+        let Some(global) = self.layers.get(GLOBAL_KEYMAP_LAYER) else {
+            return false;
+        };
+        let opens_menu = |binding: &Binding| {
+            binding
+                .action
+                .as_ref()
+                .is_some_and(|id| id.as_str() == MENU)
+        };
+        global.get(input).is_some_and(opens_menu)
+            && !global
+                .iter()
+                .any(|(key, binding)| key != input && opens_menu(binding))
     }
 
     /// Resolves `input` through `layers`, most specific first. An explicit
@@ -711,12 +747,55 @@ mod tests {
             "keyboard.done"
         ));
         assert!(native_binding_ok("global", "swipe.up", ""));
+        // Power and its chords are ordinary inputs (the escape has no name).
+        for input in [
+            "button.power",
+            "double.power",
+            "long.power",
+            "chord.back_power",
+        ] {
+            assert!(native_binding_ok("global", input, "a.b"), "{input}");
+        }
         assert!(!native_binding_ok("Not A Layer", "long.back", "a.b"));
         assert!(!native_binding_ok("a.b", "long.back", "Not An Action"));
         assert!(!native_binding_ok("a.b", "tap.mine", "a.b"));
         let mut keymap = Keymap::default();
         assert!(keymap.bind_native("keyboard.screen", "long.back", "keyboard.done"));
         assert!(!keymap.bind_native("keyboard.screen", "tap.mine", "keyboard.done"));
+    }
+
+    /// The global layer keeps an input to the main menu: a native binding that
+    /// would replace or unbind the last one is dropped, one that leaves another
+    /// is bound, and other layers are free.
+    #[test]
+    fn a_global_binding_never_removes_the_last_input_to_the_menu() {
+        let mut keymap = Keymap::default();
+        keymap.load(
+            "[keymap.global]\nbutton.menu = core.menu\n[keymap.reader]\nbutton.menu = core.menu\n",
+            Origin::Plugin,
+            true,
+        );
+        let global = |keymap: &Keymap, input: &str| {
+            keymap
+                .resolve(&["global"], &InputKey::parse(input).unwrap())
+                .map(|id| id.as_str().to_string())
+        };
+        // The only input to the menu: not replaced, not unbound.
+        assert!(!keymap.bind_native("global", "button.menu", "core.home"));
+        assert!(!keymap.bind_native("global", "button.menu", ""));
+        assert_eq!(global(&keymap, "button.menu").as_deref(), Some("core.menu"));
+        // Rebinding it to the menu again, another input, and another layer.
+        assert!(keymap.bind_native("global", "button.menu", "core.menu"));
+        assert!(keymap.bind_native("global", "button.home", "core.home"));
+        assert!(keymap.bind_native("reader", "button.menu", "core.home"));
+        assert!(keymap.bind_native("reader", "button.menu", ""));
+        // With a second input to the menu, the first may go.
+        assert!(keymap.bind_native("global", "tap.center", "core.menu"));
+        assert!(keymap.bind_native("global", "button.menu", "core.home"));
+        assert_eq!(global(&keymap, "button.menu").as_deref(), Some("core.home"));
+        // But not the second, which is the last now.
+        assert!(!keymap.bind_native("global", "tap.center", ""));
+        assert_eq!(global(&keymap, "tap.center").as_deref(), Some("core.menu"));
     }
 
     /// A layer's own zones are read from `[zones.<layer>]` and found by
