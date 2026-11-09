@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
+# Interface-7 port (slices 1 to 3: the decisions, the declarations, the readers and the set-up)
 
 Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
 set-up screen and no `NATIVE_ENTRY` yet; the interface-6 `Wallabag` and everything of it stays until
@@ -34,6 +34,18 @@ the host activates native plugins (then it goes together, no shim).
   `open` and `fetch`, the place in the tools (order 48) and the icons. `tests/abi7_declarations.rs`
   decodes the batches by the host's rules and compares each with the interface-6 registration,
   including the screen's instance policy from the decoded flags.
+
+## Slice 3: the native entry and the set-up (`src/native_plugin.rs`, `src/native_keep.rs`)
+
+`NativeWallabag` (`NATIVE_ENTRY`, features `linked` and `native-entry`, `native/metadata*`, `build.rs`) submits
+the declarations and runs the set-up screen on `core.ui`: five rows (server, user name, password, client ID,
+client secret), a text question for each (the server as an address, the secrets masked, the others filled
+with the setting), the next row focused after an answer. The three texts are settings; the password and
+the client's secret are kept with `core.secrets` (names `password` and `client-secret`, changeable, as in
+`secrets.md` 7). `Secret` zeroes a secret when it is dropped and its `Debug` shows nothing; the buffers of
+each secrets call are wiped. An empty answer for a secret keeps what was kept; where the device keeps no
+secrets the shared text `core.secrets-unsupported` says so. The *Fetch articles* row, the note on how the
+last fetch went and the offer to go online come with the fetch. Interface 6 stays in place until then.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
