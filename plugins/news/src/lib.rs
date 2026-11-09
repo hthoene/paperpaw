@@ -16,6 +16,7 @@ extern crate alloc;
 extern crate std;
 
 mod convert;
+pub mod native_book;
 pub mod native_convert;
 pub mod native_news;
 mod widget;
@@ -957,6 +958,8 @@ mod tests {
 
 #[cfg(test)]
 mod feeds_tests;
+#[cfg(test)]
+mod native_book_tests;
 #[cfg(test)]
 mod native_convert_tests;
 #[cfg(test)]

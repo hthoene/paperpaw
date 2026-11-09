@@ -1,4 +1,4 @@
-# Interface-7 port (slice 2: the decisions, the declarations and the feed converter)
+# Interface-7 port (slice 3: the decisions, the declarations, the feed converter and the page)
 
 Version 1.0.10. Partial: what the plugin decides and what it declares, without the host. No native
 list screen and no `NATIVE_ENTRY` yet; the interface-6 `News` and everything of it stays until the
@@ -39,6 +39,17 @@ host activates native plugins (then it goes together, no shim).
   `src/native_convert_tests.rs` compares the page and the result byte for byte with `convert.rs` at
   piece sizes from 1 byte up, and sweeps refusals. (`convert::paragraphs` became `pub(crate)` for
   that; `native_news` gained `escape_len` and `HEADLINES_SHOWN`.)
+
+- `src/native_book.rs` (slice 3): a feed saved in the data folder made into its page there
+  (`make_page` over `paperpaw_ui_kit::files::Volume`): the feed is read 2 KiB at a time into the
+  converter, the page is appended in calls of at most 4 KiB (`MAX_DATA`) and synced, a feed over
+  4 MiB or without an article is `Failure::Failed` and leaves no page, a refused allocation is
+  `Failure::Memory`. `src/native_book_tests.rs` compares the page and the result with
+  `convert::convert` on the corpus of the converter's tests and sweeps refusals. Next: the
+  fetch over `core.net` (saved with `save_to`, at most 4 MiB with `max_file`), the book put in the
+  library with `core.library` `import` (name `Title (mark).html` in the folder `News`; needs
+  `Library::import`, SDK PR #668), the headlines file, the work declaration; then the list
+  screen and the widget.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
