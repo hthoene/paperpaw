@@ -20,6 +20,11 @@
 //!   ends the answer; only `ERR_BUSY` keeps it for the next pass. It is held
 //!   here, outside the table's lock, so the plugin may use `image.info` in its
 //!   callback.
+//! * Failures that wait for their telling have a fixed table of eight places.
+//!   When all are taken the oldest gives way, so with more than eight failing
+//!   requests across plugins at once the plugin of an evicted one never hears
+//!   of that request (a known gap, accepted: it needs a flood of failures at
+//!   once; the plugin's own room still bounds what it may hold).
 use super::{
     host_services::HostServices,
     image_service::{

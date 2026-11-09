@@ -167,7 +167,9 @@ impl crate::Kernel {
                 },
             )
         };
-        self.native_outbox_run();
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         // Declared work comes due on the same tick (`work_pump`).
         let work_more = self.native_work_pump();
         // Pictures a plugin asked for decode one a turn (`image_pump`).

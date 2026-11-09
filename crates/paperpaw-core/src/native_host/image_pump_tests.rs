@@ -230,13 +230,14 @@ fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
 fn what_cannot_be_kept_fails_to_its_plugin_and_nothing_grows() {
     let mut w = world(true);
     w.apply((0..40).map(|cookie| prepare(0, "p.png", cookie)).collect());
-    // 4 queued, 16 kept (the bound); of the other 20 the first eight are told
-    // they failed, in the room the failures have of their own.
+    // 4 queued, 16 kept (the bound); of the other 20 the failures have room
+    // for eight, and the oldest give way: the last eight are told.
     assert_eq!(w.pending(), PENDING_MAX);
     w.kernel.native_image_pump();
     let told = w.told();
-    let failed: Vec<_> = told.iter().filter(|t| t.1 == 5).map(|t| t.0).collect();
-    assert_eq!(failed, (20..28).collect::<Vec<_>>());
+    let mut failed: Vec<_> = told.iter().filter(|t| t.1 == 5).map(|t| t.0).collect();
+    failed.sort_unstable();
+    assert_eq!(failed, (32..40).collect::<Vec<_>>());
 }
 
 #[test]
