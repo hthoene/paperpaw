@@ -250,3 +250,8 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   `widgets-highlight-draws-and-opens-the-book` (H1/H3/H4).
 - Where the library refuses a call, the highlight says there is none (`widgets.highlight.none`); only a
   refused allocation fails the draw. The widget's layout arithmetic saturates.
+- A cached "no highlight" is looked for again a minute after the last scan (`RECHECK`, the host's
+  monotonic clock), so a first highlight appears within a minute without a day or catalog change, and a
+  library without any highlight costs one scan a minute (up to about 200 host calls with the source
+  *all*, 12 books with *recent*), not one per draw. That worst case is an X4 timing gate (not measured).
+  `shows` (the minute tick) treats a refused library call as the draw does.

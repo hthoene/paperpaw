@@ -12,7 +12,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Rect,
     native::{
-        Error, Host,
+        Error, Host, clock,
         commands::CommandSender,
         formatting::Arg,
         library::{
@@ -70,7 +70,15 @@ pub struct Quote {
 #[derive(Debug, Default)]
 pub struct Cache {
     kept: Option<((bool, u64, u32), Option<Quote>)>,
+    /// When the library was last scanned (the host's microsecond clock), to
+    /// look again for a first highlight no sooner than [`RECHECK`] later.
+    scanned: u64,
 }
+
+/// How long "no highlight" is kept before the books are looked at again, in
+/// microseconds: a first highlight appears within a minute, and a library
+/// without any costs one scan a minute, not one a draw.
+const RECHECK: u64 = 60_000_000;
 
 /// A number that looks random, the same for the same `seed`.
 #[must_use]
@@ -385,11 +393,14 @@ pub fn choose<'c>(
             .state(host, &mut scan.input, &mut scan.out)?
             .generation();
         let key = (all, seed, generation);
+        let now = clock::micros(host).ok();
         if let Some((kept, quote)) = &cache.kept
             && *kept == key
         {
             let current = match quote {
-                None => true,
+                // No highlight: looked for again a minute after the last scan
+                // (no book's annotation generation says a first one came).
+                None => now.is_some_and(|now| now.saturating_sub(cache.scanned) < RECHECK),
                 Some(quote) => match scan.annotation_generation(quote.book) {
                     Ok(now) => now == quote.annotations,
                     Err(Error::State | Error::NotFound) => false,
@@ -403,6 +414,7 @@ pub fn choose<'c>(
         let books = scan.books(all)?;
         let quote = scan.pick(&books, seed)?;
         cache.kept = Some((key, quote));
+        cache.scanned = now.unwrap_or(0);
         Ok(())
     })?;
     Ok(cache.kept.as_ref().and_then(|(_, quote)| quote.as_ref()))
@@ -428,7 +440,13 @@ pub fn shows_with(
         u8::from(settings.shows("note")?),
     ];
     let mut mark = crate::native_draw::fnv(1, &flags);
-    match choose(host, &settings, cache, showings)? {
+    // Where the library refuses a call the widget shows none, as `draw` says.
+    let chosen = match choose(host, &settings, cache, showings) {
+        Ok(chosen) => chosen,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => None,
+    };
+    match chosen {
         None => mark = crate::native_draw::fnv(mark, &[0]),
         Some(quote) => {
             for part in [&quote.text, &quote.note, &quote.title, &quote.author] {
