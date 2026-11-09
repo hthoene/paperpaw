@@ -131,12 +131,17 @@ fn shell_host(features: &'static [Feature<'static>]) -> Host<'static> {
 
 /// `METADATA` plus one required `uses.registry` feature record.
 fn registry_metadata() -> &'static [u8] {
+    feature_metadata(REGISTRY)
+}
+
+/// `METADATA` plus one required feature record of `key`.
+fn feature_metadata(key: &str) -> &'static [u8] {
     let mut bytes = METADATA.to_vec();
-    bytes.extend_from_slice(&u16::try_from(8 + REGISTRY.len()).unwrap().to_le_bytes());
-    bytes.extend_from_slice(&u16::try_from(REGISTRY.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&u16::try_from(8 + key.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&u16::try_from(key.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&1_u16.to_le_bytes());
     bytes.extend_from_slice(&1_u16.to_le_bytes());
-    bytes.extend_from_slice(REGISTRY.as_bytes());
+    bytes.extend_from_slice(key.as_bytes());
     let length = u32::try_from(bytes.len()).unwrap();
     bytes[8..12].copy_from_slice(&length.to_le_bytes());
     bytes[28..30].copy_from_slice(&1_u16.to_le_bytes());
@@ -415,4 +420,167 @@ fn a_required_feature_the_shell_host_has_admits_the_plugin() {
     install_on(&mut kernel, with_view, bytes, &shell_host(WIRED), "linked").unwrap();
     assert_eq!(MAKES.with(Cell::get), 1);
     assert!(kernel.shared.native_instances.find("linked").is_some());
+}
+
+const NETWORK: &str = "uses.network";
+const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
+    key: NETWORK,
+    revision: 1,
+}];
+
+/// Installs `id` with the feature `uses.network` admitted.
+fn install_networked(kernel: &mut crate::Kernel, id: &str) {
+    let bytes = feature_metadata(NETWORK);
+    let with_feature = entry(|entry| {
+        entry.metadata = PpBytes {
+            ptr: bytes.as_ptr(),
+            len: bytes.len(),
+        };
+    });
+    install_on(kernel, with_feature, bytes, &shell_host(NETWORK_WIRED), id).unwrap();
+}
+
+fn network_on(kernel: &crate::Kernel, plugin: &str) -> Option<bool> {
+    match kernel
+        .shared
+        .settings
+        .get(&alloc::format!("core.network.{plugin}"))
+    {
+        Some(paperpaw_sdk::SettingValue::Bool(on)) => Some(*on),
+        _ => None,
+    }
+}
+
+/// The user turned `plugin`'s network off or on, as the event of the change says.
+fn set_network(kernel: &mut crate::Kernel, plugin: &str, on: bool) {
+    let id = alloc::format!("core.network.{plugin}");
+    kernel
+        .shared
+        .settings
+        .set(&id, paperpaw_sdk::SettingValue::Bool(on))
+        .unwrap();
+    kernel.works.saw(
+        paperpaw_sdk::builtin::events::SETTING_CHANGED.id(),
+        &paperpaw_sdk::Params::new().with(paperpaw_sdk::builtin::params::ID, id),
+    );
+}
+
+#[test]
+fn a_native_plugin_with_uses_network_gets_both_network_settings_with_the_beta_3_defaults() {
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(network_on(&kernel, "linked"), Some(true));
+    assert_eq!(
+        kernel.shared.settings.text("core.saving.linked"),
+        "core.saving.follow"
+    );
+    // The specs are the ones an interface-6 plugin that uses the network has.
+    let spec = kernel.shared.settings.spec("core.network.linked").unwrap();
+    assert_eq!(spec.group, crate::work::NETWORK_GROUP);
+}
+
+#[test]
+fn a_native_plugin_without_uses_network_gets_none_even_where_the_host_wires_it() {
+    let mut kernel = kernel();
+    install_on(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &shell_host(NETWORK_WIRED),
+        "linked",
+    )
+    .unwrap();
+    assert_eq!(MAKES.with(Cell::get), 1);
+    assert_eq!(network_on(&kernel, "linked"), None);
+    assert!(kernel.shared.settings.spec("core.saving.linked").is_none());
+}
+
+#[test]
+fn a_failed_define_warns_and_the_plugin_is_admitted_all_the_same() {
+    let mut kernel = kernel();
+    // The list kept in the program names the plugin with a default its kind
+    // does not accept: the host cannot define it.
+    let mut specs = crate::network_specs_of(
+        paperpaw_sdk::Id::new_static("core.network.linked"),
+        paperpaw_sdk::Id::new_static("core.saving.linked"),
+    );
+    specs[0].default = paperpaw_sdk::SettingValue::Text("not a switch".into());
+    kernel.define_network_settings(Box::leak(Box::new([("linked", specs)])));
+    install_networked(&mut kernel, "linked");
+    assert!(kernel.shared.native_instances.find("linked").is_some());
+    assert_eq!(network_on(&kernel, "linked"), None);
+    let warnings = kernel.take_warnings();
+    assert!(
+        warnings.iter().any(|w| w.message.contains("linked")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn the_network_policy_follows_the_native_settings() {
+    use crate::native_host::net_policy::NetPolicy;
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    let policy = NetPolicy::new();
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none(), "on by default");
+    set_network(&mut kernel, "linked", false);
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_some(), "switched off");
+    set_network(&mut kernel, "linked", true);
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none());
+    // Removed, it follows no policy (its setting stays for its next load).
+    set_network(&mut kernel, "linked", false);
+    kernel.forget_native_network("linked");
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none());
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+}
+
+#[test]
+fn what_the_reader_kept_is_read_when_the_plugin_comes() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config("[core]\nnetwork.linked = off\nsaving.linked = core.saving.manual\n")
+        .build()
+        .unwrap();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+    assert_eq!(
+        kernel.shared.settings.text("core.saving.linked"),
+        "core.saving.manual"
+    );
+}
+
+#[test]
+fn a_plugin_loaded_again_keeps_its_settings_and_is_not_listed_twice() {
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    kernel.forget_native_network("linked");
+    set_network(&mut kernel, "linked", false);
+    // Admitted again (as after an update): the defined settings stay, with their value.
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+    assert!(kernel.take_warnings().is_empty());
+}
+
+#[test]
+fn a_kept_value_is_read_once_and_never_over_what_the_reader_set_since() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config("[core]\nnetwork.linked = off\n")
+        .build()
+        .unwrap();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(
+        network_on(&kernel, "linked"),
+        Some(false),
+        "read at the first admission"
+    );
+    // The reader switches it on; the plugin is updated (removed and admitted again):
+    // the value in the file as it was at start must not come back.
+    set_network(&mut kernel, "linked", true);
+    kernel.forget_native_network("linked");
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    assert_eq!(network_on(&kernel, "linked"), Some(true));
 }
