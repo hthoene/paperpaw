@@ -1674,6 +1674,7 @@ dependencies = [
  "paperpaw-default-packs",
  "paperpaw-fs",
  "paperpaw-graphics",
+ "paperpaw-hyphenation-packs",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
