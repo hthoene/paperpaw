@@ -29,6 +29,7 @@ pub mod files;
 pub mod focus;
 pub mod geometry;
 pub mod header;
+pub mod icons;
 pub mod items;
 pub mod json;
 pub mod list;

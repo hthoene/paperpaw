@@ -5,7 +5,7 @@ use paperpaw_sdk::{
     native::{
         Error,
         callbacks::{DrawFrame, FrameRect},
-        fonts::{Font, TextOrigin},
+        fonts::{Font, IconGlyph, TextOrigin},
     },
 };
 
@@ -38,6 +38,18 @@ pub enum Paint {
         /// Where the baseline starts.
         origin: TextOrigin,
         /// Text colour.
+        color: Color,
+    },
+    /// A named icon: one character of the bound icon font; drawn only by
+    /// [`replay_icons`] given that font.
+    Icon {
+        /// The character the host gave for the icon's name.
+        glyph: IconGlyph,
+        /// Size in pixels.
+        size: f32,
+        /// Where the baseline starts.
+        origin: TextOrigin,
+        /// Colour.
         color: Color,
     },
     /// A text run, optionally clipped.
@@ -129,6 +141,36 @@ pub fn replay_with<'a>(
     bold: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
+    replay_all(frame, font, (bold, None), ops)
+}
+
+/// [`replay`] with the icon font for [`Paint::Icon`] runs: an icon is left
+/// out where there is no icon font (the callers gave a name the host knows only
+/// with one).
+///
+/// # Errors
+/// Propagates canvas and font errors.
+pub fn replay_icons<'a>(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    icons: Option<&Font<'_>>,
+    ops: impl IntoIterator<Item = &'a Paint>,
+) -> Result<(), Error> {
+    replay_all(frame, font, (None, icons), ops)
+}
+
+/// Draws `ops` in order with `font`, the bold font of [`Paint::Bold`] runs and
+/// the icon font of [`Paint::Icon`] runs.
+///
+/// # Errors
+/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
+/// without a bold font. An icon without an icon font is not drawn.
+pub fn replay_all<'a>(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    (bold, icons): (Option<&Font<'_>>, Option<&Font<'_>>),
+    ops: impl IntoIterator<Item = &'a Paint>,
+) -> Result<(), Error> {
     let mut canvas = frame.draw_canvas()?;
     for op in ops {
         match op {
@@ -158,6 +200,16 @@ pub fn replay_with<'a>(
             } => {
                 let bold = bold.ok_or(Error::Unsupported)?;
                 bold.render_text(&canvas, *size, *origin, *color, text)?;
+            }
+            Paint::Icon {
+                glyph,
+                size,
+                origin,
+                color,
+            } => {
+                if let Some(icons) = icons {
+                    icons.render_text(&canvas, *size, *origin, *color, glyph.as_str())?;
+                }
             }
             Paint::Text {
                 text,
