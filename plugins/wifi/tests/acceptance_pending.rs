@@ -15,14 +15,16 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["H1", "H2", "H4"],
     },
-    // The radio follows the policy: on when a plugin wants the network, joins
-    // the network joined before, off after the idle time. Needs the events
-    // `wifi_scanned`, `wifi_done`, `network_wanted` and `network_idle`
-    // (92-95), which have no subscription or decoder in the SDK yet.
+    // The radio follows the policy through the production loader: on when a
+    // plugin wants the network, joins the network joined before, off after the
+    // idle time. The events 92-95 are subscribed and the decisions ported
+    // (`native_radio`); what is missing is the timers (the idle-off and retry
+    // `work` entries) and the callbacks that read the facts and send the
+    // commands.
     Case {
         name: "wifi-radio-events",
         golden: None,
-        blocked_by: &["EVT-wifi-radio"],
+        blocked_by: &["WORK-timers", "H4"],
     },
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`).
@@ -63,7 +65,7 @@ fn wifi_pages() {
 }
 
 #[test]
-#[ignore = "BLOCKED EVT-wifi-radio: no SDK subscription or decoder for events 92-95"]
+#[ignore = "BLOCKED WORK-timers/H4: the idle-off and retry timers and the native callbacks are not wired"]
 fn wifi_radio_events() {
     CASES[1].refuse().unwrap();
 }

@@ -148,6 +148,19 @@ impl Failure {
     }
 }
 
+impl From<paperpaw_sdk::native::events::WifiFailure> for Failure {
+    fn from(failure: paperpaw_sdk::native::events::WifiFailure) -> Self {
+        use paperpaw_sdk::native::events::WifiFailure as Reason;
+        match failure {
+            Reason::NotFound => Self::NotFound,
+            Reason::Password => Self::Password,
+            Reason::Timeout => Self::Timeout,
+            Reason::Superseded => Self::Superseded,
+            _ => Self::Other,
+        }
+    }
+}
+
 /// What the radio is for now.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub enum Goal {

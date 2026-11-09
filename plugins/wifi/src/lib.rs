@@ -25,6 +25,7 @@ mod fail_alloc;
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod native_policy;
+pub mod native_radio;
 
 mod networks;
 mod page;
