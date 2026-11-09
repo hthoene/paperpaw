@@ -42,6 +42,8 @@ const URL: &str = "url";
 const TYPED_LIMIT: usize = 1_100;
 /// What the plugin says it is, as interface 6 did.
 const AGENT: &str = "PaperPaw/0.1 (e-reader)";
+/// The most a request may save until downloads are native (`PORTING-7.md`).
+const MAX_PAGE_FILE: u64 = 4 * 1024 * 1024;
 const ACCEPT: &str = "text/html,application/xhtml+xml,application/epub+zip,*/*";
 
 /// A row of the start screen.
@@ -143,7 +145,10 @@ impl Plugin for NativeBrowser {
                 self.shown(host)
             }
             Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
+                // The last browser screen is gone: what is loading is of no use.
+                if let Some(token) = self.closed(instance) {
+                    self.cancel(host, token)?;
+                }
                 Ok(())
             }
             Event::HttpDone(done) if token == LOADED => self.loaded(host, &done),
@@ -192,6 +197,31 @@ impl NativeBrowser {
             };
         }
         Ok(())
+    }
+
+    /// A screen is closed; the number of the request to cancel when it was
+    /// the last screen and a request is still loading.
+    fn closed(&mut self, instance: Instance) -> Option<u32> {
+        self.screens.close(instance);
+        if self.screens.is_empty() {
+            self.loading.take().map(|loading| loading.token)
+        } else {
+            None
+        }
+    }
+
+    /// Whether a browser screen is open to take an answer.
+    fn wanted(&self) -> bool {
+        !self.screens.is_empty()
+    }
+
+    /// Ends the request `token`; its end is ignored (nothing is loading).
+    fn cancel(&self, host: &Host<'_>, token: u32) -> Result<(), Error> {
+        let Some(net) = &self.net else {
+            return Ok(());
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        net.cancel(host, token, &mut input, &mut out)
     }
 
     fn ui(&self) -> Result<&Ui, Error> {
@@ -549,7 +579,8 @@ impl NativeBrowser {
         ];
         let request = Request::get(token, url)?
             .headers(&headers)?
-            .save_to(FileRoot::Data, store::DOWNLOAD)?;
+            .save_to(FileRoot::Data, store::DOWNLOAD)?
+            .max_file(MAX_PAGE_FILE)?;
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
         match net.request(host, &request, &mut input, &mut out) {
             Ok(_) => {}
@@ -577,6 +608,12 @@ impl NativeBrowser {
         let Some(loading) = self.loading.take_if(|l| l.token == done.token()) else {
             return Ok(());
         };
+        if !self.wanted() {
+            // No browser screen is open: nothing may open the reader over what
+            // the reader shows now.
+            let _ = DataStorage::new(host).remove(store::DOWNLOAD);
+            return Ok(());
+        }
         let name = copy(paperpaw_sdk::web::host(&loading.url))?;
         let host_arg = [Arg::Text {
             name: "host",
@@ -616,7 +653,11 @@ impl NativeBrowser {
         }
         let mut head = [0u8; 512];
         let length = storage.read_at(store::DOWNLOAD, 0, &mut head).unwrap_or(0);
-        let kind = web::kind(content_type.as_deref(), &url, &head[..length])?;
+        let kind = web::kind(
+            content_type.as_deref(),
+            &url,
+            head.get(..length).unwrap_or(&[]),
+        )?;
         if status >= 400 && kind != Kind::Page {
             let _ = storage.remove(store::DOWNLOAD);
             let status = i64::from(status);
@@ -742,3 +783,6 @@ fn settings_language(host: &Host<'_>) -> Result<String, Error> {
         Err(error) => Err(error),
     }
 }
+
+#[cfg(test)]
+mod tests;

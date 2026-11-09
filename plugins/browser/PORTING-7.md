@@ -16,6 +16,10 @@ the host activates native plugins (then it goes together, no shim: todo 90).
 - A page is kept with its address as `<base href>`, titled, put in the history and opened in the
   reader with a hand-over of `root=0`, `path=pages/<hash>.html` (`command.open` on slot `core.reader`).
   Back from the reader goes through the pages of this time; a page whose file is gone is loaded again.
+- Closing the last browser screen cancels the request (`Net::cancel`); an answer that still comes
+  with no screen open is discarded (its file removed), so the reader is never opened over a book.
+  Until downloads, a request saves at most 4 MiB (`max_file`): the cap for downloads is **to settle**
+  with Kernel (see Not yet).
 - The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
 - Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
   2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
