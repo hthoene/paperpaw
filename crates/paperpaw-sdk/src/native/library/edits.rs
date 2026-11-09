@@ -406,7 +406,7 @@ pub struct ReceiptPage<'a> {
 }
 
 impl<'a> ReceiptPage<'a> {
-    fn decode(bytes: &'a [u8], cursor: ReceiptCursor) -> Result<Self, Error> {
+    fn decode(bytes: &'a [u8], cursor: ReceiptCursor, generation: u32) -> Result<Self, Error> {
         let mut rest = bytes;
         let mut count = 0usize;
         let end = loop {
@@ -432,6 +432,8 @@ impl<'a> ReceiptPage<'a> {
         if !rest.is_empty()
             || end.flags > 1
             || end.cursor.is_some()
+            // Every page carries the generation the commit answered (never 0).
+            || end.generation != generation
             || end.next != expected
             || end.next > end.total
             || last != (end.next == end.total)
@@ -701,7 +703,8 @@ impl Library {
     /// is 256 bytes and `out` 4,096.
     ///
     /// # Errors
-    /// `NotFound` once the receipt is gone; Invalid for a malformed page;
+    /// `NotFound` once the receipt is gone; `Invalid` for a malformed page or one whose
+    /// generation is not the commit's;
     /// otherwise the host's refusals.
     pub fn edit_receipt<'a>(
         &self,
@@ -716,6 +719,10 @@ impl Library {
             cursor: cursor.0,
         };
         let n = self.annotation_call(host, schema::OP_EDIT_RECEIPT, &[&ask], input, out)?;
-        ReceiptPage::decode(out.get(..n).ok_or(Error::Invalid)?, cursor)
+        ReceiptPage::decode(
+            out.get(..n).ok_or(Error::Invalid)?,
+            cursor,
+            committed.generation,
+        )
     }
 }

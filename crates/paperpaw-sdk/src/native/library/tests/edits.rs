@@ -360,7 +360,7 @@ fn the_receipt_pages_the_ids_of_the_edits() {
     log.calls.borrow_mut().clear();
     log.replies.borrow_mut().push((
         schema::OP_EDIT_RECEIPT,
-        bare(&[receipt(0, 11, 0), receipt(1, 4, 3), end(0, 3, 0, 2)]),
+        bare(&[receipt(0, 11, 0), receipt(1, 4, 3), end(0, 3, 6, 2)]),
     ));
     let mut out = [0; 4096];
     let page = lib
@@ -388,7 +388,7 @@ fn the_receipt_pages_the_ids_of_the_edits() {
     log.replies.borrow_mut().clear();
     log.replies.borrow_mut().push((
         schema::OP_EDIT_RECEIPT,
-        bare(&[receipt(2, 12, 7), end(1, 3, 0, 3)]),
+        bare(&[receipt(2, 12, 7), end(1, 3, 6, 3)]),
     ));
     let mut out2 = [0; 4096];
     let page = lib
@@ -402,11 +402,25 @@ fn the_receipt_pages_the_ids_of_the_edits() {
     log.replies.borrow_mut().clear();
     log.replies.borrow_mut().push((
         schema::OP_EDIT_RECEIPT,
-        bare(&[receipt(2, 12, 0), end(1, 3, 0, 9)]),
+        bare(&[receipt(2, 12, 0), end(1, 3, 6, 9)]),
     ));
     assert_eq!(
         lib.edit_receipt(&host, &done, next, &mut [0; 256], &mut [0; 4096])
             .unwrap_err(),
         Error::Invalid
     );
+    // A page of another generation than the commit's (or 0) is Invalid.
+    for generation in [0, 5, 7] {
+        log.replies.borrow_mut().clear();
+        log.replies.borrow_mut().push((
+            schema::OP_EDIT_RECEIPT,
+            bare(&[receipt(2, 12, 0), end(1, 3, generation, 3)]),
+        ));
+        assert_eq!(
+            lib.edit_receipt(&host, &done, next, &mut [0; 256], &mut [0; 4096])
+                .unwrap_err(),
+            Error::Invalid,
+            "generation {generation}"
+        );
+    }
 }

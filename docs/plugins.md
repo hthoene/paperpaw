@@ -2803,7 +2803,8 @@ the host while staging, call `edit_abort`: the transaction refuses further stagi
 (`State`). One transaction is open per plugin and two on the device (`Full`); it ends on commit,
 abort, ten idle minutes or when the plugin stops. `edit_receipt(host, &committed, cursor, input,
 out)` then pages the annotation ids the edits made, `Receipt::{edit, id, action}`, until the
-plugin's next `edit_begin`.
+plugin's next `edit_begin`. Every receipt page carries the annotation generation the commit
+answered; a page of another generation is `Invalid`.
 
 ### Book fields and badges
 
