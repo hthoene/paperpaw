@@ -400,6 +400,9 @@ pub(crate) fn wait_text(words: &mut impl Words, seconds: i64) -> Result<String, 
     )
 }
 
+/// What a hand-over names: the deck, and the card to show first (deck and id).
+pub(crate) type Named = (Option<u32>, Option<(u32, u32)>);
+
 /// The deck and the first card a hand-over names: `deck` a number, `first`
 /// `<deck> <id>`; anything else is not named.
 ///
@@ -407,7 +410,7 @@ pub(crate) fn wait_text(words: &mut impl Words, seconds: i64) -> Result<String, 
 /// [`Error::Invalid`] for a key given twice differently.
 pub(crate) fn named<'a>(
     params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
-) -> Result<(Option<u32>, Option<(u32, u32)>), Error> {
+) -> Result<Named, Error> {
     let (mut deck, mut first): (Option<&str>, Option<&str>) = (None, None);
     for param in params {
         let (key, value) = param?;
