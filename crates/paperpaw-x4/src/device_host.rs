@@ -7,19 +7,38 @@
 //! polled, and a call allocates nothing (strings are borrowed from the
 //! identity and the list the image carries, rows are visited one at a time).
 //!
-//! This part answers ops 1 (the device), 2 (named values), 4 (the plugins
-//! built into the image) and 15 (the physical keys); every other part is
+//! **Setters belong to the main loop.** Every `set_*` is called from the
+//! firmware's main loop only: never from inside a visitor of this host (the
+//! lists are borrowed while a visitor runs, and a setter that finds one in use
+//! changes nothing and says so), never from an interrupt or another thread
+//! (the cells are not `Sync`). A reader that runs between two setters sees one
+//! state or the other, never a mix, because every setter replaces one whole
+//! value.
+//!
+//! The device is made once at start with [`X4Device::shared`] and kept on the
+//! heap behind an `Rc` (the kernel's `DeviceServices` holds that `Rc`).
+//!
+//! This part answers ops 1 (the device), 2 (named values), 3 (the running
+//! firmware), 4 (the plugins built into the image), 5 (what a code plugin must
+//! be built for), 7 (memory), 14 (the plugins a start could not install) and
+//! 15 (the physical keys); every other part is
 //! `ERR_NOT_FOUND` (the default of [`DeviceHost`]) until its slice lands, and
 //! [`Identity::caps`] carries only the bits of the parts that are answered
 //! (`check_caps_agree` is the test of it).
 
-use core::cell::Cell;
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
 
 use paperpaw_core::native_host::device_service::{
-    BuiltinRow, DeviceFacts, DeviceHost, MAX_VALUES, Reading,
+    BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_NOT_INSTALLED, MAX_VALUES, MemoryFacts,
+    NativeFacts, NotInstalledRow, ProbeCache, Reading,
 };
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_platform::firmware::{PROJECT_MAX, Running, Text, VERSION_MAX};
 use paperpaw_sdk::firmware::Plugins;
+use paperpaw_sdk::native::{DRAFT, INTERFACE};
 
 /// What the firmware is, from its constants.
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +70,46 @@ struct Slot {
     value: Cell<Option<i64>>,
 }
 
+/// The running firmware, kept in place (op 3's `running` part: the install
+/// state, progress, reason and request are the core's).
+#[derive(Clone, Copy, Debug)]
+struct Own {
+    version: Text<VERSION_MAX>,
+    project: Text<PROJECT_MAX>,
+    chip: u16,
+    room: u64,
+    undone: bool,
+}
+
+/// What a code plugin must be built for and how code plugins stand this
+/// start (op 5), from the loader.
+#[derive(Clone, Copy, Debug)]
+pub struct NativeState {
+    /// The chip id a code plugin is built for (5 ESP32-C3, 9 ESP32-S3).
+    pub target: u32,
+    /// The code file (`code.ppn`).
+    pub code_file: &'static str,
+    /// 0 none, 1 the last starts with code plugins failed, 2 the user held the
+    /// key at power-on.
+    pub safe_mode: u32,
+    /// The plugin that was running when a start failed, empty if not known.
+    pub crashed: Text<64>,
+    /// The plugin loaded last, empty if not known.
+    pub last_loaded: Text<64>,
+    /// Code plugins that take effect at the next start.
+    pub pending: u32,
+    /// Free code flash.
+    pub room_free: u64,
+    /// The largest free run of code flash.
+    pub room_largest: u64,
+}
+
+/// The longest plugin id (and what is kept of a longer one).
+const ID_MAX: usize = 64;
+
+/// What reads the heap and the stack (nothing to say: `None`).
+pub type MemoryProbe = fn() -> Option<MemoryFacts>;
+
 /// The X4's device, behind `core.device`.
 #[derive(Debug)]
 pub struct X4Device {
@@ -62,6 +121,15 @@ pub struct X4Device {
     /// The plugin crates the image carries; `None` for an image without a list.
     built_in: Option<Plugins>,
     slots: [Option<Slot>; MAX_VALUES as usize],
+    own: Cell<Option<Own>>,
+    native: Cell<Option<NativeState>>,
+    /// What reads the heap and the stack, and the clock for its cache.
+    probe: Cell<Option<MemoryProbe>>,
+    clock_ms: Cell<Option<fn() -> u64>>,
+    memory: ProbeCache<MemoryFacts>,
+    not_installed: RefCell<Vec<(Text<ID_MAX>, u32)>>,
+    /// Changes when a list changes (never 0).
+    generation: Cell<u32>,
 }
 
 impl X4Device {
@@ -83,7 +151,69 @@ impl X4Device {
             slept_ms: Cell::new(None),
             built_in: Plugins::read_static(list),
             slots,
+            own: Cell::new(None),
+            native: Cell::new(None),
+            probe: Cell::new(None),
+            clock_ms: Cell::new(None),
+            memory: ProbeCache::new(),
+            not_installed: RefCell::new(Vec::new()),
+            generation: Cell::new(1),
         }
+    }
+
+    /// [`X4Device::new`] on the heap behind an `Rc`, where the firmware keeps
+    /// it (the one frame that holds the whole struct is this one's, once, at
+    /// start).
+    #[inline(never)]
+    #[must_use]
+    pub fn shared(identity: Identity, list: &'static [u8]) -> Rc<Self> {
+        Rc::new(Self::new(identity, list))
+    }
+
+    /// The running firmware (op 3), as the updates know it; `Identity::caps`
+    /// has the firmware bit exactly where the firmware calls this.
+    pub fn set_firmware(&self, running: &Running<'_>) {
+        self.own.set(Some(Own {
+            version: Text::new(running.version),
+            project: Text::new(running.project),
+            chip: running.chip,
+            room: running.room,
+            undone: running.undone,
+        }));
+    }
+
+    /// What code plugins stand on this start (op 5).
+    pub fn set_native(&self, state: NativeState) {
+        self.native.set(Some(state));
+    }
+
+    /// What reads the memory (op 7) and the clock its answers are cached by
+    /// (one real probe per `PROBE_WINDOW_MS`).
+    pub fn set_memory_probe(&self, probe: MemoryProbe, clock_ms: fn() -> u64) {
+        self.probe.set(Some(probe));
+        self.clock_ms.set(Some(clock_ms));
+    }
+
+    /// The plugins this start could not install (op 14): `(id, reason)`, with
+    /// reason 1 other author, 2 damaged, 3 revoked. At most
+    /// [`MAX_NOT_INSTALLED`] are kept. False where the rows could not be kept
+    /// (no room): the list is then as it was.
+    pub fn set_not_installed(&self, rows: &[(&str, u32)]) -> bool {
+        let rows = &rows[..rows.len().min(MAX_NOT_INSTALLED as usize)];
+        let mut kept = Vec::new();
+        if kept.try_reserve_exact(rows.len()).is_err() {
+            return false;
+        }
+        // Each id is kept in place, cut at 64 bytes (a plugin id's cap).
+        kept.extend(rows.iter().map(|&(id, reason)| (Text::new(id), reason)));
+        // A list in use by a visitor is left as it is: never a panic.
+        let Ok(mut list) = self.not_installed.try_borrow_mut() else {
+            return false;
+        };
+        *list = kept;
+        self.generation
+            .set(self.generation.get().checked_add(1).unwrap_or(1));
+        true
     }
 
     /// How this start came about: 0 unknown, 1 power on, 2 woke, 3 restart,
@@ -165,6 +295,73 @@ impl DeviceHost for X4Device {
         Ok(())
     }
 
+    fn firmware(&self, visit: &mut dyn FnMut(&FirmwareFacts<'_>)) -> Result<(), i32> {
+        let own = self.own.get().ok_or(ERR_NOT_FOUND)?;
+        // The state, progress, reason and request are the core's: idle here.
+        visit(&FirmwareFacts {
+            version: own.version.as_str(),
+            project: own.project.as_str(),
+            chip: u32::from(own.chip),
+            room: own.room,
+            undone: own.undone,
+            state: 0,
+            done: 0,
+            total: 0,
+            reason: 0,
+            request: 0,
+        });
+        Ok(())
+    }
+
+    fn native(&self, visit: &mut dyn FnMut(&NativeFacts<'_>)) -> Result<(), i32> {
+        let state = self.native.get().ok_or(ERR_NOT_FOUND)?;
+        let not_installed = u32::try_from(self.not_installed.borrow().len()).unwrap_or(u32::MAX);
+        visit(&NativeFacts {
+            abi_major: u32::from(INTERFACE),
+            abi_draft: u32::from(DRAFT),
+            target: state.target,
+            code_file: state.code_file,
+            safe_mode: state.safe_mode,
+            crashed: state.crashed.as_str(),
+            last_loaded: state.last_loaded.as_str(),
+            pending: state.pending,
+            not_installed,
+            room_free: state.room_free,
+            room_largest: state.room_largest,
+        });
+        Ok(())
+    }
+
+    fn memory(&self) -> Result<MemoryFacts, i32> {
+        let (Some(probe), Some(clock)) = (self.probe.get(), self.clock_ms.get()) else {
+            return Err(ERR_NOT_FOUND);
+        };
+        let (facts, cached) = self.memory.get(clock(), probe);
+        facts
+            .map(|facts| MemoryFacts { cached, ..facts })
+            .ok_or(ERR_NOT_FOUND)
+    }
+
+    fn not_installed(
+        &self,
+        visit: &mut dyn FnMut(&NotInstalledRow<'_>) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        for (plugin, reason) in self.not_installed.borrow().iter() {
+            let row = NotInstalledRow {
+                plugin: plugin.as_str(),
+                reason: *reason,
+            };
+            if visit(&row).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn generation(&self) -> u32 {
+        self.generation.get()
+    }
+
     fn keys(&self, visit: &mut dyn FnMut(&str) -> ControlFlow<()>) -> Result<(), i32> {
         for name in self.identity.keys {
             if visit(name).is_break() {
@@ -183,7 +380,7 @@ mod tests {
     use std::vec::Vec;
 
     use paperpaw_core::native_host::device_service::{caps, check_caps_agree};
-    use paperpaw_native::host_glue::ERR_NOT_FOUND;
+    use paperpaw_platform::firmware::Running;
     use paperpaw_sdk::firmware::PluginCrate;
 
     use super::*;
@@ -385,5 +582,257 @@ mod tests {
             })
             .unwrap();
         assert_eq!(count, MAX_VALUES);
+    }
+
+    fn native_state() -> NativeState {
+        NativeState {
+            target: 5,
+            code_file: "code.ppn",
+            safe_mode: 1,
+            crashed: Text::new("stats"),
+            last_loaded: Text::new("widgets"),
+            pending: 2,
+            room_free: 100_000,
+            room_largest: 60_000,
+        }
+    }
+
+    /// Op 3 gives only the running part: the state is idle for the core to
+    /// fill; the part is not here until the firmware says what it is.
+    #[test]
+    fn the_firmware_is_the_running_part_and_idle() {
+        let device = device(&[]);
+        assert_eq!(device.firmware(&mut |_| {}), Err(ERR_NOT_FOUND));
+        device.set_firmware(&Running::new(
+            "0.6.0",
+            "paperpaw-xteink",
+            5,
+            6_000_000,
+            true,
+        ));
+        let mut seen = None;
+        device
+            .firmware(&mut |facts| {
+                seen = Some((
+                    facts.version.to_string(),
+                    facts.project.to_string(),
+                    facts.chip,
+                    facts.room,
+                    facts.undone,
+                    (
+                        facts.state,
+                        facts.done,
+                        facts.total,
+                        facts.reason,
+                        facts.request,
+                    ),
+                ));
+            })
+            .unwrap();
+        let (version, project, chip, room, undone, rest) = seen.unwrap();
+        assert_eq!(
+            (version.as_str(), project.as_str()),
+            ("0.6.0", "paperpaw-xteink")
+        );
+        assert_eq!(
+            (chip, room, undone, rest),
+            (5, 6_000_000, true, (0, 0, 0, 0, 0))
+        );
+    }
+
+    /// With the firmware set and its bit in caps, the answers agree.
+    #[test]
+    fn the_firmware_bit_and_op_3_agree() {
+        let device = X4Device::new(
+            Identity {
+                caps: identity().caps | caps::FIRMWARE,
+                ..identity()
+            },
+            list(&[]),
+        );
+        assert!(check_caps_agree(&device).is_err(), "op 3 not set yet");
+        device.set_firmware(&Running::new("0.6.0", "paperpaw-xteink", 5, 0, false));
+        assert_eq!(check_caps_agree(&device), Ok(()));
+    }
+
+    #[test]
+    fn what_code_plugins_stand_on_is_answered_and_counts_the_rows_of_op_14() {
+        let device = device(&[]);
+        assert_eq!(device.native(&mut |_| {}), Err(ERR_NOT_FOUND));
+        device.set_native(native_state());
+        assert!(device.set_not_installed(&[("a", 1), ("b", 3)]));
+        let mut seen = None;
+        device
+            .native(&mut |f| {
+                seen = Some((
+                    f.abi_major,
+                    f.abi_draft,
+                    f.target,
+                    f.code_file.to_string(),
+                    f.safe_mode,
+                    f.crashed.to_string(),
+                    f.last_loaded.to_string(),
+                    f.pending,
+                    f.not_installed,
+                    f.room_free,
+                    f.room_largest,
+                ));
+            })
+            .unwrap();
+        assert_eq!(
+            seen.unwrap(),
+            (
+                u32::from(INTERFACE),
+                u32::from(DRAFT),
+                5,
+                "code.ppn".to_string(),
+                1,
+                "stats".to_string(),
+                "widgets".to_string(),
+                2,
+                2,
+                100_000,
+                60_000
+            )
+        );
+    }
+
+    #[test]
+    fn plugins_not_installed_are_listed_and_the_generation_follows() {
+        let device = device(&[]);
+        let before = device.generation();
+        let mut rows = Vec::new();
+        device
+            .not_installed(&mut |row| {
+                rows.push(row.plugin.to_string());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert!(rows.is_empty(), "an empty list, not 'not here'");
+        assert!(device.set_not_installed(&[("alpha", 2), ("beta", 1)]));
+        assert_ne!(device.generation(), before);
+        let mut seen = Vec::new();
+        device
+            .not_installed(&mut |row| {
+                seen.push((row.plugin.to_string(), row.reason));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(seen, [("alpha".to_string(), 2), ("beta".to_string(), 1)]);
+        // No more than op 14 lists.
+        let many: Vec<(String, u32)> = (0..40).map(|n| (std::format!("p{n}"), 2)).collect();
+        let borrowed: Vec<(&str, u32)> = many.iter().map(|(a, b)| (a.as_str(), *b)).collect();
+        assert!(device.set_not_installed(&borrowed));
+        let mut count = 0;
+        device
+            .not_installed(&mut |_| {
+                count += 1;
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(count, MAX_NOT_INSTALLED);
+    }
+
+    #[test]
+    fn memory_is_probed_once_per_window_and_says_when_it_is_cached() {
+        use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+        static PROBES: AtomicU32 = AtomicU32::new(0);
+        static NOW: AtomicU64 = AtomicU64::new(1_000);
+        fn probe() -> Option<MemoryFacts> {
+            PROBES.fetch_add(1, Ordering::Relaxed);
+            Some(MemoryFacts {
+                heap_free: 100,
+                heap_size: 200,
+                largest: Some(50),
+                stack: None,
+                external: None,
+                cached: false,
+            })
+        }
+        fn clock() -> u64 {
+            NOW.load(Ordering::Relaxed)
+        }
+        let device = device(&[]);
+        assert_eq!(device.memory(), Err(ERR_NOT_FOUND), "nothing to probe with");
+        device.set_memory_probe(probe, clock);
+        assert!(!device.memory().unwrap().cached);
+        assert!(device.memory().unwrap().cached);
+        assert_eq!(PROBES.load(Ordering::Relaxed), 1);
+        NOW.store(1_000 + 10_000, Ordering::Relaxed);
+        assert!(!device.memory().unwrap().cached);
+        assert_eq!(PROBES.load(Ordering::Relaxed), 2);
+    }
+
+    /// A probe that cannot read now is not found, never zeros.
+    #[test]
+    fn a_probe_that_cannot_read_is_not_found() {
+        let device = device(&[]);
+        device.set_memory_probe(|| None, || 0);
+        assert_eq!(device.memory(), Err(ERR_NOT_FOUND));
+    }
+
+    /// A setter called from inside a visitor changes nothing and says so; it
+    /// never panics on the borrow the visitor holds.
+    #[test]
+    fn a_setter_inside_a_visitor_is_refused_not_a_panic() {
+        let device = device(&[]);
+        assert!(device.set_not_installed(&[("a", 2)]));
+        let mut inside = None;
+        device
+            .not_installed(&mut |_| {
+                inside = Some(device.set_not_installed(&[("b", 1)]));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(inside, Some(false));
+        let mut ids = Vec::new();
+        device
+            .not_installed(&mut |row| {
+                ids.push(row.plugin.to_string());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(ids, ["a"]);
+    }
+
+    /// A stored id is cut at 64 bytes, a plugin id's cap.
+    #[test]
+    fn a_long_id_is_cut_at_64_bytes() {
+        let device = device(&[]);
+        let long = "x".repeat(100);
+        assert!(device.set_not_installed(&[(long.as_str(), 2)]));
+        let mut len = None;
+        device
+            .not_installed(&mut |row| {
+                len = Some(row.plugin.len());
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(len, Some(64));
+    }
+
+    /// The interface and its draft are the SDK's, not a copy.
+    #[test]
+    fn the_interface_is_the_sdks() {
+        let device = device(&[]);
+        device.set_native(native_state());
+        let mut seen = None;
+        device
+            .native(&mut |f| seen = Some((f.abi_major, f.abi_draft)))
+            .unwrap();
+        assert_eq!(seen, Some((u32::from(INTERFACE), u32::from(DRAFT))));
+    }
+
+    /// The device is made once on the heap; the struct stays small enough for
+    /// that to be the only frame that holds it.
+    #[test]
+    fn the_device_is_shared_and_small() {
+        let shared = X4Device::shared(identity(), list(&[]));
+        assert_eq!(Rc::strong_count(&shared), 1);
+        assert!(
+            core::mem::size_of::<X4Device>() <= 1_024,
+            "{}",
+            core::mem::size_of::<X4Device>()
+        );
     }
 }

@@ -2714,6 +2714,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "paperpaw-config",
  "paperpaw-core",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
 ]
