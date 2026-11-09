@@ -61,7 +61,10 @@ pub(crate) mod plugin_check;
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
 #[path = "native_host/plugin_job.rs"]
-#[allow(dead_code, reason = "the queue's plugin seam wires it; see plugin_check")]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires it; see plugin_check"
+)]
 pub(crate) mod plugin_job;
 #[path = "native_host/plugin_trust.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]

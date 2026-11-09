@@ -104,6 +104,10 @@ pub(crate) struct PluginFacts {
 
 /// What one step came to.
 #[derive(Debug, PartialEq, Eq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "returned by value once per step and kept in place; a box would be an allocation that can fail at the job's end"
+)]
 pub(crate) enum JobStep {
     /// Not done: call again.
     More,
