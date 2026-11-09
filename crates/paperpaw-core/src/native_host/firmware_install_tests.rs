@@ -214,6 +214,14 @@ fn a_foreign_image_is_asked_too_and_is_checked_as_foreign() {
     let mut fw = fake();
     machine.start(install(OWNER, 1, FLAG_FOREIGN), &mut fw);
     assert!(matches!(run(&mut machine, &mut fw), Event::Ended(o) if o.reason == 4));
+    // And a foreign image without flag 1 is refused before any question.
+    let mut machine = FirmwareInstall::new();
+    let mut fw = fake();
+    fw.facts.foreign = true;
+    fw.facts.signer = Signer::Unsigned;
+    machine.start(install(OWNER, 1, 0), &mut fw);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ended(o) if o.reason == 4));
+    assert!(!fw.log.iter().any(|call| matches!(call, Call::BeginWrite { .. })));
 }
 
 #[test]
@@ -365,7 +373,7 @@ fn the_host_stopping_a_job_abandons_the_device_and_tells_reason_20() {
 }
 
 fn check_job(owner: u64, request: u32) -> Job {
-    Job::check(owner, request, "update.ppu", false).unwrap()
+    Job::check(owner, request, "update.ppu").unwrap()
 }
 
 #[test]
@@ -413,7 +421,7 @@ fn a_foreign_image_has_no_list_of_built_ins() {
     fw.facts.foreign = true;
     fw.facts.signer = Signer::Unsigned;
     machine.reserve_check(OWNER).unwrap();
-    machine.start(Job::check(OWNER, 1, "o.bin", true).unwrap(), &mut fw);
+    machine.start(Job::check(OWNER, 1, "o.bin").unwrap(), &mut fw);
     run(&mut machine, &mut fw);
     assert_eq!(machine.leaves_out_of(OWNER).unwrap_err(), ERR_UNSUPPORTED);
     assert!(machine.checked(OWNER).is_ok(), "op 6 still reads it");

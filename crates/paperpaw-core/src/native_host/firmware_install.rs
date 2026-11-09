@@ -70,13 +70,13 @@ const RESTART_PENDING: u8 = 21;
 const OLDER: u8 = 14;
 
 /// What the kernel knows of the built-in plugins, to number the ones an image
-/// names (by crate name, as its list gives them).
+/// names (by plugin id, as op 4's rows give them).
 pub(crate) trait BuiltIns {
     /// How many plugins are built into the running image.
     fn count(&self) -> usize;
     /// The number (below [`Self::count`]) of the built-in plugin of this
-    /// crate name; `None` for a name the running image does not have.
-    fn index_of(&self, crate_name: &str) -> Option<usize>;
+    /// plugin id (op 4's `BuiltinRow.id`); `None` for a name the running image does not have.
+    fn index_of(&self, plugin_id: &str) -> Option<usize>;
 }
 
 /// The built-in plugins an image has, one bit each.
@@ -120,7 +120,9 @@ pub(crate) struct Job {
     /// `Some(key)`: the install of the image the plugin named a key for (the
     /// user must still accept it); the flags of `install_firmware`.
     install: Option<InstallArgs>,
-    foreign: bool,
+    /// What an install's flag 1 said; `None` for a check, which finds out
+    /// from the image alone.
+    foreign: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,7 +150,7 @@ impl Job {
             owner,
             request,
             path,
-            flags & FLAG_FOREIGN != 0,
+            Some(flags & FLAG_FOREIGN != 0),
             Some(InstallArgs {
                 key,
                 older_ok: flags & FLAG_OLDER != 0,
@@ -160,15 +162,15 @@ impl Job {
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`.
-    pub(crate) fn check(owner: u64, request: u32, path: &str, foreign: bool) -> Result<Self, i32> {
-        Self::make(owner, request, path, foreign, None)
+    pub(crate) fn check(owner: u64, request: u32, path: &str) -> Result<Self, i32> {
+        Self::make(owner, request, path, None, None)
     }
 
     fn make(
         owner: u64,
         request: u32,
         path: &str,
-        foreign: bool,
+        foreign: Option<bool>,
         install: Option<InstallArgs>,
     ) -> Result<Self, i32> {
         let mut text = String::new();
@@ -356,7 +358,7 @@ fn verdict(facts: &CheckFacts, job: &Job, room: u64, running: &str) -> u8 {
     if !facts.chip_ok {
         return Reason::OTHER_CHIP.0;
     }
-    if job.foreign != facts.foreign {
+    if job.foreign.is_some_and(|named| named != facts.foreign) {
         // The image is not the kind the request named.
         return Reason::DAMAGED.0;
     }
@@ -529,7 +531,7 @@ impl FirmwareInstall {
         if job.install.is_none() {
             self.mark_running(job.owner);
         }
-        match firmware.begin_check(&job.path, job.foreign) {
+        match firmware.begin_check(&job.path) {
             Ok(()) => {
                 let mut bits = Bits::NONE;
                 bits.count = u8::try_from(BUILT_INS_MAX).unwrap_or(u8::MAX);
