@@ -1,8 +1,29 @@
-# Interface-7 port (slice 2: the screen, loading, pages in the reader)
+# Interface-7 port (slice 3: downloads)
 
-Version 1.0.8. Partial: the native screen and the loading of pages are in place; downloads of books,
-fonts and other files are the next slice. The interface-6 `Browser` and everything of it stays until
+Version 1.0.8. Everything the browser does is native; what is left is host pieces (the blocked cases
+below). The interface-6 `Browser` and everything of it stays until
 the host activates native plugins (then it goes together, no shim: todo 90).
+
+## Slice 3: downloads (`src/native_save.rs`)
+
+- A book (EPUB, text) goes to the library with `library.import` from the download file (root 0),
+  the server's file name, **free name** (`name (2).epub`): the host moves it and catalogues it. The
+  plugin then says "in the library" and asks *Read now* / *OK*; *Read now* opens it with
+  `command.open` on slot `core.reader` and the hand-over `path`.
+- A font goes to the card's `fonts` folder, any other file to `Downloads`, by `core.files` move from
+  root 0 to root 1 (`uses.storage`), each with the first free name of ninety-nine (`State` for a taken
+  name, never a replace). `Unsupported` for a font says `browser.no-fonts` (a host without a card
+  root has no fonts folder to give).
+- `uses.library` and `uses.storage` are not required: without them a download says
+  `browser.cannot-save`; pages and bookmarks still work.
+- Differences from interface 6: (1) a book keeps the server's file name; interface 6 renamed it after
+  its author and title. That needs the document service's metadata (`doc_meta`, op 3): the SDK has no
+  wrapper yet and the host piece is **DOC-metadata**, so it is an ignored case, not faked. (2) The
+  *Read now* offer is for every book (EPUB or text: the kinds the browser takes as books), where
+  interface 6 asked the format registry first. (3) The fonts folder is the card's `fonts` folder;
+  interface 6 used the device's first font folder (`Env::font_dirs`), which native has no call for.
+  (4) A request may save 64 MiB, the host's largest (`network.md` 3.1); Kernel rules on the cap
+  (pending).
 
 ## Slice 2 (`src/native_plugin.rs`, `NATIVE_ENTRY` with `linked`)
 
@@ -18,9 +39,7 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   Back from the reader goes through the pages of this time; a page whose file is gone is loaded again.
 - Closing the last browser screen cancels the request (`Net::cancel`); an answer that still comes
   with no screen open is discarded (its file removed), so the reader is never opened over a book.
-  Until downloads, a request saves at most 4 MiB (`max_file`): the cap for downloads is **to settle**
-  with Kernel (see Not yet).
-- The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
+  - The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
 - Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
   2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
 - `tests/hosted_construction.rs`: construction in the host's registered scope, `make` runs to its end; the host's commit is refused
@@ -68,15 +87,11 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   whether a download without a cap is allowed, and what the host's default is.
 - Opening a kept page in the reader (`command.open` mode 1 or 3 with `page`, `ui.md`: the table of interface-6 commands): the page is a
   file in the data folder; the host must open a path of the plugin's own folder (`DOC-open-page`).
-- Downloads: books go to `library.import` (`library.md` 2.3, from root 0, free name; it needs no
-  `uses.storage`), fonts to the fonts folder and other files to `Downloads` (root 1, `core.files`
-  move between roots 0 and 1, `uses.storage`); a book is named after its author and title with the
-  document service's metadata (`DOC-metadata`) and `try_clean_name`. None of these hosts is on
-  integration.
+- Downloads: the import, the moves and the offer to read need the library and files hosts (`LIB-import`,
+  `FS-core-files`) and the dialog (H2); naming after author and title needs `DOC-metadata` and an SDK
+  wrapper for `doc_meta`.
 - The slot `core.browser` is offered, but the screen takes the address as a parameter (`params::URL`)
   in interface 6 and the native hand-over of a parameter to a slot's screen is **to settle** with
   Kernel (`ui.md` 1.3).
-- Plugin metadata (`uses.network`, `uses.library`, `uses.storage`, `core.files` with the downloads)
-  is made with the native entry, with the screens.
 - The `ui::offline::OfflineOffer` and the chooser in the screen are interface-6 widgets; the native
   start screen is lists of `paperpaw_ui_kit`.

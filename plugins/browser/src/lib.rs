@@ -37,6 +37,7 @@ pub mod declarations;
 mod native_entry;
 /// The interface-7 browser.
 pub mod native_plugin;
+pub mod native_save;
 pub mod native_store;
 #[cfg(test)]
 mod native_tests;

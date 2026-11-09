@@ -12,7 +12,9 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, Input},
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+    files::Files,
     formatting::Arg,
+    library::Library,
     net::{FileRoot, Header, HttpDone, Net, Reason, Request},
     registrations,
     reply::Reply,
@@ -29,6 +31,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{LOADED, OPEN, SCREEN};
+use crate::native_save as save;
 use crate::native_store::{self as store, Entry, StoreError};
 use crate::native_web::{self as web, Kind};
 
@@ -42,8 +45,8 @@ const URL: &str = "url";
 const TYPED_LIMIT: usize = 1_100;
 /// What the plugin says it is, as interface 6 did.
 const AGENT: &str = "PaperPaw/0.1 (e-reader)";
-/// The most a request may save until downloads are native (`PORTING-7.md`).
-const MAX_PAGE_FILE: u64 = 4 * 1024 * 1024;
+/// The most a request may save: the host's largest (`network.md` 3.1).
+const MAX_DOWNLOAD_FILE: u64 = 64 * 1024 * 1024;
 const ACCEPT: &str = "text/html,application/xhtml+xml,application/epub+zip,*/*";
 
 /// A row of the start screen.
@@ -61,6 +64,8 @@ enum Asked {
     Address,
     /// What to do with a bookmark or a page of the history.
     Held(Row, &'static [&'static str]),
+    /// Whether to read the book just saved (its path in the library).
+    Read(String),
 }
 
 /// The start screen: its lists and the line for messages below them.
@@ -91,6 +96,9 @@ struct Loading {
 pub struct NativeBrowser {
     ui: Option<Ui>,
     net: Option<Net>,
+    /// Opened with the first download that needs them.
+    library: Option<Library>,
+    files: Option<Files>,
     screens: Screens<View>,
     /// The pages shown this time, the one in the reader last: *Back* goes
     /// through them.
@@ -486,6 +494,12 @@ impl NativeBrowser {
                 let url = web::address(typed.trim())?;
                 self.load(host, &url)
             }
+            Asked::Read(path) => {
+                if answer.choice() == 0 {
+                    self.read(host, &path)?;
+                }
+                Ok(())
+            }
             Asked::Held(row, options) => match options.get(answer.choice() as usize) {
                 Some(option) => self.chosen(host, row, option),
                 None => Ok(()),
@@ -580,7 +594,7 @@ impl NativeBrowser {
         let request = Request::get(token, url)?
             .headers(&headers)?
             .save_to(FileRoot::Data, store::DOWNLOAD)?
-            .max_file(MAX_PAGE_FILE)?;
+            .max_file(MAX_DOWNLOAD_FILE)?;
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
         match net.request(host, &request, &mut input, &mut out) {
             Ok(_) => {}
@@ -678,12 +692,94 @@ impl NativeBrowser {
         }
         match kind {
             Kind::Page => self.keep_page(host, &storage, &url, &name),
-            // Books, fonts and other files: the next slice (`PORTING-7.md`).
+            Kind::Book | Kind::Font | Kind::Other => self.keep_download(host, kind, &url),
+        }
+    }
+
+    /// A book, a font or another file: from the download file to where it
+    /// belongs; told, and a book offered to be read.
+    fn keep_download(&mut self, host: &Host<'_>, kind: Kind, url: &str) -> Result<(), Error> {
+        let name = paperpaw_sdk::web::try_file_name(url).map_err(|_| Error::NoMemory)?;
+        let result = match kind {
+            Kind::Book => self.save_book(host, &name),
+            Kind::Font => self.save_card(host, save::FONTS, &name),
+            _ => self.save_card(host, save::DOWNLOADS, &name),
+        };
+        let _ = DataStorage::new(host).remove(store::DOWNLOAD);
+        let saved = match result {
+            Ok(saved) => saved,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // The fonts folder is where the card is the host's to give.
+            Err(Error::Unsupported) if kind == Kind::Font => {
+                return self.say(host, "browser.no-fonts", &[]);
+            }
+            Err(_) => return self.say(host, "browser.cannot-save", &[]),
+        };
+        let name = Arg::Text {
+            name: "name",
+            value: file_name(&saved),
+        };
+        match kind {
+            Kind::Book => self.offer_read(host, saved),
+            Kind::Font => self.say(host, "browser.saved-font", &[name]),
             _ => {
-                let _ = storage.remove(store::DOWNLOAD);
-                self.say(host, "browser.cannot-save", &[])
+                let folder = Arg::Text {
+                    name: "folder",
+                    value: save::DOWNLOADS,
+                };
+                self.say(host, "browser.saved-file", &[name, folder])
             }
         }
+    }
+
+    /// Imports the download into the library; the book's path.
+    fn save_book(&mut self, host: &Host<'_>, name: &str) -> Result<String, Error> {
+        if self.library.is_none() {
+            self.library = Some(Library::open(host)?);
+        }
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        save::book(host, library, store::DOWNLOAD, name)
+    }
+
+    /// Moves the download into `folder` of the card; the name taken.
+    fn save_card(&mut self, host: &Host<'_>, folder: &str, name: &str) -> Result<String, Error> {
+        if self.files.is_none() {
+            self.files = Some(Files::open(host)?);
+        }
+        let files = self.files.as_ref().ok_or(Error::State)?;
+        save::card_file(host, files, store::DOWNLOAD, folder, name)
+    }
+
+    /// Says the book is in the library and asks whether to read it now.
+    fn offer_read(&mut self, host: &Host<'_>, path: String) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let name = Arg::Text {
+            name: "name",
+            value: file_name(&path),
+        };
+        let text = say.format(host, "browser.saved-book", &[name])?;
+        let choices = concat(&[
+            &say.copy(host, "browser.option.read")?,
+            "\n",
+            &say.copy(host, "browser.option.ok")?,
+        ])?;
+        if let Some(view) = self.screens.top(SCREEN) {
+            view.message = String::new();
+        }
+        let question = Question::choice(&text, "", &choices)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = self.ui()?.ask(host, question, &mut input, &mut out)?;
+        self.asked = Some((request, Asked::Read(path)));
+        Self::redraw(host)
+    }
+
+    /// Opens the book at `path` in the reader.
+    fn read(&self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+        let params = [Param::new("path", path)?];
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
     }
 
     /// Writes the error answer's body (in memory) to the download file.
@@ -753,6 +849,11 @@ impl NativeBrowser {
         let mut scratch = [0; 256];
         CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
     }
+}
+
+/// The last part of a path.
+fn file_name(path: &str) -> &str {
+    path.rsplit_once('/').map_or(path, |(_, name)| name)
 }
 
 /// An entry's row: its title and the host of its address.
