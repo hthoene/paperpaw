@@ -97,6 +97,21 @@ are not there. It is removed in the PR that finishes the port.
 - The interface-6 `widget.rs`, `sleep.rs`, `pictures.rs` and the registration in `lib.rs` stay with
   the sleep screen's port; they go in the PR that finishes it (no shim).
 
+## Dependencies before the interface-6 code can go (no regression allowed: Beta 3's cat picture and sleep-screen mode stay)
+
+The interface-6 `widget.rs`, `sleep.rs`, `pictures.rs` and the registration in `lib.rs` are removed in the PR that
+can replace all of what they do. Three things must land first:
+
+1. **The SDK image facade** (Services todo 75: slots 36/37 `image.info` and `canvas.draw_image`,
+   `command.image_prepare`, `event.image_ready`; `docs/abi/document.md` section 5). Without it the cat's picture
+   (own folder, else the four embedded cats) cannot be drawn in the widget or on the sleep screen. Then the
+   widget draws the picture instead of the mood in words and `pictures.rs` goes.
+2. **Port F's native `sleep`**: the sleep screen's choice `sleep.show = reading-goal.sleep` is added at run time
+   by interface-6 code; the native offer (`declarations::screens`, token 10) joins once the native `sleep`
+   plugin takes a mode of another plugin. Then `sleep.rs` goes.
+3. **H1** (a host that composes screens and takes screen commands): the widget's tap opening the settings on
+   `stats.goal` (`the_widget_is_drawn_and_a_tap_opens_the_goal`).
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
 - The statistics subscribing to `reading-goal.read-today` and answering (stats side, see above).
