@@ -489,8 +489,7 @@ mod kernel {
     fn the_list_is_read_again_when_the_declarations_change_or_a_filter_failed() {
         let revision = |kernel: &crate::Kernel| {
             let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
-            let revision = directory.store.borrow().revision();
-            revision
+            directory.store.borrow().revision()
         };
         // A filter that stopped is not called: the input passes.
         let (mut kernel, calls) = world();

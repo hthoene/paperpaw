@@ -10,7 +10,9 @@ use super::{
     shell,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
+};
 use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
@@ -184,8 +186,7 @@ impl crate::Kernel {
         // second counter would let nested dispatch past the budget.
         match self.shared.native_depth.as_ref() {
             None => {
-                self.shared.native_depth =
-                    Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
+                self.shared.native_depth = Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
             }
             Some(first) if !first.is_same_counter(&depth) => {
                 self.warn_runtime("a native plugin brought its own callback depth counter");

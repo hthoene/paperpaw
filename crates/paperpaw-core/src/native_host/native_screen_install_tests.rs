@@ -419,7 +419,7 @@ fn install_resources(
     folder: Option<&str>,
 ) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.register_native_in(host(0), &device_depth(&kernel), folder, |_, _, _| {});
+    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -429,7 +429,7 @@ fn install_resources(
 /// the admission.
 fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.admit_native(host(0), &device_depth(&kernel), folder, |_, _, _| {});
+    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
