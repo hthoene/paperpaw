@@ -40,7 +40,11 @@ mod menus;
 mod menus_tests;
 mod ordered;
 mod plugins;
+mod presets;
 mod rules;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
 mod setup;
 mod sources;
 mod status;
@@ -96,11 +100,12 @@ fn list(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let generation = view.generation();
+    let scope = scope_of(op.id, query);
     let mut total = 0_u32;
     // A row that cannot be framed (an id over its field's cap, which no
     // declaration check bounds for plugin ids) is skipped, here and in the
     // page walk alike, so `total`, the cursor and the rows agree.
-    view.rows(op.id, query.scope, query.flags, asker, &mut |row| {
+    view.rows(op.id, scope, query.flags, asker, &mut |row| {
         if row.framed_len().is_ok() {
             total = total.saturating_add(1);
         }
@@ -111,7 +116,7 @@ fn list(
     let mut page = RegistryPage::new(query, generation, total, out)?;
     let mut index = 0_u32;
     let mut failure = None;
-    view.rows(op.id, query.scope, query.flags, asker, &mut |row| {
+    view.rows(op.id, scope, query.flags, asker, &mut |row| {
         if row.framed_len().is_err() {
             return ControlFlow::Continue(());
         }
@@ -137,6 +142,18 @@ fn list(
         });
     }
     page.finish()
+}
+
+/// The scope the view reads. Op 18 names a preset or, with `flags` bit 0, a
+/// placement (an id with an `@`, which no preset id has): a scope of the
+/// other kind than its flag says names nothing.
+fn scope_of<'a>(op: u32, query: &wire::ServiceRegQuery<'a>) -> &'a str {
+    let placement = query.flags & 1 != 0;
+    if op == schema::OP_VALUES && placement != query.scope.contains('@') {
+        ""
+    } else {
+        query.scope
+    }
 }
 
 /// A detail op: the records of the row, each framed after the last.
