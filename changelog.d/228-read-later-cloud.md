@@ -1,0 +1,3 @@
+### Changed
+
+- **Readwise Reader runs on interface 7** (#228). The Readwise Reader plugin is now a native plugin only: the articles come from Readwise Reader over the network service and go into the library as books (the folder *Reader*), the access token is asked for on the keyboard and kept with the other passwords and keys, articles read to the end are archived with the next fetch and their books taken away unless they carry your highlights, notes or bookmarks, and a fetch a rule runs is declared work. The texts are the same in English and German, with two new ones (not enough memory; the token could not be kept). A fetch that runs out of memory ends with a notice instead of aborting.

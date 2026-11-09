@@ -56,6 +56,9 @@ pub mod host_slot;
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
 
+#[path = "native_host/ui_stack_op.rs"]
+pub(crate) mod ui_stack_op;
+
 #[path = "native_host/ui_requests.rs"]
 #[allow(
     dead_code,
@@ -85,6 +88,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_layout.rs"]
+pub(crate) mod ui_widget_layout;
+
 #[path = "native_host/ui_widget_ops.rs"]
 pub(crate) mod ui_widget_ops;
 
@@ -95,6 +101,8 @@ pub(crate) mod ui_widget_ops;
 )]
 pub(crate) mod ui_compose_host;
 
+#[path = "native_host/input_chain.rs"]
+pub(crate) mod input_chain;
 #[path = "native_host/ui_input.rs"]
 #[allow(
     dead_code,
@@ -128,6 +136,9 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+pub(crate) mod dialog_pump;
+#[path = "native_host/dialogs.rs"]
+pub(crate) mod dialogs;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -160,16 +171,15 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
-#[allow(
-    dead_code,
-    reason = "the library host composes it with the catalog carry (library moves, next slice)"
-)]
+pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
+pub(crate) mod lib_moves_journal;
 #[allow(
     dead_code,
-    reason = "the card's MoveHost uses it (library moves, next slice)"
+    reason = "the kernel's service pump calls `pump_library_moves` (Core wires it)"
 )]
-pub(crate) mod lib_moves_journal;
+pub(crate) mod lib_moves_service;
+pub(crate) mod lib_moves_walk;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
@@ -198,6 +208,11 @@ pub(crate) mod setting_events;
 pub(crate) mod sock_service;
 #[allow(
     dead_code,
+    reason = "the native stage.run host (#828) frames its replies with it"
+)]
+pub(crate) mod stage_reply_tail;
+#[allow(
+    dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
@@ -209,6 +224,7 @@ pub(crate) mod staged_name;
 mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod widget_events;
 mod work_pump;
 
 const REGISTRATIONS: usize = 8;
@@ -319,6 +335,13 @@ pub(crate) mod item_state;
 )]
 pub(crate) mod native_declarations;
 
+#[path = "native_host/native_widget.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame::widget_call carries ops 7, 12 and 13 of core.ui"
+)]
+pub(crate) mod native_widget;
+
 #[path = "native_host/native_status.rs"]
 #[allow(
     dead_code,
@@ -326,6 +349,8 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/core_events.rs"]
+pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
 #[path = "native_host/native_menus.rs"]
@@ -338,6 +363,8 @@ pub(crate) mod native_menus;
 pub(crate) mod native_tick;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
+#[path = "native_host/widget_drops.rs"]
+mod widget_drops;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
@@ -1200,6 +1227,8 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+pub(crate) mod stage_members;
+pub(crate) mod stage_run;
 
 mod registry_page;
 pub(crate) mod registry_service;
@@ -1219,3 +1248,7 @@ mod native_image_declarations_tests;
 #[cfg(test)]
 #[path = "native_host/ui_hooks_tests.rs"]
 mod ui_hooks_tests;
+
+#[cfg(test)]
+#[path = "native_host/widget_drops_tests.rs"]
+mod widget_drops_tests;

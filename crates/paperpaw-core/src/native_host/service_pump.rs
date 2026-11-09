@@ -179,9 +179,13 @@ impl crate::Kernel {
         let image_more = self.native_image_pump();
         // Changed settings reach the plugins that subscribed (`setting_events`).
         let setting_more = self.native_setting_pump();
-        self.shared
-            .native_instances
-            .set_service_more(more || work_more || image_more || setting_more);
+        // Widgets their owners said changed reach their makers (`widget_events`).
+        let widget_more = self.native_widget_pump();
+        // Questions open their dialogs and their answers come back.
+        let dialog_more = self.native_dialog_pump();
+        self.shared.native_instances.set_service_more(
+            more || work_more || image_more || setting_more || widget_more || dialog_more,
+        );
     }
 
     /// When the pump wants to run again: now while events remain, else at

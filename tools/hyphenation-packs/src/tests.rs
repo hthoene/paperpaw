@@ -418,3 +418,12 @@ fn symbolic_links_are_refused_and_not_followed() {
     );
     assert!(mentions(&found, "i18n/de.ini is missing"), "{found:?}");
 }
+
+#[test]
+fn a_pack_named_like_the_host_is_refused() {
+    // A clean package copied into a folder named `core`, the host's own id.
+    let to = built().join("damaged-host").join("core");
+    let _ = fs::remove_dir_all(&to);
+    copy_dir(&built().join("hyphenation-da"), &to);
+    assert!(mentions(&problems(&to), "core: not a plugin id"));
+}
