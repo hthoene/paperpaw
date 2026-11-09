@@ -354,6 +354,23 @@ impl crate::Kernel {
     /// Apply one staged command of `owner`; a close of a screen that is gone
     /// is dropped with a warning.
     pub(crate) fn drain_native_command(&mut self, owner: &Id, command: Command) {
+        // The guard's own plugin's commands are the guard's own, as the
+        // interface-6 guard's are: its screens open and close above and
+        // including itself, and its raised input is not held (ui.md 4.3). Any
+        // other plugin's are held below it. Judged for each command, as an
+        // earlier one of the batch may have closed the guard.
+        let own_guard = self
+            .guard()
+            .and_then(|guard| self.stack.get(guard))
+            .is_some_and(|guard| guard.id.namespace() == owner.as_str());
+        self.from_guard = own_guard;
+        self.from_guard_own = own_guard;
+        self.drain_native_command_as(owner, command);
+        self.from_guard = false;
+        self.from_guard_own = false;
+    }
+
+    fn drain_native_command_as(&mut self, owner: &Id, command: Command) {
         // A close names an instance still open that is the owner's own or an
         // overlay (`command.close`, ui.md 1.3).
         if let Command::Close(key) = &command

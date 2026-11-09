@@ -6,7 +6,7 @@ use super::super::*;
 use crate::native_host::stack_rows::{GUARDS, OVERLAY, StackRow};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, ScreenKey, StackEntry};
+use paperpaw_sdk::{Command, Params, ScreenKey, StackEntry};
 
 const OWN: u64 = 13;
 const OTHER: u64 = 12;
@@ -185,8 +185,21 @@ fn a_raised_input_is_the_submitters_to_raise_and_never_the_power_keys() {
     assert_eq!(raise("input.probe.next").0, OK);
     assert_eq!(raise("gesture.probe.swirl").0, OK);
     assert_eq!(raise("input.other.next").0, ERR_DENIED);
-    assert_eq!(raise("button.power").0, ERR_DENIED);
-    assert_eq!(raise("escape").0, ERR_DENIED);
+    // Every form of the Power key, the chords and the escape.
+    for power in [
+        "button.power",
+        "long.power",
+        "double.power",
+        "chord.power_back",
+        "chord.back_power",
+        "escape",
+    ] {
+        assert_eq!(raise(power).0, ERR_DENIED, "{power}");
+    }
+    assert_eq!(raise("long.menu").0, OK);
+    assert_eq!(raise("double.menu").0, OK);
+    // Not an input any key map reads.
+    assert_eq!(raise("bogus").0, ERR_INVALID);
     assert_eq!(raise("").0, ERR_INVALID);
     assert_eq!(raise("Button Menu").0, ERR_INVALID);
     // A chain step: the ninth hop is refused.
@@ -248,4 +261,178 @@ fn a_stage_without_the_stack_refuses_them_and_screen_policy_is_unsupported() {
         .0,
         ERR_UNSUPPORTED
     );
+}
+
+#[test]
+fn more_than_sixteen_screens_fail_closed() {
+    let names: [&'static str; 17] = [
+        "a.0", "a.1", "a.2", "a.3", "a.4", "a.5", "a.6", "a.7", "a.8", "a.9", "a.10", "a.11",
+        "a.12", "a.13", "a.14", "a.15", "a.16",
+    ];
+    let rows: Vec<(&'static str, u32, u64, u8)> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (*name, i as u32 + 1, if i == 16 { OWN } else { OTHER }, 0))
+        .collect();
+    let kernel = kernel(&rows);
+    // The mirror holds 16 rows: a stack deeper than that judges nothing, so
+    // the commands that read it are refused (`ui_guard` fails closed: the
+    // rows past the mirror read as a host guard).
+    assert_eq!(submit(&kernel, 17, 0, &[close(0)]).0, ERR_STATE);
+    assert_eq!(
+        submit(
+            &kernel,
+            17,
+            0,
+            &[WireCommand::RaiseInput {
+                input: "button.menu"
+            }]
+        )
+        .0,
+        ERR_DENIED
+    );
+}
+
+/// A kernel with the screens of plugin `lock` (`lock.screen` guards the
+/// device) and of plugin `probe`.
+fn guarded_kernel() -> crate::Kernel {
+    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    struct Plain;
+    impl Screen for Plain {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+            paperpaw_sdk::Handled::No
+        }
+    }
+    struct Guard;
+    impl Screen for Guard {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+            paperpaw_sdk::Handled::No
+        }
+        fn guards(&self) -> bool {
+            true
+        }
+    }
+    struct Screens(&'static str, &'static [&'static str]);
+    impl Plugin for Screens {
+        fn manifest(&self) -> Manifest {
+            Manifest::new(Id::new_static(self.0), self.0, Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
+        }
+        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+            for id in self.1 {
+                let guard = id.ends_with(".screen");
+                r.add_screen(ScreenSpec::new(
+                    Id::new_static(id),
+                    "t.title",
+                    alloc::boxed::Box::new(move |_, _| {
+                        if guard {
+                            alloc::boxed::Box::new(Guard)
+                        } else {
+                            alloc::boxed::Box::new(Plain)
+                        }
+                    }),
+                ))?;
+            }
+            Ok(())
+        }
+    }
+    crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Screens("probe", &["probe.base", "probe.old", "probe.more"]))
+        .plugin(Screens("lock", &["lock.screen", "lock.next"]))
+        .build()
+        .unwrap()
+}
+
+fn open(kernel: &mut crate::Kernel, screen: &'static str) {
+    kernel.apply(Command::OpenScreen(Id::new_static(screen), Params::new()));
+}
+
+fn stack_of(kernel: &crate::Kernel) -> Vec<&str> {
+    kernel
+        .shared
+        .stack
+        .iter()
+        .map(|entry| entry.screen.as_str())
+        .collect()
+}
+
+/// The drain applies the guard's plugin's commands as the guard's own and
+/// holds every other plugin's below it (ui.md 4.3), through the kernel's
+/// real stack.
+#[test]
+fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
+    let probe = Id::new_static("probe");
+    let lock = Id::new_static("lock");
+    for guard_plugin in [true, false] {
+        let mut kernel = guarded_kernel();
+        for screen in ["probe.base", "probe.old", "lock.screen"] {
+            open(&mut kernel, screen);
+        }
+        assert_eq!(
+            stack_of(&kernel),
+            ["probe.base", "probe.old", "lock.screen"]
+        );
+        let submitter = if guard_plugin { &lock } else { &probe };
+        kernel.take_warnings();
+        // `back_to`: the guard's plugin closes what is above (the guard too);
+        // another plugin's closes nothing.
+        kernel.drain_native_command(submitter, Command::BackTo(Id::new_static("probe.base")));
+        if guard_plugin {
+            assert_eq!(stack_of(&kernel), ["probe.base"]);
+        } else {
+            assert_eq!(
+                stack_of(&kernel),
+                ["probe.base", "probe.old", "lock.screen"]
+            );
+        }
+    }
+    // The guard closes itself (the lock screen's way out); another plugin
+    // cannot close it.
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "lock.screen"] {
+        open(&mut kernel, screen);
+    }
+    let guard_key = kernel.shared.stack.last().unwrap().key;
+    kernel.drain_native_command(&probe, Command::Close(guard_key));
+    assert_eq!(stack_of(&kernel), ["probe.base", "lock.screen"]);
+    kernel.drain_native_command(&lock, Command::Close(guard_key));
+    assert_eq!(stack_of(&kernel), ["probe.base"]);
+    // A raised input: held for another plugin, raised for the guard's (an
+    // input no key map reads is told in the log only where it was raised).
+    for (guard_plugin, raised) in [(false, false), (true, true)] {
+        let mut kernel = guarded_kernel();
+        for screen in ["probe.base", "lock.screen"] {
+            open(&mut kernel, screen);
+        }
+        kernel.take_warnings();
+        let submitter = if guard_plugin { &lock } else { &probe };
+        kernel.drain_native_command(submitter, Command::Input("bogus.key".into()));
+        let told = kernel
+            .take_warnings()
+            .iter()
+            .any(|warning| warning.message.contains("unknown input"));
+        assert_eq!(told, raised);
+    }
+    // An open: the guard's plugin's goes above the guard, another's below.
+    for (guard_plugin, expected) in [
+        (true, ["probe.base", "lock.screen", "lock.next"]),
+        (false, ["probe.base", "probe.more", "lock.screen"]),
+    ] {
+        let mut kernel = guarded_kernel();
+        for screen in ["probe.base", "lock.screen"] {
+            open(&mut kernel, screen);
+        }
+        let (submitter, screen) = if guard_plugin {
+            (&lock, "lock.next")
+        } else {
+            (&probe, "probe.more")
+        };
+        kernel.drain_native_command(
+            submitter,
+            Command::OpenScreen(Id::new_static(screen), Params::new()),
+        );
+        assert_eq!(stack_of(&kernel), expected);
+    }
 }

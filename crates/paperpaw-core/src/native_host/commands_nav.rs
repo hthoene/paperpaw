@@ -7,6 +7,18 @@
 //! `ShowHints`, `Input`). A command whose effect is nothing (the root
 //! screen, a `back_to` with nothing open above) is `OK` and stages nothing.
 //!
+//! Only a screen callback (`input`, an action, a gesture) has the stack: the
+//! callback of an event or a service event stages without it, so these
+//! commands are `ERR_UNSUPPORTED` there. The kernel's mirror of the stack
+//! ([`StackRows`]) holds 16 rows; a stack deeper than that judges nothing
+//! (the rows past it read as the host's own guard: `close` is `ERR_STATE`,
+//! `raise_input` `ERR_DENIED`, nothing is applied).
+//!
+//! The drain applies the commands of the guard's own plugin as the guard's
+//! own (the screen it closes or opens above itself, the input it raises, the
+//! screens it closes with `back_to`); every other plugin's are held below
+//! the guard as the stage judged.
+//!
 //! Not here: `screen_policy` (1563, a run-time change of a screen's flags)
 //! stays `ERR_UNSUPPORTED`.
 use super::{CommandStage, WireCommand, ui};
@@ -127,8 +139,20 @@ impl CommandStage<'_> {
     /// alone, `input.<plugin>.<name>` and `gesture.<plugin>.<name>` their
     /// plugin's own; the host's are anyone's.
     fn raise_target(&self, input: &str) -> Result<(), i32> {
-        if input == "button.power" || input.starts_with("escape") || input.starts_with("chord.") {
+        // Every form of the Power key (`button.`, `long.`, `double.`) and the
+        // escape chord; a name no key map reads is `ERR_INVALID`.
+        if input.starts_with("escape") || input.starts_with("chord.") {
             return Err(ERR_DENIED);
+        }
+        match crate::keymap::InputKey::parse(input) {
+            Some(
+                crate::keymap::InputKey::Button(name)
+                | crate::keymap::InputKey::LongButton(name)
+                | crate::keymap::InputKey::DoubleButton(name),
+            ) if name == "power" => return Err(ERR_DENIED),
+            Some(_) => {}
+            None if input.starts_with("input.") || input.starts_with("gesture.") => {}
+            None => return Err(ERR_INVALID),
         }
         for kind in ["input.", "gesture."] {
             if let Some(rest) = input.strip_prefix(kind) {
