@@ -9,15 +9,18 @@
 //!   file away first) leaves the staged file where it is, because it then
 //!   holds the only copy of the answer. It is *kept*: the clean-up of the
 //!   request does not remove it, and the host tries the rename again (at the
-//!   next claim of that target, and when the plugin starts); only when the
-//!   target exists again (a newer file) is the kept one dropped.
+//!   next claim of that target, by whichever plugin, and when any plugin
+//!   starts); only when the target exists again (a newer file) is the kept
+//!   one dropped. A kept file whose paths a live claim holds is left alone.
+//!   A save to a target whose kept file cannot come back yet is refused
+//!   (`ERR_IO`), as is any save once 8 files are kept (`ERR_FULL`).
 //!
 //! Every allocation is fallible, and made when the claim is: a commit that
 //! fails never needs memory to keep the file.
-use super::paths_in_use::PathsInUse;
+use super::paths_in_use::{PathsInUse, same_name};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_IO, ERR_NO_MEMORY};
 use paperpaw_platform::{Storage, StorageError};
 
 /// Kept staged files the table holds at most (a plugin whose renames keep
@@ -46,6 +49,10 @@ pub(crate) struct SaveFiles {
     storage: Rc<dyn Storage>,
     in_use: Rc<PathsInUse>,
     entries: RefCell<Vec<Entry>>,
+}
+
+fn same_target(a: &str, b: &str, ignore_case: bool) -> bool {
+    if ignore_case { same_name(a, b) } else { a == b }
 }
 
 fn copy(text: &str) -> Result<String, i32> {
@@ -90,13 +97,18 @@ impl SaveFiles {
         {
             return Err(ERR_BUSY);
         }
-        // A staged file kept after a failed rename comes back first, so that
-        // this save cannot be the one that replaces the only copy.
-        self.recover(Some(owner), Some(target));
+        // A staged file kept after a failed rename comes back first, whoever
+        // wrote it (the plugin may have restarted, another may save here), so
+        // that this save cannot be the one that replaces the only copy. One
+        // that cannot come back yet stays, and the save is refused.
+        self.recover(Some(target));
+        if self.has_kept(target) {
+            return Err(ERR_IO);
+        }
         if self.kept_count() >= MAX_KEPT {
-            self.recover(None, None);
+            self.recover(None);
             if self.kept_count() >= MAX_KEPT {
-                return Err(ERR_NO_MEMORY);
+                return Err(ERR_FULL);
             }
         }
         let entry = Entry {
@@ -158,19 +170,33 @@ impl SaveFiles {
             .map_or(0, |entries| entries.iter().filter(|e| e.orphan).count())
     }
 
-    /// Tries again the rename of the kept staged files of `owner` (all
-    /// owners: `None`) for `target` (all: `None`). A kept file whose target
-    /// exists again is stale and goes.
-    pub(crate) fn recover(&self, owner: Option<u64>, target: Option<&str>) {
+    /// Whether a kept staged file waits for `target` (under any spelling).
+    fn has_kept(&self, target: &str) -> bool {
+        let ignore_case = self.storage.ignores_case();
+        self.entries.try_borrow().is_ok_and(|entries| {
+            entries
+                .iter()
+                .any(|e| e.orphan && same_target(&e.target, target, ignore_case))
+        })
+    }
+
+    /// Tries again the rename of the kept staged files for `target` (all:
+    /// `None`), whoever kept them: the plugin that wrote one may be gone. A
+    /// kept file whose target exists again is stale and goes. One whose
+    /// target or staged name is held by a live claim is left alone: that
+    /// staged file is a writer's work in progress now.
+    pub(crate) fn recover(&self, target: Option<&str>) {
         let Ok(mut entries) = self.entries.try_borrow_mut() else {
             return;
         };
+        let ignore_case = self.storage.ignores_case();
         let mut at = 0;
         while at < entries.len() {
             let e = &entries[at];
             let chosen = e.orphan
-                && owner.is_none_or(|o| o == e.owner)
-                && target.is_none_or(|t| t == e.target);
+                && target.is_none_or(|t| same_target(t, &e.target, ignore_case))
+                && !self.in_use.holds(&e.target, ignore_case)
+                && !self.in_use.holds(&e.staged, ignore_case);
             if !chosen {
                 at += 1;
                 continue;

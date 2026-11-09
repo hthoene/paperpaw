@@ -150,8 +150,8 @@ impl SockHost for SockDevice {
         self.saves.release_at(owner, root, path);
     }
 
-    fn recover_saves(&self, owner: u64) {
-        self.saves.recover(Some(owner), None);
+    fn recover_saves(&self, _owner: u64) {
+        self.saves.recover(None);
     }
 
     fn staged_write(

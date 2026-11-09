@@ -308,7 +308,7 @@ impl NetHost for NetDevice {
         if server.is_none() {
             // The owner's last cleanup (it started or stopped): a staged file
             // kept after a failed rename is tried again.
-            self.saves.recover(Some(owner), None);
+            self.saves.recover(None);
             self.paths.forget(owner);
         }
     }

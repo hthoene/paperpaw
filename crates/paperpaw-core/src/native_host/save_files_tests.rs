@@ -273,7 +273,7 @@ fn a_kept_file_comes_back_at_the_next_claim_of_its_target_before_anything_replac
     lost_target(&card, &saves);
     assert!(card.get(TARGET).is_none());
     // The rename still fails: the copy stays, its claim is free.
-    saves.recover(Some(OWNER), None);
+    saves.recover(None);
     assert_eq!(card.get(STAGED).unwrap(), b"new bytes");
     assert!(card.get(TARGET).is_none());
     // The card works again: the next claim of the target restores it.
@@ -292,16 +292,14 @@ fn a_kept_file_comes_back_when_the_plugin_starts() {
     let card = Card::new();
     let saves = saves(&card);
     lost_target(&card, &saves);
-    // Another plugin's start does not touch it.
+    // Any plugin's start brings it back: the writer may be gone for good.
     card.rename_fails.set(false);
-    saves.recover(Some(8), None);
-    assert!(card.get(TARGET).is_none());
-    saves.recover(Some(OWNER), None);
+    saves.recover(None);
     assert_eq!(card.get(TARGET).unwrap(), b"new bytes");
     assert!(card.get(STAGED).is_none());
     // Nothing is left to try again.
     card.files.remove(TARGET).unwrap();
-    saves.recover(None, None);
+    saves.recover(None);
     assert!(card.get(TARGET).is_none());
 }
 
@@ -312,7 +310,7 @@ fn a_kept_file_whose_target_exists_again_is_stale_and_goes() {
     lost_target(&card, &saves);
     card.files.write(TARGET, b"newer").unwrap();
     card.rename_fails.set(false);
-    saves.recover(Some(OWNER), None);
+    saves.recover(None);
     assert_eq!(card.get(TARGET).unwrap(), b"newer");
     assert!(card.get(STAGED).is_none());
 }
@@ -338,7 +336,7 @@ fn a_claim_ends_without_memory_and_without_leaving_the_file_or_the_claim() {
 }
 
 #[test]
-fn a_plugin_whose_renames_keep_failing_is_refused_before_it_holds_more_kept_files() {
+fn renames_that_keep_failing_are_refused_with_full_before_more_files_are_kept() {
     let card = Card::new();
     let saves = saves(&card);
     card.rename_fails.set(true);
@@ -359,7 +357,7 @@ fn a_plugin_whose_renames_keep_failing_is_refused_before_it_holds_more_kept_file
     }
     assert_eq!(
         saves.claim(OWNER, 1, "b.epub", "b.epub", "b.epub.pp-staged", true),
-        Err(ERR_NO_MEMORY)
+        Err(ERR_FULL)
     );
     // The card works again: the kept ones come back and the claim is free.
     card.rename_fails.set(false);
@@ -367,4 +365,64 @@ fn a_plugin_whose_renames_keep_failing_is_refused_before_it_holds_more_kept_file
         .claim(OWNER, 1, "b.epub", "b.epub", "b.epub.pp-staged", true)
         .unwrap();
     assert_eq!(card.get("a0.epub").unwrap(), b"new");
+}
+
+#[test]
+fn a_kept_file_comes_back_for_another_plugin_that_saves_to_its_target() {
+    let card = Card::new();
+    let saves = saves(&card);
+    // Plugin 7 kept it and is gone (or restarted under another key).
+    lost_target(&card, &saves);
+    card.rename_fails.set(false);
+    // Plugin 9 saves to the same path: the only copy is restored first, and
+    // the new save then replaces it by its own right.
+    saves.claim(9, 1, TARGET, TARGET, STAGED, true).unwrap();
+    assert_eq!(
+        card.get(TARGET).unwrap(),
+        b"new bytes",
+        "restored, not lost"
+    );
+    saves.begin(9, TARGET, STAGED).unwrap();
+    saves.append(STAGED, b"other").unwrap();
+    saves.commit(9, TARGET, STAGED).unwrap();
+    assert_eq!(card.get(TARGET).unwrap(), b"other");
+}
+
+#[test]
+fn a_kept_file_that_cannot_come_back_is_not_replaced_by_a_new_save() {
+    let card = Card::new();
+    let saves = saves(&card);
+    lost_target(&card, &saves);
+    // The card still fails the rename: a save by anyone is refused, and the
+    // only copy is still on the card.
+    assert_eq!(saves.claim(9, 1, TARGET, TARGET, STAGED, true), Err(ERR_IO));
+    assert_eq!(card.get(STAGED).unwrap(), b"new bytes");
+    // A claim for another path is not in its way.
+    saves
+        .claim(9, 1, "x.epub", "x.epub", "x.epub.pp-staged", true)
+        .unwrap();
+}
+
+#[test]
+fn a_sweep_leaves_a_live_writers_staged_file_alone() {
+    let card = Card::new();
+    let in_use = Rc::new(PathsInUse::default());
+    let saves = SaveFiles::new(card.clone(), in_use.clone());
+    lost_target(&card, &saves);
+    card.rename_fails.set(false);
+    // Another plugin holds the target and the staged name now (its claim was
+    // made elsewhere, as for a live NET save): its half-written staged file
+    // must not be renamed over the target.
+    in_use.claim(9, TARGET).unwrap();
+    in_use.claim(9, STAGED).unwrap();
+    card.files.write(STAGED, b"half").unwrap();
+    saves.recover(None);
+    saves.recover(Some(TARGET));
+    assert!(card.get(TARGET).is_none());
+    assert_eq!(card.get(STAGED).unwrap(), b"half");
+    // Once the writer is done the sweep may go on.
+    in_use.release(9, TARGET);
+    in_use.release(9, STAGED);
+    saves.recover(None);
+    assert_eq!(card.get(TARGET).unwrap(), b"half");
 }
