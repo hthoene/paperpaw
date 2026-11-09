@@ -128,78 +128,6 @@ path = "src/bin/widgets.rs"
 test = false
 bench = false
 
-[[bin]]
-name = "hyphenation-da"
-path = "src/bin/hyphenation-da.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-de"
-path = "src/bin/hyphenation-de.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-es"
-path = "src/bin/hyphenation-es.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-fr"
-path = "src/bin/hyphenation-fr.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-it"
-path = "src/bin/hyphenation-it.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-nb"
-path = "src/bin/hyphenation-nb.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-nl"
-path = "src/bin/hyphenation-nl.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-pl"
-path = "src/bin/hyphenation-pl.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-pt"
-path = "src/bin/hyphenation-pt.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-ru"
-path = "src/bin/hyphenation-ru.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-sv"
-path = "src/bin/hyphenation-sv.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-uk"
-path = "src/bin/hyphenation-uk.rs"
-test = false
-bench = false
-
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
@@ -222,18 +150,6 @@ paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
-paperpaw-plugin-hyphenation-da = { path = "../../plugins/hyphenation-da" }
-paperpaw-plugin-hyphenation-es = { path = "../../plugins/hyphenation-es" }
-paperpaw-plugin-hyphenation-de = { path = "../../plugins/hyphenation-de" }
-paperpaw-plugin-hyphenation-fr = { path = "../../plugins/hyphenation-fr" }
-paperpaw-plugin-hyphenation-it = { path = "../../plugins/hyphenation-it" }
-paperpaw-plugin-hyphenation-nb = { path = "../../plugins/hyphenation-nb" }
-paperpaw-plugin-hyphenation-nl = { path = "../../plugins/hyphenation-nl" }
-paperpaw-plugin-hyphenation-pl = { path = "../../plugins/hyphenation-pl" }
-paperpaw-plugin-hyphenation-pt = { path = "../../plugins/hyphenation-pt" }
-paperpaw-plugin-hyphenation-ru = { path = "../../plugins/hyphenation-ru" }
-paperpaw-plugin-hyphenation-sv = { path = "../../plugins/hyphenation-sv" }
-paperpaw-plugin-hyphenation-uk = { path = "../../plugins/hyphenation-uk" }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

@@ -2279,7 +2279,6 @@ dependencies = [
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
- "paperpaw-plugin-hyphenation",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
@@ -2498,14 +2497,6 @@ version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation"
-version = "1.1.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
 ]
 
 [[package]]
