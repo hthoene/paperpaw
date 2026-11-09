@@ -149,6 +149,18 @@ fn under_a_guard_another_plugins_binding_does_nothing_and_is_logged_once() {
     assert!(said[0].message.contains("other.run"));
 }
 
+/// "Once" outlives the shell reading the warnings out: it is a fixed table
+/// in the kernel, not a look through what was collected.
+#[test]
+fn the_warning_is_once_also_after_the_warnings_were_taken() {
+    let (mut kernel, _, _) = kernel(true);
+    press(&mut kernel, 100, "down");
+    assert_eq!(kernel.take_warnings().len(), 1);
+    press(&mut kernel, 300, "down");
+    press(&mut kernel, 500, "down");
+    assert!(kernel.take_warnings().is_empty());
+}
+
 #[test]
 fn a_host_action_still_runs_under_a_guard() {
     let (mut kernel, _, _) = kernel(true);
@@ -159,21 +171,16 @@ fn a_host_action_still_runs_under_a_guard() {
     assert_eq!(kernel.active_screen(), Some(&LOCK));
 }
 
+/// The exemption is by the action's owner: another plugin's row into the
+/// guard's own key layer does not make its action run under the lock.
 #[test]
-fn the_own_key_layer_runs_another_plugins_action_under_a_guard() {
+fn another_plugins_row_in_the_guards_own_layer_runs_nothing() {
     let (mut kernel, log, _) = kernel(true);
-    // `right` in the layer names the other plugin's action: nothing before the
-    // layer is put in front (it is not bound at all), then it runs.
-    press(&mut kernel, 100, "right");
-    assert!(runs(&log).is_empty());
-    press(&mut kernel, 300, "confirm");
+    press(&mut kernel, 100, "confirm");
     kernel.finish();
+    press(&mut kernel, 300, "right");
     press(&mut kernel, 500, "right");
-    assert_eq!(runs(&log), ["other.run"]);
-    // Taken away again, it is nothing.
-    press(&mut kernel, 700, "back");
-    press(&mut kernel, 900, "right");
-    assert_eq!(runs(&log), ["other.run"]);
+    assert!(runs(&log).is_empty());
 }
 
 #[test]

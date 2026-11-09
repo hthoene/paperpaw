@@ -569,7 +569,7 @@ impl Kernel {
                     self.route_key_pending();
                     let index = self.input_index();
                     let action = match index {
-                        Some(index) => self.zone_action(index, action),
+                        Some(_) => self.zone_action(action),
                         None => Some(action),
                     };
                     return action.map_or((), |action| self.dispatch(action));
