@@ -692,3 +692,29 @@ fn turning_a_plugins_network_off_stops_its_server_at_the_next_pass() {
         [server_event(1, 2, reason::NETWORK_OFF, "")]
     );
 }
+
+#[test]
+fn the_largest_served_request_event_fits_the_pump_buffer_as_a_batch() {
+    let fake = Fake::x4();
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let k = key_of(&fake);
+    // A 1,024-byte target and the longest method (16 bytes).
+    let target = "/".repeat(1_024);
+    let method = "M".repeat(16);
+    let Decision::Accept { request, .. } =
+        served_head(&fake, k, &method, &target, Some(0), false, 100).unwrap()
+    else {
+        panic!("accepted")
+    };
+    served_whole(&fake, request, 0).unwrap();
+    // Skip the server's own `listening` event first.
+    let mut out = std::vec![0; crate::native_host::service_events::EVENT_BUFFER];
+    let mut longest = 0;
+    while let Some(used) = next_event(&fake, OWNER, &mut out).unwrap() {
+        longest = longest.max(used);
+        // Framed as the SDK reads it: one record in a batch of one.
+        assert!(paperpaw_sdk::native::events::Incoming::new(&out[..used]).is_ok());
+        event_delivered(&fake, OWNER).unwrap();
+    }
+    assert!(longest > 1_040, "the served request was among them");
+}

@@ -945,7 +945,7 @@ fn encode_done(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, i32>
         flags: done.flags,
         body_len: done.body.len() as u32,
     });
-    let used = codec::encode_one(&record, out)?;
+    let used = codec::encode_event(&record, out)?;
     r.state = State::Held;
     Ok(used)
 }
@@ -962,7 +962,7 @@ fn encode_progress(inner: &mut Inner, id: u32, out: &mut [u8]) -> Result<usize, 
         total: p.total,
         flags: p.flags,
     });
-    let used = codec::encode_one(&record, out)?;
+    let used = codec::encode_event(&record, out)?;
     r.pending = None;
     Ok(used)
 }

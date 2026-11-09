@@ -696,7 +696,7 @@ pub(super) fn encode(
                 reason: e.why,
                 address: &e.address,
             });
-            let used = codec::encode_one(&record, out)?;
+            let used = codec::encode_event(&record, out)?;
             inner.serving.events.remove(index);
             Ok(used)
         }
@@ -716,7 +716,7 @@ pub(super) fn encode(
                 flags: u32::from(s.body_len > 0),
                 body_len: s.body_len,
             });
-            let used = codec::encode_one(&record, out)?;
+            let used = codec::encode_event(&record, out)?;
             s.stage = Stage::Open { since: now };
             Ok(used)
         }
