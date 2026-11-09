@@ -3318,6 +3318,9 @@ impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_prepare(&mut self, &paperpaw_sdk::native::image::PrepareImage<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_release(&mut self, paperpaw_sdk::native::image::ImageId) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::install_plugin_with(&mut self, u32, paperpaw_sdk::native::commands::InstallRoot, &str, bool, bool, &paperpaw_sdk::native::commands::Evidence<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::trust_revoked(&mut self, &[paperpaw_sdk::native::commands::Revocation<'_>]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::lookup_ready(&mut self, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -3328,6 +3331,13 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::set_setting(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl core::fmt::Debug for paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::Evidence<'a>
+impl<'a> paperpaw_sdk::native::commands::Evidence<'a>
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::author(self, &'a [u8; 32]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::new() -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::recovery(self, &'a [u8; 32]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::rotations(self, &'a [paperpaw_sdk::native::commands::Rotation<'a>]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::sha256(self, &'a [u8; 32]) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::FirmwareOptions<'a>
 impl<'a> paperpaw_sdk::native::commands::FirmwareOptions<'a>
 pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::allow_older(self) -> Self
@@ -3337,6 +3347,19 @@ pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::new() -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::PreviewSetting<'a>
 impl<'a> paperpaw_sdk::native::commands::PreviewSetting<'a>
 pub const fn paperpaw_sdk::native::commands::PreviewSetting<'a>::new(&'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::Revocation<'a>
+pub paperpaw_sdk::native::commands::Revocation::key: &'a [u8; 32]
+pub paperpaw_sdk::native::commands::Revocation::plugin: &'a str
+pub paperpaw_sdk::native::commands::Revocation::signature: &'a [u8; 64]
+impl<'a> paperpaw_sdk::native::commands::Revocation<'a>
+pub const fn paperpaw_sdk::native::commands::Revocation<'a>::new(&'a str, &'a [u8; 32], &'a [u8; 64]) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::Rotation<'a>
+pub paperpaw_sdk::native::commands::Rotation::signature: &'a [u8; 64]
+pub paperpaw_sdk::native::commands::Rotation::to: &'a [u8; 32]
+impl<'a> paperpaw_sdk::native::commands::Rotation<'a>
+pub const fn paperpaw_sdk::native::commands::Rotation<'a>::new(&'a [u8; 32], &'a [u8; 64]) -> Self
+pub const paperpaw_sdk::native::commands::MAX_REVOCATIONS: usize
+pub const paperpaw_sdk::native::commands::MAX_ROTATIONS: usize
 pub mod paperpaw_sdk::native::declare
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::BookDataKind
 pub paperpaw_sdk::native::declare::BookDataKind::Cache
