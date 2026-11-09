@@ -355,6 +355,8 @@ pub(crate) struct FirmwareInstall {
     /// How the last install ended, if it failed (state 4).
     failed: Option<Outcome>,
     results: Vec<(u64, Slot)>,
+    /// Bytes written and to write of the open install (`dev_firmware`).
+    progress: (u64, u64),
 }
 
 impl Default for FirmwareInstall {
@@ -421,6 +423,7 @@ impl FirmwareInstall {
             waiting: None,
             failed: None,
             results: Vec::new(),
+            progress: (0, 0),
         }
     }
 
@@ -446,6 +449,15 @@ impl FirmwareInstall {
             State::Failed
         } else {
             State::Idle
+        }
+    }
+
+    /// Bytes written and bytes to write of the install that runs (`dev_firmware.done`,
+    /// `total`); `(0, 0)` while none does.
+    pub(crate) fn progress(&self) -> (u64, u64) {
+        match self.phase {
+            Phase::Writing(..) | Phase::Reading(..) => self.progress,
+            _ => (0, 0),
         }
     }
 
@@ -662,6 +674,7 @@ impl FirmwareInstall {
                 Event::Quiet
             }
             Step::Progress { done, total } => {
+                self.progress = (u64::from(done), u64::from(total));
                 let (owner, request) = (job.owner, job.request);
                 let due = last.is_none_or(|last| now_ms.saturating_sub(last) >= PROGRESS_EVERY_MS);
                 self.phase = Phase::Writing(job, facts, if due { Some(now_ms) } else { last });
