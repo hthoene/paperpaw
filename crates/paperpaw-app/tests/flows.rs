@@ -420,6 +420,7 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the main menu and the tools are the interface-7 menu plugin's; the host draws and answers them with H1/H4 (plugins/menu/PORTING-7.md)"]
 fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
     let menu = walk_menu(BUTTONS, actions::MENU, true);
     let library = menu.iter().find(|(row, _)| row == "Library").unwrap();
@@ -433,6 +434,7 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the main menu and the tools are the interface-7 menu plugin's; the host draws and answers them with H1/H4 (plugins/menu/PORTING-7.md)"]
 fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     let menu = walk_menu(TOUCH, actions::MENU, false);
     let settings = menu.iter().find(|(row, _)| row == "Settings").unwrap();

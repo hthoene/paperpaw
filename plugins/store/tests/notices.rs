@@ -87,7 +87,6 @@ fn shown(device: DeviceInfo, language: &str, ui_size: Option<i64>) -> Vec<(Strin
         .storage(MemoryStorage::new())
         .user_config(format!("[core]\nlanguage = {language}\n"))
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_menu::Menu)
         .plugin(Store)
         .plugin(Probe);
     let builder = match ui_size {

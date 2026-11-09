@@ -116,8 +116,17 @@ registration, linked entry, construction in the kernel's registered scope (refus
 - Peak memory on the X4 is not measured: device gate open. The menu is built into the firmware,
   so there is no store-file size to record.
 
-## Activation items (todo 90)
+## Interface-6 code removed
 
-- Remove the interface-6 `Menu`, `bar.rs`, `panel.rs`, `notice.rs`, `track.rs` and the suites in
-  `tests/` with the app wiring (`.plugin(paperpaw_plugin_menu::Menu)` in `crates/paperpaw-app`
-  and the harnesses that use it); then no shim stays.
+The interface-6 `Menu`, `bar.rs`, `panel.rs`, `notice.rs`, `track.rs`, their suites in `tests/` and
+the app wiring (`.plugin(paperpaw_plugin_menu::Menu)` in `crates/paperpaw-app`, the store plugin's
+test harness) are gone; no shim stays. What the desktop emulator and the app tests lose until the
+host draws native screens (H1) and answers input (H4):
+
+- Snapshot cases `x4-main-menu`, `boox-main-menu`, `x4-tools`, `x4-reader-menu`, `boox-reader-menu`,
+  `boox-reader-font`, `x4-reader-panel`, `x4-quick-panel`, `x4-pro-quick-panel`, `boox-quick-panel`
+  are removed with their pictures. `x4-notes-overview-export` and `x4-read-later-cloud-no-token`
+  are removed too: their picture showed the notice, which was the interface-6 menu's toast; the
+  host draws notices now (`command.notify`), so the cases return with H1.
+- `crates/paperpaw-app/tests/flows.rs`: the two main-menu and tools walks are `#[ignore]`d
+  (BLOCKED, #228): they open each row of the menu, which the host has to draw and answer.

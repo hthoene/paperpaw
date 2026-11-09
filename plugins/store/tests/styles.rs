@@ -55,7 +55,6 @@ fn begun(storage: Shared, lean: bool) -> (Kernel, Vec<HttpCall>) {
         .storage(storage)
         .network(true)
         .catalog_device("x4")
-        .plugin(paperpaw_plugin_menu::Menu)
         .plugin(paperpaw_plugin_store::Store);
     builder = if lean {
         builder.plugin(Lean)

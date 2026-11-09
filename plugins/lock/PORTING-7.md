@@ -69,6 +69,12 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
   and its actions. `native_touch` holds the pure part (the way out: tap twice and hold the second;
   the hint every 10 s) with its tests, ready for the filter (H4). Until it is wired the *Lock touch*
   setting is declared and does nothing.
+- **Snapshot case `boox-lock-pin`** (the PIN keypad on the Boox) was removed from
+  `shells/desktop/tests/snapshots.rs` with its picture when the interface-6 lock went (#573): it
+  returns when the host draws the native lock screen (H1/H4). The goldens of the screens that
+  listed the lock (`boox-settings`, `boox-reader-menu`, `boox-quick-panel`, `x4-pro-quick-panel`,
+  `boox-keyboard`, `x4-settings-search`, `x4-settings-search-de`, `x4-settings-round-strong`)
+  were blessed again without its rows.
 - **Host acceptance** (draw, input, secrets, ui and storage through a scripted host, H1/H3/H4): the
   scripted host answers none of `core.secrets`, `core.ui` and storage yet.
 - "How it works" (`how/`): the help plugin's text slot.
