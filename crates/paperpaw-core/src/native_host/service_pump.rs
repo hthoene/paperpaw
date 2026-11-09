@@ -85,6 +85,12 @@ fn drain(
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
+            // ACTIVATION BLOCKER (#228, Core's work pump, todo 265): the run of
+            // the event is ignored here, so its callback runs outside the run.
+            // Before the services are wired in a shipped shell, `drain` must
+            // enter that run's callback around `service_event` (`work.md` 2.3)
+            // and a test must pin the order: the event in the run, a start
+            // from it in the same run, the run ends after the last callback.
             Ok(Some((len, _run))) => {
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
