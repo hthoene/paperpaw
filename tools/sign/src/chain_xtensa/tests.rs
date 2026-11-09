@@ -630,7 +630,7 @@ fn firmware_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> Vec<u8
     code.resize(0x40, 0);
     let mut layout = Vec::new();
     for (name, bytes) in funcs {
-        while code.len() % 16 != 0 {
+        while !code.len().is_multiple_of(16) {
             code.push(0);
         }
         layout.push((*name, code.len() as u32, bytes.len() as u32));
@@ -711,7 +711,8 @@ fn a_literal_out_of_the_image_is_a_call_out_of_the_image() {
 fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
     // Each is a call through a register the scan must not follow: the budget
     // lists it (`allow indirect`) or the scan fails.
-    let cases: Vec<(&str, Box<dyn Fn(u32) -> Vec<u8>>)> = vec![
+    type Middle = Box<dyn Fn(u32) -> Vec<u8>>;
+    let cases: Vec<(&str, Middle)> = vec![
         // Another path enters at the call: `beqz a3` to the `callx8`.
         (
             "a branch target",
