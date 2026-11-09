@@ -125,6 +125,42 @@ unsafe fn format_from(source: &Source<'_>, key: PpBytes, args: PpBytes, out: PpB
     source.with(|translator| format_message(translator, key, &args, out))
 }
 
+/// The message `key` with the argument batch `args`, in the translator's
+/// language, written into `out` for the host's own reads (a pushed item's
+/// label or badge): the length written, or the status (`ERR_NOT_FOUND` for a
+/// key no catalog has, `ERR_NO_SPACE` for a text over `out`).
+pub(crate) fn format_into(
+    translator: &Translator,
+    key: &str,
+    args: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    // No argument bytes at all is no arguments (a pushed label without any).
+    let args = if args.is_empty() {
+        Arguments {
+            named: [("", Arg::Str("")); wire::I18N_FORMAT_MAX_RECORDS],
+            len: 0,
+            count: None,
+        }
+    } else {
+        Arguments::decode(args)?
+    };
+    let room = out.len();
+    // SAFETY: `MaybeUninit<u8>` has the layout of `u8`; the renderer only
+    // writes bytes, so `out` stays initialized.
+    let slots = unsafe {
+        core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<MaybeUninit<u8>>(), room)
+    };
+    let length = format_message(translator, key, &args, slots);
+    // The renderer answers the length the text needs even where `out` held
+    // less (the count `format` gives): a text over `out` is no text here.
+    let length = usize::try_from(length).map_err(|_| length)?;
+    if length > room {
+        return Err(ERR_NO_SPACE);
+    }
+    Ok(length)
+}
+
 /// Convert ASCII digits using the current UI language's digit characters.
 /// The full result must fit 4 KiB; the return value is its complete byte length.
 ///

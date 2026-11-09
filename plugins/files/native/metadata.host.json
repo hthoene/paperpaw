@@ -87,6 +87,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -120,10 +124,16 @@
     }
   ],
   "services": [
+    "core.device",
+    "core.files",
     "core.library",
     "core.ui"
   ],
   "features": [
+    {
+      "key": "uses.storage",
+      "required": false
+    },
     {
       "key": "uses.library",
       "required": true

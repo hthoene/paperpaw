@@ -8,8 +8,10 @@
 //! Laid out and drawn from owned [`Paint`] operations; allocation is fallible
 //! and geometry checked. Differences from the interface-6 dialog: no readable
 //! column on wide screens, buttons as tall as a list row, a long button word is
-//! shortened with an ellipsis instead of set on two lines, no right-to-left
-//! mirroring, and the room of the button-hint row is not reserved.
+//! shortened with an ellipsis instead of set on two lines, and the room of the
+//! button-hint row is not reserved. Where the interface runs right to left
+//! ([`Style::rtl`]) side-by-side buttons start at the right, left and right swap
+//! in [`Dialog::step`] and its lines start at the right.
 use crate::{
     Paint, Style,
     geometry::{clamp_u16, line_px},
@@ -52,6 +54,8 @@ pub struct Dialog {
     radius: u32,
     room: u16,
     stacked: bool,
+    /// The interface runs right to left: buttons and lines start at the right.
+    rtl: bool,
     small_text: bool,
     title_size: f32,
     text_size: f32,
@@ -148,6 +152,7 @@ impl Dialog {
             radius: style.corner,
             room: screen.1,
             stacked,
+            rtl: style.rtl,
             small_text: false,
             title_size: style.title,
             text_size: style.text,
@@ -259,7 +264,8 @@ impl Dialog {
                     self.button,
                 )
             };
-            self.buttons.push(rect);
+            self.buttons
+                .push(crate::style::flip_rect(self.rtl, inside, rect));
         }
         self.top = self.top.min(self.last_top());
         Ok(())
@@ -385,9 +391,15 @@ impl Dialog {
     pub fn step(&self, focus: usize, action: &str) -> Option<usize> {
         let last = self.buttons.len().checked_sub(1)?;
         let (back, on) = (focus.saturating_sub(1), focus.saturating_add(1).min(last));
+        // Side by side the first button is at the right where the interface
+        // runs right to left (see `lay_out`): left is then on towards the
+        // last. One below the other, left and right keep their old way.
+        let mirrored = self.rtl && !self.stacked;
         match action {
-            "core.up" | "core.previous" | "core.left" => Some(back),
-            "core.down" | "core.next" | "core.right" => Some(on),
+            "core.up" | "core.previous" => Some(back),
+            "core.down" | "core.next" => Some(on),
+            "core.left" => Some(if mirrored { on } else { back }),
+            "core.right" => Some(if mirrored { back } else { on }),
             _ => None,
         }
     }
@@ -424,9 +436,13 @@ impl Dialog {
                 }
                 let line = &self.lines[i - self.title.len()];
                 let row = Rect::new(self.area.x, y, self.area.width, self.text_line);
-                text::label(
+                // From the start side of the text area: the right one where
+                // the interface runs right to left.
+                text::label_in(
                     paint,
                     font,
+                    self.rtl,
+                    self.area,
                     line,
                     self.text_size,
                     f32::from(row.x),
@@ -451,6 +467,7 @@ impl Dialog {
                 bar,
                 clamp_u16(length.min(whole) as i64),
             );
+            let place = crate::style::flip_rect(self.rtl, self.panel, place);
             paint::push(paint, Paint::Fill(place, self.muted))?;
         }
         for (i, (rect, label)) in self.buttons.iter().zip(&self.labels).enumerate() {
@@ -521,6 +538,7 @@ mod tests {
             radius: 4,
             room: 800,
             stacked,
+            rtl: false,
             small_text: false,
             title_size: 24.0,
             text_size: 16.0,
@@ -533,6 +551,45 @@ mod tests {
         };
         dialog.lay_out(0).unwrap();
         dialog
+    }
+
+    fn mirrored(lines: usize, buttons: usize, stacked: bool) -> Dialog {
+        let mut dialog = dialog(lines, buttons, stacked);
+        dialog.rtl = true;
+        dialog.lay_out(0).unwrap();
+        dialog
+    }
+
+    #[test]
+    fn side_by_side_the_first_button_is_at_the_right_where_the_interface_runs_so() {
+        let (ltr, rtl) = (dialog(2, 3, false), mirrored(2, 3, false));
+        for i in 0..3 {
+            let (a, b) = (ltr.button(i).unwrap(), rtl.button(i).unwrap());
+            assert_eq!((a.y, a.width, a.height), (b.y, b.width, b.height));
+        }
+        assert!(rtl.button(0).unwrap().x > rtl.button(2).unwrap().x);
+        assert!(ltr.button(0).unwrap().x < ltr.button(2).unwrap().x);
+        // Taps and the keys follow where they are drawn.
+        let first = rtl.button(0).unwrap();
+        assert_eq!(
+            rtl.hit(Point::new(i32::from(first.x) + 1, i32::from(first.y) + 1)),
+            Some(0)
+        );
+        assert_eq!(rtl.step(0, "core.left"), Some(1));
+        assert_eq!(rtl.step(1, "core.right"), Some(0));
+        assert_eq!(rtl.step(0, "core.next"), Some(1));
+        assert_eq!(ltr.step(0, "core.left"), Some(0));
+        assert_eq!(ltr.step(0, "core.right"), Some(1));
+    }
+
+    #[test]
+    fn stacked_buttons_keep_their_order_and_their_keys() {
+        let (ltr, rtl) = (dialog(2, 3, true), mirrored(2, 3, true));
+        for i in 0..3 {
+            assert_eq!(ltr.button(i), rtl.button(i));
+        }
+        assert_eq!(rtl.step(0, "core.right"), Some(1));
+        assert_eq!(rtl.step(1, "core.left"), Some(0));
     }
 
     #[test]

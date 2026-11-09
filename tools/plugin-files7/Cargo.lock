@@ -195,6 +195,8 @@ dependencies = [
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
+ "paperpaw-plugin-format-docx",
+ "paperpaw-plugin-format-images",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
@@ -235,6 +237,20 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-docx"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-images"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
 ]
 
 [[package]]

@@ -105,6 +105,9 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::SettingChoice(r) => (KIND_TABLE[13].1, r.key),
         Record::PresetSpec(r) => (KIND_TABLE[14].1, r.name),
         Record::PresetValue(r) => (KIND_TABLE[15].1, r.preset),
+        Record::InputSpec(r) => (KIND_TABLE[16].1, r.name),
+        // A hint is keyed by its screen, the inputs it is for and its text.
+        Record::HelpHint(r) => (KIND_TABLE[17].1, r.screen),
         Record::WidgetSpec(r) => (KIND_TABLE[18].1, r.name),
         Record::WidgetPlace(r) => (KIND_TABLE[19].1, r.name),
         Record::StatusItem(r) => (KIND_TABLE[20].1, r.name),
@@ -158,6 +161,12 @@ fn name_parts<'a>(
             parts[2] = r.when_key;
             parts[3] = r.when_value;
             4
+        }
+        Record::HelpHint(r) => {
+            // `input` is 0..=2 at validation.
+            parts[1] = ["0", "1", "2"].get(r.input as usize).copied().unwrap_or("");
+            parts[2] = r.text;
+            3
         }
         Record::SettingChoice(r) => {
             parts[1] = r.value;

@@ -246,9 +246,13 @@ pub fn columns(
     let title_room = (room - value_width).max(0.0);
     let title = text::fit(font, style.text, title, title_room + 1.0)?;
     let title_area = Rect::new(rect.x, rect.y, (margin + title_room) as u16, rect.height);
-    text::label(
+    // Laid out left to right, mirrored in the row where the interface runs
+    // right to left: the title at the right and the value at the left.
+    text::label_in(
         paint,
         font,
+        style.rtl,
+        rect,
         &title,
         style.text,
         f32::from(rect.x) + margin,
@@ -256,9 +260,11 @@ pub fn columns(
         ink,
         Some(rect),
     )?;
-    text::label(
+    text::label_in(
         paint,
         font,
+        style.rtl,
+        rect,
         &value,
         style.text,
         f32::from(rect.x) + f32::from(rect.width) - margin - value_width,

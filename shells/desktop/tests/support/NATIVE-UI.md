@@ -43,3 +43,15 @@ Until activation lands the command must fail, never pass on a blank frame.
 Failure before pixel comparison is a host/admission blocker, not layout drift.
 Run en/de and each existing scenario separately; retain original golden files.
 This is desktop emulation, not evidence of device timing, heap or X4 activation.
+
+## In-process kit
+
+`plugins/test-support/acceptance.rs` (with `hosted.rs`) runs the same comparison without the
+loader: a linked native plugin is installed on a real kernel with `Kernel::register_linked`,
+one of its screens is opened, physical keys are pressed and the frame is compared with the
+unchanged golden, pixel for pixel (`Session::start`, `open`, `keys`, `frame().matches_golden`).
+A porter includes both files with `#[path]` and adds `png` as a dev-dependency; the battery
+screen is the pilot (`plugins/battery/tests/hosted_acceptance.rs`). A step the host cannot do
+is an `Err` that names it; the case stays `#[ignore = "BLOCKED ..."]` with that reason until
+it passes. It does not replace the loader run above (todo 90), only what the kernel's stack and
+frame do for a native screen.

@@ -186,11 +186,52 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             })],
             &mut bytes,
         ),
+        // The input and help declarations: two inputs, a hint for the plugin's
+        // own screen and one for another plugin's, with and without a zone.
+        20 => wire::records_encode(
+            &[
+                Record::InputSpec(wire::InputSpec {
+                    name: "chord",
+                    title: "factory.input.chord",
+                    kind: 0,
+                    need: 0,
+                    capability: 0,
+                    flags: 0,
+                }),
+                Record::InputSpec(wire::InputSpec {
+                    name: "shake",
+                    title: "factory.input.shake",
+                    kind: 1,
+                    need: 0,
+                    capability: 0,
+                    flags: 0,
+                }),
+                hint("factory.screen", 0, (0, 0, 0, 0)),
+                hint("core.reader", 1, (100, 200, 300, 400)),
+            ],
+            &mut bytes,
+        ),
+        // A hint whose zone runs off the screen, and one for no full id.
+        21 => wire::records_encode(&[hint("factory.screen", 1, (900, 0, 200, 100))], &mut bytes),
+        22 => wire::records_encode(&[hint("screen", 0, (0, 0, 0, 0))], &mut bytes),
         _ => return ERR_INVALID,
     }
     .unwrap();
     // SAFETY: the encoded batch stays readable for the synchronous submit.
     unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) }
+}
+
+/// A `help.hint` with the zone `(x, y, width, height)`.
+fn hint(screen: &str, input: u32, zone: (u32, u32, u32, u32)) -> Record<'_> {
+    Record::HelpHint(wire::HelpHint {
+        screen,
+        input,
+        x: zone.0,
+        y: zone.1,
+        width: zone.2,
+        height: zone.3,
+        text: "factory.help.hint",
+    })
 }
 
 /// The menu ids the declarations hold now, with their flags.
@@ -316,6 +357,46 @@ fn another_plugins_items_unknown_places_and_unknown_needs_are_accepted() {
     let mut kernel = fresh();
     install_with(&mut kernel, 5).unwrap();
     assert_eq!(menu_ids(&kernel, &[], &[]), [("later.menu".into(), 0)]);
+}
+
+#[test]
+fn the_input_and_help_declarations_are_admitted_stored_and_removed_with_the_owner() {
+    let mut kernel = fresh();
+    install_with(&mut kernel, 20).unwrap();
+    assert_eq!(rows(&kernel, Kind::InputSpec), 2);
+    assert_eq!(rows(&kernel, Kind::HelpHint), 2);
+    assert!(
+        kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
+    kernel.unload_plugin(&Id::new_static("factory"));
+    assert_eq!(rows(&kernel, Kind::InputSpec), 0);
+    assert_eq!(rows(&kernel, Kind::HelpHint), 0);
+    // A reinstall starts clean.
+    install_with(&mut kernel, 20).unwrap();
+    assert_eq!(rows(&kernel, Kind::HelpHint), 2);
+}
+
+#[test]
+fn a_bad_hint_refuses_the_whole_owner_without_a_trace() {
+    for mode in [21, 22] {
+        let mut kernel = fresh();
+        let result = install_with(&mut kernel, mode);
+        // Refused while the factory declares (its submit fails) or when the
+        // install maps the declarations: `ERR_INVALID` either way.
+        assert!(
+            matches!(
+                result,
+                Err(Error::Status(host_glue::ERR_INVALID) | Error::Factory(host_glue::ERR_INVALID))
+            ),
+            "mode {mode}: {result:?}"
+        );
+        assert_eq!(rows(&kernel, Kind::HelpHint), 0, "mode {mode}");
+        install_with(&mut kernel, 20).unwrap();
+    }
 }
 
 #[test]

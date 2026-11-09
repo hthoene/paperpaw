@@ -178,7 +178,9 @@ fn editing_begins_and_back_ends_it_without_changing_the_page() {
         // Ended: back no longer means "done", the tools run again.
         if device.input.touch {
             app.tap_on("Library");
-            assert_eq!(app.screen(), "files.browser");
+            // The library is the native `files` plugin's slot filler, which these
+            // kernel tests do not register: the slot shows its placeholder.
+            assert_eq!(app.screen(), "core.placeholder");
         }
     }
 }

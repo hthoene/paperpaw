@@ -1333,6 +1333,7 @@ fn short_names_alone_are_names() {
 mod after_cuts;
 mod cuts_v1;
 mod damaged;
+mod entry_identity;
 mod failing_writes;
 mod free_follow;
 mod free_space;

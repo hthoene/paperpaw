@@ -29,7 +29,7 @@ mod change;
 mod read;
 mod target;
 
-pub(crate) use target::same_fold;
+pub(crate) use target::{same_fold, within};
 
 pub(crate) use super::lib_service::moves::Access;
 
