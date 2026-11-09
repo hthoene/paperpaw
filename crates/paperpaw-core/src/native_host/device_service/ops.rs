@@ -625,6 +625,10 @@ fn networks(host: &dyn DeviceHost, query: &Query, mut rows: Rows<'_>) -> Result<
 /// without an id left out. The firmware check numbers the image's built-ins
 /// with this and op 16 lists the rows by the same numbers, so a bit never
 /// points at another row (`device.md` 5.1).
+#[allow(
+    dead_code,
+    reason = "the kernel's firmware pump numbers built-ins with it (slice B2); only tests build it until then"
+)]
 pub(crate) struct DeviceBuiltIns<'a>(pub(crate) &'a dyn DeviceHost);
 
 impl crate::native_host::firmware_install::BuiltIns for DeviceBuiltIns<'_> {
