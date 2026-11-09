@@ -2889,6 +2889,14 @@ character or any of `"*:<>?|`, no trailing dot or space, no reserved device name
 (`CON`, `NUL`, `COM1`…), at most 255 UTF-16 units per segment, no name starting with `.`
 or `~`; all are `Invalid`. `input` is 2,048 bytes and `out` 4,096. Downloaders need no
 storage permission for it.
+`Documents::format_for(host, root, path, sniff, input, out)` tells which format reads a file
+(`Root::Data`, or `Root::Library` for the user's files, which needs `uses.storage`): by its extension,
+and when none matches and `sniff` is set, by the file's first 512 bytes. The answer is a `Format`
+(`id()`, `title()`, `extensions()`, `priority()`); `NotFound` means no format reads it, so a file
+manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
+the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
+pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
+`formats`; `out` 4,096 for both.
 
 ### Book fields and badges
 
