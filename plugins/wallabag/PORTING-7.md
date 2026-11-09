@@ -30,8 +30,9 @@ the host activates native plugins (then it goes together, no shim).
   streamed answers (`entries.json`, `entry.json`) have no cap, as in interface 6, as they are read
   in pieces.
 - `declarations.rs`: the three settings (server; user name and client ID as advanced ones; all kept on
-  reset, in the library group, edited on the set-up screen), the screen (one at a time), the actions
-  `open` and `fetch`, the place in the tools (order 48) and the icons. `tests/abi7_declarations.rs`
+  reset, in the library group, edited on the set-up screen), the screen (one at a time), the action
+  `open` (`fetch`, token 2, icon `refresh`, is declared with the fetch slice so that no bound action is a
+  silent no-op), the place in the tools (order 48) and the icon. `tests/abi7_declarations.rs`
   decodes the batches by the host's rules and compares each with the interface-6 registration,
   including the screen's instance policy from the decoded flags.
 
@@ -46,8 +47,14 @@ the client's secret are kept with `core.secrets` (names `password` and `client-s
 each secrets call are wiped. An empty answer for a secret keeps what was kept; where the device keeps no
 secrets the shared text `core.secrets-unsupported` says so. The *Fetch articles* row, the note on how the
 last fetch went and the offer to go online come with the fetch. Interface 6 stays in place until then.
+`NativeWallabag` is not in `NATIVE_PLUGINS` / `complete.txt` until the fetch slice. A save the device refuses for
+another reason than missing secrets (a value too long) says `wallabag.not-kept`; a question whose text could
+not be filled stays open with an empty field and its answer is still taken.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
+
+- Gap: no scripted-host or allocation-refusal sweep for the native set-up screen yet (only the declaration,
+  linked-entry and `Secret` tests); they come with the fetch slice, which brings the shared scripted host.
 
 - The fetch: the token, the list, each article's check and book (network, files). The readers of the
   list and the flag are ported (`native_fetch`); the calls that feed them are the host's.

@@ -240,22 +240,25 @@ impl NativeWallabag {
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let asked = ui
-            .ask(host, question, &mut input, &mut out)
-            .and_then(|request| {
-                if let Some(initial) = initial.as_deref().filter(|i| !i.is_empty()) {
-                    ui.text_write(
-                        host,
-                        request.text(),
-                        0,
-                        initial,
-                        TextWrite::Last,
-                        &mut input,
-                        &mut out,
-                    )?;
-                }
-                Ok(request)
-            });
+        let asked = ui.ask(host, question, &mut input, &mut out);
+        // The question stays open when the filling fails (the field is then
+        // empty); it is tracked either way so its answer is still taken.
+        if let (Ok(request), Some(initial)) = (
+            &asked,
+            initial.as_deref().filter(|i| !i.is_empty()),
+        ) {
+            match ui.text_write(
+                host,
+                request.text(),
+                0,
+                initial,
+                TextWrite::Last,
+                &mut input,
+                &mut out,
+            ) {
+                Ok(()) | Err(_) => {}
+            }
+        }
         wipe(&mut input);
         wipe(&mut out);
         self.typing = Some((asked?, row));
@@ -336,19 +339,22 @@ impl NativeWallabag {
         value: &str,
     ) -> Result<(), Error> {
         let mut say = Messages::new()?;
-        let refused = match &self.secrets {
-            None => true,
+        // The shared text only where the device keeps no secrets; any other
+        // refusal (a value too long, a full store) says it was not kept.
+        let notice = match &self.secrets {
+            None => Some("core.secrets-unsupported"),
             Some(secrets) => {
                 let label = say.copy(host, label)?;
                 match keep::keep(secrets, host, name, &label, value) {
-                    Ok(()) => false,
+                    Ok(()) => None,
                     Err(Error::NoMemory) => return Err(Error::NoMemory),
-                    Err(_) => true,
+                    Err(Error::Unsupported) => Some("core.secrets-unsupported"),
+                    Err(_) => Some("wallabag.not-kept"),
                 }
             }
         };
-        if refused {
-            let text = say.copy(host, "core.secrets-unsupported")?;
+        if let Some(key) = notice {
+            let text = say.copy(host, key)?;
             let mut scratch = [0; 512];
             match CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?) {
                 Ok(()) | Err(_) => {}
