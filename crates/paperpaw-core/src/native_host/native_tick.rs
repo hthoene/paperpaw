@@ -25,6 +25,13 @@ impl crate::Kernel {
                 self.native_tick_at = Some(now);
                 false
             }
+            // The clock went back (a shell's restart of its counter): the
+            // minute starts again here, or ticks would stall until the old
+            // time is passed.
+            Some(at) if now < at => {
+                self.native_tick_at = Some(now);
+                false
+            }
             Some(at) => now.since(at) >= MINUTE_MS,
         };
         if due {

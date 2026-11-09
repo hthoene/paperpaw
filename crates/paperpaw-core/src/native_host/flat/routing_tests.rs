@@ -349,4 +349,75 @@ fn a_native_plugin_gets_one_tick_a_minute() {
     // A device that slept for an hour gets one tick when it wakes.
     assert_eq!(log(&mut kernel, 3_700_000), [61_000, 3_700_000]);
     assert_eq!(log(&mut kernel, 3_700_500), [61_000, 3_700_000]);
+    // The clock went back: the minute starts again there, no tick stalls
+    // until the old time is passed.
+    assert_eq!(log(&mut kernel, 10_000), [61_000, 3_700_000]);
+    assert_eq!(log(&mut kernel, 69_999), [61_000, 3_700_000]);
+    assert_eq!(log(&mut kernel, 70_000), [61_000, 3_700_000, 70_000]);
+}
+
+/// A plugin whose tick callback fails (here: refused admission).
+struct FailingTick {
+    scope: Pin<Box<EnvironmentScope>>,
+    drops: Rc<Cell<usize>>,
+}
+impl FlatInstance for FailingTick {
+    fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
+        visit(FlatRegistration::Event {
+            event_tag: crate::native_host::registrations::EVENT_TICK_TAG,
+            index: 0,
+        });
+    }
+    fn environment(&self) -> Pin<&EnvironmentScope> {
+        self.scope.as_ref()
+    }
+    fn dispatch_event(
+        &self,
+        _: usize,
+        _: &[u8],
+        _: &mut [u8],
+        _: &DispatchDepth,
+    ) -> Result<i32, Error> {
+        Err(Error::State)
+    }
+    fn event_dropped(&self, _: u32, _: DropReason) {
+        self.drops.set(self.drops.get() + 1);
+    }
+}
+
+/// A tick a plugin refuses is told as a drop for that plugin alone: the
+/// healthy plugin beside it still gets every tick.
+#[test]
+fn a_failing_tick_plugin_does_not_stop_the_healthy_one() {
+    let ticks = Rc::new(Cell::new(Vec::new()));
+    let drops = Rc::new(Cell::new(0));
+    let (seen, dropped) = (Rc::clone(&ticks), Rc::clone(&drops));
+    let mut kernel = test_loader::load(
+        crate::Kernel::builder(crate::tests::DEVICE),
+        &["bad", "good"],
+        move |code| {
+            let manifest = Manifest::new(code.id.clone(), "Flat", Version::new(1, 0, 0));
+            let depth = crate::native_host::flat::FlatDepth::try_new().unwrap();
+            let instance: Box<dyn FlatInstance> = if code.id.as_str() == "bad" {
+                Box::new(FailingTick {
+                    scope: Box::pin(EnvironmentScope::new()),
+                    drops: Rc::clone(&dropped),
+                })
+            } else {
+                Box::new(TickInstance {
+                    scope: Box::pin(EnvironmentScope::new()),
+                    ticks: Rc::clone(&seen),
+                })
+            };
+            Ok(Box::new(
+                FlatPlugin::new(manifest, instance, depth, code.host).unwrap(),
+            ))
+        },
+    );
+    for at in [1_000, 61_000, 121_000] {
+        kernel.tick(paperpaw_platform::Instant(at));
+    }
+    let seen = ticks.take();
+    assert_eq!(seen, [61_000, 121_000]);
+    assert_eq!(drops.get(), 2, "the failing plugin was told each time");
 }
