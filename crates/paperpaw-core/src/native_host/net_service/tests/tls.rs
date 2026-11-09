@@ -3,7 +3,8 @@
 //! and waits for one in the order it asked.
 use super::*;
 use crate::native_host::net_pool::{TlsHolder, TlsLease};
-use crate::native_host::net_service::table::cancel;
+use crate::native_host::net_service::table::{cancel, redirected_to_https};
+use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 
 fn one_session() -> (Rc<NetPool>, Fake) {
     let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 1));
@@ -212,4 +213,84 @@ fn an_allocation_that_fails_while_an_https_request_starts_leaves_no_session_held
         assert_eq!(pool.tls_held(), 0, "gate {nth} ({started:?})");
         assert!(!pool.tls_waiting(), "gate {nth}");
     }
+}
+
+#[test]
+fn a_redirect_to_https_restarts_the_request_once_it_holds_the_session() {
+    let (pool, fake) = one_session();
+    let p = request(&fake, OWNER, &plain(1)).unwrap();
+    assert_eq!(*fake.started.borrow(), [p]);
+    let used = fake.pool_used();
+    fake.advance(1_000);
+    redirected_to_https(&fake, p).unwrap();
+    assert!(pool.tls_holds(net(p)), "it holds the session to run");
+    assert_eq!(*fake.started.borrow(), [p, p], "started again, resumed");
+    assert_eq!(
+        fake.pool_used(),
+        used,
+        "its bytes were given back and asked again"
+    );
+    // The session goes back when it ends.
+    finish(&fake, p, 200, b"");
+    assert_eq!(pool.tls_held(), 0);
+}
+
+#[test]
+fn a_redirected_request_waits_behind_a_socket_and_times_out_from_its_first_start() {
+    let (pool, fake) = one_session();
+    let p = request(&fake, OWNER, &plain(1)).unwrap();
+    assert_eq!(pool.tls_request(TlsHolder::Sock(1)), TlsLease::Held);
+    let first = fake.now_ms();
+    fake.advance(10_000);
+    redirected_to_https(&fake, p).unwrap();
+    assert_eq!(
+        *fake.started.borrow(),
+        [p],
+        "no second start without the session"
+    );
+    assert!(!pool.tls_holds(net(p)));
+    // The time counts from the first start, not from the redirect.
+    assert_eq!(table::next_deadline(&fake), Some(first + 30_000));
+    fake.advance(20_000);
+    tick(&fake).unwrap();
+    let events = drain(&fake, OWNER);
+    assert!(
+        matches!(events.as_slice(), [Event::Done { reason: r, .. }] if *r == reason::TIMEOUT),
+        "ended timeout, not busy: {events:?}"
+    );
+    assert!(pool.tls_holds(TlsHolder::Sock(1)), "the socket keeps it");
+    assert!(!pool.tls_holds(net(p)));
+}
+
+#[test]
+fn a_redirected_request_keeps_its_place_in_the_queue() {
+    let (pool, fake) = one_session();
+    let a = request(&fake, OWNER, &plain(1)).unwrap();
+    let b = request(&fake, OWNER, &get(2)).unwrap();
+    assert!(pool.tls_holds(net(b)));
+    redirected_to_https(&fake, a).unwrap();
+    assert!(!pool.tls_holds(net(a)), "b holds it; a asks after");
+    finish(&fake, b, 200, b"");
+    assert_eq!(*fake.started.borrow(), [a, b, a]);
+    assert!(pool.tls_holds(net(a)));
+}
+
+#[test]
+fn a_late_or_wrong_redirect_report_changes_nothing() {
+    let (pool, fake) = one_session();
+    assert_eq!(redirected_to_https(&fake, 99), Err(ERR_NOT_FOUND));
+    let p = request(&fake, OWNER, &plain(1)).unwrap();
+    cancel(&fake, OWNER, 1).unwrap();
+    assert_eq!(
+        redirected_to_https(&fake, p),
+        Err(ERR_NOT_FOUND),
+        "after a cancel"
+    );
+    let a = request(&fake, OWNER, &get(2)).unwrap();
+    assert_eq!(
+        redirected_to_https(&fake, a),
+        Err(ERR_STATE),
+        "already https"
+    );
+    assert!(pool.tls_holds(net(a)));
 }

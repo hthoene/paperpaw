@@ -759,6 +759,38 @@ pub(crate) fn progress(
     Ok(())
 }
 
+/// The shell followed a redirect from `http` to `https` for request `id` and
+/// closed the plain connection: the request goes back in the queue, where it
+/// was started, as an https request (`network.md` 3.1). It starts again,
+/// the shell resuming the request it parked, only when it holds the TLS
+/// session; it keeps its start time, so `timeout_ms` counts from the first
+/// start. The pool bytes it held are given back and asked for again.
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; `ERR_NOT_FOUND` for an id that is
+/// unknown or over (a late report after a cancel is normal: the shell does
+/// not treat it as a failure of the request); `ERR_STATE` for a request that
+/// is not running or is https already.
+pub(crate) fn redirected_to_https(host: &dyn NetHost, id: u32) -> Result<(), i32> {
+    let mut inner = host_table(host)?;
+    let index = inner
+        .index(id)
+        .filter(|&i| Inner::live(&inner.reqs[i]))
+        .ok_or(ERR_NOT_FOUND)?;
+    let r = &mut inner.reqs[index];
+    if r.state != State::Running || r.tls {
+        return Err(ERR_STATE);
+    }
+    r.tls = true;
+    r.state = State::Queued;
+    r.pending = None;
+    let held = core::mem::take(&mut r.reserved);
+    inner.release(host, held);
+    inner.pump(host);
+    inner.sync_demand(host);
+    Ok(())
+}
+
 /// The clock: ends what ran out of time and starts what can start.
 ///
 /// # Errors

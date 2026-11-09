@@ -525,6 +525,23 @@ impl NetReports {
         net_service::progress(&*self.0, id, status, received, total)
     }
 
+    /// Request `id` was redirected from `http` to `https` and the shell closed
+    /// its plain connection first (never while the transport holds one: the
+    /// request waits for the one TLS session, which a socket may hold). The
+    /// request goes back in the queue at its start order, keeps its start
+    /// time (`timeout_ms` counts from the first start), and `start` is called
+    /// again when the session is its: the shell then resumes the request it
+    /// parked (URL, redirects so far, method, body and headers as redirected).
+    /// A session that stays with a socket ends the request `timeout`.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (call again); `ERR_NOT_FOUND` for an id that is unknown or
+    /// over, which is normal after a cancel and no failure of the request;
+    /// `ERR_STATE` for a request that is not running or is https already.
+    pub fn redirected_to_https(&self, id: u32) -> Result<(), i32> {
+        net_service::redirected_to_https(&*self.0, id)
+    }
+
     /// Time passed: timeouts and the answer time of served requests run out.
     ///
     /// # Errors
