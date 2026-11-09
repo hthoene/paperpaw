@@ -31,7 +31,8 @@ struct Item {
     token: u32,
     /// The widget's id as the host names it, with its placement.
     widget: String,
-    /// What it showed when it was last drawn or asked about, for the tick.
+    /// What it showed when the tick last looked; `None` until the first tick,
+    /// which only records it (the draw does not set it).
     shown: Option<u64>,
 }
 

@@ -274,6 +274,15 @@ Differences from interface 6 (each deliberate):
 - What the clock shows is tracked by the minute, not by its text: a change of the 12/24-hour setting
   is seen by the screen when it shows again.
 
+### Tick limits
+
+- One `widget_changed` is staged per changed instance, and a callback holds at most 8
+  commands. With more than 8 date or clock instances the rest are left for the next
+  minute (a failed command is retried then).
+- The stack and heap use of measure and draw on X4 is unmeasured: it stays on the
+  activation gate list. The accessibility `describe` call has no SDK wrapper yet
+  (Kernel SDK list).
+
 ### Gaps
 
 - The status line, the continue card and the recent shelf are still interface-6 widgets
