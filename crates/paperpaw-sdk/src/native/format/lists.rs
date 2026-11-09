@@ -18,6 +18,37 @@ const END_RESERVE: usize = 32;
 /// Framing of one row (tag, length, field bitmap), rounded up.
 const ROW_FRAMING: usize = 5;
 
+/// What a reply writer may still spend: its output bytes (with room kept for the
+/// closing `fmt.end`) and its rows. Row bounds are upper bounds of the wire bytes,
+/// so a refused row never leaves too little room for the closing record.
+pub(super) struct Budget {
+    cap: usize,
+    used: usize,
+    rows: usize,
+}
+impl Budget {
+    /// A budget for an output of `cap` bytes, or `None` when not even an empty
+    /// reply fits.
+    pub(super) fn new(cap: usize) -> Option<Self> {
+        (cap > END_RESERVE).then_some(Self {
+            cap,
+            used: 1,
+            rows: 0,
+        })
+    }
+    /// Reserve a row of at most `bound` bytes (framing included): false when it,
+    /// or one row more, would not leave room for the closing record.
+    pub(super) fn take(&mut self, bound: usize) -> bool {
+        let used = self.used + bound;
+        if used + END_RESERVE > self.cap || self.rows + 2 > schema::REPLY_ROWS {
+            return false;
+        }
+        self.used = used;
+        self.rows += 1;
+        true
+    }
+}
+
 /// How a page of rows ends: the last page, or one the host continues.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -61,10 +92,7 @@ impl PageEnd {
 pub struct FormatRows<'w> {
     writer: schema::ReplyWriter<'w>,
     op: FormatOp,
-    /// The most bytes the output may hold: its length, within the reply cap.
-    cap: usize,
-    /// An upper bound of the bytes the rows hold, the count byte included.
-    used: usize,
+    budget: Budget,
 }
 impl core::fmt::Debug for FormatRows<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -90,17 +118,13 @@ impl FormatCall<'_> {
             FormatOp::Links,
             FormatOp::Fonts,
         ])?;
-        let cap = out.len().min(schema::MAX_REPLY);
-        if cap < 1 + END_RESERVE {
-            // Not even an empty page fits.
-            return Err(Error::NoSpace);
-        }
+        // Not even an empty page fits: NoSpace.
+        let budget = Budget::new(out.len().min(schema::MAX_REPLY)).ok_or(Error::NoSpace)?;
         let writer = schema::ReplyWriter::new(out).map_err(Error::from_status)?;
         Ok(FormatRows {
             writer,
             op: self.operation(),
-            cap,
-            used: 1,
+            budget,
         })
     }
     /// Reply with the picture a cover or image request names: its cache file in
@@ -146,13 +170,10 @@ impl FormatRows<'_> {
     /// Write a row of at most `bound` bytes. The page always keeps room for its
     /// closing record: a row that would use it, or one past the row cap, is NoSpace.
     fn row(&mut self, record: &schema::Record<'_>, bound: usize) -> Result<(), Error> {
-        let used = self.used + ROW_FRAMING + bound;
-        if used + END_RESERVE > self.cap || self.writer.len() + 1 >= schema::REPLY_ROWS {
+        if !self.budget.take(ROW_FRAMING + bound) {
             return Err(Error::NoSpace);
         }
-        self.writer.push(record).map_err(Error::from_status)?;
-        self.used = used;
-        Ok(())
+        self.writer.push(record).map_err(Error::from_status)
     }
     /// Rows written so far.
     #[must_use]

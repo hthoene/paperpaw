@@ -80,6 +80,8 @@ pub enum EventKind {
     Server,
     /// A server of this plugin got a request.
     ServedRequest,
+    /// A picture the plugin asked the host to prepare is ready or failed.
+    ImageReady,
     /// Something happened to a socket of this plugin (`core.sockets`). Needed
     /// before the first `connect`.
     Socket,
@@ -141,6 +143,7 @@ impl EventKind {
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
             Self::Server => records_wire::EVENT_SERVER_TAG,
             Self::ServedRequest => records_wire::EVENT_SERVED_REQUEST_TAG,
+            Self::ImageReady => records_wire::EVENT_IMAGE_READY_TAG,
             Self::Socket => records_wire::EVENT_SOCKET_TAG,
             Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
             Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,

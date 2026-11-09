@@ -70,6 +70,12 @@ pub(crate) fn encode_one(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i
     record_encode_of(as_wire(record)?, out)
 }
 
+/// One event as the one-record batch (count 1, the record) the kernel hands
+/// to a plugin's callback; the length written.
+pub(crate) fn encode_event(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    encode_batch(core::slice::from_ref(record), out)
+}
+
 /// The framed length of one bare `Record`.
 pub(crate) fn framed_len(record: &Record<'_>) -> Result<usize, i32> {
     record_framed_len_of(as_wire(record)?)

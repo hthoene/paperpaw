@@ -493,6 +493,9 @@ pub enum Event<'a> {
     /// A server of this plugin got a request; its body, if any, is readable
     /// only in this callback.
     ServedRequest(super::net::ServedRequest<'a>),
+    /// A picture the plugin asked the host to prepare is ready or failed
+    /// (`core.document`).
+    ImageReady(super::image::ImageReady),
     /// Something happened to a socket of this plugin (`core.sockets`); read
     /// arrived bytes in this callback.
     Socket(super::sockets::SocketEvent),

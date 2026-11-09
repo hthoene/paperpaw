@@ -16,8 +16,9 @@ pub const MAX_SERVED_BODY: u64 = 64 << 20;
 /// The longest content type of a response.
 const CONTENT_TYPE_MAX: usize = wire::SERVICE_NET_RESPONSE_CONTENT_TYPE_MAX_BYTES;
 
-/// A server to start with [`Net::serve`]: the plugin's own number for it, where
-/// it listens and the largest request body it takes.
+/// A server to start with [`Net::serve`]: the plugin's own number for it (the
+/// `token`, any number: it only names the server in its events and in
+/// [`Net::stop_serving`]), where it listens and the largest request body it takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Server {

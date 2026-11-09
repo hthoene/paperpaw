@@ -227,6 +227,14 @@ fn fixtures() -> Vec<Vec<u8>> {
                 flags: 1,
                 body_len: 5_000_000_000,
             }),
+            Record::EventImageReady(EventImageReady {
+                now_ms: 42,
+                cookie: 5,
+                status: 0,
+                image: 3,
+                width: 480,
+                height: 800,
+            }),
             Record::EventSocket(EventSocket {
                 now_ms: 42,
                 socket: 3,
