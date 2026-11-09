@@ -84,9 +84,7 @@ fn each_line(
         have -= start;
         if read == 0 {
             // The last line has no line end.
-            if !skipping
-                && let Ok(text) = core::str::from_utf8(&buf[..have])
-            {
+            if !skipping && let Ok(text) = core::str::from_utf8(&buf[..have]) {
                 visit(text.trim_end_matches('\r'));
             }
             return Ok(());

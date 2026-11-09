@@ -158,7 +158,8 @@ const INI: &str = "[plugin]\nid = dials\nname = Dials\nversion = 1.2.0\n";
 fn data_folder(card: &MemoryStorage, dir: &str) {
     card.write(&format!("{dir}/plugin.ini"), INI.as_bytes())
         .unwrap();
-    card.write(&format!("{dir}/strings.ini"), b"hello\n").unwrap();
+    card.write(&format!("{dir}/strings.ini"), b"hello\n")
+        .unwrap();
     card.write(&format!("{dir}/art/logo.txt"), b"abc").unwrap();
 }
 
@@ -267,9 +268,7 @@ fn the_pins_of_beta_3_say_whose_key_it_is() {
     assert_eq!(done.facts.unwrap().flags, FLAG_PINNED_HERE);
     // Pinned to another key: an install needs a rotation, the check says so.
     assert!(paperpaw_sdk::native::remember_author(
-        &card,
-        "dials",
-        &[9; 32]
+        &card, "dials", &[9; 32]
     ));
     let done = run(&card, SOURCE).0;
     assert_eq!(done.reason, 0);
@@ -287,9 +286,8 @@ fn a_revocation_that_holds_refuses_and_one_that_does_not_is_ignored() {
         &author(),
         &recovery
     ));
-    let sign_by = |seed: &[u8; 32]| {
-        sign_message(revocation_message("dials", &author()).as_bytes(), seed)
-    };
+    let sign_by =
+        |seed: &[u8; 32]| sign_message(revocation_message("dials", &author()).as_bytes(), seed);
     // Signed by a key that is neither the author's nor the recovery key: it
     // does not hold (Beta 3 would not keep it; a line written by hand is
     // checked again where it is read).
@@ -333,7 +331,9 @@ fn a_revocation_of_another_key_than_the_pinned_one_is_none_of_this() {
     // key is not it, so the check does not say revoked (it says pinned to
     // another).
     let pinned = public_key(&OTHER_SEED);
-    assert!(paperpaw_sdk::native::remember_author(&card, "dials", &pinned));
+    assert!(paperpaw_sdk::native::remember_author(
+        &card, "dials", &pinned
+    ));
     let line = format!(
         "dials {} {}\n",
         paperpaw_sdk::digest::hex::encode(&pinned),
@@ -381,8 +381,11 @@ fn unreadable_pins_are_a_card_error_not_no_pin() {
 fn what_is_not_a_plugin_folder_is_refused() {
     let card = MemoryStorage::new();
     // A bare `.ppn`: reason 4, whatever it holds.
-    card.write("Download/dials.ppn", &code_file(&good_record(), Some(&AUTHOR_SEED), 4096))
-        .unwrap();
+    card.write(
+        "Download/dials.ppn",
+        &code_file(&good_record(), Some(&AUTHOR_SEED), 4096),
+    )
+    .unwrap();
     assert_eq!(reason_of(&card, "Download/dials.ppn"), reason::DAMAGED);
     // Nothing at all.
     assert_eq!(reason_of(&card, "Download/missing"), reason::DAMAGED);
@@ -399,7 +402,11 @@ fn the_files_of_the_source_are_checked_by_name_and_number() {
     assert_eq!(reason_of(&card, SOURCE), reason::DAMAGED);
     card.remove(&format!("{SOURCE}/.hidden")).unwrap();
     card.write(&format!("{SOURCE}/a b"), b"x").unwrap();
-    assert_eq!(reason_of(&card, SOURCE), reason::DAMAGED, "a name no plugin file has");
+    assert_eq!(
+        reason_of(&card, SOURCE),
+        reason::DAMAGED,
+        "a name no plugin file has"
+    );
     card.remove(&format!("{SOURCE}/a b")).unwrap();
     assert_eq!(reason_of(&card, SOURCE), reason::OK);
     // More files than a plugin has.
@@ -443,7 +450,8 @@ fn ids_that_are_taken_or_unfit_are_refused() {
     assert_eq!(reason_of(&card, "Download/v"), reason::DAMAGED);
     // An id longer than the wire's.
     let long = format!("[plugin]\nid = {}\n", "a".repeat(65));
-    card.write("Download/l/plugin.ini", long.as_bytes()).unwrap();
+    card.write("Download/l/plugin.ini", long.as_bytes())
+        .unwrap();
     assert_eq!(reason_of(&card, "Download/l"), reason::DAMAGED);
     // A manifest too large to read.
     card.write("Download/m/plugin.ini", &vec![b'#'; 5000])
@@ -456,7 +464,12 @@ fn code_of_another_kind_is_not_on_this_device() {
     let card = MemoryStorage::new();
     card.write(&format!("{SOURCE}/plugin.ini"), INI.as_bytes())
         .unwrap();
-    for file in ["code.so", "code-host.dll", "code-host.so", "code-host.dylib"] {
+    for file in [
+        "code.so",
+        "code-host.dll",
+        "code-host.so",
+        "code-host.dylib",
+    ] {
         card.write(&format!("{SOURCE}/{file}"), b"x").unwrap();
         assert_eq!(reason_of(&card, SOURCE), reason::NOT_HERE, "{file}");
         card.remove(&format!("{SOURCE}/{file}")).unwrap();
@@ -496,7 +509,9 @@ fn a_header_the_loader_refuses_ends_with_the_loaders_reason() {
         ("another chip", reason::OTHER_CHIP, |c| set16(c, 6, 9)),
         ("older interface", reason::OLDER_BUILD, |c| set16(c, 8, 6)),
         ("newer interface", reason::NEEDS_NEWER, |c| set16(c, 8, 8)),
-        ("needs a newer minor", reason::NEEDS_NEWER, |c| set16(c, 10, 2)),
+        ("needs a newer minor", reason::NEEDS_NEWER, |c| {
+            set16(c, 10, 2)
+        }),
     ];
     for (name, why, edit) in cases {
         let card = edited(&code, edit);
@@ -609,8 +624,8 @@ fn the_room_for_code_is_checked_in_place_of_the_plugins_own_version() {
     signed_folder(&card, SOURCE);
     // 4,096 bytes of image in 4,096-byte pieces: one piece, one plugin.
     let room = |total, used, placed| {
-        let room = paperpaw_sdk::native::CodeRoom::new(total, used, 4096)
-            .with_plugins(placed, Some(4));
+        let room =
+            paperpaw_sdk::native::CodeRoom::new(total, used, 4096).with_plugins(placed, Some(4));
         assert!(paperpaw_sdk::native::keep_code_room(&card, Some(&room)));
     };
     room(8192, 4096, 1);
@@ -767,7 +782,10 @@ fn a_step_reads_and_lists_a_bounded_piece() {
     assert!(card.most_read.get() <= 4096, "{}", card.most_read.get());
     // The walk takes 62 entries in pieces of 16, the body 10 pieces of 4 KiB.
     assert!(steps >= 4 + 10, "{steps} steps");
-    assert_eq!(done.facts.unwrap().bytes, (INI.len() + 60 + code.len()) as u64);
+    assert_eq!(
+        done.facts.unwrap().bytes,
+        (INI.len() + 60 + code.len()) as u64
+    );
 }
 
 #[test]
@@ -908,4 +926,15 @@ fn an_allocation_that_fails_ends_the_check_with_reason_1_and_never_panics() {
     }
     assert_eq!(at_submit, 1, "the job's own path is its first allocation");
     assert!(refused >= 4, "{refused} allocations were refused");
+}
+
+#[test]
+fn the_facts_slot_is_not_much_larger_than_a_firmware_check_s() {
+    // The per-plugin result slot holds either (`device.md` 5.1, Kernel's
+    // ruling): 4 slots device-wide, so a few hundred bytes at most.
+    let plugin = core::mem::size_of::<PluginFacts>();
+    let firmware = core::mem::size_of::<paperpaw_platform::firmware::CheckFacts>();
+    std::eprintln!("PluginFacts {plugin} B, CheckFacts {firmware} B");
+    assert!(plugin <= 320, "{plugin}");
+    assert!(plugin <= firmware + 96, "{plugin} against {firmware}");
 }

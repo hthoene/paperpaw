@@ -175,11 +175,11 @@ impl PluginCheck {
         let (Some(walk), Some(found)) = (self.walk.as_ref(), self.found) else {
             return self.end(reason::OTHER);
         };
-        let manifest = match plugin_folder::read_manifest(env.storage, walk.root(), walk.folder_name())
-        {
-            Ok(manifest) => manifest,
-            Err(why) => return self.end(why),
-        };
+        let manifest =
+            match plugin_folder::read_manifest(env.storage, walk.root(), walk.folder_name()) {
+                Ok(manifest) => manifest,
+                Err(why) => return self.end(why),
+            };
         let id = manifest.id.as_str();
         if id == "core" || env.built_ins.index_of(id).is_some() {
             return self.end(reason::ID_TAKEN);
@@ -242,7 +242,11 @@ impl PluginCheck {
         };
         if let Err(why) = read_exact(storage, path, 0, &mut self.buf[..HEADER_LEN]) {
             // A file shorter than a header is not a plugin file.
-            return self.end(if size < HEADER_LEN as u64 { reason::DAMAGED } else { why });
+            return self.end(if size < HEADER_LEN as u64 {
+                reason::DAMAGED
+            } else {
+                why
+            });
         }
         let header = match Header5::read(&self.buf[..HEADER_LEN], size, &env.host.loader) {
             Ok(header) => header,
@@ -338,7 +342,8 @@ impl PluginCheck {
         }
         match metadata::check(&self.buf[..len], &env.host.offered) {
             Ok(checked) => {
-                if checked.abi_major != header.abi_major || checked.needs_minor != header.needs_minor
+                if checked.abi_major != header.abi_major
+                    || checked.needs_minor != header.needs_minor
                 {
                     return self.end(reason::DAMAGED);
                 }
@@ -360,11 +365,11 @@ impl PluginCheck {
             // Code with no author's signature does not install.
             return self.end(reason::UNSIGNED);
         };
-        let standing = match plugin_trust::standing(env.storage, manifest.id.as_str(), &mut self.buf)
-        {
-            Ok(standing) => standing,
-            Err(plugin_trust::Unreadable) => return self.end(reason::CARD),
-        };
+        let standing =
+            match plugin_trust::standing(env.storage, manifest.id.as_str(), &mut self.buf) {
+                Ok(standing) => standing,
+                Err(plugin_trust::Unreadable) => return self.end(reason::CARD),
+            };
         let mut flags = 0;
         match standing.pinned {
             Some(pinned) if pinned == signature.key => flags |= FLAG_PINNED_HERE,
