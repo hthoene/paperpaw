@@ -107,12 +107,15 @@ pub trait ImageSink {
     /// blue). Only for sinks that want colour; otherwise it is passed on
     /// as gray.
     fn row_rgb(&mut self, rgb: &[u8]) -> Result<(), ImageError> {
-        let gray: alloc::vec::Vec<u8> = rgb
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .map(|p| luma(u32::from(p[0]), u32::from(p[1]), u32::from(p[2])))
-            .collect();
+        let mut gray = alloc::vec::Vec::new();
+        gray.try_reserve_exact(rgb.len() / 3)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        gray.extend(
+            rgb.as_chunks::<3>()
+                .0
+                .iter()
+                .map(|p| luma(u32::from(p[0]), u32::from(p[1]), u32::from(p[2]))),
+        );
         self.row(&gray)
     }
 
@@ -127,12 +130,16 @@ pub trait ImageSink {
     /// and how opaque it is (0 transparent, 255 opaque). Only for sinks
     /// that want it; otherwise it is passed on over white.
     fn row_alpha(&mut self, gray_alpha: &[u8]) -> Result<(), ImageError> {
-        let gray: alloc::vec::Vec<u8> = gray_alpha
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|p| over_white(p[0], p[1]))
-            .collect();
+        let mut gray = alloc::vec::Vec::new();
+        gray.try_reserve_exact(gray_alpha.len() / 2)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        gray.extend(
+            gray_alpha
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| over_white(p[0], p[1])),
+        );
         self.row(&gray)
     }
 }
