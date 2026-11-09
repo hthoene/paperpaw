@@ -204,15 +204,7 @@ impl InputKey {
         }
         let (kind, name) = key.split_once('.')?;
         // A Bluetooth remote's keys have a dot in their names (`hid.right`).
-        let button = |name: &str| {
-            let valid = !name.is_empty()
-                && !name.starts_with('.')
-                && !name.ends_with('.')
-                && name.bytes().all(|b| {
-                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'
-                });
-            valid.then(|| Cow::Owned(name.to_string()))
-        };
+        let button = |name: &str| button_name_ok(name).then(|| Cow::Owned(name.to_string()));
         match kind {
             "button" => button(name).map(InputKey::Button),
             "long" => button(name).map(InputKey::LongButton),
@@ -254,6 +246,125 @@ impl InputKey {
                 (a != b).then(|| InputKey::Chord(format!("{a}_{b}")))
             }
             _ => None,
+        }
+    }
+}
+
+/// A button's name: lower case letters, digits, `-` and `.` inside (a Bluetooth
+/// remote's keys have a dot in their names).
+fn button_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+}
+
+/// Whether `key` is an input a native plugin may bind: what
+/// [`InputKey::parse`] reads, except a layer's own zones (the key map sources
+/// name those). Allocates nothing, so the install can ask it where every
+/// allocation is fallible.
+fn native_input_ok(key: &str) -> bool {
+    if key == "tap2" {
+        return true;
+    }
+    let Some((kind, name)) = key.split_once('.') else {
+        return false;
+    };
+    let direction = |name: &str, id: fn(Direction) -> &'static str| {
+        [
+            Direction::Left,
+            Direction::Right,
+            Direction::Up,
+            Direction::Down,
+        ]
+        .into_iter()
+        .any(|d| id(d) == name)
+    };
+    match kind {
+        "button" | "long" | "double" => button_name_ok(name),
+        "tap" | "long-tap" | "double-tap" => Zone::from_id(name).is_some(),
+        "input" | "gesture" => crate::native_host::declarations::full_id(name).is_ok(),
+        "swipe" => direction(name, Direction::id),
+        "edge" => direction(name, side_id),
+        "gestures" => name == "policy",
+        "pinch" => name == "out" || name == "in",
+        "chord" => name
+            .split_once('_')
+            .is_some_and(|(a, b)| a != b && button_name_ok(a) && button_name_ok(b)),
+        _ => false,
+    }
+}
+
+/// Whether a `key.bind` of a native plugin names a layer, an input and an
+/// action the key map can hold (see [`Keymap::bind_native`]). Allocates
+/// nothing. The escape (held Power, 8 s) has no input name: the host checks the
+/// raw hold before the key map, so nothing here can take it.
+pub(crate) fn native_binding_ok(layer: &str, input: &str, action: &str) -> bool {
+    use crate::native_host::declarations::full_id;
+    (layer == GLOBAL_KEYMAP_LAYER || full_id(layer).is_ok())
+        && native_input_ok(input)
+        && (action.is_empty() || full_id(action).is_ok())
+}
+
+/// What came of a native plugin's binding (`Keymap::bind_native`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Native {
+    /// Bound, or outranked by a stronger source (no loss either way).
+    Bound,
+    /// Left out: it would take the last input to the main menu the device has.
+    Dropped,
+    /// A part that is no layer, input or action; nothing is bound.
+    Invalid,
+}
+
+/// The inputs a device has: its buttons (all, where it lists none) and a touch
+/// screen's inputs. Plugin-raised inputs and a Bluetooth remote's keys are no
+/// part of the device, so nothing counts on them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeviceInputs {
+    buttons: bool,
+    touch: bool,
+    keys: &'static [&'static str],
+}
+
+impl DeviceInputs {
+    pub(crate) fn new(caps: &paperpaw_platform::InputCaps) -> Self {
+        Self {
+            buttons: caps.buttons,
+            touch: caps.touch,
+            keys: caps.keys,
+        }
+    }
+
+    /// Everything a device may have (for tests that do not care).
+    #[cfg(test)]
+    pub(crate) const ALL: Self = Self {
+        buttons: true,
+        touch: true,
+        keys: &[],
+    };
+
+    fn button(&self, name: &str) -> bool {
+        self.buttons && (self.keys.is_empty() || self.keys.contains(&name))
+    }
+
+    fn has(&self, input: &InputKey) -> bool {
+        match input {
+            InputKey::Button(name) | InputKey::LongButton(name) | InputKey::DoubleButton(name) => {
+                self.button(name)
+            }
+            InputKey::Chord(buttons) => buttons.split('_').all(|name| self.button(name)),
+            InputKey::Tap(_)
+            | InputKey::LongTap(_)
+            | InputKey::DoubleTap(_)
+            | InputKey::ZoneTap(..)
+            | InputKey::Swipe(_)
+            | InputKey::Edge(_)
+            | InputKey::Pinch(_)
+            | InputKey::Tap2 => self.touch,
+            InputKey::Named(_) | InputKey::Gesture(_) | InputKey::Policy => false,
         }
     }
 }
@@ -537,6 +648,85 @@ impl Keymap {
         problems
     }
 
+    /// One binding a native plugin declared (`key.bind`): the layer `global` or
+    /// a screen or slot id, an input as a key map names it, the action (empty:
+    /// explicitly unbound). A layer's own zones are the key map sources', so a
+    /// native plugin binds only the standard zones. `has` is what the device
+    /// offers: the global layer keeps an input to the main menu among them.
+    pub(crate) fn bind_native(
+        &mut self,
+        layer: &str,
+        input: &str,
+        action: &str,
+        has: &DeviceInputs,
+    ) -> Native {
+        if layer != GLOBAL_KEYMAP_LAYER && Id::parse(layer).is_err() {
+            return Native::Invalid;
+        }
+        let input = match InputKey::parse(input) {
+            Some(InputKey::ZoneTap(..)) | None => return Native::Invalid,
+            Some(input) => input,
+        };
+        let action = if action.is_empty() {
+            None
+        } else if let Ok(id) = Id::parse(action) {
+            Some(id)
+        } else {
+            return Native::Invalid;
+        };
+        let origin = Origin::Plugin;
+        // A binding a stronger source (the preset) already holds stays; it is
+        // no loss either.
+        let wins = self
+            .layers
+            .get(layer)
+            .and_then(|bindings| bindings.get(&input))
+            .is_none_or(|b| origin >= b.origin);
+        if !wins {
+            return Native::Bound;
+        }
+        if layer == GLOBAL_KEYMAP_LAYER && self.would_lose_the_menu(&input, action.as_ref(), has) {
+            return Native::Dropped;
+        }
+        self.layers
+            .get_or_insert_with(String::from(layer), VecMap::new)
+            .insert(input, Binding { action, origin });
+        Native::Bound
+    }
+
+    /// Whether binding `action` (none: unbound) to `input` in the global layer
+    /// would leave that layer without an input to the main menu (`core.menu`)
+    /// that the device has (touch zones are none on a device without a touch
+    /// screen). Only a binding that replaces the last such input does. The
+    /// host-fixed escape is the host's, not the key map's (`registry.md`
+    /// section 4.2).
+    fn would_lose_the_menu(
+        &self,
+        input: &InputKey,
+        action: Option<&Id>,
+        has: &DeviceInputs,
+    ) -> bool {
+        const MENU: &str = "core.menu";
+        if action.is_some_and(|id| id.as_str() == MENU) {
+            return false;
+        }
+        let Some(global) = self.layers.get(GLOBAL_KEYMAP_LAYER) else {
+            return false;
+        };
+        let opens_menu = |binding: &Binding| {
+            binding
+                .action
+                .as_ref()
+                .is_some_and(|id| id.as_str() == MENU)
+        };
+        // An input the device lacks reaches nothing: replacing it loses none.
+        has.has(input)
+            && global.get(input).is_some_and(opens_menu)
+            && !global
+                .iter()
+                .any(|(key, binding)| key != input && has.has(key) && opens_menu(binding))
+    }
+
     /// Resolves `input` through `layers`, most specific first. An explicit
     /// `none` binding stops the search.
     pub(crate) fn resolve(&self, layers: &[&str], input: &InputKey) -> Option<&Id> {
@@ -578,6 +768,199 @@ mod tests {
 
     fn button(name: &'static str) -> InputKey {
         InputKey::Button(Cow::Borrowed(name))
+    }
+
+    /// What a native plugin may bind is exactly what the parser reads, less a
+    /// layer's own zones; the check allocates nothing, the parser does.
+    #[test]
+    fn the_native_input_check_agrees_with_the_parser() {
+        for key in [
+            "long.back",
+            "button.page-forward",
+            "double.menu",
+            "button.hid.right",
+            "button.",
+            "button..x",
+            "long.Back",
+            "tap.center",
+            "long-tap.top-left",
+            "double-tap.bottom",
+            "tap.mine",
+            "long-tap.mine",
+            "double-tap.mine",
+            "tap2",
+            "swipe.up",
+            "swipe.sideways",
+            "edge.top",
+            "edge.up",
+            "pinch.out",
+            "pinch.in",
+            "pinch.diagonal",
+            "input.my.chord",
+            "input.My",
+            "gesture.my.shape",
+            "gestures.policy",
+            "gestures.other",
+            "chord.menu_up",
+            "chord.menu_menu",
+            "chord.menu",
+            "nonsense",
+            "factory.nonsense",
+            "",
+            ".",
+        ] {
+            let parsed = !matches!(InputKey::parse(key), None | Some(InputKey::ZoneTap(..)));
+            assert_eq!(native_input_ok(key), parsed, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn a_native_binding_is_checked_without_the_key_map() {
+        assert!(native_binding_ok(
+            "keyboard.screen",
+            "long.back",
+            "keyboard.done"
+        ));
+        assert!(native_binding_ok("global", "swipe.up", ""));
+        // Power and its chords are ordinary inputs (the escape has no name).
+        for input in [
+            "button.power",
+            "double.power",
+            "long.power",
+            "chord.back_power",
+        ] {
+            assert!(native_binding_ok("global", input, "a.b"), "{input}");
+        }
+        assert!(!native_binding_ok("Not A Layer", "long.back", "a.b"));
+        assert!(!native_binding_ok("a.b", "long.back", "Not An Action"));
+        assert!(!native_binding_ok("a.b", "tap.mine", "a.b"));
+        let mut keymap = Keymap::default();
+        let all = &DeviceInputs::ALL;
+        let bind = |keymap: &mut Keymap, layer, input, action| {
+            keymap.bind_native(layer, input, action, all)
+        };
+        assert_eq!(
+            bind(&mut keymap, "keyboard.screen", "long.back", "keyboard.done"),
+            Native::Bound
+        );
+        assert_eq!(
+            bind(&mut keymap, "keyboard.screen", "tap.mine", "keyboard.done"),
+            Native::Invalid
+        );
+    }
+
+    fn global(keymap: &Keymap, input: &str) -> Option<String> {
+        keymap
+            .resolve(&["global"], &InputKey::parse(input).unwrap())
+            .map(|id| id.as_str().to_string())
+    }
+
+    /// The global layer keeps an input to the main menu: a native binding that
+    /// would replace or unbind the last one is dropped, one that leaves another
+    /// is bound, and other layers are free.
+    #[test]
+    fn a_global_binding_never_removes_the_last_input_to_the_menu() {
+        let all = &DeviceInputs::ALL;
+        let mut keymap = Keymap::default();
+        keymap.load(
+            "[keymap.global]\nbutton.menu = core.menu\n[keymap.reader]\nbutton.menu = core.menu\n",
+            Origin::Plugin,
+            true,
+        );
+        // The only input to the menu: not replaced, not unbound.
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "core.home", all),
+            Native::Dropped
+        );
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "", all),
+            Native::Dropped
+        );
+        assert_eq!(global(&keymap, "button.menu").as_deref(), Some("core.menu"));
+        // Rebinding it to the menu again, another input, and another layer.
+        for (layer, input, action) in [
+            ("global", "button.menu", "core.menu"),
+            ("global", "button.home", "core.home"),
+            ("reader", "button.menu", "core.home"),
+            ("reader", "button.menu", ""),
+        ] {
+            assert_eq!(
+                keymap.bind_native(layer, input, action, all),
+                Native::Bound,
+                "{layer} {input}"
+            );
+        }
+        // With a second input to the menu, the first may go.
+        assert_eq!(
+            keymap.bind_native("global", "tap.center", "core.menu", all),
+            Native::Bound
+        );
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "core.home", all),
+            Native::Bound
+        );
+        assert_eq!(global(&keymap, "button.menu").as_deref(), Some("core.home"));
+        // But not the second, which is the last now.
+        assert_eq!(
+            keymap.bind_native("global", "tap.center", "", all),
+            Native::Dropped
+        );
+        assert_eq!(global(&keymap, "tap.center").as_deref(), Some("core.menu"));
+    }
+
+    /// Only inputs the device has count: on a device without a touch screen the
+    /// touch zones that open the menu are no way to it, so the button may not
+    /// go; one that lists its buttons counts only those.
+    #[test]
+    fn only_the_inputs_the_device_has_count_as_a_way_to_the_menu() {
+        const BUTTONS: &[&str] = &["back", "confirm", "menu"];
+        let device = |touch, keys| DeviceInputs {
+            buttons: true,
+            touch,
+            keys,
+        };
+        let source = "[keymap.global]\nbutton.menu = core.menu\ntap.center = core.menu\n\
+                      button.page = core.menu\n";
+        let make = || {
+            let mut keymap = Keymap::default();
+            keymap.load(source, Origin::Plugin, true);
+            keymap
+        };
+        // Without touch, the zone and the button the device lacks reach nothing.
+        let buttons_only = device(false, BUTTONS);
+        let mut keymap = make();
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "core.home", &buttons_only),
+            Native::Dropped
+        );
+        assert_eq!(global(&keymap, "button.menu").as_deref(), Some("core.menu"));
+        // With touch, the zone is a way: the button may go.
+        let mut keymap = make();
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "core.home", &device(true, BUTTONS)),
+            Native::Bound
+        );
+        // Taking away an input the device lacks loses nothing.
+        let mut keymap = make();
+        assert_eq!(
+            keymap.bind_native("global", "tap.center", "", &buttons_only),
+            Native::Bound
+        );
+        assert_eq!(
+            keymap.bind_native("global", "button.page", "core.home", &buttons_only),
+            Native::Bound
+        );
+        // And the last button is still guarded once those are gone.
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "", &buttons_only),
+            Native::Dropped
+        );
+        // A device that lists no buttons has them all.
+        let mut keymap = make();
+        assert_eq!(
+            keymap.bind_native("global", "button.menu", "core.home", &device(false, &[])),
+            Native::Bound
+        );
     }
 
     /// A layer's own zones are read from `[zones.<layer>]` and found by

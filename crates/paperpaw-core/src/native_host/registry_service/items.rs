@@ -313,5 +313,46 @@ fn inputs_flow(
         let title = translated(translator, &spec.title, TITLE);
         visit(&item(id.as_str(), namespace_of(&spec.id), flags, title))?;
     }
-    ControlFlow::Continue(())
+    native_inputs(sources, visit)
+}
+
+/// The inputs and gestures natively declared (`input.spec`, `ui.md` section
+/// 2) that this device meets. A store in use leaves them out of this page.
+fn native_inputs(
+    sources: &Sources<'_>,
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    let Some(directory) = sources.directory else {
+        return ControlFlow::Continue(());
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return ControlFlow::Continue(());
+    };
+    let env = sources.env;
+    let mut flow = ControlFlow::Continue(());
+    store.keys(Kind::InputSpec, &mut |key| {
+        if flow.is_break() {
+            return;
+        }
+        flow = super::ordered::with_plugin(&store, key, &mut |record, plugin| {
+            let Record::InputSpec(spec) = record else {
+                return ControlFlow::Continue(());
+            };
+            // Bit 0 `has_need`: the device meets it, or the row is not offered.
+            if spec.flags & 1 != 0
+                && !super::rules::need_met(spec.need, spec.capability, env.caps())
+            {
+                return ControlFlow::Continue(());
+            }
+            let gesture = spec.kind == 1;
+            let prefix = if gesture { "gesture." } else { "input." };
+            let Some(id) = Fixed::<ID>::of(&[prefix, plugin, ".", spec.name]) else {
+                return ControlFlow::Continue(());
+            };
+            let flags = DECLARED | if gesture { GESTURE } else { 0 };
+            let title = translated(env.i18n(), spec.title, TITLE);
+            visit(&item(id.as_str(), plugin, flags, title))
+        });
+    });
+    flow
 }
