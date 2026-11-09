@@ -6,6 +6,7 @@ use super::*;
 use crate::native_host::codec;
 use alloc::vec;
 use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_sdk::{Direction, Gesture, GestureKind};
 
 fn all(_: u64) -> bool {
     true
@@ -61,13 +62,22 @@ fn run(
     event: InputEvent,
     answers: Vec<Result<stage::FilterVerdict<'static>, i32>>,
 ) -> (Native, usize, usize) {
+    run_declaring(event, answers, &none)
+}
+
+/// [`run`] where `declared` says what the filter's plugin declared.
+fn run_declaring(
+    event: InputEvent,
+    answers: Vec<Result<stage::FilterVerdict<'static>, i32>>,
+    declared: &dyn Fn(u64, &str) -> bool,
+) -> (Native, usize, usize) {
     let mut chain = InputFilters::new();
     let mut runner = Scripted { answers, called: 0 };
     let policy = Policy {
         touch: true,
         secret: false,
         runs: &all,
-        declared: &none,
+        declared,
     };
     let (native, refused) = run_chain(
         &mut chain,
@@ -244,6 +254,63 @@ fn a_filter_replaces_a_pointer_and_it_is_clamped() {
 }
 
 #[test]
+fn a_filter_raises_an_input_it_declared_and_nothing_else() {
+    let raise = |name| Ok(stage::FilterVerdict::new(5, "", &[], name));
+    let own = |plugin: u64, name: &str| plugin == 1 && name == "gesture.demo.flick";
+    // Declared: the input is raised, no event goes on.
+    assert_eq!(
+        run_declaring(press("up"), vec![raise("gesture.demo.flick")], &own),
+        (Native::Raise("gesture.demo.flick".into()), 0, 1)
+    );
+    // Not declared (another's, or none): the original passes, counted.
+    for name in ["gesture.other.flick", "input.demo.flick", "button.menu", ""] {
+        assert_eq!(
+            run_declaring(press("up"), vec![raise(name)], &own),
+            (Native::Pass, 1, 1),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_filter_replaces_an_input_with_a_gesture() {
+    let gesture = |kind, x, y| {
+        let record = Record::InputGesture(wire::InputGesture {
+            now_ms: 5,
+            kind,
+            x,
+            y,
+        });
+        Ok(stage::FilterVerdict::new(4, "", batch(&record), ""))
+    };
+    let made = |kind, x, y, tool| {
+        let point = Point::new(x, y);
+        Native::Gesture(Gesture::new(kind, point, point, tool))
+    };
+    let tap = finger(PointerPhase::Down, 10, 20);
+    for (number, kind) in [
+        (0, GestureKind::Tap),
+        (1, GestureKind::LongPress),
+        (2, GestureKind::Swipe(Direction::Left)),
+        (3, GestureKind::Swipe(Direction::Right)),
+        (4, GestureKind::Swipe(Direction::Up)),
+        (5, GestureKind::Swipe(Direction::Down)),
+    ] {
+        assert_eq!(
+            run(tap, vec![gesture(number, 30, 40)]),
+            (made(kind, 30, 40, PointerTool::Finger), 0, 1)
+        );
+    }
+    // Clamped to the display; a key replaced makes a finger's gesture.
+    assert_eq!(
+        run(press("up"), vec![gesture(0, 9000, -3)]),
+        (made(GestureKind::Tap, 479, 0, PointerTool::Finger), 0, 1)
+    );
+    // A kind that is none of ours: the original passes, counted.
+    assert_eq!(run(tap, vec![gesture(6, 1, 1)]), (Native::Pass, 1, 1));
+}
+
+#[test]
 fn power_is_never_filtered() {
     // The runner has no answer for it: it is never called.
     assert_eq!(run(press(buttons::POWER), vec![]), (Native::Pass, 0, 0));
@@ -301,13 +368,57 @@ mod kernel {
         raw_declarations::RawDeclarations,
     };
     use alloc::{boxed::Box, rc::Rc};
-    use core::cell::Cell;
+    use core::cell::{Cell, RefCell};
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
-        Cx, Env, Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar, Screen,
-        ScreenSpec, Uses, Version,
+        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar,
+        Screen, ScreenSpec, Uses, Version,
+        filters::{InputFilterSpec, InputVerdict},
+        keys::InputSpec as PluginInput,
     };
+
+    extern crate std;
+    std::thread_local! {
+        /// What the native filter answers at its next call (one answer; then
+        /// pass): [`PASS`] and the modes below.
+        static MODE: Cell<u8> = const { Cell::new(PASS) };
+        /// How often the action `f.chord` ran, and a screen got a gesture.
+        static RAN: Cell<u32> = const { Cell::new(0) };
+        static GESTURES: Cell<u32> = const { Cell::new(0) };
+        /// Who saw an input, in order: `native` or `legacy`.
+        static ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    }
+    const PASS: u8 = 0;
+    /// Raise `input.f.chord` (declared), `input.f.nothing` (not).
+    const RAISE: u8 = 1;
+    const RAISE_UNDECLARED: u8 = 2;
+    /// Replace with a tap at (100, 100).
+    const GESTURE: u8 = 3;
+    /// The callback fails.
+    const FAIL: u8 = 4;
+    const TAKE: u8 = 5;
+
+    fn verdict(mode: u8, out: &mut [u8]) -> Result<usize, i32> {
+        let mut bytes = [0; 128];
+        let record = Record::InputGesture(wire::InputGesture {
+            now_ms: 1,
+            kind: 0,
+            x: 100,
+            y: 100,
+        });
+        let length = codec::encode_batch(core::slice::from_ref(&record), &mut bytes).unwrap();
+        match mode {
+            RAISE => stage::FilterVerdict::new(5, "", &[], "input.f.chord").encode(out),
+            RAISE_UNDECLARED => {
+                stage::FilterVerdict::new(5, "", &[], "input.f.nothing").encode(out)
+            }
+            GESTURE => stage::FilterVerdict::new(4, "", &bytes[..length], "").encode(out),
+            FAIL => Err(ERR_STATE),
+            TAKE => stage::FilterVerdict::new(1, "", &[], "").encode(out),
+            _ => stage::FilterVerdict::new(0, "", &[], "").encode(out),
+        }
+    }
 
     const LOCK: Id = Id::new_static("g.lock");
     const PIN: Id = Id::new_static("g.pin");
@@ -326,6 +437,10 @@ mod kernel {
         }
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
             Handled::No
+        }
+        fn on_gesture(&mut self, _: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+            GESTURES.with(|count| count.set(count.get() + 1));
+            Handled::Yes
         }
     }
 
@@ -352,6 +467,24 @@ mod kernel {
                     OWN_PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),
+                ))?;
+                // An input of its own the native filter can raise, the action
+                // it runs, and an interface-6 filter that watches.
+                r.add_input(PluginInput::new(Id::new_static("f.chord"), "f.chord"))?;
+                r.add_action(
+                    ActionSpec::new(Id::new_static("f.chord"), "f.chord")
+                        .handler(|_, _, _| RAN.with(|count| count.set(count.get() + 1))),
+                )?;
+                r.add_keymap(alloc::borrow::Cow::Borrowed(
+                    "[keymap.global]\ninput.f.chord = f.chord\n",
+                ))?;
+                r.add_input_filter(InputFilterSpec::new(
+                    Id::new_static("f.legacy"),
+                    "",
+                    Box::new(|_, _| {
+                        ORDER.with(|order| order.borrow_mut().push("legacy"));
+                        InputVerdict::Pass
+                    }),
                 ))
             }
         }
@@ -387,7 +520,8 @@ mod kernel {
                 .enter(&self.depth.as_depth().0)
                 .map_err(|_| ERR_BUSY)?;
             self.calls.set(self.calls.get() + 1);
-            let length = stage::FilterVerdict::new(0, "", &[], "").encode(out)?;
+            ORDER.with(|order| order.borrow_mut().push("native"));
+            let length = verdict(MODE.replace(PASS), out)?;
             Ok(i32::try_from(length).unwrap())
         }
     }
@@ -409,6 +543,10 @@ mod kernel {
     /// A kernel with the interface-6 plugin `g` (lock and PIN screens), `f`
     /// (a PIN screen) and the native plugin `f` filtering `core.input-filter`.
     fn world() -> (crate::Kernel, Rc<Cell<u32>>) {
+        MODE.set(PASS);
+        RAN.set(0);
+        GESTURES.set(0);
+        ORDER.with(|order| order.borrow_mut().clear());
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .plugin(Screens("g"))
             .plugin(Screens("f"))
@@ -432,12 +570,30 @@ mod kernel {
             .native_instances
             .test_insert(Id::new_static("f"), Some(lease.try_clone().unwrap()), true)
             .unwrap();
-        let rows = [Record::RegistrationStage(wire::RegistrationStage {
-            stage: stage::KEY,
-            token: 1,
-            order: 0,
-            signature: 0,
-        })];
+        let rows = [
+            Record::RegistrationStage(wire::RegistrationStage {
+                stage: stage::KEY,
+                token: 1,
+                order: 0,
+                signature: 0,
+            }),
+            Record::InputSpec(wire::InputSpec {
+                name: "chord",
+                title: "f.chord",
+                kind: 0,
+                need: 0,
+                capability: 0,
+                flags: 0,
+            }),
+            Record::InputSpec(wire::InputSpec {
+                name: "flick",
+                title: "f.flick",
+                kind: 1,
+                need: 0,
+                capability: 0,
+                flags: 0,
+            }),
+        ];
         let mut bytes = [0; 128];
         let length = wire::records_encode(&rows, &mut bytes).unwrap();
         let bytes = &bytes[..length];
@@ -545,5 +701,110 @@ mod kernel {
         kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
         key(&mut kernel, 10);
         assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn a_raised_input_runs_what_the_key_maps_bind_and_the_key_goes_nowhere_else() {
+        let (mut kernel, calls) = world();
+        MODE.set(RAISE);
+        kernel.handle(paperpaw_platform::Instant(10), press("up"));
+        assert_eq!((calls.get(), RAN.get()), (1, 1));
+        // The interface-6 filters did not see the raised key: the chain ended.
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        // An input the plugin did not declare: the key goes on, nothing runs.
+        MODE.set(RAISE_UNDECLARED);
+        kernel.handle(paperpaw_platform::Instant(20), press("up"));
+        assert_eq!(RAN.get(), 1);
+        assert_eq!(
+            ORDER.with(|order| order.borrow().clone()),
+            ["native", "native", "legacy"]
+        );
+    }
+
+    #[test]
+    fn a_replaced_gesture_is_the_kernels_own_gesture_for_the_screen_on_top() {
+        let (mut kernel, _) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        MODE.set(GESTURE);
+        kernel.handle(paperpaw_platform::Instant(10), press("up"));
+        assert_eq!(GESTURES.get(), 1);
+        // Only that: the key itself did not go on.
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+    }
+
+    #[test]
+    fn the_native_chain_comes_first_and_a_take_ends_it() {
+        let (mut kernel, calls) = world();
+        kernel.handle(paperpaw_platform::Instant(10), press("up"));
+        assert_eq!(
+            ORDER.with(|order| order.borrow().clone()),
+            ["native", "legacy"]
+        );
+        ORDER.with(|order| order.borrow_mut().clear());
+        MODE.set(TAKE);
+        kernel.handle(paperpaw_platform::Instant(20), press("down"));
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn power_is_not_filtered_and_a_failing_or_stopped_filter_passes_the_key_logged_once() {
+        let (mut kernel, calls) = world();
+        kernel.handle(paperpaw_platform::Instant(10), press(buttons::POWER));
+        assert_eq!(calls.get(), 0);
+        ORDER.with(|order| order.borrow_mut().clear());
+        // A failing callback: the key passes (the interface-6 filter sees it),
+        // and the warning comes once while it keeps failing.
+        let told = |kernel: &mut crate::Kernel| {
+            kernel
+                .take_warnings()
+                .iter()
+                .filter(|warning| warning.message.contains("native input filter"))
+                .count()
+        };
+        MODE.set(FAIL);
+        kernel.handle(paperpaw_platform::Instant(20), press("up"));
+        assert_eq!(
+            ORDER.with(|order| order.borrow().clone()),
+            ["native", "legacy"]
+        );
+        assert_eq!(told(&mut kernel), 1);
+        MODE.set(FAIL);
+        kernel.handle(paperpaw_platform::Instant(30), press("up"));
+        assert_eq!(told(&mut kernel), 0);
+        // A stopped plugin is a failed call: told again once the filter had
+        // answered well in between.
+        kernel.handle(paperpaw_platform::Instant(40), press("up"));
+        let owner = kernel.shared.native_instances.find("f").unwrap();
+        kernel.shared.native_instances.stop(owner).unwrap();
+        ORDER.with(|order| order.borrow_mut().clear());
+        let before = calls.get();
+        kernel.handle(paperpaw_platform::Instant(50), press("up"));
+        assert_eq!(calls.get(), before);
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["legacy"]);
+        assert_eq!(told(&mut kernel), 1);
+    }
+
+    #[test]
+    fn only_an_input_of_the_right_kind_the_plugin_declared_is_declared() {
+        let (kernel, _) = world();
+        let store = &kernel
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .unwrap()
+            .store;
+        let has = |plugin, name| declared_input(store, plugin, name);
+        assert!(has("f", "input.f.chord"));
+        assert!(has("f", "gesture.f.flick"));
+        // The wrong kind, another plugin's, an unknown name, no prefix.
+        assert!(!has("f", "gesture.f.chord"));
+        assert!(!has("f", "input.f.flick"));
+        assert!(!has("f", "input.g.chord"));
+        assert!(!has("g", "input.f.chord"));
+        assert!(!has("f", "input.f.nothing"));
+        assert!(!has("f", "f.chord"));
+        assert!(!has("f", "button.menu"));
     }
 }
