@@ -254,7 +254,8 @@ pub(crate) fn picture(
     if storage.exists(&marker) {
         return Ok(None);
     }
-    let mut head = [0u8; HEAD];
+    // On the heap: HEAD bytes are more than the X4's frame limit allows on the stack.
+    let mut head = mem::zeroed(HEAD).map_err(oom)?;
     let shown = match take_out(storage, path, dir, index)? {
         None => None,
         Some(from) => {
