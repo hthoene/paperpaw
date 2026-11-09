@@ -26,6 +26,9 @@ pub(crate) const KIND_CHECK: u32 = 3;
 /// The reasons of `device.md` 5.5 a plugin job ends with.
 pub(crate) mod reason {
     pub(crate) const OK: u8 = 0;
+    /// The user declined, or dismissed it.
+    pub(crate) const DECLINED: u8 = 2;
+    pub(crate) const DISMISSED: u8 = 3;
     /// Another cause, and no memory for the job's buffer.
     pub(crate) const OTHER: u8 = 1;
     /// Damaged, or not a plugin this firmware reads.
@@ -36,6 +39,8 @@ pub(crate) mod reason {
     pub(crate) const UNSIGNED: u8 = 8;
     /// Needs a newer interface, or a service or feature this one lacks.
     pub(crate) const NEEDS_NEWER: u8 = 10;
+    /// The same or an older version, not allowed.
+    pub(crate) const OLDER_NOT_ALLOWED: u8 = 14;
     /// Built for an older interface.
     pub(crate) const OLDER_BUILD: u8 = 11;
     /// Another chip or profile.
@@ -86,6 +91,10 @@ pub(crate) struct JobEnv<'a> {
     pub(crate) host: &'a PluginHost,
     /// The plugins built into the running image: an id among them is taken.
     pub(crate) built_ins: &'a dyn BuiltIns,
+    /// The asking plugin holds the trusted-installer grant
+    /// (`core.grant.install.<plugin>`): it skips the prompt, never a sideload's
+    /// or one that brings a new `uses.*` feature.
+    pub(crate) granted: bool,
 }
 
 /// The facts of a finished plugin check (`dev_check`), in place.
@@ -113,6 +122,11 @@ pub(crate) struct PluginFacts {
 pub(crate) enum JobStep {
     /// Not done: call again.
     More,
+    /// Waiting for the user's answer ([`PluginJob::answer`]); stepping it
+    /// again does nothing.
+    Wait,
+    /// The host asks the user; the job waits for [`PluginJob::answer`].
+    Ask(PluginQuestion),
     /// Done: `reason` as in `device.md` 5.5, and for a check its facts (kept
     /// in the plugin's result slot).
     Done(Finished),
@@ -123,6 +137,12 @@ pub(crate) enum JobStep {
 pub(crate) struct Finished {
     pub(crate) reason: u8,
     pub(crate) facts: Option<PluginFacts>,
+    /// `install_done.flags`: bit 0 data kept (a removal), bit 1 the change
+    /// reaches code at the next start (a code plugin installed or removed).
+    pub(crate) flags: u32,
+    /// The plugin list changed (event 70): a data plugin to load now, or one
+    /// gone.
+    pub(crate) changed: Option<Text<ID_MAX>>,
 }
 
 impl Finished {
@@ -130,8 +150,78 @@ impl Finished {
         Self {
             reason,
             facts: None,
+            flags: 0,
+            changed: None,
         }
     }
+
+    /// A finished check: its verdict and facts.
+    pub(crate) const fn checked(reason: u8, facts: Option<PluginFacts>) -> Self {
+        Self {
+            reason,
+            facts,
+            flags: 0,
+            changed: None,
+        }
+    }
+}
+
+/// `install_done.flags` bit 1: the code changes at the next start.
+pub(crate) const DONE_AT_NEXT_START: u32 = 2;
+
+/// The words of a host confirmation, as plain data (`device.md` 5.0): Core
+/// renders them in the user's language. Fixed-size, no heap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PluginQuestion {
+    /// The plugin that asked and its request.
+    pub(crate) owner: u64,
+    pub(crate) request: u32,
+    pub(crate) kind: u32,
+    pub(crate) id: Text<ID_MAX>,
+    pub(crate) name: Text<NAME_MAX>,
+    pub(crate) version: Text<VERSION_MAX>,
+    /// The signing key's name; empty where the device does not know it, and
+    /// then the host shows the fingerprint of `key`.
+    pub(crate) signer: Text<SIGNER_MAX>,
+    pub(crate) key: Option<[u8; 32]>,
+    /// Not from a catalog: no evidence came with it.
+    pub(crate) sideload: bool,
+    /// What an update is compared with.
+    pub(crate) relation: Relation,
+    /// What the plugin declares (`uses.*`), as the store page shows it.
+    pub(crate) uses: Uses,
+}
+
+/// How the new version stands to the installed one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Relation {
+    /// A first install, or a newer version.
+    Newer,
+    /// The same version, allowed.
+    Same,
+    /// An older version, allowed.
+    Older,
+}
+
+/// At most this many `uses.*` keys are shown; more is said by [`Uses::more`].
+pub(crate) const USES_SHOWN: usize = 16;
+pub(crate) const USE_KEY_MAX: usize = 24;
+
+/// The features a plugin declares, as shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Uses {
+    pub(crate) keys: [Text<USE_KEY_MAX>; USES_SHOWN],
+    pub(crate) count: u8,
+    /// More were declared than shown.
+    pub(crate) more: bool,
+}
+
+/// The user's answer to a confirmation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Answer {
+    Yes,
+    No,
+    Dismissed,
 }
 
 /// One plugin job in the queue.
@@ -145,6 +235,8 @@ pub(crate) trait PluginJob {
     fn kind(&self) -> u32;
     /// One bounded step.
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep;
+    /// The user's answer to the question the job asked.
+    fn answer(&mut self, answer: Answer);
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);

@@ -119,7 +119,9 @@ fn encode(entry: &Entry, out: &mut [u8]) -> usize {
     let mut at = 9;
     out[at..at + id.len()].copy_from_slice(id);
     at += id.len();
-    let (author, recovery) = pins.first.map_or(([0; 32], [0; 32]), |(a, r)| (a, r.unwrap_or([0; 32])));
+    let (author, recovery) = pins
+        .first
+        .map_or(([0; 32], [0; 32]), |(a, r)| (a, r.unwrap_or([0; 32])));
     for key in [author, recovery, pins.code.unwrap_or([0; 32])] {
         out[at..at + 32].copy_from_slice(&key);
         at += 32;
@@ -141,7 +143,13 @@ fn decode(bytes: &[u8]) -> Option<Entry> {
     if fnv1a64(body).to_le_bytes() != sum || body.len() < 9 || body[..4] != MAGIC {
         return None;
     }
-    let (version, kind, flags, count, len) = (body[4], body[5], body[6], usize::from(body[7]), usize::from(body[8]));
+    let (version, kind, flags, count, len) = (
+        body[4],
+        body[5],
+        body[6],
+        usize::from(body[7]),
+        usize::from(body[8]),
+    );
     if version != VERSION || kind != 0 || flags & !0b1111 != 0 || count > ROTATIONS_MAX {
         return None;
     }
@@ -169,9 +177,17 @@ fn decode(bytes: &[u8]) -> Option<Entry> {
         step.signature.copy_from_slice(&body[at + 32..at + 96]);
         at += 96;
     }
-    let first = (flags & FLAG_FIRST != 0)
-        .then(|| (author, (flags & FLAG_FIRST_RECOVERY != 0).then_some(recovery)));
-    let pins = Pins::with(first, &steps[..count], (flags & FLAG_CODE != 0).then_some(code))?;
+    let first = (flags & FLAG_FIRST != 0).then(|| {
+        (
+            author,
+            (flags & FLAG_FIRST_RECOVERY != 0).then_some(recovery),
+        )
+    });
+    let pins = Pins::with(
+        first,
+        &steps[..count],
+        (flags & FLAG_CODE != 0).then_some(code),
+    )?;
     Some(Entry {
         id: Text::new(id),
         had_old: flags & FLAG_HAD_OLD != 0,
@@ -184,7 +200,7 @@ fn decode(bytes: &[u8]) -> Option<Entry> {
 ///
 /// # Errors
 /// 16 for a card error; a missing parent is none there.
-fn present(storage: &dyn Storage, path: &str) -> Result<bool, u8> {
+pub(crate) fn present(storage: &dyn Storage, path: &str) -> Result<bool, u8> {
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
     let mut found = false;
     match storage.list_from(dir, 0, &mut |entry| {
@@ -197,7 +213,7 @@ fn present(storage: &dyn Storage, path: &str) -> Result<bool, u8> {
     }
 }
 
-fn io(error: StorageError) -> u8 {
+pub(crate) fn io(error: StorageError) -> u8 {
     match error {
         StorageError::Full => 17,
         StorageError::OutOfMemory => reason::OTHER,
@@ -213,7 +229,9 @@ fn io(error: StorageError) -> u8 {
 pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
     let mut buf = [0_u8; RECORD_MAX];
     let len = encode(entry, &mut buf);
-    storage.create_dir(paperpaw_sdk::builtin::PLUGIN_DIR).map_err(io)?;
+    storage
+        .create_dir(paperpaw_sdk::builtin::PLUGIN_DIR)
+        .map_err(io)?;
     storage.write(TMP, &buf[..len]).map_err(io)?;
     storage.sync().map_err(io)?;
     storage.rename(TMP, JOURNAL).map_err(io)?;
@@ -280,7 +298,9 @@ pub(crate) enum SwapStep {
     More,
     /// Finished: the new plugin is in place (`rolled_back` false) or the old
     /// one is back.
-    Done { rolled_back: bool },
+    Done {
+        rolled_back: bool,
+    },
     /// Stopped with this reason; the journal stays where the plugin is
     /// half done (the next start finishes it), and is gone where the old
     /// plugin was restored.
@@ -526,4 +546,4 @@ pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
 
 #[cfg(test)]
 #[path = "plugin_swap_tests.rs"]
-mod tests;
+pub(in crate::native_host) mod tests;

@@ -28,11 +28,19 @@ fn key(seed: &[u8; 32]) -> [u8; 32] {
 fn updated_card() -> MemoryStorage {
     let card = MemoryStorage::new();
     card.write("plugins/dials/plugin.ini", b"old").unwrap();
-    card.write("plugins/dials/sub/file.txt", b"old file").unwrap();
-    assert!(keys::remember_first_install(&card, "dials", &key(&A_SEED), &key(&R_SEED)));
+    card.write("plugins/dials/sub/file.txt", b"old file")
+        .unwrap();
+    assert!(keys::remember_first_install(
+        &card,
+        "dials",
+        &key(&A_SEED),
+        &key(&R_SEED)
+    ));
     assert!(native::remember_code(&card, "dials", &OLD_CODE));
-    card.write("plugins/.dials.part/plugin.ini", b"new").unwrap();
-    card.write("plugins/.dials.part/sub/file.txt", b"new file").unwrap();
+    card.write("plugins/.dials.part/plugin.ini", b"new")
+        .unwrap();
+    card.write("plugins/.dials.part/sub/file.txt", b"new file")
+        .unwrap();
     card
 }
 
@@ -76,15 +84,15 @@ fn update_entry() -> Entry {
 /// A card that lets `allowed` mutating actions through and then none: the
 /// power was cut. `fail_only` instead fails that one action and lets the rest
 /// through (a card error).
-struct Cut<'a> {
+pub(in crate::native_host) struct Cut<'a> {
     card: &'a MemoryStorage,
-    done: Cell<usize>,
+    pub(in crate::native_host) done: Cell<usize>,
     allowed: usize,
     fail_only: Option<usize>,
 }
 
 impl<'a> Cut<'a> {
-    fn after(card: &'a MemoryStorage, allowed: usize) -> Self {
+    pub(in crate::native_host) fn after(card: &'a MemoryStorage, allowed: usize) -> Self {
         Self {
             card,
             done: Cell::new(0),
@@ -92,7 +100,7 @@ impl<'a> Cut<'a> {
             fail_only: None,
         }
     }
-    fn failing(card: &'a MemoryStorage, nth: usize) -> Self {
+    pub(in crate::native_host) fn failing(card: &'a MemoryStorage, nth: usize) -> Self {
         Self {
             card,
             done: Cell::new(0),
@@ -173,7 +181,14 @@ fn text(card: &MemoryStorage, path: &str) -> Option<String> {
 }
 
 /// What the card says the plugin is: its folder, its pinned key, its code.
-fn state(card: &MemoryStorage) -> (Option<String>, Option<String>, Option<[u8; 32]>, Option<[u8; 32]>) {
+fn state(
+    card: &MemoryStorage,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<[u8; 32]>,
+    Option<[u8; 32]>,
+) {
     (
         text(card, "plugins/dials/plugin.ini"),
         text(card, "plugins/dials/sub/file.txt"),
@@ -182,7 +197,12 @@ fn state(card: &MemoryStorage) -> (Option<String>, Option<String>, Option<[u8; 3
     )
 }
 
-fn old_state() -> (Option<String>, Option<String>, Option<[u8; 32]>, Option<[u8; 32]>) {
+fn old_state() -> (
+    Option<String>,
+    Option<String>,
+    Option<[u8; 32]>,
+    Option<[u8; 32]>,
+) {
     (
         Some("old".into()),
         Some("old file".into()),
@@ -191,7 +211,12 @@ fn old_state() -> (Option<String>, Option<String>, Option<[u8; 32]>, Option<[u8;
     )
 }
 
-fn new_state() -> (Option<String>, Option<String>, Option<[u8; 32]>, Option<[u8; 32]>) {
+fn new_state() -> (
+    Option<String>,
+    Option<String>,
+    Option<[u8; 32]>,
+    Option<[u8; 32]>,
+) {
     (
         Some("new".into()),
         Some("new file".into()),
@@ -203,7 +228,10 @@ fn new_state() -> (Option<String>, Option<String>, Option<[u8; 32]>, Option<[u8;
 /// How many mutating actions the whole install takes.
 fn actions(card: &MemoryStorage, entry: &Entry) -> usize {
     let cut = Cut::after(card, usize::MAX);
-    assert_eq!(install(&cut, entry), Ok(SwapStep::Done { rolled_back: false }));
+    assert_eq!(
+        install(&cut, entry),
+        Ok(SwapStep::Done { rolled_back: false })
+    );
     cut.done.get()
 }
 
@@ -237,11 +265,30 @@ fn a_cut_after_each_card_action_of_an_update_leaves_the_old_or_the_new_plugin() 
             now if now == old_state() => {
                 old += 1;
                 // Before the journal: nothing moved, the old plugin is whole.
-                assert!(!journal_was_written || matches!(replayed, Replayed::Finished { rolled_back: true, .. }), "{allowed}: {replayed:?}");
+                assert!(
+                    !journal_was_written
+                        || matches!(
+                            replayed,
+                            Replayed::Finished {
+                                rolled_back: true,
+                                ..
+                            }
+                        ),
+                    "{allowed}: {replayed:?}"
+                );
             }
             now if now == new_state() => {
                 new += 1;
-                assert!(matches!(replayed, Replayed::Finished { rolled_back: false, .. }) || allowed == total, "{allowed}: {replayed:?}");
+                assert!(
+                    matches!(
+                        replayed,
+                        Replayed::Finished {
+                            rolled_back: false,
+                            ..
+                        }
+                    ) || allowed == total,
+                    "{allowed}: {replayed:?}"
+                );
             }
             now => panic!("a mix after {allowed} actions: {now:?} ({replayed:?})"),
         }
@@ -257,8 +304,10 @@ fn a_cut_after_each_card_action_of_an_update_leaves_the_old_or_the_new_plugin() 
 fn a_cut_after_each_card_action_of_a_first_install_leaves_nothing_or_the_plugin() {
     let build = || {
         let card = MemoryStorage::new();
-        card.write("plugins/.dials.part/plugin.ini", b"new").unwrap();
-        card.write("plugins/.dials.part/sub/file.txt", b"new file").unwrap();
+        card.write("plugins/.dials.part/plugin.ini", b"new")
+            .unwrap();
+        card.write("plugins/.dials.part/sub/file.txt", b"new file")
+            .unwrap();
         card
     };
     let pins = Pins::with(
@@ -281,7 +330,12 @@ fn a_cut_after_each_card_action_of_a_first_install_leaves_nothing_or_the_plugin(
         if ini.is_some() {
             assert_eq!(
                 (ini.as_deref(), file.as_deref(), author, code),
-                (Some("new"), Some("new file"), Some(key(&B_SEED)), Some(NEW_CODE)),
+                (
+                    Some("new"),
+                    Some("new file"),
+                    Some(key(&B_SEED)),
+                    Some(NEW_CODE)
+                ),
                 "{allowed}"
             );
             // A cut between the author's key and its recovery key leaves the
@@ -289,12 +343,18 @@ fn a_cut_after_each_card_action_of_a_first_install_leaves_nothing_or_the_plugin(
             // SDK's `remember_first_install` documents; never a recovery key
             // without its author.
             let recovery = keys::known_recovery(&card, "dials");
-            assert!(recovery.is_none() || recovery == Some(key(&R_SEED)), "{allowed}");
+            assert!(
+                recovery.is_none() || recovery == Some(key(&R_SEED)),
+                "{allowed}"
+            );
         } else {
             // Not installed: no pin, no code named.
             assert_eq!((author, code), (None, None), "{allowed}");
         }
-        assert!(!card.exists(JOURNAL) && !card.exists("plugins/.old-dials"), "{allowed}");
+        assert!(
+            !card.exists(JOURNAL) && !card.exists("plugins/.old-dials"),
+            "{allowed}"
+        );
     }
 }
 
@@ -309,7 +369,10 @@ fn a_card_error_before_the_stage_is_in_place_rolls_the_swap_back() {
         let ended = install(&cut, &entry).unwrap();
         assert_eq!(ended, SwapStep::Failed(reason::CARD), "action {nth}");
         assert_eq!(state(&card), old_state(), "action {nth}");
-        assert!(!card.exists(JOURNAL) && !card.exists("plugins/.dials.part"), "action {nth}");
+        assert!(
+            !card.exists(JOURNAL) && !card.exists("plugins/.dials.part"),
+            "action {nth}"
+        );
         assert!(!card.exists("plugins/.old-dials"), "action {nth}");
     }
 }
@@ -328,9 +391,18 @@ fn a_card_error_after_the_stage_is_in_place_keeps_the_journal_for_the_next_start
             seen = true;
             assert_eq!(why, reason::CARD);
             // The new folder is in place; the next start finishes it.
-            assert_eq!(text(&card, "plugins/dials/plugin.ini").as_deref(), Some("new"));
+            assert_eq!(
+                text(&card, "plugins/dials/plugin.ini").as_deref(),
+                Some("new")
+            );
             assert!(card.exists(JOURNAL), "action {nth}");
-            assert!(matches!(replay(&card), Replayed::Finished { rolled_back: false, .. }));
+            assert!(matches!(
+                replay(&card),
+                Replayed::Finished {
+                    rolled_back: false,
+                    ..
+                }
+            ));
             assert_eq!(state(&card), new_state(), "action {nth}");
         }
     }
@@ -341,15 +413,23 @@ fn a_card_error_after_the_stage_is_in_place_keeps_the_journal_for_the_next_start
 #[test]
 fn a_folder_that_appeared_since_the_check_is_not_replaced_unasked() {
     let card = MemoryStorage::new();
-    card.write("plugins/.dials.part/plugin.ini", b"new").unwrap();
-    card.write("plugins/dials/plugin.ini", b"someone's").unwrap();
+    card.write("plugins/.dials.part/plugin.ini", b"new")
+        .unwrap();
+    card.write("plugins/dials/plugin.ini", b"someone's")
+        .unwrap();
     let entry = Entry {
         id: Text::new("dials"),
         had_old: false,
         pins: Pins::NONE,
     };
-    assert_eq!(install(&card, &entry), Ok(SwapStep::Failed(reason::CHANGED)));
-    assert_eq!(text(&card, "plugins/dials/plugin.ini").as_deref(), Some("someone's"));
+    assert_eq!(
+        install(&card, &entry),
+        Ok(SwapStep::Failed(reason::CHANGED))
+    );
+    assert_eq!(
+        text(&card, "plugins/dials/plugin.ini").as_deref(),
+        Some("someone's")
+    );
     assert!(!card.exists("plugins/.dials.part") && !card.exists(JOURNAL));
 }
 

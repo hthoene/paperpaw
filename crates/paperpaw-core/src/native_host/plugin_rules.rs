@@ -126,7 +126,9 @@ impl Pins {
             code,
             ..Self::NONE
         };
-        pins.rotations.get_mut(..rotations.len())?.copy_from_slice(rotations);
+        pins.rotations
+            .get_mut(..rotations.len())?
+            .copy_from_slice(rotations);
         pins.count = rotations.len() as u8;
         Some(pins)
     }
@@ -214,7 +216,12 @@ impl Steps {
 /// the steps up to the one that names `key`, those before the pinned key
 /// skipped, none refused after the first taken. `None` where it does not
 /// lead there (or no recovery key is pinned).
-fn follow(staged: &Staged<'_>, evidence: &Evidence, pinned: [u8; 32], key: [u8; 32]) -> Option<Steps> {
+fn follow(
+    staged: &Staged<'_>,
+    evidence: &Evidence,
+    pinned: [u8; 32],
+    key: [u8; 32],
+) -> Option<Steps> {
     let recovery = staged.standing.recovery?;
     let steps = evidence.rotations();
     let last = steps.iter().position(|step| step.to == key)?;

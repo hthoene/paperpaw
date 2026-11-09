@@ -66,7 +66,10 @@ fn a_key_pinned_here_installs_and_takes_nothing_but_the_code() {
     let s = staged(A, standing(Some(A), Some(recovery())));
     let (sideload, pins) = pins_of(decide(&s, &Evidence::NONE));
     assert!(!sideload);
-    assert_eq!((pins.first, pins.rotations().len(), pins.code), (None, 0, Some(DIGEST)));
+    assert_eq!(
+        (pins.first, pins.rotations().len(), pins.code),
+        (None, 0, Some(DIGEST))
+    );
     // The catalog's word about the author does not move a pin.
     let (_, pins) = pins_of(decide(&s, &author(Some(B), None, None)));
     assert_eq!(pins.first, None);
@@ -77,8 +80,14 @@ fn a_revoked_pinned_key_never_installs() {
     let mut standing = standing(Some(A), Some(recovery()));
     standing.revoked = true;
     let s = staged(A, standing);
-    assert_eq!(decide(&s, &Evidence::NONE), Decision::Refused(reason::REVOKED));
-    assert_eq!(decide(&s, &author(Some(A), None, Some(DIGEST))), Decision::Refused(7));
+    assert_eq!(
+        decide(&s, &Evidence::NONE),
+        Decision::Refused(reason::REVOKED)
+    );
+    assert_eq!(
+        decide(&s, &author(Some(A), None, Some(DIGEST))),
+        Decision::Refused(7)
+    );
 }
 
 #[test]
@@ -90,8 +99,14 @@ fn a_pin_on_another_key_installs_only_through_rotations_the_recovery_key_signed(
     assert_eq!(pins.rotations(), &[step(&A, &B)]);
     assert_eq!(pins.first, None);
     // No rotation, or none that names the signing key: key changed.
-    assert_eq!(decide(&s, &Evidence::NONE), Decision::Refused(reason::KEY_CHANGED));
-    assert_eq!(decide(&s, &rotations(&[step(&A, &C)])), Decision::Refused(6));
+    assert_eq!(
+        decide(&s, &Evidence::NONE),
+        Decision::Refused(reason::KEY_CHANGED)
+    );
+    assert_eq!(
+        decide(&s, &rotations(&[step(&A, &C)])),
+        Decision::Refused(6)
+    );
     // A step before the pinned key is skipped: X to A, then A to B.
     let chain = [step(&C, &A), step(&A, &B)];
     let (_, pins) = pins_of(decide(&s, &rotations(&chain)));
@@ -102,7 +117,10 @@ fn a_pin_on_another_key_installs_only_through_rotations_the_recovery_key_signed(
     // A step after the first taken that does not hold refuses.
     let mut forged = step(&C, &B);
     forged.signature[0] ^= 1;
-    assert_eq!(decide(&s, &rotations(&[step(&A, &C), forged])), Decision::Refused(6));
+    assert_eq!(
+        decide(&s, &rotations(&[step(&A, &C), forged])),
+        Decision::Refused(6)
+    );
     // A signature by another key than the recovery key.
     let by_other = Rotation {
         to: B,
@@ -117,7 +135,10 @@ fn a_pin_on_another_key_installs_only_through_rotations_the_recovery_key_signed(
     assert_eq!(decide(&s, &rotations(&[elsewhere])), Decision::Refused(6));
     // No recovery key pinned: only a successor (a new id).
     let s = staged(B, standing(Some(A), None));
-    assert_eq!(decide(&s, &rotations(&[step(&A, &B)])), Decision::Refused(6));
+    assert_eq!(
+        decide(&s, &rotations(&[step(&A, &B)])),
+        Decision::Refused(6)
+    );
 }
 
 #[test]
@@ -128,7 +149,10 @@ fn a_new_id_installs_only_if_the_catalog_names_the_signing_key() {
     assert_eq!(pins.first, Some((A, Some(recovery()))));
     let (_, pins) = pins_of(decide(&s, &author(Some(A), None, None)));
     assert_eq!(pins.first, Some((A, None)));
-    assert_eq!(decide(&s, &author(Some(B), None, None)), Decision::Refused(reason::NOT_THE_AUTHOR));
+    assert_eq!(
+        decide(&s, &author(Some(B), None, None)),
+        Decision::Refused(reason::NOT_THE_AUTHOR)
+    );
     assert_eq!(decide(&s, &author(None, None, None)), Decision::Refused(5));
 }
 
@@ -149,13 +173,22 @@ fn no_evidence_is_a_sideload_that_pins_the_key_once_confirmed() {
 #[test]
 fn a_digest_other_than_the_named_one_is_reason_18() {
     let s = staged(A, standing(Some(A), None));
-    assert_eq!(decide(&s, &author(None, None, Some([0; 32]))), Decision::Refused(reason::CHANGED));
-    assert!(matches!(decide(&s, &author(None, None, Some(DIGEST))), Decision::Install { .. }));
+    assert_eq!(
+        decide(&s, &author(None, None, Some([0; 32]))),
+        Decision::Refused(reason::CHANGED)
+    );
+    assert!(matches!(
+        decide(&s, &author(None, None, Some(DIGEST))),
+        Decision::Install { .. }
+    ));
     // Before any key rule: a revoked key with a wrong digest is still 18.
     let mut standing = standing(Some(A), None);
     standing.revoked = true;
     let s = staged(A, standing);
-    assert_eq!(decide(&s, &author(None, None, Some([0; 32]))), Decision::Refused(18));
+    assert_eq!(
+        decide(&s, &author(None, None, Some([0; 32]))),
+        Decision::Refused(18)
+    );
 }
 
 #[test]
@@ -169,7 +202,10 @@ fn a_data_plugin_has_no_author_to_pin_and_no_digest_to_match() {
     assert!(!sideload);
     assert_eq!(pins, Pins::NONE);
     // A digest named for code that is not there: the content changed.
-    assert_eq!(decide(&s, &author(None, None, Some(DIGEST))), Decision::Refused(18));
+    assert_eq!(
+        decide(&s, &author(None, None, Some(DIGEST))),
+        Decision::Refused(18)
+    );
 }
 
 #[test]

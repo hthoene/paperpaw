@@ -35,8 +35,8 @@ use paperpaw_sdk::native::{self, CODE_FILES};
 
 use super::plugin_folder::{self, Found, Manifest, Walk, Walked};
 use super::plugin_job::{
-    FLAG_DATA_PLUGIN, FLAG_PINNED_HERE, FLAG_PINNED_OTHER, Finished, JobEnv, JobStep, KIND_CHECK,
-    PluginFacts, PluginJob, io_buffer, reason,
+    Answer, FLAG_DATA_PLUGIN, FLAG_PINNED_HERE, FLAG_PINNED_OTHER, Finished, ID_MAX, JobEnv,
+    JobStep, KIND_CHECK, PluginFacts, PluginJob, io_buffer, reason,
 };
 use super::plugin_trust;
 
@@ -80,6 +80,9 @@ pub(crate) struct PluginCheck {
     digest: Option<[u8; 32]>,
     /// Set by [`PluginJob::abort`]: the next step ends with it.
     stopped: Option<u8>,
+    /// The id a manifest that names none has: a staged copy's folder is not
+    /// named for it.
+    hint: Option<Text<ID_MAX>>,
 }
 
 impl PluginCheck {
@@ -110,7 +113,16 @@ impl PluginCheck {
             at: 0,
             digest: None,
             stopped: None,
+            hint: None,
         })
+    }
+
+    /// A check of the staged copy at `stage` of the plugin `id` (an install
+    /// checks it again, whatever a check said).
+    pub(crate) fn staged(owner: u64, request: u32, stage: &str, id: &str) -> Option<Self> {
+        let mut check = Self::new(owner, request, stage)?;
+        check.hint = Some(Text::new(id));
+        Some(check)
     }
 
     fn end(&mut self, reason: u8) -> JobStep {
@@ -175,11 +187,16 @@ impl PluginCheck {
         let (Some(walk), Some(found)) = (self.walk.as_ref(), self.found) else {
             return self.end(reason::OTHER);
         };
-        let manifest =
-            match plugin_folder::read_manifest(env.storage, walk.root(), walk.folder_name()) {
-                Ok(manifest) => manifest,
-                Err(why) => return self.end(why),
-            };
+        let manifest = match plugin_folder::read_manifest(
+            env.storage,
+            walk.root(),
+            self.hint
+                .as_ref()
+                .map_or_else(|| walk.folder_name(), |hint| hint.as_str()),
+        ) {
+            Ok(manifest) => manifest,
+            Err(why) => return self.end(why),
+        };
         let id = manifest.id.as_str();
         if id == "core" || env.built_ins.index_of(id).is_some() {
             return self.end(reason::ID_TAKEN);
@@ -191,10 +208,7 @@ impl PluginCheck {
                 let facts = Self::facts(&found, &manifest, None, 0);
                 self.release();
                 self.phase = Phase::Ended;
-                JobStep::Done(Finished {
-                    reason: reason::OK,
-                    facts: Some(facts),
-                })
+                JobStep::Done(Finished::checked(reason::OK, Some(facts)))
             }
             // Only code of a computer: another kind of device.
             Some(index) if CODE_FILES.get(index).copied() != Some(CODE) => {
@@ -387,10 +401,7 @@ impl PluginCheck {
         };
         self.release();
         self.phase = Phase::Ended;
-        JobStep::Done(Finished {
-            reason,
-            facts: Some(facts),
-        })
+        JobStep::Done(Finished::checked(reason, Some(facts)))
     }
 }
 
@@ -430,6 +441,8 @@ impl PluginJob for PluginCheck {
             Phase::Ended => JobStep::Done(Finished::refused(reason::OTHER)),
         }
     }
+
+    fn answer(&mut self, _: Answer) {}
 
     fn abort(&mut self, why: u8) {
         self.stopped = Some(why);
@@ -522,4 +535,4 @@ fn own_need(
 
 #[cfg(test)]
 #[path = "plugin_check_tests.rs"]
-mod tests;
+pub(in crate::native_host) mod tests;

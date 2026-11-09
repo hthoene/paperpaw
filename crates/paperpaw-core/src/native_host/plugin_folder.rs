@@ -61,11 +61,24 @@ pub(crate) struct Walk {
     at: usize,
     place: u64,
     found: Found,
+    /// Whether the files of each piece are kept for [`Walk::take_files`] (an install
+    /// copies them); a check only counts.
+    keep: bool,
+    files: Vec<(String, u64)>,
 }
 
 impl Walk {
     /// A walk over the folder at `root`. No memory is `None`.
     pub(crate) fn new(root: &str) -> Option<Self> {
+        Self::make(root, false)
+    }
+
+    /// A walk that hands over the files of each piece, for a copy.
+    pub(crate) fn copying(root: &str) -> Option<Self> {
+        Self::make(root, true)
+    }
+
+    fn make(root: &str, keep: bool) -> Option<Self> {
         let root = root.trim_end_matches('/');
         if root.is_empty() || root.len() > PATH_MAX {
             return None;
@@ -87,6 +100,8 @@ impl Walk {
                 manifest: false,
                 code: None,
             },
+            keep,
+            files: Vec::new(),
         })
     }
 
@@ -97,6 +112,11 @@ impl Walk {
 
     pub(crate) fn root(&self) -> &str {
         &self.root
+    }
+
+    /// The files (path below the root, size) the last step found, once.
+    pub(crate) fn take_files(&mut self) -> Vec<(String, u64)> {
+        core::mem::take(&mut self.files)
     }
 
     /// One piece of the folder being listed.
@@ -118,6 +138,8 @@ impl Walk {
         let mut seen = 0_usize;
         let mut failed: Option<u8> = None;
         let mut subdirs: Vec<String> = Vec::new();
+        let mut kept: Vec<(String, u64)> = Vec::new();
+        let keep = self.keep;
         let mut found = self.found;
         let top = rel.is_empty();
         let known = self.dirs.len();
@@ -142,8 +164,12 @@ impl Walk {
                 return false;
             }
             if entry.is_dir {
-                if known + subdirs.len() >= DIRS_MAX || subdirs.try_reserve(1).is_err() {
+                if known + subdirs.len() >= DIRS_MAX {
                     failed = Some(reason::DAMAGED);
+                    return false;
+                }
+                if subdirs.try_reserve(1).is_err() {
+                    failed = Some(reason::OTHER);
                     return false;
                 }
                 subdirs.push(name);
@@ -165,6 +191,13 @@ impl Walk {
                     _ => Some(index),
                 };
             }
+            if keep {
+                if kept.try_reserve(1).is_err() {
+                    failed = Some(reason::OTHER);
+                    return false;
+                }
+                kept.push((name, entry.size));
+            }
             true
         });
         if let Some(reason) = failed {
@@ -172,6 +205,10 @@ impl Walk {
         }
         match listed {
             Ok(next) => {
+                if self.files.try_reserve(kept.len()).is_err() {
+                    return Walked::Refused(reason::OTHER);
+                }
+                self.files.extend(kept);
                 self.found = found;
                 self.dirs.extend(subdirs);
                 match next {
