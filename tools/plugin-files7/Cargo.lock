@@ -208,6 +208,7 @@ dependencies = [
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-menu-editor",
+ "paperpaw-plugin-news",
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
@@ -334,6 +335,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-menu-editor"
 version = "1.0.9"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-news"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

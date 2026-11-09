@@ -107,6 +107,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "news"
+path = "src/bin/news.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "notes-overview"
 path = "src/bin/notes-overview.rs"
 test = false
@@ -339,6 +345,7 @@ paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
 paperpaw-plugin-menu-editor = { path = "../../plugins/menu-editor", features = ["native-entry"] }
+paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"] }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
