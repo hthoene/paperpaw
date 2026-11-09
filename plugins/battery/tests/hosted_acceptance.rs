@@ -37,10 +37,7 @@ impl paperpaw_sdk::Plugin for Catalogs {
             paperpaw_sdk::Version::new(1, 0, 8),
         )
     }
-    fn register(
-        &self,
-        r: &mut paperpaw_sdk::Registrar,
-    ) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
         for text in [
             include_str!("../i18n/en.ini"),
             include_str!("../i18n/de.ini"),
@@ -255,4 +252,3 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
     );
     let _ = std::fs::remove_dir_all(&folder);
 }
-
