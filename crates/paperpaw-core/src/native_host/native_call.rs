@@ -53,10 +53,7 @@ pub(crate) fn call(
     // misbehaviour. Only an answer the host cannot take is dropped.
     let length = lease.stage(token, input, reply, frame.env)?;
     let length = usize::try_from(length).map_err(|_| length)?;
-    let taken = reply
-        .get(..length)
-        .ok_or(ERR_INVALID)
-        .and_then(|answer| accept(answer));
+    let taken = reply.get(..length).ok_or(ERR_INVALID).and_then(accept);
     match taken {
         Ok(()) => Ok(length),
         Err(status) => {

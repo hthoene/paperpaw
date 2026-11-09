@@ -127,6 +127,7 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+pub(crate) mod doc_host;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -325,14 +326,14 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
-#[path = "native_host/native_keys.rs"]
-mod native_keys;
 #[path = "native_host/native_call.rs"]
 #[allow(
     dead_code,
     reason = "the document and lookup adapters call it through Frame::call_native"
 )]
 pub(crate) mod native_call;
+#[path = "native_host/native_keys.rs"]
+mod native_keys;
 
 #[path = "native_host/native_menus.rs"]
 #[allow(

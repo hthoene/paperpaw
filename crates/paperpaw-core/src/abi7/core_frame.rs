@@ -135,6 +135,19 @@ impl Frame for CoreFrame<'_> {
         crate::native_host::native_call::call(self, owner, token, input, reply, accept)
     }
 
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        let store = directory
+            .store
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        visit(&*store);
+        Ok(())
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
     }

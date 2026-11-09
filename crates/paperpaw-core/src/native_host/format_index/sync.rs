@@ -33,7 +33,11 @@ impl FormatIndex {
     ///
     /// Nothing the store holds is lost to a refusal: an allocation that fails
     /// is `ERR_NO_MEMORY` with the index as it was for the rest, and the next
-    /// sync tries again. The generation moves only when a row did.
+    /// sync tries again. The generation moves only when a row did. Returns how
+    /// many formats the index refused for another reason and skipped (the
+    /// store admitted them under the same limits and names, so it is 0 unless
+    /// the two disagree: the others are still listed, one format never hides
+    /// the rest).
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`.
@@ -41,10 +45,11 @@ impl FormatIndex {
         &mut self,
         store: &DeclarationStore,
         mut gone: impl FnMut(FormatRef),
-    ) -> Result<(), i32> {
+    ) -> Result<u32, i32> {
         self.retain_declared(store, &mut gone);
-        self.add_declared(store)?;
-        self.replace_readers(store)
+        let skipped = self.add_declared(store)?;
+        self.replace_readers(store)?;
+        Ok(skipped)
     }
 
     fn retain_declared(&mut self, store: &DeclarationStore, gone: &mut impl FnMut(FormatRef)) {
@@ -64,10 +69,11 @@ impl FormatIndex {
         }
     }
 
-    fn add_declared(&mut self, store: &DeclarationStore) -> Result<(), i32> {
-        let mut result = Ok(());
+    fn add_declared(&mut self, store: &DeclarationStore) -> Result<u32, i32> {
+        let mut failure = None;
+        let mut skipped = 0_u32;
         store.each_format(&mut |f| {
-            if result.is_err()
+            if failure.is_some()
                 || self
                     .formats
                     .iter()
@@ -75,9 +81,17 @@ impl FormatIndex {
             {
                 return;
             }
-            result = self.declare_format(f.owner, f.plugin, f.spec).map(|_| ());
+            match self.declare_format(f.owner, f.plugin, f.spec) {
+                Ok(_) => {}
+                // The heap: stop, the next sync resumes where this left off.
+                Err(ERR_NO_MEMORY) => failure = Some(ERR_NO_MEMORY),
+                // Anything else is the index disagreeing with the store's own
+                // admission (same limits, same names, so it cannot happen
+                // today): skip this one format, the rest stay listed.
+                Err(_) => skipped = skipped.saturating_add(1),
+            }
         });
-        result
+        failure.map_or(Ok(skipped), Err)
     }
 
     /// The readers of the store, as the index lists them: `title` is the id of

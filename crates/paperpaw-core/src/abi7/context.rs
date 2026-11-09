@@ -160,6 +160,16 @@ pub(crate) trait Frame {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 
+    /// The declaration store (a `DeclarationStore`, as `dyn Any`: this file is
+    /// also compiled by the integration tests, which have no such type), read
+    /// for the length of `visit` (the document service reads the formats and
+    /// reading apps there). `visit` must not invoke plugins or reenter the
+    /// store. `ERR_BUSY` while the store is being changed, `ERR_UNSUPPORTED`
+    /// for a frame without a directory.
+    fn with_declarations(&self, _visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
     /// A host view kept behind a service key, as `dyn Any`. **Not used by the
     /// families any more**: `core.device`, `core.document`, `core.library` and
     /// `core.lookup` reach theirs through the caller's `hosts`
