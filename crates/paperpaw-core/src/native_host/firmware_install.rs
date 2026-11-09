@@ -699,12 +699,17 @@ impl FirmwareInstall {
     /// that failed is state 4. The job's buffers are freed with it.
     fn finish(&mut self, job: Job, reason: u8, facts: Option<CheckFacts>, bits: Bits) -> Outcome {
         let ended = outcome(&job, reason);
-        // A check that failed names no built-ins: its bits were read from an
-        // image that is not usable, so op 16 never lists rows from it.
-        let (facts, bits) = if reason == 0 {
-            (facts, bits)
-        } else {
-            (None, Bits::NONE)
+        // A check that failed partway (`facts` is `None`) and one of an image
+        // that is damaged or for another chip tell nothing true about the
+        // image: no facts, no built-ins. A check that finished keeps both even
+        // where it refuses (unsigned, an unknown key, older, no room): op 6
+        // gives the update plugin the key to ask for, the version and the size.
+        let (facts, bits) = match facts {
+            Some(_) if matches!(reason, r if r == Reason::OTHER_CHIP.0 || r == Reason::DAMAGED.0) => {
+                (None, Bits::NONE)
+            }
+            Some(facts) => (Some(facts), bits),
+            None => (None, Bits::NONE),
         };
         if job.install.is_none() {
             self.keep(

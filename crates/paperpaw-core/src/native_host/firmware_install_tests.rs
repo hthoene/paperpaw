@@ -467,15 +467,7 @@ fn a_check_that_fails_after_streaming_built_ins_keeps_no_bits() {
     let checked = machine.checked(OWNER).unwrap();
     assert_eq!(checked.reason, 18);
     assert!(!checked.leaves_out_some() && !checked.leaves_out(1));
-    // A finished check whose verdict says no (unsigned) names none either.
-    let mut fw = fake();
-    fw.facts.signer = Signer::Unsigned;
-    machine.reserve_check(OWNER).unwrap();
-    machine.start(check_job(OWNER, 2), &mut fw);
-    run(&mut machine, &mut fw);
-    let checked = machine.checked(OWNER).unwrap();
-    assert_ne!(checked.reason, 0);
-    assert!(!checked.leaves_out_some());
+    assert!(checked.facts.is_none());
 }
 
 #[test]
@@ -585,14 +577,53 @@ fn a_late_yes_never_restarts_and_a_refused_check_keeps_no_facts() {
         machine.answer(restart_q(OWNER, 9), Answer::Yes, &mut fw),
         Event::Restart
     );
-    // An unsigned image's check (refused) leaves no facts and no bits.
-    let mut fw = fake();
-    fw.facts.signer = Signer::Unsigned;
-    let mut machine = FirmwareInstall::new();
-    machine.reserve_check(OWNER).unwrap();
-    machine.start(check_job(OWNER, 2), &mut fw);
-    run(&mut machine, &mut fw);
-    let checked = machine.checked(OWNER).unwrap();
-    assert_ne!(checked.reason, 0);
-    assert!(checked.facts.is_none() && !checked.leaves_out_some());
+}
+
+/// A name, the change to the device, the reason, whether facts are kept.
+type Verdict = (&'static str, fn(&mut FakeFirmware), u8, bool);
+
+#[test]
+fn a_finished_check_keeps_its_facts_where_it_refuses_and_a_damaged_or_foreign_chip_keeps_none() {
+    let cases: [Verdict; 6] = [
+        ("unsigned", |f| f.facts.signer = Signer::Unsigned, 8, true),
+        (
+            "unknown key: op 6 hands the key out",
+            |f| f.facts.signer = Signer::Other { key: [7; 32] },
+            9,
+            true,
+        ),
+        (
+            "older",
+            |f| f.facts = paperpaw_facts("0.4.0", "paperpaw-x4", 3 * WRITE_BLOCK),
+            14,
+            true,
+        ),
+        ("no room", |f| f.room = WRITE_BLOCK as u64, 13, true),
+        ("other chip", |f| f.facts.chip_ok = false, 12, false),
+        (
+            "damaged",
+            |f| f.facts = paperpaw_facts("not-a-version", "paperpaw-x4", WRITE_BLOCK),
+            4,
+            false,
+        ),
+    ];
+    for (name, change, reason, kept) in cases {
+        let mut fw = fake();
+        change(&mut fw);
+        let mut machine = FirmwareInstall::new();
+        machine.reserve_check(OWNER).unwrap();
+        machine.start(check_job(OWNER, 1), &mut fw);
+        run(&mut machine, &mut fw);
+        let checked = machine.checked(OWNER).unwrap();
+        assert_eq!(checked.reason, reason, "{name}");
+        assert_eq!(checked.facts.is_some(), kept, "{name}");
+        if let Some(facts) = checked.facts {
+            // What op 6 reads: the image's key, version and size.
+            assert_eq!(facts.size, fw.facts.size, "{name}");
+            assert_eq!(facts.signer, fw.facts.signer, "{name}");
+            assert!(checked.leaves_out_some(), "{name}: bits kept");
+        } else {
+            assert!(!checked.leaves_out_some(), "{name}: no bits");
+        }
+    }
 }
