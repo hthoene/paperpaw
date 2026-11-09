@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), hints) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop), item_states, hints) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -82,23 +82,49 @@ impl Kernel {
                     self.shared.stack_rows.labels(),
                     !self.hint.buttons.is_empty(),
                 );
+                if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                    stage = stage
+                        .with_item_states(crate::native_host::commands::ItemAdmit { directory });
+                }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
-                let status = scope.scope(&mut stage, || invoke(context, &frame))??;
-                let valid =
-                    status == 0 || (matches!(target.result, CommandResult::Input) && status == 1);
-                if !valid {
-                    return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
-                }
+                let ran = (|| {
+                    let status = scope.scope(&mut stage, || invoke(context, &frame))??;
+                    let valid = status == 0
+                        || (matches!(target.result, CommandResult::Input) && status == 1);
+                    if valid {
+                        Ok(status)
+                    } else {
+                        Err(Error::Status(if status < 0 { status } else { ERR_INVALID }))
+                    }
+                })();
+                let status = match ran {
+                    Ok(status) => status,
+                    Err(error) => {
+                        // Nothing is applied: the room and the slot go back.
+                        stage.drop_item_states();
+                        return Err(error);
+                    }
+                };
+                let item_states = stage.take_item_states();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, context.owner_key(), images, output, hints))
+                Ok::<_, Error>((
+                    status,
+                    owner,
+                    context.owner_key(),
+                    images,
+                    output,
+                    item_states,
+                    hints,
+                ))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);
+        self.apply_item_states(&owner, item_states);
         // The labels the callback set; room was taken when they were checked.
         // Nothing holds the table across a callback, so a failed borrow is a
         // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
@@ -109,5 +135,39 @@ impl Kernel {
             labels.apply(hints);
         }
         Ok(status)
+    }
+
+    /// The states the callback pushed, applied in submit order after its
+    /// other commands. The checks were made at submit; a state the host
+    /// cannot store now (no memory) is dropped with a warning, the table
+    /// unchanged.
+    fn apply_item_states(
+        &mut self,
+        owner: &Id,
+        (pushes, held): (
+            alloc::vec::Vec<crate::native_host::item_state::ItemPush>,
+            usize,
+        ),
+    ) {
+        let Some(directory) = self.shared.registry.native_declarations.as_ref() else {
+            return;
+        };
+        if pushes.is_empty() {
+            crate::native_host::commands::ItemAdmit { directory }.finish(owner.as_str(), held);
+            return;
+        }
+        let mut failed = false;
+        match directory.items.try_borrow_mut() {
+            Ok(mut states) => {
+                for push in pushes {
+                    failed |= states.apply(owner.as_str(), push).is_err();
+                }
+            }
+            Err(_) => failed = true,
+        }
+        crate::native_host::commands::ItemAdmit { directory }.finish(owner.as_str(), held);
+        if failed {
+            self.warn_runtime("item state dropped: the host could not keep it");
+        }
     }
 }

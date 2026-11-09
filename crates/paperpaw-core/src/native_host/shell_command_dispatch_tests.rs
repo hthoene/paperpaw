@@ -81,3 +81,6 @@ fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() 
 
 #[path = "shell_command_status_tests.rs"]
 mod abi_status;
+
+#[path = "shell_item_state_tests.rs"]
+mod item_state;

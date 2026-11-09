@@ -301,6 +301,13 @@ pub mod registrations;
 #[path = "native_host/retained.rs"]
 mod retained;
 
+#[path = "native_host/item_state.rs"]
+#[allow(
+    dead_code,
+    reason = "the registry and the production native command path read and fill it"
+)]
+pub(crate) mod item_state;
+
 #[path = "native_host/native_declarations.rs"]
 #[allow(
     dead_code,
