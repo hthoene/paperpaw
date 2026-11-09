@@ -1,6 +1,6 @@
 # Interface-7 port (slices 1–2 done: shared provider, Markdown, HTML)
 
-Done: `provider.rs`, `markdown_provider()`, `html_provider()`, parity tests `tests/provider_markdown.rs`, `tests/provider_html.rs` (block by block against the interface-6 reader). Block `lang` (BCP 47), `dir` and `writing_mode` are sent with the draft-29 numbers. Gaps until draft 29 lands in the SDK: ruby kind (`AnnotationKind`, all sent as 0), inline languages, embedded fonts (root-6 `fonts/<i>`). Op 18 serves the picture of the block that starts at `index`. A language or series index over the call's limit is cut, never refused. Tests: parity incl. block headers, links and contents (`provider_html.rs`), a made-up document and hostile calls (`provider_fake.rs`). Not done: an allocation-refusal sweep — the shared parser and `Block` use infallible `Vec`/`String`, so a refused allocation aborts the test process; it follows when the parser is fallible. Each fragment call parses its block twice (the second finds the last block); not changed. Not measured: X4 size and heap. The crate version stays 1.0.5 (one bump per release). Slice 3 (fb2, cbz): `fb2_provider()`, `cbz_provider()`, `tests/provider_fb2.rs`, `tests/provider_cbz.rs`; allocation-sweep cases ignored until Core todo 208. Remaining slice: epub.
+Done: `provider.rs`, `markdown_provider()`, `html_provider()`, parity tests `tests/provider_markdown.rs`, `tests/provider_html.rs` (block by block against the interface-6 reader). Block `lang` (BCP 47), `dir` and `writing_mode` are sent with the draft-29 numbers. Op 18 serves the picture of the block that starts at `index`. A language or series index over the call's limit is cut, never refused. Tests: parity incl. block headers, links and contents (`provider_html.rs`), a made-up document and hostile calls (`provider_fake.rs`). Not done: an allocation-refusal sweep — the shared parser and `Block` use infallible `Vec`/`String`, so a refused allocation aborts the test process; it follows when the parser is fallible. Each fragment call parses its block twice (the second finds the last block); not changed. Not measured: X4 size and heap. The crate version stays 1.0.5 (one bump per release). Slice 3 (fb2, cbz): `fb2_provider()`, `cbz_provider()`, `tests/provider_fb2.rs`, `tests/provider_cbz.rs`; allocation-sweep cases ignored until Core todo 208. Slice 4 (epub): `epub_provider()` (sniff by `mimetype`), `tests/provider_epub.rs` (two chapters, header fields, links, contents, sniff); its allocation case is ignored. Follow-up (todo 263, draft 29): embedded faces are written to the root-6 file `fonts/<i>` (through a temporary name) and listed with their size (op 16, up to 124 faces); ruby kinds use `AnnotationKind` (0 ruby, 1 phonetic, 2 gloss, 3+n); the block's inline languages are sent as `fmt.inline_lang` rows (runs name them by `lang_index`); sniff tests for a wrong-case, deflated, not-first and too-short head. A plain or obfuscated font is copied in chunks (inflate, reveal in a 512 byte part, append to the temporary name, rename at the end; the temporary file is removed on any error) through the document's `extended` key `format-epub.font-copy`: no more than a chunk is held. The copied faces of one book may take 32 MiB together (`MAX_FONT_BYTES`); a face over a single file's 16 MiB, one unreadable, or one beyond the cap is listed with 0 bytes (its fault, never an error of the whole list) and is not inflated again while the document is open. Ruby kinds have no effect until a parser sets annotations (none does yet). Gaps: a WOFF face is converted whole in memory (up to 16 MiB; not workable on the X4, the face is then listed with 0 bytes when memory is short); an unreadable face is listed with 0 bytes; the plugin-managed cache is redundant and goes with the interface-6 path at activation.
 
 Assignment #1638 (#228). Branch based on #385 (draft 28, `5067fc377`); move to integration once #385 merges.
 
@@ -42,9 +42,10 @@ Assignment #1638 (#228). Branch based on #385 (draft 28, `5067fc377`); move to i
 
 ## Reading on a full heap (Core, todo 208)
 
-Status: **partly done.** Opening and reading HTML and Markdown (and the conversion, CSS and cache
-code they share with EPUB) answers a refused allocation, it never aborts. The refusal sweeps cover
-Markdown and HTML only; EPUB open (package, ZIP), FB2 and CBZ have no sweep yet (follow-up). A
+Status: Opening and reading Markdown, HTML, EPUB, FictionBook and comic books answers a refused
+allocation, it never aborts. The refusal sweeps (`tests/allocation.rs`) cover all five (an EPUB of
+two chapters, opened and read whole), and a book that converts a chapter again and finds no room part
+of the way reads on as a clean run does. A
 picture that finds no room to be decoded shows its alternative text for now, but its chapter is
 **not marked complete** in the cache (`<n>.end` is not written), so the next opening converts it
 again; one that cannot be decoded for other reasons is cached as its alternative text, as before.
@@ -65,6 +66,10 @@ on each opening.
   factory in `src/lib.rs` (`Box::new(d) as Box<dyn Document>`). The host's factory type is
   `Result<Box<dyn Document>, DocumentError>`, the SDK has no safe fallible box and a plugin crate
   holds no `unsafe`. A sweep skips that site.
+- **Documented residual (SDK):** `Document::links` builds `paperpaw_document::Link`s with `Link::new`, which
+  allocates its strings infallibly (Kernel's type); the sweeps do not call `links`. Where the trait
+  returns an `Option` or a `Vec` (`toc_entry`, `xpointer`, `locate_xpointer`, `page_label`, `fonts`) a
+  refused allocation answers none/empty; the sweeps call all of these.
 - **Documented residual (SDK):** `paperpaw_sdk::ImageFile::open` / `Decoded::open` (crate
   `paperpaw-image`) copy a path with no way to refuse; the picture lookups of this crate call them.
   The sweep leaves allocations made inside `paperpaw_image` be (`in_sdk_image` in

@@ -7,6 +7,10 @@ use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
 struct State {
     depth: Cell<u8>,
     epoch: Cell<u64>,
+    /// What the `screen_opened` of the open now being applied says of its
+    /// hand-over: set by the kernel just before `Screen::on_reopen`, taken by
+    /// the native screen in it (no allocation: a cell, not a carried value).
+    open_info: Cell<Option<super::ui_store::Info>>,
 }
 impl State {
     fn enter(&self, fresh: bool) -> Result<u64, i32> {
@@ -53,6 +57,10 @@ impl CallbackClock {
     pub(crate) fn leave(&self) {
         self.state().leave();
     }
+    /// The hand-over info the next `on_reopen` of a native screen reports.
+    pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
+        self.state().open_info.set(info);
+    }
     pub(crate) fn runtime(&mut self) -> Result<CallbackRuntime, i32> {
         if self.depth() != 0 {
             return Err(ERR_STATE);
@@ -61,6 +69,7 @@ impl CallbackClock {
             let value = State {
                 depth: Cell::new(0),
                 epoch: Cell::new(state.epoch.get()),
+                open_info: Cell::new(state.open_info.get()),
             };
             let shared = Shared::try_new(value).map_err(|_| ERR_NO_MEMORY)?;
             self.0 = Source::Shared(shared);
@@ -77,7 +86,16 @@ impl CallbackRuntime {
     pub(crate) fn enter(&self) -> Result<NativeCallbackEpoch, i32> {
         let state = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         let epoch = state.enter(true)?;
-        Ok(NativeCallbackEpoch { state, epoch })
+        Ok(NativeCallbackEpoch {
+            state,
+            epoch,
+            ending: None,
+        })
+    }
+
+    /// Takes the hand-over info the kernel set for this `on_reopen`.
+    pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.0.open_info.take()
     }
 }
 
@@ -85,15 +103,36 @@ impl CallbackRuntime {
 pub(crate) struct NativeCallbackEpoch {
     state: Shared<State>,
     epoch: u64,
+    /// The pool and plugin whose status handles end with this callback.
+    ending: Option<(super::resources::OwnerResourceView, u64)>,
 }
 impl NativeCallbackEpoch {
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
+
+    /// When this callback returns, `plugin`'s status handles of it end
+    /// (`core.ui` ops 14 and 15, valid inside the callback only).
+    pub(crate) fn ending_status_handles(
+        mut self,
+        pool: super::resources::OwnerResourceView,
+        plugin: u64,
+    ) -> Self {
+        self.ending = Some((pool, plugin));
+        self
+    }
 }
 impl Drop for NativeCallbackEpoch {
     fn drop(&mut self) {
         self.state.leave();
+        if let Some((pool, plugin)) = self.ending.take()
+            && let Some(ui) = pool.ui()
+        {
+            // A refusal (the table busy) leaves the handles to the plugin's
+            // next grant, which drops its earlier callbacks', and to its
+            // stop; none outlives its callback in a lookup (epoch check).
+            ui.callback_ended(plugin, self.epoch).ok();
+        }
     }
 }
 

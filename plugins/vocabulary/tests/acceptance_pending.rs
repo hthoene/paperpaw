@@ -14,7 +14,8 @@ const COLLECT: Case = Case {
     golden: None,
     blocked_by: &["native shell", "H1", "H4"],
 };
-/// The screens: word list, choice dialogs, flash cards, decks, card files.
+/// The screens: the card files' screens. (The flash cards' decks and review and the list of words are
+/// ported; what they draw is proved by their tests of the rows and the decisions, not on a host.)
 const SCREENS: Case = Case {
     name: "vocabulary-screens",
     golden: None,
@@ -58,6 +59,16 @@ const CARD_FILES: Case = Case {
         "a Storage over core.files",
     ],
 };
+/// A word of the list is gone to in its book, and the list is exported.
+const WORD_LIST_ACTIONS: Case = Case {
+    name: "vocabulary-word-list-go-to-and-export",
+    golden: None,
+    blocked_by: &[
+        "reader open-at (#224)",
+        "core.files #339",
+        "native::files facade #384",
+    ],
+};
 /// A flash card due is the sleep screen; the review opens on waking.
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
@@ -75,6 +86,7 @@ fn the_cases_name_what_they_wait_for() {
         &MARKS,
         &PHONE,
         &CARD_FILES,
+        &WORD_LIST_ACTIONS,
         &SLEEP,
     ] {
         assert!(case.golden_exists());
@@ -92,7 +104,7 @@ fn a_word_looked_up_is_kept_and_listed_newest_first() {
 
 #[test]
 #[ignore = "BLOCKED H1/H2/H3/H4: native screen commands, dialogs, composition and input are not qualified"]
-fn the_screens_list_words_delete_and_export() {
+fn the_card_files_screens_work() {
     SCREENS.refuse().unwrap();
 }
 
@@ -124,6 +136,12 @@ fn the_phone_page_edits_decks_and_cards() {
 #[ignore = "BLOCKED #339/#384: a Storage over core.files (native::files) for the card folder (sdcard.rs, sync.rs) and the Notes export folder"]
 fn card_files_on_the_card_update_the_decks() {
     CARD_FILES.refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED #224/#339/#384: Go to in the book (reader open-at) and Export (a Storage over core.files) on the list of words"]
+fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
+    WORD_LIST_ACTIONS.refuse().unwrap();
 }
 
 #[test]

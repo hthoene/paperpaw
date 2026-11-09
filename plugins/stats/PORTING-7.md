@@ -1,7 +1,12 @@
 # Stats on interface 7 (partly ported)
 
-Status: **not complete.** The interface-6 plugin (registration, screens, widgets, sync,
-events) is still in place. It is removed in the PR that finishes the port.
+Status: **complete.** The plugin is the native plugin only: the interface-6 plugin (the `Stats` plugin in
+`lib.rs` and its registration, screens, widgets, sync, `book.rs`, `books.rs`, `calendar.rs`, `chart.rs`,
+`left.rs`, `overview.rs`, `sync.rs`, `widget*`, `fmt.rs`), its integration tests (`tests/recording.rs`,
+`recording_kernel.rs`, `screens.rs`, `widgets.rs`, `widgets_parity.rs`, `sync.rs`, `webdav_sync.rs`, `books.rs`,
+`common/`), its registration in `paperpaw-app` and its store-file builder (`tools/plugin-files`; `plugins.txt`
+keeps a comment line) are gone. What waits for hosts is listed under *Not tested here* at the end; the code
+that sends and reads it is in place.
 
 ## Ported: the data layer's files (`src/store.rs`, `src/files.rs`)
 
@@ -414,8 +419,15 @@ events) is still in place. It is removed in the PR that finishes the port.
   so a status call cannot be answered there: the same is open for Power and Bluetooth), and the host calling the stage for
   plugin items (Core todo 76).
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+## Not tested here (each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The pixels of every widget (a kernel-backed harness), and the end-to-end answer of the status stage.
-- Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
-- The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.
+- The fixture `stats.flow` of the interface-6 tests is gone (the app no longer hosts the plugin; `settings.flow` took its place in the flows test).
+
+## The stage of Reading goal
+
+- Reading goal owns the stage `reading-goal.read-today` (Kernel's ruling) and the statistics subscribe to it
+  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Asked with nothing or today's day they
+  answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
+  another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
+  slices is gone (nothing asked it).

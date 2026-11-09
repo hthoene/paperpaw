@@ -25,6 +25,7 @@ mod hot;
 pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
+pub mod seed;
 #[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use ppn5::register_linked_probe;
 #[cfg(feature = "esp32s3")]
@@ -234,16 +235,25 @@ pub struct Loader {
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The network's side of `core.sockets`: this loader wires core with it,
+    /// the network runs it.
+    #[cfg(feature = "ppn5")]
+    host_net: alloc::rc::Rc<crate::host_net::Bridge>,
 }
 
 impl Loader {
-    pub fn new(place: Place) -> Self {
+    pub fn new(
+        place: Place,
+        #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+    ) -> Self {
         Self {
             place,
             #[cfg(feature = "ppn5")]
             depth: None,
             #[cfg(feature = "ppn5")]
             resources: None,
+            #[cfg(feature = "ppn5")]
+            host_net,
         }
     }
 
@@ -413,6 +423,70 @@ impl Loader {
     }
 }
 
+/// The device-wide table of handles the plugins' owners share, with `core.ui`
+/// wired at once (before the first plugin loads, so that a host call made while
+/// one loads or declares finds it). `None` (and a warning) where the table or
+/// the store has no room: then no interface-7 plugin loads, or `core.ui` is
+/// absent and the plugin is told so.
+#[cfg(feature = "ppn5")]
+fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
+    use paperpaw_core::native_host::{HostResources, HostWiring};
+    let resources = match HostResources::try_new() {
+        Ok(resources) => resources,
+        Err(_) => {
+            warn!("native: no room for the host's table of handles");
+            return None;
+        }
+    };
+    match resources.wire(HostWiring::new().ui(crate::DEVICE.memory)) {
+        Ok(wired) if wired.ui_skipped() => {
+            warn!("native: core.ui not wired (no memory for its store)");
+        }
+        Ok(_) => {}
+        Err(status) => warn!("native: core.ui not wired ({status})"),
+    }
+    Some(resources)
+}
+
+#[cfg(feature = "ppn5")]
+impl Loader {
+    /// Wires `core.net` and `core.sockets` over the network's bridge, once
+    /// the card is known. The TLS is the bridge's over the device's TLS
+    /// session (`tls_slots`); a session that cannot be had at its handshake
+    /// ends the socket or request `no_memory`.
+    fn wire_network(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::{
+            HostWiring,
+            shell_wiring::{
+                NetInputs, NetLimits, ShellHttp, ShellNetwork, SockInputs, SockLimits, SockTls,
+                SockTransport,
+            },
+        };
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        let bridge = &self.host_net;
+        let mut limits = SockLimits::small(crate::host_net::POOL_BYTES);
+        limits.tls_sessions = crate::tls_slots::SESSIONS;
+        let transport: Rc<dyn SockTransport> = bridge.clone();
+        let network: Rc<dyn ShellNetwork> = bridge.clone();
+        let tls: Rc<dyn SockTls> = bridge.clone();
+        let sockets = SockInputs::new(storage.clone(), transport, network.clone(), limits).tls(tls);
+        // Two requests at a time, as in interface 6; bodies in memory are
+        // small (the pool is 48 KiB, and the sockets' two buffers take 16).
+        let http: Rc<dyn ShellHttp> = bridge.clone();
+        let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
+            .tls_sessions(crate::tls_slots::SESSIONS)
+            .max_body(16 * 1024);
+        let net = NetInputs::new(storage.clone(), http, network, net_limits);
+        match resources.wire(HostWiring::new().net(net).sockets(sockets)) {
+            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
+            Err(status) => warn!("native: core.net and core.sockets not wired ({status})"),
+        }
+    }
+}
+
 impl CodeLoader for Loader {
     fn load(
         &mut self,
@@ -422,6 +496,41 @@ impl CodeLoader for Loader {
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
         self.load_file(storage, code)
+    }
+
+    /// What interface-7 plugins are served: `text.hyphenate` (the data
+    /// plugins' tables are files on the card) and `core.ui` (the screen stack's
+    /// store, sized for this device; nothing is allocated until a plugin uses it).
+    #[cfg(feature = "ppn5")]
+    fn hyphenation_sink(
+        &mut self,
+        storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::HostWiring;
+        if self.resources.is_none() {
+            self.resources = new_resources();
+        }
+        // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
+        // A plugin's `make` that asks for it earlier gets a one-off
+        // `ERR_UNSUPPORTED`; plugins use hyphenation only when laying out text,
+        // and their allowed features come from the host's fixed list, not from
+        // what is wired, so nothing is recorded wrongly.
+        // `core.ui` was wired when the table of handles was made (before any
+        // plugin loaded); `text.hyphenate` needs the card, which only comes here.
+        let resources = self.resources.as_ref()?;
+        let wired = match resources.wire(HostWiring::new().hyphenation(storage.clone())) {
+            Ok(wired) => wired,
+            Err(status) => {
+                warn!("native: text.hyphenate not wired ({status})");
+                return None;
+            }
+        };
+        // This hook runs at the end of the kernel's build, before `Kernel::start`:
+        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
+        // filled (a later wiring would show plugins a false `network_off`).
+        // It needs the card too (files read to, the staged file).
+        self.wire_network(storage);
+        wired.hyphen().cloned()
     }
 
     fn finish(&mut self, storage: &dyn Storage) {

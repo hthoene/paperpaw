@@ -11,7 +11,7 @@ pub const LIST: u32 = 11;
 pub const OPEN: u32 = 1;
 pub const OWN: u32 = 2;
 pub const DOWNLOADED: u32 = 3;
-pub const STARTED: u32 = 4;
+pub const INSTALLED: u32 = 4;
 
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
@@ -61,7 +61,16 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::HttpDone, DOWNLOADED)?;
-    d.subscribe_event(EventKind::Started, STARTED)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The end of an install or a removal the host was asked for (the font
+/// downloaded or removed). Not in interface 6, which had the kernel say it.
+pub fn installs<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::InstallDone, INSTALLED)?;
     d.submit()?;
     Ok(())
 }

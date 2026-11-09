@@ -115,14 +115,14 @@ fn picked_and_pasted_a_file_is_copied_under_a_free_name() {
 }
 
 #[test]
-fn picked_and_pasted_a_file_moves_and_the_library_is_not_told() {
+fn picked_and_pasted_a_file_moves() {
     let storage = card();
     let mut browser = at(&storage, "Notes", 10);
     browser.pick(&storage, "Books/a.epub", false);
     browser.paste(&storage);
     assert_eq!(storage.get("Notes/a.epub").unwrap(), b"a");
     assert!(storage.get("Books/a.epub").is_none());
-    assert_eq!(browser.note, Some(Note::NotTold));
+    assert_eq!(browser.note, None);
     // Moved where it is: nothing to do, and nothing to say.
     browser.pick(&storage, "Notes/a.epub", false);
     browser.paste(&storage);
@@ -185,7 +185,7 @@ fn renaming_keeps_the_data_and_a_taken_name_gets_a_free_one() {
     assert_eq!(storage.get("Books/b.epub").unwrap(), b"bb", "not replaced");
     assert_eq!(storage.get("Books/b (2).epub").unwrap(), b"a");
     assert!(storage.get("Books/a.epub").is_none());
-    assert_eq!(browser.note, Some(Note::NotTold));
+    assert_eq!(browser.note, None);
     assert_eq!(browser.entry(browser.cursor()).unwrap().name, "b (2).epub");
     for bad in ["", "  ", "a/b", "x:y", "dot.", "q?"] {
         browser.rename(&storage, "Books/b.epub", bad);

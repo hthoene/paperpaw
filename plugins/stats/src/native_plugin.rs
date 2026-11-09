@@ -47,7 +47,7 @@ mod image {
 /// The plugin's callback tokens (see `declarations.rs`).
 const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 /// The stage that tells today's reading.
-const READ_TODAY: &str = "stats.read-today";
+const READ_TODAY: &str = crate::declarations::READ_TODAY;
 
 /// An open screen's view.
 #[allow(
@@ -119,10 +119,12 @@ impl Plugin for NativeStats {
             return done;
         }
         if let Event::StageCall {
-            stage: READ_TODAY, ..
+            stage: READ_TODAY,
+            payload,
+            ..
         } = event
         {
-            return self.tell_today(host, reply);
+            return self.tell_today(host, payload, reply);
         }
         match event {
             Event::HttpDone(_) if token == crate::declarations::HTTP_TOKEN => {
@@ -153,15 +155,15 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         let told = match event {
-            Event::Started { now_ms } => {
+            Event::Started { now_ms, .. } => {
                 self.sync.started(host);
                 with_cx(host, now_ms, |cx| self.recorder.started(cx))
             }
-            Event::Resume { now_ms } => {
+            Event::Resume { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
                 return Ok(());
             }
-            Event::Suspend { now_ms } | Event::Stopping { now_ms } => {
+            Event::Suspend { now_ms, .. } | Event::Stopping { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
                 return Ok(());
             }
@@ -200,10 +202,10 @@ impl Plugin for NativeStats {
                 });
                 return Ok(());
             }
-            Event::BookMoved { now_ms, from, path } => {
-                with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path))
-            }
-            Event::StatusChanged { now_ms } => {
+            Event::BookMoved {
+                now_ms, from, path, ..
+            } => with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path)),
+            Event::StatusChanged { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.clock_changed(cx))
             }
             _ => return Ok(()),
@@ -319,11 +321,25 @@ impl NativeStats {
 }
 
 impl NativeStats {
-    /// The answer of the stage `stats.read-today`: the day and the seconds
-    /// read on it.
-    fn tell_today(&mut self, host: &Host<'_>, reply: &mut Reply<'_>) -> Result<(), Error> {
+    /// The answer of the stage `reading-goal.read-today`: the day and the
+    /// seconds read on it. Asked with nothing or today's day; another day is
+    /// not known here.
+    fn tell_today(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let asked = match payload {
+            [] => None,
+            [a, b, c, d] => Some(i32::from_le_bytes([*a, *b, *c, *d])),
+            _ => return Err(Error::Invalid),
+        };
         let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
         if let Some((day, seconds)) = today {
+            if asked.is_some_and(|asked| asked != day) {
+                return Err(Error::NotFound);
+            }
             let mut bytes = [0u8; 8];
             bytes[..4].copy_from_slice(&day.to_le_bytes());
             bytes[4..].copy_from_slice(&seconds.to_le_bytes());

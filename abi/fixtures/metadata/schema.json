@@ -2871,6 +2871,15 @@
           "ordinal": 0,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "last_input",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 38,
@@ -15128,6 +15137,7 @@
           "name": "text",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "str"
         },

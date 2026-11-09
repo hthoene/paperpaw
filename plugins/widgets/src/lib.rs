@@ -19,6 +19,7 @@ mod books;
 mod native_analogue;
 mod native_battery;
 mod native_battery_shapes;
+mod native_books;
 mod native_calendar;
 mod native_countdown;
 mod native_dates;
@@ -27,8 +28,10 @@ mod native_defs;
 mod native_draw;
 mod native_entry;
 mod native_greeting;
+mod native_highlight;
 mod native_moon;
 mod native_note;
+mod native_numbers;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_quote;

@@ -110,7 +110,15 @@ fn actions_menus_and_icons_match() {
 }
 
 #[test]
-fn the_events_are_the_download_and_the_start() {
-    // Interface 6: `install::DOWNLOADED` and `events::STARTED`.
+fn the_events_are_the_download() {
+    // Interface 6: `install::DOWNLOADED` (and `events::STARTED`, which cancels a download
+    // cut off by a restart: it comes back with the download, `PORTING-7.md`).
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
+}
+
+#[test]
+fn the_end_of_an_install_is_heard() {
+    // Not in interface 6 (the kernel said it was done): `install_done` ends the install and
+    // the removal the plugin asked the host for.
+    assert_eq!(batches(|d| declarations::installs(d).unwrap()).len(), 1);
 }
