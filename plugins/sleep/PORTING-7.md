@@ -1,8 +1,21 @@
-# Interface-7 port (slice 1: the decisions and the declarations)
+# Interface-7 port (slices 1 and 2: the decisions, the declarations, the native entry and screen)
 
-Version 1.0.4. Partial: what the screen decides and what the plugin declares, without the host. No
-native screen and no `NATIVE_ENTRY` yet; the interface-6 `Sleep` and everything of it stays until
-the host activates native plugins (then it goes together, no shim).
+Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
+entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen, but the cat, the
+cover and the pictures need the host's image drawing (named blocked steps below), so it is not in
+`tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
+plugins (then it goes together, no shim; see the removal step).
+
+## Native entry and screen (slice 2)
+
+`src/native_plugin.rs` (`NativeSleep`: `make` submits the settings, the overlay screen, the places and the
+`core.sleep` offer and the `resume` subscription), `src/native_screen.rs` (`Sleeping`: what is read when the screen
+opens, the widgets made and placed at the first draw, the message, the picture over the page's panel),
+`src/native_stack.rs` (the page below, which the modes `page` and `overlay` leave in place; *when* conditions of the
+picture over the page). The screen is an overlay (`ScreenDecl::overlay`): the host draws the page below first. The
+device waking closes it (`event.resume`); a screen still there when the device is awake goes at the next press; while
+asleep every press but *sleep* and *home* is taken. What cannot be read shows the message. A refresh is asked for each
+time it shows (not for `page`).
 
 ## Ported
 
@@ -29,3 +42,10 @@ the host activates native plugins (then it goes together, no shim).
   the hidden hints (no declaration of a screen's hint visibility), closing on wake.
 - The mode of another plugin (`Registrar::add_choice(sleep::SHOW, …)`) adds a choice to a setting at
   run time; the declarations carry the plugin's own seven.
+
+## Removal step (one sweep, with the reader port and Core #944)
+
+1. `Sleep` and its `Plugin` impl, `SleepScreen`, the `cat` module's interface-6 drawing, `overlay`'s `Canvas` code
+   (`native_sleep` and the decisions stay), the `HOW` table kept for the manifest;
+2. the app's store-offer line and the other plugins' tests that register `Sleep`;
+3. list `NativeSleep` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` once the images are native.

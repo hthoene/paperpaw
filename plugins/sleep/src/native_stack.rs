@@ -59,7 +59,9 @@ pub fn stack(
     if shown == 0 {
         return Ok(placed);
     }
-    placed.try_reserve_exact(shown).map_err(|_| Error::NoMemory)?;
+    placed
+        .try_reserve_exact(shown)
+        .map_err(|_| Error::NoMemory)?;
     let room = u32::from(area.height);
     let fill = if fills == 0 {
         0
@@ -106,6 +108,7 @@ pub fn inside(area: Rect, pad: u16) -> Rect {
 }
 
 /// The values of `sleep.overlay-when`.
+#[cfg(test)]
 pub const ALWAYS: &str = "sleep.when.always";
 pub const READING: &str = "sleep.when.reading";
 pub const ELSEWHERE: &str = "sleep.when.elsewhere";

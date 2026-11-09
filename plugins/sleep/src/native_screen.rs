@@ -20,7 +20,7 @@ use paperpaw_sdk::{
         fonts::{Font, FontRole},
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{Compose, HandoverId, Instance, Ui, UiCursor, WidgetHandle},
+        ui::{Compose, HandoverId, Ui, UiCursor, WidgetHandle},
     },
 };
 use paperpaw_ui_kit::{
@@ -72,7 +72,6 @@ struct Laid {
 /// One open sleep screen.
 #[derive(Debug)]
 pub struct Sleeping {
-    pub instance: Instance,
     /// `sleep.show`, as the setting has it.
     setting: String,
     /// The device is switched off after this screen, not put to sleep.
@@ -90,9 +89,8 @@ impl Sleeping {
     ///
     /// # Errors
     /// Never: nothing is allocated.
-    pub fn plain(instance: Instance, off: bool) -> Self {
+    pub fn plain(off: bool) -> Self {
         Self {
-            instance,
             setting: String::new(),
             off,
             woke: false,
@@ -107,17 +105,12 @@ impl Sleeping {
     ///
     /// # Errors
     /// Allocation and the host's refusals.
-    pub fn open(
-        host: &Host<'_>,
-        ui: &Ui,
-        instance: Instance,
-        handover: Option<HandoverId>,
-    ) -> Result<Self, Error> {
+    pub fn open(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<Self, Error> {
         let off = match handover {
             Some(handover) => off_param(host, ui, handover)?,
             None => false,
         };
-        let mut view = Self::plain(instance, off);
+        let mut view = Self::plain(off);
         view.setting = read_text(host, "sleep.show")?;
         let effective = model::effective(&view.setting, facts_before(off));
         if effective == model::WIDGETS {
@@ -195,8 +188,10 @@ impl Sleeping {
             Content::Page => {}
             _ => push(&mut below, Paint::Fill(screen, style.paper))?,
         }
-        if matches!(laid.content, Content::Message | Content::Cat | Content::Cover)
-            || matches!(laid.content, Content::Picture | Content::Other)
+        if matches!(
+            laid.content,
+            Content::Message | Content::Cat | Content::Cover
+        ) || matches!(laid.content, Content::Picture | Content::Other)
         {
             self.message(host, &font, &style, screen, &mut below)?;
         }
@@ -208,7 +203,13 @@ impl Sleeping {
                 _ => placed.rect,
             };
             // A widget the host cannot compose is left out: the rest shows.
-            if Ui::compose(host, Compose::Widget(placed.handle), paint::frame_rect(rect)).is_err() {
+            if Ui::compose(
+                host,
+                Compose::Widget(placed.handle),
+                paint::frame_rect(rect),
+            )
+            .is_err()
+            {
                 continue;
             }
         }
@@ -225,9 +226,21 @@ impl Sleeping {
         paint: &mut Vec<Paint>,
     ) -> Result<(), Error> {
         let mut messages = Messages::new()?;
-        let text = messages.copy(host, if self.off { "sleep.off" } else { "sleep.sleeping" })?;
+        let text = messages.copy(
+            host,
+            if self.off {
+                "sleep.off"
+            } else {
+                "sleep.sleeping"
+            },
+        )?;
         let room = f32::from(screen.width.saturating_sub(style.margin.saturating_mul(4))).max(1.0);
-        let lines = wrap_with(|l| font.measure_text(style.text, l), &text, room, MOST_LINES)?;
+        let lines = wrap_with(
+            |l| font.measure_text(style.text, l),
+            &text,
+            room,
+            MOST_LINES,
+        )?;
         let line = paperpaw_ui_kit::geometry::line_px(font, style.text)?;
         let hint = if self.off {
             wrap_with(
@@ -242,7 +255,11 @@ impl Sleeping {
         let small = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
         let total = u32::from(line) * lines.len() as u32
             + u32::from(small) * hint.len() as u32
-            + if hint.is_empty() { 0 } else { u32::from(style.gap) };
+            + if hint.is_empty() {
+                0
+            } else {
+                u32::from(style.gap)
+            };
         let mut y = u32::from(screen.height).saturating_sub(total) / 2;
         for (rows, size, high, color) in [
             (&lines, style.text, line, style.ink),
@@ -320,7 +337,9 @@ impl Sleeping {
             }
         };
         let mut found = Vec::new();
-        let kept = found.try_reserve_exact(placed.len()).map_err(|_| Error::NoMemory);
+        let kept = found
+            .try_reserve_exact(placed.len())
+            .map_err(|_| Error::NoMemory);
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut result = kept;
         for (at, rect) in &placed {
@@ -330,7 +349,12 @@ impl Sleeping {
             if result.is_ok() {
                 result = ui
                     .widget_place(host, handle, paint::frame_rect(*rect), &mut input, &mut out)
-                    .map(|()| found.push(Placed { handle, rect: *rect }));
+                    .map(|()| {
+                        found.push(Placed {
+                            handle,
+                            rect: *rect,
+                        })
+                    });
             }
         }
         // The ones that do not fit, and all of them where one failed, go.

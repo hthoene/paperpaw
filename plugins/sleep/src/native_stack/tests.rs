@@ -57,7 +57,10 @@ fn free_spaces_push_the_widgets_apart() {
     // 600 is left, one space takes all of it; nothing is centred.
     assert_eq!(
         placed,
-        [(0, Rect::new(0, 0, 480, 100)), (2, Rect::new(0, 700, 480, 100))]
+        [
+            (0, Rect::new(0, 0, 480, 100)),
+            (2, Rect::new(0, 700, 480, 100))
+        ]
     );
     let two = [Entry::Fill, Entry::Widget(100), Entry::Fill];
     let placed = stack(AREA, 0, 0, &two).unwrap();
