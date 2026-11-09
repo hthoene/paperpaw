@@ -500,28 +500,9 @@ impl Kernel {
         }
         // The native `core.input-filter` chain comes first (Power is never
         // filtered), then the interface-6 filters on what it left.
-        let event = match self.native_input(now, &event) {
-            native_host::input_chain::Native::Pass => event,
-            native_host::input_chain::Native::Replaced(other) => other,
-            native_host::input_chain::Native::Taken => {
-                if let InputEvent::Pointer(p) = event {
-                    self.recognizers_lose(&p);
-                }
-                return self.finish();
-            }
-            native_host::input_chain::Native::Cancelled => {
-                self.cancel_input(&event);
-                self.run_commands();
-                return self.finish();
-            }
-            native_host::input_chain::Native::Run(action) => {
-                if let Ok(action) = Id::parse(&action) {
-                    self.dispatch(action);
-                    self.run_commands();
-                    return self.finish();
-                }
-                event
-            }
+        let event = match self.native_filtered(now, event) {
+            Ok(event) => event,
+            Err(effects) => return effects,
         };
         // Plugins' input filters come next; while a screen guards the
         // device, or a PIN or a password is entered, only those of its
@@ -590,6 +571,36 @@ impl Kernel {
         self.run_commands();
         self.speak_focus();
         self.finish()
+    }
+
+    /// What the native input filters made of `event`: the input to go on with
+    /// (as it was, or replaced), or the effects of one that was taken,
+    /// cancelled or turned into an action.
+    fn native_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        use native_host::input_chain::Native;
+        match self.native_input(now, &event) {
+            Native::Pass => Ok(event),
+            Native::Replaced(other) => Ok(other),
+            Native::Taken => {
+                if let InputEvent::Pointer(p) = event {
+                    self.recognizers_lose(&p);
+                }
+                Err(self.finish())
+            }
+            Native::Cancelled => {
+                self.cancel_input(&event);
+                self.run_commands();
+                Err(self.finish())
+            }
+            Native::Run(action) => match Id::parse(&action) {
+                Ok(action) => {
+                    self.dispatch(action);
+                    self.run_commands();
+                    Err(self.finish())
+                }
+                Err(_) => Ok(event),
+            },
+        }
     }
 
     /// `event` with the page buttons the other way round while reading,
