@@ -111,7 +111,12 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
-        if wire_it {
+        // Owners 1 and 2 are plugins that subscribed to `work_due`; 3 did not.
+        subscribed: Vec::from([1, 2]),
+    });
+    let sched = Rc::new(WorkSched::new(Limits::X4));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    if wire_it {
         hosts
             .wire_work(WorkServices {
                 sched: sched.clone(),
