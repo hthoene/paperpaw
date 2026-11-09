@@ -13,10 +13,14 @@ use std::{collections::BTreeMap, string::ToString};
 
 #[path = "tests/admission.rs"]
 mod admission;
+#[path = "tests/deadline.rs"]
+mod deadline;
 #[path = "tests/requests.rs"]
 mod requests;
 #[path = "tests/serving.rs"]
 mod serving_tests;
+#[path = "tests/tls.rs"]
+mod tls_tests;
 
 std::thread_local! {
     /// Armed with `n`, the `n`th allocation gate of the test fails.
@@ -61,7 +65,10 @@ pub(crate) struct Fake {
 
 impl Fake {
     pub(crate) fn new(profile: NetProfile) -> Self {
-        Self::with_pool(profile, Rc::new(NetPool::new(profile.pool)))
+        Self::with_pool(
+            profile,
+            Rc::new(NetPool::with_tls_sessions(profile.pool, 4)),
+        )
     }
     /// A device whose pool is shared with someone else (`core.sockets`).
     pub(crate) fn with_pool(profile: NetProfile, pool: Rc<NetPool>) -> Self {
@@ -329,7 +336,7 @@ pub(crate) enum Event {
 }
 
 /// The next event of `owner`, if any.
-pub(crate) fn next(fake: &Fake, owner: u64) -> Option<Event> {
+pub(crate) fn next(fake: &dyn NetHost, owner: u64) -> Option<Event> {
     let mut out = std::vec![0; 2048];
     let used = next_event(fake, owner, &mut out).unwrap()?;
     Some(match wire::record_decode_one(&out[..used]).unwrap() {
@@ -366,7 +373,7 @@ pub(crate) fn next(fake: &Fake, owner: u64) -> Option<Event> {
 }
 
 /// Every event of `owner`, then the callback returns.
-pub(crate) fn drain(fake: &Fake, owner: u64) -> Vec<Event> {
+pub(crate) fn drain(fake: &dyn NetHost, owner: u64) -> Vec<Event> {
     let mut all = Vec::new();
     while let Some(event) = next(fake, owner) {
         all.push(event);

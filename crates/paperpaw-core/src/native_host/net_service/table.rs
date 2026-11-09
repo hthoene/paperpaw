@@ -1,7 +1,7 @@
 //! The request table of `core.net`: ids, tokens, the queue, the pool, the
 //! held answers and the routing of events 99 and 100.
 use super::super::host_services::Caller;
-use super::super::net_pool::{DEMAND_NET, NetPool};
+use super::super::net_pool::{DEMAND_NET, NetPool, TlsHolder, TlsLease};
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
@@ -59,6 +59,9 @@ struct Req {
     /// The plugin's own input, parsed again when the request starts.
     batch: Box<[u8]>,
     saving: bool,
+    /// An `https` request: it holds the device's one TLS session (shared
+    /// with `core.sockets`, `NetPool`) from its start to its end.
+    tls: bool,
     progress: bool,
     max_body: u32,
     max_file: u64,
@@ -131,7 +134,18 @@ impl Drop for NetTable {
     fn drop(&mut self) {
         let held = core::mem::take(&mut self.inner.get_mut().ledger);
         self.pool.release(held);
+        // A request that goes with the table gives the TLS session back.
+        for r in self.inner.get_mut().reqs.iter().filter(|r| r.tls) {
+            self.pool.tls_drop(TlsHolder::Net(r.id));
+        }
     }
+}
+
+/// Whether `url` is an `https` one (the scheme in any case).
+fn is_https(url: &str) -> bool {
+    url.as_bytes()
+        .get(..8)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case(b"https://"))
 }
 
 impl Inner {
@@ -244,6 +258,11 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
+        // The session goes back after the transport has let go of it, before
+        // the plugin is told: on every way a request ends.
+        if r.tls {
+            host.table().pool().tls_drop(TlsHolder::Net(r.id));
+        }
         if r.saving
             && let Ok(parsed) = args::parse_request(&r.batch)
             && let Some(file) = parsed.save
@@ -285,6 +304,24 @@ impl Inner {
         self.settle(host, index, done, true);
     }
 
+    /// A request that runs for a plugin whose network the user turned off
+    /// ends now (`network_off`), whatever its state: the setting is a privacy
+    /// choice and is not waited out. (Offline and saving end what has not
+    /// started only; what is on its way is let finish.)
+    fn end_network_off(&mut self, host: &dyn NetHost) {
+        for index in 0..self.reqs.len() {
+            let r = &self.reqs[index];
+            if r.state != State::Running {
+                continue;
+            }
+            if let Some(end) = host.power_end(r.owner, r.run.is_some())
+                && end.reason == reason::NETWORK_OFF
+            {
+                self.end_with(host, index, end.reason, 0);
+            }
+        }
+    }
+
     /// Start queued requests in order; stop at the first that must wait.
     pub(super) fn pump(&mut self, host: &dyn NetHost) {
         let profile = host.profile();
@@ -295,6 +332,7 @@ impl Inner {
                 r.net_wait = None;
             }
         }
+        self.end_network_off(host);
         let mut index = 0;
         while index < self.reqs.len() {
             if self.reqs[index].state != State::Queued {
@@ -314,6 +352,7 @@ impl Inner {
                         r.net_wait = Some(now);
                     }
                 }
+                self.leave_tls_queue(host, index);
                 break;
             }
             let running = self
@@ -325,8 +364,23 @@ impl Inner {
             let need = if r.saving { IO_BUFFER } else { r.max_body };
             if running >= profile.connections
                 || (!r.saving && self.bodies() >= profile.memory_bodies)
-                || !self.reserve(host, need)
             {
+                self.leave_tls_queue(host, index);
+                break;
+            }
+            // An https request starts only once it holds the TLS session, in
+            // the order the requests and sockets asked for it. It asks only
+            // when it could otherwise start, and again at every turn, so a
+            // request at the head of the queue never blocks the ones behind
+            // it for longer than its own turn.
+            let (id, tls) = (r.id, r.tls);
+            if tls && host.table().pool().tls_request(TlsHolder::Net(id)) != TlsLease::Held {
+                break;
+            }
+            if !self.reserve(host, need) {
+                if tls {
+                    host.table().pool().tls_drop(TlsHolder::Net(id));
+                }
                 break;
             }
             self.reqs[index].reserved = if host.table().pool().capacity() == 0 {
@@ -350,10 +404,23 @@ impl Inner {
         }
     }
 
+    /// The requests from `from` on cannot start now (no network, no room
+    /// for a connection or a body): the https ones among them give up their
+    /// place for the TLS session. One that cannot start must not stand at the
+    /// head of the queue while a session is free; it asks again when it can.
+    fn leave_tls_queue(&self, host: &dyn NetHost, from: usize) {
+        for r in self.reqs.iter().skip(from) {
+            if r.tls && r.state == State::Queued {
+                host.table().pool().tls_drop(TlsHolder::Net(r.id));
+            }
+        }
+    }
+
     fn begin(&self, host: &dyn NetHost, index: usize) -> Result<(), i32> {
         let r = &self.reqs[index];
         let parsed = args::parse_request(&r.batch)?;
         let start = Start {
+            owner: r.owner,
             request: &parsed,
             max_body: r.max_body,
             max_file: r.max_file,
@@ -453,6 +520,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         state: State::Queued,
         batch: batch.into_boxed_slice(),
         saving,
+        tls: is_https(parsed.head.url),
         progress: parsed.head.flags & args::FLAG_PROGRESS != 0,
         max_body,
         max_file: if parsed.head.max_file == 0 {
@@ -724,6 +792,38 @@ pub(crate) fn progress(
     Ok(())
 }
 
+/// The shell followed a redirect from `http` to `https` for request `id` and
+/// closed the plain connection: the request goes back in the queue, where it
+/// was started, as an https request (`network.md` 3.1). It starts again,
+/// the shell resuming the request it parked, only when it holds the TLS
+/// session; it keeps its start time, so `timeout_ms` counts from the first
+/// start. The pool bytes it held are given back and asked for again.
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed; `ERR_NOT_FOUND` for an id that is
+/// unknown or over (a late report after a cancel is normal: the shell does
+/// not treat it as a failure of the request); `ERR_STATE` for a request that
+/// is not running or is https already.
+pub(crate) fn redirected_to_https(host: &dyn NetHost, id: u32) -> Result<(), i32> {
+    let mut inner = host_table(host)?;
+    let index = inner
+        .index(id)
+        .filter(|&i| Inner::live(&inner.reqs[i]))
+        .ok_or(ERR_NOT_FOUND)?;
+    let r = &mut inner.reqs[index];
+    if r.state != State::Running || r.tls {
+        return Err(ERR_STATE);
+    }
+    r.tls = true;
+    r.state = State::Queued;
+    r.pending = None;
+    let held = core::mem::take(&mut r.reserved);
+    inner.release(host, held);
+    inner.pump(host);
+    inner.sync_demand(host);
+    Ok(())
+}
+
 /// The clock: ends what ran out of time and starts what can start.
 ///
 /// # Errors
@@ -735,6 +835,28 @@ pub(crate) fn tick(host: &dyn NetHost) -> Result<(), i32> {
     inner.pump(host);
     inner.sync_demand(host);
     Ok(())
+}
+
+/// When the first request or served request runs out of time, in the
+/// host's clock: what [`tick`] would end then. `None` when nothing is
+/// waiting on the clock. A borrowed table answers `Some(0)` (look again).
+pub(crate) fn next_deadline(host: &dyn NetHost) -> Option<u64> {
+    let Ok(inner) = host_table(host) else {
+        return Some(0);
+    };
+    let requests = inner.reqs.iter().filter(|r| Inner::live(r)).flat_map(|r| {
+        let since = if r.saving { r.last_move } else { r.queued_at };
+        let over = since.saturating_add(u64::from(r.timeout_ms));
+        let no_net = r
+            .net_wait
+            .filter(|_| r.state == State::Queued)
+            .map(|w| w.saturating_add(NO_NETWORK_MS));
+        [Some(over), no_net]
+    });
+    requests
+        .flatten()
+        .chain(inner.serving.next_deadline())
+        .min()
 }
 
 /// The network went away: running requests end with `no_network`.
@@ -935,6 +1057,9 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
         let r = &inner.reqs[index];
         if r.state == State::Running {
             host.transport().abort(r.id);
+        }
+        if r.tls {
+            host.table().pool().tls_drop(TlsHolder::Net(r.id));
         }
         if Inner::live(r)
             && r.saving

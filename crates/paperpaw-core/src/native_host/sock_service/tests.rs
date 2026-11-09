@@ -619,6 +619,8 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
 
 #[path = "tests/cast.rs"]
 mod cast;
+#[path = "tests/deadline.rs"]
+mod deadline;
 #[path = "tests/file.rs"]
 mod file;
 #[path = "tests/tls.rs"]
@@ -1169,4 +1171,43 @@ fn the_pool_is_exactly_back_after_every_way_a_socket_can_end() {
         owner_stopped(&f, OWNER).unwrap();
         assert_eq!(pool.used(), 10_000, "way {how}");
     }
+}
+
+#[test]
+fn turning_a_plugins_network_off_ends_each_socket_it_has_open_at_the_next_pass() {
+    let f = Fake::x4();
+    let open_one = open(&f, OWNER, 1);
+    let connecting = connect(&f, OWNER, 2).unwrap();
+    drain(&f, OWNER);
+    // Offline and saving let what runs go on.
+    f.power.set(Some(PowerEnd {
+        reason: reason::OFFLINE,
+        later: true,
+    }));
+    tick(&f).unwrap();
+    assert_eq!(next(&f, OWNER), None);
+    f.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&f).unwrap();
+    let mut told = drain(&f, OWNER);
+    told.sort_by_key(|e| e.token);
+    assert_eq!(
+        told,
+        std::vec![
+            Ev::new(open_one, 1, kind::FAILED, reason::NETWORK_OFF, 0),
+            Ev::new(connecting, 2, kind::FAILED, reason::NETWORK_OFF, 0),
+        ]
+    );
+    let mut closed = f.closes.borrow().clone();
+    closed.sort_unstable();
+    assert_eq!(
+        closed,
+        [open_one, connecting],
+        "the transport let go of both"
+    );
+    // Nothing more is told.
+    tick(&f).unwrap();
+    assert_eq!(next(&f, OWNER), None);
 }

@@ -22,7 +22,7 @@ use paperpaw_native::host_glue::ERR_NO_MEMORY;
 pub(super) const PINS_MAX: usize = 4;
 /// A secure socket idle this long while another waits for the session ends
 /// `session_needed` (2.1).
-const SESSION_IDLE_MS: u64 = 5_000;
+pub(in crate::native_host::sock_service) const SESSION_IDLE_MS: u64 = 5_000;
 
 /// The pins that came after a `connect` or `start_tls`.
 #[derive(Clone, Copy, Default)]
@@ -72,7 +72,7 @@ pub(super) struct Row {
     pub(super) wanted: bool,
     /// When the socket first asked for the session, which is after any wait
     /// for the network: the `busy` clock runs from there.
-    asked: Option<u64>,
+    pub(super) asked: Option<u64>,
     /// Zero or one: the name, the pins and the peer.
     heavy: Vec<Heavy>,
     /// The session is leased to this socket.

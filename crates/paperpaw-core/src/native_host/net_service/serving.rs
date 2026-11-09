@@ -90,6 +90,23 @@ impl Tables {
     pub(super) fn any(&self) -> bool {
         !self.servers.is_empty()
     }
+
+    /// Whether an event waits for the pump.
+    pub(super) fn has_events(&self) -> bool {
+        !self.events.is_empty()
+    }
+
+    /// When the first served request runs out of time (`expire` ends it).
+    pub(super) fn next_deadline(&self) -> Option<u64> {
+        self.served
+            .iter()
+            .filter_map(|s| match s.stage {
+                Stage::Receiving => Some(s.last_move.saturating_add(STALL_MS)),
+                Stage::Open { since } => Some(since.saturating_add(ANSWER_MS)),
+                _ => None,
+            })
+            .min()
+    }
 }
 
 /// What the transport does with a request head it parsed.
@@ -379,6 +396,19 @@ pub(super) fn network_lost(inner: &mut Inner, host: &dyn NetHost) {
 
 /// A request the plugin did not answer in 120 s is answered 503 by the host.
 pub(super) fn expire(inner: &mut Inner, host: &dyn NetHost) {
+    // A server of a plugin whose network the user turned off stops.
+    let mut at = 0;
+    while at < inner.serving.servers.len() {
+        let owner = inner.serving.servers[at].owner;
+        let off = host
+            .power_end(owner, false)
+            .is_some_and(|end| end.reason == reason::NETWORK_OFF);
+        if off {
+            stop(inner, host, at, reason::NETWORK_OFF, true);
+        } else {
+            at += 1;
+        }
+    }
     let now = host.now_ms();
     let mut freed = 0_u32;
     let mut at = 0;
@@ -401,6 +431,17 @@ pub(super) fn expire(inner: &mut Inner, host: &dyn NetHost) {
         }
     }
     inner.release(host, freed);
+}
+
+/// The plugin that owns server `key`.
+pub(crate) fn server_owner(host: &dyn NetHost, key: u32) -> Option<u64> {
+    let inner = host.table().lock().ok()?;
+    inner
+        .serving
+        .servers
+        .iter()
+        .find(|s| s.key == key)
+        .map(|s| s.owner)
 }
 
 /// A request head arrived on a server (`key` as `listen` got it).
@@ -605,6 +646,7 @@ pub(super) fn respond(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         return Err(ERR_NO_MEMORY);
     }
     let reply = Reply {
+        owner: inner.serving.served[at].owner,
         response: &response,
         file_len,
     };
