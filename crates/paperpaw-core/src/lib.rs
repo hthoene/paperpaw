@@ -109,7 +109,7 @@ use paperpaw_sdk::{
 
 pub use crate::builder::KernelBuilder;
 pub use crate::card::CardTrouble;
-pub use crate::code_plugin::{CodeFile, CodeLoader, code_to_load};
+pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::{CORE, CorePlugin};
 pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
