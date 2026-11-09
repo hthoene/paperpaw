@@ -120,6 +120,7 @@ pub(crate) fn of_book(
 /// Reading time of each of `books` (sorted by id), for lists; where the
 /// log cannot be read to the end, that of what could be.
 /// A refused allocation is an error (`TooLarge`).
+#[cfg(test)]
 pub(crate) fn seconds_per_book(
     storage: &dyn Storage,
     books: &[Book],

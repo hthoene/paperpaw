@@ -6,7 +6,7 @@ use crate::{
     native_host::commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage},
 };
 use core::pin::Pin;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, IdError, ScreenKey};
 
@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop)) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop), hints) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -70,7 +70,11 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
-                .with_images(context.image_admit());
+                .with_images(context.image_admit())
+                .with_hint_labels(
+                    self.shared.stack_rows.labels(),
+                    !self.hint.buttons.is_empty(),
+                );
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
@@ -80,13 +84,23 @@ impl Kernel {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
                 let images = stage.take_image_commands();
+                let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, context.owner_key(), images, output))
+                Ok::<_, Error>((status, owner, context.owner_key(), images, output, hints))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);
+        // The labels the callback set; room was taken when they were checked.
+        // Nothing holds the table across a callback, so a failed borrow is a
+        // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
+        if !hints.is_empty() {
+            let Ok(mut labels) = self.shared.stack_rows.labels().try_borrow_mut() else {
+                return Err(Error::Status(ERR_BUSY));
+            };
+            labels.apply(hints);
+        }
         Ok(status)
     }
 }

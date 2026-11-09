@@ -34,10 +34,10 @@ data-plugin kind"; this tool refuses on the host what the loader and the reader 
   warning naming `<plugin>:<tag>`. The base `hyphenation` provides `en` with no special rank; every
   `hyphenation-<lang>` id sorts after it. The packages here provide each tag once (a test).
 
-The pattern sources, catalogs and `how/` texts stay in `plugins/<id>/` until the
-interface-6 code plugins are removed; the builder copies the catalogs and texts
-unchanged and compiles the table with the same inputs as each plugin's `build.rs`
-(tests compare them). Packages start at version 2.0.0, newer than the code plugins
-they replace. They are not yet in `tools/plugin-files/data.toml`: the ids still belong
-to the code plugins in `plugins.txt`, and the switch happens with the card-backed
-hyphenation reader.
+The pattern sources, catalogs and `how/` texts live in `plugins/<id>/` (`patterns/`, `i18n/`,
+`how/`); the interface-6 code crates are gone (#228), so no `Cargo.toml`, `build.rs` or `src/` is
+left there (a test checks it). The builder copies the catalogs and texts unchanged and compiles the
+table from the sources (`paperpaw_hyphen::compile`). The word tests of the old crates (known words
+break where the dictionaries break them, minimums, case, breaks inside the word) run on the built
+tables in `src/words_tests.rs`. Packages are at version 2.0.0, newer than the code plugins they
+replaced (1.0.3; the English one 1.1.1), and are in `tools/plugin-files/data.toml`.

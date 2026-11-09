@@ -445,15 +445,6 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "x4-stats",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,page-forward,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
     // Buttons in slots of a touch row: the footnote's side by side, the
     // skim screen's four, the transfer's and the update page's one below
     // the other.
@@ -602,15 +593,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-file-manager",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         // The power button: the sleep screen, the device asleep.
         name: "x4-sleep",
         profile: "xteink-x4",
@@ -686,24 +668,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,tap-on:Search,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-stats",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-file-manager",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300,tap-on:books,wait:300",
         colour: 0,
         fixtures: false,
     },

@@ -6,14 +6,18 @@
 //! its settings follow with the widget pack's kit (`PORTING-7.md`).
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, ExtraDecl, Instances, Kind, MenuEntryDecl, ScreenDecl,
-    SpecDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, Kind, MenuEntryDecl,
+    ScreenDecl, SpecDecl,
 };
 
 /// Callback tokens: stable within this plugin.
 pub const OPEN_TOKEN: u32 = 1;
 pub const FETCH_TOKEN: u32 = 2;
 pub const SCREEN: u32 = 10;
+/// The end of a request (`core.net`).
+pub const HTTP_TOKEN: u32 = 4;
+/// The work that fetches the news in the background.
+pub const WORK_TOKEN: u32 = 5;
 
 /// Articles kept of each feed, in steps of five.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -61,6 +65,16 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.menu_entry(entry)?;
     d.icon("news.open", "rss")?;
     d.icon("news.fetch", "refresh")?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The events the plugin watches: the end of a request and a work that is due.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     d.submit()?;
     Ok(())
 }
