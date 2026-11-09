@@ -8,8 +8,9 @@
 //! which [`Net::answer`] and [`Net::body`] read what came. The host frees the
 //! answer after that callback.
 //!
-//! This is the client side only: servers and sockets (SOCK) are not part of it,
-//! and a request is never written to a log, `Debug` included.
+//! Serving HTTP (ops 5-7, [`Server`], [`Response`]) is in the `serve` module here;
+//! sockets (SOCK) are not part of it. A request is never written to a log, `Debug`
+//! included.
 use super::wire::services_wire::core_net_v1 as schema;
 use super::{
     Error, Host,
@@ -899,6 +900,8 @@ enum Row<'a> {
     Token(wire::ServiceNetToken),
     Id(wire::ServiceNetId),
     Read(wire::ServiceNetRead),
+    Serve(wire::ServiceNetServe),
+    Response(wire::ServiceNetResponse<'a>),
 }
 impl AsWire for Row<'_> {
     fn wire(&self) -> &dyn WireEncode {
@@ -910,9 +913,14 @@ impl AsWire for Row<'_> {
             Self::Token(row) => row,
             Self::Id(row) => row,
             Self::Read(row) => row,
+            Self::Serve(row) => row,
+            Self::Response(row) => row,
         }
     }
 }
+
+mod serve;
+pub use serve::{MAX_RESPONSE_BODY, MAX_RESPONSE_HEADERS, MAX_SERVED_BODY, Response, Server};
 
 #[cfg(test)]
 mod tests;

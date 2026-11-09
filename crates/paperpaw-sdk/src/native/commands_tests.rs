@@ -982,3 +982,98 @@ fn install_and_remove_commands_keep_the_wire_limits() {
     assert!(sender.remove_plugin(4, &"i".repeat(65)).is_err());
     assert_eq!(ctx.batches.borrow().len(), 2);
 }
+
+#[test]
+fn firmware_commands_encode_with_their_options_and_key() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let key = [7_u8; 32];
+    sender
+        .install_firmware(
+            1,
+            InstallRoot::Data,
+            "fw/paperpaw.bin",
+            FirmwareOptions::new(),
+        )
+        .unwrap();
+    sender
+        .install_firmware(
+            2,
+            InstallRoot::Files,
+            "other.bin",
+            FirmwareOptions::new().allow_older().foreign(),
+        )
+        .unwrap();
+    sender
+        .install_firmware(
+            3,
+            InstallRoot::Data,
+            "own.bin",
+            FirmwareOptions::new().key(&key),
+        )
+        .unwrap();
+    sender.firmware_restart().unwrap();
+    let mut seen = Vec::new();
+    for bytes in ctx.batches.borrow().iter() {
+        for command in wire::commands_decode(bytes).unwrap().iter() {
+            seen.push(match command {
+                wire::Command::InstallFirmware {
+                    request,
+                    root,
+                    path,
+                    key,
+                    flags,
+                } => (request, root, String::from(path), key.to_vec(), flags),
+                wire::Command::FirmwareRestart {} => (0, 0, String::new(), Vec::new(), 0),
+                other => panic!("{other:?}"),
+            });
+        }
+    }
+    assert_eq!(
+        seen,
+        [
+            (1, 0, String::from("fw/paperpaw.bin"), Vec::new(), 0),
+            (2, 1, String::from("other.bin"), Vec::new(), 0b11),
+            (3, 0, String::from("own.bin"), key.to_vec(), 0),
+            (0, 0, String::new(), Vec::new(), 0),
+        ]
+    );
+}
+
+#[test]
+fn firmware_install_refuses_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let new = FirmwareOptions::new;
+    assert_eq!(
+        sender.install_firmware(0, InstallRoot::Data, "a", new()),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_firmware(1, InstallRoot::Data, "", new()),
+        Err(Error::Invalid)
+    );
+    assert!(
+        sender
+            .install_firmware(1, InstallRoot::Data, &"p".repeat(513), new())
+            .is_err()
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    // The longest path is the contract's 512 bytes.
+    sender
+        .install_firmware(1, InstallRoot::Data, &"p".repeat(512), new())
+        .unwrap();
+    assert_eq!(ctx.batches.borrow().len(), 1);
+}
