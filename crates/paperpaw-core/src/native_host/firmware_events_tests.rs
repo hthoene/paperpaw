@@ -67,10 +67,15 @@ fn an_install_waits_for_its_confirmation_and_the_pump_goes_quiet() {
     for _ in 0..20 {
         kernel.native_firmware_pump();
     }
-    // The question waits for the host's confirmation; nothing was written.
-    let ask = driver.borrow_mut().take_ask().unwrap();
-    assert_eq!((ask.owner, ask.request), (1, 5));
+    // The question waits for the user (shown, or waiting to be); nothing was
+    // written and the pump has gone quiet.
+    let machine = driver.borrow().machine();
+    assert_eq!(
+        machine.borrow().state(),
+        crate::native_host::firmware_install::State::WaitingForUser
+    );
     assert_eq!(driver.borrow().kept(1, KIND_FIRMWARE), None);
+    assert!(!driver.borrow().has_work(0));
 }
 
 #[test]

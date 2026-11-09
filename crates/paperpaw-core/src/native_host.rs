@@ -32,6 +32,12 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_confirm.rs"]
+#[allow(
+    dead_code,
+    reason = "the pump opens it once a shell wires the firmware host; tests do today"
+)]
+pub(crate) mod firmware_confirm;
 #[path = "native_host/firmware_driver.rs"]
 #[allow(
     dead_code,

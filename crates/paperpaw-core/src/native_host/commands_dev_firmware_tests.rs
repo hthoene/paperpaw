@@ -314,6 +314,6 @@ fn a_restart_is_for_the_plugin_whose_install_waits_and_the_host_then_asks() {
     );
     assert_eq!(status, OK);
     drain(&mut kernel, output);
-    let ask = d.borrow_mut().take_ask().unwrap();
+    let ask = d.borrow().peek_ask().unwrap();
     assert!(ask.restart, "the host asks again");
 }

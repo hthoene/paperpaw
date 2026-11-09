@@ -97,10 +97,12 @@ impl Kernel {
         // Progress only marked the request (see `firmware_changes`).
         self.firmware_changes(&driver);
         self.firmware_told(&driver);
+        let asked = self.firmware_confirm_pump(&driver);
         self.native_outbox_run();
-        driver
-            .try_borrow()
-            .map_or(true, |driver| driver.has_work(now))
+        asked
+            || driver
+                .try_borrow()
+                .map_or(true, |driver| driver.has_work(now))
     }
 
     /// Lets the device ops read the machine, once the host views exist.

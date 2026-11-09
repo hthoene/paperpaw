@@ -96,6 +96,11 @@ pub(crate) struct Driver {
     /// The confirmation the host must show (an install's or a restart's),
     /// until [`Self::take_ask`].
     ask: Option<Ask>,
+    /// The confirmation that shows: its nonce and the question it asks. Only
+    /// an answer that carries the nonce is taken, once.
+    shown: Option<(u64, Question)>,
+    /// A yes to the restart came: the kernel restarts the device.
+    restart_wanted: bool,
 }
 
 impl Driver {
@@ -112,6 +117,8 @@ impl Driver {
             skipped: Rc::new(Cell::new(0)),
             blocked_until: None,
             ask: None,
+            shown: None,
+            restart_wanted: false,
         }
     }
 
@@ -320,9 +327,72 @@ impl Driver {
         self.room(owner, request, KIND_FIRMWARE)
     }
 
-    /// The confirmation to show, once.
-    pub(crate) fn take_ask(&mut self) -> Option<Ask> {
-        self.ask.take()
+    /// The confirmation waiting to be shown, if no other shows.
+    pub(crate) fn peek_ask(&self) -> Option<Ask> {
+        self.ask.filter(|_| self.shown.is_none())
+    }
+
+    /// The host opened the confirmation of `ask` with `nonce`.
+    pub(crate) fn ask_shown(&mut self, nonce: u64, ask: Ask) {
+        if self
+            .ask
+            .is_some_and(|waiting| waiting.question() == ask.question())
+        {
+            self.ask = None;
+            self.shown = Some((nonce, ask.question()));
+        }
+    }
+
+    /// The confirmation of `ask` could not be shown: it ends as dismissed.
+    pub(crate) fn ask_dismissed(&mut self, ask: Ask) {
+        if self
+            .ask
+            .is_some_and(|waiting| waiting.question() == ask.question())
+        {
+            self.ask = None;
+            self.answer(ask.question(), Answer::Dismissed);
+        }
+    }
+
+    /// The user's answer to the confirmation shown with `nonce`; any other
+    /// nonce, or none shown, changes nothing.
+    pub(crate) fn answer_shown(&mut self, nonce: u64, answer: Answer) -> Option<Event> {
+        let (shown, question) = self.shown?;
+        if shown != nonce {
+            return None;
+        }
+        self.shown = None;
+        Some(self.answer(question, answer))
+    }
+
+    /// The shown confirmation ends as dismissed (sleep); its nonce, so that
+    /// the screen can be closed.
+    pub(crate) fn dismiss_shown(&mut self) -> Option<u64> {
+        let (nonce, question) = self.shown.take()?;
+        self.answer(question, Answer::Dismissed);
+        Some(nonce)
+    }
+
+    /// A yes to the restart waits for the kernel to restart the device.
+    pub(crate) fn restart_wanted(&self) -> bool {
+        self.restart_wanted
+    }
+
+    /// Restarts into the chosen image. It returns only where it cannot: the
+    /// request ends with the device's reason (through `end`, so its place and
+    /// outcome are kept like any request's) and the image keeps waiting.
+    pub(crate) fn restart_now(&mut self) {
+        self.restart_wanted = false;
+        let outcome = match self.machine.try_borrow_mut() {
+            Ok(mut machine) => machine.restart(&mut *self.host),
+            Err(_) => {
+                self.skip();
+                None
+            }
+        };
+        if let Some(outcome) = outcome {
+            self.end(outcome);
+        }
     }
 
     /// `firmware_restart` at submit: only the plugin whose install waits may
@@ -400,6 +470,7 @@ impl Driver {
         match event {
             Event::Ended(outcome) => self.end(outcome),
             Event::Ask(ask) => self.ask = Some(ask),
+            Event::Restart => self.restart_wanted = true,
             Event::Progress { owner, request, .. } => {
                 if let Some(entry) = self
                     .entries
@@ -493,7 +564,7 @@ impl Driver {
     /// waits for [`Self::due`], so the device may idle.
     pub(crate) fn has_work(&self, now: u64) -> bool {
         let held = self.blocked_until.is_some_and(|until| now < until);
-        if !held && self.tell_pending() {
+        if self.restart_wanted || (!held && self.tell_pending()) {
             return true;
         }
         self.machine.try_borrow().map_or(true, |machine| {
@@ -649,7 +720,7 @@ impl Driver {
 
     /// `owner` stopped: its waiting requests, its undelivered outcomes, its
     /// kept ones and its check result go. A job of its that runs is abandoned.
-    pub(crate) fn sender_stopped(&mut self, owner: u64) {
+    pub(crate) fn sender_stopped(&mut self, owner: u64) -> Option<u64> {
         // The one entry that is not queued is the job that runs.
         let running = self
             .entries
@@ -668,6 +739,17 @@ impl Driver {
         self.entries.retain(|entry| entry.owner != owner);
         self.ready.retain(|outcome| outcome.owner != owner);
         self.kept.retain(|kept| kept.owner != owner);
+        // Its confirmation goes with it: nobody is left to answer for.
+        if self.ask.is_some_and(|ask| ask.owner == owner) {
+            self.ask = None;
+        }
+        match self.shown {
+            Some((nonce, question)) if question.owner == owner => {
+                self.shown = None;
+                Some(nonce)
+            }
+            _ => None,
+        }
     }
 
     fn queue_has(&self, entry: &Entry) -> bool {

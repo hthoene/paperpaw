@@ -296,6 +296,9 @@ pub struct Kernel {
     /// the shell gave no firmware host (`KernelBuilder::firmware_host`), where
     /// every firmware command is unsupported.
     firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
+    /// The plugins were told PaperPaw stops for a restart into the new
+    /// firmware; the restart itself comes on the next pass.
+    firmware_stopping: bool,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -1187,6 +1190,7 @@ impl Kernel {
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
+        self.firmware_suspend();
         let effects = self.finish();
         // Asleep, no word is hyphenated: the tables open give their heap
         // back (and the card may be another on waking).

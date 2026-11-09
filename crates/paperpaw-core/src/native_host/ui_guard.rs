@@ -93,7 +93,9 @@ pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<u64> {
 /// Index of the instance that gets keys and pointers. Without a guard that is
 /// the top; with one it is the topmost instance that is not the host's own
 /// screen for a device state: the sleep screen shows above the guard but "gets
-/// no input while the guard is up" (section 4.3).
+/// no input while the guard is up" (section 4.3). A host screen that guards
+/// itself (the firmware confirmation, `device.md` 5.0) is the input target:
+/// no plugin filter, binding or raised input reaches it.
 pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     if invalid_view(view) {
         return None;
@@ -104,7 +106,7 @@ pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     }
     (0..=last)
         .rev()
-        .find(|&i| view.row(i).is_some_and(|r| !r.host))
+        .find(|&i| view.row(i).is_some_and(|r| !r.host || r.guards))
 }
 
 fn top(view: &dyn UiStackView) -> Option<Row> {

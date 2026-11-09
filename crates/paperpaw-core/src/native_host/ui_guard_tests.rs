@@ -457,6 +457,50 @@ fn phone_typing_is_refused_while_anything_guards() {
     assert!(other.below_guard);
 }
 
+/// The host's firmware confirmation: a host row that guards.
+fn confirmation(instance: u32) -> Row {
+    let mut confirm = row(instance, CORE);
+    confirm.host = true;
+    confirm.guards = true;
+    confirm
+}
+
+#[test]
+fn the_host_confirmation_above_a_plugin_screen_is_the_input_target() {
+    // page < menu < confirmation (host, guards): no plugin sees the keys.
+    let rows = alloc::vec![row(1, READER), row(2, MENU), confirmation(3)];
+    let v = view(&rows);
+    assert_eq!(input_target(v), Some(3));
+    assert!(may_receive_input(v, 3));
+    assert!(!may_receive_input(v, 2));
+    // The plugin underneath: no filter, no binding, no raised input.
+    for plugin in [READER, MENU, MAIL] {
+        assert!(!filter_runs(v, plugin), "{plugin} filter must not run");
+        assert!(
+            !binding_runs(v, Some(plugin)),
+            "{plugin} binding must not run"
+        );
+        assert_eq!(raise_allowed(v, plugin), Err(ERR_DENIED));
+    }
+    // Host actions still run.
+    assert!(binding_runs(v, None));
+    assert!(!filter_runs(v, CORE));
+}
+
+#[test]
+fn the_host_confirmation_above_the_keyboard_leaves_no_keyboard_filter() {
+    let mut lock = row(2, LOCK);
+    lock.guards = true;
+    let mut keyboard = row(3, KEYBOARD);
+    keyboard.guard_dialog = true;
+    let rows = alloc::vec![row(1, READER), lock, keyboard, confirmation(4)];
+    let v = view(&rows);
+    assert_eq!(input_target(v), Some(4));
+    assert!(!filter_runs(v, KEYBOARD));
+    assert!(!filter_runs(v, LOCK));
+    assert_eq!(raise_allowed(v, LOCK), Err(ERR_DENIED));
+}
+
 #[test]
 fn the_hosts_sleep_screen_above_the_guard_gets_no_input() {
     // page < lock(guards) < core.sleep (host): the lock keeps the input.
