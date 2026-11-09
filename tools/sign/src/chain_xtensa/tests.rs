@@ -836,9 +836,13 @@ fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
     assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
     // A word that is no address of this function changes nothing.
     assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
-    // An address inside an instruction: the reading is out of step, the
-    // function's calls are not resolved.
-    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (0, 1));
+    // An address inside an instruction: no jump target (the compiler's are
+    // instruction starts), a number in the data that happens to be one: left
+    // out, so where the build puts things does not decide whether the call
+    // resolves. The same with a `jx` table that has a real entry too.
+    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, at + 3]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (0, 1));
 }
 
 #[test]
@@ -871,6 +875,9 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     ];
     let (lits, funcs) = root_of(&code);
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
+    // A word that holds the function's own start (a vtable or a function
+    // pointer) is no table: the function still gives up.
+    assert_eq!(outcome(&lits, &funcs, &[at]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -967,4 +974,122 @@ fn a_literal_in_a_writable_section_is_not_read() {
     let elf = Elf::parse(&bytes).unwrap();
     let report = check(&elf, &Budget::parse("root root\n").unwrap()).unwrap();
     assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
+    // Two instantiations of one generic: the same path, two symbols (legacy
+    // mangling drops the generics from the path, keeps the hash in the symbol).
+    let (s1, s2) = (
+        "_ZN4core3ptr13drop_in_place17h0000000000000001E",
+        "_ZN4core3ptr13drop_in_place17h0000000000000002E",
+    );
+    let a = BASE;
+    let root = f(&[
+        &entry(32),
+        &call(8, a + 3, a + 16),
+        &call(8, a + 6, a + 32),
+        &RETW_N,
+    ]);
+    let one = f(&[&entry(32), &callx_reg(8, 2), &RETW_N]);
+    let funcs = [("root", root), (s1, one.clone()), (s2, one)];
+    // Bare: both are reported by the symbol without its hash (the path alone
+    // would not tell them from every other `core::ptr` function), one line.
+    let stable_name = "_ZN4core3ptr13drop_in_place";
+    let bare = run(&funcs, &["root"], "");
+    assert_eq!(bare.problems.len(), 1, "{:?}", bare.problems);
+    assert!(bare.problems[0].contains(stable_name) && !bare.problems[0].contains("17h"));
+    // A line by the path names two functions: an error.
+    let by_path = run(
+        &funcs,
+        &["root"],
+        "allow indirect core::ptr::drop_in_place 1 both\n",
+    );
+    assert!(
+        by_path
+            .problems
+            .iter()
+            .any(|p| p.contains("names 2 functions") && p.contains(stable_name)),
+        "{:?}",
+        by_path.problems
+    );
+    // By the symbol without the hash: one line covers the instances that make
+    // that many calls, and survives a rebuild that changes every hash.
+    let by_stable = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    let rebuilt = [
+        ("root", funcs[0].1.clone()),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000aaE.1322",
+            funcs[1].1.clone(),
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000bbE.77",
+            funcs[2].1.clone(),
+        ),
+    ];
+    let by_stable = run(
+        &rebuilt,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    // An instance with another count is not covered.
+    let two = f(&[&entry(32), &callx_reg(8, 2), &callx_reg(8, 3), &RETW_N]);
+    let uneven = [
+        ("root", funcs[0].1.clone()),
+        (s1, funcs[1].1.clone()),
+        (s2, two),
+    ];
+    let uneven = run(
+        &uneven,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 one call\n"),
+    );
+    assert!(!uneven.problems.is_empty(), "{:?}", uneven.problems);
+    // By raw symbol, one line each: passes too.
+    let by_symbol = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect {s2} 1 second\n"),
+    );
+    assert!(by_symbol.problems.is_empty(), "{:?}", by_symbol.problems);
+    // One of them named by symbol and the other by the path is still an error
+    // (the path names both).
+    let mixed = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect core::ptr::drop_in_place 1 second\n"),
+    );
+    assert!(!mixed.problems.is_empty());
+}
+
+#[test]
+fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
+    for (symbol, name) in [
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.1322",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.llvm.99",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+        ),
+        ("memcpy", "memcpy"),
+        ("a.b", "a.b"),
+    ] {
+        assert_eq!(stable(symbol), name, "{symbol}");
+    }
 }
