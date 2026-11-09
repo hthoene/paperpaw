@@ -349,6 +349,7 @@ fn a_table_cannot_overflow_the_state_reply() {
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
+        subscribed: Vec::from([1]),
     });
     let sched = Rc::new(WorkSched::new(Limits::OTHER));
     let hosts = crate::native_host::host_services::HostServices::new();
