@@ -66,8 +66,22 @@ fn real_loaded_library_usage_query_matches_kernel_view() {
         &mut batch,
     )
     .unwrap();
+    // A plugin the kernel admits declares something: a screen, here.
+    let mut declared = vec![0; wire::REGISTRATION_MAX_BYTES];
+    let length = wire::records_encode(
+        &[wire::Record::ScreenSpec(wire::ScreenSpec {
+            name: "screen",
+            title: "usage-probe.title",
+            token: 18,
+            flags: 0,
+        })],
+        &mut declared,
+    )
+    .unwrap();
+    declared.truncate(length);
     let fixture = super::foreign::fixture_service(
-        batch[..count].to_vec(),
+        declared,
+        &batch[..count],
         QUERY,
         &metadata,
         &event[..length],

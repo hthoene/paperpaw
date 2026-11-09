@@ -26,8 +26,8 @@ fn card(records: &[Record<'_>]) -> super::Fixture {
     let length = wire::records_encode(records, &mut declarations).unwrap();
     declarations.truncate(length);
     let mut callbacks = [0; 64];
-    let length = wire::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut callbacks)
-        .unwrap();
+    let length =
+        wire::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut callbacks).unwrap();
     let fixture = super::foreign::fixture_two(declarations, &callbacks[..length], DRAW);
     let install = fixture.root.join("plugins").join(ID);
     std::fs::create_dir_all(&install).unwrap();
@@ -74,7 +74,7 @@ fn a_declared_screen_is_admitted_opens_and_draws_through_the_library() {
         "admitted, not the events-only path"
     );
     let screen = Id::parse("declscreen.screen").unwrap();
-    assert!(device.kernel.screens().any(|id| *id == screen));
+    assert!(device.kernel.known_screens().any(|id| *id == screen));
     // The panel before the screen is drawn: no black bar where the library's
     // draw callback puts it.
     let before = device.panel.rgb_bytes();
@@ -129,7 +129,7 @@ fn a_library_the_kernel_refuses_is_not_loaded_and_nothing_stays_mapped() {
     assert_eq!(plugin.problem, Some(PluginProblem::NeedsNewerPaperPaw));
     let screen = Id::parse("declscreen.screen").unwrap();
     assert!(
-        !device.kernel.screens().any(|id| *id == screen),
+        !device.kernel.known_screens().any(|id| *id == screen),
         "nothing of it is registered"
     );
     assert!(!mapped(ID), "its library is released");

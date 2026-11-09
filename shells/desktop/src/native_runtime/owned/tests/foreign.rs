@@ -80,11 +80,12 @@ pub(super) fn fixture_linked(
 
 pub(super) fn fixture_service(
     valid: Vec<u8>,
+    second: &[u8],
     query: &str,
     metadata: &[u8],
     event: &[u8],
 ) -> Fixture {
-    fixture_source(valid, &[], false, query, "", &[], metadata, event, &[])
+    fixture_source(valid, &[], false, query, "", &[], metadata, event, second)
 }
 
 /// A library whose `make` submits `valid` and then `second` (declarations in

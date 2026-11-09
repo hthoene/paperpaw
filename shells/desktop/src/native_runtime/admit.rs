@@ -22,7 +22,10 @@ pub(crate) struct DesktopAdmission {
 }
 
 impl DesktopAdmission {
-    pub(crate) fn new(hosted: shell::Hosted<DesktopServices, CopyModule>, depth: FlatDepth) -> Self {
+    pub(crate) fn new(
+        hosted: shell::Hosted<DesktopServices, CopyModule>,
+        depth: FlatDepth,
+    ) -> Self {
         Self { hosted, depth }
     }
 }

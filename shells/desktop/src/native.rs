@@ -245,6 +245,23 @@ impl CodeLoader for HostLoader {
 }
 
 impl HostLoader {
+    /// The device-wide dispatch budget, made at the first plugin: every plugin
+    /// admitted by this loader gets a clone of this one shared handle, never
+    /// a budget of its own (nested dispatch is limited device-wide).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn shared_depth(
+        &mut self,
+    ) -> Result<paperpaw_core::native_host::flat::FlatDepth, PluginProblem> {
+        use paperpaw_core::native_host::flat::FlatDepth;
+        if self.depth.is_none() {
+            self.depth = Some(FlatDepth::try_new().map_err(|_| PluginProblem::NoRoom)?);
+        }
+        self.depth
+            .as_ref()
+            .and_then(FlatDepth::try_clone)
+            .ok_or(PluginProblem::NoRoom)
+    }
+
     /// The interface-7 library `bytes` of `code`, checked and hosted for the
     /// kernel to admit: nothing of it runs but what the kernel's admission
     /// calls (`make`), and what it declared is registered with it or the
@@ -256,16 +273,8 @@ impl HostLoader {
         code: &CodeFile<'_>,
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         use crate::native_runtime::Refusal;
-        use paperpaw_core::native_host::flat::FlatDepth;
         let id = code.id.as_str();
-        if self.depth.is_none() {
-            self.depth = Some(FlatDepth::try_new().map_err(|_| PluginProblem::NoRoom)?);
-        }
-        let depth = self
-            .depth
-            .as_ref()
-            .and_then(FlatDepth::try_clone)
-            .ok_or(PluginProblem::NoRoom)?;
+        let depth = self.shared_depth()?;
         if self.resources.is_none() {
             self.resources = Some(new_resources(self.memory).ok_or(PluginProblem::NoRoom)?);
         }
@@ -1164,6 +1173,21 @@ static INIT: extern "C" fn() = make_marker;
             );
         }
         crate::native_runtime::set_enabled(was);
+    }
+
+    /// Two plugins admitted by one loader share its one device-wide dispatch
+    /// budget (Kernel's condition for H1b).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn plugins_admitted_by_one_loader_share_one_dispatch_budget() {
+        let mut loader = HostLoader::for_device(MemoryClass::Small);
+        let first = loader.shared_depth().unwrap();
+        let second = loader.shared_depth().unwrap();
+        assert!(std::ptr::eq(first.as_depth(), second.as_depth()));
+        let other = HostLoader::for_device(MemoryClass::Small)
+            .shared_depth()
+            .unwrap();
+        assert!(!std::ptr::eq(first.as_depth(), other.as_depth()));
     }
 
     /// The table of handles has `core.ui` from the moment it is made, before
