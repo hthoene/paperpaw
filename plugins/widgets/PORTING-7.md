@@ -236,9 +236,9 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   given day is another one than in interface 6 (the day picks among every book the scan lists, not only
   among those with notes); the tap opens the book at the highlight's start and does not mark its end
   (the reader's hand-over carries `section`, `offset` and `conversion` only); a book without a title
-  shows its file name. The widget is not told of a library change by an event (the host's
-  subscription to a library change is not admitted for a pack yet; a refused subscription would fail the
-  whole pack), it follows within a minute by the generation checks above.
+  shows its file name. The widget does not subscribe to the library's change event (no first-party plugin does
+  yet, and a refused subscription would fail the whole pack's construction); it follows within a minute by
+  the generation checks above.
 - Memory: two buffers of 4,096 bytes while a scan runs, a list of up to 200 book handles (1.6 KiB), one
   highlight (text and note up to 2 KiB each) in the plugin; not measured on a device.
 - The pure part (`mix`, `picks`, `cut`, `is_highlight`) is unit-tested; the scan and the layout need a
