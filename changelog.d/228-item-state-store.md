@@ -1,0 +1,3 @@
+### Added
+
+- **`command.set_item_state` (command 60) is stored for native plugins** (#228). The host keeps the last pushed state per plugin and item (flags, label and badge keys with their arguments), within the contract's limits and with fallible allocation, and applies a batch after the callback; a default state removes the push, an update or unload of the plugin clears it. `core.registry` menu rows (op 12) and setup steps (op 15) show the pushed state: hidden, faint, switch, and the label and badge in the user's language. The note in `registry.md` fixes the order of op 13 with an empty scope: layers by id, inputs by name.

@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop)) = {
+        let (status, owner, (commands, redraw, _hop), item_states) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -70,6 +70,10 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 );
+                if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                    stage = stage
+                        .with_item_states(crate::native_host::commands::ItemAdmit { directory });
+                }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
@@ -78,11 +82,42 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
+                let item_states = stage.take_item_states();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output))
+                Ok::<_, Error>((status, owner, output, item_states))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
+        self.apply_item_states(&owner, item_states);
         Ok(status)
+    }
+
+    /// The states the callback pushed, applied in submit order after its
+    /// other commands. The checks were made at submit; a state the host
+    /// cannot store now (no memory) is dropped with a warning, the table
+    /// unchanged.
+    fn apply_item_states(
+        &mut self,
+        owner: &Id,
+        pushes: alloc::vec::Vec<crate::native_host::item_state::ItemPush>,
+    ) {
+        if pushes.is_empty() {
+            return;
+        }
+        let Some(directory) = self.shared.registry.native_declarations.as_ref() else {
+            return;
+        };
+        let mut failed = false;
+        match directory.items.try_borrow_mut() {
+            Ok(mut states) => {
+                for push in pushes {
+                    failed |= states.apply(owner.as_str(), push).is_err();
+                }
+            }
+            Err(_) => failed = true,
+        }
+        if failed {
+            self.warn_runtime("item state dropped: the host could not keep it");
+        }
     }
 }

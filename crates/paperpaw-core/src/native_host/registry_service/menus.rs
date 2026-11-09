@@ -20,6 +20,7 @@ use super::{
     ordered::Sort,
     sources::Sources,
 };
+use crate::native_host::item_state::ItemStates;
 use crate::native_host::{
     native_menus::MENU_USER_DEFINED,
     registrations::{self as wire, Record},
@@ -112,6 +113,8 @@ struct Call<'a> {
     customized: bool,
     /// The `declared` read: the user's definition is ignored.
     declared_view: bool,
+    /// The states plugins pushed (`command.set_item_state`), read live.
+    pushed: Option<core::cell::Ref<'a, ItemStates>>,
 }
 
 /// A declared row, wherever it comes from.
@@ -138,6 +141,10 @@ pub(super) fn menu(
         Some(directory) => Some(directory.store.try_borrow().map_err(|_| ERR_BUSY)?),
         None => None,
     };
+    let pushed = match sources.directory {
+        Some(directory) => Some(directory.items.try_borrow().map_err(|_| ERR_BUSY)?),
+        None => None,
+    };
     let menus = env.menus();
     // Allocation: the SDK builds this list of references (4 or 8 bytes an
     // entry) as the kernel itself does for every menu it shows. Its size is
@@ -152,6 +159,7 @@ pub(super) fn menu(
         contributed,
         customized: menus.is_customized(scope),
         declared_view: flags & DECLARED != 0,
+        pushed,
     };
     let known = menus.menu_ids().iter().any(|id| id.as_str() == scope)
         || call
@@ -389,7 +397,22 @@ fn row(
     let Some(key) = key else {
         return ControlFlow::Continue(());
     };
-    let state: ItemState = menus.state(env, item.id);
+    let mut state: ItemState = menus.state(env, item.id);
+    // What the plugin pushed for its own item wins over the SDK's state.
+    let push = call.pushed.as_deref().and_then(|states| {
+        let (plugin, relative) = item.id.split_once('.')?;
+        states.get(plugin, relative)
+    });
+    if let Some(push) = push {
+        state.shown = !push.hidden();
+        state.enabled = !push.faint();
+        state.checked = push.switch();
+    }
+    let (mut label_text, mut badge_text) = ([0_u8; caps::TITLE], [0_u8; 64]);
+    let pushed_label =
+        push.and_then(|p| shown(translator, &p.label, &p.label_args, &mut label_text));
+    let pushed_badge =
+        push.and_then(|p| shown(translator, &p.badge, &p.badge_args, &mut badge_text));
     if !state.shown && !user_row {
         if !all {
             return ControlFlow::Continue(());
@@ -425,11 +448,13 @@ fn row(
         } else {
             0
         };
-    let title = state.label.as_deref().map_or_else(
+    let title = pushed_label.or(state.label.as_deref()).map_or_else(
         || translated(translator, key, caps::TITLE),
         |label| clip(label, caps::TITLE),
     );
-    let badge = state.badge.as_deref().map_or("", |badge| clip(badge, 64));
+    let badge = pushed_badge
+        .or(state.badge.as_deref())
+        .map_or("", |badge| clip(badge, 64));
     let native = call.native.as_ref();
     let native_icon = native.and_then(|n| n.icon(item.id));
     let icon = menus
@@ -453,6 +478,24 @@ fn row(
         badge,
         describe,
     }))
+}
+
+/// A pushed label or badge as shown now: the catalog message of `key` with
+/// its argument batch, in the user's language; `None` for none, or where it
+/// cannot be resolved now (the item then shows its title and no badge).
+fn shown<'b>(
+    translator: &paperpaw_i18n::Translator,
+    key: &str,
+    args: &[u8],
+    out: &'b mut [u8],
+) -> Option<&'b str> {
+    if key.is_empty() {
+        return None;
+    }
+    let length = crate::native_host::formatting::format_into(translator, key, args, out).ok()?;
+    core::str::from_utf8(out.get(..length)?)
+        .ok()
+        .filter(|text| !text.is_empty())
 }
 
 /// A screen's title key, for an item that is a screen.

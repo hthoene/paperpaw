@@ -244,6 +244,7 @@ fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     NativeDeclarations {
         store: RefCell::new(store),
         catalog: Default::default(),
+        items: Default::default(),
     }
 }
 
@@ -662,6 +663,79 @@ fn op_12_titles_follow_the_users_language() {
     assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe=Eine Zeile"));
 }
 
+/// What `plugin` pushed for `item`, stored as the host does after a callback.
+fn push(
+    directory: &NativeDeclarations,
+    plugin: &str,
+    item: &str,
+    flags: u32,
+    label: &str,
+    badge: &str,
+) {
+    let push =
+        crate::native_host::item_state::ItemPush::copied(item, flags, (label, b""), (badge, b""))
+            .unwrap();
+    directory.items.borrow_mut().apply(plugin, push).unwrap();
+}
+
+#[test]
+fn op_12_shows_what_the_plugin_pushed_and_the_pushed_state_wins() {
+    use crate::native_host::item_state::{FAINT, HIDDEN, ON, SWITCH};
+    let mut kernel = kernel();
+    kernel.shared.translator.add(
+        paperpaw_i18n::Catalog::parse(Cow::Borrowed(
+            "[meta]\nlanguage = de\nname = Deutsch\nplural = one-other\n\n[messages]\n\
+             demo.action.open = Oeffnen\ndemo.line.open = Eine Zeile\n",
+        ))
+        .unwrap(),
+    );
+    kernel.shared.translator.set_language("de");
+    let directory = native_menus();
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(
+        row(&rows, "demo.open").contains("flags=34 "),
+        "before a push"
+    );
+    // Faint and a label and a badge: enabled goes, the texts are the catalog's.
+    push(
+        &directory,
+        "demo",
+        "open",
+        FAINT,
+        "demo.line.open",
+        "demo.action.open",
+    );
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert_eq!(
+        row(&rows, "demo.open"),
+        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe=Eine Zeile"
+    );
+    // A switch that is on: checked and switch.
+    push(&directory, "demo", "open", SWITCH | ON, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(row(&rows, "demo.open").contains("flags=99 "), "{rows:?}");
+    // A key the catalogs no longer have: the title, no badge, never a raw key.
+    push(&directory, "demo", "open", FAINT, "gone.key", "gone.badge");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(
+        row(&rows, "demo.open").contains("title=Oeffnen "),
+        "{rows:?}"
+    );
+    assert!(row(&rows, "demo.open").contains("badge= "));
+    // Hidden: out of the default view, listed hidden in the editor's view.
+    push(&directory, "demo", "open", HIDDEN, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(!items(&rows).contains(&"demo.open"));
+    let all = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", ALL);
+    assert!(
+        row(&all, "demo.open").contains("flags=") && row(&all, "demo.open").contains(" kind=0 ")
+    );
+    // The default state removes the push: the item shows as declared again.
+    push(&directory, "demo", "open", 0, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(row(&rows, "demo.open").contains("flags=34 "));
+}
+
 #[test]
 fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
     let kernel = kernel();
@@ -749,6 +823,54 @@ fn op_15_lists_every_step_in_order_with_what_applies_merged_with_the_declared_on
     );
     let (rows, end) = page(&kernel, schema::OP_SETUP, "ignored");
     assert_eq!((rows.len(), end.total), (6, 6));
+}
+
+#[test]
+fn op_15_applies_by_the_plugins_last_push_before_the_declaration() {
+    use crate::native_host::item_state::{FAINT, HIDDEN};
+    let kernel = kernel();
+    let step = |name, flags| {
+        Record::SetupStep(wire::SetupStep {
+            name,
+            title: "nat.step",
+            help: "",
+            order: 15,
+            page_kind: 0,
+            page: "demo.flag",
+            applies_key: "",
+            applies_value: "",
+            need: 0,
+            capability: 0,
+            flags,
+        })
+    };
+    // `plain` applies by its declaration, `later` does not.
+    let directory = declarations(&[step("plain", 1), step("later", 0)]);
+    let applies = |directory: &NativeDeclarations, name: &str| {
+        let rows = rows_of(&kernel, Some(directory), schema::OP_SETUP, "", 0);
+        rows.iter()
+            .find(|row| row.starts_with(&format!("step nat.{name} ")))
+            .map(|row| row.split(' ').nth(5).unwrap() == "1")
+            .unwrap()
+    };
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (true, false)
+    );
+    // The push wins: shown (not hidden) applies, hidden does not.
+    push(&directory, "nat", "later", FAINT, "", "");
+    push(&directory, "nat", "plain", HIDDEN, "", "");
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (false, true)
+    );
+    // Without a push, as declared again.
+    push(&directory, "nat", "later", 0, "", "");
+    push(&directory, "nat", "plain", 0, "", "");
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (true, false)
+    );
 }
 
 fn widget(

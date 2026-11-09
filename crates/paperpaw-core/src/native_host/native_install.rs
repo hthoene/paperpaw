@@ -262,6 +262,12 @@ impl crate::Kernel {
             if declarations.catalog.prune(&store).is_err() {
                 return None;
             }
+            // Its pushed item states go with it (`keep` waits for the kept
+            // file). The table is only borrowed here, never across a call.
+            let Ok(mut states) = declarations.items.try_borrow_mut() else {
+                return None;
+            };
+            states.forget(owner.as_str());
         }
         if self.native_owner_stopped(key).is_err() {
             return None;

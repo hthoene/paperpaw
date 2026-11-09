@@ -28,6 +28,10 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 #[path = "commands_ui.rs"]
 mod ui;
 
+#[path = "commands_items.rs"]
+mod items;
+pub(crate) use items::ItemAdmit;
+
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
@@ -106,6 +110,10 @@ pub struct CommandStage<'a> {
     images: Option<ImageAdmit>,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
+    /// `command.set_item_state` once the host gave it (`commands_items.rs`),
+    /// and the admitted states, applied by the host after the callback.
+    items: Option<ItemAdmit<'a>>,
+    staged_items: Vec<super::item_state::ItemPush>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -139,6 +147,8 @@ impl<'a> CommandStage<'a> {
             accepted: 0,
             images: None,
             staged_images: Vec::new(),
+            items: None,
+            staged_items: Vec::new(),
         }
     }
 
@@ -216,50 +226,36 @@ impl<'a> CommandStage<'a> {
             Ok(bytes) => bytes,
             Err(status) => return status,
         };
+        // Item states (`commands_items.rs`): checked and copied whole.
+        let (item_states, item_bytes) = match self.validate_item_states(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
-        let mut bytes = self.bytes.saturating_add(dev_bytes);
+        let mut bytes = self
+            .bytes
+            .saturating_add(dev_bytes)
+            .saturating_add(item_bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
         let mut images = self.images;
-        for command in batch.iter() {
-            if let Some(admit) = images.as_mut()
-                && let Some(result) = admit.admit_counted(&command, &mut bytes, self.byte_limit)
-            {
-                if let Err(error) = result {
-                    return error;
-                }
-                continue;
-            }
-            let WireCommand::SetSetting { key, value } = command else {
-                let checked = if dev::is_dev(&command) {
-                    Ok(0)
-                } else {
-                    self.validate_ui(command)
-                };
-                match checked {
-                    Ok(extra) => bytes = bytes.saturating_add(extra),
-                    Err(error) => return error,
-                }
-                if bytes > self.byte_limit {
-                    return ERR_NO_SPACE;
-                }
-                continue;
-            };
-            if let Err(error) = self.validate_setting(key, value, &mut bytes) {
-                return error;
-            }
+        if let Err(error) = self.validate_each(batch, &mut images, &mut bytes) {
+            return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
         let stored = batch
             .iter()
             .filter(|command| {
-                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
+                !matches!(command, WireCommand::Redraw { .. })
+                    && !dev::is_dev(command)
+                    && !Self::is_item_state(command)
             })
             .count()
             - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
+            || self.staged_items.try_reserve(item_states.len()).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -285,6 +281,8 @@ impl<'a> CommandStage<'a> {
             self.unclaim(claims);
             return error;
         }
+        // Capacity is reserved, so this cannot reallocate.
+        self.staged_items.extend(item_states);
         self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -295,6 +293,38 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// Every command of a batch but the item states and the dev commands:
+    /// image admission, scalar ranges, settings, and the byte budget.
+    fn validate_each(
+        &self,
+        batch: &CommandBatch<'_>,
+        images: &mut Option<ImageAdmit>,
+        bytes: &mut usize,
+    ) -> Result<(), i32> {
+        for command in batch.iter() {
+            if let Some(admit) = images.as_mut()
+                && let Some(result) = admit.admit_counted(&command, bytes, self.byte_limit)
+            {
+                result?;
+                continue;
+            }
+            let WireCommand::SetSetting { key, value } = command else {
+                let checked = if dev::is_dev(&command) || Self::is_item_state(&command) {
+                    Ok(0)
+                } else {
+                    self.validate_ui(command)
+                };
+                *bytes = bytes.saturating_add(checked?);
+                if *bytes > self.byte_limit {
+                    return Err(ERR_NO_SPACE);
+                }
+                continue;
+            };
+            self.validate_setting(key, value, bytes)?;
+        }
+        Ok(())
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
@@ -345,7 +375,7 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. }) {
+            if matches!(command, WireCommand::Redraw { .. }) || Self::is_item_state(&command) {
                 continue;
             }
             if dev::is_dev(&command) {
