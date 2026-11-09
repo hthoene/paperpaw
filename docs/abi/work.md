@@ -163,6 +163,12 @@ record.
 | 104 | `event.work_refused` | `now_ms: u64`, `token: u32`, `reason: u32`, `key: str 64` |
 | 105 | `event.work_allowed` | `now_ms: u64` |
 
+- [D] **Subscriptions** (draft 30): the three go only to the plugin whose work it is, and only
+  when it subscribed to them with `registration.event`, as every event (`network.md` 4 for 99).
+  `declare` without a subscription to 103 is `ERR_STATE`: its work could never be told it is due.
+  104 and 105 are the plugin's choice: one that did not subscribe to 104 finds a refused work gone
+  from `state` (op 3), one without 105 tries again at its next work or event.
+
 ### 3.1 `event.work_due`
 
 - `why`: 0 `time` (`at_ms`, or `after_ms` with neither moments nor a deadline), 1 `deadline`, 2
@@ -197,7 +203,7 @@ record.
 | An unknown `needs` bit, `moments` bit or `flags` bit | `ERR_UNSUPPORTED` |
 | `network` without `uses.network`, or the user turned the plugin's network off | `ERR_DENIED` |
 | More than 8 (X4) or 32 works per plugin, or the device's 32 (X4) or 256 | `ERR_FULL` |
-| Called outside a callback; a UI question in a run's callback | `ERR_STATE` |
+| Called outside a callback; a UI question in a run's callback; `declare` without a subscription to 103 | `ERR_STATE` |
 | No memory for a new work entry (1.1, section 5) | `ERR_NO_MEMORY` |
 
 ## 5. Memory
