@@ -4,7 +4,7 @@
 //! from `core.secrets` when a connection is made. The screens, the lists and the
 //! widgets follow (see `PORTING-7.md`); the interface-6 plugin is still in place
 //! beside this one.
-use crate::declarations::{OPEN_TOKEN, SOCKET_TOKEN};
+use crate::declarations::{OPEN_TOKEN, SOCKET_TOKEN, WRITE_TOKEN};
 use crate::native_model::{
     account::Account,
     job::{Job, Run},
@@ -16,6 +16,7 @@ use crate::native_reader::{READ_TOKEN, Reading};
 use crate::native_screens::{Asked, BOXES_TOKEN, Check, LIST_TOKEN, View};
 use crate::native_socket::HostNet;
 use crate::native_values::HostValues;
+use crate::native_writer::{COMPOSE_TOKEN, Writing};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
@@ -53,6 +54,8 @@ pub struct NativeMail {
     pub(crate) screens: Screens<View>,
     /// The open readers.
     pub(crate) readers: Screens<Reading>,
+    /// The open compose windows.
+    pub(crate) writers: Screens<Writing>,
     /// The check that is going, if one is.
     pub(crate) check: Option<Check>,
     /// The question *Trust this server?* that is open.
@@ -106,6 +109,10 @@ impl Plugin for NativeMail {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("mail.boxes")?)
             }
+            Event::ActionRun {
+                action: "mail.write",
+                ..
+            } if token == WRITE_TOKEN => self.open_compose(host, 0, None),
             Event::ScreenOpened {
                 instance, handover, ..
             } if token == BOXES_TOKEN || token == LIST_TOKEN => {
@@ -124,9 +131,17 @@ impl Plugin for NativeMail {
                 instance: Some(instance),
                 ..
             } if token == READ_TOKEN => self.reader_shown(host, instance),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == COMPOSE_TOKEN => self.writer_opened(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == COMPOSE_TOKEN => self.writer_shown(instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screen_closed(host, instance);
                 self.reader_closed(host, instance);
+                self.writer_closed(host, instance);
                 Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
@@ -138,12 +153,18 @@ impl Plugin for NativeMail {
         if token == READ_TOKEN {
             return self.draw_reader(host, frame);
         }
+        if token == COMPOSE_TOKEN {
+            return self.draw_writer(host, frame);
+        }
         self.draw_list(host, token, frame)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         if token == READ_TOKEN {
             return self.input_reader(host, &input);
+        }
+        if token == COMPOSE_TOKEN {
+            return self.input_writer(host, &input);
         }
         if token != BOXES_TOKEN && token != LIST_TOKEN {
             return Ok(Handled::No);

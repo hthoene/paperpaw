@@ -132,7 +132,7 @@ impl NativeMail {
     }
 
     /// The accounts that are set up.
-    fn accounts(&mut self, host: &Host<'_>) -> Result<Vec<Account>, Error> {
+    pub(crate) fn accounts(&mut self, host: &Host<'_>) -> Result<Vec<Account>, Error> {
         self.services(host)?;
         let secrets = self.secrets.as_ref().ok_or(Error::State)?;
         let values = HostValues { host, secrets };
@@ -555,6 +555,9 @@ impl NativeMail {
         if self.readers.get(owner).is_some() {
             return self.reader_progressed(host, owner);
         }
+        if self.writers.get(owner).is_some() {
+            return self.writer_progressed(host, owner);
+        }
         match self.job.run.clone() {
             Run::Working(stage) => self.say_in(host, owner, Say::Key(texts::stage(stage))),
             Run::Done => {
@@ -648,6 +651,9 @@ impl NativeMail {
 
     /// The answer to *Trust this server?*: the reader's yes keeps the key.
     pub(crate) fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        if self.writer_answered(host, answer)? {
+            return Ok(());
+        }
         let Some(asked) = &self.asked else {
             return Ok(());
         };

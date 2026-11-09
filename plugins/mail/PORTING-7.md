@@ -186,10 +186,10 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   checks again when it shows; a screen that closes closes its socket. An untrusted server is asked about once with
   `Question::confirm` (Trust, Don't trust) and the key is kept as the account's pin setting (`set_setting`) when the reader
   trusts it; a provider's server or a changed key is only said, as in interface 6. The Tools entry opens *Mail*.
-- *Write a mail* opens `mail.compose`, which has no native screen yet (slice 9); until then it, the *write* action and the
-  replies of the reader are inert, and **Mail stays out of `NATIVE_PLUGINS` and `complete.txt`** (it is not complete). No
-  host with `core.ui`, storage and sockets runs a native plugin end to end yet (#944), so what the screens do with the
-  host is an ignored case; the lines, the tasks, the words and the times are tested without one.
+- *Write a mail* opens the compose window of slice 9. **Mail stays out of `NATIVE_PLUGINS` and `complete.txt`** until the
+  provider fill-in, the widgets and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
+  a native plugin end to end yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks,
+  the words and the times are tested without one.
 - Interface 7 has no event for a screen of another plugin put above one of Mail's, so a connection is not let go then as
   it is when a Mail screen opens above (interface 6 did not either: it lets go only when its own screens open or close);
   the host's `idle_ms` ends a connection nobody serves, and a screen that closes closes its socket.
@@ -211,6 +211,26 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   lets go of its connection. An untrusted server is said (*Open Mail to trust this server*): the list asks.
 - Differences from interface 6, on purpose: the letter is not kept in memory beside the text shown (it is read again from
   the card where the reply needs it).
+- **Gates, unmeasured (no host runs this end to end yet, #944):** the heap peak of the first show of a mail (the raw message
+  read up to 48 KiB, the letter 24 KiB, the text shown 24 KiB and the wrapped lines, up to 1,024 of them; keeping the lines
+  as ranges into the text shown would halve the lines' share) and the time of the first draw's wrap on the X4. A refused
+  allocation while the mail is made says *not enough memory* on the screen instead of waiting for it.
+
+## Ported in slice 9 (compose and send)
+
+- `src/native_model/compose.rs` (`tests/native_compose.rs`, against interface 6 on random drafts): the draft kept between
+  openings, the recipients and what refuses a draft, the message (headers, MIME, quoted-printable where it is not ASCII or
+  a line is too long, no header can be broken out of), the reply to a letter, the Date header and the quote; fallible.
+- `src/native_model/writer.rs` (`tests/native_writer.rs`): the rows (the sender only where there are several accounts), what
+  each says, what a typed answer changes, the refusal messages, the fresh draft with the signature, the sender's name,
+  and the id of a message (eight random bytes of `core.secrets`, else the time).
+- `src/native_writer.rs`: the screen `mail.compose` (one at a time) as an `ItemList`: *From* picks the next account, *To*,
+  *Cc*, *Subject* and *Message* ask for text with `Question::text` (email keyboard for the addresses, several lines for the
+  text, starting from what is there, written in parts), every answer keeps the draft on the card, *Send* checks the draft,
+  makes the message and sends it through the account's SMTP server; sent, the draft is removed and the window says so (and
+  any key goes back). A reply starts from the letter on the card, the other ways from the draft kept or the signature.
+  The *write* action opens it. Closing it lets go of its connection.
+- Differences from interface 6, on purpose: the texts are bounded (a draft's text 16 KiB, an address list or a subject 2 KiB).
 
 ## The interface-6 files on the card
 
@@ -232,8 +252,7 @@ draft and outbox paths equal to interface 6's `store::draft_file` and `store::ou
 | --- | --- |
 | A connection started by a screen and ending with it (the list screens do it) | a scripted host with `core.ui`, sockets and storage (#944) |
 | Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
-| Reader and compose window (`reader.rs`, `writer.rs`, `compose.rs`); the folders and the list are native (slice 7) | the next slice |
-| The store of what was fetched, called by the sessions (`store.rs`, `render.rs` are native since slice 4) | the sessions and the screens that call them |
+| The store of what was fetched is called by the sessions and the screens (done) | a scripted host (#944) |
 | The five home widgets and their settings | the widget host call (Core todo 76) |
 | The question *Trust this server?* (asked by the list screens) | a scripted host with `core.ui` (#944) |
 

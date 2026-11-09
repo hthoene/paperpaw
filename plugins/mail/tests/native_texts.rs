@@ -106,6 +106,8 @@ fn every_key_the_native_screens_use_is_in_both_languages() {
         include_str!("../src/native_words.rs"),
         include_str!("../src/native_reader.rs"),
         include_str!("../src/native_model/reader.rs"),
+        include_str!("../src/native_writer.rs"),
+        include_str!("../src/native_model/writer.rs"),
     ] {
         for key in keys_in(source) {
             // Ids of screens and actions, not messages.
