@@ -86,6 +86,8 @@ mod remote;
 mod roots;
 mod safe_mode;
 mod serve;
+#[cfg(feature = "ppn5")]
+mod serve7;
 mod sockets;
 mod stack;
 mod startup;
