@@ -68,7 +68,11 @@ impl Volume for Mem {
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        let file = self.files.borrow_mut().remove(from).ok_or(Error::NotFound)?;
+        let file = self
+            .files
+            .borrow_mut()
+            .remove(from)
+            .ok_or(Error::NotFound)?;
         self.files.borrow_mut().insert(to.into(), file);
         Ok(())
     }
@@ -95,7 +99,10 @@ fn a_feed_in_a_file_becomes_the_page_of_interface_6() {
             let got = make_page(&mem, ("feed.tmp", "page.tmp"), (articles, text), &day_text);
             match (want, got) {
                 (Ok(w), Ok(g)) => {
-                    assert_eq!((w.title, w.articles, w.headlines), (g.title, g.articles, g.headlines));
+                    assert_eq!(
+                        (w.title, w.articles, w.headlines),
+                        (g.title, g.articles, g.headlines)
+                    );
                     assert_eq!(page, mem.get("page.tmp").unwrap());
                 }
                 // No article: no page, and none left behind.
@@ -155,7 +162,9 @@ impl Volume for Sink<'_> {
     }
 
     fn read_at(&self, _: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        let from = usize::try_from(at).map_err(|_| Error::Invalid)?.min(self.feed.len());
+        let from = usize::try_from(at)
+            .map_err(|_| Error::Invalid)?
+            .min(self.feed.len());
         let n = out.len().min(self.feed.len() - from);
         out[..n].copy_from_slice(&self.feed[from..from + n]);
         Ok(n)
