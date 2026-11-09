@@ -5,6 +5,7 @@ use paperpaw_sdk::native::{
     files::{self, Files},
     storage::Root,
 };
+use paperpaw_ui_kit::mem::buffer;
 
 /// A folder listing on the host's files; the service is opened for the walk and
 /// released with [`Folders::finish`].
@@ -37,8 +38,9 @@ impl<'h, 'cb> Folders<'h, 'cb> {
 
 impl Listing for Folders<'_, '_> {
     fn list(&mut self, dir: &str, each: &mut dyn FnMut(Item<'_>)) -> Result<(), Error> {
-        let mut input = [0u8; files::INPUT_BYTES];
-        let mut out = [0u8; files::OUTPUT_BYTES];
+        // On the heap: the buffers are too big for the stack of a callback.
+        let mut input = buffer(files::INPUT_BYTES)?;
+        let mut out = buffer(files::OUTPUT_BYTES)?;
         let mut cursor = 0;
         loop {
             let page =

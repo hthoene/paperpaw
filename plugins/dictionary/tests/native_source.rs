@@ -124,3 +124,38 @@ fn a_folder_that_cannot_be_listed_is_an_error_and_a_broken_dictionary_is_left_ou
     let mut source = Dictionaries::new(&mut tree, &storage, "missing").unwrap();
     assert_eq!(source.ready(), Err(Error::NotFound));
 }
+
+#[test]
+fn a_cut_index_is_not_ready_and_is_made_again_from_the_start() {
+    let (files, data) = (card(), MemoryStorage::new());
+    let storage = Routed {
+        files: &files,
+        data: &data,
+    };
+    let make = || {
+        let mut tree = Tree;
+        let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+        for builder in &mut source.builders().unwrap() {
+            while !builder.step(&storage, 64 * 1024).unwrap() {}
+        }
+    };
+    make();
+    // A power cut left the index file cut short.
+    let cache = cache_of("dicts/en/small.ifo").unwrap();
+    let name = format!("{}/idx.qbi", cache.strip_prefix(CACHE).unwrap());
+    let mut kept = vec![0u8; data.size(&name).unwrap() as usize];
+    let n = data.read_at(&name, 0, &mut kept).unwrap();
+    data.write(&name, &kept[..n / 2]).unwrap();
+    let mut tree = Tree;
+    let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+    assert_eq!(source.ready().unwrap(), 0, "a cut index is read as one");
+    assert!(!source.builders().unwrap().is_empty());
+    make();
+    let mut tree = Tree;
+    let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+    assert_eq!(source.ready().unwrap(), 1);
+    let page = native_model::page_at(&mut source, "cat", 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.found.text, "a small animal");
+}

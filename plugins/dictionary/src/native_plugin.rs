@@ -85,7 +85,11 @@ impl NativeDictionary {
         if self.pending.is_empty() && !self.gave_up {
             self.pending = source.builders()?;
             if !self.pending.is_empty() {
-                Self::schedule(host)?;
+                // Not scheduled: not kept either, or the next ask would not try again.
+                if let Err(error) = Self::schedule(host) {
+                    self.pending = Vec::new();
+                    return Err(error);
+                }
             }
         }
         answered
@@ -115,7 +119,8 @@ impl NativeDictionary {
                     self.pending.remove(0);
                 }
                 Err(_) => {
-                    // Tried again at the next start, not at every ask.
+                    // Any failure, a refused allocation too, ends the indexing for this
+                    // session: tried again at the next start, not at every ask.
                     self.pending = Vec::new();
                     self.gave_up = true;
                 }
