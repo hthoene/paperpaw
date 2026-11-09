@@ -59,6 +59,7 @@ mod hints;
 mod hyphen_feed;
 mod input;
 mod io;
+mod key_guard;
 mod keymap;
 mod meter;
 pub mod native_host;

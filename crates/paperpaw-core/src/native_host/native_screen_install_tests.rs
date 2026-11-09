@@ -294,7 +294,7 @@ unsafe extern "C" fn screen_make(
             state: ptr::null_mut(),
             drop: Some(screen_destroy),
             dispatch_event: Some(screen_event),
-            input: None,
+            input: Some(input_records::screen_input),
             draw: None,
         },
     }));
@@ -1478,6 +1478,8 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
+#[path = "native_input_install_tests.rs"]
+mod input_records;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
 
