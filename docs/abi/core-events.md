@@ -125,6 +125,12 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 
 - [D] Events reach a plugin in the order the host produced them, one `dispatch_event` each. Events
   raised during a plugin's callback are delivered after it returns.
+- [D] **Delivery is a pump** (H1b ruling on #228): raising `core.tick` (3) or 32-37 only queues
+  them for each running subscriber (edges in the held-event store, 3 and 33 as coalesced pending
+  bits); a pump between callbacks delivers them, and does nothing while any native callback is on
+  the stack, nested ones included. The one synchronous step is a drain: right after raising
+  `suspend` or `stopping` the host drains the pump from its top level before it sleeps or tears
+  down, so earlier edges (`book_closed` reason 1) come first; a refused edge is logged, not retried.
 - [D] Per reading session:
   - `book_opened` comes before the session's first `page_turned`;
   - `book_finished` comes at most once per open, after the last page turn and before `book_closed`;
