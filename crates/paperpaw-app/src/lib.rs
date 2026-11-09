@@ -102,7 +102,6 @@ pub const STORE_PLUGINS: [&str; 35] = [
     "koreader",
     "mail",
     "news",
-    "notes-overview",
     "notes-vault",
     "picture-home",
     "read-later-cloud",
@@ -253,7 +252,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
-        b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);

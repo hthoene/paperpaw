@@ -17,5 +17,6 @@ pub mod html;
 pub mod imap;
 pub mod mem;
 pub mod render;
+pub mod session;
 pub mod smtp;
 pub mod store;
