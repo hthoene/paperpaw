@@ -60,6 +60,14 @@ kernel tests are removed; the native plugin is linked (`NATIVE_PLUGINS`) and lis
 
 ### Other differences and open points
 
+- Removed with interface 6, to come back with the host's activation: the snapshot cases
+  `boox-file-manager` and `x4-file-manager` (`shells/desktop/tests/snapshots.rs`), the
+  `file-manager.browser` screen in `tools/dev/tests/visual.rs`
+  (`buttons_keep_their_room_on_touch_screens`) and the `files` picture in `tools/screens.py`: the
+  native screen is not registered in the emulator yet.
+- "Is a book" is the library's preflight (`core.library`); Beta 3 asked `formats.supports_file`, so
+  an uncatalogued book gets no *Open* until the host's walk has seen it.
+- No line is shown when `open_book` or the hand-over fails (the screen stays as it was).
 - Deleting a folder removes it with `core.files` `remove_tree` in a loop, not cancellable and
   without progress (Kernel's ruling for `remove_tree`); a very large tree blocks the callback.
   `remove_step` across ticks would give progress and cancel: the work service is not used yet.
