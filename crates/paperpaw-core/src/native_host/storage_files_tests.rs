@@ -60,7 +60,9 @@ fn an_8_3_alias_of_a_host_folder_is_refused_and_a_name_that_is_nothing_is_not() 
     let empty = Rc::new(MemoryStorage::new());
     empty.write("PAPERP~1/x", b"x").unwrap();
     assert!(!files.excluded(0, "nowhere", "RECEIV~1"));
-    assert!(!super::StorageFiles::new(empty, Rc::default(), Rc::default()).excluded(1, "", "PAPERP~1"));
+    assert!(
+        !super::StorageFiles::new(empty, Rc::default(), Rc::default()).excluded(1, "", "PAPERP~1")
+    );
 }
 
 #[test]

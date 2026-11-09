@@ -34,7 +34,8 @@ impl LinkedPlugins {
         }
         ids.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let mut copy = String::new();
-        copy.try_reserve_exact(id.len()).map_err(|_| ERR_NO_MEMORY)?;
+        copy.try_reserve_exact(id.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
         copy.push_str(id);
         ids.push(copy);
         Ok(())

@@ -159,7 +159,14 @@ fn install_on(
     host: &Host<'static>,
     id: &str,
 ) -> Result<(), shell::Error> {
-    install_with(kernel, entry, metadata, host, id, HostResources::try_new().unwrap())
+    install_with(
+        kernel,
+        entry,
+        metadata,
+        host,
+        id,
+        HostResources::try_new().unwrap(),
+    )
 }
 
 fn install_with(
@@ -229,13 +236,28 @@ fn a_linked_id_is_known_to_core_files_only_while_the_plugin_is_registered() {
     // A good one records its id, and only its id.
     let resources = HostResources::try_new().unwrap();
     let linked = resources.hosts().linked().clone();
-    install_with(&mut kernel, entry(|_| {}), METADATA, &host, "linked", resources).unwrap();
+    install_with(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &host,
+        "linked",
+        resources,
+    )
+    .unwrap();
     assert!(linked.contains("linked"));
     assert!(!linked.contains("other"));
     // A taken id is refused before it is recorded again anywhere.
     let resources = HostResources::try_new().unwrap();
     let other = resources.hosts().linked().clone();
-    let again = install_with(&mut kernel, entry(|_| {}), METADATA, &host, "linked", resources);
+    let again = install_with(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &host,
+        "linked",
+        resources,
+    );
     assert_eq!(status(again), ERR_INVALID);
     assert!(!other.contains("linked"));
 }

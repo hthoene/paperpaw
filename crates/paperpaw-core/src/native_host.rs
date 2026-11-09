@@ -149,6 +149,7 @@ pub(crate) mod hyphen_service;
 pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 #[allow(
@@ -160,7 +161,6 @@ pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
 pub(crate) mod owner_paths;
-pub(crate) mod linked_plugins;
 pub(crate) mod paths_in_use;
 pub(crate) mod save_files;
 pub(crate) mod service_events;
