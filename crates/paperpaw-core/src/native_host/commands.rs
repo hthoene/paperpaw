@@ -46,6 +46,8 @@ pub(crate) use items::ItemRoom;
 mod preset;
 #[cfg(test)]
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
+#[path = "commands_nav.rs"]
+mod nav;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -468,6 +470,11 @@ impl<'a> CommandStage<'a> {
             }
             if dev::is_dev(&command) {
                 self.dev_push(command)?;
+                continue;
+            }
+            // A close of the root and a `back_to` with nothing above change
+            // nothing: `OK`, nothing staged.
+            if self.nav_no_effect(&command) {
                 continue;
             }
             if images && let Some(image) = image_service::commands::owned(&command) {
