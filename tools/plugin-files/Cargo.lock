@@ -157,10 +157,8 @@ dependencies = [
  "paperpaw-plugin-hyphenation-uk",
  "paperpaw-plugin-joplin",
  "paperpaw-plugin-koreader",
- "paperpaw-plugin-kosync",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
- "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-read-later-cloud",
@@ -326,14 +324,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-kosync"
-version = "1.0.9"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-mail"
 version = "1.0.4"
 dependencies = [
@@ -344,14 +334,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-news"
 version = "1.0.10"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-overview"
-version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -371,6 +353,7 @@ name = "paperpaw-plugin-picture-home"
 version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -427,6 +410,7 @@ name = "paperpaw-plugin-wallabag"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

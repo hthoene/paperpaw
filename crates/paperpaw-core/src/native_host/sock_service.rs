@@ -444,6 +444,16 @@ pub(crate) fn admit(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Resu
     table::connect(host, who, input)
 }
 
+/// A connect as the dispatcher admits it, for the tests of the work pump.
+#[cfg(test)]
+pub(crate) fn connect_for_tests(
+    host: &dyn SockHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
+    table::connect(host, who, input)
+}
+
 /// The plugin stopped (its callbacks are revoked): its sockets close without
 /// events and the pool gets everything back. Idempotent.
 ///

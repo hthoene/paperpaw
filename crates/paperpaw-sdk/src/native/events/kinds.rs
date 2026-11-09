@@ -79,6 +79,7 @@ kinds! {
     PageTurned => EVENT_PAGE_TURNED_TAG, host_events::page_turned, PageTurned;
     ScreenShown => EVENT_SCREEN_SHOWN_TAG, host_events::screen_shown, ScreenShown;
     ActionRun => EVENT_ACTION_RUN_TAG, host_events::action_run, ActionRun;
+    TextTyped => EVENT_TEXT_TYPED_TAG, host_events::text_typed, TextTyped;
     RegistryChanged => EVENT_REGISTRY_CHANGED_TAG, host_events::registry_changed, RegistryChanged;
     PreviewChanged => EVENT_PREVIEW_CHANGED_TAG, host_events::preview_changed, PreviewChanged;
     PluginsRequested => EVENT_PLUGINS_REQUESTED_TAG, host_events::plugins_requested, PluginsRequested;
@@ -104,11 +105,15 @@ kinds! {
     Bluetooth => EVENT_BLUETOOTH_TAG, core_events::bluetooth, Bluetooth;
     HttpDone => EVENT_HTTP_DONE_TAG, core_events::http_done, HttpDone;
     HttpProgress => EVENT_HTTP_PROGRESS_TAG, core_events::http_progress, HttpProgress;
+    Server => EVENT_SERVER_TAG, core_events::server, Server;
+    ServedRequest => EVENT_SERVED_REQUEST_TAG, core_events::served_request, ServedRequest;
+    ImageReady => EVENT_IMAGE_READY_TAG, core_events::image_ready, ImageReady;
     Socket => EVENT_SOCKET_TAG, core_events::socket, Socket;
     Broadcast => EVENT_BROADCAST_TAG, core_events::broadcast, Broadcast;
     WorkDue => EVENT_WORK_DUE_TAG, core_events::work_due, WorkDue;
     WorkRefused => EVENT_WORK_REFUSED_TAG, core_events::work_refused, WorkRefused;
     WorkAllowed => EVENT_WORK_ALLOWED_TAG, core_events::work_allowed, WorkAllowed;
+    LookupReady => EVENT_LOOKUP_READY_TAG, core_events::lookup_ready, LookupReady;
     ScreenOpened => EVENT_SCREEN_OPENED_TAG, uix_events::screen_opened, ScreenOpened;
     ScreenClosed => EVENT_SCREEN_CLOSED_TAG, uix_events::screen_closed, ScreenClosed;
     StackChanged => EVENT_STACK_CHANGED_TAG, uix_events::stack_changed, StackChanged;

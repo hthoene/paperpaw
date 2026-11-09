@@ -378,8 +378,8 @@ impl Pack {
 impl ImageSink for Pack {
     fn start(&mut self, width: u32, height: u32) -> Result<(), ImageError> {
         let (w, h) = (
-            u16::try_from(width).map_err(|_| ImageError::Unsupported("picture this large"))?,
-            u16::try_from(height).map_err(|_| ImageError::Unsupported("picture this large"))?,
+            u16::try_from(width).map_err(|_| ImageError::TooLarge)?,
+            u16::try_from(height).map_err(|_| ImageError::TooLarge)?,
         );
         self.width = w;
         self.height = h;

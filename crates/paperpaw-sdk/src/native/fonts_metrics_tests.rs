@@ -12,12 +12,14 @@ use paperpaw_native::host_glue::{self as abi, PpBytes, PpHost};
 enum Call {
     Metrics(u32, f32),
     Ink(u32, f32, String),
+    Covers(u32, String),
 }
 #[derive(Default)]
 struct Context {
     calls: RefCell<Vec<Call>>,
     metrics: Cell<[f32; 3]>,
     ink: Cell<[i32; 4]>,
+    covers: Cell<i32>,
     result: Cell<i32>,
 }
 unsafe extern "C" fn metrics_slot(
@@ -68,10 +70,20 @@ unsafe extern "C" fn ink_slot(
         ctx.result.get()
     }
 }
+unsafe extern "C" fn covers_slot(ctx: *mut c_void, font: u32, text: PpBytes) -> i32 {
+    // SAFETY: the wrapper supplies a live context and readable text.
+    unsafe {
+        let ctx = &*ctx.cast::<Context>();
+        let text = core::str::from_utf8(core::slice::from_raw_parts(text.ptr, text.len)).unwrap();
+        ctx.calls.borrow_mut().push(Call::Covers(font, text.into()));
+        ctx.covers.get()
+    }
+}
 fn table() -> PpHost {
     let mut table = abi::host_table();
     table.text_metrics = metrics_slot;
     table.text_ink = ink_slot;
+    table.text_covers = covers_slot;
     table
 }
 
@@ -176,4 +188,65 @@ fn default_metrics_and_ink_slots_are_unsupported() {
     };
     assert_eq!(font.read_line_metrics(12.0), Err(Error::Unsupported));
     assert_eq!(font.ink(12.0, "text"), Err(Error::Unsupported));
+}
+
+#[test]
+fn covers_answers_the_length_the_font_draws_at_a_character_boundary() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = super::super::Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let font = Font {
+        host: &host,
+        handle: Some(5),
+    };
+    // Every character drawn, the first undrawn one, and none at all.
+    for (text, length) in [("abc", 3), ("añb", 1), ("añb", 3), ("añb", 0), ("", 0)] {
+        ctx.covers.set(i32::try_from(length).unwrap());
+        assert_eq!(font.covers(text), Ok(length), "{text:?}");
+    }
+    assert_eq!(
+        ctx.calls.borrow().first(),
+        Some(&Call::Covers(5, "abc".into()))
+    );
+}
+
+#[test]
+fn covers_refuses_what_the_contract_does_not_allow() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = super::super::Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let font = Font {
+        host: &host,
+        handle: Some(5),
+    };
+    // Over 1,024 bytes nothing is asked; exactly 1,024 is.
+    assert_eq!(font.covers("x".repeat(1025)), Err(Error::Invalid));
+    assert!(ctx.calls.borrow().is_empty());
+    ctx.covers.set(1024);
+    assert_eq!(font.covers("x".repeat(1024)), Ok(1024));
+    // A length past the text, or inside a character, is no answer.
+    ctx.covers.set(4);
+    assert_eq!(font.covers("abc"), Err(Error::Invalid));
+    ctx.covers.set(2);
+    assert_eq!(font.covers("añb"), Err(Error::Invalid));
+    // Refusals keep their status; a font without a handle is stale.
+    for (code, expected) in [
+        (abi::ERR_STATE, Error::State),
+        (abi::ERR_UNSUPPORTED, Error::Unsupported),
+        (abi::ERR_UTF8, Error::Utf8),
+    ] {
+        ctx.covers.set(code);
+        assert_eq!(font.covers("abc"), Err(expected));
+    }
+    let stale = Font {
+        host: &host,
+        handle: None,
+    };
+    assert_eq!(stale.covers("abc"), Err(Error::State));
 }

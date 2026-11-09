@@ -155,6 +155,9 @@ pub(crate) struct NativeInstances {
     /// may try again after a refusal.
     service_buffer: core::cell::RefCell<Vec<u8>>,
     service_retry: Cell<Option<u64>>,
+    /// What the work pump saw of the device at its last pass (see
+    /// `work_pump`): bit 0 seen at all, bit 1 network up, bit 2 charging.
+    work_seen: Cell<u8>,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
@@ -300,9 +303,9 @@ impl NativeInstances {
     }
 
     /// Whether the running instance of `key` subscribed to the event `tag`,
-    /// asked of the instance itself (tests; production reads the owner
-    /// directory, which the install keeps).
-    #[cfg(test)]
+    /// asked of the instance itself (the services read the owner directory,
+    /// which the install keeps; the work pump runs between callbacks and
+    /// asks the instance).
     pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
         self.entry(key)
             .filter(|entry| entry.enabled)
@@ -593,6 +596,19 @@ impl NativeInstances {
         self.service_retry.set(at);
     }
 
+    pub(crate) fn work_seen(&self) -> u8 {
+        self.work_seen.get()
+    }
+
+    pub(crate) fn set_work_seen(&self, seen: u8) {
+        self.work_seen.set(seen);
+    }
+
+    /// The device's `core.work` host, once the shell wired it.
+    pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
+        self.pool.as_ref()?.hosts().work()
+    }
+
     pub(crate) fn set_service_more(&self, more: bool) {
         self.service_more.set(more);
     }
@@ -603,6 +619,18 @@ impl NativeInstances {
         self.pool
             .as_ref()
             .map_or([None, None], |pool| pool.hosts().event_services())
+    }
+
+    /// The device's network pool and the services' hosts, once a service
+    /// made it.
+    pub(crate) fn net_demand(
+        &self,
+    ) -> Option<(
+        &alloc::rc::Rc<super::net_pool::NetPool>,
+        &super::host_services::HostServices,
+    )> {
+        let hosts = self.pool.as_ref()?.hosts();
+        Some((hosts.pool_made()?, hosts))
     }
 
     /// The closes the work scheduler could not take are asked again.

@@ -80,7 +80,7 @@ pub struct Effects {
 }
 
 impl Effects {
-    fn push(&mut self, effect: Effect) {
+    pub(crate) fn push(&mut self, effect: Effect) {
         debug_assert!(self.len < EFFECTS_MAX, "an input has at most eight effects");
         if let Some(slot) = self.list.get_mut(self.len) {
             *slot = Some(effect);
@@ -155,23 +155,23 @@ pub struct Context<'a> {
 
 /// The screen's state.
 pub struct Flow {
-    step: Step,
+    pub(crate) step: Step,
     /// What is entered: `pin`, `pattern` or `password`.
-    kind: &'static str,
-    pin: Pin,
+    pub(crate) kind: &'static str,
+    pub(crate) pin: Pin,
     /// The dots of a pattern (`0` to `8`).
-    dots: String,
+    pub(crate) dots: String,
     /// The first of two new codes, while the same is asked again.
     first: Option<Code>,
-    message: Message,
+    pub(crate) message: Message,
     /// The key or dot chosen with the buttons (the pattern's *OK* is 9).
     pub focus: usize,
     /// Whether the focus is shown (the buttons were used).
     pub shown: bool,
     /// The finger drawing a pattern: its id, and where it is.
-    finger: Option<(u32, Point)>,
+    pub(crate) finger: Option<(u32, Point)>,
     /// Whether the keyboard was opened already.
-    asked: bool,
+    pub(crate) asked: bool,
 }
 
 /// Shows where the screen is, never what is entered.
