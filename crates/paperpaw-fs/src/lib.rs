@@ -343,22 +343,35 @@ fn ignores_case(root: &Path) -> bool {
     }
 }
 
-/// Whether paths `a` and `b` lead to the same entry.
-#[cfg(unix)]
+/// Whether paths `a` and `b` lead to the same entry; false where either
+/// cannot be looked at.
 fn same_entry(a: &Path, b: &Path) -> bool {
+    compare_entries(a, b).unwrap_or(false)
+}
+
+/// Whether paths `a` and `b` lead to the same entry: `Ok(false)` where either
+/// names nothing, the look's error where it failed for another reason.
+/// By identity (device and inode), so that a second name for one file (a
+/// hard link, a symlink) is the same entry.
+#[cfg(unix)]
+fn compare_entries(a: &Path, b: &Path) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
     match (fs::metadata(a), fs::metadata(b)) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
+        (Ok(a), Ok(b)) => Ok(a.dev() == b.dev() && a.ino() == b.ino()),
+        (Err(e), _) | (_, Err(e)) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        (Err(e), _) | (_, Err(e)) => Err(e),
     }
 }
 
-/// Whether paths `a` and `b` lead to the same entry.
+/// The same where std has no file identity (Windows): by the path the
+/// system gives each in the end, which also settles another case of a name
+/// and a short alias.
 #[cfg(not(unix))]
-fn same_entry(a: &Path, b: &Path) -> bool {
+fn compare_entries(a: &Path, b: &Path) -> io::Result<bool> {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
+        (Ok(a), Ok(b)) => Ok(a == b),
+        (Err(e), _) | (_, Err(e)) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        (Err(e), _) | (_, Err(e)) => Err(e),
     }
 }
 
@@ -564,6 +577,22 @@ impl Storage for DirStorage {
 
     fn ignores_case(&self) -> bool {
         self.ignores_case
+    }
+
+    /// By the file system's identity of the two entries, not their spelling:
+    /// another case of a name on a file system that ignores it, a hard link
+    /// and a symlink are the same entry. A path that is refused (it leaves
+    /// the root, or is a short alias this storage does not take) and one
+    /// that names nothing are `Some(false)`; the root gone, or a look that
+    /// failed, are `None`.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        let (a, b) = match (self.resolve(a), self.resolve(b)) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(StorageError::InvalidPath), Ok(_) | Err(StorageError::InvalidPath))
+            | (Ok(_), Err(StorageError::InvalidPath)) => return Some(false),
+            _ => return None,
+        };
+        compare_entries(&a, &b).ok()
     }
 
     fn free_space(&self) -> Option<u64> {

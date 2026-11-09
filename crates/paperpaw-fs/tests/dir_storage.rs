@@ -438,3 +438,85 @@ fn trees_are_removed_in_bounded_pieces_to_the_depth_limit() {
     deep.push("x");
     assert_eq!(s.size("Keep/k.txt"), Ok(4));
 }
+
+/// Two spellings of one entry are one; two entries are two; what names
+/// nothing, or is refused, is none of them (`Some(false)`).
+#[test]
+fn same_entry_tells_one_entry_from_two() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/a.txt", b"a").unwrap();
+    s.write("Books/b.txt", b"b").unwrap();
+    s.write(".paperpaw/secrets", b"s").unwrap();
+    assert_eq!(s.same_entry("Books/a.txt", "Books/a.txt"), Some(true));
+    assert_eq!(s.same_entry("Books/a.txt", "Books/b.txt"), Some(false));
+    assert_eq!(s.same_entry("Books", "Books"), Some(true));
+    assert_eq!(s.same_entry("Books", "Books/a.txt"), Some(false));
+    // The secrets file is its own entry, whatever is beside it.
+    assert_eq!(
+        s.same_entry(".paperpaw/secrets", "Books/a.txt"),
+        Some(false)
+    );
+    assert_eq!(
+        s.same_entry(".paperpaw/secrets", ".paperpaw/secrets"),
+        Some(true)
+    );
+    // Names nothing.
+    assert_eq!(s.same_entry("Books/a.txt", "Books/none.txt"), Some(false));
+    assert_eq!(s.same_entry("none", "none"), Some(false));
+    // Refused paths: not an entry of this storage.
+    assert_eq!(
+        s.same_entry("../outside/secret.txt", "Books/a.txt"),
+        Some(false)
+    );
+    assert_eq!(
+        s.same_entry("../outside/secret.txt", "../outside/secret.txt"),
+        Some(false)
+    );
+    assert_eq!(s.same_entry("", ""), Some(false));
+    place.untouched();
+}
+
+/// Another case of a name is the same entry exactly where the file system
+/// ignores case.
+#[test]
+fn same_entry_follows_the_file_systems_case() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/A.txt", b"a").unwrap();
+    assert_eq!(
+        s.same_entry("Books/A.txt", "books/a.TXT"),
+        Some(s.ignores_case())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn same_entry_sees_through_links() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("a.txt", b"a").unwrap();
+    s.write("other.txt", b"o").unwrap();
+    let root = place.base.join("root");
+    std::fs::hard_link(root.join("a.txt"), root.join("hard.txt")).unwrap();
+    std::os::unix::fs::symlink("a.txt", root.join("soft.txt")).unwrap();
+    assert_eq!(s.same_entry("a.txt", "hard.txt"), Some(true));
+    assert_eq!(s.same_entry("a.txt", "soft.txt"), Some(true));
+    assert_eq!(s.same_entry("other.txt", "soft.txt"), Some(false));
+    // A link to nothing names nothing.
+    std::os::unix::fs::symlink("gone", root.join("dangling")).unwrap();
+    assert_eq!(s.same_entry("dangling", "dangling"), Some(false));
+    // A link out of the root is not followed into a different answer: the
+    // outside file is another entry than any inside.
+    std::os::unix::fs::symlink(place.base.join("outside/secret.txt"), root.join("out")).unwrap();
+    assert_eq!(s.same_entry("out", "a.txt"), Some(false));
+}
+
+/// A root that is gone cannot tell.
+#[test]
+fn same_entry_cannot_tell_without_the_root() {
+    let place = Place::new();
+    place.storage.write("a.txt", b"a").unwrap();
+    std::fs::remove_dir_all(place.base.join("root")).unwrap();
+    assert_eq!(place.storage.same_entry("a.txt", "a.txt"), None);
+}
