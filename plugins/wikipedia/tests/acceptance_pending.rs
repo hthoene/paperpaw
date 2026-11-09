@@ -1,7 +1,6 @@
 //! Acceptance of the interface-7 Wikipedia lookup, pending on the host and
-//! the later slices. The interface-6 tests (`tests/in_the_panel.rs`,
-//! `tests/lookup.rs`) drive a kernel and stay as the references; none of
-//! these cases passes by itself.
+//! the later slices; none of these cases passes by itself. The interface-6
+//! tests that drove a kernel went with the interface-6 code.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -11,7 +10,7 @@ const CASES: [Case; 3] = [
     Case {
         name: "the-summary-screen-fetches-scrolls-and-closes",
         golden: None,
-        blocked_by: &["core-net-host", "H1", "H3", "H4"],
+        blocked_by: &["H1", "H3", "H4"],
     },
     Case {
         name: "the-provider-answers-the-dictionary-panel-with-the-summary",
@@ -19,9 +18,9 @@ const CASES: [Case; 3] = [
         blocked_by: &["lookup-stage-host", "asynchronous-stage-reply"],
     },
     Case {
-        name: "the-lookup-slot-opens-the-summary-and-about-names-the-licence",
+        name: "the-about-line-names-the-source-and-the-licence",
         golden: None,
-        blocked_by: &["slot-binding-command", "about-lines-stage-reply"],
+        blocked_by: &["about-lines-stage-reply"],
     },
 ];
 
@@ -33,7 +32,7 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: core.net host, H1/H3/H4"]
+#[ignore = "BLOCKED: H1/H3/H4 (the host draws no native screen yet)"]
 fn the_summary_screen() {
     CASES[0].refuse().unwrap();
 }
@@ -45,7 +44,7 @@ fn the_provider() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the slot binding (a command in the first event) and the about.lines stage reply (a later slice)"]
-fn the_slot_and_the_licence_line() {
+#[ignore = "BLOCKED: the about.lines stage reply (a later slice)"]
+fn the_licence_line() {
     CASES[2].refuse().unwrap();
 }

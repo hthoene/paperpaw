@@ -2294,7 +2294,6 @@ dependencies = [
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
  "paperpaw-plugin-wifi",
- "paperpaw-plugin-wikipedia",
 ]
 
 [[package]]
@@ -2615,14 +2614,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-wifi"
 version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-wikipedia"
-version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

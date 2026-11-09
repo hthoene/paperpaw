@@ -188,7 +188,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "vocabulary",
     "wallabag",
     "wifi",
-    "wikipedia",
 );
 
 /// The indexes of the first-party plugins' translation catalogs, made
@@ -269,7 +268,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
