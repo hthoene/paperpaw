@@ -2609,9 +2609,11 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-update",
 ]
 
