@@ -526,13 +526,14 @@ impl Source<CatalogCursor, NameLine> for NameReplies<'_, '_> {
         let mut books = Vec::new();
         for row in page.rows() {
             let row = row?;
-            push(
-                &mut books,
+            push(&mut books, {
+                let (text, cut) = native_shelves::short(row.text(), native_shelves::MOST_NAME);
                 NameLine {
-                    text: copy(row.text())?,
+                    text: copy(text)?,
+                    cut,
                     count: row.count(),
-                },
-            )?;
+                }
+            })?;
         }
         let end = page.end();
         Ok(Replied {
@@ -720,11 +721,11 @@ impl NativeFiles {
         let mut say = Messages::new()?;
         let mut rows = Vec::new();
         let mut items = Vec::new();
-        if self.has_next(host)? {
-            let next = say.copy(host, "files.list.show.next")?;
-            push(&mut rows, ShelfRow::Next)?;
-            push(&mut items, Item::noted(&next, "›", "")?)?;
-        }
+        // Always offered: looking for a next book costs host calls for each
+        // series, so the list says when there is none (`files.list.none.next`).
+        let next = say.copy(host, "files.list.show.next")?;
+        push(&mut rows, ShelfRow::Next)?;
+        push(&mut items, Item::noted(&next, "›", "")?)?;
         let favourites = say.copy(host, "files.favourites")?;
         push(&mut rows, ShelfRow::Favourites)?;
         push(&mut items, Item::noted(&favourites, "›", "")?)?;
@@ -739,23 +740,32 @@ impl NativeFiles {
         })
     }
 
-    /// Whether any series begun has a next book to read (the shelves offer
-    /// it only then). A catalog that changes meanwhile says no for now.
-    fn has_next(&self, host: &Host<'_>) -> Result<bool, Error> {
+    /// The whole name at row `at` of the window that was read from
+    /// `start`: the pages are read again, none kept.
+    fn whole_name(
+        &self,
+        host: &Host<'_>,
+        shelf: Shelf,
+        start: CatalogCursor,
+        at: usize,
+    ) -> Result<String, Error> {
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let mut source = NextHost {
-            host,
-            library,
-            input: &mut input,
-            out: &mut out,
-            generation: 0,
-        };
-        match collect_next(&mut source, CatalogCursor::start(), 1) {
-            Ok(found) => Ok(!found.is_empty()),
-            Err(Error::State | Error::NotFound) => Ok(false),
-            Err(error) => Err(error),
+        let (mut cursor, mut before) = (start, 0usize);
+        for _ in 0..=native_model::MOST_BOOKS {
+            let query = Query::new().cursor(cursor);
+            let page = library.facets(host, &query, shelf.facet(), &mut input, &mut out)?;
+            if let Some(row) = page.rows().nth(at - before) {
+                return copy(row?.text());
+            }
+            before += page.len();
+            match page.end().next() {
+                Some(next) if !page.is_empty() => cursor = next,
+                _ => break,
+            }
         }
+        // The catalog changed under the list: it is read again.
+        Err(Error::State)
     }
 
     /// Opens the list of the names of `shelf`.
@@ -1142,7 +1152,14 @@ impl NativeFiles {
                         let Some(name) = view.window.books.get(at) else {
                             return Ok(());
                         };
-                        let scope = view.shelf.scope(&name.text)?;
+                        let (shelf, start) = (view.shelf, view.window.start);
+                        let scope = if name.cut {
+                            // Held cut: the host has the whole name.
+                            let whole = self.whole_name(host, shelf, start, at)?;
+                            shelf.scope(&whole)?
+                        } else {
+                            shelf.scope(&name.text)?
+                        };
                         self.open_shelf(host, &scope)
                     }
                     Row::Filter | Row::Note => Ok(()),

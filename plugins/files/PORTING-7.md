@@ -25,21 +25,24 @@ and the last book of 250, exactly 96 and 97 books, back to the window before, a 
 
 ## Slice 2: shelves, search, the next books of a series, book information
 
-- **Shelves** (`files.shelves`): rows for *Next in your series* (only when a series begun has a
-  next book), the favourites, and the lists of authors, series, tags and folders. Each list is a
+- **Shelves** (`files.shelves`): rows for *Next in your series* (always there: finding a next
+  book costs host calls for each series, so an empty list says `files.list.none.next`), the favourites, and the lists of authors, series, tags and folders. Each list is a
   screen of its own (`files.names`, parameter `kind`): the names with their book counts from
   `Library::facets` (LIB op 5), in windows that slide like the books' (`read_window`, now generic
-  over the row). Choosing a name lists its books. `native_shelves.rs` holds the rules, host-free.
+  over the row). A name is held up to 128 bytes (cut with an ellipsis for its row, read whole
+  again when chosen). Choosing a name lists its books. `native_shelves.rs` holds the rules, host-free.
 - **Next in your series**: `native_shelves::collect_next`. The series with a book being read, then
   those with a finished one, from the series facet (`show` reading / finished); for each, the last
   begun book by number (`query`, sorted by series, descending) and the book after it (LIB op 6
-  `next_in_series`). A next book that was already begun is not shown. At most 48 series; the
+  `next_in_series`). A next book that was already begun is not shown. At most 48 series found and
+  96 looked at; the
   catalog changing meanwhile is `State` and the list is read again.
 - **Search**: the action `files.search` (menu `files.menu`, order 21) asks for words with the
   system keyboard (`Question::text`) and opens the books that have them (`Scope::Search`); more
   than 256 bytes says `files.search.long` and searches nothing (never a cut word).
 - **Book information** (`files.info`, offered to `core.book-info`, parameter `path`): title and
-  author, series with number, how far it is read, the fields plugins keep, the file (format and
+  author, series with number, how far it is read, the fields plugins keep (24 rows at most, a value
+  cut at 256 bytes with an ellipsis), the file (format and
   size) and the folder. A book the catalog does not know shows its file name and folder.
 - Empty lists say their words: the next books, the favourites.
 - Tests: `tests/scripted_library.rs` (what the plugin asks the scripted `core.library` and

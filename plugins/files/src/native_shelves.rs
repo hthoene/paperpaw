@@ -4,7 +4,10 @@
 //! op 5) and the books; this holds the rules about them.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{Error, library::Facet};
-use paperpaw_ui_kit::{mem::push, text::copy};
+use paperpaw_ui_kit::{
+    mem::push,
+    text::{concat, copy},
+};
 
 use crate::native_model::{BookLine, Say, Scope};
 
@@ -85,10 +88,31 @@ impl Shelf {
     }
 }
 
+/// The most bytes of a name a window holds (the host's names go to 256): a
+/// longer one is cut for its row and read whole again when it is chosen.
+pub const MOST_NAME: usize = 128;
+
+/// `text` cut at a character boundary to `most` bytes at most, and whether
+/// it was cut.
+#[must_use]
+pub fn short(text: &str, most: usize) -> (&str, bool) {
+    if text.len() <= most {
+        return (text, false);
+    }
+    let end = (0..=most)
+        .rev()
+        .find(|at| text.is_char_boundary(*at))
+        .unwrap_or(0);
+    (text.get(..end).unwrap_or(""), true)
+}
+
 /// A name of a list and how many books have it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NameLine {
+    /// The name, cut to [`MOST_NAME`] bytes.
     pub text: String,
+    /// Whether the name was cut: the host has it whole.
+    pub cut: bool,
     pub count: u32,
 }
 
@@ -115,6 +139,11 @@ pub fn name_row(
     } else {
         copy(&name.text)?
     };
+    let title = if name.cut {
+        concat(&[&title, "…"])?
+    } else {
+        title
+    };
     Ok((title, say.count("files.books", i64::from(name.count))?))
 }
 
@@ -124,6 +153,10 @@ pub const MOST_SERIES: usize = 48;
 
 /// Pages of series names read for each state at most.
 const MOST_PAGES: usize = 8;
+
+/// Series looked at in all (two host calls each) before the list is
+/// made of what was found.
+pub const MOST_LOOKED: usize = 96;
 
 /// How far a series is begun: a book of it is being read, or finished.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +204,7 @@ pub fn collect_next<C: Copy>(
 ) -> Result<Vec<BookLine>, Error> {
     let mut found: Vec<BookLine> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
+    let mut looked = 0;
     'states: for begun in [Begun::Reading, Begun::Finished] {
         let mut from = first;
         for _ in 0..MOST_PAGES {
@@ -187,7 +221,8 @@ pub fn collect_next<C: Copy>(
                     push(&mut found, book)?;
                 }
                 push(&mut seen, name)?;
-                if found.len() >= most {
+                looked += 1;
+                if found.len() >= most || looked >= MOST_LOOKED {
                     break 'states;
                 }
             }
@@ -218,8 +253,26 @@ mod tests {
     fn name(text: &str, count: u32) -> NameLine {
         NameLine {
             text: text.into(),
+            cut: false,
             count,
         }
+    }
+
+    #[test]
+    fn a_long_name_is_cut_at_a_character_and_says_so() {
+        assert_eq!(short("abc", 5), ("abc", false));
+        assert_eq!(short("abcdef", 3), ("abc", true));
+        // Two-byte letters: never cut in the middle of one.
+        assert_eq!(short("ééé", 3), ("é", true));
+        assert_eq!(short("ééé", 0), ("", true));
+        let cut = NameLine {
+            cut: true,
+            ..name("Long", 1)
+        };
+        assert_eq!(
+            name_row(&mut Words, Shelf::Authors, &cut).unwrap().0,
+            "Long…"
+        );
     }
 
     #[test]
@@ -353,6 +406,26 @@ mod tests {
         let mut gone = fake();
         gone.followers = Vec::new();
         assert!(collect_next(&mut gone, 0, 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_library_of_very_many_series_looks_at_a_bounded_number() {
+        struct Many(usize);
+        impl SeriesSource<usize> for Many {
+            fn names(&mut self, _: Begun, from: usize) -> Result<SeriesNames<usize>, Error> {
+                Ok(SeriesNames {
+                    names: (from..from + 32).map(|n| alloc::format!("s{n}")).collect(),
+                    next: Some(from + 32),
+                })
+            }
+            fn next_of(&mut self, _: Begun, _: &str) -> Result<Option<BookLine>, Error> {
+                self.0 += 1;
+                Ok(None)
+            }
+        }
+        let mut source = Many(0);
+        assert!(collect_next(&mut source, 0, 5).unwrap().is_empty());
+        assert_eq!(source.0, MOST_LOOKED);
     }
 
     #[test]

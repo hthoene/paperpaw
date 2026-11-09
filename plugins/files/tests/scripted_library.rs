@@ -258,22 +258,13 @@ fn run(
 }
 
 #[test]
-fn the_shelves_look_for_one_series_begun_with_a_next_book() {
+fn the_shelves_ask_the_library_nothing() {
+    // The row of the next books is always there: finding one costs host
+    // calls for each series, so it is left to the list that is chosen.
     let host = ScriptedHost::new();
     let log = Log::default();
     assert_eq!(run(&host, &log, SHELVES_TOKEN, "files.shelves", &[]), 0);
-    // The series being read first; Saga's last begun book is the one the
-    // library names after (`query` by number, highest first), and one next
-    // book is enough for the row.
-    assert_eq!(
-        *log.borrow(),
-        [
-            "facets 1 show 2 cursor 0",
-            // Sort 2 is by series; flags bit 0 is descending.
-            "query show 2 series Saga sort 2 flags 1",
-            "next 3 in 4",
-        ]
-    );
+    assert!(log.borrow().is_empty());
 }
 
 #[test]

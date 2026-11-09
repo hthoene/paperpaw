@@ -94,18 +94,22 @@ fn the_shelves_survive_refused_allocations() {
     let names = [
         NameLine {
             text: "Ann".into(),
+            cut: true,
             count: 2,
         },
         NameLine {
             text: String::new(),
+            cut: false,
             count: 1,
         },
         NameLine {
             text: "books/Crime/".into(),
+            cut: false,
             count: 3,
         },
     ];
     let mut source = Two(book(false, None, false));
+    let long = "x".repeat(300);
     fail_alloc::sweep(|| {
         for shelf in Shelf::ALL {
             for name in &names {
@@ -116,6 +120,8 @@ fn the_shelves_survive_refused_allocations() {
         native_shelves::collect_next(&mut source, 0, 10)?;
         native_info::size_text(2_400_000, ",")?;
         native_info::upper("epub")?;
+        native_info::ellipsed("a value")?;
+        native_info::ellipsed(&long)?;
         Ok(())
     });
 }

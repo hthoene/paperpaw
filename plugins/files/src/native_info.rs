@@ -3,6 +3,7 @@
 //! fields plugins keep, the file with its size, and the folder. What the
 //! SDK cannot give yet (the cover, the tags' text, the language and the
 //! description, which are the format's) is in `PORTING-7.md`.
+use crate::native_shelves::short;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
@@ -24,8 +25,12 @@ pub struct Info {
     pub rows: Vec<(String, String)>,
 }
 
-/// The most field rows read (the host's own cap).
-const MOST_FIELDS: u32 = 64;
+/// The most field rows shown (the host has at most 64 fields), and the most
+/// bytes of a field's title and value (the host's go to 1,024): a longer
+/// value is cut with an ellipsis.
+const MOST_FIELD_ROWS: usize = 24;
+const MOST_FIELD_TITLE: usize = 64;
+const MOST_FIELD_VALUE: usize = 256;
 
 /// Reads what is known of the book at `path`: from the library's catalog.
 /// A book the catalog does not know (gone, or not catalogued yet) still
@@ -120,13 +125,21 @@ fn fields_rows(
     }
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut cursor = FieldCursor::start();
-    for _ in 0..=MOST_FIELDS {
+    let mut shown = 0;
+    // Two pages hold the host's 64 fields.
+    for _ in 0..3 {
         let page = library.fields(host, book, cursor, &mut input, &mut out)?;
         for field in page.rows() {
             let field = field?;
-            if !field.value().is_empty() {
-                push(&mut info.rows, (copy(field.title())?, copy(field.value())?))?;
+            if field.value().is_empty() {
+                continue;
             }
+            if shown >= MOST_FIELD_ROWS {
+                return Ok(());
+            }
+            let (title, _) = short(field.title(), MOST_FIELD_TITLE);
+            push(&mut info.rows, (copy(title)?, ellipsed(field.value())?))?;
+            shown += 1;
         }
         match page.end().next() {
             Some(next) if !page.is_empty() => cursor = next,
@@ -134,6 +147,14 @@ fn fields_rows(
         }
     }
     Ok(())
+}
+
+/// A field's value cut to 256 bytes, with an ellipsis when it was.
+pub fn ellipsed(value: &str) -> Result<String, Error> {
+    match short(value, MOST_FIELD_VALUE) {
+        (text, false) => copy(text),
+        (text, true) => concat(&[text, "…"]),
+    }
 }
 
 /// The file's row: its format and its size as the language writes it,
@@ -252,6 +273,15 @@ mod tests {
         assert_eq!(size_text(2_400_000, ".").unwrap(), "2.3 MB");
         assert_eq!(size_text(0, ".").unwrap(), "0 B");
         assert!(size_text(u64::MAX, ".").unwrap().ends_with("GB"));
+    }
+
+    #[test]
+    fn a_long_field_value_is_cut_with_an_ellipsis() {
+        assert_eq!(ellipsed("short").unwrap(), "short");
+        let long = "x".repeat(300);
+        let cut = ellipsed(&long).unwrap();
+        assert_eq!(cut.len(), MOST_FIELD_VALUE + "…".len());
+        assert!(cut.ends_with('…'));
     }
 
     #[test]
