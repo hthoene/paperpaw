@@ -236,12 +236,14 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
         // The book events 65-67 and suspend, each its own token (95-98).
-        14 => &[&[tagged(65, 95), tagged(66, 96), tagged(67, 97), tagged(34, 98)]],
+        14 => &[&[
+            tagged(65, 95),
+            tagged(66, 96),
+            tagged(67, 97),
+            tagged(34, 98),
+        ]],
         // `event.widget_changed`, which a maker registers for (`widget_events`).
-        13 => &[&[wire::Registration::Event {
-            event_tag: wire::EVENT_WIDGET_CHANGED_TAG,
-            token: 91,
-        }]],
+        13 => &[&[tagged(wire::EVENT_WIDGET_CHANGED_TAG, 91)]],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
