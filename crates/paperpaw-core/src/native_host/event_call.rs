@@ -82,7 +82,8 @@ impl crate::Kernel {
                 CALLBACK_COMMANDS,
                 CALLBACK_COMMAND_BYTES,
             )
-            .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining());
+            .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
+            .with_widgets(instances.ui_services(), owner);
             stage.set_images_held(self.image_held(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
@@ -93,6 +94,12 @@ impl crate::Kernel {
             let status = lease.service_event_staged(bytes, &env, &mut stage);
             let staged = if matches!(status, Ok(0 | 1)) {
                 let images = stage.take_image_commands();
+                // The widgets it said changed; their makers hear of it from
+                // the pump. The table is not held across a callback.
+                let widgets = stage.take_widget_changes();
+                if let Some(ui) = instances.ui_services() {
+                    let _ = ui.widgets_changed(owner, &widgets);
+                }
                 let (commands, redraw, _hop) = stage.into_ui_output();
                 (!commands.is_empty() || redraw.is_some() || !images.is_empty()).then_some(Staged {
                     owner,

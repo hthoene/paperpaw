@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), hints) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop), (hints, widgets)) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -81,6 +81,10 @@ impl Kernel {
                 .with_hint_labels(
                     self.shared.stack_rows.labels(),
                     !self.hint.buttons.is_empty(),
+                )
+                .with_widgets(
+                    self.shared.native_instances.ui_services(),
+                    context.owner_key(),
                 );
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
@@ -92,8 +96,16 @@ impl Kernel {
                 }
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
+                let widgets = stage.take_widget_changes();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, context.owner_key(), images, output, hints))
+                Ok::<_, Error>((
+                    status,
+                    owner,
+                    context.owner_key(),
+                    images,
+                    output,
+                    (hints, widgets),
+                ))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
@@ -107,6 +119,14 @@ impl Kernel {
                 return Err(Error::Status(ERR_BUSY));
             };
             labels.apply(hints);
+        }
+        // The widgets it said changed: their makers hear of it after the
+        // callback, from the pump (`widget_events`).
+        if !widgets.is_empty()
+            && let Some(ui) = self.shared.native_instances.ui_services()
+            && ui.widgets_changed(owner_key, &widgets).is_err()
+        {
+            return Err(Error::Status(ERR_BUSY));
         }
         Ok(status)
     }
