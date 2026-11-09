@@ -363,24 +363,24 @@ impl Props {
     }
 
     /// Compact text form for the cache, e.g. `a2 b1 i0 h1`.
-    pub fn encode(&self, out: &mut String) {
+    pub fn encode(&self, out: &mut String) -> Result<(), DocumentError> {
         if let Some(align) = self.align {
-            out.push_str(&alloc::format!(" a{}", align.bits()));
+            fallible::try_write!(out, " a{}", align.bits())?;
         }
         match self.direction {
-            Some(Direction::Ltr) => out.push_str(" d1"),
-            Some(Direction::Rtl) => out.push_str(" d2"),
+            Some(Direction::Ltr) => out.try_push_str(" d1")?,
+            Some(Direction::Rtl) => out.try_push_str(" d2")?,
             _ => {}
         }
         if let Some(family) = self.family {
-            out.push_str(&alloc::format!(" f{family}"));
+            fallible::try_write!(out, " f{family}")?;
         }
         if let Some(indent) = self.indent {
-            out.push_str(&alloc::format!(" t{indent}"));
+            fallible::try_write!(out, " t{indent}")?;
         }
         match self.size {
-            Some(FontSize::Relative(percent)) => out.push_str(&alloc::format!(" r{percent}")),
-            Some(FontSize::Absolute(percent)) => out.push_str(&alloc::format!(" z{percent}")),
+            Some(FontSize::Relative(percent)) => fallible::try_write!(out, " r{percent}")?,
+            Some(FontSize::Absolute(percent)) => fallible::try_write!(out, " z{percent}")?,
             None => {}
         }
         for (key, value) in [
@@ -398,7 +398,7 @@ impl Props {
             ('y', self.list_style.map(|l| u16::from(l.code()))),
         ] {
             if let Some(value) = value {
-                out.push_str(&alloc::format!(" {key}{value}"));
+                fallible::try_write!(out, " {key}{value}")?;
             }
         }
         for (key, value) in [
@@ -411,11 +411,12 @@ impl Props {
             ('F', self.float_left),
         ] {
             if let Some(value) = value {
-                out.push(' ');
-                out.push(key);
-                out.push(if value { '1' } else { '0' });
+                out.try_push(' ')?;
+                out.try_push(key)?;
+                out.try_push(if value { '1' } else { '0' })?;
             }
         }
+        Ok(())
     }
 
     pub fn decode(text: &str) -> Props {
@@ -971,35 +972,36 @@ impl Rules {
     #[cfg(test)]
     pub fn encode(&self) -> String {
         let mut out = String::new();
-        self.encode_lines(&mut |line| out.push_str(line));
+        let _ = self.encode_lines(&mut |line| out.push_str(line));
         out
     }
 
     /// The cache form (see `encode`) a line at a time, each with its line
     /// end, so that it is never all in memory.
-    pub fn encode_lines(&self, out: &mut dyn FnMut(&str)) {
+    pub fn encode_lines(&self, out: &mut dyn FnMut(&str)) -> Result<(), DocumentError> {
         let mut line = String::new();
         for family in &self.families {
             line.clear();
-            line.push_str("@family\t");
-            line.push_str(family);
-            line.push('\n');
+            line.try_push_str("@family\t")?;
+            line.try_push_str(family)?;
+            line.try_push('\n')?;
             out(&line);
         }
         for (selector, props) in &self.rules {
             line.clear();
             if let Some(tag) = &selector.tag {
-                line.push_str(tag);
+                line.try_push_str(tag)?;
             }
             if let Some(class) = &selector.class {
-                line.push('.');
-                line.push_str(class);
+                line.try_push('.')?;
+                line.try_push_str(class)?;
             }
-            line.push('\t');
-            props.encode(&mut line);
-            line.push('\n');
+            line.try_push('\t')?;
+            props.encode(&mut line)?;
+            line.try_push('\n')?;
             out(&line);
         }
+        Ok(())
     }
 
     #[cfg(test)]
