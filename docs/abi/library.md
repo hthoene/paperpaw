@@ -261,7 +261,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
     never overwrites a local position silently: then it answers `ERR_STATE` (observable, the
     plugin may ask the user) and stores nothing; an equal `updated` keeps the stored one;
   - a sync write with `confirmed` (the user chose "go to the other device's place",
-    `kosync/confirm.rs`) counts as local.
+    `kosync/confirm.rs`) counts as local;
+  - `confirmed` without `sync`, or any other `flags` bit, is `ERR_INVALID` and stores nothing (the
+    SDK's `PositionWrite` cannot build it).
 - [D] **Stored form of a position** (the book's `[position]` section, as interface 6): `insert =
   N` is kept only when N is not 0; `sync = 1` marks a position written with `sync` and without
   `confirmed`, and any other write removes it, so `from_sync` (bit 2) reads what the last write
