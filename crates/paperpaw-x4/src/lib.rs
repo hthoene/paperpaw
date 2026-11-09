@@ -42,6 +42,7 @@ pub mod card;
 pub mod changes;
 pub mod controls;
 pub mod cw2017;
+pub mod device_facts;
 pub mod device_host;
 pub mod dhcp;
 pub mod display;

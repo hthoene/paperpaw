@@ -1,0 +1,346 @@
+//! What the X4 firmware has, as `core.device` gives it ([`crate::device_host`]):
+//! the pure mappings from the firmware's own types (the power controls the
+//! kernel is built with, the memory reading, what code plugins stand on, how
+//! the start came), tested here on a computer, so that the firmware's glue is
+//! only the calls.
+
+use alloc::string::String;
+
+use paperpaw_core::native_host::device_service::{MemoryFacts, caps};
+use paperpaw_platform::MemoryClass;
+use paperpaw_platform::firmware::Text;
+use paperpaw_sdk::memory::MemoryUse;
+use paperpaw_sdk::native::{CodeRoom, Native, NotInstalledReason, SafeModeReason};
+use paperpaw_sdk::power::{PowerControls, Start};
+
+use crate::device_host::NativeState;
+
+/// What differs between X4 builds, for `dev_device.caps`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Features {
+    /// A touch screen (the X4 Pro).
+    pub touch: bool,
+    /// The row of hints under the screen (the buttons of the X4 and Classic).
+    pub button_row: bool,
+    /// A Bluetooth radio the kernel uses (the `bluetooth` build).
+    pub bluetooth: bool,
+    /// A front light (the X4 Pro).
+    pub frontlight: bool,
+    /// PaperPaw's own updates run (the firmware has its OTA data).
+    pub firmware: bool,
+}
+
+/// `dev_device.caps` of an X4: the parts [`crate::device_host::X4Device`]
+/// answers and the capabilities the kernel is built with agree (the kernel's
+/// builder is told `wifi`, `sleep`, `rotation` and `power_off` on every X4,
+/// `bluetooth` and `firmware` only where they exist).
+#[must_use]
+pub fn caps_for(features: &Features) -> u64 {
+    let bit = |on: bool, bit: u64| if on { bit } else { 0 };
+    caps::NETWORK
+        | caps::WIFI
+        | caps::SLEEP
+        | caps::ROTATION
+        | caps::POWER_OFF
+        | caps::BLACK_AND_WHITE
+        | bit(features.touch, caps::TOUCH)
+        | bit(features.button_row, caps::BUTTON_ROW)
+        | bit(features.bluetooth, caps::BLUETOOTH)
+        | bit(features.frontlight, caps::FRONTLIGHT)
+        | bit(features.firmware, caps::FIRMWARE)
+}
+
+/// `dev_device.controls`: bit 0 radio, 1 CPU clock, 2 buttons, 3 frontlight,
+/// 4 system saver. The same controls the kernel is built with.
+#[must_use]
+pub fn controls_bits(controls: &PowerControls) -> u32 {
+    u32::from(controls.radio)
+        | u32::from(controls.cpu_clock) << 1
+        | u32::from(controls.buttons) << 2
+        | u32::from(controls.frontlight) << 3
+        | u32::from(controls.system_saver) << 4
+}
+
+/// `dev_device.class`: 0 small, 2 large (the X4 and X3 are small, the X4 Pro
+/// and Classic large).
+#[must_use]
+pub fn class_of(memory: MemoryClass) -> u32 {
+    match memory {
+        MemoryClass::Small => 0,
+        _ => 2,
+    }
+}
+
+/// `dev_device.start`: 0 unknown, 1 power on, 2 woke, 3 restart.
+#[must_use]
+pub fn start_code(start: Start) -> u32 {
+    match start {
+        Start::PowerOn => 1,
+        Start::Wake => 2,
+        Start::Restart => 3,
+        _ => 0,
+    }
+}
+
+/// The memory probe's answer from the shell's reading: the heap, the largest
+/// block and the stack where they are known, and the external memory (PSRAM)
+/// where the heap has it.
+#[must_use]
+pub fn memory_facts(used: &MemoryUse) -> MemoryFacts {
+    let external = used
+        .regions
+        .iter()
+        .flatten()
+        .find(|region| region.external)
+        .map(|region| (region.free, region.size));
+    MemoryFacts {
+        heap_free: used.heap_free,
+        heap_size: used.heap_size,
+        largest: used.largest_free,
+        stack: used.stack_free.zip(used.stack_size),
+        external,
+        cached: false,
+    }
+}
+
+/// `dev_native.safe_mode`: 0 none, 1 the last starts failed (and the 8 s
+/// escape, which is the same to a reader), 2 the key held at power-on.
+#[must_use]
+pub fn safe_mode_code(native: &Native) -> u32 {
+    match native.safe_mode.as_ref().map(|mode| mode.reason) {
+        None => 0,
+        Some(SafeModeReason::KeyHeld) => 2,
+        Some(_) => 1,
+    }
+}
+
+/// What code plugins stand on, from the kernel's own record of it: `target`
+/// the chip id (5 ESP32-C3, 9 ESP32-S3), `pending` the code plugins that take
+/// effect at the next start, and the code flash `room` as (free, largest).
+#[must_use]
+pub fn native_state(
+    native: &Native,
+    target: u32,
+    pending: u32,
+    room: (u64, u64),
+    code_file: &'static str,
+) -> NativeState {
+    let name = |text: Option<&String>| Text::new(text.map_or("", String::as_str));
+    let mode = native.safe_mode.as_ref();
+    NativeState {
+        target,
+        code_file,
+        safe_mode: safe_mode_code(native),
+        crashed: name(mode.and_then(|mode| mode.crashed.as_ref())),
+        last_loaded: name(mode.and_then(|mode| mode.last_loaded.as_ref())),
+        pending,
+        room_free: room.0,
+        room_largest: room.1,
+    }
+}
+
+/// The code flash room as (free, largest free run): the loader places images
+/// one after the other from the start of its region, so what is free is one
+/// run at the end.
+#[must_use]
+pub fn code_room(room: &CodeRoom) -> (u64, u64) {
+    let free = room.total.saturating_sub(room.used);
+    (free, free)
+}
+
+/// `dev_not_installed.reason`: 1 other author, 2 damaged.
+#[must_use]
+pub fn not_installed_reason(reason: NotInstalledReason) -> u32 {
+    match reason {
+        NotInstalledReason::OtherAuthor => 1,
+        _ => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use paperpaw_core::native_host::device_service::{DeviceHost, check_caps_agree};
+    use paperpaw_sdk::memory::MemoryRegion;
+    use paperpaw_sdk::native::SafeMode;
+
+    use super::*;
+    use crate::device_host::{Identity, X4Device};
+
+    #[test]
+    fn caps_follow_the_build() {
+        let x4 = caps_for(&Features {
+            button_row: true,
+            firmware: true,
+            ..Features::default()
+        });
+        for bit in [
+            caps::NETWORK,
+            caps::WIFI,
+            caps::SLEEP,
+            caps::ROTATION,
+            caps::POWER_OFF,
+            caps::BLACK_AND_WHITE,
+            caps::BUTTON_ROW,
+            caps::FIRMWARE,
+        ] {
+            assert_ne!(x4 & bit, 0, "{bit:#x}");
+        }
+        for bit in [caps::TOUCH, caps::BLUETOOTH, caps::FRONTLIGHT] {
+            assert_eq!(x4 & bit, 0, "{bit:#x}");
+        }
+        let pro = caps_for(&Features {
+            touch: true,
+            frontlight: true,
+            bluetooth: true,
+            firmware: true,
+            ..Features::default()
+        });
+        for bit in [caps::TOUCH, caps::FRONTLIGHT, caps::BLUETOOTH] {
+            assert_ne!(pro & bit, 0, "{bit:#x}");
+        }
+        assert_eq!(pro & caps::BUTTON_ROW, 0);
+        assert_eq!(x4 & !caps::CAPS_MASK, 0);
+        // A device that cannot run PaperPaw's updates has no firmware bit.
+        assert_eq!(caps_for(&Features::default()) & caps::FIRMWARE, 0);
+    }
+
+    /// The controls are the ones the kernel is built with on each device.
+    #[test]
+    fn the_controls_are_the_kernels() {
+        assert_eq!(
+            controls_bits(&crate::controls::power_controls(false)),
+            0b0100
+        );
+        assert_eq!(
+            controls_bits(&crate::controls::power_controls(true)),
+            0b1100
+        );
+        assert_eq!(controls_bits(&PowerControls::default()), 0);
+    }
+
+    #[test]
+    fn the_memory_class_and_the_start_have_their_codes() {
+        assert_eq!(class_of(MemoryClass::Small), 0);
+        assert_eq!(class_of(MemoryClass::Large), 2);
+        assert_eq!(start_code(Start::Unknown), 0);
+        assert_eq!(start_code(Start::PowerOn), 1);
+        assert_eq!(start_code(Start::Wake), 2);
+        assert_eq!(start_code(Start::Restart), 3);
+    }
+
+    #[test]
+    fn the_memory_reading_gives_what_it_knows() {
+        let mut used = MemoryUse::new(100, 400)
+            .with_stack(10, 20)
+            .with_largest_free(60);
+        let facts = memory_facts(&used);
+        assert_eq!(
+            (
+                facts.heap_free,
+                facts.heap_size,
+                facts.largest,
+                facts.stack,
+                facts.external
+            ),
+            (100, 400, Some(60), Some((10, 20)), None)
+        );
+        assert!(!facts.cached);
+        let bare = memory_facts(&MemoryUse::new(1, 2));
+        assert_eq!((bare.largest, bare.stack), (None, None));
+        used = used
+            .with_region(MemoryRegion::new(50, 100))
+            .with_region(MemoryRegion::new(7_000_000, 8_000_000).external());
+        assert_eq!(memory_facts(&used).external, Some((7_000_000, 8_000_000)));
+    }
+
+    #[test]
+    fn what_code_plugins_stand_on_comes_from_the_kernels_record() {
+        let plain = Native::new("code.ppn");
+        let state = native_state(&plain, 5, 2, (100, 60), "code.ppn");
+        assert_eq!((state.safe_mode, state.pending, state.target), (0, 2, 5));
+        assert_eq!((state.room_free, state.room_largest), (100, 60));
+        assert_eq!(
+            (state.crashed.as_str(), state.last_loaded.as_str()),
+            ("", "")
+        );
+        let mut crashed = Native::new("code.ppn");
+        let mut mode = SafeMode::new(SafeModeReason::PowerEscape);
+        mode.crashed = Some("stats".into());
+        mode.last_loaded = Some("widgets".into());
+        crashed.safe_mode = Some(mode);
+        let state = native_state(&crashed, 9, 0, (0, 0), "code.ppn");
+        assert_eq!(state.safe_mode, 1);
+        assert_eq!(
+            (state.crashed.as_str(), state.last_loaded.as_str()),
+            ("stats", "widgets")
+        );
+        let mut held = Native::new("code.ppn");
+        held.safe_mode = Some(SafeMode::new(SafeModeReason::KeyHeld));
+        assert_eq!(safe_mode_code(&held), 2);
+        held.safe_mode = Some(SafeMode::new(SafeModeReason::FailedStarts));
+        assert_eq!(safe_mode_code(&held), 1);
+    }
+
+    #[test]
+    fn the_code_room_is_what_the_loader_left_free() {
+        assert_eq!(code_room(&CodeRoom::new(1_000, 300, 4_096)), (700, 700));
+        assert_eq!(code_room(&CodeRoom::new(100, 300, 4_096)), (0, 0));
+    }
+
+    #[test]
+    fn not_installed_reasons_have_their_codes() {
+        assert_eq!(not_installed_reason(NotInstalledReason::OtherAuthor), 1);
+        assert_eq!(not_installed_reason(NotInstalledReason::Damaged), 2);
+    }
+
+    /// A device made the way the firmware makes it (with the Wi-Fi, firmware
+    /// and Bluetooth parts set for the build) agrees with its own caps.
+    #[test]
+    fn the_firmwares_caps_agree_with_the_parts_it_sets() {
+        use paperpaw_platform::firmware::Running;
+
+        use crate::device_host::{BluetoothState, WifiState};
+        let features = Features {
+            button_row: true,
+            bluetooth: true,
+            firmware: true,
+            ..Features::default()
+        };
+        let device = X4Device::new(
+            Identity {
+                id: "xteink-x4",
+                model: "Xteink X4",
+                catalog: "x4",
+                class: class_of(MemoryClass::Small),
+                caps: caps_for(&features),
+                controls: controls_bits(&crate::controls::power_controls(false)),
+                tls_sessions: 1,
+                keys: &["back"],
+                values: &[],
+            },
+            &[],
+        );
+        assert!(check_caps_agree(&device).is_err());
+        device.set_wifi(WifiState {
+            state: 0,
+            ssid: Text::new(""),
+            address: Text::new(""),
+            host_name: Text::new(""),
+            guests: 0,
+            scanning: false,
+            wanted: false,
+            busy: false,
+        });
+        device.set_firmware(&Running::new("0.6.0", "paperpaw-xteink", 5, 0, false));
+        device.set_bluetooth(BluetoothState {
+            radio: 0,
+            max_links: 2,
+        });
+        assert_eq!(check_caps_agree(&device), Ok(()));
+        let mut seen = None;
+        device
+            .device(&mut |facts| seen = Some((facts.class, facts.controls)))
+            .unwrap();
+        assert_eq!(seen, Some((0, 0b0100)));
+    }
+}

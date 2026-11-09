@@ -238,12 +238,17 @@ pub struct Loader {
     /// the network runs it.
     #[cfg(feature = "ppn5")]
     host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+    /// The device behind `core.device`, wired with the table of handles and
+    /// told the code room when the loader is done.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
 }
 
 impl Loader {
     pub fn new(
         place: Place,
         #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+        #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     ) -> Self {
         Self {
             place,
@@ -253,6 +258,8 @@ impl Loader {
             resources: None,
             #[cfg(feature = "ppn5")]
             host_net,
+            #[cfg(feature = "ppn5")]
+            device,
         }
     }
 
@@ -280,6 +287,7 @@ impl Loader {
                 &mut self.place,
                 &mut self.depth,
                 &mut self.resources,
+                &self.device,
                 storage,
                 code,
             );
@@ -428,7 +436,9 @@ impl Loader {
 /// the store has no room: then no interface-7 plugin loads, or `core.ui` is
 /// absent and the plugin is told so.
 #[cfg(feature = "ppn5")]
-fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
+fn new_resources(
+    device: Option<alloc::rc::Rc<dyn paperpaw_core::native_host::device_service::DeviceHost>>,
+) -> Option<paperpaw_core::native_host::HostResources> {
     use paperpaw_core::native_host::{HostResources, HostWiring};
     let resources = match HostResources::try_new() {
         Ok(resources) => resources,
@@ -437,7 +447,12 @@ fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
             return None;
         }
     };
-    match resources.wire(HostWiring::new().ui(crate::DEVICE.id)) {
+    let wiring = HostWiring::new().ui(crate::DEVICE.id);
+    let wiring = match device {
+        Some(device) => wiring.device(device),
+        None => wiring,
+    };
+    match resources.wire(wiring) {
         Ok(wired) if wired.ui_skipped() => {
             warn!("native: core.ui not wired (no memory for its store)");
         }
@@ -507,7 +522,9 @@ impl CodeLoader for Loader {
     ) -> Option<paperpaw_core::native_host::HyphenTables> {
         use paperpaw_core::native_host::HostWiring;
         if self.resources.is_none() {
-            self.resources = new_resources();
+            let device: alloc::rc::Rc<dyn paperpaw_core::native_host::device_service::DeviceHost> =
+                self.device.clone();
+            self.resources = new_resources(Some(device));
         }
         // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
         // A plugin's `make` that asks for it earlier gets a one-off
@@ -536,6 +553,11 @@ impl CodeLoader for Loader {
         self.place.finish();
         // For the store and the plugin manager: how much room is left.
         let room = self.place.room();
+        #[cfg(feature = "ppn5")]
+        if let Some(room) = room.as_ref() {
+            let (free, largest) = paperpaw_x4::device_facts::code_room(room);
+            self.device.set_code_room(free, largest);
+        }
         if !paperpaw_sdk::native::keep_code_room(storage, room.as_ref()) {
             warn!("native: the room for code plugins could not be kept");
         }
