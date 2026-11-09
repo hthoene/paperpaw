@@ -22,11 +22,22 @@
 
 extern crate alloc;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+
 mod count;
 mod dual;
 mod fetch;
 mod found;
 mod look;
+mod native_card;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
 pub mod native_update;
 mod not_dual;
 pub mod online;
@@ -40,6 +51,8 @@ use alloc::string::String;
 
 use count::Trigger;
 pub use dual::declared as dual_boot_declared;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 use paperpaw_sdk::builtin::{events, groups};
 use paperpaw_sdk::firmware::Firmware;
 use paperpaw_sdk::{
