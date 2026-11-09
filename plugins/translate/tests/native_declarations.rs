@@ -1,7 +1,7 @@
-//! The native declarations name what the interface-6 registration names (the
+//! The native declarations name what the interface-6 registration named (the
 //! setting with its choices, default, flags, title, help and section; the
-//! panel; its offer for the slot `core.translate`), are what the image
-//! holds, and the host admits them.
+//! panel; its offer for the slot `core.translate`; pinned here), are what the
+//! image holds, and the host admits them.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -12,9 +12,8 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/translate_declarations.rs"));
 }
 use paperpaw_core::native_host::{declarations::validate_batch, registrations::records_decode};
-use paperpaw_plugin_translate::Translate;
+
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
@@ -31,31 +30,30 @@ fn batches(
     out
 }
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("translate"));
-    Translate.register(&mut r).unwrap();
-    r.into_contributions()
-}
-
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+fn the_decoded_batches_say_what_interface_6_registered() {
     let mut all = batches(|d| declarations::settings(d).unwrap());
     all.extend(batches(|d| declarations::screen(d).unwrap()));
     all.extend(batches(|d| declarations::events(d).unwrap()));
     all.extend(batches(|d| declarations::offer(d).unwrap()));
     let native = declared::native("translate", &all);
-    let everything = legacy();
-    let old = declared::legacy("translate", "core.group.reading", everything);
-    // The language setting: its choices, default, help, `advanced`, and the
-    // extra with the section; the reading group.
-    assert_eq!(native.groups, old.groups);
-    assert_eq!(native.specs, old.specs);
-    assert_eq!(native.specs.len(), 1);
-    assert_eq!(native.extras, old.extras);
-    assert_eq!(native.extras.len(), 1);
-    assert_eq!(native.screens, old.screens);
-    assert_eq!(native.screens.len(), 1);
-    assert_eq!(native.slots, old.slots);
+    // What the interface-6 plugin registered (pinned from it before it was
+    // removed): the language setting, a choice of the reader's own language and
+    // the 32 of DeepL, advanced, in the reading group, under the section.
+    assert!(native.groups.is_empty());
+    let choices: Vec<&str> = std::iter::once(declarations::AUTO)
+        .chain(declarations::LANGUAGES)
+        .collect();
+    let joined = choices.join("\n");
+    assert_eq!(
+        native.specs,
+        [format!(
+            "to|2|16|core.group.reading|translate.setting.to|translate.setting.to.help|t:translate.to.auto|0|0|{joined:?}"
+        )]
+    );
+    assert_eq!(native.extras, ["to||translate.section||=|0:|0|0"]);
+    assert_eq!(native.screens, ["panel|translate.title"]);
+    assert_eq!(native.slots, ["core.translate|translate.panel|0"]);
     assert_eq!(native.slots.len(), 1);
     assert!(
         native.slots[0].starts_with("core.translate|translate.panel"),
@@ -74,15 +72,6 @@ fn the_language_setting_has_its_33_values_and_the_host_admits_it() {
         let records = records_decode(batch).unwrap();
         assert_eq!(validate_batch("translate", &records), Ok(()));
     }
-}
-
-#[test]
-fn the_languages_are_the_interface_6_languages() {
-    assert_eq!(
-        declarations::LANGUAGES,
-        paperpaw_plugin_translate::LANGUAGES
-    );
-    assert_eq!(declarations::AUTO, paperpaw_plugin_translate::AUTO);
 }
 
 #[test]

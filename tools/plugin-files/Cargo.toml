@@ -113,12 +113,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "translate"
-path = "src/bin/translate.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "vocabulary"
 path = "src/bin/vocabulary.rs"
 test = false
@@ -233,7 +227,6 @@ paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
 paperpaw-plugin-stats = { path = "../../plugins/stats" }
-paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
 paperpaw-plugin-weather = { path = "../../plugins/weather" }
