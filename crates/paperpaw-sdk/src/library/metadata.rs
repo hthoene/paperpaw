@@ -7,11 +7,10 @@
 //! for any book not indexed yet.
 
 use alloc::format;
-use alloc::string::String;
 
 use paperpaw_platform::Storage;
 
-use super::{Book, DETAILS, book_for_update, details_text, load_details, today};
+use super::{Book, DETAILS, book_for_update, load_details, today};
 use crate::Env;
 use crate::config;
 
@@ -86,12 +85,17 @@ fn write_read(storage: &dyn Storage, path: &str, book: &Book) {
         true => before,
         false => format!("{before}\n[book]\n{METADATA} = on\n"),
     };
-    let ini: String = details_text(book, &before);
-    if ini.len() <= super::MAX_DETAILS {
-        #[expect(
-            clippy::let_underscore_must_use,
-            reason = "details not kept are read from the book again at the next walk"
-        )]
-        let _ = storage.write(&super::book_file(path), ini.as_bytes());
-    }
+    // Too large, or no memory for it: not kept, as the next walk reads
+    // the book again.
+    let (Ok(ini), Ok(file)) = (
+        super::details::try_details_text(book, &before),
+        super::fallible::try_book_file(path),
+    ) else {
+        return;
+    };
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "details not kept are read from the book again at the next walk"
+    )]
+    let _ = storage.write(&file, ini.as_bytes());
 }

@@ -343,6 +343,20 @@ fn ignores_case(root: &Path) -> bool {
     }
 }
 
+/// The file id of `meta`, if it is on the root's device.
+#[cfg(unix)]
+fn identity(root: &Path, meta: &fs::Metadata) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    let root = fs::metadata(root).ok()?;
+    (root.dev() == meta.dev()).then(|| meta.ino())
+}
+
+/// No file ids in std here: moves decided by identity are refused.
+#[cfg(not(unix))]
+fn identity(_root: &Path, _meta: &fs::Metadata) -> Option<u64> {
+    None
+}
+
 /// Whether paths `a` and `b` lead to the same entry.
 #[cfg(unix)]
 fn same_entry(a: &Path, b: &Path) -> bool {
@@ -564,6 +578,16 @@ impl Storage for DirStorage {
 
     fn ignores_case(&self) -> bool {
         self.ignores_case
+    }
+
+    /// The file id (inode), the link itself where `path` is one (no link
+    /// followed); `None` for an entry on another device than the root (a
+    /// mount below it), whose number could be another entry's here, and on
+    /// systems without file ids in std.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let target = self.resolve(path)?;
+        let meta = fs::symlink_metadata(&target).map_err(error)?;
+        Ok(identity(&self.root, &meta))
     }
 
     fn free_space(&self) -> Option<u64> {
