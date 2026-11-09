@@ -63,6 +63,17 @@ impl Shelf {
         }
     }
 
+    /// The key of how many names the list has, said at the end of its row.
+    #[must_use]
+    pub const fn count_key(self) -> &'static str {
+        match self {
+            Self::Authors => "files.list.authors.count",
+            Self::Series => "files.count.series",
+            Self::Tags => "files.count.tags",
+            Self::Folders => "files.count.folders",
+        }
+    }
+
     /// What an empty list says.
     #[must_use]
     pub const fn none_key(self) -> &'static str {

@@ -8,6 +8,13 @@ const DE: &str = include_str!("../i18n/de.ini");
 fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
     let sources = [
         include_str!("../src/native_plugin.rs"),
+        include_str!("../src/native_plugin/books.rs"),
+        include_str!("../src/native_plugin/names.rs"),
+        include_str!("../src/native_plugin/open.rs"),
+        include_str!("../src/native_plugin/sheet.rs"),
+        include_str!("../src/native_cells.rs"),
+        include_str!("../src/native_sheet.rs"),
+        include_str!("../src/native_states.rs"),
         include_str!("../src/native_model.rs"),
         include_str!("../src/native_shelves.rs"),
         include_str!("../src/native_info.rs"),
@@ -39,21 +46,23 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                         | "files.covers.mono"
                         | "files.covers.gray"
                         | "files.books"
+                        | "files.archive"
+                        | "files.menu"
                 )
             {
                 asked += 1;
                 for (name, catalog) in [("en", EN), ("de", DE)] {
+                    // A text with a count has a form for one and for the others.
                     assert!(
-                        catalog
-                            .lines()
-                            .any(|l| l.starts_with(&format!("{part} = "))),
+                        catalog.lines().any(|l| l.starts_with(&format!("{part} = "))
+                            || l.starts_with(&format!("{part}.one = "))),
                         "{part} missing in {name}"
                     );
                 }
             }
         }
     }
-    assert!(asked >= 15, "{asked}");
+    assert!(asked >= 30, "{asked}");
 }
 
 #[test]

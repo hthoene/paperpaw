@@ -2,21 +2,43 @@ use super::*;
 
 impl NativeFiles {
     pub(super) fn read_shelves(&self, host: &Host<'_>) -> Result<Shelves, Error> {
-        let mut say = Messages::new()?;
+        let mut say = Speaker {
+            host,
+            messages: Messages::new()?,
+        };
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut rows = Vec::new();
         let mut items = Vec::new();
         // Always offered: looking for a next book costs host calls for each
         // series, so the list says when there is none (`files.list.none.next`).
-        let next = say.copy(host, "files.list.show.next")?;
+        let next = say.say("files.list.show.next")?;
         push(&mut rows, ShelfRow::Next)?;
         push(&mut items, Item::noted(&next, "›", "")?)?;
-        let favourites = say.copy(host, "files.favourites")?;
+        // The favourites, and each list of names, with how many they hold at
+        // the row's end; a count the host will not give is left out.
+        let favourites = say.say("files.favourites")?;
+        let query = Query::new().show(Show::Favourites);
+        let held = library
+            .query(host, &query, &mut input, &mut out)
+            .map(|page| page.end().total());
+        let count = match counted(held)? {
+            Some(total) => say.count("files.books", i64::from(total))?,
+            None => copy("›")?,
+        };
         push(&mut rows, ShelfRow::Favourites)?;
-        push(&mut items, Item::noted(&favourites, "›", "")?)?;
+        push(&mut items, Item::noted(&favourites, &count, "")?)?;
         for shelf in Shelf::ALL {
-            let title = say.copy(host, shelf.title_key())?;
+            let title = say.say(shelf.title_key())?;
+            let held = library
+                .facets(host, &Query::new(), shelf.facet(), &mut input, &mut out)
+                .map(|page| page.end().total());
+            let count = match counted(held)? {
+                Some(total) => say.count(shelf.count_key(), i64::from(total))?,
+                None => copy("›")?,
+            };
             push(&mut rows, ShelfRow::By(shelf))?;
-            push(&mut items, Item::noted(&title, "›", "")?)?;
+            push(&mut items, Item::noted(&title, &count, "")?)?;
         }
         Ok(Shelves {
             rows,
@@ -219,5 +241,15 @@ impl NativeFiles {
             Some(View::Books(_)) => self.chosen_book(host, token, index),
             Some(View::Info(_)) | None => Ok(()),
         }
+    }
+}
+
+/// What the host said of a count: the number, none where it would not say
+/// (the row then shows no count), or the lack of memory.
+fn counted(held: Result<u32, Error>) -> Result<Option<u32>, Error> {
+    match held {
+        Ok(total) => Ok(Some(total)),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(None),
     }
 }

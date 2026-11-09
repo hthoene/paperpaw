@@ -258,13 +258,23 @@ fn run(
 }
 
 #[test]
-fn the_shelves_ask_the_library_nothing() {
+fn the_shelves_count_the_favourites_and_each_list_and_leave_the_next_books_alone() {
     // The row of the next books is always there: finding one costs host
-    // calls for each series, so it is left to the list that is chosen.
+    // calls for each series, so it is left to the list that is chosen. The
+    // other rows say at their end how many they hold.
     let host = ScriptedHost::new();
     let log = Log::default();
     assert_eq!(run(&host, &log, SHELVES_TOKEN, "files.shelves", &[]), 0);
-    assert!(log.borrow().is_empty());
+    assert_eq!(
+        *log.borrow(),
+        [
+            "query show 4 series  sort 0 flags 0",
+            "facets 0 show 0 cursor 0",
+            "facets 1 show 0 cursor 0",
+            "facets 2 show 0 cursor 0",
+            "facets 4 show 0 cursor 0",
+        ]
+    );
 }
 
 #[test]
