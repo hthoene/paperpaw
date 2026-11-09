@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 12] = [
+const CASES: [Case; 13] = [
     Case {
         name: "the-library-lists-the-books-with-how-far-each-is-read",
         golden: None,
@@ -31,7 +31,7 @@ const CASES: [Case; 12] = [
     Case {
         name: "authors-series-tags-and-folders-list-their-names-and-books",
         golden: None,
-        blocked_by: &["sdk-library-facets", "H1", "H3", "H4"],
+        blocked_by: &["lib-facets-host-semantics", "H1", "H3", "H4"],
     },
     Case {
         name: "the-library-follows-the-catalog-while-it-is-open",
@@ -56,12 +56,32 @@ const CASES: [Case; 12] = [
     Case {
         name: "find-by-letter-and-search-by-words",
         golden: None,
-        blocked_by: &["sdk-library-facets", "search-keyboard-ask", "H4"],
+        blocked_by: &[
+            "letters-jump-cursor",
+            "lib-search-host-semantics",
+            "H3",
+            "H4",
+        ],
     },
     Case {
         name: "book-information-shows-the-details",
         golden: None,
-        blocked_by: &["info-slice", "lib-op-4-text-facade", "H3"],
+        blocked_by: &[
+            "lib-cover-facade",
+            "lib-op-4-text-facade",
+            "documents-metadata-facade",
+            "H3",
+        ],
+    },
+    Case {
+        name: "the-next-book-of-each-series-begun",
+        golden: None,
+        blocked_by: &[
+            "lib-facets-host-semantics",
+            "lib-next-in-series-host",
+            "H1",
+            "H3",
+        ],
     },
     Case {
         name: "menus-help-hints-and-the-home-search-gesture",
@@ -86,11 +106,12 @@ fn the_library_and_its_lists_behave_as_the_interface_6_screens_did() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the SDK has no `Library::facets` and no typed library_changed event"]
+#[ignore = "BLOCKED: the host's facets and search (the catalog behind LIB ops 5 and 2), the typed library_changed event, the letters' jump"]
 fn the_shelves_and_the_live_catalog() {
     CASES[4].refuse().unwrap();
     CASES[5].refuse().unwrap();
     CASES[9].refuse().unwrap();
+    CASES[12].refuse().unwrap();
 }
 
 #[test]
@@ -101,7 +122,7 @@ fn covers_and_the_folder_chooser() {
 }
 
 #[test]
-#[ignore = "BLOCKED: later slices (the book sheet, the information screen, menus and help hints)"]
+#[ignore = "BLOCKED: the book sheet, the cover, the tags, the language and the description of the information screen, menus and help hints"]
 fn the_rest_of_the_library() {
     CASES[8].refuse().unwrap();
     CASES[10].refuse().unwrap();

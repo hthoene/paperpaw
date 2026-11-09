@@ -52,7 +52,7 @@ impl RegistryView for Sources<'_> {
             schema::OP_MENU => menus::menu(self, scope, flags, visit),
             schema::OP_BINDINGS => bindings::rows(self, scope, visit),
             schema::OP_SETUP => setup::rows(self, visit),
-            schema::OP_WIDGETS => widgets::rows(self, scope, visit),
+            schema::OP_WIDGETS => widgets::rows(self, scope, flags, visit),
             schema::OP_STATUS => status::rows(self, scope, visit),
             _ => Err(ERR_UNSUPPORTED),
         }

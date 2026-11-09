@@ -12,6 +12,7 @@ use crate::store;
 use crate::texts::{HostWords, Words, duration};
 use alloc::string::String;
 use alloc::vec::Vec;
+use paperpaw_sdk::StorageError;
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::reply::Reply;
 use paperpaw_sdk::native::snapshot::capture_snapshot;
@@ -49,9 +50,11 @@ impl<'a> Context<'a> {
         let mut context = Self::default();
         for param in params.flatten() {
             match param.key() {
-                "pages" if context.pages.is_none() => context.pages = param.value().parse().ok(),
+                "pages" if context.pages.is_none() => {
+                    context.pages = param.value().parse().ok().filter(|v: &f32| v.is_finite());
+                }
                 "progress" if context.progress.is_none() => {
-                    context.progress = param.value().parse().ok();
+                    context.progress = param.value().parse().ok().filter(|v: &f32| v.is_finite());
                 }
                 "chapters" if context.chapters.is_none() => context.chapters = Some(param.value()),
                 _ => {}
@@ -80,16 +83,26 @@ impl<'a> Context<'a> {
 }
 
 /// Seconds a page, from the reading of the last [`DAYS`] days, if enough was
-/// read.
-fn speed(host: &Host<'_>) -> Option<f32> {
-    let today = capture_snapshot(host)
-        .ok()?
-        .unix_seconds()
-        .and_then(|unix| u32::try_from(unix).ok())
-        .map(utc_day)?;
+/// read. Where the heap refused, `previous` stays: a refusal is no answer.
+fn speed(host: &Host<'_>, previous: Option<Option<f32>>) -> Option<Option<f32>> {
+    let today = match capture_snapshot(host) {
+        Ok(snapshot) => snapshot
+            .unix_seconds()
+            .and_then(|unix| u32::try_from(unix).ok())
+            .map(utc_day),
+        Err(Error::NoMemory) => return previous,
+        Err(_) => None,
+    };
+    let Some(today) = today else {
+        return Some(None);
+    };
     let storage = DataStorage::new(host);
-    // A log that cannot be read shows as no days (as interface 6 did).
-    let days = store::days(&DataFolder(&storage), utc_day).unwrap_or_default();
+    let days = match store::days(&DataFolder(&storage), utc_day) {
+        Ok(days) => days,
+        Err(StorageError::TooLarge) => return previous,
+        // A log that cannot be read shows as no days (as interface 6 did).
+        Err(_) => Vec::new(),
+    };
     let (mut seconds, mut pages) = (0u64, 0u32);
     for day in days
         .iter()
@@ -98,7 +111,7 @@ fn speed(host: &Host<'_>) -> Option<f32> {
         seconds = seconds.saturating_add(u64::from(day.seconds));
         pages = pages.saturating_add(day.stays);
     }
-    (pages >= MIN_PAGES).then(|| seconds as f32 / pages as f32)
+    Some((pages >= MIN_PAGES).then(|| seconds as f32 / pages as f32))
 }
 
 /// The reading speed, kept between events.
@@ -142,14 +155,14 @@ impl Left {
     /// A book was opened (or shown again).
     pub(crate) fn book_opened(&mut self, host: &Host<'_>, path: &str) {
         if self.opened(path) == Ok(true) {
-            self.known = Some(speed(host));
+            self.known = speed(host, self.known);
         }
     }
 
     /// A page was turned.
     pub(crate) fn page_turned(&mut self, host: &Host<'_>) {
         if self.turned() {
-            self.known = Some(speed(host));
+            self.known = speed(host, self.known);
         }
     }
 
