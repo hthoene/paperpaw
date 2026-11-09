@@ -194,7 +194,11 @@ fn a_plugin_ini_that_is_no_plugin_does_not_stop_the_pack() {
         assert!(card.exists(TABLE));
         let mut package = alloc::vec![0u8; card.size(INI).unwrap() as usize];
         card.read_at(INI, 0, &mut package).unwrap();
-        assert!(core::str::from_utf8(&package).unwrap().contains("id = hyphenation"));
+        assert!(
+            core::str::from_utf8(&package)
+                .unwrap()
+                .contains("id = hyphenation")
+        );
     }
 }
 
