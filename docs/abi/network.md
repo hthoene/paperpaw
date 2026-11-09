@@ -310,7 +310,10 @@ file's size, 2.1).
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
   newer `serve`, or because the network went away, `reason` then `no_network`). When the port is
-  taken, the host tries the next 20 ports (the address says which it got).
+  taken, the host tries the next 20 ports (the address says which it got). `started` comes only
+  once the listener is really open; one that cannot open (no socket, no memory) ends with `failed`,
+  `refused`, and its server slot is free again, so a plugin never waits for requests that cannot
+  come.
 - [D] **A server lives on a screen** (interface 6 tied servers to the screen that started them):
   `serve` is only allowed from a callback of one of the plugin's own screen instances that is
   showing (`ERR_STATE` elsewhere: no background server the user cannot see, and none that keeps
