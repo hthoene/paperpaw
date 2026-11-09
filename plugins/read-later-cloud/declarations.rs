@@ -1,14 +1,24 @@
-//! What the Readwise Reader set-up declares, compared with the interface-6
+//! What the Readwise Reader plugin declares, compared with the interface-6
 //! registration by the declaration tests: the setting for where articles
 //! are fetched from, the set-up screen, the two actions, the place in the
-//! tools and the icons.
+//! tools, the icons, and the events it reads: the end of a request, the
+//! reader's page turns, the work that is due and the plugin's stopping.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, Instances, Kind, MenuEntryDecl, ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, Instances, Kind, MenuEntryDecl, ScreenDecl,
+    SpecDecl,
 };
 
 /// Callback tokens: stable within this plugin.
 pub const OPEN_TOKEN: u32 = 1;
 pub const FETCH_TOKEN: u32 = 2;
+/// The end of a request (`core.net`).
+pub const HTTP_TOKEN: u32 = 3;
+/// The reader's page turns: an article read to the end is noted.
+pub const PAGE_TOKEN: u32 = 4;
+/// The plugin stops: a fetch under way is cancelled and its files go.
+pub const STOP_TOKEN: u32 = 5;
+/// The work that fetches, when it is due.
+pub const WORK_TOKEN: u32 = 6;
 pub const SCREEN: u32 = 10;
 
 /// The places articles are fetched from, as the setting's values.
@@ -66,6 +76,18 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.menu_entry(entry)?;
     d.icon("read-later-cloud.open", "article")?;
     d.icon("read-later-cloud.fetch", "refresh")?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The events the plugin reads.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
+    d.subscribe_event(EventKind::PageTurned, PAGE_TOKEN)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    d.subscribe_event(EventKind::Stopping, STOP_TOKEN)?;
     d.submit()?;
     Ok(())
 }

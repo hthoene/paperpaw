@@ -77,6 +77,12 @@ impl Drop for ScreenCallback<'_> {
 }
 
 impl StackRows {
+    /// The (owner, instance) of the callback running now (tests).
+    #[cfg(test)]
+    pub(crate) fn running(&self) -> (u64, u32) {
+        self.running.get()
+    }
+
     /// A callback of the screen `instance` of `owner` begins on the stack; the
     /// guard ends it. Host-only: the pair comes from the dispatcher, never from
     /// plugin bytes.
