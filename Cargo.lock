@@ -1885,6 +1885,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",

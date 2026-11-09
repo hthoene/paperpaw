@@ -1,8 +1,30 @@
-# Interface-7 port (slice 1: the rules, the lists and the declarations)
+# Interface-7 port (slice 2: the screen, loading, pages in the reader)
 
-Version 1.0.8. Partial: what the browser decides and keeps, and what it declares, without the host.
-No native screen and no `NATIVE_ENTRY` yet; the interface-6 `Browser` and everything of it stays
-until the host activates native plugins (then it goes together, no shim).
+Version 1.0.8. Partial: the native screen and the loading of pages are in place; downloads of books,
+fonts and other files are the next slice. The interface-6 `Browser` and everything of it stays until
+the host activates native plugins (then it goes together, no shim: todo 90).
+
+## Slice 2 (`src/native_plugin.rs`, `NATIVE_ENTRY` with `linked`)
+
+- The start screen (`paperpaw_ui_kit` item list): *Search or enter address*, the bookmarks and the
+  pages read lately, a line for messages below. Holding an entry offers open / bookmark / delete
+  (bookmarks: open / delete) as a choice dialog; the address is typed in a text dialog (URL mode).
+- Loading: `core.net` GET with `save_to` (data folder, `download.tmp`), `User-Agent` and `Accept`
+  as in interface 6; the answer is read from `http_done` (status, final address, content type). An
+  error answer's page comes in memory (`Net::body`) and is kept to be shown; an error without a page
+  is told (`browser.error`). No network, offline, saving or the radio off is `browser.no-network`.
+- A page is kept with its address as `<base href>`, titled, put in the history and opened in the
+  reader with a hand-over of `root=0`, `path=pages/<hash>.html` (`command.open` on slot `core.reader`).
+  Back from the reader goes through the pages of this time; a page whose file is gone is loaded again.
+- Closing the last browser screen cancels the request (`Net::cancel`); an answer that still comes
+  with no screen open is discarded (its file removed), so the reader is never opened over a book.
+  Until downloads, a request saves at most 4 MiB (`max_file`): the cap for downloads is **to settle**
+  with Kernel (see Not yet).
+- The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
+- Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
+  2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
+- `tests/hosted_construction.rs`: construction in the host's registered scope, `make` runs to its end; the host's commit is refused
+  (`DeclarationViewsUnavailable`) until it wires the registry views (`BLOCKED #944`).
 
 ## Ported
 

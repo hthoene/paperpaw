@@ -28,10 +28,22 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
+mod native_entry;
+/// The interface-7 browser.
+pub mod native_plugin;
 pub mod native_store;
 #[cfg(test)]
 mod native_tests;
 pub mod native_web;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 mod store;
 mod web;
