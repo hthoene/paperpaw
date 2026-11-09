@@ -12,15 +12,19 @@
 //! [`crate::native_sleep`] falls back: the picture to the cat, the cover to
 //! the cat, the picture over the page to the cover.
 use super::Sleeping;
-use crate::native_sleep::{self as model, Content, Pictures};
+use crate::{
+    native_folder::list_folder,
+    native_picker::{FAILED_FILE, MOST_REASON},
+    native_sleep::{self as model, Content},
+};
 use alloc::string::String;
 use paperpaw_sdk::{
     Rect, Storage as _,
     native::{
         Error, Host,
         commands::CommandSender,
-        files::Files,
         fonts::{Font, FontRole},
+        formatting::Arg,
         image::{ImageId, ImageReady, ImageStatus, PrepareImage, PrepareRoot},
         library::{BookRef, Library, Query, Sort},
         snapshot::capture_snapshot,
@@ -28,7 +32,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Style,
+    Messages, Style,
     mem::{SERVICE_BUFFER, buffer},
 };
 
@@ -38,8 +42,6 @@ const LOGO_FILE: &str = "logo.png";
 const LOGO: &[u8] = include_bytes!("../../pictures/logo.png");
 /// The count of pictures shown (`next.txt`, as interface 6 kept it).
 const NEXT: &str = "next.txt";
-/// Pages of the folder listing read at most.
-const MOST_PAGES: usize = 8;
 /// Steps a decision of what to ask for takes at most (each clears a fact).
 const MOST_STEPS: usize = 6;
 
@@ -73,6 +75,8 @@ pub(super) struct Pics {
     cover_tried: bool,
     /// The cat or the logo could not be made: the message stays alone.
     given_up: bool,
+    /// The path of the picture over the page asked for, to say why it failed.
+    over_path: Option<String>,
 }
 
 impl Sleeping {
@@ -167,6 +171,7 @@ impl Sleeping {
         }
         self.pics.asked = None;
         let before = self.shows();
+        let over_path = self.pics.over_path.take();
         match (ready.status(), ready.image()) {
             (ImageStatus::Ready, Some(id)) => {
                 let held = Held {
@@ -175,8 +180,20 @@ impl Sleeping {
                     height: ready.height(),
                 };
                 self.pics.main = Some((kind, held));
+                if kind == Kind::Over {
+                    only_memory(remember_failure(host, None))?;
+                }
             }
-            _ => self.fail(kind),
+            _ => {
+                self.fail(kind);
+                if let (Kind::Over, Some(path)) = (kind, &over_path) {
+                    let failure = match ready.status() {
+                        ImageStatus::NotFound => Failure::Missing(path),
+                        status => Failure::Unreadable(path, reason_of(status)),
+                    };
+                    only_memory(remember_failure(host, Some(failure)))?;
+                }
+            }
         }
         only_memory(self.advance(host, cookie))?;
         if self.pics.asked.is_none() && self.shows() != before {
@@ -289,6 +306,9 @@ impl Sleeping {
                     None => next_in_folder(host)?,
                 };
                 let Some(path) = path else {
+                    if kind == Kind::Over {
+                        only_memory(remember_failure(host, Some(Failure::EmptyFolder)))?;
+                    }
                     return Ok(false);
                 };
                 (PrepareRoot::Library, path)
@@ -301,10 +321,17 @@ impl Sleeping {
         match CommandSender::new(host, &mut scratch).image_prepare(&request) {
             Ok(()) => {
                 self.pics.asked = Some((*cookie, kind));
+                self.pics.over_path = (kind == Kind::Over).then_some(path);
                 Ok(true)
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            Err(_) => Ok(false),
+            Err(_) => {
+                if kind == Kind::Over {
+                    let failure = Failure::Unreadable(&path, "sleep.overlay.reason.refused");
+                    only_memory(remember_failure(host, Some(failure)))?;
+                }
+                Ok(false)
+            }
         }
     }
 
@@ -402,6 +429,73 @@ fn only_memory_ok(result: Result<(), Error>) -> Result<bool, Error> {
 
 /// `bytes` as the file `name` of the data folder, written once: a file of the
 /// size it has is the one written before.
+/// Why a picture over the page did not show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Failure<'a> {
+    /// The pictures folder has no picture.
+    EmptyFolder,
+    /// The file is not there.
+    Missing(&'a str),
+    /// The file cannot be shown: its path and the key of the reason.
+    Unreadable(&'a str, &'static str),
+}
+
+/// The key of the reason a prepare request ended as `status`.
+fn reason_of(status: ImageStatus) -> &'static str {
+    match status {
+        ImageStatus::Unsupported => "sleep.overlay.reason.unsupported",
+        ImageStatus::TooLarge => "sleep.overlay.reason.too-large",
+        ImageStatus::CardFailure => "sleep.overlay.reason.card",
+        ImageStatus::NoMemory => "sleep.overlay.reason.memory",
+        _ => "sleep.overlay.reason.damaged",
+    }
+}
+
+/// Keeps why the picture over the page did not show at this sleep, for the
+/// picker (nothing is said while sleeping); `None` clears it. Written only
+/// when it changed; a failure to write is not told.
+fn remember_failure(host: &Host<'_>, why: Option<Failure<'_>>) -> Result<(), Error> {
+    let mut before = buffer(MOST_REASON)?;
+    let read = storage::read_at(host, Root::Data, FAILED_FILE, 0, &mut before).ok();
+    let before = read.and_then(|read| before.get(..read));
+    let Some(why) = why else {
+        if before.is_some() {
+            storage::remove(host, Root::Data, FAILED_FILE).ok();
+        }
+        return Ok(());
+    };
+    let mut messages = Messages::new()?;
+    let text = match why {
+        Failure::EmptyFolder => messages.copy(host, "sleep.overlay.empty-folder")?,
+        Failure::Missing(name) => messages.format(
+            host,
+            "sleep.overlay.missing",
+            &[Arg::Text { name: "name", value: name }],
+        )?,
+        Failure::Unreadable(name, key) => {
+            let reason = messages.copy(host, key)?;
+            messages.format(
+                host,
+                "sleep.overlay.unreadable",
+                &[
+                    Arg::Text { name: "name", value: name },
+                    Arg::Text { name: "reason", value: &reason },
+                ],
+            )?
+        }
+    };
+    // What cannot be kept whole is kept cut at a character.
+    let mut end = text.len().min(MOST_REASON);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bytes = text.as_bytes().get(..end).unwrap_or(&[]);
+    if before != Some(bytes) {
+        storage::write(host, Root::Data, FAILED_FILE, bytes).ok();
+    }
+    Ok(())
+}
+
 fn ensure(host: &Host<'_>, name: &str, bytes: &[u8]) -> Result<(), Error> {
     if storage::size(host, Root::Data, name).is_ok_and(|size| size == bytes.len() as u64) {
         return Ok(());
@@ -508,42 +602,6 @@ fn decimal(mut value: usize, digits: &mut [u8; 20]) -> &str {
         }
     }
     core::str::from_utf8(&digits[at..]).unwrap_or("0")
-}
-
-/// The pictures of `folder` on the card (the first of them by name).
-fn list_folder(host: &Host<'_>, folder: &str) -> Result<Pictures, Error> {
-    let files = match Files::open(host) {
-        Ok(files) => files,
-        Err(Error::NoMemory) => return Err(Error::NoMemory),
-        Err(_) => return Ok(Pictures::default()),
-    };
-    let found = read_folder(host, &files, folder);
-    let released = files.release(host);
-    let found = found?;
-    released.ok();
-    Ok(found)
-}
-
-fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Pictures, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let mut kept = Pictures::default();
-    let mut cursor = 0;
-    for _ in 0..MOST_PAGES {
-        let page = match files.list(host, Root::Files, folder, cursor, &mut input, &mut out) {
-            Ok(page) => page,
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // No folder, a file, no consent for the card: no pictures.
-            Err(_) => break,
-        };
-        for entry in page.entries() {
-            kept.take(entry.name(), entry.is_folder())?;
-        }
-        match page.next() {
-            Some(next) => cursor = next,
-            None => break,
-        }
-    }
-    Ok(kept)
 }
 
 #[cfg(test)]
