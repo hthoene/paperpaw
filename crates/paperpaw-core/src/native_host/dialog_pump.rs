@@ -37,9 +37,26 @@ pub(super) fn slot_of(kind: u32, remote: bool) -> Option<Id> {
     }
 }
 
-/// `value` in ASCII decimal, the form `core.request` and `core.kind` have.
-fn decimal(value: u32) -> alloc::string::String {
-    alloc::format!("{value}")
+/// `value` in ASCII decimal, the form `core.request` and `core.kind` have:
+/// made without a failing allocation (`None` when the heap cannot).
+fn decimal(value: u32) -> Option<alloc::string::String> {
+    let mut digits = [0u8; 10];
+    let mut at = digits.len();
+    let mut rest = value;
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    let mut text = alloc::string::String::new();
+    text.try_reserve_exact(digits.len() - at).ok()?;
+    for digit in &digits[at..] {
+        text.push(char::from(*digit));
+    }
+    Some(text)
 }
 
 impl crate::Kernel {
@@ -104,11 +121,15 @@ impl crate::Kernel {
                     continue;
                 };
                 let called = self.native_event_call(owner, &lease, &bytes[..len]);
+                if called == Err(ERR_BUSY) {
+                    // A batch waits: no callback ran, so the answer is kept for
+                    // the next pass, not freed.
+                    let _ = store.undo_delivery(&delivery);
+                    more = true;
+                    break;
+                }
                 // Freed when the callback returned, whatever it said.
                 let _ = store.delivered(delivery.request);
-                if called == Err(ERR_BUSY) {
-                    more = true;
-                }
                 self.native_outbox_run();
             }
             more |= store.has_delivery(owner);
@@ -117,28 +138,43 @@ impl crate::Kernel {
     }
 
     /// Opens the dialog of one starting request and tells the store how it
-    /// went: up (`open`) or `not_started`.
+    /// went: up (`open`) or `not_started`. The guard's own question opens above
+    /// the guard and is marked as its dialog; any other plugin's under a guard
+    /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
     fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
-        let Some(slot) = slot_of(start.kind, start.remote) else {
+        let (Some(slot), Some(request), Some(kind)) = (
+            slot_of(start.kind, start.remote),
+            decimal(start.request),
+            decimal(start.kind),
+        ) else {
             let _ = store.dialog_failed(start.request);
             return;
         };
-        let before = self.stack.last().map(|top| top.serial);
         let params = Params::new()
-            .with("core.request", decimal(start.request))
-            .with("core.kind", decimal(start.kind));
-        self.output
-            .commands
-            .push(Command::OpenSlot(slot.clone(), params));
+            .with("core.request", request)
+            .with("core.kind", kind);
+        let own = self.guard().is_some_and(|guard| {
+            self.shared
+                .native_instances
+                .id(start.asker)
+                .is_some_and(|asker| asker.as_str() == self.stack[guard].id.namespace())
+        });
+        // Serials only grow: what is at or past this was opened just now.
+        let first = self.next_serial;
+        self.from_guard = own;
+        self.from_guard_own = own;
+        self.apply(Command::OpenSlot(slot.clone(), params));
+        self.from_guard = false;
+        self.from_guard_own = false;
         self.run_commands();
         let opened = self
             .stack
-            .last()
-            .filter(|top| Some(top.serial) != before && top.slot.as_ref() == Some(&slot))
-            .map(|top| top.serial);
+            .iter_mut()
+            .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot));
         match opened {
-            Some(serial) => {
-                let _ = store.dialog_opened(start.request, serial);
+            Some(dialog) => {
+                dialog.guard_dialog = own;
+                let _ = store.dialog_opened(start.request, dialog.serial);
             }
             None => {
                 let _ = store.dialog_failed(start.request);

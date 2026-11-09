@@ -75,6 +75,35 @@ impl Plugin for Serves {
     }
 }
 
+/// A plugin `id` with a screen `<id>.lock` that guards the device.
+struct Locks(&'static str);
+
+struct Lock;
+
+impl Screen for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn guards(&self) -> bool {
+        true
+    }
+    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        Handled::No
+    }
+}
+
+impl Plugin for Locks {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static(self.0), "Lock", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_screen(ScreenSpec::new(
+            Id::try_parse(&std::format!("{}.lock", self.0)).unwrap(),
+            "lock",
+            Box::new(|_, _| Box::new(Lock)),
+        ))
+    }
+}
+
 /// The asker: records the `event.answered` records it was called with.
 struct Asker {
     seen: Rc<RefCell<Vec<wire::EventAnswered>>>,
@@ -129,12 +158,18 @@ struct World {
 }
 
 fn world(status: Result<i32, i32>) -> World {
+    world_with(status, None)
+}
+
+/// A world where plugin `locks` has a lock screen to open.
+fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
     OPENED.with(|opened| opened.borrow_mut().clear());
     let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Serves)
-        .build()
-        .unwrap();
+    let mut builder = crate::Kernel::builder(crate::tests::DEVICE).plugin(Serves);
+    if let Some(name) = locks {
+        builder = builder.plugin(Locks(name));
+    }
+    let mut kernel = builder.build().unwrap();
     kernel.start(Instant(0));
     let seen = Rc::new(RefCell::new(Vec::new()));
     let owner = kernel
@@ -282,4 +317,100 @@ fn a_dialog_closed_without_an_answer_is_a_cancel_the_asker_hears_of() {
     assert_eq!(answered.len(), 1);
     assert_eq!((answered[0].request, answered[0].outcome), (id, 1));
     assert_eq!(w.store.request_count(), 0);
+}
+
+fn lock(w: &mut World, name: &str) {
+    let id = Id::try_parse(&std::format!("{name}.lock")).unwrap();
+    w.kernel
+        .open_screen(Instant(2), id, paperpaw_sdk::Params::new());
+    assert!(w.kernel.guard().is_some());
+}
+
+#[test]
+fn the_guards_own_question_opens_above_the_guard_as_its_dialog() {
+    let mut w = world_with(Ok(OK), Some("a"));
+    lock(&mut w, "a");
+    let id = ask(&w, 0, 1);
+    w.kernel.native_dialog_pump();
+    // The keyboard is on top of the lock, authorized for its question.
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
+    let top = w.kernel.stack.last().unwrap();
+    assert!(top.guard_dialog);
+    assert_eq!(w.store.dialog_of(top.serial).map(|d| d.0), Some(id));
+    assert!(
+        w.kernel
+            .guard()
+            .is_some_and(|guard| guard + 1 == w.kernel.stack.len() - 1)
+    );
+}
+
+#[test]
+fn another_plugins_question_waits_below_the_guard_tracked_by_its_instance() {
+    let mut w = world_with(Ok(OK), Some("g"));
+    lock(&mut w, "g");
+    let id = ask(&w, 0, 1);
+    w.kernel.native_dialog_pump();
+    // The lock stays on top; the dialog waits directly below it.
+    let guard = w.kernel.guard().unwrap();
+    assert_eq!(guard, w.kernel.stack.len() - 1);
+    let dialog = &w.kernel.stack[guard - 1];
+    assert_eq!(dialog.id, KEYBOARD_SCREEN);
+    assert!(!dialog.guard_dialog);
+    // Tracked, not a ghost: the request knows its instance, and nothing was
+    // cancelled.
+    assert_eq!(w.store.dialog_of(dialog.serial).map(|d| d.0), Some(id));
+    assert!(w.seen.borrow().is_empty());
+}
+
+#[test]
+fn an_answer_whose_callback_did_not_run_is_kept_for_the_next_pass() {
+    let mut w = world(Ok(OK));
+    let id = ask(&w, 0, 1);
+    w.kernel.native_dialog_pump();
+    let top = w.kernel.stack.last().unwrap().serial;
+    let dialog = Stamp::new(w.owner, 9).unwrap();
+    w.store
+        .request_text_write(dialog, Some(top), id, 0, b"x", true)
+        .unwrap();
+    w.store.answer(top, id, 0, 0).unwrap();
+    let taken = w.store.take_delivery(w.owner).unwrap();
+    assert!(w.store.take_delivery(w.owner).is_none());
+    w.store.undo_delivery(&taken).unwrap();
+    let again = w.store.take_delivery(w.owner).unwrap();
+    assert_eq!(
+        (again.request, again.outcome, again.length),
+        (taken.request, 0, 1)
+    );
+}
+
+#[test]
+fn another_plugin_can_neither_answer_cancel_nor_fail_the_request_of_an_asker() {
+    let mut w = world(Ok(OK));
+    let id = ask(&w, 0, 5);
+    let b = w.owner + 1_000;
+    // While the asker's callback runs: another plugin's stamp changes nothing,
+    // nor does the asker's other epoch.
+    w.store.callback_failed(Stamp::new(b, 5).unwrap()).unwrap();
+    w.store
+        .callback_failed(Stamp::new(w.owner, 6).unwrap())
+        .unwrap();
+    w.store.callbacks_over().unwrap();
+    assert_eq!(w.store.next_starting().map(|s| s.request), Some(id));
+    w.kernel.native_dialog_pump();
+    let top = w.kernel.stack.last().unwrap().serial;
+    // Open: another plugin, or another instance, cannot write, answer or cancel.
+    let other = Stamp::new(b, 1).unwrap();
+    assert!(
+        w.store
+            .request_text_write(other, Some(top + 1), id, 0, b"x", true)
+            .is_err()
+    );
+    assert!(w.store.answer(top + 1, id, 1, 0).is_err());
+    assert!(
+        w.store
+            .request_text_write(other, None, id, 0, b"x", true)
+            .is_err()
+    );
+    assert!(w.seen.borrow().is_empty());
+    assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
 }

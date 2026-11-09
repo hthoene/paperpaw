@@ -158,6 +158,8 @@ pub(super) struct Request {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Start {
     pub(crate) request: u32,
+    /// The plugin that asked.
+    pub(crate) asker: u64,
     pub(crate) kind: u32,
     pub(crate) remote: bool,
     pub(crate) secret: bool,
@@ -391,6 +393,7 @@ impl UiStore {
                 let r = &inner.requests[at];
                 start(Start {
                     request: r.id,
+                    asker: r.asker,
                     kind: r.kind,
                     remote: r.remote,
                     secret: r.secret,
@@ -441,6 +444,7 @@ impl UiStore {
             .find(|r| r.phase == Phase::Starting)
             .map(|r| Start {
                 request: r.id,
+                asker: r.asker,
                 kind: r.kind,
                 remote: r.remote,
                 secret: r.secret,
@@ -709,6 +713,25 @@ impl UiStore {
                 .iter()
                 .any(|r| r.asker == asker && r.pending.is_some() && !r.delivering)
         })
+    }
+
+    /// The callback for `delivery` could not run (the plugin was busy or not
+    /// known): the answer waits as it was, for the next pass.
+    pub(crate) fn undo_delivery(&self, delivery: &Delivery) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        if let Some(at) = Self::request_at(&inner, delivery.request) {
+            let r = &mut inner.requests[at];
+            if r.delivering && r.pending.is_none() {
+                r.delivering = false;
+                r.pending = Some(Answer {
+                    outcome: delivery.outcome,
+                    choice: delivery.choice,
+                    length: delivery.length,
+                    flags: delivery.flags,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// The callback that delivered `request` returned: a final answer frees the

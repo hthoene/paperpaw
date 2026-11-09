@@ -107,7 +107,8 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             None => shell::dispatch_token(batch, token, self.depth.as_depth(), &frame, invocation),
         }
         .map_err(status);
-        if result.is_err() {
+        // Only 0 and 1 are answers: an error or any other status is a failure.
+        if !matches!(result, Ok(0 | 1)) {
             epoch.set_failed();
         }
         result
