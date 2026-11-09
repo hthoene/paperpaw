@@ -1483,10 +1483,10 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
-#[path = "native_widget_install_tests.rs"]
-mod widget_registered;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
+#[path = "native_widget_install_tests.rs"]
+mod widget_registered;
 
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;
