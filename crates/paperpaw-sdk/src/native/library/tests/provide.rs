@@ -173,7 +173,7 @@ fn every_field_at_its_cap_with_the_longest_path_fits_the_input() {
         "s".repeat(256),
         "1".repeat(32),
     );
-    // 16 tags of 127 bytes: 2,031 bytes, as close to the 2,048 as whole tags go.
+    // 16 tags of 127 bytes and 15 line breaks: 2,047 bytes, one under the cap.
     let tags = vec!["g".repeat(127); 16].join("\n");
     let provided = Provided::new()
         .title(&title)
@@ -194,6 +194,6 @@ fn every_field_at_its_cap_with_the_longest_path_fits_the_input() {
     let rows = wire::records_decode(&bytes).unwrap();
     assert!(matches!(
         rows.iter().nth(1),
-        Some(Record::ServiceLibProvided(p)) if p.flags == 0b11111 && p.tags.len() == 2_031
+        Some(Record::ServiceLibProvided(p)) if p.flags == 0b11111 && p.tags.len() == 2_047
     ));
 }
