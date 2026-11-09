@@ -99,7 +99,6 @@ pub const STORE_PLUGINS: [&str; 34] = [
     "hyphenation-uk",
     "joplin",
     "koreader",
-    "kosync",
     "mail",
     "news",
     "notes-vault",
@@ -176,7 +175,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "browser",
     "fonts-browser",
     "joplin",
-    "kosync",
     "mail",
     "news",
     "opds",
@@ -249,7 +247,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);

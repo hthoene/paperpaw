@@ -47,12 +47,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "kosync"
-path = "src/bin/kosync.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "news"
 path = "src/bin/news.rs"
 test = false
@@ -227,7 +221,6 @@ paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
 paperpaw-plugin-koreader = { path = "../../plugins/koreader" }
-paperpaw-plugin-kosync = { path = "../../plugins/kosync" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }

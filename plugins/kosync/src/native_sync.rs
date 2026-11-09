@@ -275,6 +275,12 @@ impl Engine {
         })
     }
 
+    /// This device's id.
+    #[must_use]
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
     /// The position of the open book, if any.
     #[must_use]
     pub fn current(&self) -> Option<&Position> {

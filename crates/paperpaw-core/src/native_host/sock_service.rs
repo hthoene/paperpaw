@@ -60,6 +60,7 @@ use crate::native_host::codec;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
+pub(crate) mod device;
 mod table;
 #[cfg(test)]
 mod tests;
@@ -82,6 +83,7 @@ pub(crate) mod kind {
 pub(crate) mod reason {
     pub(crate) const NONE: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
+    pub(crate) const DNS: u32 = 2;
     pub(crate) const TLS: u32 = 3;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
@@ -132,6 +134,16 @@ pub(crate) struct SockProfile {
 }
 
 impl SockProfile {
+    /// A profile of `sockets` open sockets with a send queue of `queue` and a
+    /// read part of `read` bytes each.
+    pub(crate) const fn new(sockets: u32, queue: u32, read: u32) -> Self {
+        Self {
+            sockets,
+            queue,
+            read,
+        }
+    }
+
     /// The X4: two sockets, 4 KiB each for the queue and the read part.
     pub(crate) const X4: Self = Self {
         sockets: 2,
@@ -152,34 +164,40 @@ impl SockProfile {
 }
 
 /// What a socket gives the transport when it starts to connect.
-pub(crate) struct Connect<'a> {
-    pub(crate) host: &'a str,
-    pub(crate) port: u32,
-    pub(crate) timeout_ms: u32,
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub struct Connect<'a> {
+    /// A name of letters, digits, `-` and `.`, or an IPv4 or bracketed IPv6
+    /// address (the service has checked it).
+    pub host: &'a str,
+    /// 1-65535.
+    pub port: u32,
+    /// Lookup and connect together; the service ends the socket after it.
+    pub timeout_ms: u32,
 }
 
 /// What the sockets of a shell do. The service owns every limit; the
 /// transport moves bytes.
 ///
 /// A transport never calls back into the service from inside these methods:
-/// it reports from the shell's loop, through [`connected`], [`received`],
-/// [`peer_closed`], [`writable`] and [`failed`].
-pub(crate) trait SockTransport {
+/// it reports from the shell's loop, through `connected`, `received`,
+/// `peer_closed`, `writable` and `failed`.
+pub trait SockTransport {
     /// Begin to connect socket `id` (lookup, connect). `Err` means it could
     /// not begin.
     fn connect(&self, id: u32, to: &Connect<'_>) -> Result<(), i32>;
     /// Hand up to `data.len()` bytes to the connection; how many it took
-    /// (0: it is full, [`writable`] says when to try again). `Err` ends the
+    /// (0: it is full, `writable` says when to try again). `Err` ends the
     /// socket (`io`).
     fn send(&self, id: u32, data: &[u8]) -> Result<usize, i32>;
     /// Allow the transport to report up to `max` more bytes through
-    /// [`received`] (and nothing beyond: nothing arrives unasked).
+    /// `received` (and nothing beyond: nothing arrives unasked).
     fn read(&self, id: u32, max: u32);
     /// Close the connection of `id` (a socket or a broadcast) without any
     /// report.
     fn close(&self, id: u32);
     /// Send `data` from a port of its own to the network's broadcast address
-    /// on each of `ports` and report the answers through [`answered`]. `Err`
+    /// on each of `ports` and report the answers through `answered`. `Err`
     /// means it could not begin.
     fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32>;
 }
@@ -187,28 +205,55 @@ pub(crate) trait SockTransport {
 /// A pinned hash (`sockets.md` 2.4): `kind` 0 the SHA-256 of the leaf
 /// certificate, 1 that of its SubjectPublicKeyInfo.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TlsPin {
-    pub(crate) kind: u32,
-    pub(crate) hash: [u8; 32],
+#[non_exhaustive]
+pub struct TlsPin {
+    /// 0: the SHA-256 of the leaf certificate's DER; 1: that of its
+    /// SubjectPublicKeyInfo.
+    pub kind: u32,
+    /// The hash.
+    pub hash: [u8; 32],
+}
+
+impl TlsPin {
+    /// A pin of `kind` (see the field).
+    #[must_use]
+    pub const fn new(kind: u32, hash: [u8; 32]) -> Self {
+        Self { kind, hash }
+    }
 }
 
 /// What a socket gives the shell's TLS when its handshake begins.
-pub(crate) struct TlsOpen<'a> {
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub struct TlsOpen<'a> {
     /// The name the certificate must match.
-    pub(crate) server_name: &'a str,
+    pub server_name: &'a str,
     /// At most 4 pins; with pins only the leaf is checked, against them.
-    pub(crate) pins: &'a [TlsPin],
+    pub pins: &'a [TlsPin],
 }
 
 /// What the handshake learned about the peer (`sock_peer`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PeerInfo {
+#[non_exhaustive]
+pub struct PeerInfo {
     /// SHA-256 of the leaf certificate's DER.
-    pub(crate) certificate: [u8; 32],
+    pub certificate: [u8; 32],
     /// SHA-256 of its SubjectPublicKeyInfo DER.
-    pub(crate) key: [u8; 32],
+    pub key: [u8; 32],
     /// The dates were checked against network time.
-    pub(crate) time_checked: bool,
+    pub time_checked: bool,
+}
+
+impl PeerInfo {
+    /// What the handshake learned about the peer.
+    #[must_use]
+    pub const fn new(certificate: [u8; 32], key: [u8; 32], time_checked: bool) -> Self {
+        Self {
+            certificate,
+            key,
+            time_checked,
+        }
+    }
 }
 
 /// What the codes the shell reports mean (anything else is `failed` `tls`).
@@ -232,7 +277,7 @@ pub(crate) mod tls_code {
 /// encrypted bytes; the service never sees them in clear on the wire.
 ///
 /// The shell never reports from inside these methods, only from its loop.
-pub(crate) trait SockTls {
+pub trait SockTls {
     /// Begin the handshake on the open connection of socket `id`, which
     /// holds the device's one session now. `Err(ERR_NO_MEMORY)` ends the
     /// socket `failed` `no_memory`; `Err(ERR_STATE)` says bytes from the
@@ -257,6 +302,16 @@ pub(crate) trait SockHost {
     fn now_ms(&self) -> u64;
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
+    /// A socket or broadcast of work run `run` was stored: the run does not
+    /// end while it lives (`work.md` 2.3). Called after it was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// socket is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The socket or broadcast of work run `run` ended (any way): exactly once
+    /// for each `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// Power saving (`network.md` 3.2): `Some` ends the socket now. `background`
     /// is set for a socket of a work run.
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd>;
@@ -281,6 +336,9 @@ pub(crate) trait SockHost {
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// Remove the staged file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
+    /// The plugin started: a staged file kept after a failed rename is tried
+    /// again.
+    fn recover_saves(&self, _owner: u64) {}
     /// Append `data` to the staged file of `path` (`<path>.pp-staged`); `first` creates it empty first (an
     /// older staged file goes). Whole or an error.
     fn staged_write(
@@ -366,9 +424,35 @@ pub(crate) fn backend(
     reason = "the shell's hooks into the table; tests use them"
 )]
 pub(crate) use table::{
-    answered, connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
-    screen_closed, secured, tick, tls_failed, untrusted, work_ended, writable,
+    answered, connected, event_delivered, failed, network_lost, next_deadline, next_event,
+    next_event_run, peer_closed, received, screen_closed, secured, tick, tls_failed, untrusted,
+    work_ended, writable,
 };
+
+/// The plugin started: a staged file kept after a failed rename comes back.
+#[allow(dead_code, reason = "the kernel's start hook calls it; tests do today")]
+pub(crate) fn owner_started(host: &dyn SockHost, owner: u64) {
+    host.recover_saves(owner);
+}
+
+/// `connect` as a plugin calls it (a test's way in from the wiring).
+///
+/// # Errors
+/// What `connect` answers (`sockets.md` 2.1).
+#[cfg(test)]
+pub(crate) fn admit(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Result<u32, i32> {
+    table::connect(host, who, input)
+}
+
+/// A connect as the dispatcher admits it, for the tests of the work pump.
+#[cfg(test)]
+pub(crate) fn connect_for_tests(
+    host: &dyn SockHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
+    table::connect(host, who, input)
+}
 
 /// The plugin stopped (its callbacks are revoked): its sockets close without
 /// events and the pool gets everything back. Idempotent.

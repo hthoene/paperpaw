@@ -162,6 +162,11 @@ impl OwnerResourceView {
         self.table.hosts.ui()
     }
 
+    /// The device's wired host views.
+    pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
+        &self.table.hosts
+    }
+
     /// Another view of the same pool, without allocation.
     pub(crate) fn try_clone(&self) -> Option<Self> {
         self.table.try_clone().map(|table| Self {
@@ -176,6 +181,10 @@ impl OwnerResourceView {
 
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+    /// The device's owner directory (see [`super::owner_directory`]).
+    pub(crate) fn owners(&self) -> Result<&Shared<super::owner_directory::OwnerDirectory>, i32> {
+        self.table.hosts.owners()
     }
     pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
         self.table.hosts.retry_retirements()
