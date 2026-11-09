@@ -252,6 +252,12 @@ pub(crate) trait NetHost {
     fn topmost_screen(&self, _owner: u64) -> Option<u64> {
         None
     }
+    /// Whether [`Self::current_run`] can tell now: `false` while the
+    /// scheduler is in use or none is attached, and then a call outside a
+    /// screen does not count as outside a run.
+    fn run_known(&self) -> bool {
+        true
+    }
     /// Whether `extra` more bytes can be written and the storage's free-space
     /// reserve (D2.6) is kept.
     fn room_for(&self, extra: u64) -> bool;

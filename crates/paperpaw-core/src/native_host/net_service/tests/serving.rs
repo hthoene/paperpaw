@@ -234,6 +234,18 @@ fn serve_from_a_work_run_is_refused_even_with_a_showing_own_screen() {
     assert!(fake.listens.borrow().is_empty(), "nothing was started");
 }
 
+#[test]
+fn serve_outside_a_screen_callback_fails_closed_when_the_runs_cannot_be_told() {
+    let fake = Fake::servers(8);
+    fake.screen.set(None);
+    fake.topmost.set(Some(8));
+    fake.run_known.set(false);
+    assert_eq!(serve(&fake, OWNER, &serve_rec(1, 8080)), Err(ERR_STATE));
+    assert!(fake.listens.borrow().is_empty(), "nothing was started");
+    fake.run_known.set(true);
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+}
+
 fn stop_serving_as(fake: &Fake, owner: u64, token: u32) {
     serving::stop_serving(fake, owner, token).unwrap();
 }

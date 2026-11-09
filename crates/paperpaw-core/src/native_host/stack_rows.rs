@@ -520,6 +520,15 @@ mod tests {
     }
 
     #[test]
+    fn a_dialog_callback_is_still_a_showing_screen_of_its_own() {
+        // The running dialog is the screen the server ties to, not the one
+        // below it (`showing_screen` comes first in `serve`).
+        let rows = [row(1, 9, 0), row(2, 9, OVERLAY)];
+        assert_eq!(showing(&rows, 9, 2), Some(2));
+        assert_eq!(topmost(&rows, 9), Some(1));
+    }
+
+    #[test]
     fn the_topmost_own_screen_is_none_when_covered_or_not_there() {
         // Another plugin's or the host's screen on top.
         assert_eq!(topmost(&[row(1, 9, 0), row(2, 8, 0)], 9), None);

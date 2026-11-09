@@ -44,6 +44,8 @@ pub(crate) struct Fake {
     pub(crate) screen: Cell<Option<u64>>,
     /// The plugin's topmost showing screen, for a call from no screen.
     pub(crate) topmost: Cell<Option<u64>>,
+    /// Whether the work scheduler can be asked.
+    pub(crate) run_known: Cell<bool>,
     pub(crate) run: Cell<Option<u64>>,
     /// The work run's resources: told open, told closed, refused to open.
     pub(crate) run_opened: RefCell<Vec<u64>>,
@@ -89,6 +91,7 @@ impl Fake {
             subscribed: Cell::new(true),
             screen: Cell::new(Some(5)),
             topmost: Cell::new(None),
+            run_known: Cell::new(true),
             run: Cell::new(None),
             run_opened: RefCell::new(Vec::new()),
             run_closed: RefCell::new(Vec::new()),
@@ -264,6 +267,9 @@ impl NetHost for Fake {
     }
     fn topmost_screen(&self, _: u64) -> Option<u64> {
         self.topmost.get()
+    }
+    fn run_known(&self) -> bool {
+        self.run_known.get()
     }
     fn room_for(&self, extra: u64) -> bool {
         extra <= self.free.get()

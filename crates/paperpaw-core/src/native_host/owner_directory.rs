@@ -94,6 +94,16 @@ impl OwnerDirectory {
             .topmost_screen(owner)
     }
 
+    /// Whether the work scheduler can be asked now (attached and not in use):
+    /// when it cannot, a caller that needs to know that no run is current
+    /// fails closed (`current_run` alone says `None` for both).
+    pub(crate) fn run_known(&self) -> bool {
+        self.sched
+            .try_borrow()
+            .ok()
+            .is_some_and(|sched| sched.is_some())
+    }
+
     /// The work run `owner`'s running callback belongs to.
     pub(crate) fn current_run(&self, owner: u64) -> Option<u64> {
         self.sched.try_borrow().ok()?.as_ref()?.current_run(owner)
@@ -257,6 +267,34 @@ mod tests {
         assert_eq!(id_of(&dir, 8), Err(ERR_STATE));
         dir.withdraw(7);
         assert_eq!(id_of(&dir, 7), Err(ERR_STATE));
+    }
+
+    #[test]
+    fn the_topmost_screen_and_the_run_state_come_from_what_is_attached() {
+        use crate::native_host::{
+            stack_rows::{StackRow, StackRows},
+            work_sched::Limits,
+        };
+        let dir = OwnerDirectory::new();
+        // Nothing attached: nothing is known, nothing is showing.
+        assert_eq!(dir.topmost_screen(9), None);
+        assert!(!dir.run_known());
+        let rows = Rc::new(StackRows::default());
+        dir.attach_screens(&rows);
+        rows.update([StackRow {
+            instance: 4,
+            owner: 9,
+            flags: 0,
+        }]);
+        assert_eq!(dir.topmost_screen(9), Some(4));
+        assert_eq!(dir.topmost_screen(8), None);
+        let sched = Rc::new(WorkSched::new(Limits::OTHER));
+        dir.attach_sched(&sched);
+        assert!(dir.run_known());
+        assert_eq!(dir.current_run(9), None);
+        // The scheduler in use: not known (never "no run").
+        let _busy = dir.sched.try_borrow_mut().unwrap();
+        assert!(!dir.run_known());
     }
 
     #[test]
