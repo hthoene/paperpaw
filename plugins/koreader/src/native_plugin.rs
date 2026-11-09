@@ -17,6 +17,7 @@ use paperpaw_sdk::{
     document::Locator,
     native::{
         Error, Host, Plugin,
+        device::{Device, DeviceClass},
         document::{DocId, DocPosition, Documents, OpenBook, Preparation},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         library::{
@@ -43,6 +44,34 @@ mod image {
 /// Longest KOReader file read (Beta 3's, for devices that have the memory: a
 /// refused allocation ends the exchange, never aborts).
 pub const MAX_FILE: usize = 4 << 20;
+/// Longest KOReader file read on a small device (some fifty annotations); the
+/// books of larger ones are not exchanged there.
+pub const MAX_FILE_SMALL: usize = 32 << 10;
+
+/// The longest file read on a device of `class`: the large bound only where
+/// the device is known to have the memory.
+pub const fn file_cap(class: Result<DeviceClass, Error>) -> usize {
+    match class {
+        Ok(DeviceClass::Medium | DeviceClass::Large) => MAX_FILE,
+        _ => MAX_FILE_SMALL,
+    }
+}
+
+/// The class of the device, read once through `core.device`.
+fn read_class(host: &Host<'_>) -> Result<DeviceClass, Error> {
+    let device = Device::open(host)?;
+    let class = (|| {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        Ok(device.device(host, &mut input, &mut out)?.class())
+    })();
+    // A handle that cannot be released is no reason to lose the class.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "the class was read; a refused release changes nothing for the exchange"
+    )]
+    let _ = device.release(host);
+    class
+}
 /// Longest file of what is known read.
 const MAX_KNOWN: usize = 1 << 20;
 /// Longest text or note of an annotation read whole.
@@ -71,6 +100,8 @@ struct Asked {
 #[derive(Debug, Default)]
 pub struct NativeKoReader {
     library: Option<Library>,
+    /// The longest KOReader file read on this device.
+    file_cap: Option<usize>,
     documents: Option<Documents>,
     ui: Option<Ui>,
     /// The question for the reader whether to remove what KOReader's file
@@ -173,6 +204,9 @@ fn known_name(key: &str) -> Result<String, Error> {
 
 impl NativeKoReader {
     fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.file_cap.is_none() {
+            self.file_cap = Some(file_cap(read_class(host)));
+        }
         if self.library.is_none() {
             self.library = Some(Library::open(host)?);
         }
@@ -315,7 +349,7 @@ impl NativeKoReader {
     /// KOReader's side of `book`: its annotations file for KOReader while
     /// that waits, else KOReader's own; none while it keeps no file, also
     /// while a sync has brought its folder but not yet the file in it.
-    fn read_theirs(host: &Host<'_>, book: &str) -> Result<Option<Theirs>, Stop> {
+    fn read_theirs(host: &Host<'_>, book: &str, cap: usize) -> Result<Option<Theirs>, Stop> {
         let waiting = model::exchange_file(book)?;
         let pending = match storage::size(host, Root::Files, &waiting) {
             Ok(_) => true,
@@ -327,7 +361,7 @@ impl NativeKoReader {
         } else {
             model::metadata_file(book)?
         };
-        let bytes = match files::read_all(host, Root::Files, &path, MAX_FILE) {
+        let bytes = match files::read_all(host, Root::Files, &path, cap) {
             Ok(Some(bytes)) => bytes,
             Ok(None) => return Ok(None),
             Err(Error::NoMemory) => return Err(Stop::Fail(Error::NoMemory)),
@@ -352,7 +386,7 @@ impl NativeKoReader {
     ) -> Result<Exchanged, Error> {
         // KOReader's side first: most books have none, and then the book
         // need not be opened.
-        let theirs = match Self::read_theirs(host, book) {
+        let theirs = match Self::read_theirs(host, book, self.file_cap.unwrap_or(MAX_FILE_SMALL)) {
             Ok(Some(theirs)) => theirs,
             Ok(None) | Err(Stop::Unreadable) => return Ok(Exchanged::Same),
             Err(Stop::Fail(error)) => return Err(error),
@@ -414,7 +448,10 @@ impl NativeKoReader {
             out: buffer(SERVICE_BUFFER)?,
         };
         // Asked before the book's annotations are read: nothing changes.
-        let (mut ours, generation) = read_ours(host, library, book, conversion, &mut doc)?;
+        let Some((mut ours, generation)) = read_ours(host, library, book, conversion, &mut doc)?
+        else {
+            return Ok(Exchanged::Same);
+        };
         if removal == Removal::Ask && exchange::removed_there(last, &theirs, ours.len()) {
             return Ok(Exchanged::Ask);
         }
@@ -474,8 +511,26 @@ impl NativeKoReader {
     }
 }
 
+/// What to do where a page of annotations is read and a next one remains.
+#[derive(Debug, PartialEq, Eq)]
+enum More {
+    Read,
+    /// `MOST_ANNOTATIONS` are read and more remain.
+    TooMany,
+}
+
+/// Whether the next page is read, `read` annotations being in hand.
+const fn after_page(read: usize) -> More {
+    if read < MOST_ANNOTATIONS {
+        More::Read
+    } else {
+        More::TooMany
+    }
+}
+
 /// The annotations of `book`, in the conversion the reader shows it in, and
-/// the generation they were read in. Those made in another conversion are
+/// the generation they were read in; `None` where the book has more than
+/// `MOST_ANNOTATIONS` (the exchange then leaves everything as it is). Those made in another conversion are
 /// placed through their XPointers, so they are found where KOReader's are.
 fn read_ours(
     host: &Host<'_>,
@@ -483,7 +538,7 @@ fn read_ours(
     book: &str,
     conversion: u64,
     doc: &mut HostBook<'_, '_>,
-) -> Result<(Vec<Mine>, u32), Error> {
+) -> Result<Option<(Vec<Mine>, u32)>, Error> {
     let reference = BookRef::path(book)?;
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut ours: Vec<Mine> = Vec::new();
@@ -535,12 +590,17 @@ fn read_ours(
             push(&mut ours, mine)?;
         }
         match next {
-            Some(next) if ours.len() < MOST_ANNOTATIONS => cursor = next,
-            _ => break,
+            None => break,
+            Some(next) => match after_page(ours.len()) {
+                More::Read => cursor = next,
+                // Cut here, KOReader's items missing from the list would be
+                // taken for removed here: nothing is exchanged.
+                More::TooMany => return Ok(None),
+            },
         }
     }
     place(host, library, reference, conversion, doc, &mut ours)?;
-    Ok((ours, generation))
+    Ok(Some((ours, generation)))
 }
 
 /// A text or note of annotation `id` whole, up to `MAX_TEXT` bytes.
@@ -714,4 +774,27 @@ fn keep_aside(host: &Host<'_>, known_file: &str, ours: &[Mine]) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_book_with_more_annotations_than_are_read_is_not_exchanged() {
+        assert_eq!(after_page(0), More::Read);
+        assert_eq!(after_page(MOST_ANNOTATIONS - 1), More::Read);
+        // At the bound with a page still to come: not exchanged, never cut.
+        assert_eq!(after_page(MOST_ANNOTATIONS), More::TooMany);
+        assert_eq!(after_page(MOST_ANNOTATIONS + 5), More::TooMany);
+    }
+
+    #[test]
+    fn the_file_bound_follows_the_device_class() {
+        assert_eq!(file_cap(Ok(DeviceClass::Small)), 32 << 10);
+        assert_eq!(file_cap(Ok(DeviceClass::Medium)), 4 << 20);
+        assert_eq!(file_cap(Ok(DeviceClass::Large)), 4 << 20);
+        // Unknown: the small bound.
+        assert_eq!(file_cap(Err(Error::Unsupported)), 32 << 10);
+    }
 }

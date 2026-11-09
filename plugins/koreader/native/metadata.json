@@ -80,6 +80,7 @@
     }
   ],
   "services": [
+    "core.device",
     "core.document",
     "core.library",
     "core.ui"

@@ -8,9 +8,8 @@
 //! it, takes over what is new there, and leaves what is new here in
 //! `Book.sdr/Book.epub.annotations.lua`: KOReader takes that over the
 //! next time it opens the book, and removes the file. Positions are
-//! KOReader's XPointers
-//! ([`Document::xpointer`](paperpaw_sdk::document::Document)), so EPUBs
-//! only.
+//! KOReader's XPointers (the document facade's `xpointer` and `locate`), so
+//! EPUBs only.
 //!
 //! What is removed on one side goes on the other too: the plugin keeps
 //! which annotations both had at the last exchange, and their notes then.
@@ -36,6 +35,11 @@
 //! not be written for KOReader is not taken as known, so it goes again
 //! next time. Annotations go to KOReader with the time they were made:
 //! while neither they nor the clock tell it, they wait here.
+//!
+//! Bounds: KOReader's file is read up to 32 KiB on a small device (the
+//! class `core.device` tells) and 4 MiB elsewhere; a larger one stops the
+//! exchange. A book with more than 2,048 annotations is not exchanged at all
+//! (a cut list would make what KOReader has beyond it look removed here).
 
 // What goes wrong with the user's data is told, never dropped unseen:
 // a result left unread says why (see CONTRIBUTING.md).

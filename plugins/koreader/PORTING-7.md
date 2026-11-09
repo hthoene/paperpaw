@@ -20,16 +20,22 @@ the texts (`i18n/`) and "How it works" (`how/`) are unchanged.
   is written to `<name>.annotations.lua` with `core.files`.
 - Where KOReader's file, seen with annotations before, has none any more, the reader
   is asked in the book (`Ui::ask`, once per book and run).
+- A book with more than 2,048 annotations (`MOST_ANNOTATIONS`) is not exchanged: a
+  cut list would make what KOReader has beyond it look removed here.
+- The plugin's own change comes back as a `library_changed` event and is ignored
+  once (`own`). If the host raised none for a commit, the next real change of that
+  book is ignored instead; nothing is lost, the exchange is idempotent and runs again
+  on the next book open or change.
 - Every allocation on these paths is fallible; a refused one stops the exchange
   with nothing changed on either side (`tests/native_alloc_refusal.rs`). Nothing
   indexes text or bytes in a way that can panic.
 
 ## Differences from interface 6
 
-- The interface-6 plugin bounded KOReader's file to 32 KiB on small devices
-  (`MemoryClass::Small`). The native SDK has no memory class, so the bound is 4 MiB
-  everywhere; on a small device the allocation is refused first and the exchange
-  stops with `NoMemory` (nothing changed), where it stopped as "unreadable" before.
+- The file bound follows the device class (`core.device`, read once): 32 KiB on a
+  small device (as before), 4 MiB on medium and large; where the class cannot be read
+  the small bound applies. A larger file is "unreadable": the exchange stops with
+  nothing changed.
 - The interface-6 reference tests (`tests/exchange.rs`, `tests/lua.rs`,
   `src/tests.rs`, the parity tests) are gone with the code. The Lua model keeps its
   expected texts as goldens (`src/native_model_tests.rs`, checked against the
@@ -38,7 +44,7 @@ the texts (`i18n/`) and "How it works" (`how/`) are unchanged.
 
 ## Not accepted yet (host not wired; ignored cases in `tests/acceptance_pending.rs`)
 
-- No scripted-host test drives the glue (`native_plugin.rs`) end to end: the book
+- No scripted-host test drives the glue (the cap per class is unit tested) (`native_plugin.rs`) end to end: the book
   opened, annotations changed, answered and moved flows are accepted only through
   the host once native plugins are activated (Core #944, Host #417) and the host
   delivers the book-opened and library-changed events and the ask service (H1/H3/H4).
