@@ -510,15 +510,22 @@ impl Kernel {
             }
         }
         if let Some(index) = open.filter(|&index| below_guard(index)) {
-            if params.is_empty() || self.stack[index].params == params {
+            if self.slot_open_same(index, &params) {
                 return;
             }
         } else if let Some(index) = open {
-            if params.is_empty() || self.stack[index].params == params {
+            if self.slot_open_same(index, &params) {
                 if index + 1 < self.stack.len()
                     && self.may_close_above(index, paperpaw_sdk::CloseCause::Slot)
                 {
                     self.close_above(index);
+                }
+                // A staged open passes the open native instance its new
+                // hand-over (or none), also when the params are the same.
+                if self.shared.native_instances.pending_handover().is_some()
+                    && self.is_native_at(index)
+                {
+                    self.reopen(index, &params);
                 }
                 return;
             }

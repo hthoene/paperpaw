@@ -18,10 +18,11 @@ use alloc::collections::TryReserveError;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::document::{Align, MAX_FAMILIES};
+use paperpaw_sdk::document::{Align, DocumentError, MAX_FAMILIES};
 use paperpaw_sdk::lang::Direction;
 
-use crate::package::resolve;
+use crate::fallible::{self, TryPush, TryPushStr};
+use crate::package::try_resolve;
 
 /// What a rule or a `style` attribute sets.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -107,6 +108,18 @@ impl ListStyle {
             .iter()
             .find(|(_, name)| *name == value)
             .map(|(style, _)| *style)
+    }
+
+    /// As [`ListStyle::parse`], where the case of the value does not matter.
+    pub fn parse_nocase(value: &str) -> Option<ListStyle> {
+        [
+            ("lower-latin", ListStyle::LowerAlpha),
+            ("upper-latin", ListStyle::UpperAlpha),
+        ]
+        .into_iter()
+        .chain(Self::ALL.iter().map(|(style, name)| (*name, *style)))
+        .find(|(name, _)| name.eq_ignore_ascii_case(value))
+        .map(|(_, style)| style)
     }
 
     fn code(self) -> u8 {
@@ -225,20 +238,55 @@ impl Props {
         )
     }
 
+    /// The `margin` or `padding` shorthand of one to four values.
+    fn set_box(&mut self, margin: bool, value: &str) {
+        // One to four values: top, right, bottom, left; the
+        // bottom as the top and the left as the right where
+        // they are not given, the right as the top.
+        let mut words = value.split_whitespace();
+        let values: [Option<&str>; 4] = core::array::from_fn(|_| words.next());
+        let top = values[0].and_then(space);
+        let bottom = values[2].or(values[0]).and_then(space);
+        let right = values[1].or(values[0]);
+        let left = values[3].or(right).and_then(side);
+        let right = right.and_then(side);
+        if margin {
+            self.margin_top = top.or(self.margin_top);
+            self.margin_bottom = bottom.or(self.margin_bottom);
+            self.margin_left = left.or(self.margin_left);
+            self.margin_right = right.or(self.margin_right);
+        } else {
+            self.padding_top = top.or(self.padding_top);
+            self.padding_bottom = bottom.or(self.padding_bottom);
+            self.padding_left = left.or(self.padding_left);
+            self.padding_right = right.or(self.padding_right);
+        }
+    }
+
     /// Reads declarations such as `text-align: center; font-weight: bold`;
     /// font families are looked up in (and added to) `families`.
-    pub fn parse_with(declarations: &str, families: &mut Vec<String>) -> Props {
+    pub fn parse_with(
+        declarations: &str,
+        families: &mut Vec<String>,
+    ) -> Result<Props, DocumentError> {
         let mut props = Props::default();
         for declaration in declarations.split(';') {
             let Some((property, value)) = declaration.split_once(':') else {
                 continue;
             };
-            let value = value
-                .trim()
-                .trim_end_matches("!important")
-                .trim()
-                .to_ascii_lowercase();
-            match property.trim().to_ascii_lowercase().as_str() {
+            // A property is a short word: one longer is none we know.
+            let mut name = [0u8; 32];
+            let property = property.trim();
+            let Some(name) = name.get_mut(..property.len()) else {
+                continue;
+            };
+            name.copy_from_slice(property.as_bytes());
+            name.make_ascii_lowercase();
+            let Ok(lowered) = core::str::from_utf8(name) else {
+                continue;
+            };
+            let value = fallible::lowercase(value.trim().trim_end_matches("!important").trim())?;
+            match lowered {
                 "text-align" => props.set_align(&value),
                 "direction" => props.direction = parse_direction(&value).or(props.direction),
                 "font-weight" => {
@@ -268,7 +316,7 @@ impl Props {
                 "display" => {
                     props.hidden = Some(value == "none");
                 }
-                "font-family" => props.family = Some(family_number(&value, families)),
+                "font-family" => props.family = Some(family_number(&value, families)?),
                 "font-size" => props.size = font_size(&value).or(props.size),
                 "text-indent" => {
                     // Negative: a hanging first line (into the margin).
@@ -306,31 +354,12 @@ impl Props {
                     props.padding_bottom = space(&value).or(props.padding_bottom);
                 }
                 "margin" | "padding" => {
-                    // One to four values: top, right, bottom, left; the
-                    // bottom as the top and the left as the right where
-                    // they are not given, the right as the top.
-                    let values: Vec<&str> = value.split_whitespace().collect();
-                    let top = values.first().and_then(|v| space(v));
-                    let bottom = values.get(2).or(values.first()).and_then(|v| space(v));
-                    let right = values.get(1).or(values.first());
-                    let left = values.get(3).or(right).and_then(|v| side(v));
-                    let right = right.and_then(|v| side(v));
-                    if property.trim().eq_ignore_ascii_case("margin") {
-                        props.margin_top = top.or(props.margin_top);
-                        props.margin_bottom = bottom.or(props.margin_bottom);
-                        props.margin_left = left.or(props.margin_left);
-                        props.margin_right = right.or(props.margin_right);
-                    } else {
-                        props.padding_top = top.or(props.padding_top);
-                        props.padding_bottom = bottom.or(props.padding_bottom);
-                        props.padding_left = left.or(props.padding_left);
-                        props.padding_right = right.or(props.padding_right);
-                    }
+                    props.set_box(property.eq_ignore_ascii_case("margin"), &value)
                 }
                 _ => {}
             }
         }
-        props
+        Ok(props)
     }
 
     /// Compact text form for the cache, e.g. `a2 b1 i0 h1`.
@@ -579,9 +608,17 @@ pub(crate) fn sum(a: Option<u16>, b: Option<u16>) -> Option<u16> {
 
 /// The number of the first family in a `font-family` list: its place in
 /// `families` plus one, added if new; 0 for a generic family.
-fn family_number(value: &str, families: &mut Vec<String>) -> u8 {
-    let Some(name) = value.split(',').map(family_name).find(|n| !n.is_empty()) else {
-        return 0;
+fn family_number(value: &str, families: &mut Vec<String>) -> Result<u8, DocumentError> {
+    let mut first = None;
+    for part in value.split(',') {
+        let name = family_name(part)?;
+        if !name.is_empty() {
+            first = Some(name);
+            break;
+        }
+    }
+    let Some(name) = first else {
+        return Ok(0);
     };
     const GENERIC: [&str; 9] = [
         "serif",
@@ -595,52 +632,64 @@ fn family_number(value: &str, families: &mut Vec<String>) -> u8 {
         "unset",
     ];
     if GENERIC.contains(&name.as_str()) {
-        return 0;
+        return Ok(0);
     }
-    match families.iter().position(|f| *f == name) {
+    Ok(match families.iter().position(|f| *f == name) {
         Some(at) => at as u8 + 1,
         None if families.len() < usize::from(MAX_FAMILIES) => {
-            families.push(name);
+            families.try_push(name)?;
             families.len() as u8
         }
         None => 0,
-    }
+    })
 }
 
 /// A family name as compared: without quotes, in lower case, white space
 /// and control characters one space each (so the cache, a line per family,
 /// keeps it whole).
-fn family_name(text: &str) -> String {
-    text.trim()
-        .trim_matches(|c| c == '"' || c == '\'')
+fn family_name(text: &str) -> Result<String, DocumentError> {
+    let text = text.trim().trim_matches(|c| c == '"' || c == '\'');
+    let mut out = fallible::string_with(text.len())?;
+    for word in text
         .split(|c: char| c.is_whitespace() || c.is_control())
         .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
+    {
+        if !out.is_empty() {
+            out.try_push(' ')?;
+        }
+        out.try_push_str(word)?;
+    }
+    out.make_ascii_lowercase();
+    Ok(out)
 }
 
 /// `ltr` or `rtl`, as `direction` and the `dir` attribute say; `auto`
 /// (the attribute's) as from the text.
 pub(crate) fn parse_direction(value: &str) -> Option<Direction> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "ltr" => Some(Direction::Ltr),
-        "rtl" => Some(Direction::Rtl),
-        "auto" => Some(Direction::Auto),
-        _ => None,
-    }
+    let value = value.trim();
+    [
+        ("ltr", Direction::Ltr),
+        ("rtl", Direction::Rtl),
+        ("auto", Direction::Auto),
+    ]
+    .into_iter()
+    .find(|(word, _)| word.eq_ignore_ascii_case(value))
+    .map(|(_, direction)| direction)
 }
 
 pub(crate) fn parse_align(value: &str) -> Option<Align> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "center" => Some(Align::Center),
-        "right" => Some(Align::Right),
-        "left" => Some(Align::Left),
-        "end" => Some(Align::End),
-        "start" => Some(Align::Start),
-        "justify" => Some(Align::Justify),
-        _ => None,
-    }
+    let value = value.trim();
+    [
+        ("center", Align::Center),
+        ("right", Align::Right),
+        ("left", Align::Left),
+        ("end", Align::End),
+        ("start", Align::Start),
+        ("justify", Align::Justify),
+    ]
+    .into_iter()
+    .find(|(word, _)| word.eq_ignore_ascii_case(value))
+    .map(|(_, align)| align)
 }
 
 /// A simple selector: element name and/or one class.
@@ -651,24 +700,26 @@ pub(crate) struct Selector {
 }
 
 impl Selector {
-    fn parse(text: &str) -> Option<Selector> {
+    fn parse(text: &str) -> Result<Option<Selector>, DocumentError> {
         let text = text.trim();
         if text.is_empty()
             || text
                 .chars()
                 .any(|c| c.is_whitespace() || matches!(c, '>' | '+' | '~' | ':' | '[' | '#' | '*'))
         {
-            return None;
+            return Ok(None);
         }
         let (tag, class) = match text.split_once('.') {
             Some((tag, class)) if !class.contains('.') => (tag, Some(class)),
-            Some(_) => return None,
+            Some(_) => return Ok(None),
             None => (text, None),
         };
-        Some(Selector {
-            tag: (!tag.is_empty()).then(|| tag.to_ascii_lowercase()),
-            class: class.map(String::from),
-        })
+        Ok(Some(Selector {
+            tag: (!tag.is_empty())
+                .then(|| fallible::lowercase(tag))
+                .transpose()?,
+            class: class.map(fallible::string).transpose()?,
+        }))
     }
 
     pub fn matches(&self, tag: &str, classes: &str) -> bool {
@@ -800,23 +851,48 @@ impl Rules {
     /// book's, also those it adds later (`<style>` in a chapter).
     pub fn add_own(&mut self, css: &str) {
         let start = self.rules.len();
-        Parser::new("").feed(css, self);
-        let own = self.rules.split_off(start);
-        self.own.extend(own);
+        match Parser::new("") {
+            Ok(mut parser) => parser.feed(css, self),
+            Err(_) => self.out_of_memory = true,
+        }
+        // Moved one by one: the room is asked for first, and a rule that finds
+        // none is dropped (see `out_of_memory`).
+        if self
+            .own
+            .try_reserve(self.rules.len().saturating_sub(start))
+            .is_err()
+        {
+            self.out_of_memory = true;
+            self.rules.truncate(start);
+        }
+        for rule in self.rules.drain(start..) {
+            self.own.push(rule);
+        }
         self.memo.clear();
     }
 
     /// Parses a `style` attribute.
     pub fn parse_style(&mut self, declarations: &str) -> Props {
-        Props::parse_with(declarations, &mut self.families)
+        // Where there is no room for it: none, and the chapter ends as
+        // out of memory.
+        Props::parse_with(declarations, &mut self.families).unwrap_or_else(|_| {
+            self.out_of_memory = true;
+            Props::default()
+        })
     }
 
     /// Adds an `@font-face` rule of a stylesheet in folder `base`: its
     /// OpenType, TrueType or WOFF file (see [`font_url`]); [`MAX_FACES`]
     /// at most.
     fn add_face(&mut self, declarations: &str, base: &str) {
+        if self.add_face_checked(declarations, base).is_err() {
+            self.out_of_memory = true;
+        }
+    }
+
+    fn add_face_checked(&mut self, declarations: &str, base: &str) -> Result<(), DocumentError> {
         if self.faces.len() >= MAX_FACES {
-            return;
+            return Ok(());
         }
         let mut name = String::new();
         let mut src = None;
@@ -826,49 +902,57 @@ impl Rules {
                 continue;
             };
             let value = value.trim();
-            match property.trim().to_ascii_lowercase().as_str() {
-                "font-family" => name = family_name(value),
-                "font-weight" => {
-                    let v = value.to_ascii_lowercase();
-                    bold = v == "bold" || v.parse::<u32>().is_ok_and(|w| w >= 600);
-                }
-                "font-style" => {
-                    let v = value.to_ascii_lowercase();
-                    italic = v == "italic" || v == "oblique";
-                }
-                "src" => src = font_url(value),
-                _ => {}
+            let property = property.trim();
+            if property.eq_ignore_ascii_case("font-family") {
+                name = family_name(value)?;
+            } else if property.eq_ignore_ascii_case("font-weight") {
+                bold = value.eq_ignore_ascii_case("bold")
+                    || value.parse::<u32>().is_ok_and(|w| w >= 600);
+            } else if property.eq_ignore_ascii_case("font-style") {
+                italic =
+                    value.eq_ignore_ascii_case("italic") || value.eq_ignore_ascii_case("oblique");
+            } else if property.eq_ignore_ascii_case("src") {
+                src = font_url(value)?;
             }
         }
         let Some(url) = src else {
-            return;
+            return Ok(());
         };
         if name.is_empty() {
-            return;
+            return Ok(());
         }
-        let family = family_number(&name, &mut self.families);
+        let family = family_number(&name, &mut self.families)?;
         if family == 0 {
-            return;
+            return Ok(());
         }
-        let (path, _) = resolve(base, &url);
-        if self.faces.try_reserve(1).is_err() {
-            self.out_of_memory = true;
-            return;
-        }
+        let (path, _) = try_resolve(base, &url)?;
+        fallible::reserve(&mut self.faces, 1)?;
         self.faces.push(FontFace {
             family,
             bold,
             italic,
             path,
         });
+        Ok(())
     }
 
     fn add(&mut self, selectors: &str, declarations: &str) {
-        let props = Props::parse_with(declarations, &mut self.families);
+        let Ok(props) = Props::parse_with(declarations, &mut self.families) else {
+            self.out_of_memory = true;
+            return;
+        };
         if props.is_empty() {
             return;
         }
-        for selector in selectors.split(',').filter_map(Selector::parse) {
+        for selector in selectors.split(',').map(Selector::parse) {
+            let selector = match selector {
+                Ok(Some(selector)) => selector,
+                Ok(None) => continue,
+                Err(_) => {
+                    self.out_of_memory = true;
+                    break;
+                }
+            };
             if self.rules.len() >= MAX_RULES {
                 break;
             }
@@ -937,7 +1021,7 @@ impl Rules {
             if selector == "@family" {
                 families.try_reserve(1)?;
                 families.push(String::from(props));
-            } else if let Some(selector) = Selector::parse(selector) {
+            } else if let Ok(Some(selector)) = Selector::parse(selector) {
                 rules.push((selector, Props::decode(props)));
             }
         }
@@ -974,14 +1058,23 @@ const MAX_PART: usize = 2048;
 
 impl Parser {
     /// A parser for a stylesheet in folder `base` (ending in `/`).
-    pub fn new(base: &str) -> Parser {
-        Parser {
-            base: String::from(base),
+    pub fn new(base: &str) -> Result<Parser, DocumentError> {
+        Ok(Parser {
+            base: fallible::string(base)?,
             ..Parser::default()
-        }
+        })
     }
 
     pub fn feed(&mut self, text: &str, rules: &mut Rules) {
+        // A buffer that finds no room ends the reading: what was read stays,
+        // and the chapter ends as out of memory (see `Rules::out_of_memory`).
+        if self.read(text, rules).is_err() {
+            rules.out_of_memory = true;
+            self.buffer.clear();
+        }
+    }
+
+    fn read(&mut self, text: &str, rules: &mut Rules) -> Result<(), DocumentError> {
         for c in text.chars() {
             let previous = core::mem::replace(&mut self.previous, c);
             if self.in_comment {
@@ -1001,7 +1094,7 @@ impl Parser {
                     self.quote = None;
                 }
                 if self.skip_depth == 0 && self.buffer.len() < MAX_PART {
-                    self.buffer.push(c);
+                    self.buffer.try_push(c)?;
                 }
                 // An escaped backslash escapes nothing after it.
                 if previous == '\\' && c == '\\' {
@@ -1025,7 +1118,7 @@ impl Parser {
                     continue;
                 }
                 if self.skip_depth == 0 && self.buffer.len() < MAX_PART {
-                    self.buffer.push(' ');
+                    self.buffer.try_push(' ')?;
                 }
                 continue;
             }
@@ -1039,8 +1132,11 @@ impl Parser {
             }
             match c {
                 '{' if !self.in_block => {
-                    let head = self.buffer.trim_start().to_ascii_lowercase();
-                    if head.starts_with("@font-face") {
+                    let head = self.buffer.trim_start();
+                    let face = head
+                        .get(.."@font-face".len())
+                        .is_some_and(|word| word.eq_ignore_ascii_case("@font-face"));
+                    if face {
                         self.in_face = true;
                         self.in_block = true;
                         self.buffer.clear();
@@ -1068,36 +1164,41 @@ impl Parser {
                     // `@import …;`, `@charset …;`
                     self.buffer.clear();
                 }
-                c if self.buffer.len() < MAX_PART => self.buffer.push(c),
+                c if self.buffer.len() < MAX_PART => self.buffer.try_push(c)?,
                 _ => {}
             }
         }
+        Ok(())
     }
 }
 
 /// The first OpenType, TrueType or WOFF file of a `src` list such as
 /// `url("a.woff2") format("woff2"), url(a.ttf) format("truetype")` (WOFF 2
 /// is not read).
-fn font_url(src: &str) -> Option<String> {
-    src.split("url(").skip(1).find_map(|part| {
-        let (url, rest) = part.split_once(')')?;
+fn font_url(src: &str) -> Result<Option<String>, DocumentError> {
+    for part in src.split("url(").skip(1) {
+        let Some((url, rest)) = part.split_once(')') else {
+            continue;
+        };
         let url = url.trim().trim_matches(|c| c == '"' || c == '\'').trim();
-        let format = rest
-            .split(',')
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let lower = url.to_ascii_lowercase();
-        let by_name = [".ttf", ".otf", ".ttc", ".woff"]
-            .iter()
-            .any(|e| lower.ends_with(e));
-        let by_format = format.contains("truetype")
-            || format.contains("opentype")
-            || (format.contains("woff") && !format.contains("woff2"));
-        let other =
-            format.contains("woff2") || format.contains("svg") || format.contains("embedded");
-        ((by_name && !other) || by_format).then(|| String::from(url))
-    })
+        let format = rest.split(',').next().unwrap_or_default();
+        let has = |word: &str| {
+            format
+                .as_bytes()
+                .windows(word.len())
+                .any(|window| window.eq_ignore_ascii_case(word.as_bytes()))
+        };
+        let by_name = [".ttf", ".otf", ".ttc", ".woff"].iter().any(|e| {
+            url.len() >= e.len()
+                && url.as_bytes()[url.len() - e.len()..].eq_ignore_ascii_case(e.as_bytes())
+        });
+        let by_format = has("truetype") || has("opentype") || (has("woff") && !has("woff2"));
+        let other = has("woff2") || has("svg") || has("embedded");
+        if (by_name && !other) || by_format {
+            return fallible::string(url).map(Some);
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -1106,7 +1207,7 @@ mod tests {
 
     fn rules(css: &str) -> Rules {
         let mut rules = Rules::default();
-        let mut parser = Parser::new("OEBPS/css/");
+        let mut parser = Parser::new("OEBPS/css/").unwrap();
         // Fed in small pieces, as from a stream.
         for piece in css.as_bytes().chunks(7) {
             parser.feed(core::str::from_utf8(piece).unwrap(), &mut rules);
@@ -1185,7 +1286,9 @@ mod tests {
             }
         }
         // Rules added later, the book's and one's own, apply at once.
-        Parser::new("").feed("p { text-align: center }", &mut r);
+        Parser::new("")
+            .unwrap()
+            .feed("p { text-align: center }", &mut r);
         assert_eq!(r.props_remembered("p", "").align, Some(Align::Center));
         r.add_own(".a { font-weight: normal }");
         assert_eq!(r.props_remembered("p", "a").bold, Some(false));

@@ -76,6 +76,9 @@ impl NativeLease {
 }
 
 impl Dispatch for NativeLease {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.live().ok()?.take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
         self.live()?.event(token, bytes, env)
     }
@@ -148,6 +151,9 @@ pub(crate) struct NativeInstances {
     orphan_failure_reported: Cell<bool>,
     /// The event pump left events for another pass (see `service_pump`).
     service_more: Cell<bool>,
+    /// The hand-over the staged `open` being applied names: `Some(None)` an
+    /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
+    pending_handover: Cell<Option<Option<u32>>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -198,6 +204,27 @@ impl NativeInstances {
         if let Some(directory) = self.directory() {
             directory.attach_screens(screens);
         }
+    }
+
+    /// The staged `open` about to be applied names `handover` (or none).
+    pub(crate) fn set_pending_handover(&self, pending: Option<Option<u32>>) {
+        self.pending_handover.set(pending);
+    }
+
+    /// Takes the hand-over the applied `open` was given: the first screen it
+    /// reaches keeps it, no other.
+    pub(crate) fn take_pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.take()
+    }
+
+    /// What the next native `on_reopen` reports of the hand-over just attached.
+    pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
+        self.callbacks.set_open_info(info);
+    }
+
+    /// Whether a staged `open` is being applied (it names a hand-over or none).
+    pub(crate) fn pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.get()
     }
 
     pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
@@ -593,6 +620,9 @@ impl NativeIdentity {
                 None => epoch,
             },
         )
+    }
+    pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.callbacks.take_open_info()
     }
 }
 

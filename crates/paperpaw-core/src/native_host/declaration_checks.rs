@@ -12,6 +12,10 @@ pub(crate) const STAGE_SUBSCRIPTIONS_MAX: usize = 8;
 
 /// Index category of `screen.spec` (`declaration_index::KIND_TABLE`).
 const KIND_SCREEN: u8 = 5;
+/// Index category of `action.spec`.
+const KIND_ACTION: u8 = 6;
+/// Index category of `menu.section`.
+const KIND_MENU_SECTION: u8 = 26;
 
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
@@ -164,6 +168,7 @@ impl<'a> View<'a> {
                 Record::SettingGroup(group) => self.ancestry(group.parent, groups),
                 Record::SettingExtra(extra) => self.follow_kind(&extra),
                 Record::RegistrationStage(registration) => self.not_own_stage(&registration),
+                Record::SetupStep(step) => self.step_name_is_free(step.name),
                 // An item of the plugin's own must exist; another plugin's may
                 // come later (`screens-input.md` section 1).
                 Record::MenuEntry(entry) => self.require_item(entry.item),
@@ -259,6 +264,22 @@ impl<'a> View<'a> {
         }
         Ok(())
     }
+    /// One item-state push names one thing: a step's name is no action,
+    /// screen, setting or menu section of the same plugin (`registry.md`
+    /// section 6).
+    fn step_name_is_free(&self, name: &str) -> Result<(), i32> {
+        if self.raw.find(self.image, KIND_SCREEN, name)?.is_some()
+            || self.raw.find(self.image, KIND_ACTION, name)?.is_some()
+            || self
+                .raw
+                .find(self.image, KIND_MENU_SECTION, name)?
+                .is_some()
+            || self.spec(name)?.is_some()
+        {
+            return Err(ERR_INVALID);
+        }
+        Ok(())
+    }
     fn follow_kind(&self, extra: &SettingExtra<'_>) -> Result<(), i32> {
         if self.spec(extra.name)?.is_none() {
             return Err(ERR_INVALID);
@@ -297,3 +318,7 @@ fn unique_names<'a>(
 #[cfg(test)]
 #[path = "declaration_stage_checks_tests.rs"]
 mod stage_tests;
+
+#[cfg(test)]
+#[path = "declaration_setup_checks_tests.rs"]
+mod setup_tests;
