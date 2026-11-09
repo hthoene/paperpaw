@@ -9,8 +9,9 @@
 //!
 //! This part answers ops 1 (the device), 2 (named values), 3 (the running
 //! firmware), 4 (the plugins built into the image), 5 (what a code plugin must
-//! be built for), 7 (memory), 14 (the plugins a start could not install) and
-//! 15 (the physical keys); every other part is
+//! be built for), 7 (memory), 8 and 9 (the Wi-Fi radio and the networks
+//! found), 12 (the power level and mode), 14 (the plugins a start could not
+//! install) and 15 (the physical keys); every other part is
 //! `ERR_NOT_FOUND` (the default of [`DeviceHost`]) until its slice lands, and
 //! [`Identity::caps`] carries only the bits of the parts that are answered
 //! (`check_caps_agree` is the test of it).
@@ -21,12 +22,14 @@ use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
 
 use paperpaw_core::native_host::device_service::{
-    BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_NOT_INSTALLED, MAX_VALUES, MemoryFacts,
-    NativeFacts, NotInstalledRow, ProbeCache, Reading,
+    BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_NETWORKS, MAX_NOT_INSTALLED,
+    MAX_VALUES, MemoryFacts, NativeFacts, NetworkRow, NotInstalledRow, ProbeCache, Reading,
+    WifiFacts,
 };
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::firmware::{PROJECT_MAX, Running, Text, VERSION_MAX};
 use paperpaw_sdk::firmware::Plugins;
+use paperpaw_sdk::power::Power;
 
 /// What the firmware is, from its constants.
 #[derive(Clone, Copy, Debug)]
@@ -94,6 +97,32 @@ pub struct NativeState {
     pub room_largest: u64,
 }
 
+/// The Wi-Fi radio as the firmware last saw it (op 8): 0 off, 1 on, 2
+/// joining, 3 online, 4 hosting.
+#[derive(Clone, Copy, Debug)]
+pub struct WifiState {
+    pub state: u32,
+    /// The network joined or hosted, empty for none.
+    pub ssid: Text<32>,
+    /// The device's address, empty for none.
+    pub address: Text<45>,
+    /// The host name, empty for none.
+    pub host_name: Text<63>,
+    /// Guests of the hosted network.
+    pub guests: u32,
+    pub scanning: bool,
+    pub wanted: bool,
+    pub busy: bool,
+}
+
+/// One network a scan found.
+#[derive(Clone, Copy, Debug)]
+struct Found {
+    ssid: Text<32>,
+    signal: i32,
+    secured: bool,
+}
+
 /// What reads the heap and the stack (nothing to say: `None`).
 pub type MemoryProbe = fn() -> Option<MemoryFacts>;
 
@@ -115,6 +144,10 @@ pub struct X4Device {
     clock_ms: Cell<Option<fn() -> u64>>,
     memory: ProbeCache<MemoryFacts>,
     not_installed: RefCell<Vec<(String, u32)>>,
+    wifi: Cell<Option<WifiState>>,
+    /// The networks the last scan found, strongest first.
+    networks: RefCell<Vec<Found>>,
+    power: RefCell<Power>,
     /// Changes when a list changes (never 0).
     generation: Cell<u32>,
 }
@@ -144,6 +177,9 @@ impl X4Device {
             clock_ms: Cell::new(None),
             memory: ProbeCache::new(),
             not_installed: RefCell::new(Vec::new()),
+            wifi: Cell::new(None),
+            networks: RefCell::new(Vec::new()),
+            power: RefCell::new(Power::default()),
             generation: Cell::new(1),
         }
     }
@@ -172,6 +208,42 @@ impl X4Device {
         self.clock_ms.set(Some(clock_ms));
     }
 
+    /// The Wi-Fi radio (ops 8 and 9): `Identity::caps` has the Wi-Fi bit
+    /// exactly where the firmware calls this (its radio is PaperPaw's).
+    pub fn set_wifi(&self, state: WifiState) {
+        self.wifi.set(Some(state));
+    }
+
+    /// The networks the last scan found as `(ssid, signal in dBm, secured)`:
+    /// the strongest [`MAX_NETWORKS`] are kept. False where they could not be
+    /// kept (no room): the list is then as it was.
+    pub fn set_networks(&self, rows: &[(&str, i32, bool)]) -> bool {
+        let mut kept = Vec::new();
+        if kept.try_reserve_exact(rows.len()).is_err() {
+            return false;
+        }
+        kept.extend(rows.iter().map(|&(ssid, signal, secured)| Found {
+            ssid: Text::new(ssid),
+            signal,
+            secured,
+        }));
+        kept.sort_unstable_by_key(|row| core::cmp::Reverse(row.signal));
+        kept.truncate(MAX_NETWORKS as usize);
+        *self.networks.borrow_mut() = kept;
+        self.bump();
+        true
+    }
+
+    /// The power level and mode the kernel reports now (op 12).
+    pub fn set_power(&self, power: Power) {
+        *self.power.borrow_mut() = power;
+    }
+
+    fn bump(&self) {
+        self.generation
+            .set(self.generation.get().checked_add(1).unwrap_or(1));
+    }
+
     /// The plugins this start could not install (op 14): `(id, reason)`, with
     /// reason 1 other author, 2 damaged, 3 revoked. At most
     /// [`MAX_NOT_INSTALLED`] are kept. False where the rows could not be kept
@@ -191,8 +263,7 @@ impl X4Device {
             kept.push((text, reason));
         }
         *self.not_installed.borrow_mut() = kept;
-        self.generation
-            .set(self.generation.get().checked_add(1).unwrap_or(1));
+        self.bump();
         true
     }
 
@@ -335,6 +406,48 @@ impl DeviceHost for X4Device {
                 break;
             }
         }
+        Ok(())
+    }
+
+    fn wifi(&self, visit: &mut dyn FnMut(&WifiFacts<'_>)) -> Result<(), i32> {
+        let radio = self.wifi.get().ok_or(ERR_NOT_FOUND)?;
+        visit(&WifiFacts {
+            state: radio.state,
+            ssid: radio.ssid.as_str(),
+            address: radio.address.as_str(),
+            host_name: radio.host_name.as_str(),
+            guests: radio.guests,
+            scanning: radio.scanning,
+            wanted: radio.wanted,
+            busy: radio.busy,
+        });
+        Ok(())
+    }
+
+    /// The networks of the last scan, strongest first. No password is looked
+    /// for: `known` is false until the secrets service is wired on the X4,
+    /// then a presence check per call (never a decrypt, never a copy).
+    fn networks(
+        &self,
+        visit: &mut dyn FnMut(&NetworkRow<'_>) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        self.wifi.get().ok_or(ERR_NOT_FOUND)?;
+        for found in self.networks.borrow().iter() {
+            let row = NetworkRow {
+                ssid: found.ssid.as_str(),
+                signal: found.signal,
+                secured: found.secured,
+                known: false,
+            };
+            if visit(&row).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn power(&self, visit: &mut dyn FnMut(&Power)) -> Result<(), i32> {
+        visit(&self.power.borrow());
         Ok(())
     }
 
@@ -750,5 +863,105 @@ mod tests {
         let device = device(&[]);
         device.set_memory_probe(|| None, || 0);
         assert_eq!(device.memory(), Err(ERR_NOT_FOUND));
+    }
+
+    fn radio() -> WifiState {
+        WifiState {
+            state: 3,
+            ssid: Text::new("home"),
+            address: Text::new("192.168.1.20"),
+            host_name: Text::new("paperpaw"),
+            guests: 0,
+            scanning: true,
+            wanted: true,
+            busy: false,
+        }
+    }
+
+    /// Wi-Fi is here exactly where the caps say so: the radio and the
+    /// networks answer together.
+    #[test]
+    fn the_wifi_bit_and_ops_8_and_9_agree() {
+        let device = X4Device::new(
+            Identity {
+                caps: identity().caps | caps::WIFI,
+                ..identity()
+            },
+            list(&[]),
+        );
+        assert!(check_caps_agree(&device).is_err(), "no radio yet");
+        device.set_wifi(radio());
+        assert_eq!(check_caps_agree(&device), Ok(()));
+        let mut seen = None;
+        device
+            .wifi(&mut |f| {
+                seen = Some((
+                    f.state,
+                    f.ssid.to_string(),
+                    f.address.to_string(),
+                    f.host_name.to_string(),
+                    (f.guests, f.scanning, f.wanted, f.busy),
+                ));
+            })
+            .unwrap();
+        assert_eq!(
+            seen.unwrap(),
+            (
+                3,
+                "home".to_string(),
+                "192.168.1.20".to_string(),
+                "paperpaw".to_string(),
+                (0, true, true, false)
+            )
+        );
+    }
+
+    /// Strongest first, at most 32, none known until the secrets are wired.
+    #[test]
+    fn the_networks_are_the_strongest_found() {
+        let device = device(&[]);
+        assert_eq!(
+            device.networks(&mut |_| ControlFlow::Break(())),
+            Err(ERR_NOT_FOUND)
+        );
+        device.set_wifi(radio());
+        let before = device.generation();
+        let found: Vec<(String, i32, bool)> = (0..40)
+            .map(|n| (std::format!("net{n}"), -90 + n, n % 2 == 0))
+            .collect();
+        let rows: Vec<(&str, i32, bool)> =
+            found.iter().map(|(s, a, b)| (s.as_str(), *a, *b)).collect();
+        assert!(device.set_networks(&rows));
+        assert_ne!(device.generation(), before);
+        let mut seen = Vec::new();
+        device
+            .networks(&mut |row| {
+                seen.push((row.ssid.to_string(), row.signal, row.secured, row.known));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(seen.len(), MAX_NETWORKS as usize);
+        assert_eq!(seen[0], ("net39".to_string(), -51, false, false));
+        assert!(seen.windows(2).all(|pair| pair[0].1 >= pair[1].1));
+        assert!(seen.iter().all(|row| !row.3));
+    }
+
+    /// Power is the kernel's: normal until it says otherwise.
+    #[test]
+    fn power_follows_what_the_kernel_reports() {
+        use paperpaw_sdk::power::PowerLevel;
+        let device = device(&[]);
+        let mut level = None;
+        device.power(&mut |p| level = Some(p.level)).unwrap();
+        assert_eq!(level, Some(PowerLevel::Normal));
+        let mut saving = Power::default();
+        saving.level = PowerLevel::Saving;
+        saving.stretch = 4;
+        device.set_power(saving);
+        let mut seen = None;
+        device
+            .power(&mut |p| seen = Some((p.level, p.stretch)))
+            .unwrap();
+        assert_eq!(seen, Some((PowerLevel::Saving, 4)));
     }
 }
