@@ -233,7 +233,11 @@ mod tests {
                     continue;
                 };
                 assert_eq!(got.day, today > last, "{last} {today}");
-                assert_eq!(got.week, reference(today) > reference(last), "{last} {today}");
+                assert_eq!(
+                    got.week,
+                    reference(today) > reference(last),
+                    "{last} {today}"
+                );
                 let (ty, tm, _) = civil_from_days(today);
                 let (ly, lm, _) = civil_from_days(last);
                 assert_eq!(got.month, (ty, tm) > (ly, lm), "{last} {today}");

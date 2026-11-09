@@ -45,7 +45,10 @@ fn all() -> Vec<Vec<u8>> {
 #[test]
 fn the_declarations_are_the_reviewed_golden() {
     let mut framed = Vec::new();
-    for batch in all().into_iter().chain(batches(|d| declarations::events(d))) {
+    for batch in all()
+        .into_iter()
+        .chain(batches(|d| declarations::events(d)))
+    {
         framed.extend_from_slice(&u32::try_from(batch.len()).unwrap().to_le_bytes());
         framed.extend_from_slice(&batch);
     }

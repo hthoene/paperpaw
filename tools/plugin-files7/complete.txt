@@ -15,4 +15,5 @@ profiles
 notes-overview
 readwise
 rules
+update
 weather

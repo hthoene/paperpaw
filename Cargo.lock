@@ -2497,11 +2497,8 @@ name = "paperpaw-plugin-update"
 version = "1.0.7"
 dependencies = [
  "paperpaw-core",
- "paperpaw-digest",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
