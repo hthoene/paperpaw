@@ -19,6 +19,11 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   interface 6 does (quoting and escapes as `config::quote`), allocation fallible.
 - `src/native_aloud.rs`: the timer's minutes, where a sentence ends and the text spoken from words
   (hyphenated words joined again), allocation fallible.
+- `src/native_open.rs`: what a `core.reader` hand-over asks (`document.md` section 1, *Opening at
+  a place*): `section` + `offset` (decimal `u32`, both or neither) win over `page`; a missing,
+  single or non-decimal value is ignored, and a place the document lacks (`opening`'s check) falls
+  back to `page`, else the saved place. Tested for both, neither, one and bad values. The
+  optional `conversion` of the second paragraph of that section is not read yet.
 - `src/native_tests.rs`: both compared with the interface-6 code on fixed inputs and at random, and
   every allocation refused in turn.
 

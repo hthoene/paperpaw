@@ -1155,3 +1155,162 @@ fn unnamed_visit_revalidates_image_bytes_instead_of_caching_the_record() {
     source.bytes.borrow_mut().resize(offset + 1, byte);
     assert!(!store.visit_record(key, &mut |_| panic!("short record")));
 }
+
+/// An owner holding groups and actions in two batches, interleaved.
+fn two_kinds_in_two_batches() -> [Vec<u8>; 2] {
+    let group = |name| {
+        Record::SettingGroup(SettingGroup {
+            name,
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        })
+    };
+    let action = |name, token| {
+        Record::ActionSpec(ActionSpec {
+            name,
+            title: "Action",
+            token,
+            flags: 0,
+        })
+    };
+    let encode = |records: &[Record<'_>]| {
+        let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+        let len = records_encode(records, &mut bytes).unwrap();
+        bytes.truncate(len);
+        bytes
+    };
+    [
+        encode(&[
+            action("zed", 1),
+            group("beta"),
+            action("alpha", 2),
+            group("alpha"),
+        ]),
+        encode(&[group("gamma"), action("mid", 3)]),
+    ]
+}
+
+fn staged(allocations: &mut Allocations) -> Result<PendingDeclarations, i32> {
+    let source = image();
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
+    for batch in two_kinds_in_two_batches() {
+        pending.stage_batch(&batch, allocations)?;
+    }
+    Ok(pending)
+}
+
+/// The ranges of the one list: in kind order, whole, and each kind's records
+/// together (`starts[k]..starts[k + 1]`).
+fn ranges_hold(pending: &PendingDeclarations) {
+    assert!(pending.starts.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(pending.starts[0], 0);
+    assert_eq!(
+        usize::from(pending.starts[KIND_COUNT]),
+        pending.slots.len(),
+        "the last offset ends the list"
+    );
+}
+
+#[test]
+fn every_kind_lives_in_one_list_by_ranges_and_names_are_found_in_their_kind() {
+    let mut allocations = Allocations::default();
+    let pending = staged(&mut allocations).unwrap();
+    ranges_hold(&pending);
+    assert_eq!(pending.of_kind(Kind::Group).len(), 3);
+    assert_eq!(pending.of_kind(Kind::Action).len(), 3);
+    assert_eq!(pending.slots.len(), 6);
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    let owner = store.owners[0].as_ref().unwrap();
+    for kind in [Kind::Group, Kind::Action] {
+        let slots = owner.of_kind(kind);
+        assert!(
+            slots.windows(2).all(|pair| pair[0].hash <= pair[1].hash),
+            "{kind:?} is sorted by hash once prepared"
+        );
+    }
+    for kind in KINDS {
+        let mut count = 0;
+        store.keys(kind, &mut |_| count += 1);
+        let expected = if matches!(kind, Kind::Group | Kind::Action) {
+            3
+        } else {
+            0
+        };
+        assert_eq!(count, expected, "{kind:?}");
+    }
+    let mut allocations = Allocations::default();
+    assert_eq!(store.all_keys(&mut allocations).unwrap().len(), 6);
+    // A name is found in its own kind's range only. "alpha" is declared as a
+    // group and as an action, so it is found in both; every other name in the
+    // one kind that declares it.
+    let mut found = 0;
+    for name in ["alpha", "beta", "gamma"] {
+        assert!(store.find("fixture", Kind::Group, name, &mut |_| found += 1));
+    }
+    for name in ["alpha", "zed", "mid"] {
+        assert!(store.find("fixture", Kind::Action, name, &mut |_| found += 1));
+    }
+    for name in ["beta", "gamma"] {
+        assert!(
+            !store.find("fixture", Kind::Action, name, &mut |_| found += 1),
+            "{name} is no action"
+        );
+    }
+    for name in ["zed", "mid"] {
+        assert!(
+            !store.find("fixture", Kind::Group, name, &mut |_| found += 1),
+            "{name} is no group"
+        );
+    }
+    assert!(!store.find("fixture", Kind::Group, "missing", &mut |_| found += 1));
+    // Another kind has none of them.
+    for name in ["alpha", "beta", "zed"] {
+        assert!(!store.find("fixture", Kind::Screen, name, &mut |_| found += 1));
+    }
+    assert_eq!(found, 6);
+}
+
+#[test]
+fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
+    let mut reached_success = false;
+    for fail_after in 0..12 {
+        let mut allocations = Allocations {
+            fail_after: Some(fail_after),
+        };
+        let source = image();
+        let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
+        let mut results = Vec::new();
+        for batch in two_kinds_in_two_batches() {
+            results.push(pending.stage_batch(&batch, &mut allocations));
+            // Whatever failed, the offsets describe the list exactly.
+            ranges_hold(&pending);
+        }
+        if results.iter().all(Result::is_ok) {
+            reached_success = true;
+            assert_eq!(pending.slots.len(), 6);
+        } else {
+            assert!(results.contains(&Err(ERR_NO_MEMORY)));
+            // A failed owner stays failed: nothing publishes it.
+            let mut store = DeclarationStore::default();
+            assert!(store.prepare(pending, &mut Allocations::default()).is_err());
+        }
+    }
+    assert!(reached_success, "the walk reached a fully staged owner");
+}
+
+#[test]
+fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
+    // The offsets and counts are 16-bit tables, one list for every kind: the
+    // owner no longer pays a `Vec` and a counter per kind (`abi/heap-word.md`
+    // section 9). On a 32-bit target the build pins it (`PENDING_BUDGET`).
+    let per_kind = size_of::<[u16; KIND_COUNT + 1]>() + size_of::<[u16; KIND_COUNT]>();
+    assert_eq!(per_kind, 2 * (2 * KIND_COUNT) + 2);
+    assert!(
+        size_of::<PendingDeclarations>() <= 2 * size_of::<Vec<Slot>>() + per_kind + 160,
+        "{}",
+        size_of::<PendingDeclarations>()
+    );
+}
