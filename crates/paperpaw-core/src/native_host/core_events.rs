@@ -13,7 +13,9 @@
 //!   or `stopping` is raised: from the kernel's top level, before sleep or
 //!   teardown goes on, it tells what waits for the plugin, in order (edges
 //!   raised earlier first). A callback that refuses is logged and dropped,
-//!   never retried, and the sleep goes on.
+//!   never retried, and the sleep goes on. The drain allocates nothing of
+//!   its own (the record of a bit is encoded on the stack, the log text is
+//!   static and written fallibly).
 //! * **Order.** An event never overtakes one already queued for the plugin.
 //! * **Memory.** The edges (`started`, `battery_measured`, `page_turned`) are
 //!   held encoded, within the store's limits (16 edges and 4,096 bytes a
@@ -22,6 +24,11 @@
 //!   second before the first was told is one); suspend and stopping keep one
 //!   too, so a full store never loses them (`events::bypasses_queue`). The
 //!   record of a bit is built when it is told.
+//! * **One budget.** A page turn (under 1.1 KB) is held in the same store as
+//!   the setting events, within the same limits: a burst of settings can crowd
+//!   out page turns, and the reverse; a lost setting edge is made up by the
+//!   reread event, a lost page turn is not (the next carries the location).
+//!   A full store logs once for a plugin until its queue is empty again.
 //! * **Only running plugins** hear them (lazy start: registering starts
 //!   nothing), and only those that subscribed. The caller names who may hear
 //!   (the plugin an event is for alone, or the screens of a guard).
@@ -32,8 +39,7 @@ use super::{
     registrations as wire,
 };
 use crate::Kernel;
-use alloc::{format, vec::Vec};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 
 /// The most events one plugin's queue can hold (16 edges, 10 bits): a drain
@@ -77,16 +83,30 @@ pub(super) fn listens(instances: &NativeInstances, owner: u64) -> bool {
 }
 
 /// The record of the bit event `tag` into `bytes`, with the clock `now_ms`
-/// (one record of at most 12 bytes).
-pub(super) fn scalar(tag: u32, now_ms: u64, bytes: &mut Vec<u8>) -> Result<usize, i32> {
-    bytes.try_reserve_exact(16).map_err(|_| ERR_NO_MEMORY)?;
-    bytes.resize(16, 0);
+/// (one record of at most 12 bytes). No allocation.
+pub(super) fn scalar(tag: u32, now_ms: u64, bytes: &mut [u8; 16]) -> Result<usize, i32> {
     match tag {
         wire::EVENT_TICK_TAG => wire::tick_encode(now_ms, bytes),
         wire::EVENT_RESUME_TAG => events::encode_resume(now_ms, bytes),
         wire::EVENT_SUSPEND_TAG => events::encode_suspend(now_ms, bytes),
         wire::EVENT_STOPPING_TAG => events::encode_stopping(now_ms, bytes),
         _ => Err(ERR_INVALID),
+    }
+}
+
+/// What the log says of a dropped event: static text, no allocation (it is
+/// written when memory may be out).
+fn drop_note(tag: u32) -> &'static str {
+    match tag {
+        wire::EVENT_TICK_TAG => "a native plugin lost event.tick; not retried",
+        wire::EVENT_STARTED_TAG => "a native plugin lost event.started; not retried",
+        wire::EVENT_RESUME_TAG => "a native plugin lost event.resume; not retried",
+        wire::EVENT_SUSPEND_TAG => "a native plugin lost event.suspend; not retried",
+        wire::EVENT_STOPPING_TAG => "a native plugin lost event.stopping; not retried",
+        wire::EVENT_BATTERY_MEASURED_TAG => {
+            "a native plugin lost event.battery_measured; not retried"
+        }
+        _ => "a native plugin lost event.page_turned; not retried",
     }
 }
 
@@ -127,66 +147,74 @@ impl Kernel {
             return;
         };
         let now = self.now.millis();
-        let mut told = Vec::new();
+        // Whether an event was lost that was not logged yet (once for a
+        // plugin until its queue is empty again).
+        let mut report = false;
         let mut n = 0;
-        let mut lost = Vec::new();
-        {
-            let instances = &self.shared.native_instances;
-            while let Some((owner, _)) = instances.running_nth(n) {
-                n += 1;
-                let Some(id) = instances.id(owner) else {
-                    continue;
-                };
-                if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
-                    continue;
-                }
-                let held = instances.setting_events.with_queue(owner, |queue| {
-                    if CORE_TAGS.contains(&tag) {
-                        queue.core(tag)
-                    } else {
-                        hold_edge(queue, tag, now, params)
-                    }
-                });
-                match held {
-                    Ok(Ok(())) => {}
-                    Ok(Err(status)) | Err(status) => {
-                        lost.push((id.clone(), status));
-                        continue;
-                    }
-                }
-                // One entry a plugin: a failed reserve only delays the pump.
-                if told.try_reserve(1).is_ok() {
-                    told.push(owner);
-                }
+        let instances = &self.shared.native_instances;
+        while let Some((owner, _)) = instances.running_nth(n) {
+            n += 1;
+            let Some(id) = instances.id(owner) else {
+                continue;
+            };
+            if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
+                continue;
             }
+            let held = instances.setting_events.with_queue(owner, |queue| {
+                let held = if CORE_TAGS.contains(&tag) {
+                    queue.core(tag)
+                } else {
+                    hold_edge(queue, tag, now, params)
+                };
+                held.map_err(|_| queue.note_drop())
+            });
+            // A queue that cannot even be made is reported every time (it
+            // cannot remember that it was).
+            report |= matches!(held, Err(_) | Ok(Err(true)));
         }
-        for (plugin, status) in lost {
-            self.warn_runtime(format!(
-                "event {tag} dropped for plugin `{plugin}` (status {status}); not retried"
-            ));
+        if report {
+            self.try_warn_runtime(&[drop_note(tag)]);
         }
         // Only the sleep and the stop are told here, from the kernel's top
         // level, before they go on; the pump tells every other event.
-        let sleeps = matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG);
-        if sleeps && self.shared.native_instances.depth() == 0 {
-            for owner in told {
-                self.native_core_drain(owner);
-            }
+        if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG)
+            && self.shared.native_instances.depth() == 0
+        {
+            self.native_core_drain();
         }
     }
 
-    /// Tells `owner` what waits for it, oldest first, running what each
-    /// callback staged before the next one is called. Stops where the outbox
-    /// stays full; the pump tells the rest.
-    fn native_core_drain(&mut self, owner: u64) {
-        for _ in 0..QUEUE_MAX {
+    /// The first running plugin that has something waiting.
+    fn waiting_owner(&self) -> Option<u64> {
+        let instances = &self.shared.native_instances;
+        let mut n = 0;
+        while let Some((owner, _)) = instances.running_nth(n) {
+            if instances.setting_events.has_waiting(owner) {
+                return Some(owner);
+            }
+            n += 1;
+        }
+        None
+    }
+
+    /// Tells every running plugin what waits for it, oldest first, running
+    /// what each callback staged before the next one is called. No
+    /// allocation of its own. Stops where the outbox stays full or a queue
+    /// does not shrink; the pump tells the rest.
+    fn native_core_drain(&mut self) {
+        // Each plugin's queue holds at most `QUEUE_MAX` events, and a plugin
+        // that stops mid-queue loses the rest: a bound that cannot be hit by
+        // a working drain.
+        for _ in 0..QUEUE_MAX * 4 {
             self.native_outbox_run();
             if self.shared.native_instances.outbox.full() {
                 return;
             }
-            let events = &self.shared.native_instances.setting_events;
-            if !events.has_waiting(owner) || !self.setting_tell(owner) {
-                break;
+            let Some(owner) = self.waiting_owner() else {
+                return;
+            };
+            if !self.setting_tell(owner) {
+                return;
             }
         }
         self.native_outbox_run();

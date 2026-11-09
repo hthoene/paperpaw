@@ -423,3 +423,55 @@ fn the_drain_at_stop_does_not_run_inside_a_callback() {
     while w.kernel.native_setting_pump() {}
     assert_eq!(tags(&w, 'a'), [wire::EVENT_STOPPING_TAG]);
 }
+
+#[test]
+fn a_full_store_logs_once_until_the_queue_is_empty_again() {
+    let mut w = world(ALL, &[]);
+    w.kernel.take_warnings();
+    w.kernel.shared.native_instances.test_enter_callback();
+    // Sixteen fill the store; the next ten are dropped: one line, static.
+    for _ in 0..26 {
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BATTERY_MEASURED_TAG,
+            &Params::new(),
+        );
+    }
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    w.kernel.shared.native_instances.test_leave_callback();
+    while w.kernel.native_setting_pump() {}
+    assert_eq!(tags(&w, 'a').len(), 16);
+    // Drained: a new drop is logged again.
+    w.kernel.shared.native_instances.test_enter_callback();
+    for _ in 0..17 {
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BATTERY_MEASURED_TAG,
+            &Params::new(),
+        );
+    }
+    assert_eq!(w.kernel.take_warnings().len(), 1);
+}
+
+#[test]
+fn the_drain_at_suspend_tells_every_waiting_plugin_in_order() {
+    let mut w = world(ALL, ALL);
+    w.kernel.shared.native_instances.test_enter_callback();
+    raise(&mut w.kernel, wire::EVENT_STARTED_TAG, &Params::new());
+    w.kernel.shared.native_instances.test_leave_callback();
+    w.kernel
+        .emit(&builtin::SUSPEND.id().clone(), &Params::new());
+    let told = w.told.borrow().clone();
+    assert_eq!(
+        told.iter()
+            .map(|(who, tag, _)| (*who, *tag))
+            .collect::<Vec<_>>(),
+        [
+            ('a', wire::EVENT_STARTED_TAG),
+            ('a', wire::EVENT_SUSPEND_TAG),
+            ('b', wire::EVENT_STARTED_TAG),
+            ('b', wire::EVENT_SUSPEND_TAG)
+        ]
+    );
+}

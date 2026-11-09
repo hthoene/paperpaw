@@ -358,6 +358,18 @@ impl crate::Kernel {
             }
             return true;
         }
+        // A lifecycle bit is encoded on the stack: no allocation (the drain at
+        // suspend and stop must not need any).
+        if let Ready::Core(tag) = &ready {
+            let mut record = [0_u8; 16];
+            // Revoked since it was queued: nothing to tell.
+            if instances.subscribed(owner, *tag)
+                && let Ok(len) = super::core_events::scalar(*tag, now, &mut record)
+            {
+                let _ = self.native_event_call(owner, &lease, &record[..len]);
+            }
+            return true;
+        }
         let mut bytes = Vec::new();
         let encoded = match &ready {
             Ready::Hint(tag) => {
@@ -366,13 +378,6 @@ impl crate::Kernel {
                     return true;
                 }
                 self.hint_bytes(*tag, now, &mut bytes)
-            }
-            Ready::Core(tag) => {
-                // Revoked since it was queued: nothing to tell.
-                if !instances.subscribed(owner, *tag) {
-                    return true;
-                }
-                super::core_events::scalar(*tag, now, &mut bytes)
             }
             _ => {
                 let settings = &self.shared.settings;
