@@ -2657,8 +2657,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
