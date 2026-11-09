@@ -506,6 +506,42 @@ fn a_format_that_stops_ends_its_documents_and_is_not_called_again() {
 }
 
 #[test]
+fn a_busy_table_leaves_the_documents_of_a_stopped_format_to_the_next_call() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        w.stop("epub");
+        {
+            let _running = w.state.table.hold().unwrap();
+            // The index forgets the format; the table cannot end its book.
+            let _ = w.format_for("a.epub");
+            assert_eq!(w.state.unfinished(), 1);
+        }
+        // The next call, with nothing changed in the registry, finishes it.
+        assert_eq!(w.format_for("a.epub"), Err(ERR_NOT_FOUND));
+        assert_eq!(w.state.unfinished(), 0);
+        let state = w.call(
+            AdmittedFeatures::NONE,
+            2,
+            &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+        );
+        assert_eq!(state.err(), Some(ERR_CANCELLED));
+    });
+}
+
+#[test]
+fn a_held_book_blocks_a_move_under_another_case_where_the_card_folds_case() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.open(1, "Books/A.epub").unwrap();
+        // The files service asks with `ignore_case` for a FAT card.
+        assert!(w.hosts.in_use().holds("books/a.epub", true));
+        assert!(!w.hosts.in_use().holds("books/a.epub", false));
+        assert!(w.hosts.in_use().holds("Books/A.epub", false));
+    });
+}
+
+#[test]
 fn the_index_follows_the_declarations_once_per_change_not_once_per_call() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);

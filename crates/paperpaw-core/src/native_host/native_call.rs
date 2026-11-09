@@ -51,6 +51,9 @@ pub(crate) fn call(
     }
     // The callee's own negative status passes through: it is not a
     // misbehaviour. Only an answer the host cannot take is dropped.
+    // TODO(#228, Core): charge the callee on the usage meter (the #838 nested
+    // path) once that lands; `Meter::enter` needs the shared meter, which
+    // the frame does not hold.
     let length = lease.stage(token, input, reply, frame.env)?;
     let length = usize::try_from(length).map_err(|_| length)?;
     let taken = reply.get(..length).ok_or(ERR_INVALID).and_then(accept);

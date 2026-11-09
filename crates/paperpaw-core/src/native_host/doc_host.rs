@@ -71,6 +71,10 @@ pub(crate) struct DocState {
     /// Formats the index refused after the store admitted them: 0 unless the
     /// two disagree (see `FormatIndex::sync`).
     skipped: Cell<u32>,
+    /// Formats that went whose documents could not all be ended because the
+    /// table was borrowed: the next call ends the rest (the index has
+    /// forgotten them already).
+    unfinished: RefCell<Vec<FormatRef>>,
 }
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -99,6 +103,10 @@ impl DocState {
         in_use: Rc<PathsInUse>,
     ) -> Result<Self, i32> {
         let table = DocumentTable::try_new(limits)?;
+        let mut unfinished = Vec::new();
+        unfinished
+            .try_reserve_exact(super::format_index::DEVICE)
+            .map_err(|_| ERR_NO_MEMORY)?;
         let mut books = Vec::new();
         books
             .try_reserve_exact(limits.device)
@@ -111,6 +119,7 @@ impl DocState {
             books: RefCell::new(books),
             in_use,
             skipped: Cell::new(0),
+            unfinished: RefCell::new(unfinished),
         })
     }
 
@@ -215,6 +224,19 @@ impl DocState {
             put(option.value.as_bytes());
         });
         Ok(hash)
+    }
+
+    fn keep_unfinished(&self, format: FormatRef) {
+        if let Ok(mut pending) = self.unfinished.try_borrow_mut()
+            && pending.len() < pending.capacity()
+        {
+            pending.push(format);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unfinished(&self) -> usize {
+        self.unfinished.borrow().len()
     }
 
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
@@ -347,6 +369,7 @@ impl Bound<'_> {
     /// The index in line with the declarations, if the registry changed since
     /// it was. The documents of a format that went end as it stopped.
     fn sync(&self) -> Result<(), i32> {
+        self.end_unfinished();
         let generation = self.frame.registry()?.generation();
         if self.state.synced.get() == generation {
             return Ok(());
@@ -374,15 +397,22 @@ impl Bound<'_> {
             .set(self.state.skipped.get().saturating_add(skipped));
         self.state.synced.set(generation);
         // The index is no longer borrowed: the documents of what went end.
-        let mut busy = false;
         for format in gone.iter().take(count) {
-            busy |= format_stopped(self, *format).is_err();
-        }
-        if busy {
-            // A table was borrowed: the next call ends the rest.
-            self.state.synced.set(0);
+            if format_stopped(self, *format).is_err() {
+                // A table was borrowed: the next call ends the rest. The
+                // room is reserved for every format the device can hold.
+                self.state.keep_unfinished(*format);
+            }
         }
         Ok(())
+    }
+
+    /// Ends the documents of formats an earlier call could not finish.
+    fn end_unfinished(&self) {
+        let Ok(mut pending) = self.state.unfinished.try_borrow_mut() else {
+            return;
+        };
+        pending.retain(|format| format_stopped(self, *format).is_err());
     }
 
     /// Op 1's choice: the user's `core.formats.<extension>` setting, a
