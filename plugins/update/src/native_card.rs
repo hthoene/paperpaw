@@ -18,6 +18,9 @@ pub const MOST_FILES: usize = 8;
 pub const MAX_NAME: usize = 64;
 /// The caller's own number of the install request, the one this page sends.
 pub const REQUEST: u32 = 1;
+/// The number of the check of the first file of `updates`; the next file's is
+/// one more (at most `MOST_FILES`, one check at a time).
+pub const CHECK_REQUEST: u32 = 2;
 /// The longest line of `installing.txt` read: a path in `updates`.
 pub const MAX_PAIR: usize = 4096;
 
@@ -59,7 +62,7 @@ impl Offered {
 }
 
 /// `a` against `b`, digits read as numbers, letters without regard to case.
-fn natural(a: &str, b: &str) -> Ordering {
+pub(crate) fn natural(a: &str, b: &str) -> Ordering {
     let (mut x, mut y) = (a.as_bytes(), b.as_bytes());
     loop {
         let order = match (x.first(), y.first()) {
@@ -106,8 +109,8 @@ pub enum Ended {
     Done,
     /// The reader said no, or the confirmation timed out: nothing happened.
     Refused,
-    /// The device says it is not newer than the version running: installing
-    /// it is the reader's choice, told so.
+    /// The device says it is not newer than the version running, though the
+    /// check and the reader's choice allowed it.
     NotNewer,
     /// An installed image waits for its restart.
     Pending,
@@ -169,10 +172,8 @@ pub fn path(name: &str) -> Result<String, Error> {
     concat(&[UPDATE_DIR, "/", name])
 }
 
-/// The content of `installing.txt`: the update's path and its version, a line
-/// each. The version is left empty where the device has not told it (the
-/// check of a file is not native yet, `PORTING-7.md`); interface 6 reads such
-/// a file as an update that did not come.
+/// The content of `installing.txt`: the update's path and its version (the
+/// device's check said it), a line each.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -311,7 +312,7 @@ mod tests {
             pair("updates/a.bin", "0.4.0").unwrap(),
             "updates/a.bin\n0.4.0\n"
         );
-        // Without a version the second line is empty; both read it.
+        // Without a version the second line is empty (an older file); both read it.
         let empty = pair("updates/a.bin", "").unwrap();
         assert_eq!(read_pair(empty.as_bytes()), Some(("updates/a.bin", "")));
         assert_eq!(read_pair(b"only one line"), None);

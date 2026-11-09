@@ -35,6 +35,7 @@ mod fetch;
 mod found;
 mod look;
 mod native_card;
+mod native_check;
 mod native_entry;
 /// The interface-7 plugin.
 pub mod native_plugin;

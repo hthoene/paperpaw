@@ -1,9 +1,9 @@
-# Interface-7 port (slices 1 and 2: the decisions and declarations, the native entry and the card page)
+# Interface-7 port (slices 1 to 3: the decisions and declarations, the native entry and the card page, the file check)
 
 Version 1.0.7 (already above its Beta 3 version; no further bump). Status: **not complete**: the native entry
-(`NativeUpdate`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `update`) has the page for an update
-file on the card, but what needs the device's file check, the online flow and the dual-boot notice are named
-blocked steps below, so the plugin is **gated**: it is not in `NATIVE_PLUGINS` and not in
+(`NativeUpdate`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `update`) has the whole card flow
+(checks, states, install, offer at start), but the plugins an update leaves out, the online flow and the
+dual-boot notice are named blocked steps below, so the plugin is **gated**: it is not in `NATIVE_PLUGINS` and not in
 `tools/plugin-files7/complete.txt` (its native file is not the whole plugin). The interface-6 `Update` and
 everything of it stays until the host activates native plugins (then it goes together, no shim; see the removal
 step).
@@ -28,65 +28,81 @@ step).
   `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each with the
   interface-6 registration.
 
-## Native entry and the card page (slice 2)
+## Native entry and the card page (slices 2 and 3)
 
 - `src/native_plugin.rs`: `make` submits the settings, the page, the navigation and three event
   subscriptions (`started`, `install_done`, `firmware_changed`; `declarations::events`). *Update* (the
   settings row, `update.open`) opens the page. The page reads `core.device` `firmware` (state and progress;
   not found means the device has no firmware updates: *This update cannot be installed*, the device does not
-  install from here) and the files of the card's folder `updates` through `core.files` (root 1, `uses.storage`).
-  Rows are the files (`.bin`, not hidden, a name up to 64 bytes, at most 8, natural order: `0.9.0` before
-  `0.10.0`; one *Install* row per file with its name at the end) and *Not now*. *Install* sends
-  `install_firmware(request 1, Files, "updates/<name>", options)`; the **device checks the file, always asks the
-  reader and shows version and signer** (decisions 132 and 134), so the page shows *Installing the update* with
-  the percent of `firmware_changed` (a hint read again through `dev_firmware`, redrawn only when the percent
-  moves). The install belongs to the plugin, not to the page: closing the page does not stop it (interface 6
-  held *Back* while installing), and the end is handled with no page open.
-- `install_done` (kind 1, request 1) ends it: OK writes `installing.txt` (path, an empty version line) and sends
-  `firmware_restart`, the page says *Update installed, Restarting …*; declined or dismissed (reasons 2, 3) shows
-  the files again; **not newer (reason 14)** offers *Install older version* (`allow_older()`, only when the reader
-  chose it after being told, the device's own confirmation then says older or the same); restart pending (21)
-  shows *Restart now*; every other reason is *Update not installed* with the interface-6 reason text
-  (`native_card::reason`; unsigned, other, unknown or revoked keys are *signed with a key this device does not
-  trust*). A page opened while an install runs or waits shows *Installing*, one opened with an installed image
-  waiting shows *Restart now*.
+  install from here) and the files of the card's folder `updates` through `core.files` (root 1, `uses.storage`:
+  `.bin`, not hidden, a name up to 64 bytes, at most 8, natural order: `0.9.0` before `0.10.0`).
+- **The check (slice 3)**: for each file the plugin sends `check_file(request 2 + index, Files, "updates/<name>",
+  Firmware)`, one at a time (the next goes out when `install_done` kind 3 of the last arrives; the device
+  runs one check at a time and holds four requests), and reads each answer with `Device::check` (same
+  request) at once, as the evidence stays only until the next check. The page shows *Checking the update
+  files* meanwhile (with *Not now*); the checks go on with the page closed. `src/native_check.rs` (no host,
+  tested) reads the evidence: **who signed it** (the PaperPaw flag, else the key: *own build* with its
+  fingerprint, four groups kept on one line as interface 6 showed it), **newer, older or the same**
+  (`Version` order of the SDK, else file-name order for a tag it does not read; the host's reason 14 wins:
+  never newer then), **another firmware's image** (the foreign flag; its verdict being unsigned, unknown
+  key or not newer is no failure here, any other reason is), or **unfit** with the host's reason (damaged,
+  other chip, no room, revoked, unsigned, newer interface; the reason texts of interface 6). The page
+  offers the newest image that fits (the first listed of equal versions, as `found::find`), else the first
+  other firmware, else the last failure, else *No update on the card*. States and buttons: newer PaperPaw
+  `Install` (`update.ready.*`); older *Install older version* (`update.older.*`) and the same *Install
+  again* (`update.same.*`), each with `allow_older()` only because the reader pressed that button, told what
+  it is; an own key *Install with this key* (`update.unknown.*`, fingerprint shown, `.key(..)` with the
+  checked key, plus `allow_older()` when not newer, and the note that it is not newer); another firmware
+  *Not now* first, then *Install anyway* (`update.foreign.*`, `.foreign()`).
+- *Install* sends `install_firmware(request 1, Files, "updates/<name>", options)` as above; the **device checks
+  the file again, always asks the reader and shows version and signer** (decisions 132 and 134), so the page
+  shows *Installing the update* with the percent of `firmware_changed` (a hint read again through
+  `dev_firmware`, redrawn only when the percent moves). The install belongs to the plugin, not to the page:
+  closing the page does not stop it (interface 6 held *Back* while installing), and the end is handled with no
+  page open.
+- `install_done` (kind 1, request 1) ends it: OK writes `installing.txt` (path and **the checked version**;
+  none for another firmware, whose start the plugin does not see) and sends `firmware_restart`, the page says
+  *Update installed, Restarting …*; declined or dismissed (reasons 2, 3) shows the file as it was offered
+  (no new check); not newer (14, which the check and the reader's choice should have made impossible) and
+  every other reason is *Update not installed* with the interface-6 reason text (`native_card::reason`;
+  unsigned, other, unknown or revoked keys are *signed with a key this device does not trust*); restart
+  pending (21) shows *Restart now*. A page opened while an install runs or waits shows *Installing*, one
+  opened with an installed image waiting shows *Restart now*.
 - At start (`started`): `installing.txt` (read in 4 KiB at most, removed) says the update went in; if the
   firmware did not undo it and the named version (where there is one) is the running one, the plugin announces
   *Updated to PaperPaw {version}* (`notify` with `announce`, no screen needed) and removes the file of
   `updates` (only a plain name in `updates`; the data file is not trusted to name another path). A start that
-  undid the update announces *The update did not start: PaperPaw {version} is back*. Formats of `installing.txt`
-  are unchanged (`testdata/installing.txt.v1` is read by `native_card::read_pair`).
+  undid the update announces *The update did not start: PaperPaw {version} is back*. Otherwise the files of
+  `updates` are checked (the firmware idle) and **a newer image, whoever signed it, is offered once**:
+  `offered.txt` (path and version, the interface-6 file) is compared and written, and the page opens on what
+  the check found (no second check). Formats of `installing.txt` and `offered.txt` are unchanged
+  (`testdata/installing.txt.v1` is read by `native_card::read_pair`).
 - `src/native_card.rs`: the decisions without the host, tested: which names are update files, the order, how
   an `install_done` reads (`ended`), the reason texts, the percent, `installing.txt`.
 - Page layout: the rows (buttons) are on top and the large line and the words under them are the list's
   *empty footer* (title on one line, text up to six lines of small type), not buttons at the bottom as in
   interface 6; the beta version reads *0.5.0 Beta 1* as before. New texts (en and de):
-  `update.card.*`, `update.not-newer.*`, `update.installing.percent`, `update.installed.restart-help`,
-  `update.restart`, `update.reason.unsupported`.
+  `update.card.*`, `update.installing.percent`, `update.installed.restart-help`, `update.restart`,
+  `update.reason.unsupported`; the interface-6 texts of the states above are used as they are.
 - The `uses.firmware` and `uses.storage` features are declared in `native/metadata*.json` (required): without a
   card (`uses.storage`) there is no install from `updates`. The plugin does not use the network yet, so it does
   not declare `uses.network`.
+- **Left out of the card flow, not blocked:** interface 6 also looked for another firmware's image at the
+  card's top level (where CrossPoint's installer looks); the native page looks in `updates` only (one more
+  listing of root 1 and the same check). **To confirm with Firmware:** the check of a foreign image answers
+  with reason 0, 8, 9 or 14 (the page reads these as "another firmware"); a check that names another reason
+  is shown as *This update cannot be installed* with it.
 
 ## Blocked and next steps
 
-1. **`CommandSender::check_file` (command 1592, kind 1, `uses.firmware`) is missing in the SDK** (the wire record
-   and `Device::check` / `FileCheck` exist, nothing starts a check). *Ask Services/Kernel for the sender
-   (request number, root, path, kind).* Until then the plugin cannot know what an update file is: its version,
-   who signed it, whether it is newer, older or the same, an own build's key, another firmware's image. So,
-   **not ported:** the *found/newer/older/same* texts with the version (`update.ready.*`, `update.same.*`,
-   `update.older.*` stay unused: the device's own confirmation says version, older and signer before anything
-   is installed, and the page handles the device's *not newer* answer as a second, explicit choice), the
-   **own-key install** (`.key(..)` needs the checked key; an unknown key ends as *signed with a key this device
-   does not trust*), the **foreign image** (`.foreign()`; the page never offers another firmware blind), the
-   offer of an update found at start (`offered.txt`: only a newer one is offered, which needs the version; not
-   read and not written), the **version line of `installing.txt`** (left empty; interface 6 reads such a file as
-   an update that did not come, the native start accepts an empty line) and the card's *update file list*
-   ordering by version instead of name. Once the sender exists: check each file (one at a time, at most 4
-   requests device-wide), keep the newest as interface 6 did (`found::find`), say the states of `page.rs`.
+1. ~~`CommandSender::check_file`~~ **Done in slice 3** (SDK #738): the card flow's found, newer, older, same,
+   own-key and foreign states, the offer at start (`offered.txt`) and the version line of `installing.txt`.
+   Not yet: the update *file list* ordering by version (the page offers the newest only, as interface 6
+   did) and everything that needs **the plugins an update leaves out** (2).
 2. **Plugins an update leaves out** (`update.leaves*`, `update.install-without`): the check record
    (`dev_check`, `docs/abi/device.md` 5.1) has no list of the plugin crates an image lacks, and the plugin may
    not read the update's trailer itself ("they never parse `.ppn` headers or update trailers themselves").
-   **Needs a contract item from Kernel** (a field or a query), then the *Update without them* choice.
+   **Needs a contract item from Kernel** (a field or a query), then the *Update without them* choice. Until then an update is offered without saying which plugins it leaves out.
 3. **The dual-boot notice and its button** (`dual.rs`, `not_dual.rs`): the firmware's note is
    `.paperpaw/boot.txt`, which root 1 refuses; `paperpaw.ini` is a card file the button rewrites before a
    restart. Needs a flag for it in `dev_firmware` or `dev_device` (Kernel/Firmware). Until then the device's own

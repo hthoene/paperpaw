@@ -10,20 +10,21 @@ use pending::Case;
 const CASES: [Case; 4] = [
     // An update on the card is found, its version and who signed it said (the
     // device's file check), installed by the device; after the restart the
-    // plugin says how it went. The page, the install, its end and the restart
-    // message are native (`src/native_plugin.rs`, `src/native_card.rs`); what is
-    // pending is the file check, the own key and the foreign image.
+    // plugin says how it went. All of it is native (`src/native_plugin.rs`,
+    // `src/native_check.rs`, `src/native_card.rs`); what is pending is the
+    // dual-boot notice (the flag the firmware has to give) and the plugins an
+    // update leaves out.
     Case {
         name: "update-from-the-card",
         golden: None,
-        blocked_by: &["CHECK-FILE", "DUAL-BOOT-FLAG"],
+        blocked_by: &["DUAL-BOOT-FLAG", "LEAVES-OUT"],
     },
     // The update server is asked, an update downloaded and the code plugins
     // built for it fetched.
     Case {
         name: "update-online",
         golden: None,
-        blocked_by: &["NET-flow", "CHECK-FILE"],
+        blocked_by: &["NET-flow", "LEAVES-OUT"],
     },
     // The weekly look runs as declared work at a cheap moment.
     Case {
@@ -51,13 +52,13 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED CHECK-FILE/DUAL-BOOT-FLAG: no CommandSender::check_file (commands 1592) to ask what an update file is, no dual-boot flag"]
+#[ignore = "BLOCKED DUAL-BOOT-FLAG/LEAVES-OUT: no dual-boot flag, no list of the plugins an update leaves out"]
 fn update_from_the_card() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED NET-flow/CHECK-FILE: the online flow (check, download, plugin fetch) is not native yet"]
+#[ignore = "BLOCKED NET-flow/LEAVES-OUT: the online flow (check, download, plugin fetch) is not native yet"]
 fn update_online() {
     CASES[1].refuse().unwrap();
 }

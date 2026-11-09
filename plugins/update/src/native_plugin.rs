@@ -1,22 +1,26 @@
 //! The interface-7 update page for the card flow: the update files in the
-//! card's `updates` folder, the install the device checks and asks the reader
-//! about (decisions 132 and 134), how it ended, and what is said after the
-//! restart. The online check, the downloads, the plugin fetch, the weekly
-//! look, the badge and the states that need what the device knows of a file
-//! (its version and signer) are named in `PORTING-7.md`.
+//! card's `updates` folder, which the device checks one after another (version,
+//! who signed it, newer, older, the same or another firmware, `native_check`),
+//! the install the device checks again and asks the reader about (decisions 132
+//! and 134), how it ended, and what is said after the restart. The online check,
+//! the downloads, the plugin fetch, the weekly look, the badge, the plugins an
+//! update leaves out and the dual-boot notice are named in `PORTING-7.md`.
 use crate::{
     declarations::{CHECK_TOKEN, FIRMWARE_CHANGED, INSTALL_DONE, OPEN_TOKEN, PAGE, STARTED},
     native_card::{
-        self, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, ended, percent, read_pair, reason,
+        self, CHECK_REQUEST, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, ended, percent,
+        read_pair, reason,
     },
+    native_check::{self, Evidence, Found, Image, Other, Signer},
 };
 use alloc::{string::String, vec::Vec};
+use core::cmp::Ordering;
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
-        commands::{CommandSender, FirmwareOptions, InstallRoot, RedrawMode},
+        commands::{CheckKind, CommandSender, FirmwareOptions, InstallRoot, RedrawMode},
         device::{Device, DeviceOutcome, DeviceRequest, FirmwareState, InstallKind},
         events::{Event, Incoming, InstallDone, kinds},
         files::Files,
@@ -32,7 +36,7 @@ use paperpaw_ui_kit::{
     files::{read_all, replace},
     mem::{SERVICE_BUFFER, buffer, push},
     read_event,
-    text::copy,
+    text::{concat, copy},
 };
 
 mod image {
@@ -42,6 +46,9 @@ mod image {
 /// The data file that says an install went through, kept through the restart
 /// (interface 6's, `docs/data-files.md`).
 const INSTALLING: &str = "installing.txt";
+/// The data file of the update offered at start last (path and version): an
+/// update is offered once (interface 6's, `docs/data-files.md`).
+const OFFERED: &str = "offered.txt";
 /// Room for the commands of one callback (an install's path is up to 512 bytes).
 const COMMANDS: usize = 1024;
 /// Pages of the update folder read at most.
@@ -54,11 +61,14 @@ enum View {
     Nothing,
     /// The device installs no firmware updates here.
     Unsupported,
-    /// Update files on the card, to choose from.
-    Files(Vec<String>),
-    /// The device said this file is not newer than the one running: going back
-    /// (or installing the same again) is the reader's choice.
-    NotNewer(String),
+    /// The device checks the update files of the card.
+    Checking,
+    /// The newest update that fits, with what the check said of it.
+    Ready(Image),
+    /// Another firmware's image on the card: the reader's choice, told so.
+    Foreign(Other),
+    /// No file of the card can be installed, for this reason.
+    Unfit(DeviceOutcome),
     /// The device checks, asks and writes; how far, where it says.
     Installing(Option<i64>),
     /// In place; with a button to restart where the plugin did not do it.
@@ -70,10 +80,8 @@ enum View {
 /// What a row of the page does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Button {
-    /// Installs the file of this number.
-    Install(usize),
-    /// Installs the file the device said is not newer.
-    InstallOlder,
+    /// Installs the file the page shows.
+    Install,
     Restart,
     Close,
 }
@@ -87,11 +95,29 @@ struct Page {
     help: String,
 }
 
-/// The install in flight: its file, and whether the reader chose an older one.
+/// The install in flight: the file the reader chose, as the check said it.
 #[derive(Debug)]
 struct Job {
-    path: String,
-    older: bool,
+    found: Found,
+}
+
+/// The check of the card's files, one at a time (the device runs one check at a
+/// time and holds at most four requests).
+#[derive(Debug)]
+struct Scan {
+    names: Vec<String>,
+    found: Vec<Found>,
+    /// The file whose check is running.
+    next: usize,
+    /// Whether a newer update is offered when this ends (at start).
+    offer: bool,
+}
+
+/// How far the checks are.
+enum Step {
+    Running,
+    /// All answered: the file to offer, and whether this one offers.
+    Done(Option<Found>, bool),
 }
 
 /// What `core.device` says of the firmware.
@@ -110,6 +136,9 @@ pub struct NativeUpdate {
     device: Option<Device>,
     screens: Screens<Page>,
     job: Option<Job>,
+    scan: Option<Scan>,
+    /// What an offer at start found, for the page it opens.
+    settled: Option<Found>,
     /// The version running, as the page says it.
     current: String,
 }
@@ -161,7 +190,10 @@ impl Plugin for NativeUpdate {
                 ..
             } if token == CHECK_TOKEN => Err(Error::Unsupported),
             Event::Started { .. } if token == STARTED => self.started(host),
-            Event::InstallDone(done) if token == INSTALL_DONE => self.install_done(host, &done),
+            Event::InstallDone(done) if token == INSTALL_DONE => match done.kind() {
+                InstallKind::Check => self.checked(host, &done),
+                _ => self.install_done(host, &done),
+            },
             Event::FirmwareChanged { .. } if token == FIRMWARE_CHANGED => self.progress(host),
             Event::ScreenOpened { instance, .. } if token == PAGE => {
                 let page = self.look(host)?;
@@ -244,16 +276,177 @@ impl NativeUpdate {
                 View::Installing(percent(running.done, running.total))
             }
             FirmwareState::Installed => View::Installed(true),
-            _ => {
-                let names = card_files(host)?;
-                if names.is_empty() {
-                    View::Nothing
-                } else {
-                    View::Files(names)
-                }
-            }
+            _ => self.card(host)?,
         };
         build(host, view, &self.current)
+    }
+
+    /// The card's files: what an offer at start found, a check going on, or the
+    /// checks of the files there are now.
+    fn card(&mut self, host: &Host<'_>) -> Result<View, Error> {
+        if let Some(found) = self.settled.take() {
+            return Ok(view_of(Some(found)));
+        }
+        if self.scan.is_some() {
+            return Ok(View::Checking);
+        }
+        match self.begin(host, false)? {
+            Step::Running => Ok(View::Checking),
+            Step::Done(found, _) => Ok(view_of(found)),
+        }
+    }
+
+    /// Starts the checks of the files of `updates`; they end with `Done`
+    /// at once where there are none.
+    fn begin(&mut self, host: &Host<'_>, offer: bool) -> Result<Step, Error> {
+        let names = card_files(host)?;
+        if names.is_empty() {
+            return Ok(Step::Done(None, offer));
+        }
+        self.scan = Some(Scan {
+            names,
+            found: Vec::new(),
+            next: 0,
+            offer,
+        });
+        self.advance(host)
+    }
+
+    /// Sends the check of the next file; a file that cannot be asked about
+    /// counts as one that failed. A failure drops the scan.
+    fn advance(&mut self, host: &Host<'_>) -> Result<Step, Error> {
+        let step = self.send_next(host);
+        if step.is_err() {
+            self.scan = None;
+        }
+        step
+    }
+
+    fn send_next(&mut self, host: &Host<'_>) -> Result<Step, Error> {
+        loop {
+            let Some(scan) = self.scan.as_mut() else {
+                return Ok(Step::Done(None, false));
+            };
+            let Some(name) = scan.names.get(scan.next) else {
+                let offer = scan.offer;
+                let found = self.scan.take().map(|scan| scan.found);
+                return Ok(Step::Done(found.and_then(native_check::choose), offer));
+            };
+            let path = native_card::path(name)?;
+            let request = u32::try_from(scan.next)
+                .ok()
+                .and_then(|next| CHECK_REQUEST.checked_add(next))
+                .unwrap_or(0);
+            let mut commands = buffer(COMMANDS)?;
+            let sent = CommandSender::new(host, &mut commands).check_file(
+                request,
+                InstallRoot::Files,
+                &path,
+                CheckKind::Firmware,
+            );
+            match sent {
+                Ok(()) => return Ok(Step::Running),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {
+                    push(&mut scan.found, Found::Unfit(DeviceOutcome::Other))?;
+                    scan.next = scan.next.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    /// A check ended: what the device says of the file, then the next check, or
+    /// the end of them all.
+    fn checked(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
+        let Some(request) = done.request() else {
+            return Ok(());
+        };
+        let Some(scan) = self.scan.as_ref() else {
+            return Ok(());
+        };
+        let wanted = u32::try_from(scan.next)
+            .ok()
+            .and_then(|next| CHECK_REQUEST.checked_add(next));
+        let Some(name) = scan.names.get(scan.next) else {
+            return Ok(());
+        };
+        if wanted != Some(request.get()) {
+            return Ok(());
+        }
+        let path = native_card::path(name)?;
+        let found = if done.status().is_ok() {
+            self.read_check(host, request, &path)
+        } else {
+            Ok(Found::Unfit(match done.outcome() {
+                DeviceOutcome::Ok => DeviceOutcome::Other,
+                other => other,
+            }))
+        };
+        let step = match found {
+            Ok(found) => {
+                if let Some(scan) = self.scan.as_mut() {
+                    push(&mut scan.found, found)?;
+                    scan.next = scan.next.saturating_add(1);
+                }
+                self.advance(host)
+            }
+            Err(error) => {
+                self.scan = None;
+                Err(error)
+            }
+        };
+        match step? {
+            Step::Running => Ok(()),
+            Step::Done(found, offer) => self.settle(host, found, offer),
+        }
+    }
+
+    /// Reads what the device found of the file `path` it has checked.
+    fn read_check(
+        &mut self,
+        host: &Host<'_>,
+        request: DeviceRequest,
+        path: &str,
+    ) -> Result<Found, Error> {
+        let Some(running) = self.firmware(host)? else {
+            return Ok(Found::Unfit(DeviceOutcome::Unsupported));
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let check = match self
+            .device(host)?
+            .check(host, request, &mut input, &mut out)
+        {
+            Ok(check) => check,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(Found::Unfit(DeviceOutcome::Other)),
+        };
+        let evidence = Evidence {
+            reason: check.reason(),
+            paperpaw: check.paperpaw_signed(),
+            foreign: check.foreign_firmware(),
+            key: check.signing_key().copied(),
+            id: check.id(),
+            version: check.version(),
+        };
+        native_check::judge(path, &evidence, &running.version)
+    }
+
+    /// All files are checked: the page that is open shows what is offered; at
+    /// start a newer update is offered once, by opening the page.
+    fn settle(&mut self, host: &Host<'_>, found: Option<Found>, offer: bool) -> Result<(), Error> {
+        let offered = match &found {
+            Some(found) if offer && native_check::is_offer(found) => offered_now(host, found)?,
+            _ => false,
+        };
+        if self.screens.top(PAGE).is_some() {
+            return self.show(host, view_of(found));
+        }
+        if offered {
+            self.settled = found;
+            let mut scratch = [0; 128];
+            CommandSender::new(host, &mut scratch).open(Open::screen("update.page")?)?;
+        }
+        Ok(())
     }
 
     /// Shows `view` on the page that is open, if one is.
@@ -268,52 +461,55 @@ impl NativeUpdate {
         match button {
             Some(Button::Close) => CommandSender::new(host, &mut commands).close_screen(),
             Some(Button::Restart) => CommandSender::new(host, &mut commands).firmware_restart(),
-            Some(Button::Install(index)) => {
-                let name = match self.screens.top(PAGE).map(|page| &page.view) {
-                    Some(View::Files(names)) => names.get(index),
-                    _ => None,
-                };
-                let Some(name) = name else {
+            Some(Button::Install) => {
+                if self.job.is_some() {
+                    return Ok(());
+                }
+                let Some(page) = self.screens.top(PAGE) else {
                     return Ok(());
                 };
-                let path = native_card::path(name)?;
-                self.start(host, path, false)
-            }
-            Some(Button::InstallOlder) => {
-                let path = match self.screens.top(PAGE).map(|page| &page.view) {
-                    Some(View::NotNewer(path)) => Some(copy(path)?),
-                    _ => None,
-                };
-                match path {
-                    Some(path) => self.start(host, path, true),
-                    None => Ok(()),
+                match core::mem::replace(&mut page.view, View::Installing(None)) {
+                    View::Ready(image) => self.start(host, Found::Image(image)),
+                    View::Foreign(other) => self.start(host, Found::Foreign(other)),
+                    other => {
+                        page.view = other;
+                        Ok(())
+                    }
                 }
             }
             None => Ok(()),
         }
     }
 
-    /// Sends the install of `path`. The device checks the file and asks the
-    /// reader (an older version only when `older` says the reader chose it).
-    fn start(&mut self, host: &Host<'_>, path: String, older: bool) -> Result<(), Error> {
-        if self.job.is_some() {
-            return Ok(());
-        }
-        let options = if older {
-            FirmwareOptions::new().allow_older()
-        } else {
-            FirmwareOptions::new()
+    /// Sends the install of the file the reader chose, as the page offered it:
+    /// an older or the same version only where the page said so (the reader
+    /// chose it), an own build with its key (the reader saw its fingerprint),
+    /// another firmware as one. The device checks the file again and asks.
+    fn start(&mut self, host: &Host<'_>, found: Found) -> Result<(), Error> {
+        let (path, options) = match &found {
+            Found::Image(image) => {
+                let mut options = FirmwareOptions::new();
+                if !image.order.is_gt() {
+                    options = options.allow_older();
+                }
+                if let Signer::Own(key) = &image.signer {
+                    options = options.key(key);
+                }
+                (image.path.as_str(), options)
+            }
+            Found::Foreign(other) => (other.path.as_str(), FirmwareOptions::new().foreign()),
+            Found::Unfit(_) => return Ok(()),
         };
         let mut commands = buffer(COMMANDS)?;
         let sent = CommandSender::new(host, &mut commands).install_firmware(
             REQUEST,
             InstallRoot::Files,
-            &path,
+            path,
             options,
         );
         match sent {
             Ok(()) => {
-                self.job = Some(Job { path, older });
+                self.job = Some(Job { found });
                 self.show(host, View::Installing(None))
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
@@ -337,18 +533,18 @@ impl NativeUpdate {
             Ended::Done => {
                 // What is said after the restart; the restart starts the new
                 // firmware (the reader said yes at the device's question).
-                let kept = pair_file(host, &job.path);
+                let kept = match &job.found {
+                    Found::Image(image) => pair_file(host, &image.path, &image.version),
+                    _ => Ok(()),
+                };
                 let mut commands = buffer(COMMANDS)?;
                 let restarted = CommandSender::new(host, &mut commands).firmware_restart();
                 self.show(host, View::Installed(false))?;
                 kept?;
                 restarted
             }
-            Ended::Refused => {
-                let page = self.look(host)?;
-                self.show_page(host, page)
-            }
-            Ended::NotNewer if !job.older => self.show(host, View::NotNewer(job.path)),
+            // Nothing happened: the file is offered as it was.
+            Ended::Refused => self.show(host, view_of(Some(job.found))),
             Ended::NotNewer => self.show(host, View::Failed(DeviceOutcome::NotNewer)),
             Ended::Pending => self.show(host, View::Installed(true)),
             Ended::Failed(outcome) => self.show(host, View::Failed(outcome)),
@@ -408,16 +604,52 @@ impl NativeUpdate {
         if running.undone {
             let text = messages.format(host, "update.undone", &arguments)?;
             announce(host, &text)?;
+            return Ok(());
+        }
+        // A newer update on the card, not offered before: checked now, offered
+        // when the device has said what it is.
+        let free = !matches!(
+            running.state,
+            FirmwareState::Waiting | FirmwareState::Installing | FirmwareState::Installed
+        );
+        if free && self.job.is_none() && self.scan.is_none() {
+            if let Step::Done(found, offer) = self.begin(host, true)? {
+                self.settle(host, found, offer)?;
+            }
         }
         Ok(())
     }
 }
 
-/// Keeps what the restart says of the install: its file, the version still
-/// unknown (`PORTING-7.md`).
-fn pair_file(host: &Host<'_>, path: &str) -> Result<(), Error> {
-    let text = native_card::pair(path, "")?;
+/// Keeps what the restart says of the install: its file and its version.
+fn pair_file(host: &Host<'_>, path: &str, version: &str) -> Result<(), Error> {
+    let text = native_card::pair(path, version)?;
     replace(host, Root::Data, INSTALLING, text.as_bytes())
+}
+
+/// Whether the update `found` is one not offered before; the file `offered.txt`
+/// (the same as interface 6's: path and version) keeps what was.
+fn offered_now(host: &Host<'_>, found: &Found) -> Result<bool, Error> {
+    let Found::Image(image) = found else {
+        return Ok(false);
+    };
+    let text = native_card::pair(&image.path, &image.version)?;
+    let kept = read_all(host, Root::Data, OFFERED, MAX_PAIR)?;
+    if kept.as_deref() == Some(text.as_bytes()) {
+        return Ok(false);
+    }
+    replace(host, Root::Data, OFFERED, text.as_bytes())?;
+    Ok(true)
+}
+
+/// The page's view of what the checks found.
+fn view_of(found: Option<Found>) -> View {
+    match found {
+        None => View::Nothing,
+        Some(Found::Image(image)) => View::Ready(image),
+        Some(Found::Foreign(other)) => View::Foreign(other),
+        Some(Found::Unfit(why)) => View::Unfit(why),
+    }
 }
 
 /// Says `text` where the reader is, also while no screen of the plugin shows.
@@ -509,8 +741,19 @@ fn row(
     push(&mut page.1, button)
 }
 
-/// The rows of `view`: a button for each file, the way on first where an update
-/// waits for the reader's word; *Not now* or *OK* last.
+/// What the button of an update says: an own build installs with its key, an
+/// older or the same version says so.
+const fn install_label(image: &Image) -> &'static str {
+    match (&image.signer, image.order) {
+        (Signer::Own(_), _) => "update.install-with-key",
+        (_, Ordering::Less) => "update.install-older",
+        (_, Ordering::Equal) => "update.reinstall",
+        _ => "update.install",
+    }
+}
+
+/// The rows of `view`: the update's button where one waits for the reader's
+/// word (the other firmware's after *Not now*); *Not now* or *OK* last.
 fn rows_of(
     host: &Host<'_>,
     messages: &mut Messages,
@@ -518,20 +761,31 @@ fn rows_of(
 ) -> Result<(Vec<Item>, Vec<Button>), Error> {
     let mut rows = (Vec::new(), Vec::new());
     match view {
-        View::Files(names) => {
-            for (index, name) in names.iter().enumerate() {
-                let button = Button::Install(index);
-                row(host, messages, &mut rows, "update.install", name, button)?;
-            }
+        View::Ready(image) => {
+            let label = install_label(image);
+            row(
+                host,
+                messages,
+                &mut rows,
+                label,
+                &image.version,
+                Button::Install,
+            )?;
         }
-        View::NotNewer(_) => row(
-            host,
-            messages,
-            &mut rows,
-            "update.install-older",
-            "",
-            Button::InstallOlder,
-        )?,
+        // Not installing is the way on: first; the other firmware second.
+        View::Foreign(_) => {
+            row(host, messages, &mut rows, "update.later", "", Button::Close)?;
+            let install = Button::Install;
+            row(
+                host,
+                messages,
+                &mut rows,
+                "update.install-foreign",
+                "",
+                install,
+            )?;
+            return Ok(rows);
+        }
         View::Installed(true) => {
             row(
                 host,
@@ -545,12 +799,53 @@ fn rows_of(
         _ => {}
     }
     let close = match view {
-        View::Files(_) | View::NotNewer(_) => "update.later",
+        View::Ready(_) | View::Checking => "update.later",
         View::Installing(_) | View::Installed(false) => return Ok(rows),
         _ => "update.ok",
     };
     row(host, messages, &mut rows, close, "", Button::Close)?;
     Ok(rows)
+}
+
+/// The words of an update that fits: its version, who signed it, and where it
+/// stands against the one running.
+fn ready_texts(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    image: &Image,
+    current: &str,
+) -> Result<(String, String), Error> {
+    let version = [Arg::Text {
+        name: "version",
+        value: &image.version,
+    }];
+    let current = [Arg::Text {
+        name: "current",
+        value: current,
+    }];
+    let Signer::Own(key) = &image.signer else {
+        let (title, help) = match image.order {
+            Ordering::Greater => ("update.ready.title", "update.ready.help"),
+            Ordering::Equal => ("update.same.title", "update.same.help"),
+            Ordering::Less => ("update.older.title", "update.older.help"),
+        };
+        return Ok((
+            messages.format(host, title, &version)?,
+            messages.format(host, help, &current)?,
+        ));
+    };
+    let print = native_check::fingerprint(key)?;
+    let fingerprint = [Arg::Text {
+        name: "key",
+        value: &print,
+    }];
+    let title = messages.format(host, "update.unknown.title", &version)?;
+    let help = messages.format(host, "update.unknown.help", &fingerprint)?;
+    if image.order.is_gt() {
+        return Ok((title, help));
+    }
+    let note = messages.format(host, "update.older.note", &current)?;
+    Ok((title, concat(&[&help, " ", &note])?))
 }
 
 /// The large line and the words under it.
@@ -567,8 +862,27 @@ fn texts(
     let (title, help, names_current) = match view {
         View::Nothing => ("update.nothing.title", "update.card.nothing.help", true),
         View::Unsupported => ("update.unfit.title", "update.reason.unsupported", false),
-        View::Files(_) => ("update.card.found.title", "update.card.found.help", true),
-        View::NotNewer(_) => ("update.not-newer.title", "update.not-newer.help", true),
+        View::Checking => (
+            "update.card.checking.title",
+            "update.card.checking.help",
+            true,
+        ),
+        View::Unfit(outcome) => ("update.unfit.title", reason(*outcome), false),
+        View::Ready(image) => return ready_texts(host, messages, image, current),
+        View::Foreign(other) => {
+            let named = [Arg::Text {
+                name: "name",
+                value: &other.name,
+            }];
+            let file = [Arg::Text {
+                name: "file",
+                value: &other.path,
+            }];
+            return Ok((
+                messages.format(host, "update.foreign.title", &named)?,
+                messages.format(host, "update.foreign.help", &file)?,
+            ));
+        }
         View::Installing(Some(value)) => {
             let arguments = [Arg::Int {
                 name: "percent",
