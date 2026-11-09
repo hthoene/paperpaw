@@ -3862,6 +3862,58 @@ pub const fn paperpaw_sdk::native::device::WifiNetwork<'_>::secured(self) -> boo
 impl<'a> paperpaw_sdk::native::device::WifiNetwork<'a>
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::signal(self) -> i32
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::ssid(self) -> &'a str
+pub mod paperpaw_sdk::native::document
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::Preparation
+pub paperpaw_sdk::native::document::Preparation::Failed
+pub paperpaw_sdk::native::document::Preparation::Preparing
+pub paperpaw_sdk::native::document::Preparation::Ready
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::Root
+pub paperpaw_sdk::native::document::Root::Data = 0
+pub paperpaw_sdk::native::document::Root::Handed = 5
+pub paperpaw_sdk::native::document::Root::Library = 1
+pub struct paperpaw_sdk::native::document::DocId(_)
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::DocPosition
+pub paperpaw_sdk::native::document::DocPosition::offset: u32
+pub paperpaw_sdk::native::document::DocPosition::section: u32
+impl paperpaw_sdk::native::document::DocPosition
+pub const fn paperpaw_sdk::native::document::DocPosition::new(u32, u32) -> Self
+pub struct paperpaw_sdk::native::document::DocState<'a>(_)
+impl<'a> paperpaw_sdk::native::document::DocState<'a>
+pub const fn paperpaw_sdk::native::document::DocState<'a>::cache_made_now(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::conversion(&self) -> u64
+pub const fn paperpaw_sdk::native::document::DocState<'a>::format(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::DocState<'a>::has_fonts(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::has_page_labels(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::has_toc(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::has_xpointers(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::id(&self) -> paperpaw_sdk::native::document::DocId
+pub const fn paperpaw_sdk::native::document::DocState<'a>::preparation(&self) -> paperpaw_sdk::native::document::Preparation
+pub const fn paperpaw_sdk::native::document::DocState<'a>::progress_ppm(&self) -> u32
+pub const fn paperpaw_sdk::native::document::DocState<'a>::right_to_left(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::status(&self) -> i32
+pub const fn paperpaw_sdk::native::document::DocState<'a>::whole_pages(&self) -> bool
+pub struct paperpaw_sdk::native::document::Documents
+impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::close(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::locate(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::open_book<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::document::OpenBook<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocState<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::state<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocState<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::xpointer<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocPosition, &mut [u8], &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::OpenBook<'a>
+impl<'a> paperpaw_sdk::native::document::OpenBook<'a>
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::background(self) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::color(self) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::cover_side(self, u32) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::css(self, paperpaw_sdk::native::document::Root, &'a str) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::format(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::image_side(self, u32) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::new(&'a str) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::options(self, &'a [(&'a str, &'a str)]) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::publisher_styles(self) -> Self
+pub const fn paperpaw_sdk::native::document::OpenBook<'a>::root(self, paperpaw_sdk::native::document::Root) -> Self
+pub const paperpaw_sdk::native::document::MAX_OPTIONS: usize
 pub mod paperpaw_sdk::native::events
 pub mod paperpaw_sdk::native::events::kinds
 pub struct paperpaw_sdk::native::events::kinds::ActionRun
