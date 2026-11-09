@@ -469,6 +469,26 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
   ends with reason 21
   restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`.
+- [D] **Foreign or PaperPaw, from the image.** A check finds out for itself whether an image is
+  another firmware's: one whose project is not PaperPaw's (`paperpaw-*`) is foreign, checked as the
+  boot loader would start it, with no signature; any other runs PaperPaw's signature rules.
+  `check_file` (kind 1) reports it in `dev_check.flags` bit 4. `install_firmware` checks the image
+  the same way and compares the finding with its `flags` bit 1: where they differ it ends with
+  reason 4 before any confirmation; the write takes the checked answer, never the flag alone.
+- [D] **Who holds what** (no staged copy: unlike a plugin, the image stays at the plugin's path and
+  is bound to what the user confirmed by its digest, checked again while it is written and read
+  back). The **core** (`paperpaw-core` DEV) holds all the state, in RAM, fallibly: the request
+  table and the job queue (5.2), one check result per plugin (its `dev_check`, the request and
+  kind, and for a firmware check one bit per op 4 row the checked image has built in, compared by
+  plugin id; at most 4 plugins, the oldest dropped; kept until the plugin's next check or a
+  restart, so op 6 and op 16 are `ERR_NOT_FOUND` after one), the `dev_firmware` states, the host
+  confirmation and every gate of this section; it compares versions for reason 14. The **shell**
+  gives one platform trait (`paperpaw_platform::FirmwareHost`) the core drives in bounded steps
+  from its main loop, never inside a callback: the running image's facts, a check (built-in plugin
+  ids streamed once each, none for a foreign image; the signer, the digest), a write bound to the
+  digest and the key the user accepted, the read-back, the commit and the restart; the trial and
+  the good start (5.4) are the shell's alone. The desktop emulator answers it with a fake that can
+  fail every step.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
 

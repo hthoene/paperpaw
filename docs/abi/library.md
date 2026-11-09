@@ -492,11 +492,15 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   backend (#5, with its allocation bitmap and entry-set checksums) holds the library only after it
   passes the same suite with the bitmap as a cut point; until then it is a gate item, not a claim.
 - [D] **Journalled library steps.** Every LIB op that changes files on the card (`move`, `delete`,
-  `import`, and the per-book data they carry) writes a library journal entry
-  (`from`, `to` or the removal, the old and new keys) into `.paperpaw/library/journal`, synced,
+  `import`, and the per-book data they carry) writes a library journal entry (its kind, `from`,
+  `to` or the removal, and the moved entry's identity, `Storage::entry_identity`: FAT's first
+  cluster, a computer folder's file id; the old and new keys are derived from the paths, not
+  stored) into `.paperpaw/library/journal`, synced,
   **before any card change**; then the file, then the kept data (renamed into `.paperpaw/.removing/`
   for a delete, removed there), each a card move as above. At the next start, after
-  `settle_moves`, the host finishes or rolls back every journalled step: a book at its new place
+  `settle_moves`, the host finishes or rolls back every journalled step, deciding a cut move by
+  where the entry with that identity is, never by names (a storage with no identity for an entry
+  refuses its move, `ERR_UNSUPPORTED`): a book at its new place
   gets its data moved there too, an import whose file arrived has `from` removed and is
   catalogued, an import whose file did not arrive has its host temp file removed (fault-injection
   tests after every write, as the uninstall data removal of decision 124). The catalog walk never

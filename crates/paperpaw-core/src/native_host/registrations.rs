@@ -79,8 +79,9 @@ pub use wire::{
     STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
     StageCall, StageReply, StageSpec,
 };
-// Core events of family 1b (64-74, `docs/abi/core-events.md`); hosts admit
-// their registrations once a producer is wired.
+// Core events of family 1b (64-74, `docs/abi/core-events.md` 3.3); hosts admit
+// their registrations once a producer is wired, except 65-67, admitted before
+// the reader port produces them.
 pub use wire::{
     EVENT_BOOK_CLOSED_TAG, EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_MOVED_TAG, EVENT_BOOK_OPENED_TAG,
     EVENT_BOOK_REMOVED_TAG, EVENT_CHARGE_CHANGED_TAG, EVENT_PLUGINS_CHANGED_TAG,
