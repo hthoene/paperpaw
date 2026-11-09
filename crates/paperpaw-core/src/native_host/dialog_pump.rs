@@ -168,22 +168,34 @@ impl crate::Kernel {
                     *id == paperpaw_sdk::builtin::screens::CHOICE
                         || *id == paperpaw_sdk::builtin::screens::CONFIRM
                 });
-        let asked = if host {
-            store
-                .starting_question(start.request, |shown| super::dialogs::Asked {
-                    kind: shown.kind,
-                    flags: shown.flags,
-                    title: shown.title.into(),
-                    text: shown.text.into(),
-                    lines: if shown.choices.is_empty() {
-                        alloc::vec::Vec::new()
-                    } else {
-                        shown.choices.split('\n').map(Into::into).collect()
-                    },
+        // Made before the open, every copy fallible: with no memory for the
+        // dialog nothing opens, and the request ends as not started (an SDK
+        // screen left on the slot would answer nothing).
+        let (asked, shared) = if host {
+            let asked = store
+                .starting_question(start.request, |shown| {
+                    super::dialogs::Asked::copy(
+                        shown.kind,
+                        shown.flags,
+                        shown.title,
+                        shown.text,
+                        shown.choices,
+                    )
                 })
                 .ok()
+                .flatten();
+            let shared = self
+                .shared
+                .native_instances
+                .ui_services()
+                .and_then(|ui| ui.store.try_clone());
+            let (Some(asked), Some(shared)) = (asked, shared) else {
+                let _ = store.dialog_failed(start.request);
+                return;
+            };
+            (Some(asked), Some(shared))
         } else {
-            None
+            (None, None)
         };
         let params = Params::new()
             .with("core.request", request)
@@ -210,10 +222,7 @@ impl crate::Kernel {
             .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot))
             .map(|dialog| {
                 dialog.guard_dialog = own;
-                if let Some(asked) = &asked
-                    && let Some(ui) = self.shared.native_instances.ui_services()
-                    && let Some(shared) = ui.store.try_clone()
-                {
+                if let (Some(asked), Some(shared)) = (asked, shared) {
                     // At once too: the dialog is the host's from its first draw.
                     let answer =
                         super::dialogs::Answerer::new(shared, dialog.serial, start.request);
@@ -221,8 +230,8 @@ impl crate::Kernel {
                     dialog.screen = if asked.kind == 1 {
                         alloc::boxed::Box::new(super::dialogs::Choice::new(
                             &env,
-                            &asked.title,
-                            asked.lines.clone(),
+                            asked.title,
+                            asked.lines,
                             answer,
                         ))
                     } else {

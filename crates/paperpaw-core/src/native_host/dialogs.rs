@@ -9,6 +9,7 @@
 //! they end as cancelled, as the pump leaves them.
 use super::{shared::Shared, ui_store::UiStore};
 use alloc::{string::String, vec::Vec};
+use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 
 #[path = "dialogs/choice.rs"]
 mod choice;
@@ -28,6 +29,41 @@ pub(crate) struct Asked {
     pub(crate) lines: Vec<String>,
 }
 
+impl Asked {
+    /// The question copied out of the store, every copy fallible: `None` when
+    /// the host has no memory for it (the request then ends as not started).
+    pub(crate) fn copy(
+        kind: u32,
+        flags: u32,
+        title: &str,
+        text: &str,
+        choices: &str,
+    ) -> Option<Self> {
+        let mut lines = Vec::new();
+        if !choices.is_empty() {
+            lines.try_reserve_exact(choices.split('\n').count()).ok()?;
+            for line in choices.split('\n') {
+                lines.push(try_string(line)?);
+            }
+        }
+        Some(Self {
+            kind,
+            flags,
+            title: try_string(title)?,
+            text: try_string(text)?,
+            lines,
+        })
+    }
+}
+
+/// `text` copied without aborting when memory is short.
+fn try_string(text: &str) -> Option<String> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len()).ok()?;
+    copy.push_str(text);
+    Some(copy)
+}
+
 /// Where a host dialog's answer goes: the request, and the one instance the
 /// host opened for it.
 pub(crate) struct Answerer {
@@ -45,18 +81,20 @@ impl Answerer {
         }
     }
 
-    /// The final answer. Refused (the first answer won already, or the request
-    /// is gone): the dialog closes all the same; an answer the store does not
-    /// take with a `choice` is a cancel, noted for the log.
+    /// The final answer. Refused because the request is gone or the first
+    /// answer won already: the dialog closes all the same, nothing is logged.
+    /// An answer the store does not take as given (a `choice` it holds no line
+    /// for) is a cancel, noted for the log.
     pub(super) fn answer(&self, outcome: u32, choice: u32) {
-        if self
+        match self
             .store
             .answer(self.instance, self.request, outcome, choice)
-            .is_err()
-            && outcome == 0
         {
-            self.store.note_refused();
-            let _ = self.store.answer(self.instance, self.request, 1, 0);
+            Err(status) if outcome == 0 && status != ERR_NOT_FOUND && status != ERR_STATE => {
+                self.store.note_refused();
+                let _ = self.store.answer(self.instance, self.request, 1, 0);
+            }
+            _ => {}
         }
     }
 

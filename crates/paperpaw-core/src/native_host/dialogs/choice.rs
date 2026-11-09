@@ -4,7 +4,7 @@
 //! request store with the index of the line chosen (outcome 0). *Back*, or a
 //! close with no answer, cancels (the stack's close tells the store). No event
 //! is sent and no interface 6 screen is inside.
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::builtin::actions;
@@ -32,7 +32,7 @@ pub(crate) struct Choice {
 impl Choice {
     pub(crate) fn new(
         env: &Env<'_>,
-        title: &str,
+        title: String,
         options: Vec<String>,
         answer: super::Answerer,
     ) -> Self {
@@ -40,7 +40,7 @@ impl Choice {
         let display = env.device().display;
         // A sheet in the readable column where the screen is wider than that.
         let column = ui::readable(env, &style, Rect::new(0, 0, display.width, display.height));
-        let title_text = title.to_string();
+        let title_text = title;
         let row = style.row();
         // A long title takes up to three lines.
         let lines = style.font(env).map_or((1, 0.0), |font| {

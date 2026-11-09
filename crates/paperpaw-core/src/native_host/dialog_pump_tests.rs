@@ -568,3 +568,149 @@ fn a_choice_outside_the_list_is_cancelled_and_logged() {
             .any(|warning| warning.message.contains("was not taken"))
     );
 }
+
+/// A question with a title of its own.
+fn ask_titled(w: &World, kind: u32, title: &str, choices: &str) -> u32 {
+    let question = Question {
+        kind,
+        flags: 0,
+        remote: false,
+        title,
+        text: "Question",
+        choices,
+    };
+    let who = Stamp::new(w.owner, 1).unwrap();
+    w.store
+        .ask(who, None, &question, false, None, false)
+        .unwrap()
+        .0
+}
+
+/// The region of the dialog on top, its row height, gap and pager height.
+fn geometry(w: &World, at: u64) -> (paperpaw_sdk::Rect, i32, i32, i32) {
+    let env = w.kernel.shared.env(Instant(at));
+    let style = paperpaw_sdk::ui::UiStyle::new(&env);
+    let region = w
+        .kernel
+        .stack
+        .last()
+        .unwrap()
+        .screen
+        .region(&env)
+        .expect("a dialog has a region");
+    (
+        region,
+        i32::from(style.row()),
+        i32::from(style.gap()),
+        i32::from(paperpaw_sdk::ui::Pager::height(&style)),
+    )
+}
+
+/// A tap: down, then up, then what changed drawn.
+fn tap_at(w: &mut World, at: u64, x: i32, y: i32) {
+    use paperpaw_platform::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool};
+    let event = |phase| {
+        InputEvent::Pointer(PointerEvent::new(
+            0,
+            phase,
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
+    };
+    w.kernel.handle(Instant(at), event(PointerPhase::Down));
+    w.kernel.handle(Instant(at + 60), event(PointerPhase::Up));
+    w.kernel.render(&mut |_, _| {});
+}
+
+/// A tap on a line answers that line's own index.
+#[test]
+fn a_tap_on_a_line_of_a_host_choice_answers_it() {
+    let mut w = world(Ok(OK));
+    ask_with(&w, 1, 0, "same\nsame", 1);
+    w.kernel.native_dialog_pump();
+    let (region, row, gap, _) = geometry(&w, 10);
+    // The last line sits above the gap at the foot of the sheet.
+    let x = i32::from(region.x) + i32::from(region.width) / 2;
+    let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
+    tap_at(&mut w, 100, x, y);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+}
+
+/// More lines than the screen holds go on pages: the pager turns the page and
+/// a tap on the first line of the second page answers its own index.
+#[test]
+fn a_pager_tap_turns_the_page_of_a_host_choice() {
+    let mut w = world(Ok(OK));
+    let lines: Vec<String> = (0..40).map(|n| std::format!("line {n}")).collect();
+    ask_with(&w, 1, 0, &lines.join("\n"), 1);
+    w.kernel.native_dialog_pump();
+    let (region, row, gap, pager) = geometry(&w, 10);
+    assert!(pager > 0, "the lines do not fit the screen: a pager shows");
+    let (x, rx) = (
+        i32::from(region.x) + i32::from(region.width) / 2,
+        i32::from(region.x) + i32::from(region.width) * 3 / 4,
+    );
+    let foot = i32::from(region.y) + i32::from(region.height) - gap;
+    // Next page: the right half of the pager below the lines.
+    tap_at(&mut w, 100, rx, foot - pager / 2);
+    // The first line of the second page: after the title row.
+    let first = i32::from(region.y) + gap + row + row / 2;
+    tap_at(&mut w, 300, x, first);
+    w.kernel.native_dialog_pump();
+    let seen = answers(&w);
+    assert_eq!(seen.len(), 1, "one answer: {seen:?}");
+    let (kind, outcome, choice, _) = seen[0];
+    assert_eq!((kind, outcome), (1, 0));
+    // The page holds what fits; the first line of the second one follows them.
+    let shown = ((i32::from(w.kernel.shared.env(Instant(0)).device().display.height)
+        - (row + gap * 2)
+        - pager)
+        / row)
+        .max(1);
+    assert_eq!(i64::from(choice), i64::from(shown));
+}
+
+/// A title of many lines is drawn, shortened, and the lines still answer.
+#[test]
+fn a_long_title_does_not_stop_a_host_choice_or_confirm() {
+    use paperpaw_sdk::builtin::actions;
+    let long = "a very long title that goes on and on ".repeat(30);
+    let mut w = world(Ok(OK));
+    ask_titled(&w, 1, &long, "one\ntwo");
+    w.kernel.native_dialog_pump();
+    w.kernel.render(&mut |_, _| {});
+    act(&mut w, 10, actions::DOWN);
+    act(&mut w, 20, actions::DOWN);
+    act(&mut w, 30, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+    ask_titled(&w, 2, &long, "");
+    w.kernel.native_dialog_pump();
+    w.kernel.render(&mut |_, _| {});
+    act(&mut w, 40, actions::BACK);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w).last().copied(), Some((2, 1, 0, 1)));
+}
+
+/// A refused answer that is no fault (the request was answered already) is not
+/// logged; one the store holds no line for is.
+#[test]
+fn a_second_answer_is_not_logged_as_refused() {
+    let mut w = world(Ok(OK));
+    let id = ask_with(&w, 1, 0, "one\ntwo", 1);
+    w.kernel.native_dialog_pump();
+    let top = w.kernel.stack.last().unwrap().serial;
+    let to = crate::native_host::dialogs::Answerer::new(w.store.try_clone().unwrap(), top, id);
+    to.choose(0, 2);
+    // Answered; the second answer finds it done.
+    to.choose(1, 2);
+    w.kernel.native_dialog_pump();
+    assert!(
+        w.kernel
+            .take_warnings()
+            .iter()
+            .all(|warning| !warning.message.contains("was not taken"))
+    );
+}
