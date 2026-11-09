@@ -2718,6 +2718,16 @@ Input buffers of 1,280 bytes cover all calls. Output needs 4,096 bytes for list
 or 1,280 bytes for get, keep, remove and random. Views cannot outlive or reuse
 their output buffer while borrowed; a caller clears its value output after use.
 
+### Book key and reading position
+
+`Library::book_key(host, book, input, out)` returns the book's key (the folder name for
+the plugin's own per-book data, changed by a move) and its KOReader fingerprint and
+size, which together identify the book on other devices. Keys come only from the host.
+`Library::position` reads the stored position; `Library::set_position` writes a
+`PositionWrite`. A local write always wins. A `.sync()` write wins only over an older
+sync position; otherwise it answers `State` and stores nothing, so the plugin can ask
+the user and write again with `.confirmed()`. `out` of 4,096 bytes always suffices.
+
 ### Book fields and badges
 
 Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
