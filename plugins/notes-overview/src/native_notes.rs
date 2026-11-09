@@ -76,6 +76,16 @@ impl Layout {
             Choice::Note
         }
     }
+
+    /// Where the note on row `index` starts, out of the `places` of the page:
+    /// `None` for a row that is not a note.
+    #[must_use]
+    pub fn place(self, places: &[Place], index: usize) -> Option<Place> {
+        if self.choice(index) != Choice::Note {
+            return None;
+        }
+        places.get(index.checked_sub(self.before)?).copied()
+    }
 }
 
 /// One note as the library tells it.
@@ -89,6 +99,17 @@ pub struct Row<'a> {
     pub note: &'a str,
     /// How far in the book, 0 to 100.
     pub percent: u8,
+    /// Where the note starts: the section and the offset in it (the reader
+    /// opens the book there).
+    pub place: Place,
+}
+
+/// Where a note starts in its book: section and offset, as the library keeps
+/// them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Place {
+    pub section: u32,
+    pub offset: u32,
 }
 
 /// Whether the reading of a reply goes on.
@@ -132,6 +153,9 @@ pub enum Show<'a, 'b> {
 #[derive(Debug)]
 pub struct Page<C> {
     pub items: Vec<Item>,
+    /// Where each note of the page starts, in the order of the notes (not
+    /// the *Previous notes* and *Next notes* rows).
+    pub places: Vec<Place>,
     pub layout: Layout,
     /// Where the page after this one starts, if there are more notes.
     pub next: Option<Start<C>>,
@@ -152,6 +176,7 @@ pub fn page<R: Replies>(
 ) -> Result<Page<R::Cursor>, Error> {
     let start = pages.last().copied().unwrap_or_default();
     let mut items = Vec::new();
+    let mut places = Vec::new();
     let back = pages.len() > 1;
     if back {
         push(&mut items, make(Show::Previous)?)?;
@@ -169,6 +194,7 @@ pub fn page<R: Replies>(
                 full_at = Some(at);
                 return Ok(Flow::Stop);
             }
+            push(&mut places, row.place)?;
             push(&mut items, make(Show::Note(row))?)?;
             Ok(Flow::Go)
         })?;
@@ -199,6 +225,7 @@ pub fn page<R: Replies>(
         push(&mut items, make(Show::More)?)?;
     }
     Ok(Page {
+        places,
         layout: Layout {
             before: usize::from(back),
             notes,
@@ -241,6 +268,10 @@ impl Replies for HostReplies<'_, '_> {
                 text: model::cut(row.text(), model::TEXT_MAX),
                 note: model::cut(row.note(), model::NOTE_MAX),
                 percent: u8::try_from(row.percent().min(100)).unwrap_or(100),
+                place: Place {
+                    section: row.start_section(),
+                    offset: row.start_offset(),
+                },
             };
             if each(at, &shown)? == Flow::Stop {
                 break;

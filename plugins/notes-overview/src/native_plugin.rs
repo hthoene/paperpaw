@@ -1,11 +1,11 @@
 //! The interface-7 All notes: the list of books with notes and the notes of
 //! one book, over the library service, and the export of every note to
-//! `My Clippings.txt`. The opening of a book at a note needs a host piece
-//! that is not there yet: those rows refuse plainly (`PORTING-7.md`).
+//! `My Clippings.txt`. A note opens its book at its place in the reader the
+//! user bound to `core.reader` (`PORTING-7.md`).
 use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
 use crate::model::{self, Counted, Handle, Kind};
 use crate::native_library::{BUFFER, HostSource};
-use crate::native_notes::{self, Choice, HostReplies, Layout, Row, Show, Start};
+use crate::native_notes::{self, Choice, HostReplies, Layout, Place, Row, Show, Start};
 use crate::native_run::run;
 use crate::native_scan::scan;
 use alloc::string::String;
@@ -39,6 +39,11 @@ mod image {
 /// generation of the catalog it came from, as decimal numbers.
 const KEY: &str = "key";
 const GENERATION: &str = "generation";
+/// The handover parameters of `core.reader`: the book's path and the place in
+/// it (`docs/abi/document.md`).
+const PATH: &str = "path";
+const SECTION: &str = "section";
+const OFFSET: &str = "offset";
 /// Digits of a `u32`.
 const DIGITS: usize = 10;
 
@@ -84,6 +89,8 @@ struct View {
     pages: Vec<Start<AnnotationCursor>>,
     /// Where the page after this one starts.
     next: Option<Start<AnnotationCursor>>,
+    /// Where each note of the page starts (what the reader opens at).
+    places: Vec<Place>,
 }
 
 /// Frees the rows of every notes screen that holds them. Rows of a book take
@@ -94,6 +101,7 @@ fn free_notes<'a>(views: impl Iterator<Item = &'a mut View>) {
         if matches!(view.rows, Rows::Notes(_)) && view.loaded {
             view.focus = view.list.focus();
             view.list.replace(Vec::new());
+            view.places = Vec::new();
             view.loaded = false;
         }
     }
@@ -199,9 +207,7 @@ impl Plugin for NativeNotesOverview {
             Rows::Notes(layout) => match layout.choice(index) {
                 Choice::Previous => self.turn(host, token, false).map(|()| Handled::Yes),
                 Choice::Next => self.turn(host, token, true).map(|()| Handled::Yes),
-                // BLOCKED (#228): the book opens at the note with `command.open`
-                // into `core.reader` and the goto event (draft 22 `doc_open`).
-                Choice::Note => Err(Error::Unsupported),
+                Choice::Note => self.open_note(host, token, index).map(|()| Handled::Yes),
             },
         }
     }
@@ -313,6 +319,46 @@ impl NativeNotesOverview {
             .open(Open::screen("notes-overview.book")?.handover(handover))
     }
 
+    /// Opens the book at the note the row `index` of the notes screen for
+    /// `token` is: `command.open` into `core.reader` (the reader the user
+    /// bound there) with the book's path and the note's section and offset
+    /// (`docs/abi/document.md`, *Opening at a place*). A book that changed
+    /// under the screen (`State`/`NotFound`) is told, nothing opens.
+    fn open_note(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        self.ensure(host)?;
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        let Rows::Notes(layout) = view.rows else {
+            return Err(Error::State);
+        };
+        let place = layout.place(&view.places, index).ok_or(Error::State)?;
+        let handle = view.book.ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let book = BookRef::catalog(handle.key, handle.generation)?;
+        let path = match self.library()?.book(host, book, &mut input, &mut out) {
+            Ok(found) => copy(found.path())?,
+            Err(Error::State | Error::NotFound) => {
+                let mut messages = Messages::new()?;
+                let text = messages.copy(host, "notes-overview.gone")?;
+                let mut scratch = [0; 256];
+                return CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?);
+            }
+            Err(error) => return Err(error),
+        };
+        let (mut section, mut offset) = ([0; DIGITS], [0; DIGITS]);
+        let params = [
+            Param::new(PATH, &path)?,
+            Param::new(SECTION, digits(place.section, &mut section))?,
+            Param::new(OFFSET, digits(place.offset, &mut offset))?,
+        ];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    }
+
     /// The books with notes as handles and rows: each book, then the
     /// *Export* row.
     fn list_rows(
@@ -360,6 +406,7 @@ impl NativeNotesOverview {
             focus: 0,
             pages: Vec::new(),
             next: None,
+            places: Vec::new(),
         };
         self.screens.open(instance, view)
     }
@@ -384,6 +431,7 @@ impl NativeNotesOverview {
         let instance = self.screens.top_instance(token).ok_or(Error::State)?;
         let view = self.screens.get(instance).ok_or(Error::State)?;
         view.list.replace(Vec::new());
+        view.places = Vec::new();
         view.loaded = false;
         if forward {
             let next = view.next.take().ok_or(Error::State)?;
@@ -447,6 +495,7 @@ impl NativeNotesOverview {
         match found {
             Ok(page) => {
                 view.list.replace(page.items);
+                view.places = page.places;
                 view.list.set_focus(focus.unwrap_or(0));
                 view.rows = Rows::Notes(page.layout);
                 view.next = page.next;
@@ -511,6 +560,7 @@ impl NativeNotesOverview {
             focus: 0,
             pages,
             next: None,
+            places: Vec::new(),
         };
         self.screens.open(instance, view)?;
         // The rows are read into the open screen, after the others gave up
@@ -673,6 +723,7 @@ mod tests {
             focus: 0,
             pages: Vec::new(),
             next: None,
+            places: Vec::new(),
         }
     }
 

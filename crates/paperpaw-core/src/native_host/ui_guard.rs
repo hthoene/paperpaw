@@ -72,6 +72,17 @@ pub(crate) fn topmost_guard(view: &dyn UiStackView) -> Option<usize> {
         .find(|&i| view.row(i).is_none_or(|r| r.guards || invalid(r)))
 }
 
+/// The topmost guarding instance, if any.
+#[allow(
+    dead_code,
+    reason = "the kernel's stack sync uses it; test crates that include this file by path do not"
+)]
+pub(crate) fn guard_instance(view: &dyn UiStackView) -> Option<u32> {
+    topmost_guard(view)
+        .and_then(|i| view.row(i))
+        .map(|r| r.instance)
+}
+
 /// The guard's plugin, if any instance guards.
 pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<u64> {
     topmost_guard(view)

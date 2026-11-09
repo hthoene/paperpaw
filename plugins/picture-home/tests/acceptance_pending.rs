@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 7] = [
     // The dashboard: the picture behind the plates, the pages of widgets and
     // tools, the bars, the press that shows a hidden bar and does nothing else.
     Case {
@@ -21,12 +21,19 @@ const CASES: [Case; 6] = [
         golden: None,
         blocked_by: &["H2", "H4"],
     },
-    // Choosing the picture from the folder and making the screen-sized gray
-    // file (decode and scale).
+    // Making the screen-sized gray file of the chosen picture (decode and
+    // scale).
     Case {
         name: "picture-home-picture",
         golden: None,
-        blocked_by: &["IMG-slots-36-37", "FS"],
+        blocked_by: &["IMG-slots-36-37"],
+    },
+    // Choosing the picture from the folder (the screen `pick`: the rows, the
+    // empty folder's words, a choice that sets the picture and closes).
+    Case {
+        name: "picture-home-pick",
+        golden: None,
+        blocked_by: &["H1", "H4"],
     },
     // The items' editor is a screen of the plugin's own, built on the kit's
     // status items view (opened with the setting's id, drawn, taking input).
@@ -80,18 +87,24 @@ fn picture_home_picture() {
 
 #[test]
 #[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
-fn picture_home_bar_items_editor() {
+fn picture_home_pick() {
     CASES[3].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
+fn picture_home_bar_items_editor() {
+    CASES[4].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED H1: the status frame and the hints row are not drawn by the native screen yet"]
 fn picture_home_bars() {
-    CASES[4].refuse().unwrap();
+    CASES[5].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
 fn picture_home_bar_items_editor_grip_drag() {
-    CASES[5].refuse().unwrap();
+    CASES[6].refuse().unwrap();
 }

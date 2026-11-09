@@ -161,6 +161,7 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
                     | Record::PresetValue(_)
                     | Record::StageSpec(_)
                     | Record::RegistrationStage(_)
+                    | Record::SetupStep(_)
             );
             match validate_record(plugin, &record) {
                 Ok(()) => assert!(admitted, "{record:?}"),

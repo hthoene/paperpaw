@@ -55,14 +55,68 @@ prefix bounds and mandatory callbacks before calling. Busy exclusion is per
 mutable plugin instance; all callbacks and output leases finish before drop or
 module unload. The entry types alone do not enforce these runtime obligations.
 
-The first declared profiles are `linux-x86_64-sysv64-le` and
-`esp32c3-riscv32imc-ilp32-soft-le`. Independent C/Rust compile assertions verify
+The declared profiles are `linux-x86_64-sysv64-le`,
+`esp32c3-riscv32imc-ilp32-soft-le` and, since draft 29 (owner decision 142),
+`esp32s3-xtensa-lx7-ilp32-windowed-le`. Independent C/Rust compile assertions verify
 pointer/function-pointer and entry/plugin sizes, alignment and field offsets.
 A native linked C/Rust call probe verifies metadata/context and make/drop exchange.
 The X4 C probe uses Clang's freestanding rv32imc/ilp32 target; Rust uses the installed
-riscv32imc target. This is layout evidence, not device execution or complete
-calling-convention qualification. Xtensa, AArch64 and other profiles remain absent
+riscv32imc target, and the esp toolchain's `xtensa-esp32s3-none-elf` for the S3 profile
+(where installed). This is layout evidence, not device execution or complete
+calling-convention qualification. AArch64 and other profiles remain absent
 until their assertions and platform contracts are available.
+
+## The Xtensa profile (X4 Pro, X4 Classic; draft 29)
+
+`esp32s3-xtensa-lx7-ilp32-windowed-le` is the ESP32-S3's (Xtensa LX7), target 9
+in a format-5 file (`abi/ppn5.md`). Owner decision 142: the X4 Pro and X4 Classic
+keep installing card and store plugins in 1.0.
+
+- **Layout:** 32-bit pointers and `usize`, little-endian; `PpEntry` 20 bytes,
+  4-aligned (offsets 0, 4, 6, 8, 16), `PpPlugin` 24 bytes, `u64` 8-aligned:
+  the same as the ESP32-C3's, asserted against the generated Rust module
+  (`tools/tests/test_abi_entry_layout.py`).
+- **Calls:** every function pointer across the boundary (`make`, `drop`, the
+  plugin's callbacks, every `PpHost` slot, `PpHeap`) is `extern "C"` of the
+  Xtensa **windowed** ABI (`call8`/`callx8`, `entry`, `retw`), which is what
+  `xtensa-esp32s3-none-elf` and the firmware use. Arguments go in `a2`-`a7`
+  of the callee's window, 64-bit values in an even-odd pair, the rest on the
+  stack; results in `a2`/`a3`. No boundary type is a float, so the FPU's
+  registers never carry an argument. A plugin built with the call0 ABI is not
+  a plugin of this profile: the packer refuses an object whose `.xtensa.info`
+  section, where present, says `ABI=1` (call0); without the section the
+  target triple decides.
+- **Stack:** plugin frames run on the shell's main stack, as on the X4. The
+  windowed ABI spills register windows into the callers' frames (the 16-byte
+  base save area below each stack pointer), so the frame gate counts them.
+  The packer keeps the 2,048-byte frame gate (`FRAME_LIMIT`) for Xtensa too,
+  reading each function's frame from its `entry` operand and counting the
+  16-byte base save area. The band at the stack's end is the debug
+  assistant's region monitor, with a reserve for six windowed frames below
+  it, and the packer refuses `call0`/`call4`, writes to `a1` but `entry`'s and
+  the instructions that change the interrupt level or window state
+  (`abi/heap-word.md` §6, "The ESP32-S3's band").
+- **Build:** the S3 plugin build sets `-Z crate-attr=feature(asm_experimental_arch)`
+  (the esp compiler is a nightly), so the SDK's heap word stays `global_asm!`
+  (a plain static could be folded to its zero or land in writable data), and the
+  SDK's heap `trap()` is the Xtensa `ill` instruction, which always raises an
+  exception (a `break` needs a debugger).
+- **Placement:** the loader reads the image into PSRAM and runs it there
+  through the instruction-bus mapping (`CODE_OFFSET`), as interface 6 did on
+  the X4 Pro. Code reaches its data, its literals and itself by PC-relative
+  instructions (`l32r`, `call8`, branches), which stay right wherever the
+  block lands.
+- **Relocations:** only 32-bit words that hold an address in the plugin
+  (`R_XTENSA_32`: literals, vtables, function pointers, the entry's
+  `metadata.ptr` and `make`) are relocated; the packer lists them as format
+  5's `relocs`. An instruction that holds an absolute address
+  (`R_XTENSA_SLOTn_ALT`), a difference (`R_XTENSA_DIFF*`, `PDIFF*`, `NDIFF*`)
+  or an unknown type is refused, as format 4 refused them
+  (`tools/sign/src/relocation.rs`).
+- **No hot code, no patches:** Xtensa code stays in place, so a target-9 file
+  has `hot_at`, `hot_len` and `patches` 0; anything else is refused.
+- **Heap word and entry:** `PAPERPAW_HEAP` and `PAPERPAW_ENTRY` as on the X4
+  (`abi/heap-word.md`; 8-aligned entry, `entry_bytes` 20).
 
 The native fixture host table has unused null slots and is never exposed as a
 Rust reference or used to call those slots. It is deliberately a test fixture,

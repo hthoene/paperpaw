@@ -39,7 +39,7 @@ pub mod kinds;
 mod states;
 pub use states::{
     BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
-    PowerChange, WifiLinkState,
+    InstallDone, LibraryChanges, PowerChange, WifiDone, WifiFailure, WifiLinkState,
 };
 
 /// A host-issued plugin installation request, obtained from a decoded event.
@@ -331,10 +331,41 @@ pub enum Event<'a> {
     },
     /// A root-1 book was removed.
     BookRemoved { now_ms: u64, path: &'a str },
+    /// The library changed (`event.library_changed`): a hint, coalesced per
+    /// plugin, so reread what you show. `generation` is the catalog generation;
+    /// `path` is the one book the change was about, empty for several. The
+    /// plugin's own changes arrive too.
+    LibraryChanged {
+        now_ms: u64,
+        what: LibraryChanges,
+        generation: u32,
+        path: &'a str,
+    },
     /// Installed plugin state changed; read inventory through its owning service.
     PluginsChanged { now_ms: u64 },
     /// The radio connection state changed.
     WifiChanged { now_ms: u64, state: WifiLinkState },
+    /// A Wi-Fi scan finished (`event.wifi_scanned`), a hint coalesced per kind:
+    /// read the list again. `networks` is the number of networks found.
+    WifiScanned { now_ms: u64, networks: u32 },
+    /// A `join` or `host` request of this plugin ended, exactly once.
+    WifiDone(WifiDone<'a>),
+    /// Network work waits for a network (`event.network_wanted`). Only the
+    /// network manager (`core.network-manager`) gets it.
+    NetworkWanted { now_ms: u64 },
+    /// The network is no longer needed (`event.network_idle`); the network
+    /// manager may switch the radio off. Only the network manager gets it.
+    NetworkIdle { now_ms: u64 },
+    /// Firmware installation progressed (`event.firmware_changed`), at most every
+    /// 250 ms: a hint, read the details with the device's firmware read.
+    FirmwareChanged {
+        now_ms: u64,
+        request: Option<super::device::DeviceRequest>,
+        state: super::device::FirmwareState,
+    },
+    /// An install, removal, firmware or file-check request of this plugin ended,
+    /// exactly once.
+    InstallDone(InstallDone<'a>),
     /// A Bluetooth device or scan changed; sent to the plugin bound to
     /// `core.bluetooth` only, so it is declared as a slot offer, not as a
     /// subscription.
@@ -388,7 +419,18 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
-    /// Work of this plugin came due (`core.work`): opens a run.
+    /// Something happened to a socket of this plugin (`core.sockets`); read
+    /// arrived bytes in this callback.
+    Socket(super::sockets::SocketEvent),
+    /// Something happened to a broadcast of this plugin.
+    Broadcast(super::sockets::BroadcastEvent<'a>),
+    /// Work of this plugin came due (`core.work`): opens a run. Requests and sockets
+    /// started in this callback belong to the run (background, `work.md` 2.3); the
+    /// run ends when this callback has returned and its last request and socket
+    /// have ended, so its sockets must have an idle time. It lasts at most 10
+    /// minutes. The run is quiet: UI calls that would ask the user answer
+    /// `Error::State` in this callback and in the events of the run's requests and
+    /// sockets, and notices go to the plugin's work note.
     WorkDue(super::work::WorkDue<'a>),
     /// Work was taken out for good (the user turned the network off).
     WorkRefused(super::work::WorkRefused<'a>),

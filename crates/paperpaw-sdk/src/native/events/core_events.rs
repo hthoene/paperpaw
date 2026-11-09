@@ -1,13 +1,14 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
-    wire,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, LibraryChanges, PowerChange,
+    ReadingView, WifiDone, WifiLinkState, wire,
 };
 use crate::{
     native::{
         declare::settings_value as settings,
         net::{HttpDone, HttpProgress},
         settings::SettingValue,
+        sockets::{BroadcastEvent, SocketEvent},
         work::{WorkDue, WorkRefused},
     },
     power::PowerLevel,
@@ -67,6 +68,15 @@ event_fn!(book_removed, wire::EventBookRemoved<'_>, |r| {
     }
 });
 
+event_fn!(library_changed, wire::EventLibraryChanged<'_>, |r| {
+    Event::LibraryChanged {
+        now_ms: r.now_ms,
+        what: LibraryChanges::from_bits(r.what),
+        generation: r.generation,
+        path: r.path,
+    }
+});
+
 event_fn!(plugins_changed, wire::EventPluginsChanged, |r| {
     Event::PluginsChanged { now_ms: r.now_ms }
 });
@@ -76,6 +86,52 @@ event_fn!(wifi_changed, wire::EventWifiChanged, |r| {
         now_ms: r.now_ms,
         state: WifiLinkState::decode(r.state),
     }
+});
+
+event_fn!(wifi_scanned, wire::EventWifiScanned, |r| {
+    Event::WifiScanned {
+        now_ms: r.now_ms,
+        networks: r.networks,
+    }
+});
+
+event_fn!(wifi_done, wire::EventWifiDone<'_>, |r| {
+    Event::WifiDone(WifiDone {
+        now_ms: r.now_ms,
+        request: r.request,
+        ssid: r.ssid,
+        status: r.status,
+        reason: r.reason,
+        state: r.state,
+    })
+});
+
+event_fn!(network_wanted, wire::EventNetworkWanted, |r| {
+    Event::NetworkWanted { now_ms: r.now_ms }
+});
+
+event_fn!(network_idle, wire::EventNetworkIdle, |r| {
+    Event::NetworkIdle { now_ms: r.now_ms }
+});
+
+event_fn!(firmware_changed, wire::EventFirmwareChanged, |r| {
+    Event::FirmwareChanged {
+        now_ms: r.now_ms,
+        request: crate::native::device::DeviceRequest::new(r.request),
+        state: crate::native::device::FirmwareState::decode(r.state),
+    }
+});
+
+event_fn!(install_done, wire::EventInstallDone<'_>, |r| {
+    Event::InstallDone(InstallDone {
+        now_ms: r.now_ms,
+        request: r.request,
+        kind: r.kind,
+        status: r.status,
+        reason: r.reason,
+        flags: r.flags,
+        id: r.id,
+    })
 });
 
 event_fn!(power_changed, wire::EventPowerChanged<'_>, |r| {
@@ -123,6 +179,13 @@ event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
 });
 
+event_fn!(socket, wire::EventSocket, |r| Event::Socket(
+    SocketEvent::decode(r)?
+));
+
+event_fn!(broadcast, wire::EventBroadcast<'_>, |r| Event::Broadcast(
+    BroadcastEvent::decode(r)?
+));
 event_fn!(work_due, wire::EventWorkDue<'_>, |r| Event::WorkDue(
     WorkDue::decode(r)
 ));

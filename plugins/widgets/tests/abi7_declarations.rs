@@ -38,6 +38,12 @@ macro_rules! batches {
 fn the_image_is_what_the_builder_makes() {
     for (name, built, image) in [
         ("widgets", batches!(declarations::widgets), image::WIDGETS),
+        ("screens", batches!(declarations::screens), image::SCREENS),
+        (
+            "navigation",
+            batches!(declarations::navigation),
+            image::NAVIGATION,
+        ),
         ("events", batches!(declarations::events), image::EVENTS),
     ] {
         assert_eq!(built.len(), image.len(), "{name}");
@@ -53,6 +59,8 @@ fn the_image_is_what_the_builder_makes() {
 fn the_host_admits_the_records_or_refuses_them_as_unsupported() {
     for batch in batches!(declarations::widgets)
         .into_iter()
+        .chain(batches!(declarations::screens))
+        .chain(batches!(declarations::navigation))
         .chain(batches!(declarations::events))
     {
         let records = records_decode(&batch).unwrap();
@@ -73,6 +81,12 @@ fn every_declared_widget_has_a_distinct_token_a_behaviour_and_a_group() {
     tokens.sort_unstable();
     tokens.dedup();
     assert_eq!(tokens.len(), declarations::WIDGETS.len());
-    // The tick is not a widget's token.
-    assert!(!tokens.contains(&declarations::TICK));
+    // The tick, the screen and its action are not a widget's token.
+    for other in [
+        declarations::TICK,
+        declarations::TODO_SCREEN,
+        declarations::TODO_OPEN,
+    ] {
+        assert!(!tokens.contains(&other));
+    }
 }

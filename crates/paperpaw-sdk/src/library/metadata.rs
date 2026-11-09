@@ -11,7 +11,7 @@ use alloc::string::String;
 
 use paperpaw_platform::Storage;
 
-use super::{Book, DETAILS, book_for_update, details_text, load_details, parse_details, today};
+use super::{Book, DETAILS, book_for_update, details_text, load_details, today};
 use crate::Env;
 use crate::config;
 
@@ -54,8 +54,10 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> Book {
 /// ([`index_details`]). A book replaced by one of the same size keeps the
 /// details of the one before (as an indexed one always did).
 pub(crate) fn read_book(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
-    let source = load_details(storage, path).ok()??;
-    let book = parse_details(&source);
+    let source = super::fallible::surviving(load_details(storage, path))??;
+    let book = super::fallible::surviving(
+        super::fallible::try_parse_details(&source).map_err(|_| crate::data::Error::OutOfMemory),
+    )?;
     (book.size == size && (book.indexed || metadata_read(&source))).then_some(book)
 }
 
