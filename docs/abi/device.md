@@ -1,6 +1,6 @@
-# Interface 7 family DEV: device, power, radios, installing, firmware (draft)
+# Interface 7 family DEV: device, power, radios, installing, firmware
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: Firmware's DEV inventory and draft (#931,
 `/home/agent/shared/dev-family-228.md`, whose sections 1, 2 and 8 are taken as the inventory and
 whose open questions section 9 settles), the plugin needs inventory (#984, DEV section), the
@@ -9,8 +9,8 @@ C-family proposals (#890 2.12), `registry.md` (plugin rows, `set_plugin_enabled`
 confirmations, the guard) and owner decisions 124, 132 and 134. Round 2 folds in Firmware's check
 of the OTA path (`crates/paperpaw-x4/src/updates.rs`, `ota.rs`, `shells/xteink/src/`) and Plugin's
 gap review (`/home/agent/shared/plugin-dev-gaps-1025.md`); round 3 Senior's review (#1030: must-fix
-1-3, should-fix 4-9). Doc-only; records follow once approved.
-Tags are proposed and numbered without gaps at the records step.
+1-3, should-fix 4-9).
+Records: `abi/services/core.device@1.def`.
 
 ## 0. Scope and principles
 
@@ -92,6 +92,7 @@ agree (a host test).
 | 13 | `install` | `dev_request` | `dev_install` | state of an install, removal, firmware or check request |
 | 14 | `not_installed` | `reg_query` | `dev_not_installed`*, `end` | plugins this start could not install, at most 32 |
 | 15 | `keys` | (none) | `dev_key`*, `end` | the device's physical keys, at most 32 |
+| 16 | `leaves_out` | `reg_query` | `dev_builtin`*, `end` | built-ins the last firmware check's image lacks (5.1), paged |
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -350,10 +351,24 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   (empty for a key the device does not know); `key` the signing key and `sha256` the code's (plugin)
   or the image's (firmware) digest, both empty when unsigned (`sha256` then absent); `id`,
   `version`; `flags` bit 0 data plugin (no code), bit 1 this id's author key is pinned here and is
-  `key`, bit 2 this id is pinned to another key (an install needs a rotation, 5.2), bit 3 the image is signed by PaperPaw, bit 4 a
-  foreign image (another firmware than PaperPaw). The store and update show it before they ask; they
-  never parse `.ppn` headers or update trailers themselves. A check is advice for the view: an
+  `key`, bit 2 this id is pinned to another key (an install needs a rotation, 5.2), bit 3 the image
+  is signed by PaperPaw, bit 4 a foreign image (another firmware than PaperPaw), bit 5 the image
+  leaves out plugins built in now (op 16 lists them). The store and update show it before they ask;
+  they never parse `.ppn` headers or update trailers themselves. A check is advice for the view: an
   install checks the staged copy again (5.2), whatever a check said.
+- [D] **What an update leaves out** (interface 6 `Update::leaves_out`, update's "update without
+  them" choice): op 16 `leaves_out` lists, for the caller's last finished firmware check (`kind` 1),
+  the plugins built into the running image (op 4's rows: `id` and the running `version`, in op 4's
+  order) that the checked image does not have built in, 32 rows a page, then `end`. Its input is a
+  `reg_query` as REG's lists take it (`scope` empty, else `ERR_INVALID`; `cursor`; `generation` 0 on
+  the first page, then the `end`'s, which is the check's `request`: a cursor from an earlier check
+  is `ERR_STATE`). No finished firmware check of the caller: `ERR_NOT_FOUND`; one running:
+  `ERR_BUSY`; a foreign image (`flags` bit 4), whose built-ins PaperPaw cannot read:
+  `ERR_UNSUPPORTED`; none left out: no rows (and `flags` bit 5 clear). The host keeps one bit per
+  running built-in, set during the check's bounded steps as it reads the image's list (at most 12
+  bytes for 96 built-ins, no list of names), until the caller's next check. Which of them come back
+  as files (fetched builds) and why the server says one is missing stay the plugin's: the host knows
+  only the two images.
 
 ### 5.2 Plugins
 
@@ -439,8 +454,17 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   digest differs from the one asked about ends with reason 18 and the slot stays unbootable. The
   image's first word is written last, after the check passed, so a half-written slot never looks
   bootable; then the slot to start is chosen in one entry. `firmware_changed` reports progress,
-  `install_done` the end. `firmware_restart` starts the installed image (asks nothing more: the user
-  said yes to the install).
+  `install_done` the end.
+- [D] **Restarting is a firmware change too** (decision 134; Senior R2 on #733):
+  `firmware_restart` is taken only from the plugin whose install waits for its restart
+  (`dev_firmware.state` 3); from any other plugin it is `ERR_DENIED` at submit, and with no image
+  waiting `ERR_STATE`. The host then **always asks** again, whatever grant: its confirmation (5.0)
+  names the image as the install's did (project name and version, PaperPaw or foreign; for a
+  foreign image the first two of the four points again). Yes restarts into it. No, dismissed or
+  10 minutes end the request with `install_done` kind 1, reason 2 or 3, and change nothing: the
+  image stays installed and waiting, and the device starts it at its next start as chosen.
+- [D] **Flags:** `install_firmware.flags` bits other than 0 and 1 are `ERR_INVALID` at submit and
+  nothing is queued (Senior R1). No flag skips or shortens a confirmation: every grant still asks.
 - [D] **Busy and pending:** a second firmware request while one runs waits its turn (5.2); one sent
   while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
   ends with reason 21
@@ -524,7 +548,7 @@ unknown values read as 1.
 | `dev_device` | 1 + 66 + 66 + 34 + 4 + 8 + 4×4 + 8 + 4 + 4 = 211 | 4,096 |
 | `dev_value` × 8 + `end` | 8 × (1 + 34 + 4 + 5) + 30 = 382 | 4,096 |
 | `dev_firmware` | 1 + 66 + 34 + 4×4 + 8×3 + 4×2 + 4 = 153 | 4,096 |
-| `dev_builtin` page | 1 + 66 + 34 + 5 = 106; 32 rows + `end` = 3,422 (96 built-ins: 3 pages) | 4,096 |
+| `dev_builtin` page (ops 4, 16) | 1 + 66 + 34 + 5 = 106; 32 rows + `end` = 3,422 (96 built-ins: 3 pages) | 4,096 |
 | `dev_native` | 1 + 4×3 + 34 + 4 + 66×2 + 4×2 + 8×2 = 207 | 4,096 |
 | `dev_check` | 1 + 4 + 4 + 8 + 66 + 34 + 66 + 66 + 4 + 34 (`sha256`, absent when unsigned) = 287 | 4,096 |
 | `dev_install` | 1 + 4×6 + 8×2 + 66 = 107 | 4,096 |
@@ -567,6 +591,7 @@ unknown values read as 1.
 | `env.device().input` (`InputCaps.keys`, `Buttons::new`) | op 15; op 1 `caps` bits 0, 9, 14 |
 | `env.status().value(name)` | op 2 |
 | `env.firmware()` (`version`, `project`, `chip`, `room`, `undone`, `state`, `plugins`) | ops 3, 4; event 96 |
+| `firmware::Update::leaves_out` (update's "update without them") | command 1592 (kind 1), op 16; `dev_check.flags` bit 5 |
 | `env.native()` (`safe_mode`, `not_installed`, code room, `file`), `fingerprint`, `toolchain` | ops 5, 14 (fingerprint and toolchain go, see below) |
 | `store/trust.rs` `check_file`, `native::read_header`, `room.rs`, `verdict` | command 1592, op 6; commands 1580-1581 |
 | `keys::accept_rotation`, `keys::keep_revoked`, `revoked.rs` | commands 1581, 1582 (host-checked, taken at commit) |

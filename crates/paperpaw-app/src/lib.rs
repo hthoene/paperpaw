@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 36] = [
+pub const STORE_PLUGINS: [&str; 34] = [
     "aids",
     "browser",
     "calibre",
@@ -100,10 +100,8 @@ pub const STORE_PLUGINS: [&str; 36] = [
     "hyphenation-uk",
     "joplin",
     "koreader",
-    "kosync",
     "mail",
     "news",
-    "notes-overview",
     "notes-vault",
     "picture-home",
     "read-later-cloud",
@@ -152,12 +150,13 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 11] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 12] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
+    ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
     (
@@ -178,7 +177,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "calibre",
     "fonts-browser",
     "joplin",
-    "kosync",
     "mail",
     "news",
     "opds",
@@ -251,12 +249,10 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
-        b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
@@ -277,7 +273,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    b = b.plugin(paperpaw_plugin_lock::Lock);
     b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {

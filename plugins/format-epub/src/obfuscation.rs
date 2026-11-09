@@ -47,6 +47,15 @@ impl Method {
 
 /// Undoes `method` on font `data`, with the book's unique `identifier`.
 pub(crate) fn reveal(data: &mut [u8], method: Method, identifier: &str) {
+    reveal_at(data, 0, method, identifier);
+}
+
+/// As [`reveal`], for `data` that is the bytes of the font from `offset` on
+/// (a font read in chunks).
+pub(crate) fn reveal_at(data: &mut [u8], offset: usize, method: Method, identifier: &str) {
+    if matches!(method, Method::None) || offset >= 1040 {
+        return;
+    }
     let (key, length): (Vec<u8>, usize) = match method {
         Method::None => return,
         Method::Idpf => {
@@ -60,8 +69,12 @@ pub(crate) fn reveal(data: &mut [u8], method: Method, identifier: &str) {
             None => return,
         },
     };
-    for (i, byte) in data.iter_mut().take(length).enumerate() {
-        *byte ^= key[i % key.len()];
+    for (i, byte) in data.iter_mut().enumerate() {
+        let at = offset + i;
+        if at >= length {
+            break;
+        }
+        *byte ^= key[at % key.len()];
     }
 }
 
@@ -109,5 +122,31 @@ mod tests {
         let mut data = original.clone();
         reveal(&mut data, Method::Adobe, "not a uuid");
         assert_eq!(data, original);
+    }
+
+    #[test]
+    fn a_font_revealed_in_pieces_is_the_font_revealed_whole() {
+        // The key (20 bytes of SHA-1, 16 of a UUID) and the 1,040 / 1,024
+        // bytes it covers span pieces of any size, whatever their edges.
+        let original: Vec<u8> = (0..3000).map(|i| (i % 253) as u8).collect();
+        for (method, id) in [
+            (Method::Idpf, "urn:isbn:9780000000000"),
+            (
+                Method::Adobe,
+                "urn:uuid:12345678-9abc-def0-1234-56789abcdef0",
+            ),
+        ] {
+            let mut whole = original.clone();
+            reveal(&mut whole, method, id);
+            for piece in [1, 7, 16, 19, 20, 511, 512, 513, 1023, 1024, 1025, 1041] {
+                let mut data = original.clone();
+                let mut at = 0;
+                for part in data.chunks_mut(piece) {
+                    reveal_at(part, at, method, id);
+                    at += part.len();
+                }
+                assert_eq!(data, whole, "pieces of {piece}");
+            }
+        }
     }
 }

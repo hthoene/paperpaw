@@ -1,4 +1,5 @@
 //! Turns the declarations into read-only batches built into the plugin image.
+#[allow(dead_code, reason = "the plugin's code uses the tokens")]
 mod declarations;
 
 use paperpaw_sdk::native::declare::Declarations;
@@ -37,6 +38,9 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
+    emit!(source, "SCREENS", declarations::screens);
+    emit!(source, "NAVIGATION", declarations::navigation);
+    emit!(source, "EVENTS", declarations::events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("kosync_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))

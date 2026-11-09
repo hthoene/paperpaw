@@ -105,3 +105,13 @@ are not there. It is removed in the PR that finishes the port.
 - The widget composed and drawn by the host (H1, H3) and the tap's screen command.
 - The sleep screen's declaration (`declarations::screens`, token 10; `tests/abi7_declarations.rs`
   keeps its identity parity) joins the image when it can draw.
+
+## Heap gate and the first tick
+
+- A widget drawn notes what it showed (`Item.shown`); the next tick that finds another figure tells
+  the maker (`widget_changed`). Before, only a tick after a first tick could, so a widget drawn at
+  12 minutes with 13 found at the first tick stayed stale. Tests: `native_plugin/tests.rs`
+  (`settle`: told once, a refused notice tried again, a widget never drawn tells nothing).
+- Each minute with a widget, `read_statistics` pages the registry for the statistics plugin (at most 16
+  pages, each a 4 KiB request and a 4 KiB reply buffer, made once per call and reused, so 8 KiB at a time).
+  This belongs in the heap gate's measurement of the plugin; it is not measured yet.

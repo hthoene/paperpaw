@@ -14,6 +14,16 @@ until the host activates native plugins (then it goes together, no shim).
   this and the interface-6 policy with the same random events (200 runs of 40 events) and
   compares what they answer and the state they keep. Allocation is fallible and swept; a password
   is wiped when dropped and never printed.
+- `src/native_radio.rs`: what the plugin does with the radio's events, on facts the native screen reads
+  first (`Facts`: the radio, busy, whether work waits, the networks in reach, the networks joined
+  before, the clock, charging, home or a book shown, the settings) and answering `Action`s (a radio
+  `Step`, off, a `Timer` to set (idle off, retry, at the policy's generation), a notice, no network,
+  the picked network to remember, the password to keep): `network_wanted`, `wifi_changed`,
+  `wifi_scanned`, `wifi_done` (a failure; a join another request superseded changes and says
+  nothing), the typed password, `network_idle`, the power mode, the screen shown, charging, and the
+  two timers. The five scenarios of the interface-6 `tests/radio.rs` run on a simulated host (radio
+  doing as told, timers each second) with the same results; allocation is swept.
+  `Failure::from(WifiFailure)` maps the SDK's reasons.
 - Differences: the clock is the host's milliseconds; a join that another request superseded
   (`wifi_done` reason 4) changes nothing, the replacement decides (interface 6 had no such
   failure); `wifi_done` reasons 5, 6 and unknown count as other.
@@ -117,17 +127,45 @@ until the host activates native plugins (then it goes together, no shim).
 - The scripted host does not answer `i18n.copy`/`i18n.format` (`SCRIPTED-i18n`), so the rows' texts,
   the drawing and the answers to the password question are not run; the status item's value (H1) and
   the first-run row's badge.
-- The radio's timers (idle off, retry) and the policy's `scanned`/`failed` entries run on events 92-95
-  (below); the screen drives `Policy::choose` and `Policy::changed` only.
-- The radio's events: `wifi_scanned`, `wifi_done`, `network_wanted`, `network_idle` (92-95) have
-  no SDK subscription or decoder, so the declarations subscribe to the events that exist (started,
-  status, screen shown, Wi-Fi and power changed) only. The timers (idle off, retry) need the work
-  family; the policy takes the clock as an argument.
 - The phone setup serves a page on port 80 of the device's own network: the SDK has no `serve` or
   `respond` yet (`NET-serve`); the decisions and pages are ported (`native_phone`).
-- Without `wifi_done` (event 93) a wrong password stays "pending" (it is offered again as the initial
-  text when the network is chosen again, and kept only if the device is online in that network); the
-  policy's `failed` entry, which lets it go, runs when the event is there.
+- Wi-Fi commands cannot be staged by the scripted host (it has no `core.device` context): a callback that
+  sends one ends with `ERR_UNSUPPORTED` there, so `tests/scripted_radio.rs` reads what was sent from the
+  bytes of the batches (`commands_decode`) and asserts it exactly; staging them and the radio really
+  doing them is the host's (H4).
+
+## The radio's events, wired (`src/native_plugin/events.rs`)
+
+- `network_wanted` (94): the radio on / a scan / the join of the network joined before, by
+  `Policy::on_wanted`; with none known, `network_none` (what waits fails now, not after the host's 30 s).
+  `network_idle` (95): the idle-off timer. `wifi_scanned` (92): `Policy::on_scanned` (the next network
+  joined before, another scan, or "No saved Wi-Fi network in reach" and the retry timer). `wifi_done` (93):
+  a failure goes to `Policy::on_failed`, so a wrong password stops being pending and the next network is
+  tried, or the failure is told; a success decides nothing (the radio's change says it). `wifi_changed`
+  keeps the password of the network just joined (`Action::KeepSecret`) and the network the user picked
+  last (`picked.txt`, joined first next time, as *Join first* says), and may join one when charging keeps
+  the radio on. Also the power mode, the screen shown (home or a book: radio off at once) and the status
+  changing (charging).
+- The facts are read per event and only as far as the decision needs them: the radio and its flags
+  (`dev_wifi`, wanted and busy), the networks in reach (scanned, failed), the networks joined before with
+  their passwords (`core.secrets`, wanted, scanned, failed, the retry timer, charging), the screen on top
+  (the stack's first row, home or reader), charging and whether the device may use the network (snapshot,
+  `dev_power`), the settings and `picked.txt`.
+- The timers are work (`core.work`, `WorkSpec::at`, keys `wifi.idle-off` and `wifi.retry`, the work event
+  subscribed with token 15), at the event's `now_ms` plus the idle time or 10 s. Each is set with the
+  policy's generation; one that comes due after the network was wanted again does nothing. A work is lost
+  at the next start (the radio then goes off when home or a book shows); where the device has no work
+  service, the timers are not set and the same holds.
+- The decisions are `native_radio` (the five interface-6 radio scenarios on a simulated host, with the
+  same results, and allocation swept); `tests/scripted_radio.rs` runs the wiring through the production
+  loader with explicit facts: wanted brings the radio on, none known says so, idle sets the work at
+  `now + 60 s` and the due work switches off, a timer from before the network was wanted again and one while
+  work waits do nothing, back home switches off and another screen does not, scanned joins the network
+  joined before (not the open one in reach, the password shows nowhere), a failed join is told and a success
+  is not.
+- Not run on a host: the typed password kept after the join (the dialog's answers over the scripted host,
+  `wifi-passwords`), the charging path (snapshot with a battery), the retry timer coming due, and what the
+  radio really does (H4).
 
 ## Review fixes
 

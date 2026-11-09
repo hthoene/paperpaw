@@ -194,6 +194,7 @@ dependencies = [
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
+ "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-help",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
@@ -203,6 +204,7 @@ dependencies = [
  "paperpaw-plugin-menu",
  "paperpaw-plugin-menu-editor",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
@@ -214,6 +216,14 @@ dependencies = [
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wikipedia",
+]
+
+[[package]]
+name = "paperpaw-plugin-fonts-browser"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -283,6 +293,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-opds"
 version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-home"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

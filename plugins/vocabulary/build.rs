@@ -50,10 +50,15 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 1] = [("EVENTS", |sink| {
-        declarations::events(sink)
-            .map_err(|e| format!("invalid Vocabulary event declarations: {e:?}"))
-    })];
+    let emits: [(&str, Emit); 2] = [
+        ("EVENTS", |sink| {
+            declarations::events(sink)
+                .map_err(|e| format!("invalid Vocabulary event declarations: {e:?}"))
+        }),
+        ("UI", |sink| {
+            declarations::ui(sink).map_err(|e| format!("invalid Vocabulary UI declarations: {e:?}"))
+        }),
+    ];
     for (name, build) in emits {
         emit(&mut source, name, build)?;
     }

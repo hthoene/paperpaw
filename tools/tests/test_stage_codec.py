@@ -94,7 +94,9 @@ class InputRows(unittest.TestCase):
         source = module(plugin_stages_source([dict(plugin_stage(), input_rows=4)]),
                         'reader_status_v1')
         for line in ('pub const INPUT_ROWS: usize = 4;', 'MAX_INPUT, INPUT_ROWS, INPUT_TAGS)',
-                     'if records.is_empty() { return Err(-2); }', 'REPLY_ROWS.max(INPUT_ROWS)'):
+                     'if records.is_empty() { return Err(-2); }', 'REPLY_ROWS.max(INPUT_ROWS)',
+                     # The batch writer takes as many input rows as the codec.
+                     'if self.rows >= INPUT_ROWS { return Err(-2); }'):
             self.assertIn(line, source)
         self.assertNotIn('MAX_INPUT, 1, INPUT_TAGS)', source)
         # Without the key, the codec is the one-record host form.

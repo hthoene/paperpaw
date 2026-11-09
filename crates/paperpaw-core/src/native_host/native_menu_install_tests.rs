@@ -3,6 +3,7 @@
 //! allocation-safe. The harness is the parent's linked factory.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use crate::native_host::native_menus::MENU_USER_DEFINED;
 use crate::native_host::{
     declaration_store::Kind,
     registrations::{self as wire, Record},
@@ -389,4 +390,63 @@ fn every_host_allocation_failure_refuses_the_menu_owner_whole() {
         assert!(menu_ids(&kernel, &[], &[]).is_empty());
     }
     assert!(reached_success, "the walk reached a fully admitted owner");
+}
+
+/// What op 11 reports for `menu` now (`None` when it is not listed).
+fn menu_flag(kernel: &crate::Kernel, menu: &str) -> Option<u32> {
+    let mut found = None;
+    kernel
+        .native_menu_ids(&mut |id, flags| {
+            if id == menu {
+                found = Some(flags);
+            }
+        })
+        .unwrap();
+    found
+}
+
+#[test]
+fn op_11_sets_bit_5_for_a_user_defined_menu_in_all_four_states() {
+    use paperpaw_sdk::Id;
+    let mut kernel = fresh();
+    install_with(&mut kernel, 1).unwrap();
+    // Declared by a plugin (`core.tools` here), the user has no definition.
+    assert_eq!(menu_flag(&kernel, "core.tools"), Some(0));
+    // Defined with rows other than the declared ones.
+    kernel.set_menu(
+        Id::new_static("core.tools"),
+        Some(alloc::vec![Id::new_static("core.home")]),
+    );
+    assert_eq!(menu_flag(&kernel, "core.tools"), Some(MENU_USER_DEFINED));
+    // An empty definition shows even where no plugin names the menu.
+    kernel.set_menu(Id::new_static("user.empty"), Some(Vec::new()));
+    assert_eq!(menu_flag(&kernel, "user.empty"), Some(MENU_USER_DEFINED));
+    // A definition equal to the declared rows still counts.
+    let declared: Vec<Id> = kernel
+        .shared
+        .menus
+        .contributed_ids("core.main")
+        .into_iter()
+        .cloned()
+        .collect();
+    kernel.set_menu(Id::new_static("core.main"), Some(declared));
+    assert_eq!(menu_flag(&kernel, "core.main"), Some(MENU_USER_DEFINED));
+    // A reset clears bit 5; a menu only the user named is gone.
+    kernel.set_menu(Id::new_static("core.tools"), None);
+    kernel.set_menu(Id::new_static("user.empty"), None);
+    kernel.set_menu(Id::new_static("core.main"), None);
+    assert_eq!(menu_flag(&kernel, "core.tools"), Some(0));
+    assert_eq!(menu_flag(&kernel, "user.empty"), None);
+    assert_eq!(menu_flag(&kernel, "core.main"), Some(0));
+}
+
+#[test]
+fn op_11_is_a_state_error_before_the_declarations_exist() {
+    let kernel = fresh();
+    // The store is made by the first native install.
+    assert!(kernel.shared.registry.native_declarations.is_none());
+    assert_eq!(
+        kernel.native_menu_ids(&mut |_, _| panic!("no menu is listed")),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
 }

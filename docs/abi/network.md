@@ -1,6 +1,6 @@
-# Interface 7 family NET: HTTP requests and serving HTTP (draft)
+# Interface 7 family NET: HTTP requests and serving HTTP
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: an audit of interface 6's HTTP client and
 server (`crates/paperpaw-core/src/io/http.rs`, `io/servers.rs`, `network.rs`, `work.rs`, the X4
 shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpaw-serve`, the SDK's
@@ -9,8 +9,8 @@ shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpa
 `device.md` (Wi-Fi, network demand, `uses.wifi`), `files.md` (roots, `uses.storage`),
 `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies) and
 `core-events.md` 3.3 (event admission and the held-event store). Its companion `secrets.md`
-(SEC) is reviewed with it. Doc-only; records follow once approved. Tags are proposed and numbered
-without gaps at the records step.
+(SEC) is reviewed with it.
+Records: `abi/services/core.net@1.def`.
 
 ## 0. Scope and principles
 
@@ -167,6 +167,11 @@ file's size, 2.1).
   `If-Modified-Since`, `If-None-Match`, `If-Unmodified-Since`, `Range`, `User-Agent`), so
   `Authorization`, cookies and key headers never leave the origin the plugin named. `final_url` is
   where the answer came from.
+- [D] **A redirect from `http` to `https`** is followed like any other: the request closes its
+  plain connection first, then waits for the TLS session (3.4) as if it were an `https` request,
+  in its original start order and with its `timeout_ms` still counting from its start. It never
+  holds a connection while it waits (no deadlock with SOCK); while the session stays taken (a SOCK
+  TLS socket) it ends with reason `timeout`, never `refused` (interface 6 followed such redirects).
 - [D] **TLS:** 1.2 and 1.3; the chain must lead to a root of the host's store (on the X4, Mozilla's
   roots, ADR 0017) and the name must match; dates are checked against network time once it is
   known (ADR 0017). No pinning, no trust override and no client certificate over HTTP (mail pins
@@ -185,7 +190,13 @@ file's size, 2.1).
   of the user's input, as DEV's window); `saving` when the user put this plugin's network use on
   hold; `network_off` when the user turned this plugin's network off. `offline` and `saving` set
   `flags` bit 0 `later` in the event (try again once `dev_power.flags` bit 1 `online` is set, ASY
-  schedules that); `network_off` does not.
+  schedules that); `network_off` does not. `saving` holds only a plugin's background use (no
+  user-input window open for it, interface 6's "not the reader"). These are admission checks: a
+  request, server or socket already running is ended by `network_off` alone (at the next host pass,
+  `network_off` with no `later`); the offline mode and a hold let it finish, and a radio the mode
+  turns off ends it as any lost network does (`no_network`, SOCK `lost`). Off is checked first,
+  then offline, then saving; a plugin the host can't place, or a policy it can't build for want of
+  memory, counts as off.
 - [D] While a request or a server runs, the device does not go to sleep on its own (interface 6).
 
 ### 3.3 Files, power cuts and the card
@@ -295,8 +306,11 @@ file's size, 2.1).
   (served over USB to a computer, without a network, `CABLE_PORT` of interface 6; the X4 only),
   `max_body` the largest request body the server takes (0 for 4 MiB, vocabulary's import cap; at
   most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
-  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
-  with a token in use stops the old server first (interface 6).
+  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers, and the device at most the profile's
+  `SERVERS` of all plugins together (**1 on the X4**, 2 on the X4 Pro and Classic, 8 on others: a
+  server's sockets and buffers cost up to about 48 KiB): past either, `ERR_BUSY` at once and
+  nothing opens. A server counts from `serve` until it is stopped, has failed or has ended.
+  Serving again with a token in use stops the old server first (interface 6).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.
@@ -304,7 +318,10 @@ file's size, 2.1).
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
   newer `serve`, or because the network went away, `reason` then `no_network`). When the port is
-  taken, the host tries the next 20 ports (the address says which it got).
+  taken, the host tries the next 20 ports (the address says which it got). `started` comes only
+  once the listener is really open; one that cannot open (no socket, no memory) ends with `failed`,
+  `refused`, and its server slot is free again, so a plugin never waits for requests that cannot
+  come.
 - [D] **A server lives on a screen** (interface 6 tied servers to the screen that started them):
   `serve` is only allowed from a callback of one of the plugin's own screen instances that is
   showing (`ERR_STATE` elsewhere: no background server the user cannot see, and none that keeps
