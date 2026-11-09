@@ -138,6 +138,7 @@ impl crate::Kernel {
             .flatten()
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
+            .chain(self.native_demand_due().map(|at| at.millis()))
             .min()
             .map(Instant)
     }
