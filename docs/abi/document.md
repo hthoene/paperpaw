@@ -150,8 +150,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 1080 | `service.doc_reader` | `id: str 128`, `screen: str 128`, `formats: str 1032`, `title: str 128` |
 | 1081 | `service.doc_progress` | `progress_ppm: u32` |
 
-- [D] `doc_page.scope` is op 21's format filter, else empty; `doc_path.flags` bit 0: sniff when no
-  extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
+- [D] `doc_page.scope` is op 21's format filter, else empty. Ops 19 and 21 name no document: their
+  `doc_page.document` is 0 and ignored (the host accepts any value there). `doc_path.flags` bit 0:
+  sniff when no extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
   `doc_format.title` and `doc_reader.title` are translated by the host as REG rows are. Two-way
   records (plugin and host send them; never `HOST_ONLY`): `doc_state` and the block, meta, toc,
   link, font and image rows, because a format plugin answers them in its `core.format` reply and the
