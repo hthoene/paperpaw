@@ -214,5 +214,6 @@ impl crate::Kernel {
         if let Some(sink) = self.native_event_sink() {
             sink.hint(tag);
         }
+        self.native_hint_publish(tag);
     }
 }

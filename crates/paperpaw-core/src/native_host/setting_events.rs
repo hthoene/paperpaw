@@ -1,5 +1,6 @@
-//! `event.setting_changed` (64) to the plugins that subscribed to it
-//! (`core-events.md`): one bounded queue ([`Pending`]) per subscribed plugin,
+//! `event.setting_changed` (64) and the hints 70-74 (`plugins_changed`,
+//! `wifi_changed`, `power_changed`, `status_changed`, `charge_changed`) to the
+//! plugins that subscribed to them (`core-events.md`): one bounded queue ([`Pending`]) per subscribed plugin,
 //! filled where a kept value changes (`Kernel::native_setting_after`,
 //! `native_setting_typed`), emptied by [`Kernel::native_setting_pump`] between
 //! callbacks, through the same event wrapper as the services' events
@@ -13,6 +14,9 @@
 //!   again at delivery, so a value revoked in between does not leak.
 //! * A change the plugin made itself is announced to it too: it is delivered
 //!   after its callback returned, never inside it.
+//! * A hint keeps only a pending bit in the same queue (a second one before
+//!   the first was told is one), and its record is built from the state at
+//!   delivery, not at the time it was raised.
 //! * An edge that finds no room (16 held, 4,096 bytes a plugin, 8,192 the
 //!   device, or no memory) is dropped and replaced by the **empty key**:
 //!   "several settings changed, read again what you keep".
@@ -34,10 +38,15 @@ use super::{
 use crate::abi7::settings_visibility::{SettingIdentity, visibility};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
-use paperpaw_sdk::{Id, Settings};
+use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 
 /// The tag of the event.
 const TAG: u32 = wire::EVENT_SETTING_CHANGED_TAG;
+
+/// The hint events a plugin can subscribe to.
+const HINTS: core::ops::RangeInclusive<u32> =
+    wire::EVENT_PLUGINS_CHANGED_TAG..=wire::EVENT_CHARGE_CHANGED_TAG;
 
 /// Events told to one plugin in one pass.
 pub(crate) const PER_OWNER: usize = 4;
@@ -62,6 +71,14 @@ impl SettingEvents {
             n += 1;
         }
         false
+    }
+
+    /// Whether `owner` subscribed to any event of these queues.
+    fn listens(instances: &NativeInstances, owner: u64) -> bool {
+        instances.subscribed(owner, TAG)
+            || HINTS
+                .into_iter()
+                .any(|tag| instances.subscribed(owner, tag))
     }
 
     /// The queue of `owner`, made on first use.
@@ -125,11 +142,32 @@ impl SettingEvents {
         }
     }
 
+    /// Announces that the state behind hint `tag` changed (a second one
+    /// before it was told is the same event) to every plugin subscribed to it.
+    pub(crate) fn publish_hint(&self, instances: &NativeInstances, tag: u32) {
+        if !HINTS.contains(&tag) {
+            return;
+        }
+        let Ok(mut queues) = self.queues.try_borrow_mut() else {
+            return;
+        };
+        let mut n = 0;
+        while let Some((owner, _)) = instances.running_nth(n) {
+            n += 1;
+            if !instances.subscribed(owner, tag) {
+                continue;
+            }
+            if let Ok(queue) = self.queue_of(&mut queues, owner) {
+                let _ = queue.hint(tag);
+            }
+        }
+    }
+
     /// Forgets the queues of plugins that no longer subscribe (stopped or
     /// unloaded): what they held is dropped, never delivered.
     fn prune(&self, instances: &NativeInstances) {
         if let Ok(mut queues) = self.queues.try_borrow_mut() {
-            queues.retain(|(owner, _)| instances.subscribed(*owner, TAG));
+            queues.retain(|(owner, _)| Self::listens(instances, *owner));
         }
     }
 
@@ -197,6 +235,32 @@ fn readable(settings: &Settings, plugin: &Id, key: &str) -> Visibility {
 }
 
 impl crate::Kernel {
+    /// The record of hint `tag` into `bytes`, from the state now.
+    fn hint_bytes(&self, tag: u32, now_ms: u64, bytes: &mut Vec<u8>) -> Result<usize, i32> {
+        use super::event_producers::{ChargeState, Hint};
+        let off = WifiState::Off;
+        let shared = &self.shared;
+        let hint = match tag {
+            wire::EVENT_PLUGINS_CHANGED_TAG => Hint::Plugins,
+            wire::EVENT_WIFI_CHANGED_TAG => {
+                Hint::Wifi(shared.wifi.as_ref().map_or(&off, |wifi| &wifi.state))
+            }
+            wire::EVENT_POWER_CHANGED_TAG => Hint::Power(&shared.power),
+            wire::EVENT_STATUS_CHANGED_TAG => Hint::Status,
+            _ => Hint::Charge(ChargeState::from_status(&shared.status, None)),
+        };
+        // The longest is the power mode's id (128 bytes) and its fixed fields.
+        bytes.try_reserve_exact(256).map_err(|_| ERR_NO_MEMORY)?;
+        bytes.resize(256, 0);
+        hint.encode(now_ms, bytes)
+    }
+
+    /// Announces a hint to the plugins subscribed to it.
+    pub(crate) fn native_hint_publish(&self, tag: u32) {
+        let instances = &self.shared.native_instances;
+        instances.setting_events.publish_hint(instances, tag);
+    }
+
     /// Whether a running plugin wants `event.setting_changed`.
     pub(crate) fn native_setting_wanted(&self) -> bool {
         SettingEvents::wanted(&self.shared.native_instances)
@@ -260,26 +324,39 @@ impl crate::Kernel {
         let Some(id) = instances.id(owner) else {
             return true;
         };
-        let settings = &self.shared.settings;
-        let Ok(record) = ready.setting_record(now, |key| readable(settings, id, key)) else {
-            instances.setting_events.reread(owner, now);
-            return true;
-        };
-        // Revoked since it was queued: nothing to tell.
-        let Some(record) = record else {
-            return true;
-        };
         let mut bytes = Vec::new();
-        let sized = codec::framed_len(&record)
-            .ok()
-            .and_then(|len| bytes.try_reserve_exact(1 + len).ok());
-        if sized.is_none() {
-            instances.setting_events.reread(owner, now);
-            return true;
-        }
-        bytes.resize(bytes.capacity(), 0);
-        let Ok(len) = codec::encode_batch(&[record], &mut bytes) else {
-            instances.setting_events.reread(owner, now);
+        let encoded = match &ready {
+            Ready::Hint(tag) => {
+                // Revoked since it was queued: nothing to tell.
+                if !instances.subscribed(owner, *tag) {
+                    return true;
+                }
+                self.hint_bytes(*tag, now, &mut bytes)
+            }
+            _ => {
+                let settings = &self.shared.settings;
+                match ready.setting_record(now, |key| readable(settings, id, key)) {
+                    // Revoked since it was queued: nothing to tell.
+                    Ok(None) => return true,
+                    Ok(Some(record)) => {
+                        let sized = codec::framed_len(&record)
+                            .ok()
+                            .and_then(|len| bytes.try_reserve_exact(1 + len).ok());
+                        sized.ok_or(ERR_NO_MEMORY).and_then(|()| {
+                            bytes.resize(bytes.capacity(), 0);
+                            codec::encode_batch(&[record], &mut bytes)
+                        })
+                    }
+                    Err(status) => Err(status),
+                }
+            }
+        };
+        let Ok(len) = encoded else {
+            // A lost edge is replaced by the empty key; a hint or the empty key
+            // itself is dropped (a retry would spin while memory is short).
+            if matches!(ready, Ready::Edge(_)) {
+                instances.setting_events.reread(owner, now);
+            }
             return true;
         };
         // A failing callback does not get the event again.

@@ -323,7 +323,8 @@ fn decoder_accepts_trailing_fields_of_a_future_minor() {
 fn only_suspend_and_stopping_bypass_the_queue() {
     for tag in TAGS
         .into_iter()
-        .chain([EVENT_TICK_TAG, registrations::EVENT_SETTING_CHANGED_TAG])
+        .chain([EVENT_TICK_TAG])
+        .chain(EDGES_AND_HINTS)
     {
         assert!(events::is_event_tag(tag));
         assert_eq!(
@@ -331,15 +332,18 @@ fn only_suspend_and_stopping_bypass_the_queue() {
             tag == EVENT_SUSPEND_TAG || tag == EVENT_STOPPING_TAG
         );
     }
-    // 64 has its delivery (`setting_events`); the hints 65-74 stay refused
-    // until Core wires their producers.
+    // 64 and the hints 70-74 have their delivery (`setting_events`); the book
+    // events 65-69 stay refused until Core wires their producers.
     for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX]
         .into_iter()
-        .chain(65..=74)
+        .chain(65..=69)
     {
         assert!(!events::is_event_tag(tag));
     }
 }
+
+/// The events with a delivery: setting changes (64) and the hints (70-74).
+const EDGES_AND_HINTS: [u32; 6] = [64, 70, 71, 72, 73, 74];
 
 type Context = RegistrationScope<Registration>;
 
@@ -383,11 +387,12 @@ fn submit_one(tag: u32) -> (i32, bool) {
 fn registration_admits_tick_and_every_event_kind_and_refuses_the_rest() {
     for tag in TAGS
         .into_iter()
-        .chain([EVENT_TICK_TAG, registrations::EVENT_SETTING_CHANGED_TAG])
+        .chain([EVENT_TICK_TAG])
+        .chain(EDGES_AND_HINTS)
     {
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
     }
-    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(65..=74) {
+    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(65..=69) {
         assert_eq!(submit_one(tag), (ERR_UNSUPPORTED, false), "tag {tag}");
     }
 }
