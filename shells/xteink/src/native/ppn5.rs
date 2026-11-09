@@ -424,7 +424,9 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: &crate::device_host::OFFERED,
+            // This probe wires no device (`new_resources(None)`): it offers the
+            // data services alone.
+            services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
         // NOTE: this probe builds its own pool (and `core.ui` store). Real linked-

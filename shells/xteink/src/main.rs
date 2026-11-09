@@ -397,7 +397,10 @@ fn start() -> Firmware {
     // The device follows what the kernel keeps from the start: Wi-Fi, power
     // (and Bluetooth), which only exist now.
     #[cfg(feature = "ppn5")]
-    device_host::sync(&firmware.device, &firmware.kernel);
+    {
+        device_host::sync(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device);
+    }
     power::mark(power::at::START_KERNEL);
     info!(
         "startup: kernel ready in {} ms",
@@ -606,7 +609,7 @@ fn prepare() -> Ready {
     #[cfg(feature = "ppn5")]
     let device = device_host::make(
         ota.as_ref().map(ota::Ota::running).as_ref(),
-        &native(staged.not_installed.clone()),
+        &staged.not_installed,
         started(),
     );
     let code = code_plugins(
@@ -622,9 +625,7 @@ fn prepare() -> Ready {
     // Safe mode is known only now: no loader is made then, so the device is told.
     #[cfg(feature = "ppn5")]
     if let CodePlugins::SafeMode(mode) = &code {
-        let mut facts = native(staged.not_installed.clone());
-        facts.safe_mode = Some(mode.clone());
-        device_host::tell_native(&device, &facts);
+        device_host::tell_native(&device, Some(mode));
     }
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
