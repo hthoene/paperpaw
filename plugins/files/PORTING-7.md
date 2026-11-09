@@ -54,8 +54,9 @@ windows of 96 books, "More books" and "Previous books" (`native_model::read_wind
 ### States
 
 `Library::state`: *Empty* is "Preparing the library …"; *Walking* leads with **"N books so far …"**
-(`books`, English and German, the books found are listed under it; `walk_ppm` is a rough number and is
-not shown); a refused ask is "Couldn't read the books folder", or, where `core.files` `stat` of the card
+(`books`, English and German, the books found are listed under it, with `walk_ppm` as a rough bar
+(whole per cents from 1 to 99, nothing under 1: a first walk has no total to measure by)); a refused ask
+is "Couldn't read the books folder", or, where `core.files` `stat` of the card
 root says `ERR_IO`, "Restart PaperPaw" (card gone); a library with books only in the archive says so
 (`files.list.none.all`). Each opens its list, never fails the screen.
 
@@ -77,13 +78,33 @@ to 9; the host follows the move itself. Delete asks first and starts on the safe
 - **How it works** is `files.plugin.how` in the catalogs (English and German; `how/` stays in the crate
   for the store's page); **help hints** are declared for the library screen.
 - **Live catalog**: the lists read again on `library_changed` (books, status, fields, the walk).
+- **Find by letter**: the last row of the shelves, *Find a book* (`files.list.show.find`, with the
+  count of letters), opens the names screen of `Shelf::Letters` (the `letters` facet asked as the
+  library's own list is: all books, the archive left out): one row for each letter, *Books under B*,
+  with its book count. A letter opens the library by title (`Order::Name`, filter All, the order
+  `fixed` so a change of the setting does not replace it) at the window that holds the letter's `first`
+  book, the focus on that book. A list cannot start at an index (a cursor is only made by a reply), so
+  `native_model::find_window` reads windows of at most 96 books from the start cursor as "More books"
+  does, counting the books, and keeps each window's start for "Previous books"; at most 96 windows
+  (9,216 books or more) are read, a stale cursor starts the walk over once (a second is `State`), an index
+  past the end gives the last window and its last book. The letter's `first` is read again when the
+  letter is chosen (not kept from the names screen, so a changed catalog cannot make it stale); a letter
+  that is gone, a `first` of `0xFFFF_FFFF` or a refusal opens the list from its start. The window is read
+  once to find the book and once more to show it. Each host call of the walk skips `cursor` matches in the
+  host (its checkpoints make that cheap, `library.md`); the cost on a device of a letter far down a
+  library of thousands of books is **not measured**. Untested without a host: that the focus really lands
+  on the book's row (the scripted host has no screens; `Browser::focus_book` is not observed), the
+  drawing of the letters screen, and that the host's `first` agrees with the title order of the list
+  (`library.md` says it does; the host's catalog is not qualified). Nothing else is needed from the SDK
+  or the ABI.
 - **Folder chooser** (`files.choose-folder`, the slot `core.choose-folder`, parameter `id`): starts
   on the folder the setting has (the top where it is gone), the first row uses the shown folder, then
   the way up and *New folder*, then the folders (at most 256, by name, hidden ones left out), read a
   page at a time from `core.files`; Back goes up a folder before it leaves.
 - Tests: unit tests of each model module, `tests/scripted_browser.rs` (what the list asks the
   scripted library, the states, library changes, the sheet's choices, the archive's move, delete asked
-  about first), `tests/scripted_choose.rs`, `tests/scripted_library.rs`, `tests/native_*`, the refusal
+  about first), `tests/scripted_choose.rs`, `tests/scripted_library.rs` (also what the
+  letters screen and a letter's list ask a scripted library of 100 books, and refusals), `tests/native_*`, the refusal
   sweeps. The scripted host has no screens: a redraw, a notice and an open are refused there after the
   plugin asked the services, so those tests look at what was asked and submitted. Drawing is not tested
   without a host (`acceptance_pending.rs`).
@@ -108,8 +129,6 @@ to 9; the host follows the move itself. Delete asks first and starts on the safe
 - **Favourites cannot be added or removed.** The facade `Library` has `set_finished` but no
   `set_favourite` (`lib_status`, bit 1 favourite, in LIB op 8): the sheet has no row for it. The
   favourites list and its shelf work for books marked elsewhere.
-- **Find by letter.** The `letters` facet gives the letters and each one's `first` index, but a list
-  cannot start at an index: a cursor is only made by a reply.
 - **Look for new books** (a request for a new catalog): no typed command.
 - **The search gesture on the home screen** (`swipe.down`, a keymap fragment): there is no declaration
   of one in the native contract.
@@ -119,7 +138,6 @@ to 9; the host follows the move itself. Delete asks first and starts on the safe
 - **Help hints** are declared but the host's `validate_record` does not admit them yet
   (`ERR_UNSUPPORTED`); the plugin submits them best effort and loads without them. The menu entries
   wait for the host's admission like every plugin of this port.
-- `walk_ppm` is not shown while the library scans.
 
 ## Pending host acceptance (each is an ignored case in `tests/acceptance_pending.rs`)
 
