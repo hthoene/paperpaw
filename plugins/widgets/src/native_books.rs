@@ -2,14 +2,14 @@
 //! callback, and the caption above a widget.
 use alloc::vec::Vec;
 use paperpaw_sdk::{
-    Rect,
-    native::{Error, Host, library::Library},
+    Color, Rect,
+    native::{Error, Host, fonts::TextOrigin, library::Library},
 };
 use paperpaw_ui_kit::widget::{
     Cx, Look,
     layout::{self, caption_height},
 };
-use paperpaw_ui_kit::{Paint, mem};
+use paperpaw_ui_kit::{Paint, mem, paint, text};
 
 /// The size of each buffer handed to the library: the most a reply holds.
 pub const BUFFER: usize = mem::SERVICE_BUFFER;
@@ -66,5 +66,27 @@ pub fn caption(
         (small, gap),
         (look.area, align, look.faint),
         &text,
+    )
+}
+
+/// Pushes the text `shown` at `size`, from `x` on `baseline`, in `color`.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn push_text(
+    out: &mut Vec<Paint>,
+    shown: &str,
+    (size, x, baseline): (f32, f32, i32),
+    color: Color,
+) -> Result<(), Error> {
+    paint::push(
+        out,
+        Paint::Text {
+            text: text::copy(shown)?,
+            size,
+            origin: TextOrigin::new(x, baseline),
+            color,
+            clip: None,
+        },
     )
 }

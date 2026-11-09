@@ -6,13 +6,13 @@
 //! of its finished and reading queries (no book is looked at). They change
 //! with the catalog's generation, which moves when books come or go and when
 //! one is first opened or finished.
-use crate::native_books::{buffers, caption, with_library};
+use crate::native_books::{buffers, caption, push_text, with_library};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Rect,
     native::{
         Error, Host,
-        fonts::{Font, TextOrigin},
+        fonts::Font,
         library::{Library, Query, Show},
     },
 };
@@ -452,29 +452,10 @@ fn draw_beside(
         let baseline = ink_baseline(font, small, &whole, cell)?;
         let prefix = text::concat(&[&number, " "])?;
         let after = x + font.measure_text(small, &prefix)?;
-        push_text(out, number, (small, x, baseline), look.ink)?;
-        push_text(out, text::copy(name)?, (small, after, baseline), look.faint)?;
+        push_text(out, &number, (small, x, baseline), look.ink)?;
+        push_text(out, name, (small, after, baseline), look.faint)?;
     }
     Ok(())
-}
-
-/// Pushes the text `shown` at `size`, from `x` on `baseline`.
-fn push_text(
-    out: &mut Vec<Paint>,
-    shown: String,
-    (size, x, baseline): (f32, f32, i32),
-    color: Color,
-) -> Result<(), Error> {
-    paint::push(
-        out,
-        Paint::Text {
-            text: shown,
-            size,
-            origin: TextOrigin::new(x, baseline),
-            color,
-            clip: None,
-        },
-    )
 }
 
 /// The numbers as `laid`, each above its name (left out where the name would
@@ -561,13 +542,13 @@ fn draw_laid(
         let cell = Rect::new(x_cell, y, column, row_h);
         let number = digits(numbers.of(part))?;
         let x = Align::Center.x(cell, font.measure_text(size, &number)?);
-        push_text(out, number, (size, x, i32::from(y) - ink.0), look.ink)?;
+        push_text(out, &number, (size, x, i32::from(y) - ink.0), look.ink)?;
         let label_w = font.measure_text(small, name)?;
         if named && label_w <= f32::from(column) {
             let x = Align::Center.x(cell, label_w);
             let baseline =
                 i32::from(y.saturating_add(digits_h).saturating_add(gap / 2)) - names_top;
-            push_text(out, text::copy(name)?, (small, x, baseline), look.faint)?;
+            push_text(out, name, (small, x, baseline), look.faint)?;
         }
     }
     if laid.bar {

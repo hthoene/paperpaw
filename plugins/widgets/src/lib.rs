@@ -28,6 +28,7 @@ mod native_defs;
 mod native_draw;
 mod native_entry;
 mod native_greeting;
+mod native_highlight;
 mod native_moon;
 mod native_note;
 mod native_numbers;

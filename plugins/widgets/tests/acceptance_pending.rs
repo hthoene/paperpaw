@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 10] = [
+const CASES: [Case; 11] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -68,6 +68,13 @@ const CASES: [Case; 10] = [
     // tap that opens the library.
     Case {
         name: "widgets-library-draws-its-numbers",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
+    },
+    // The highlight: the text in quotes with a large mark, the note, the book
+    // below, shortened where it does not fit; a tap opens the book at it.
+    Case {
+        name: "widgets-highlight-draws-and-opens-the-book",
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
@@ -140,4 +147,10 @@ fn widgets_todo_screen_adds_ticks_and_moves() {
 #[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
 fn widgets_library_draws_its_numbers() {
     CASES[9].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
+fn widgets_highlight_draws_and_opens_the_book() {
+    CASES[10].refuse().unwrap();
 }

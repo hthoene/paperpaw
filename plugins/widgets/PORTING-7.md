@@ -41,8 +41,8 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets and the books family except the battery and the
-library in numbers: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, the
+The words family's picture and logo widgets and the books family except the battery, the
+library in numbers and the highlight: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, the
 picture and the logo draw pictures, all of which wait for the image slots 36/37 (draft 22, Services'
 SDK facade). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
@@ -217,3 +217,41 @@ minute at most, in memory only); the count now starts at zero with each plugin i
 - The pure part (`Numbers::count`, `of`) is unit-tested; the layout and the calls need a host (no
   refusal sweep until a mock host exists; every allocation is fallible by reading). Ignored case
   `widgets-library-draws-its-numbers` (H1/H3/H4).
+
+## Highlight (widget)
+
+- `widgets.highlight` (token 115, category words): one of the reader's highlights, from the books read
+  lately or from all, another each day or each time it shows; the text in quotes (or under a large
+  opening mark), the note, the book and its author below; a tap opens the book at the highlight. The
+  settings are the interface-6 ones (`settings_parity`). Where the text does not fit whole the mark goes
+  first, then the note, then the book, then the text is shortened (`lay_out`, as interface 6).
+- Where it comes from (`native_highlight::choose`): `core.library` only. The books: the first 12 opened
+  last (`Sort::RecentlyOpened`, descending, only those opened) or the first 200 by title. The seed is the
+  day (or, each time it shows, the day and the plugin's count of showings, in the plugin struct like the
+  quote's), `mix` as in interface 6; it picks the book to start at, books without a highlight with a
+  text are passed over, and the highlight is picked by its place among the book's highlights (counted
+  first, then read by index), so one highlight is held and nothing of the others. A cut text or note is
+  read whole up to 2,048 bytes through `annotation_text`.
+- The choice is kept in the plugin (`Cache`) under the source, the seed and the catalog's generation, and
+  read anew when the chosen book's annotation generation moved (checked with one call at each tick and
+  draw). `shows` (the minute tick) hashes the chosen highlight and the parts shown.
+- **Differences from interface 6**: it chooses among the first 200 books by title (interface 6 took
+  every book with an annotation file, up to 200, whichever they were), and which highlight shows on a
+  given day is another one than in interface 6 (the day picks among every book the scan lists, not only
+  among those with notes); the tap opens the book at the highlight's start and does not mark its end
+  (the reader's hand-over carries `section`, `offset` and `conversion` only); a book without a title
+  shows its file name. The widget does not subscribe to the library's change event (no first-party plugin does
+  yet, and a refused subscription would fail the whole pack's construction); it follows within a minute by
+  the generation checks above.
+- Memory: two buffers of 4,096 bytes while a scan runs, a list of up to 200 book handles (1.6 KiB), one
+  highlight (text and note up to 2 KiB each) in the plugin; not measured on a device.
+- The pure part (`mix`, `picks`, `cut`, `is_highlight`) is unit-tested; the scan and the layout need a
+  host (no refusal sweep until a mock host exists). Ignored case
+  `widgets-highlight-draws-and-opens-the-book` (H1/H3/H4).
+- Where the library refuses a call, the highlight says there is none (`widgets.highlight.none`); only a
+  refused allocation fails the draw. The widget's layout arithmetic saturates.
+- A cached "no highlight" is looked for again a minute after the last scan (`RECHECK`, the host's
+  monotonic clock), so a first highlight appears within a minute without a day or catalog change, and a
+  library without any highlight costs one scan a minute (up to about 200 host calls with the source
+  *all*, 12 books with *recent*), not one per draw. That worst case is an X4 timing gate (not measured).
+  `shows` (the minute tick) treats a refused library call as the draw does.

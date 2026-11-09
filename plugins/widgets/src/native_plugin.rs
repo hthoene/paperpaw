@@ -73,6 +73,9 @@ pub struct NativeWidgets {
     pub(crate) todo: crate::native_todo::Cache,
     /// How often a quote was shown.
     showings: crate::native_quote::Showings,
+    /// The highlight chosen, and how often a highlight was shown.
+    highlight: crate::native_highlight::Cache,
+    highlights: crate::native_quote::Showings,
     /// The library's numbers as last counted.
     numbers: crate::native_numbers::Cache,
 }
@@ -187,6 +190,13 @@ impl NativeWidgets {
                 crate::native_todo::shows_with(host, &item.widget, &self.todo)
             } else if item.token == crate::native_quote::TOKEN {
                 crate::native_quote::shows_with(host, &item.widget, &self.showings)
+            } else if item.token == crate::native_highlight::TOKEN {
+                crate::native_highlight::shows_with(
+                    host,
+                    &item.widget,
+                    &mut self.highlight,
+                    &self.highlights,
+                )
             } else {
                 (behaviour.shows)(host, &item.widget)
             };
@@ -245,8 +255,10 @@ impl Plugin for NativeWidgets {
                 now_ms,
                 ..
             } => {
-                if paperpaw_ui_kit::widget::settings::base(widget) == "widgets.quote" {
-                    self.showings.made(now_ms);
+                match paperpaw_ui_kit::widget::settings::base(widget) {
+                    "widgets.quote" => self.showings.made(now_ms),
+                    "widgets.highlight" => self.highlights.made(now_ms),
+                    _ => {}
                 }
                 self.made(widget, instance)
             }
@@ -308,6 +320,9 @@ impl Plugin for NativeWidgets {
             crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
         } else if item.token == crate::native_quote::TOKEN {
             crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
+        } else if item.token == crate::native_highlight::TOKEN {
+            let kept = (&mut self.highlight, &self.highlights);
+            crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
         } else if item.token == crate::native_numbers::TOKEN {
             crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
         } else {
@@ -337,7 +352,11 @@ impl Plugin for NativeWidgets {
         else {
             return Ok(Handled::No);
         };
-        let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+        let item = self
+            .items
+            .iter()
+            .find(|item| item.instance == instance)
+            .ok_or(Error::NotFound)?;
         let base = paperpaw_ui_kit::widget::settings::base(&item.widget);
         let tap = behaviour(item.token).map(|b| b.tap);
         if tap == Some(Tap::TickItems) {
@@ -365,6 +384,19 @@ impl Plugin for NativeWidgets {
         }
         match tap {
             Some(Tap::Settings) => open_settings(host, base)?,
+            Some(Tap::OpenHighlight) => {
+                let settings = paperpaw_ui_kit::widget::Settings::new(host, &item.widget);
+                let chosen = crate::native_highlight::choose(
+                    host,
+                    &settings,
+                    &mut self.highlight,
+                    &self.highlights,
+                )?;
+                match chosen {
+                    Some(quote) => crate::native_highlight::open(host, quote)?,
+                    None => return Ok(Handled::No),
+                }
+            }
             Some(Tap::Run(action)) => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
