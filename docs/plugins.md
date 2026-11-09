@@ -2780,7 +2780,9 @@ buffer is 1,024 bytes for `book_key` and `position` and 2,048 bytes for `set_pos
 
 The host decodes and draws pictures; a plugin never holds one in memory.
 `CommandSender::image_prepare(&PrepareImage)` asks for a JPEG, PNG (not interlaced) or GIF
-of the plugin's data folder or, with `uses.storage`, the library
+of the plugin's data folder, with `uses.storage` the library, or (`PrepareRoot::Bundle`, no
+feature) the plugin's own install folder, read only: the pictures it ships; a plugin built into
+the image has none there, and the host answers `NOT_FOUND`
 (`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)` for the longest side, 0
 being the screen's and a side above 1,600 being clamped, `.colour()`). Subscribe to
 `EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the cookie, an

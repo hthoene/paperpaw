@@ -219,6 +219,10 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
     sender
         .image_prepare(&PrepareImage::new(PrepareRoot::Data, &"p".repeat(512), 2))
         .unwrap();
+    // The plugin's own install folder is root 2.
+    sender
+        .image_prepare(&PrepareImage::new(PrepareRoot::Bundle, "cats/2.png", 79).side(300))
+        .unwrap();
     let long = "p".repeat(513);
     assert_eq!(
         sender.image_prepare(&PrepareImage::new(PrepareRoot::Data, &long, 1)),
@@ -226,7 +230,7 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
     );
     sender.image_release(ImageId::new(3).unwrap()).unwrap();
     let batches = ctx.batches.borrow();
-    assert_eq!(batches.len(), 4, "the refused request stages nothing");
+    assert_eq!(batches.len(), 5, "the refused request stages nothing");
     let sent = |i: usize| {
         let commands = crate::native::wire::commands_wire::commands_decode(&batches[i]).unwrap();
         commands.iter().next().unwrap()
@@ -251,7 +255,17 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
             flags: 1
         }
     );
-    assert_eq!(sent(3), Command::ImageRelease { image: 3 });
+    assert_eq!(
+        sent(3),
+        Command::ImagePrepare {
+            root: 2,
+            path: "cats/2.png",
+            side: 300,
+            cookie: 79,
+            flags: 0
+        }
+    );
+    assert_eq!(sent(4), Command::ImageRelease { image: 3 });
 }
 
 fn ready(status: u32, image: u32) -> Result<ImageReady, Error> {

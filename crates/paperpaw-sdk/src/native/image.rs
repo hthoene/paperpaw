@@ -207,8 +207,9 @@ impl Canvas<'_> {
     }
 }
 
-/// Where a file to prepare is: the plugin's own data folder (root 0) or the
-/// library (root 1, needs `uses.storage`).
+/// Where a file to prepare is: the plugin's own data folder (root 0), the
+/// library (root 1, needs `uses.storage`) or the plugin's own install folder
+/// (root 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PrepareRoot {
@@ -216,6 +217,10 @@ pub enum PrepareRoot {
     Data,
     /// The library folder.
     Library,
+    /// The plugin's own install folder, read only, with no feature: the pictures
+    /// it ships. For a plugin built into the image it is empty, and the host answers
+    /// `NOT_FOUND` there.
+    Bundle,
 }
 
 /// A picture file to decode in the background (`command.image_prepare`): JPEG,
@@ -268,6 +273,7 @@ impl<'a> PrepareImage<'a> {
             root: match self.root {
                 PrepareRoot::Data => 0,
                 PrepareRoot::Library => 1,
+                PrepareRoot::Bundle => 2,
             },
             path: self.path,
             side: self.side,
