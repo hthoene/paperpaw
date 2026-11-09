@@ -26,7 +26,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
     ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_sdk::SettingValue;
+use paperpaw_sdk::{SettingValue, Settings};
 
 /// The most subscribers a stage has active (the first 32 in its order).
 const SUBSCRIBERS: usize = 32;
@@ -111,7 +111,7 @@ pub(crate) fn run(
     }
     let directory = frame.directory.ok_or(ERR_UNSUPPORTED)?;
     let (limits, chosen) = choose(
-        directory,
+        (directory, frame.settings()),
         (stage, epoch),
         caller,
         cursor,
@@ -131,7 +131,7 @@ pub(crate) fn run(
 /// The checks before any subscriber runs, and the subscriber at `cursor` of
 /// the list this callback froze.
 fn choose(
-    directory: &NativeDeclarations,
+    (directory, settings): (&NativeDeclarations, &Settings),
     (stage, epoch): (&str, u64),
     caller: u64,
     cursor: u32,
@@ -156,7 +156,7 @@ fn choose(
     }
     let mut members = directory.members.try_borrow_mut().map_err(|_| ERR_BUSY)?;
     let picked = members
-        .member(epoch, stage, cursor, || freeze(&store, stage))?
+        .member(epoch, stage, cursor, || freeze(&store, settings, stage))?
         .ok_or(ERR_NOT_FOUND)?;
     if picked.id.len() > ID_BYTES {
         return Err(ERR_INVALID);
@@ -174,8 +174,11 @@ fn choose(
 }
 
 /// The live subscribers of `stage` in stage order, at most 32, as one list.
-fn freeze(store: &DeclarationStore, stage: &str) -> Result<Vec<Member>, i32> {
+/// A subscriber the user turned off for this stage is not in it and does not
+/// count toward the 32.
+fn freeze(store: &DeclarationStore, settings: &Settings, stage: &str) -> Result<Vec<Member>, i32> {
     let mut subscribers = store.stage_subscribers(stage)?;
+    subscribers.retain(|subscriber| !switched_off(settings, stage, subscriber.plugin));
     subscribers
         .sort_unstable_by(|a, b| (a.order, a.plugin, a.index).cmp(&(b.order, b.plugin, b.index)));
     subscribers.truncate(SUBSCRIBERS);
@@ -319,4 +322,25 @@ fn style_granted(frame: &CoreFrame<'_>, subscriber: &str) -> bool {
         return false;
     };
     matches!(frame.settings().get(key), Some(SettingValue::Bool(true)))
+}
+
+/// Whether the user turned `plugin` off for `stage`: the setting
+/// `core.stage.<stage id>.<plugin id>` is no (decision 131). It is on unless
+/// set, so a stage and a plugin nobody configured behave as before.
+fn switched_off(settings: &Settings, stage: &str, plugin: &str) -> bool {
+    const KEY: &str = "core.stage.";
+    // A stage id is at most 128 bytes, a plugin id 64 (longer cannot be set).
+    let mut full = [0u8; KEY.len() + 128 + 1 + ID_BYTES];
+    let mut end = 0;
+    for part in [KEY, stage, ".", plugin] {
+        let Some(to) = full.get_mut(end..end + part.len()) else {
+            return false;
+        };
+        to.copy_from_slice(part.as_bytes());
+        end += part.len();
+    }
+    let Ok(key) = core::str::from_utf8(&full[..end]) else {
+        return false;
+    };
+    matches!(settings.get(key), Some(SettingValue::Bool(false)))
 }

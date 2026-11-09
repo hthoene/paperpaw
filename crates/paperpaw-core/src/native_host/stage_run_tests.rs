@@ -222,34 +222,34 @@ fn with_frame<R>(
 }
 
 /// [`with_frame`] in the callback `epoch`, with the style grants of the
-/// plugins named in `granted` set to yes.
+/// settings in `switches` defined and set.
 fn with_frame_at<R>(
     fixture: &Fixture,
     caller: Option<u64>,
     levels: usize,
-    (epoch, granted, memory): (u64, &[&str], MemoryClass),
+    (epoch, switches, memory): (u64, &[(&str, bool)], MemoryClass),
     body: impl FnOnce(&CoreFrame<'_>) -> R,
 ) -> R {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE.with_memory(memory))
         .build()
         .unwrap();
-    for plugin in granted {
-        let key = alloc::format!("core.grant.style.{plugin}");
-        let key: &'static str = alloc::boxed::Box::leak(key.into_boxed_str());
+    for &(key, value) in switches {
+        let key: &'static str =
+            alloc::boxed::Box::leak(alloc::string::String::from(key).into_boxed_str());
         kernel
             .shared
             .settings
             .define(paperpaw_sdk::SettingSpec::switch(
                 key,
-                "grant",
-                false,
+                "switch",
+                true,
                 paperpaw_sdk::builtin::groups::OTHER,
             ))
             .unwrap();
         kernel
             .shared
             .settings
-            .set(key, paperpaw_sdk::SettingValue::Bool(true))
+            .set(key, paperpaw_sdk::SettingValue::Bool(value))
             .unwrap();
     }
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
@@ -483,7 +483,7 @@ fn the_style_grant_of_the_subscriber_is_stamped_into_the_reply() {
         &fixture,
         Some(READER),
         1,
-        (2, &["alpha"], MemoryClass::Large),
+        (2, &[("core.grant.style.alpha", true)], MemoryClass::Large),
         |frame| {
             let mut out = buffer();
             let mut flags = Vec::new();
@@ -552,5 +552,50 @@ fn a_small_device_blocks_stage_runs_until_its_stack_gate_passes() {
     assert!(
         fixture.calls.borrow().is_empty(),
         "no subscriber was called"
+    );
+}
+
+#[test]
+fn a_subscriber_the_user_turned_off_is_inert_and_does_not_count() {
+    let fixture = Fixture::new();
+    // `alpha` is off for this stage, `zeta` is off for another one: only the
+    // first changes the list.
+    let off = [
+        ("core.stage.reader.filter.alpha", false),
+        ("core.stage.reader.other.zeta", false),
+        ("core.stage.reader.filter.first", true),
+    ];
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (2, &off, MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let mut seen = Vec::new();
+            for cursor in 0.. {
+                match ask(frame, STAGE, cursor, b"", &mut out) {
+                    Ok(count) => seen.push(reply(&out, count).subscriber),
+                    Err(status) => {
+                        assert_eq!(status, ERR_NOT_FOUND);
+                        break;
+                    }
+                }
+            }
+            assert_eq!(seen, ["first", "zeta"]);
+        },
+    );
+    assert_eq!(&*fixture.calls.borrow(), &[("first", 7), ("zeta", 5)]);
+    // Turned back on, it is in the next callback's list.
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (3, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 1, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "alpha");
+        },
     );
 }
