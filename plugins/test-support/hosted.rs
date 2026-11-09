@@ -5,6 +5,10 @@
 //! goes through the kernel's declaration store, registry, menus and slots.
 //! The host runs the plugin's own checked metadata; nothing here stands in for
 //! a service. Families the host refuses on purpose stay refused.
+#![allow(
+    dead_code,
+    reason = "shared by several test files; each uses part of the kit"
+)]
 use paperpaw_core::{
     Kernel,
     native_host::{HostResources, flat::FlatDepth},

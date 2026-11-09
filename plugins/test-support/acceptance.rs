@@ -108,7 +108,9 @@ fn read_png(path: &Path) -> Result<(usize, usize, Vec<u8>), String> {
         png::ColorType::Grayscale => data.to_vec(),
         // As `Pixel::luma` rounds.
         png::ColorType::Rgb => data
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|p| {
                 ((u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114 + 500)
                     / 1000) as u8
