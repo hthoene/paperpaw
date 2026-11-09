@@ -68,7 +68,12 @@ impl HostWiring {
     /// own folders by identity (an 8.3 alias of `.paperpaw` is refused; the
     /// check over-refuses until the storage can answer "same entry"), what is
     /// in use (downloads, staged installs, served bodies, the library's move
-    /// job: `ERR_BUSY`) and the move itself.
+    /// job: `ERR_BUSY`) and the move itself. [`HostResources::wire`] refuses
+    /// it (`ERR_STATE`, nothing wired) until the host has a source for each of
+    /// the library's move job, the network's files and the reader's open book:
+    /// nothing busy would be a wrong answer for state the host does hold. The
+    /// sources are core's adapters and register as they land; a shell treats
+    /// the refusal as "no `core.files`" and carries on.
     #[must_use]
     pub fn files(mut self, storage: Rc<dyn Storage>) -> Self {
         self.files = Some(storage);
@@ -204,8 +209,12 @@ impl HostResources {
     /// `ERR_STATE` when one of them is wired already (nothing is wired then).
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
+        // `core.files` needs every source of what the host holds in use
+        // (the library's move, the network's files, the reader's book):
+        // without one "nothing is busy" would be wrong, so it is refused.
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
-            || (wiring.files.is_some() && hosts.files().is_some())
+            || (wiring.files.is_some()
+                && (hosts.files().is_some() || !hosts.busy_sources().complete()))
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
         {

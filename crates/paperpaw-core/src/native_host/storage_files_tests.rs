@@ -28,6 +28,11 @@ fn the_host_folders_are_known_by_spelling_in_any_case() {
     assert!(files.excluded(1, "", "PLUGINS"));
     assert!(files.excluded(1, "", ".Paperpaw"));
     assert!(files.excluded(0, ".paperpaw/plugins/a", ".RECEIVED"));
+    // The driver's fold: `ı` is `I`, `ſ` is `S` (and `ß` is `SS`).
+    assert!(files.excluded(1, "", "plugıns"));
+    assert!(files.excluded(1, "", "pluginſ"));
+    assert!(files.excluded(0, ".paperpaw/plugins/a", ".receıved"));
+    assert!(!files.excluded(1, "", "plugin\u{df}"));
     assert!(!files.excluded(1, "", "Books"));
     assert!(!files.excluded(0, ".paperpaw/plugins/a", "notes"));
     assert!(!files.excluded(2, "", "plugins"), "only roots 0 and 1 hide");
@@ -105,8 +110,8 @@ fn busy_and_moving_come_from_the_registered_sources_and_nothing_is_busy_without(
         busy: Cell::new(false),
         moving: Cell::new(true),
     });
-    sources.register(one.clone()).unwrap();
-    sources.register(two).unwrap();
+    sources.register(BusyKind::Network, one.clone()).unwrap();
+    sources.register(BusyKind::LibraryMoves, two).unwrap();
     assert!(
         files.busy("Books/a.epub", Access::Write),
         "the first holds it"
@@ -118,20 +123,43 @@ fn busy_and_moving_come_from_the_registered_sources_and_nothing_is_busy_without(
     assert!(!files.busy("Books/a.epub", Access::Write));
 }
 
+fn quiet() -> Rc<Source> {
+    Rc::new(Source {
+        busy: Cell::new(false),
+        moving: Cell::new(false),
+    })
+}
+
 #[test]
-fn the_wiring_gives_the_device_core_files_once() {
+fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
     let resources = HostResources::try_new().unwrap();
-    assert!(resources.hosts().files().is_none());
     let wiring = || HostWiring::new().files(card());
+    // None, then some: nothing is wired, and the refusal is `ERR_STATE`.
+    assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
+    let sources = resources.hosts().busy_sources();
+    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
+    sources.register(BusyKind::Network, quiet()).unwrap();
+    assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
+    assert!(resources.hosts().files().is_none(), "nothing half wired");
+    // The reader's book was the last: now it wires, once.
+    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
     resources.wire(wiring()).unwrap();
     assert!(resources.hosts().files().is_some());
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
-    // The sources of the device are the ones the wired host asks.
-    let source = Rc::new(Source {
+}
+
+#[test]
+fn the_wired_host_asks_the_device_sources() {
+    let resources = HostResources::try_new().unwrap();
+    let sources = resources.hosts().busy_sources();
+    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
+    sources.register(BusyKind::Network, quiet()).unwrap();
+    let reader = Rc::new(Source {
         busy: Cell::new(true),
         moving: Cell::new(true),
     });
-    resources.hosts().busy_sources().register(source).unwrap();
+    sources.register(BusyKind::ReaderBook, reader).unwrap();
+    resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &resources.hosts().files().unwrap().0;
     assert!(files.busy("Books/a.epub", Access::Write));
     assert!(files.moving());

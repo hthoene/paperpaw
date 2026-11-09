@@ -12,8 +12,10 @@
 //!   refused too) and never lets an alias through; an exact answer waits for a
 //!   `Storage` method (Kernel).
 //! - `busy` and `moving`: from the registered [`BusySource`]s, the host's own
-//!   state (downloads, staged installs, served bodies, the library's move
-//!   job) that the shell cannot know. With none registered nothing is busy.
+//!   state (downloads, staged installs, served bodies, the reader's open book,
+//!   the library's move job) that the shell cannot know. `HostWiring::files`
+//!   refuses (`ERR_STATE`) until every [`BusyKind`] has a source: nothing
+//!   busy would be a wrong answer for state the host does hold.
 //! - `rename`: the storage's rename (the library's journal and job follow a
 //!   move of the user's files when the library host is wired).
 use super::files_service::{Access, FilesHost};
@@ -35,28 +37,56 @@ pub(crate) trait BusySource {
     }
 }
 
+/// What kind of in-use state a [`BusySource`] answers for. `core.files` is not
+/// wired until every kind has a source: an unregistered kind would make
+/// "nothing is busy" the answer for state the host does hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BusyKind {
+    /// The library's move job (`Moves::busy`, and every `move` while it runs).
+    LibraryMoves,
+    /// `core.net`: a saving request's target and staged file, a served
+    /// request's body.
+    Network,
+    /// The book the reader has open.
+    ReaderBook,
+}
+
+impl BusyKind {
+    const ALL: [Self; 3] = [Self::LibraryMoves, Self::Network, Self::ReaderBook];
+}
+
 /// The registered [`BusySource`]s of the device.
 #[derive(Default)]
-pub(crate) struct BusySources(RefCell<Vec<Rc<dyn BusySource>>>);
+pub(crate) struct BusySources(RefCell<Vec<(BusyKind, Rc<dyn BusySource>)>>);
 
 impl BusySources {
-    /// Adds a source.
+    /// Adds the source of `kind`.
     ///
     /// # Errors
     /// `ERR_BUSY` when the list is in use; `ERR_NO_MEMORY`.
     #[allow(dead_code, reason = "the host's own tables register as they land")]
-    pub(crate) fn register(&self, source: Rc<dyn BusySource>) -> Result<(), i32> {
+    pub(crate) fn register(&self, kind: BusyKind, source: Rc<dyn BusySource>) -> Result<(), i32> {
         let mut all = self.0.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         all.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        all.push(source);
+        all.push((kind, source));
         Ok(())
+    }
+
+    /// Whether every kind has a source: what `core.files` needs before it is
+    /// wired.
+    pub(crate) fn complete(&self) -> bool {
+        self.0.try_borrow().is_ok_and(|all| {
+            BusyKind::ALL
+                .iter()
+                .all(|kind| all.iter().any(|(have, _)| have == kind))
+        })
     }
 
     /// A list in use answers busy: the safe answer.
     fn any(&self, ask: impl Fn(&dyn BusySource) -> bool) -> bool {
         self.0
             .try_borrow()
-            .map_or(true, |all| all.iter().any(|source| ask(&**source)))
+            .map_or(true, |all| all.iter().any(|(_, source)| ask(&**source)))
     }
 }
 
@@ -116,7 +146,7 @@ impl FilesHost for StorageFiles {
         let names = excluded_names(root);
         if names
             .iter()
-            .any(|name| first_segment.eq_ignore_ascii_case(name))
+            .any(|name| super::files_service::same_fold(first_segment, name))
         {
             return true;
         }

@@ -29,6 +29,8 @@ mod change;
 mod read;
 mod target;
 
+pub(crate) use target::same_fold;
+
 pub(crate) use super::lib_service::moves::Access;
 
 /// The calling plugin: its host owner id, its plugin id, and whether the
