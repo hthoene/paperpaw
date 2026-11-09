@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The sleeping cat (decoded for the screen's size into the data folder), the
     // cover of the book read last, and a picture of the folder, one after the
     // other, draw as before.
@@ -38,6 +38,13 @@ const CASES: [Case; 5] = [
     // The screen closes when the device wakes; what opened as it woke stays.
     Case {
         name: "sleep-wake",
+        golden: None,
+        blocked_by: &["H1", "H4"],
+    },
+    // The picture and the widget over the page are picked on a screen of their
+    // own: a choice sets the settings and closes it in one callback.
+    Case {
+        name: "sleep-picker",
         golden: None,
         blocked_by: &["H1", "H4"],
     },
@@ -81,4 +88,10 @@ fn sleep_buttons_and_hints() {
 #[ignore = "BLOCKED H1/H4: screen commands and input are not qualified"]
 fn sleep_wake() {
     CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: screen commands and input are not qualified for the native plugin"]
+fn sleep_picker() {
+    CASES[5].refuse().unwrap();
 }

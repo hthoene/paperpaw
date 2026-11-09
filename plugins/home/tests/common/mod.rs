@@ -236,8 +236,12 @@ pub struct WidgetLists;
 
 impl Plugin for WidgetLists {
     fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sleep"), "Widget lists", Version::new(0, 1, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
+        Manifest::new(
+            Id::new_static("sleep"),
+            "Widget lists",
+            Version::new(0, 1, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {

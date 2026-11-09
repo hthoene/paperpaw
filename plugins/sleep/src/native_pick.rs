@@ -135,7 +135,9 @@ pub fn build(
         .saturating_add(names.len().min(MOST_PICTURES))
         .saturating_add(presets.len().min(MOST_PRESETS))
         .saturating_add(widgets.len().min(MOST_WIDGETS));
-    items.try_reserve_exact(total).map_err(|_| Error::NoMemory)?;
+    items
+        .try_reserve_exact(total)
+        .map_err(|_| Error::NoMemory)?;
     layout
         .presets
         .try_reserve_exact(presets.len().min(MOST_PRESETS))
@@ -152,7 +154,11 @@ pub fn build(
         items.push(Item::row(title, if on { MARK } else { "" })?);
         Ok(())
     };
-    mark(&mut items, folder_title, widget.is_empty() && picture.is_empty())?;
+    mark(
+        &mut items,
+        folder_title,
+        widget.is_empty() && picture.is_empty(),
+    )?;
     for name in names.iter().take(MOST_PICTURES) {
         if path_len(folder, name) > MOST_PATH {
             continue;
@@ -162,7 +168,11 @@ pub fn build(
         layout.pictures += 1;
     }
     for preset in presets.iter().take(MOST_PRESETS) {
-        mark(&mut items, &preset.title, widget.is_empty() && preset.applied)?;
+        mark(
+            &mut items,
+            &preset.title,
+            widget.is_empty() && preset.applied,
+        )?;
         push(&mut layout.presets, copy(&preset.id)?)?;
     }
     for entry in widgets.iter().take(MOST_WIDGETS) {
@@ -373,7 +383,16 @@ mod tests {
         let mut applied = presets();
         applied[0].applied = true;
         let make = |widget: &str| {
-            build("Folder", "", &[], &applied, &widgets(), widget, "").unwrap()
+            build(
+                "Folder",
+                "",
+                &[],
+                &applied,
+                &widgets(),
+                widget,
+                "owls/owl.png",
+            )
+            .unwrap()
         };
         assert_eq!(marked(&make("")), [1]);
         assert_eq!(marked(&make("home.clock")), [2]);

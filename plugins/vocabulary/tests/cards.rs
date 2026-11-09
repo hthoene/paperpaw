@@ -71,10 +71,8 @@ impl Plugin for SleepsOnTheCard {
         ))?;
         // The setting the sleep plugin owns, which the mode is a choice of.
         r.add_setting_group({
-            static GROUP: SettingGroupSpec = SettingGroupSpec::new(
-                Id::new_static("sleep.group"),
-                "sleep.title",
-            );
+            static GROUP: SettingGroupSpec =
+                SettingGroupSpec::new(Id::new_static("sleep.group"), "sleep.title");
             &GROUP
         })?;
         r.add_settings({

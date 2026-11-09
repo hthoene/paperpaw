@@ -470,7 +470,10 @@ fn remember_failure(host: &Host<'_>, why: Option<Failure<'_>>) -> Result<(), Err
         Failure::Missing(name) => messages.format(
             host,
             "sleep.overlay.missing",
-            &[Arg::Text { name: "name", value: name }],
+            &[Arg::Text {
+                name: "name",
+                value: name,
+            }],
         )?,
         Failure::Unreadable(name, key) => {
             let reason = messages.copy(host, key)?;
@@ -478,8 +481,14 @@ fn remember_failure(host: &Host<'_>, why: Option<Failure<'_>>) -> Result<(), Err
                 host,
                 "sleep.overlay.unreadable",
                 &[
-                    Arg::Text { name: "name", value: name },
-                    Arg::Text { name: "reason", value: &reason },
+                    Arg::Text {
+                        name: "name",
+                        value: name,
+                    },
+                    Arg::Text {
+                        name: "reason",
+                        value: &reason,
+                    },
                 ],
             )?
         }

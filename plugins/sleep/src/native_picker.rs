@@ -111,9 +111,7 @@ impl Picker {
     pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
         let step = self.list.input(host, input)?;
         if let ItemStep::Chosen(index) = step {
-            let choice = self
-                .layout
-                .choice(self.list.items(), &self.folder, index)?;
+            let choice = self.layout.choice(self.list.items(), &self.folder, index)?;
             if let Some(choice) = choice {
                 commit(host, &choice)?;
             }

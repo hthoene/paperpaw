@@ -85,7 +85,9 @@ fn the_group_and_the_settings_say_what_the_settings_page_shows() {
         ]
     );
     let spec = |at: usize| native.specs[at].as_str();
-    assert!(spec(0).starts_with("show|2|0|sleep.group|sleep.setting.show|sleep.setting.show.help|t:sleep.show.cat|"));
+    assert!(spec(0).starts_with(
+        "show|2|0|sleep.group|sleep.setting.show|sleep.setting.show.help|t:sleep.show.cat|"
+    ));
     assert!(spec(0).ends_with(
         "sleep.show.cat\\nsleep.show.cover\\nsleep.show.picture\\nsleep.show.overlay\\nsleep.show.widgets\\nsleep.show.message\\nsleep.show.page\""
     ));
