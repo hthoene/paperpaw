@@ -2699,6 +2699,14 @@ to finish preparation. `reply_state` keeps the call's document and conversion
 identity. Scalar reply helpers validate the request operation before encoding
 into caller-owned output. Pass the returned bytes through `native::reply::Reply`.
 
+Lists (sections, table of contents, links, fonts) are written with
+`FormatCall::rows(out)` and its typed row methods. A row that does not fit is
+`NoSpace`: end the page with `PageEnd::more(total, next, generation)`; the host asks
+again with `next` and that generation. The last page is `PageEnd::last(total)`.
+Pages always keep room for their closing record. A link whose `href` is over 1,024
+bytes is skipped (`Ok(false)`). `reply_image` answers cover and image requests with
+the cache path, the picture's own index and size.
+
 `reply_metadata` borrows the existing `document::Metadata`; title and series
 previews advertise UTF-8 cuts with flags. `reply_metadata_text` returns the
 requested value in UTF-8 parts, preserving its total byte length. It allocates
