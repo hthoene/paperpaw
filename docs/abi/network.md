@@ -185,7 +185,13 @@ file's size, 2.1).
   of the user's input, as DEV's window); `saving` when the user put this plugin's network use on
   hold; `network_off` when the user turned this plugin's network off. `offline` and `saving` set
   `flags` bit 0 `later` in the event (try again once `dev_power.flags` bit 1 `online` is set, ASY
-  schedules that); `network_off` does not.
+  schedules that); `network_off` does not. `saving` holds only a plugin's background use (no
+  user-input window open for it, interface 6's "not the reader"). These are admission checks: a
+  request, server or socket already running is ended by `network_off` alone (at the next host pass,
+  `network_off` with no `later`); the offline mode and a hold let it finish, and a radio the mode
+  turns off ends it as any lost network does (`no_network`, SOCK `lost`). Off is checked first,
+  then offline, then saving; a plugin the host can't place, or a policy it can't build for want of
+  memory, counts as off.
 - [D] While a request or a server runs, the device does not go to sleep on its own (interface 6).
 
 ### 3.3 Files, power cuts and the card
