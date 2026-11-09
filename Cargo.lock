@@ -1600,6 +1600,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "libloading 0.9.0",
  "paperpaw-config",
+ "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",

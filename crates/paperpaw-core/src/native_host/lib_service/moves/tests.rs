@@ -119,6 +119,7 @@ impl MoveHost for World {
                 to: t,
                 replace: *r,
                 identity: *i,
+                renamed: false,
             });
             true
         }))
