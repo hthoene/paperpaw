@@ -31,6 +31,7 @@ use super::{
     native_instances::{InstanceState, NativeInstances, NativeLease},
     native_screen::Dispatch,
     registrations::DrawFrame,
+    stack_rows::StackRows,
     ui_guard,
     ui_handles::{self, Caller, ChildDraw, GuardState, Target, UiHandles},
 };
@@ -78,6 +79,9 @@ impl Leases for NativeDeclarations {
 pub(crate) struct RegistryDraw<'a, 'e> {
     pub(crate) leases: &'a dyn Leases,
     pub(crate) env: &'a Env<'e>,
+    /// The caller's screen callback, kept on the stack tracker while the
+    /// child draws (`network.md` 5: a server is tied to that screen).
+    pub(crate) screen: Option<(&'a StackRows, u32)>,
 }
 
 impl ChildDraw for RegistryDraw<'_, '_> {
@@ -87,9 +91,17 @@ impl ChildDraw for RegistryDraw<'_, '_> {
         frame: &DrawFrame<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
-        self.leases
-            .lease(target.owner)?
-            .draw(target.token, frame, self.env, canvas)
+        let lease = self.leases.lease(target.owner)?;
+        // The child's callback runs on behalf of the caller's screen: the
+        // tracker names the child's owner on that screen until it returns
+        // (the previous entry comes back). Another owner's row never answers
+        // `showing_screen` for the child, so a nested server refuses, safely.
+        // TODO(#228, Core): charge the running-plugin tracker here too, once
+        // Core's central nested-dispatch path exists.
+        let _screen = self
+            .screen
+            .map(|(rows, instance)| rows.enter_callback(target.owner, instance));
+        lease.draw(target.token, frame, self.env, canvas)
     }
 
     fn failed(&self, target: &Target, status: i32) {
@@ -158,6 +170,7 @@ pub(crate) fn compose_in(
         leases: directory,
         env: frame.env,
         depth,
+        screen: frame.instance.map(|instance| (frame.stack_rows, instance)),
         gate_open,
     }
     .compose(stamp, request, canvas)
@@ -170,6 +183,8 @@ pub(crate) struct ComposeHost<'a, 'e> {
     pub(crate) leases: &'a dyn Leases,
     pub(crate) env: &'a Env<'e>,
     pub(crate) depth: &'a DispatchDepth,
+    /// The caller's screen instance and the stack tracker, if it has a screen.
+    pub(crate) screen: Option<(&'a StackRows, u32)>,
     /// False on the X4 until its nested-callback stack gate passes.
     pub(crate) gate_open: bool,
 }
@@ -194,6 +209,7 @@ impl ComposeHost<'_, '_> {
         let draw = RegistryDraw {
             leases: self.leases,
             env: self.env,
+            screen: self.screen,
         };
         // Resolved under the table's borrow, drawn without it: the child's
         // callback may end its own status handles (`callback_ended`) when it

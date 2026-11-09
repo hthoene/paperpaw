@@ -27,6 +27,8 @@ use paperpaw_sdk::Id;
 const OWNER: u64 = u64::MAX;
 const CALLER: u64 = 7;
 const TOKEN: u32 = 42;
+/// The caller's screen instance.
+const SCREEN: u32 = 5;
 
 /// What the child's `draw` saw: depth, both tables free, the purpose and id.
 type Seen = (u8, bool, bool, u32, u32);
@@ -39,6 +41,9 @@ struct Child {
     seen: Rc<RefCell<Vec<Seen>>>,
     answer: Rc<Cell<i32>>,
     dropped: Rc<RefCell<Vec<i32>>>,
+    stack: Rc<crate::native_host::stack_rows::StackRows>,
+    /// The (owner, instance) the stack tracker named during each `draw`.
+    running: Rc<RefCell<Vec<(u64, u32)>>>,
 }
 impl NativeInstance for Child {
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
@@ -67,6 +72,7 @@ impl Dispatch for Child {
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         assert_eq!(token, TOKEN);
+        self.running.borrow_mut().push(self.stack.running());
         // As the dispatch does: the child's draw is the second level.
         let _level = self.guard.enter(&self.depth.as_depth().0).unwrap();
         let store_free = self
@@ -107,6 +113,7 @@ struct World {
     seen: Rc<RefCell<Vec<Seen>>>,
     answer: Rc<Cell<i32>>,
     dropped: Rc<RefCell<Vec<i32>>>,
+    running: Rc<RefCell<Vec<(u64, u32)>>>,
     widget: u32,
 }
 
@@ -127,6 +134,8 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let answer = Rc::new(Cell::new(0));
     let dropped = Rc::new(RefCell::new(Vec::new()));
+    let running = Rc::new(RefCell::new(Vec::new()));
+    let kernel = crate::Kernel::builder(device).build().unwrap();
     let lease = NativeLease::try_new(Child {
         directory: Rc::downgrade(&directory),
         ui: Rc::clone(&pool),
@@ -135,6 +144,8 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         seen: Rc::clone(&seen),
         answer: Rc::clone(&answer),
         dropped: Rc::clone(&dropped),
+        stack: Rc::clone(&kernel.shared.stack_rows),
+        running: Rc::clone(&running),
     })
     .unwrap();
     let row = [Record::StatusItem(wire::StatusItem {
@@ -179,7 +190,8 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         pool,
         directory,
         depth,
-        kernel: crate::Kernel::builder(device).build().unwrap(),
+        kernel,
+        running,
         seen,
         answer,
         dropped,
@@ -199,7 +211,7 @@ impl World {
         let env = self.kernel.shared.env(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
             callback,
-            instance: None,
+            instance: Some(SCREEN),
             depth: Some(self.depth.as_depth()),
             directory: Some(&self.directory),
             env: &env,
@@ -255,6 +267,10 @@ fn a_screens_draw_composes_a_widget_of_another_plugin_at_the_second_level() {
     // Depth 2 inside the child, the directory and the handle table both free,
     // purpose 4 (widget), the handle as the frame's id.
     assert_eq!(*w.seen.borrow(), [(2, true, true, 4, w.widget)]);
+    // The caller's screen callback stayed on the tracker for the child: the
+    // child's owner on the caller's screen; the entry before comes back.
+    assert_eq!(*w.running.borrow(), [(OWNER, SCREEN)]);
+    assert_eq!(w.kernel.shared.stack_rows.running(), (0, 0));
     assert!(w.dropped.borrow().is_empty());
     // A failing child is logged and told; the caller's frame stays.
     w.answer.set(-5);
