@@ -47,7 +47,6 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                         | "files.covers.mono"
                         | "files.covers.gray"
                         | "files.books"
-                        | "files.archive"
                         | "files.menu"
                         | "files.choose-folder"
                 )

@@ -134,9 +134,10 @@ impl NativeFiles {
         let (mut input, mut out) = (buffer(files_input())?, buffer(SERVICE_BUFFER)?);
         let result = (|| {
             // Made where missing; moving into it tells if it is not there.
-            match files.make_dir(host, Root::Files, folder, &mut input, &mut out) {
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Ok(()) | Err(_) => {}
+            if let Err(Error::NoMemory) =
+                files.make_dir(host, Root::Files, folder, &mut input, &mut out)
+            {
+                return Err(Error::NoMemory);
             }
             for attempt in 0..native_sheet::ATTEMPTS {
                 let target = native_sheet::archive_path(folder, path, attempt)?;

@@ -342,8 +342,10 @@ mod tests {
     #[test]
     fn a_filter_a_shelf_and_a_search_without_books_say_so() {
         let empty = window(Vec::new(), false);
-        let mut selection = Selection::default();
-        selection.filter = Filter::Reading;
+        let selection = Selection {
+            filter: Filter::Reading,
+            ..Selection::default()
+        };
         assert_eq!(
             made(&selection, &empty, &[], Condition::Ready, false).empty,
             "files.list.none.reading"

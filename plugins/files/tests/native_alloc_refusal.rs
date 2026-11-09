@@ -4,11 +4,23 @@
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
 use paperpaw_plugin_files::{
-    native_info,
-    native_model::{self, BookLine, Say, Scope},
+    native_cells::{self, Facts},
+    native_choose, native_covers,
+    native_info::{self, Info},
+    native_list::{self, BookList, Metrics, Row},
+    native_model::{self, BookLine, Filter, Order, Say, Scope, Selection, Window},
+    native_sheet::{self, Action},
     native_shelves::{self, Begun, NameLine, SeriesNames, SeriesSource, Shelf},
+    native_states::Condition,
 };
-use paperpaw_sdk::native::Error;
+use paperpaw_sdk::{
+    Rect,
+    native::{
+        Error,
+        image::ImageId,
+        library::{CatalogCursor, CatalogPhase},
+    },
+};
 
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
@@ -125,6 +137,110 @@ fn the_shelves_survive_refused_allocations() {
         native_info::upper("epub")?;
         native_info::ellipsed("a value")?;
         native_info::ellipsed(&long)?;
+        Ok(())
+    });
+}
+
+#[test]
+fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() {
+    // The fixtures are built here, outside the refused runs.
+    let books = vec![
+        book(false, Some(40), false),
+        book(false, None, true),
+        book(true, Some(100), false),
+    ];
+    let mut window: Window<CatalogCursor, BookLine> = Window::new(CatalogCursor::start());
+    window.total = 3;
+    window.books = books;
+    window.next = Some(CatalogCursor::start());
+    let empty: Window<CatalogCursor, BookLine> = Window::new(CatalogCursor::start());
+    let selection = Selection::default();
+    let search = Selection {
+        scope: Scope::Search("x".into()),
+        filter: Filter::All,
+        order: Order::Name,
+    };
+    let later = [CatalogCursor::start()];
+    let info = Info {
+        title: "T".into(),
+        author: "A".into(),
+        rows: vec![("Folder".into(), "books".into())],
+        cover: Some((1, 1)),
+    };
+    let metrics = Metrics {
+        area: Rect::new(0, 50, 480, 400),
+        row: 40,
+        gap: 8,
+        margin: 12,
+        columns: 2,
+    };
+    let kept = [ImageId::new(1).unwrap()];
+    let lone = String::from("books/Crime/a.epub");
+    let words = ["Open".to_string(), "Delete".to_string()];
+    fail_alloc::sweep(|| {
+        for (selection, window, starts, condition) in [
+            (&selection, &window, &[][..], Condition::Ready),
+            (
+                &selection,
+                &window,
+                &later[..],
+                Condition::Scanning { books: 9 },
+            ),
+            (&selection, &empty, &[][..], Condition::Preparing),
+            (&selection, &empty, &[][..], Condition::CardGone),
+            (&search, &empty, &[][..], Condition::Ready),
+        ] {
+            let facts = Facts {
+                selection,
+                window,
+                starts,
+                condition,
+                archived: true,
+                folder: "books",
+            };
+            let built = native_cells::build(&mut Words, &facts)?;
+            for grid in [false, true] {
+                native_list::pages(&built.cells, &metrics, grid)?;
+            }
+            let mut list = BookList::new(built.cells, false);
+            list.set_focus(1);
+            list.visible_books()?;
+        }
+        native_cells::build(
+            &mut Words,
+            &Facts {
+                selection: &selection,
+                window: &empty,
+                starts: &[],
+                condition: Condition::Ready,
+                archived: false,
+                folder: "books",
+            },
+        )?;
+        native_list::Cell::plain(Row::Note, "a", "b")?;
+        native_info::cells(&info)?;
+        Condition::of(Ok((CatalogPhase::Walking, 3)), true)?;
+        Condition::of(Err(Error::Io), false)?;
+        let mut covers = native_covers::Covers::new(8, 3)?;
+        covers.set(1, native_covers::Slot::Ready(kept[0]));
+        covers.drop_all(|_| {});
+        for finished in [false, true] {
+            let actions = native_sheet::actions(native_sheet::Facts {
+                finished,
+                can_archive: true,
+                can_delete: true,
+            })?;
+            assert!(actions.contains(&Action::Open));
+        }
+        for attempt in 0..3 {
+            native_sheet::archive_path("books/Archive", &lone, attempt)?;
+        }
+        native_sheet::choices(&words)?;
+        native_choose::picks("books", 40)?;
+        native_choose::join("books", "Crime")?;
+        native_choose::join("", "Crime")?;
+        native_choose::folder_name("  Sci/Fi: *new*? ")?;
+        native_choose::folder_name("...")?;
         Ok(())
     });
 }

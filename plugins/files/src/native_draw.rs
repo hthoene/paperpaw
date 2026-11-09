@@ -183,8 +183,42 @@ impl Look<'_> {
                 ink,
             )?;
         }
+        let chips = self.chips(out, cell, left, second, ink)?;
+        let room = Rect::new(
+            second.x,
+            second.y,
+            second.width.saturating_sub(chips),
+            second.height,
+        );
+        let color = if focused && !style.ring {
+            style.paper
+        } else {
+            style.note
+        };
+        text::label(
+            out,
+            font,
+            &cell.note,
+            style.small,
+            f32::from(room.x),
+            room,
+            color,
+            Some(room),
+        )
+    }
+
+    /// The badges as chips at the right of the note's line, as far as they
+    /// fit; the width they take.
+    fn chips(
+        &self,
+        out: &mut Vec<Paint>,
+        cell: &Cell,
+        left: Rect,
+        second: Rect,
+        ink: Color,
+    ) -> Result<u16, Error> {
+        let (font, style) = (self.font, self.style);
         let mut chips = 0u16;
-        // The badges as chips at the right of the note's line, as far as they fit.
         for chip in &cell.chips {
             let wide = font.measure_text(style.small, chip)?;
             let wide = u16::try_from(wide as u32 + 2 * u32::from(style.gap)).unwrap_or(u16::MAX);
@@ -219,27 +253,7 @@ impl Look<'_> {
             )?;
             chips = used;
         }
-        let room = Rect::new(
-            second.x,
-            second.y,
-            second.width.saturating_sub(chips),
-            second.height,
-        );
-        let color = if focused && !style.ring {
-            style.paper
-        } else {
-            style.note
-        };
-        text::label(
-            out,
-            font,
-            &cell.note,
-            style.small,
-            f32::from(room.x),
-            room,
-            color,
-            Some(room),
-        )
+        Ok(chips)
     }
 
     /// A book as a row of a list: cover, words, bar.

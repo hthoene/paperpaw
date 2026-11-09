@@ -90,6 +90,7 @@ fn series() -> Vec<Series> {
 /// What the library was asked, in order.
 type Log = Rc<RefCell<Vec<String>>>;
 
+#[allow(clippy::too_many_lines, reason = "one scripted service: its ops in one match")]
 fn script_library(host: &ScriptedHost, log: &Log) {
     let log = log.clone();
     host.service("core.library", 1, 0, move |op, input| {
