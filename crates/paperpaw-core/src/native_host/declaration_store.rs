@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 29;
+const KIND_COUNT: usize = 31;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -109,8 +109,12 @@ pub(crate) enum Kind {
     Subscription,
     /// `setup.step` (category 8).
     SetupStep,
+    /// `input.spec` (category 16): an input or gesture of the plugin's own.
+    InputSpec,
+    /// `help.hint` (category 17): a hint for any screen.
+    HelpHint,
 }
-const _: () = assert!(Kind::SetupStep as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::HelpHint as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -143,6 +147,8 @@ impl Kind {
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
             Self::SetupStep => 8,
+            Self::InputSpec => 16,
+            Self::HelpHint => 17,
         }
     }
 
@@ -177,6 +183,8 @@ impl Kind {
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
             Record::SetupStep(_) => Self::SetupStep,
+            Record::InputSpec(_) => Self::InputSpec,
+            Record::HelpHint(_) => Self::HelpHint,
             _ => return None,
         })
     }
@@ -516,6 +524,9 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 // `setup.step` shares the aggregate byte cap.
+                usize::MAX,
+                // So do `input.spec` and `help.hint`.
+                usize::MAX,
                 usize::MAX,
             ];
             if self

@@ -233,6 +233,9 @@ mod declaration_checks;
 #[path = "native_host/declarations_uix.rs"]
 mod declarations_uix;
 
+#[path = "native_host/declarations_input.rs"]
+mod declarations_input;
+
 #[path = "native_host/declaration_reg_checks.rs"]
 mod declaration_reg_checks;
 
