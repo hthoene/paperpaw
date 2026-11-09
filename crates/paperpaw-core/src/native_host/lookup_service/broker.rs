@@ -83,7 +83,7 @@ fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
 }
 
 /// The entry of a provider that has none for the text.
-fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize, i32> {
+pub(super) fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize, i32> {
     wire::record_encode_one(
         &Record::ServiceLookupEntry(wire::ServiceLookupEntry {
             provider,

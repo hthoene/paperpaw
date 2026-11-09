@@ -39,6 +39,7 @@ mod fail_alloc;
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod native_aloud;
+pub mod native_open;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
