@@ -154,7 +154,7 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1037 | `service.reg_binding` | `layer: str 128`, `input: str 64`, `action: str 128`, `origin: u32` |
 | 1038 | `service.reg_setup_step` | `id: str 128`, `page_kind: u32`, `page: str 128`, `order: i32`, `flags: u32`, `title: str 128` |
 | 1039 | `service.reg_value` | `key: str 128`, `value: bytes 512`, `flags: u32` |
-| 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128`, `cells: u32` (optional, ordinal 0, default 0; draft 29) |
+| 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128`, `cells: u32` (optional, ordinal 0, default 0; draft 29), `previews: str 128` (optional, ordinal 1, empty default; draft 32) |
 | 1059 | `service.reg_status` | `id: str 128`, `plugin: str 64`, `kind: u32`, `flags: u32`, `priority: u32`, `size: u32`, `tap: str 128`, `title: str 128` |
 
 Field meanings:
@@ -210,7 +210,9 @@ Field meanings:
   kind's icon, `flags` bit 0 shown somewhere now: a `widget.place` whose `shown_if` holds lists it
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
-  `widget.spec.cells` as declared (size and least size, draft 29).
+  `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
+  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
+  (draft 32): a settings page lists the widgets whose `previews` is its group.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
@@ -319,6 +321,17 @@ These change the user's configuration of the whole device, so they need the D1 f
   `flags` bit 0 previews it instead (section 4.4 rules, replacing any preview). Authority per
   setting as `command.set_setting`; a preset may not change guarded settings unless the submitter
   may (the batch is refused with `ERR_INVALID`). No feature: it changes settings, as slot 15 does.
+- [D] **What a preset of each kind covers** (the settings "of its kind" above; interface 6
+  `presets.rs`): `core.theme` covers the settings of the appearance group (`core.group.look`)
+  except `core.ui-size`, `core.ui-contrast`, `core.logo` and `core.widgets.frame`
+  (`theme_settings`), and values it names outside them are dropped; `core.widget-look` covers
+  `core.widgets.frame`, `.paper`, `.ink`, `.corners`, `.frame-line`, `.shadow`, `.padding` and
+  `.gap`, and each registered widget's `<widget>.frame`, `.padding`, `.size`, `.align`, `.paper`,
+  `.ink`, `.corners`, `.frame-line` and `.drop-shadow` (`widget_look_settings`; the settings
+  plugin's check of what a look covers must name the same list), and values it names outside them
+  are dropped; any other kind covers only the settings it names, so nothing else returns to its
+  default. Settings this device lacks and values that do not fit their setting are skipped, so the
+  rest still applies.
 
 ### 4.4 Preview
 

@@ -3,7 +3,10 @@
 //! plugins declared (`widget.spec`), with the kind's icon, the cells as
 //! declared and, in `flags` bit 0, whether some place that shows now lists
 //! them (`Widgets::shown`: a `widget.place` whose `shown_if` holds names the
-//! widget, or a placement of it, in one of its `list_keys`).
+//! widget, or a placement of it, in one of its `list_keys`). Widgets that
+//! preview a group of settings are no widgets to add: only `reg_query.flags`
+//! bit 0 lists them, those that preview the group `scope`, the one interface 6
+//! (`Widgets::preview`) picks last.
 use super::{
     Row,
     fixed::{Fixed, caps, translated},
@@ -15,13 +18,34 @@ use crate::native_host::{
     registrations::{self as wire, Record},
 };
 use core::ops::ControlFlow;
-use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{Env, widgets::base};
 
 /// `reg_widget.flags`.
 const SHOWN: u32 = 1;
 const PRIVATE: u32 = 1 << 1;
 const SQUARE: u32 = 1 << 2;
+
+/// `reg_query.flags` bit 0: `scope` is a settings group, list its previews.
+const PREVIEWS: u32 = 1;
+
+/// Which widgets a query lists.
+#[derive(Clone, Copy)]
+enum Wanted<'a> {
+    /// Widgets to add, of kind `.0` (empty: every kind).
+    Kind(&'a str),
+    /// The widgets that preview settings group `.0`.
+    Previews(&'a str),
+}
+
+impl Wanted<'_> {
+    fn takes(self, category: &str, previews: &str) -> bool {
+        match self {
+            Self::Kind(kind) => previews.is_empty() && (kind.is_empty() || category == kind),
+            Self::Previews(group) => previews == group,
+        }
+    }
+}
 
 /// The cells of a code plugin's widget as `widget.spec.cells` has them: columns
 /// in bits 0-7, rows 8-15, the least columns 16-23 and the least rows 24-31.
@@ -32,15 +56,30 @@ fn cells(span: paperpaw_sdk::widgets::CellSpan) -> u32 {
 pub(super) fn rows(
     sources: &Sources<'_>,
     scope: &str,
+    flags: u32,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
+    let wanted = if flags & PREVIEWS == 0 {
+        Wanted::Kind(scope)
+    } else if scope.is_empty() {
+        return Err(ERR_INVALID);
+    } else {
+        Wanted::Previews(scope)
+    };
     let env = sources.env;
     let widgets = env.widgets();
-    for (id, title) in widgets.iter() {
+    let preview = match wanted {
+        Wanted::Kind(_) => None,
+        Wanted::Previews(group) => widgets.preview(group),
+    };
+    let listed = widgets
+        .iter()
+        .filter(|(id, _)| wanted.takes(widgets.category(id.as_str()).unwrap_or(""), ""))
+        .map(|(id, title)| (id, title, ""));
+    let previewing =
+        preview.and_then(|id| widgets.title(id.as_str()).map(|title| (id, title, scope)));
+    for (id, title, previews) in listed.chain(previewing) {
         let kind = widgets.category(id.as_str()).unwrap_or("");
-        if !scope.is_empty() && kind != scope {
-            continue;
-        }
         let span = widgets.cells(id.as_str());
         let flags = if widgets.shown(env, id.as_str()) {
             SHOWN
@@ -59,6 +98,7 @@ pub(super) fn rows(
             flags,
             title: translated(env.i18n(), title, caps::TITLE),
             cells: span.map_or(0, cells),
+            previews,
         });
         if visit(&row).is_break() {
             return Ok(());
@@ -71,7 +111,7 @@ pub(super) fn rows(
     let mut stopped = false;
     store.keys(Kind::Widget, &mut |key| {
         if !stopped {
-            stopped = declared(env, &store, key, scope, visit).is_break();
+            stopped = declared(env, &store, key, wanted, visit).is_break();
         }
     });
     Ok(())
@@ -82,7 +122,7 @@ fn declared(
     env: &Env<'_>,
     store: &DeclarationStore,
     key: DeclKey,
-    scope: &str,
+    wanted: Wanted<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     // The id first: whether a place lists it scans the store again, which no
@@ -102,8 +142,7 @@ fn declared(
         let Record::WidgetSpec(spec) = record else {
             return ControlFlow::Continue(());
         };
-        // A widget that previews a group of settings is no widget to add.
-        if !spec.previews.is_empty() || !scope.is_empty() && spec.category != scope {
+        if !wanted.takes(spec.category, spec.previews) {
             return ControlFlow::Continue(());
         }
         let flags = if shown { SHOWN } else { 0 } | spec.flags & PRIVATE | spec.flags & SQUARE;
@@ -115,6 +154,7 @@ fn declared(
             flags,
             title: translated(env.i18n(), spec.title, caps::TITLE),
             cells: spec.cells,
+            previews: spec.previews,
         }))
     })
 }

@@ -1130,6 +1130,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ICON_MAX_B
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ID_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_KIND_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TAG: u32 = 1_040u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TITLE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_SEC_BYTES_DATA_MAX_BYTES: usize = 256usize
@@ -1914,6 +1915,7 @@ const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_DEVICE: u32 
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_FIRMWARE: u32 = 3u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_INSTALL: u32 = 13u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_KEYS: u32 = 15u32
+const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_LEAVES_OUT: u32 = 16u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_MEMORY: u32 = 7u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_NATIVE: u32 = 5u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_NETWORKS: u32 = 9u32
@@ -2992,7 +2994,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceRegSlot<'a> { id: &'a
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegStatus<'a> { id: &'a str, plugin: &'a str, kind: u32, flags: u32, priority: u32, size: u32, tap: &'a str, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegText<'a> { text: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegValue<'a> { key: &'a str, value: &'a [u8], flags: u32 }
-struct paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> { id: &'a str, plugin: &'a str, kind: &'a str, icon: &'a str, flags: u32, title: &'a str, cells: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> { id: &'a str, plugin: &'a str, kind: &'a str, icon: &'a str, flags: u32, title: &'a str, cells: u32, previews: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecBytes<'a> { flags: u32, data: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecEntry<'a> { flags: u32, plugin: &'a str, name: &'a str, label: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecKeep<'a> { plugin: &'a str, name: &'a str, label: &'a str, flags: u32, value: &'a str }
