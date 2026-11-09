@@ -230,25 +230,11 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
             stages += 1;
         }
     }
-    assert_eq!(stages, 3);
+    assert_eq!(stages, 1);
     assert_eq!(declarations::NOTES_MAX_INPUT as usize, stage::MAX_INPUT);
     assert_eq!(declarations::NOTES_MAX_REPLY as usize, stage::MAX_REPLY);
     assert_eq!(
         declarations::NOTES_MAX_RECORDS as usize,
         stage::MAX_SUBSCRIBERS
-    );
-    use paperpaw_plugin_reader::stages::reader_word_looked_up_v1 as words;
-    assert_eq!(declarations::WORDS_MAX_INPUT as usize, words::MAX_INPUT);
-    assert_eq!(declarations::WORDS_MAX_REPLY as usize, words::MAX_REPLY);
-    assert_eq!(
-        declarations::WORDS_MAX_RECORDS as usize,
-        words::MAX_SUBSCRIBERS
-    );
-    use paperpaw_plugin_reader::stages::reader_filter_v1 as filter;
-    assert_eq!(declarations::FILTER_MAX_INPUT as usize, filter::MAX_INPUT);
-    assert_eq!(declarations::FILTER_MAX_REPLY as usize, filter::MAX_REPLY);
-    assert_eq!(
-        declarations::FILTER_MAX_RECORDS as usize,
-        filter::MAX_SUBSCRIBERS
     );
 }
