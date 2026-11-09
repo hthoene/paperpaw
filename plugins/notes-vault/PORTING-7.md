@@ -1,8 +1,8 @@
-# Notes vault on interface 7 (slice 1, partly ported)
+# Notes vault on interface 7 (slices 1 and 2, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the Markdown format, the vault's page, lists and
 tags screens, the index, the home widgets, the registration) is still in place beside the native
-one. It is removed in the PR that finishes the port.
+one; the screens are native since slice 2, the format and the widgets are not. It is removed in the PR that finishes the port.
 
 ## Ported in slice 1 (`declarations.rs`, `src/native_model/`, `src/native_plugin.rs`)
 
@@ -42,13 +42,51 @@ one. It is removed in the PR that finishes the port.
   chooser: interface 6 named the screen `core.folder-editor`, the native setting names the slot
   `core.choose-folder` that screen fills (a plugin taking the slot's place edits the setting too).
 
+## Ported in slice 2 (`native_plugin.rs`, `native_home.rs`, `native_list.rs`, `native_tags.rs`, `native_paged.rs`, `native_card.rs`)
+
+- Declarations (`declarations::ui`, part of the image): the screens `notes-vault.screen` (the page,
+  one instance), `notes-vault.list` (many: a folder opens in a list of its own) and
+  `notes-vault.tags`; the action `notes-vault.open`, its Tools entry (order 38, icon `note`), the
+  group's icon, and the subscription to `event.work_due` (token 20). `tests/native_ui_declarations.rs`
+  compares them with what interface 6 registered, and the host admits them.
+- Metadata: services `core.files`, `core.ui`, `core.work`; feature `uses.storage` (the card root,
+  read only).
+- The page (`native_home.rs`): *Folders*, *Recent notes*, *Tags*, *Search notes*, *Update the index*
+  with its status line (how far, or how many notes and how old); without a vault one row that asks for
+  the folder. The index is made by the work service: `event.work_due` calls `Home::work`, which reads
+  the card for 200 ms (`SLICE_US`, by the host's monotonic clock) or until the index is made, redraws
+  the page, and declares the work again (the host runs it no sooner than 1 s later: `work.md` 1.1).
+  The tags follow the index, as on interface 6. The page re-reads the vault's folder setting and
+  the age of the index whenever it is shown (no `event.setting_changed` subscription: the host does
+  not admit it yet, #763), so a folder chosen in the settings begins its index when the page comes
+  back.
+- The lists (`native_list.rs`): the window of at most 100 entries of `native_model::page`, *Earlier
+  notes* / *More notes* rows where the list goes on, the note line (its folder in the vault), a note
+  opens in the reader bound to `core.reader` (a hand-over with its `path`), a folder in a list of its
+  own, a tag from the tags screen, the search from the keyboard question. A refused read of a later
+  window leaves the window shown. The tags (`native_tags.rs`) are read from the file of tags.
+- *Choose the vault folder* asks the host's folder question (`Question::folder`, the chosen folder
+  written to the setting `notes-vault.folder`); the setting's own editor is still the slot
+  `core.choose-folder`.
+- The card (`native_card.rs`): `Storage` over `core.files` listings and the card root's reads, read
+  only; a refused allocation is told as `NoMemory` whatever the model made of the failed read.
+  It is a small copy of `file-manager`'s card adapter and moves into the kit with it.
+- Differences from interface 6, on purpose: the index goes on while a list is open above the page
+  (interface 6 paused it when the page was hidden; the host sends no hide event); the work's slices
+  are 200 ms every second or so, not 5 ms steps (a screen has no timer on interface 7); a refused
+  allocation or card read while indexing ends the work and the page says *The index could not be
+  written* (retry with *Update the index*); the focus shows at once only where the last input was
+  buttons.
+- Gaps (ignored cases in `tests/acceptance_pending.rs`): nothing is drawn or taken through a host yet
+  (H1/H4); the scripted host has no `core.files`, so the screens have no hosted test; a folder of
+  thousands of entries is listed again from its start for each index step (the model asks
+  `Storage::list_from`, whose default counts places: an X4 timing gate); a vault index of 50,000
+  notes at about one step in each slice is slow, also to be measured on the device.
+- Worst-case memory: one window of 100 rows (path, title) and the stack of folders being walked (at
+  most 24 deep), the tags (400), the two 4 KiB `core.files` buffers while the card is read.
+
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The **screens** (the vault's page, the lists, the tags): `core.ui` compose (Input H3), the
-  keyboard question for the search, and the **card adapter** over `core.files` for the vault
-  (`file-manager`'s `card.rs` is one; it belongs in the SDK or in `paperpaw-ui-kit` before a second
-  plugin copies it). The index runs "a piece at a time while the page is open" on interface 6; on
-  interface 7 that is the work service (`work.md`, no SDK wrapper yet) or the page's own ticks.
 - The **Markdown format** (`MarkdownDocument`, front matter, wiki links, tables): a format
   declaration (`sdk: format declaration through the typed codec`, #493) and the `core.format`
   provider with the document host (Host #417); the parser is not touched in this slice (it has
@@ -56,7 +94,5 @@ one. It is removed in the PR that finishes the port.
   `add_book_cache` (what is converted of each note) needs the book-cache declaration.
 - The **home widgets** (recent notes, pinned note, note of the day, random note, tags, search): the
   widget host call (Core todo 76) and the ui-kit widget toolkit.
-- The **tools entry** (order 38, icon `note`) and the action: they are declared with the page, so
-  that no entry opens nothing.
 - The vault's folder editor is the slot `core.choose-folder`; interface 6 named the screen
   `core.folder-editor`. Same chooser; the registry-through-loader case checks it.
