@@ -23,7 +23,8 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, REVIEW_TOKEN, TICK_TOKEN, WORDS_TOKEN,
+    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN,
+    TICK_TOKEN, WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{DecksView, Numbers};
@@ -32,23 +33,22 @@ use crate::native_review::{self, due_now};
 use crate::native_review_screen::{HostTime, ReviewScreen, settings};
 use crate::native_words::{HostWords, Words};
 use crate::store::Word;
-use crate::{cards, store};
+use crate::{cards, store, sync};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/vocabulary_declarations.rs"));
 }
 
-/// The folder of the SD card's decks is not shown until its screens are
-/// ported: the decks' rows leave the phone and the card out.
-const NO_FOLDER: &str = "";
-
 /// Vocabulary's interface-7 state: the screens open.
 #[derive(Debug, Default)]
 pub struct NativeVocabulary {
-    ui: Option<Ui>,
+    pub(crate) ui: Option<Ui>,
     decks: Screens<DecksView>,
     reviews: Screens<ReviewScreen>,
     words: Screens<WordsView>,
+    /// The card files' menu, and the screens that update from them or save.
+    pub(crate) sd_menus: Screens<crate::native_sd::MenuView>,
+    pub(crate) sd_runs: Screens<crate::native_sd::Run>,
     /// The word a question about deleting is asked of, and the question.
     asked: Option<(RequestId, Word)>,
 }
@@ -69,7 +69,7 @@ impl Plugin for NativeVocabulary {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue)
         else {
             return Ok(());
         };
@@ -79,6 +79,7 @@ impl Plugin for NativeVocabulary {
                 Ok(())
             }
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
+            Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
             Event::ActionRun {
                 action: "vocabulary.flash-cards",
                 ..
@@ -95,12 +96,22 @@ impl Plugin for NativeVocabulary {
             Event::ScreenOpened { instance, .. } if token == WORDS_TOKEN => {
                 self.opened_words(host, instance)
             }
+            Event::ScreenOpened { instance, .. } if token == SD_MENU_TOKEN => {
+                self.opened_sd_menu(host, instance)
+            }
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == SD_CARD_TOKEN => self.opened_sd_card(host, instance, handover),
             Event::ScreenOpened { instance, .. } if token == DECKS_TOKEN => {
                 self.opened_decks(host, instance)
             }
             Event::ScreenOpened {
                 instance, handover, ..
             } if token == REVIEW_TOKEN => self.opened_review(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == SD_MENU_TOKEN => self.shown_sd_menu(host, instance),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
@@ -115,6 +126,7 @@ impl Plugin for NativeVocabulary {
                 self.decks.close(instance);
                 self.reviews.close(instance);
                 self.words.close(instance);
+                self.closed_sd(host, instance);
                 Ok(())
             }
             _ => Ok(()),
@@ -133,6 +145,7 @@ impl Plugin for NativeVocabulary {
                 .top(token)
                 .ok_or(Error::State)?
                 .draw(host, &mut frame),
+            SD_MENU_TOKEN | SD_CARD_TOKEN => self.draw_sd(host, token, &mut frame),
             WORDS_TOKEN => {
                 let view = self.words.top(token).ok_or(Error::State)?;
                 let data = DataStorage::new(host);
@@ -163,6 +176,7 @@ impl Plugin for NativeVocabulary {
                 let data = DataStorage::new(host);
                 screen.input(host, &DataFolder(&data), &input)
             }
+            SD_MENU_TOKEN | SD_CARD_TOKEN => self.input_sd(host, token, &input),
             WORDS_TOKEN => {
                 let Some(view) = self.words.top(token) else {
                     return Ok(Handled::No);
@@ -190,7 +204,7 @@ fn native_decks_screen() -> &'static str {
 }
 
 impl NativeVocabulary {
-    fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    pub(crate) fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
@@ -280,13 +294,30 @@ impl NativeVocabulary {
         let _ = cards::take_lookups(&storage, &lookup_deck(host)?);
         let time = HostTime::read(host, &storage)?;
         let due = due_now(&storage, &time, settings(host)?.new_per_day);
-        Numbers::read(&storage, due, NO_FOLDER, Default::default()).map_err(|_| Error::NoMemory)
+        // The card's row is offered where the card's files can be read (the
+        // service may be missing, or the card out).
+        let folder = crate::native_sd_shell::folder(host)?;
+        let files = crate::native_card::with_both(host, |both| {
+            Ok(sync::pending(both, &folder).unwrap_or_default())
+        });
+        let pending = files.as_ref().copied().unwrap_or_default();
+        let mut numbers =
+            Numbers::read(&storage, due, &folder, pending).map_err(|_| Error::NoMemory)?;
+        numbers.files = files.is_ok();
+        Ok(numbers)
     }
 
     fn opened_decks(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.ensure(host)?;
-        let view = DecksView::new(host, &Self::numbers(host)?)?;
-        self.decks.open(instance, view)
+        let numbers = Self::numbers(host)?;
+        let view = DecksView::new(host, &numbers)?;
+        self.decks.open(instance, view)?;
+        // Opening the flash cards updates the decks from the files that are
+        // new or changed, unless the setting says not to.
+        if numbers.files && numbers.pending.todo > 0 && crate::native_sd_shell::auto(host)? {
+            self.auto_update(host)?;
+        }
+        Ok(())
     }
 
     fn opened_review(
