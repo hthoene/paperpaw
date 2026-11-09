@@ -20,7 +20,7 @@ use paperpaw_platform::firmware::{FirmwareHost, Reason, Signer, Step, WRITE_BLOC
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::firmware::{
-    CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, PLUGINS_AT, PluginCrate, Plugins,
+    CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, InstallFailure, PLUGINS_AT, PluginCrate, Plugins,
 };
 use paperpaw_x4::dual_boot::Source;
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, State};
@@ -36,6 +36,9 @@ const DATA_LEN: u32 = 0x2000;
 struct Chip {
     bytes: Vec<u8>,
     programs_left: Cell<usize>,
+    /// A program at this address is lost without a word (the flash says it
+    /// is done).
+    lose_at: Cell<Option<u32>>,
 }
 
 impl Flash for Chip {
@@ -50,6 +53,9 @@ impl Flash for Chip {
             return Err(FlashError);
         }
         self.programs_left.set(left - 1);
+        if self.lose_at.get() == Some(at) {
+            return Ok(());
+        }
         for (byte, new) in self.bytes[at as usize..].iter_mut().zip(data) {
             *byte &= new;
         }
@@ -209,6 +215,7 @@ impl Device {
         let chip = Chip {
             bytes: flash,
             programs_left: Cell::new(usize::MAX),
+            lose_at: Cell::new(None),
         };
         let this = Firmware::new("0.5.0", PROJECT, CHIP_ESP32_C3).keys(keys);
         let (updates, _) = Updates::start(chip, &slots, 0, this, "x4").unwrap();
@@ -679,4 +686,60 @@ fn the_running_firmware_is_reported() {
     assert_eq!(running.chip, CHIP_ESP32_C3);
     assert_eq!(u64::from(device.slots.room(0)), running.room);
     assert!(!running.undone);
+}
+
+/// The first word is read back after it is written: one the flash lost
+/// ends the commit with an error, chooses nothing, and closes the job.
+#[test]
+fn a_first_word_that_did_not_stay_chooses_nothing() {
+    let key = paperpaw_update::public_key(&SEED);
+    let mut device = Device::started(vec![key]);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &signed(&image, &SEED));
+    let digest = paperpaw_digest_sha256(&image);
+    write(&mut device.updates, &card, UPDATE, digest, None, false).unwrap();
+    let target = device.slots.apps[1].0;
+    device.updates.flash().lose_at.set(Some(target));
+    assert_eq!(device.updates.commit(), Err(Reason::OTHER));
+    assert_eq!(device.data().booted(), 0);
+    assert!(!device.updates.installing());
+    // The job is over: another can begin.
+    device.updates.flash().lose_at.set(None);
+    device.updates.begin_check(UPDATE).unwrap();
+}
+
+/// Interface 6's install and the kernel's check or write never run
+/// together: while one is open the other is refused and writes nothing.
+#[test]
+fn the_interface_6_install_refuses_while_a_job_is_open() {
+    let key = paperpaw_update::public_key(&SEED);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let file = signed(&image, &SEED);
+    let card = Card::with(UPDATE, &file);
+    let busy = Err(InstallFailure::Other(paperpaw_x4::updates::BUSY));
+    for write_job in [false, true] {
+        let mut device = Device::started(vec![key]);
+        if write_job {
+            let digest = paperpaw_digest_sha256(&image);
+            device
+                .updates
+                .begin_write(UPDATE, digest, None, false)
+                .unwrap();
+        } else {
+            device.updates.begin_check(UPDATE).unwrap();
+        }
+        let before = device.updates.flash().bytes.clone();
+        assert_eq!(
+            device.updates.begin(&card, UPDATE, None, false).map(|_| ()),
+            busy
+        );
+        assert_eq!(
+            device.updates.begin_foreign(&card, UPDATE).map(|_| ()),
+            busy
+        );
+        assert_eq!(device.updates.flash().bytes, before, "nothing was written");
+        // Given up, interface 6 may go on.
+        device.updates.abandon();
+        assert!(device.updates.begin(&card, UPDATE, None, false).is_ok());
+    }
 }

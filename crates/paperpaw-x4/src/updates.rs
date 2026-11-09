@@ -71,6 +71,12 @@ const PIECE: usize = 4096;
 ///
 /// [`InstallFailure::Other`]: paperpaw_sdk::firmware::InstallFailure::Other
 pub const NO_MEMORY: u16 = 2;
+/// The code of [`InstallFailure::Other`] for an install refused because a
+/// check or write of the kernel's (`FirmwareHost`) is open: the two flows
+/// never run together (nothing is written).
+///
+/// [`InstallFailure::Other`]: paperpaw_sdk::firmware::InstallFailure::Other
+pub const BUSY: u16 = 3;
 
 /// An install's one I/O buffer, zeroed, or the refusal for no room: the
 /// allocation is fallible (the X4 has no room to abort, and a failed one
@@ -464,6 +470,40 @@ impl<F: Flash> Updates<F> {
         OtaData::read(partition)?.set_state(partition, running, state, ran)
     }
 
+    /// The partition an install goes to, chosen and not started updates
+    /// given up first (the one place that asks the OTA data for it).
+    fn prepare_slot(&mut self) -> Result<u32, FlashError> {
+        let running = self.running;
+        let data = &mut self.data_partition();
+        OtaData::read(data).and_then(|mut ota| ota.prepare_install(data, running))
+    }
+
+    /// The end of every install, the one place the OTA data is written for
+    /// it: the image's first word is written, read back, and only then is
+    /// the slot chosen with `state`, in one entry written whole. A first
+    /// word that did not stay (a write the flash lost) chooses nothing.
+    fn make_whole_and_choose(
+        &mut self,
+        image: &Image,
+        offset: u32,
+        slot: u32,
+        state: State,
+        buf: &mut [u8],
+    ) -> Result<(), FlashError> {
+        let partition = &mut Partition {
+            flash: &mut self.flash,
+            offset,
+        };
+        image.finish(partition, buf)?;
+        let mut head = [0; ota::HEAD];
+        partition.read(0, &mut head)?;
+        if head != image.head() {
+            return Err(FlashError);
+        }
+        let data = &mut self.data_partition();
+        OtaData::read(data)?.choose(data, slot, state, 0)
+    }
+
     fn data_partition(&mut self) -> Partition<'_, F> {
         Partition {
             flash: &mut self.flash,
@@ -522,6 +562,9 @@ impl<F: Flash> Updates<F> {
         if self.dual.is_some() {
             return Err(InstallFailure::Other(crate::dual_boot::REFUSED));
         }
+        if self.job.is_some() {
+            return Err(InstallFailure::Other(BUSY));
+        }
         let update = Update::read(storage, path)?;
         update.may_install(&self.firmware(), key, older)?;
         let check = Checking::Signed(Check::new(&update.trailer)?);
@@ -539,6 +582,9 @@ impl<F: Flash> Updates<F> {
     ) -> Result<(Installing, String), InstallFailure> {
         if self.dual.is_some() {
             return Err(InstallFailure::Other(crate::dual_boot::REFUSED));
+        }
+        if self.job.is_some() {
+            return Err(InstallFailure::Other(BUSY));
         }
         let image = ForeignImage::read(storage, path)?;
         image.fits(&self.firmware())?;
@@ -565,11 +611,7 @@ impl<F: Flash> Updates<F> {
         // OTA data as they were.
         let buf = zeroed(PIECE)?;
         let path = owned(path)?;
-        let running = self.running;
-        let partition = &mut self.data_partition();
-        let slot = OtaData::read(partition)
-            .and_then(|mut data| data.prepare_install(partition, running))
-            .map_err(|_| InstallFailure::Write)?;
+        let slot = self.prepare_slot().map_err(|_| InstallFailure::Write)?;
         let offset = self.apps[slot as usize].0;
         self.install = Some(Install {
             path,
@@ -636,17 +678,13 @@ impl<F: Flash> Updates<F> {
         if let Err(e) = install.check.finish() {
             return FirmwareState::Failed(e);
         }
-        let made_whole = install.image.finish(
-            &mut Partition {
-                flash: &mut self.flash,
-                offset: install.offset,
-            },
+        let chosen = self.make_whole_and_choose(
+            &install.image,
+            install.offset,
+            install.slot,
+            State::New,
             &mut install.buf[..],
         );
-        let data = &mut self.data_partition();
-        // State and choice in one entry, written whole.
-        let chosen = made_whole
-            .and_then(|()| OtaData::read(data)?.choose(data, install.slot, State::New, 0));
         match chosen {
             Ok(()) => FirmwareState::Installed,
             Err(_) => FirmwareState::Failed(InstallFailure::Write),
