@@ -455,7 +455,9 @@ fn draw_laid(
     let between = if laid.columns > 1 { gap / 2 } else { 0 };
     let room = f32::from(column.saturating_sub(between));
     let mut names = Vec::new();
-    names.try_reserve(shown.len()).map_err(|_| Error::NoMemory)?;
+    names
+        .try_reserve(shown.len())
+        .map_err(|_| Error::NoMemory)?;
     let mut named = true;
     for (_, name) in shown {
         let fitted = text::fit(font, small, name, room)?;
@@ -472,7 +474,9 @@ fn draw_laid(
     };
     let digits_h = (ink.1 - ink.0) as u16;
     let row_h = digits_h + if named { gap / 2 + names_h } else { 0 };
-    let rows = u16::try_from(laid.shown).unwrap_or(u16::MAX).div_ceil(laid.columns.max(1));
+    let rows = u16::try_from(laid.shown)
+        .unwrap_or(u16::MAX)
+        .div_ceil(laid.columns.max(1));
     let bar_h = (place.line * 3).max(4);
     let total = row_h * rows + gap * (rows - 1) + if laid.bar { gap + bar_h } else { 0 };
     let top = area.y + area.height.saturating_sub(total) / 2;
@@ -520,9 +524,8 @@ fn draw_share(
         Rect::new(area.x, area.y + (area.height - fine) / 2, area.width, fine),
         look.ink,
     )?;
-    let share = |n: u32| {
-        (u64::from(area.width) * u64::from(n) / u64::from(numbers.books.max(1))) as u16
-    };
+    let share =
+        |n: u32| (u64::from(area.width) * u64::from(n) / u64::from(numbers.books.max(1))) as u16;
     let read = share(numbers.read);
     let reading = share(numbers.reading);
     if reading > 0 {
@@ -539,7 +542,10 @@ fn draw_share(
         } else {
             Color::gray(150)
         };
-        paint::push(out, Paint::Focus(at, u32::from(area.height / 2), None, shade))?;
+        paint::push(
+            out,
+            Paint::Focus(at, u32::from(area.height / 2), None, shade),
+        )?;
     }
     if read > 0 {
         let at = Rect::new(

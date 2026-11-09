@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 9] = [
+const CASES: [Case; 10] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
