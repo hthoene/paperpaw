@@ -29,6 +29,25 @@ port.
   temporary is for the digest crate (Kernel). The returned key is the credential, so the sync slice that sends it must
   `wipe_text` it afterwards.
 
+## Slice 2: the sync engine (`src/native_sync.rs`, host-free)
+
+Interface 6's `State` (`lib.rs`) as a state machine with every allocation fallible: which book is
+open and where, what was sent and when (at most once a minute, again after a failure), the hold on
+sending until the server's progress is read, the offer, *declined* and *not now* (`dismissed`, at
+most 4 kept), the books left while their fetch was out (at most 4), the books switched from while
+Offline (at most 4), the fetch at most once a minute per book, *Sync progress*. The caller gives
+the host's facts (`Ctx`: clock, network, *auto*, signed in, online, radio on anyway) and carries out
+the `Action`s: `Fetch`, `Send`, `Offer`, `Notice`, `PushLater` (declare the work). The decision on
+an answer is `native_model::judge`/`send_left_behind`. `tests/native_sync.rs` runs the scenarios of
+interface 6's `tests/sync.rs` (offline, failed fetch, offer, stay, not now, book left, once a minute,
+closing, manual sync, signed out); `tests/native_sync_alloc.rs` refuses every allocation in turn.
+Kept for the caller: the book's fingerprint and XPointer, the request and the account, the work
+declaration, the device id. `progress_text` is the key of an offered position (`{progress}`; a very
+small number in scientific form so it stays short).
+
+Differences from interface 6, all to make it bounded: the books left are capped at 4 (interface 6
+kept any number); the position's place is `(section, offset)` instead of a `Locator`.
+
 ## What the slice loses (each returns in a later slice or with its host piece)
 
 - **Every sync**: fetching, sending, the 30-minute and one-minute timers, the offline queue, the
