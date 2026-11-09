@@ -124,7 +124,7 @@ pub fn progress_text(progress: f64) -> Result<String, Error> {
             len: 0,
         };
         // Cannot fail: the scientific form of an `f64` is at most 24 bytes.
-        let _ = write!(out, "{progress:e}");
+        write!(out, "{progress:e}").ok();
     }
     let text = out
         .bytes

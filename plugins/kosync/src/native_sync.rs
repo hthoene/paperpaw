@@ -17,7 +17,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{mem::push, text::copy};
 
-use crate::native_model::{self, FURTHER, Remote, Seen, Verdict};
+use crate::native_model::{self, Remote, Seen, Verdict};
 
 /// The progress is sent at most this often while reading.
 pub const PUSH_EVERY_MS: u64 = 60_000;
