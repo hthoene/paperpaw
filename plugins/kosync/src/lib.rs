@@ -46,6 +46,8 @@ mod native_entry;
 pub mod native_model;
 /// The interface-7 progress sync (slice 1; see `PORTING-7.md`).
 pub mod native_plugin;
+#[doc(hidden)]
+pub mod native_sync;
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
