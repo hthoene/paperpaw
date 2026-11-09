@@ -43,6 +43,16 @@ pub(crate) struct KeySources {
     pub(crate) shell: String,
 }
 
+impl Shared {
+    /// A plugin's entry for the kernel to change; counts as a change of the
+    /// registry's lists (`core.registry` generation), whether or not the
+    /// caller then changes anything.
+    pub(crate) fn plugin_mut(&mut self, id: &str) -> Option<&mut PluginInfo> {
+        self.registry_generation.bump();
+        self.plugins.get_mut(id)
+    }
+}
+
 impl Kernel {
     /// Registers `plugin`, or only lists it if the user switched it off.
     pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {

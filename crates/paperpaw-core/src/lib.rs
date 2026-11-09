@@ -1284,8 +1284,7 @@ struct Shared {
     fonts: Fonts,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
-    /// The registry generation of `core.registry`: bumped wherever a list it
-    /// reads changes its set or order.
+    /// The generation of `core.registry`, bumped when a list it reads changes.
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
     formats: Formats,
     hyphenation: Hyphenation,
@@ -1403,14 +1402,6 @@ struct Shared {
 }
 
 impl Shared {
-    /// A plugin's entry for the kernel to change; counts as a change of the
-    /// registry's lists (`core.registry` generation), whether or not the
-    /// caller then changes anything.
-    fn plugin_mut(&mut self, id: &str) -> Option<&mut PluginInfo> {
-        self.registry_generation.bump();
-        self.plugins.get_mut(id)
-    }
-
     fn env(&self, now: Instant) -> Env<'_> {
         self.env_parts(now).with_screen_maker(&self.registry)
     }
