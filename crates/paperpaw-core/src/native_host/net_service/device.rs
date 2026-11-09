@@ -28,38 +28,28 @@ use crate::native_host::{
     host_services::Caller,
     net_pool::NetPool,
     owner_directory::OwnerDirectory,
+    owner_paths::{self, OwnerPaths, RECEIVED, owned},
     paths_in_use::PathsInUse,
+    save_files::SaveFiles,
     shared::Shared,
     shell_wiring::{
         HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, ServedDecision, ServedReply,
         ServerReason, ShellHttp, ShellNetwork,
     },
-    storage::{self, has_room, relative_path},
+    storage::{self, has_room},
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
-};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_platform::Storage;
 
-/// Longest joined path (as `storage.rs`).
-const MAX_JOINED: usize = 640;
-/// Root 1 (the user's files) and 2 (the plugin's install folder).
-const CARD: u32 = 1;
-const BUNDLE: u32 = 2;
-/// The folders of root 1 that belong to the kernel and the plugins.
-const PROTECTED: [&str; 2] = ["plugins", ".paperpaw"];
-/// The host's folder in root 0.
-const RECEIVED: &str = ".received";
-/// The name a saved answer is written under until it is whole.
-pub(crate) const STAGED: &str = ".pp-staged";
 /// The longest address of a server (`event.server.address`).
 const ADDRESS_MAX: usize = 64;
 
 /// A saving request: where its answer goes and where it is staged.
 struct Staged {
     id: u32,
+    owner: u64,
     target: String,
     staged: String,
     /// The staged file was renamed over the target (a report to retry must not
@@ -74,30 +64,16 @@ pub(crate) struct NetDevice {
     http: Rc<dyn ShellHttp>,
     network: Rc<dyn ShellNetwork>,
     profile: NetProfile,
-    in_use: Rc<PathsInUse>,
+    saves: SaveFiles,
     staged: RefCell<Vec<Staged>>,
-    /// The plugin ids of the owners that used the network, kept from their
-    /// first use to their last cleanup: a stopped owner is gone from the
-    /// registry before its saves and `.received/` are cleaned up.
-    plugins: RefCell<Vec<(u64, String)>>,
-    /// The kernel's view of the owners: plugin ids, subscriptions, the screen
-    /// that shows, the work run.
-    owners: Shared<OwnerDirectory>,
+    /// The owners: the plugin ids kept for their cleanup, and the kernel's
+    /// view of them (subscriptions, the screen that shows, the work run).
+    paths: OwnerPaths,
 }
 
-fn owned(text: &str, extra: usize) -> Result<String, i32> {
-    super::gate()?;
-    let mut copy = String::new();
-    copy.try_reserve_exact(text.len() + extra)
-        .map_err(|_| ERR_NO_MEMORY)?;
-    copy.push_str(text);
-    Ok(copy)
-}
-
+/// The staged name of a saved answer's target (`.pp-staged`, core's one name).
 fn staged_name(target: &str) -> Result<String, i32> {
-    let mut name = owned(target, STAGED.len())?;
-    name.push_str(STAGED);
-    Ok(name)
+    crate::native_host::staged_name::staged_path(target).ok_or(ERR_NO_MEMORY)
 }
 
 impl NetDevice {
@@ -114,103 +90,14 @@ impl NetDevice {
     ) -> Self {
         Self {
             table: NetTable::new(pool),
+            saves: SaveFiles::new(storage.clone(), in_use),
             storage,
             http,
             network,
             profile,
-            in_use,
             staged: RefCell::new(Vec::new()),
-            plugins: RefCell::new(Vec::new()),
-            owners,
+            paths: OwnerPaths::new(owners),
         }
-    }
-
-    /// Hands the id of the plugin that owns `owner` to `visit`: the id kept
-    /// from an earlier use (a stopped owner is gone from the directory before
-    /// its cleanup), else the directory's. `ERR_STATE` when neither knows it.
-    fn plugin_of(&self, owner: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
-        {
-            let known = self.plugins.try_borrow().map_err(|_| ERR_BUSY)?;
-            if let Some((_, id)) = known.iter().find(|(o, _)| *o == owner) {
-                visit(id);
-                return Ok(());
-            }
-        }
-        let mut found = false;
-        self.owners.with_id(owner, &mut |id| {
-            found = true;
-            self.remember(owner, id);
-            visit(id);
-        })?;
-        debug_assert!(found);
-        Ok(())
-    }
-
-    /// Keeps the id of `owner`'s plugin for its cleanup after it stopped. When
-    /// there is no room, the id is not kept (the cleanup then needs the view).
-    fn remember(&self, owner: u64, id: &str) {
-        let Ok(mut known) = self.plugins.try_borrow_mut() else {
-            return;
-        };
-        if known.try_reserve(1).is_err() {
-            return;
-        }
-        if let Ok(copy) = owned(id, 0) {
-            known.push((owner, copy));
-        }
-    }
-
-    /// The owner's last cleanup is done: its id is let go.
-    fn forget(&self, owner: u64) {
-        if let Ok(mut known) = self.plugins.try_borrow_mut() {
-            known.retain(|(o, _)| *o != owner);
-        }
-    }
-
-    /// `path` of `root` for `plugin`, joined for the storage.
-    fn join(plugin: Option<&str>, root: u32, path: &str) -> Result<String, i32> {
-        let (kind, id) = match (root, plugin) {
-            (CARD, _) => ("", None),
-            (0, Some(id)) => (storage::PREFIX, Some(id)),
-            (BUNDLE, Some(id)) => ("plugins/", Some(id)),
-            _ => return Err(ERR_UNSUPPORTED),
-        };
-        let id_len = id.map_or(0, |id| id.len() + usize::from(!path.is_empty()));
-        let len = kind.len() + id_len + path.len();
-        if len > MAX_JOINED {
-            return Err(ERR_INVALID);
-        }
-        super::gate()?;
-        let mut joined = String::new();
-        joined
-            .try_reserve_exact(len + STAGED.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        joined.push_str(kind);
-        if let Some(id) = id {
-            joined.push_str(id);
-            if !path.is_empty() {
-                joined.push('/');
-            }
-        }
-        joined.push_str(path);
-        Ok(joined)
-    }
-
-    /// `path` of `root` for the plugin of the call.
-    fn join_for(who: &Caller<'_>, root: u32, path: &str) -> Result<String, i32> {
-        Self::join(Some(who.plugin), root, path)
-    }
-
-    /// `path` of `root` for the plugin that owns `owner`, outside any call.
-    fn join_owned(&self, owner: u64, root: u32, path: &str) -> Result<String, i32> {
-        if root == CARD {
-            return Self::join(None, root, path);
-        }
-        let mut joined = Err(ERR_UNSUPPORTED);
-        self.plugin_of(owner, &mut |id| {
-            joined = Self::join(Some(id), root, path);
-        })?;
-        joined
     }
 
     fn remove_best_effort(&self, joined: &str) {
@@ -232,7 +119,8 @@ impl NetDevice {
             Some(staged.remove(at))
         });
         if let Some(entry) = entry {
-            self.remove_best_effort(&entry.staged);
+            // Not a staged file that is the only copy of an answer.
+            self.saves.discard(entry.owner, &entry.target);
         }
     }
 
@@ -276,8 +164,8 @@ impl NetDevice {
         if entry.renamed {
             return Ok(());
         }
-        self.storage
-            .rename(&entry.staged, &entry.target)
+        self.saves
+            .commit(entry.owner, &entry.target, &entry.staged)
             .map_err(storage::status)?;
         entry.renamed = true;
         Ok(())
@@ -314,7 +202,7 @@ impl NetDevice {
             let mut rel = String::new();
             rel.try_reserve_exact(32).map_err(|_| ERR_NO_MEMORY)?;
             write!(rel, "{RECEIVED}/{token}/{request}").map_err(|_| ERR_NO_MEMORY)?;
-            self.join_owned(owner, 0, &rel)
+            self.paths.join_owned(owner, 0, &rel)
         })();
         match path {
             Ok(path) => Ok(ServedDecision::Accept { request, path }),
@@ -343,40 +231,11 @@ impl NetHost for NetDevice {
     }
 
     fn root_access(&self, who: &Caller<'_>, root: u32, path: &str, write: bool) -> Result<(), i32> {
-        match root {
-            0 => {}
-            CARD => who.features.feature("uses.storage")?,
-            BUNDLE if write => return Err(ERR_DENIED),
-            BUNDLE => {}
-            _ => return Err(ERR_UNSUPPORTED),
-        }
-        if !path.is_empty() {
-            relative_path(path.as_bytes())?;
-        }
-        let first = path.split('/').next().unwrap_or_default();
-        if root == CARD && PROTECTED.iter().any(|p| first.eq_ignore_ascii_case(p)) {
-            return Err(ERR_INVALID);
-        }
-        // `.received` is the host's in root 0: a plugin may read what is
-        // there, never write into it (`network.md` 5.2).
-        if root == 0 && write && first.eq_ignore_ascii_case(RECEIVED) {
-            return Err(ERR_DENIED);
-        }
-        // The staged name is core's, as `.part` was: no path of the plugin's
-        // may end in it.
-        if write
-            && path
-                .as_bytes()
-                .last_chunk::<{ STAGED.len() }>()
-                .is_some_and(|tail| tail.eq_ignore_ascii_case(STAGED.as_bytes()))
-        {
-            return Err(ERR_INVALID);
-        }
-        Ok(())
+        owner_paths::access(who, root, path, write)
     }
 
     fn file_len(&self, who: &Caller<'_>, root: u32, path: &str) -> Result<u64, i32> {
-        let joined = Self::join_for(who, root, path)?;
+        let joined = OwnerPaths::join_for(who, root, path)?;
         self.storage.size(&joined).map_err(|_| ERR_NOT_FOUND)
     }
 
@@ -395,46 +254,30 @@ impl NetHost for NetDevice {
     }
 
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32> {
-        let target = self.join_owned(owner, root, path)?;
+        let target = self.paths.join_owned(owner, root, path)?;
         let staged = staged_name(&target)?;
-        let ignore_case = self.storage.ignores_case();
         // Another writer's path is not saved over; one's own, again, is.
-        if self.in_use.holds_except(&target, ignore_case, Some(owner))
-            || self.in_use.holds_except(&staged, ignore_case, Some(owner))
-        {
-            return Err(ERR_BUSY);
-        }
-        self.in_use.claim(owner, &target)?;
-        if let Err(error) = self.in_use.claim(owner, &staged) {
-            self.in_use.release(owner, &target);
-            return Err(error);
-        }
-        Ok(())
+        self.saves.claim(owner, &target, &staged, false)
     }
 
     fn release_save(&self, owner: u64, root: u32, path: &str) {
-        let Ok(target) = self.join_owned(owner, root, path) else {
+        let Ok(target) = self.paths.join_owned(owner, root, path) else {
             return;
         };
-        if !self.in_use.release(owner, &target) {
-            return;
-        }
-        if let Ok(staged) = staged_name(&target) {
-            self.in_use.release(owner, &staged);
-            self.remove_best_effort(&staged);
-        }
+        self.saves.release(owner, &target);
     }
 
     fn subscribed(&self, owner: u64, tag: u32) -> bool {
-        self.owners.subscribed(owner, tag)
+        self.paths.owners().subscribed(owner, tag)
     }
 
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd> {
         let mut end = None;
-        self.plugin_of(owner, &mut |id| {
-            end = self.network.power_end(id, background);
-        })
-        .ok()?;
+        self.paths
+            .plugin_of(owner, &mut |id| {
+                end = self.network.power_end(id, background);
+            })
+            .ok()?;
         end.map(|e| PowerEnd {
             reason: match e.end {
                 NetEnd::Offline => reason::OFFLINE,
@@ -453,10 +296,10 @@ impl NetHost for NetDevice {
     }
 
     fn current_run(&self, owner: u64) -> Option<u64> {
-        self.owners.current_run(owner)
+        self.paths.owners().current_run(owner)
     }
     fn showing_screen(&self, owner: u64) -> Option<u64> {
-        self.owners.showing_screen(owner)
+        self.paths.owners().showing_screen(owner)
     }
 
     fn room_for(&self, extra: u64) -> bool {
@@ -467,7 +310,7 @@ impl NetHost for NetDevice {
         self.clear_folder(owner, server);
         if server.is_none() {
             // The owner's last cleanup (it started or stopped).
-            self.forget(owner);
+            self.paths.forget(owner);
         }
     }
 
@@ -481,7 +324,7 @@ impl NetDevice {
         use core::fmt::Write;
         // A plugin that has no id cannot have received anything.
         let mut path = String::new();
-        let made = self.plugin_of(owner, &mut |id| {
+        let made = self.paths.plugin_of(owner, &mut |id| {
             if path
                 .try_reserve_exact(storage::PREFIX.len() + id.len() + 32)
                 .is_ok()
@@ -507,7 +350,7 @@ impl NetDevice {
     fn remove_one(&self, owner: u64, server: u32, request: u32) {
         use core::fmt::Write;
         let mut path = String::new();
-        let made = self.plugin_of(owner, &mut |id| {
+        let made = self.paths.plugin_of(owner, &mut |id| {
             if path
                 .try_reserve_exact(storage::PREFIX.len() + id.len() + 48)
                 .is_ok()
@@ -564,18 +407,19 @@ impl NetTransport for NetDevice {
         let send = start
             .request
             .send
-            .map(|f| self.join_owned(owner, f.root, f.path))
+            .map(|f| self.paths.join_owned(owner, f.root, f.path))
             .transpose()?;
         let target = start
             .request
             .save
             .filter(|f| f.role == ROLE_SAVE)
-            .map(|f| self.join_owned(owner, f.root, f.path))
+            .map(|f| self.paths.join_owned(owner, f.root, f.path))
             .transpose()?;
         let staged = target.as_deref().map(staged_name).transpose()?;
         if let (Some(target), Some(staged)) = (&target, &staged) {
             self.keep(Staged {
                 id,
+                owner,
                 target: owned(target, 0)?,
                 staged: owned(staged, 0)?,
                 renamed: false,
@@ -619,7 +463,7 @@ impl NetTransport for NetDevice {
         let response: &args::Response<'_> = reply.response;
         let send = response
             .send
-            .map(|f| self.join_owned(owner, f.root, f.path))
+            .map(|f| self.paths.join_owned(owner, f.root, f.path))
             .transpose()?;
         self.http.reply(
             request,

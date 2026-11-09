@@ -226,6 +226,10 @@ pub struct NetLimits {
     pub max_body: u32,
     /// Whether the cable server (`serve` port 0) exists.
     pub cable: bool,
+    /// The TLS sessions the device has at once, shared with `core.sockets`
+    /// (the X4: 1; at most 4). https requests and secure sockets take them
+    /// in the order they ask.
+    pub tls_sessions: u8,
 }
 
 impl NetLimits {
@@ -246,7 +250,15 @@ impl NetLimits {
                 1_048_576
             },
             cable: false,
+            tls_sessions: 1,
         }
+    }
+
+    /// The TLS sessions the device has at once (1 to 4).
+    #[must_use]
+    pub fn tls_sessions(mut self, sessions: u8) -> Self {
+        self.tls_sessions = sessions;
+        self
     }
 
     /// Memory bodies existing at once.
@@ -347,8 +359,14 @@ impl NetInputs {
         }
     }
 
+    /// The pool size and the TLS sessions this wiring names.
+    pub(crate) fn pool_shape(&self) -> (u32, u8) {
+        (self.limits.pool_bytes, self.limits.tls_sessions)
+    }
+
     pub(crate) fn device(
         self,
+        pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
         owners: Shared<OwnerDirectory>,
     ) -> NetDevice {
@@ -359,7 +377,6 @@ impl NetInputs {
             max_body: self.limits.max_body,
             cable: self.limits.cable,
         };
-        let pool = Rc::new(NetPool::new(profile.pool));
         NetDevice::new(
             self.storage,
             self.http,

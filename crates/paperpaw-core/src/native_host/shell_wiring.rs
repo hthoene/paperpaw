@@ -22,6 +22,9 @@ use super::{
 };
 #[path = "shell_wiring/net.rs"]
 mod net;
+#[path = "shell_wiring/sockets.rs"]
+mod sockets;
+pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
     HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
@@ -29,6 +32,7 @@ pub use net::{
 };
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
+pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
 /// family the shell does not name.
@@ -38,6 +42,7 @@ pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
     net: Option<NetInputs>,
+    sockets: Option<SockInputs>,
     /// `core.ui`: `Some(x4)`.
     ui: Option<bool>,
 }
@@ -48,6 +53,7 @@ impl core::fmt::Debug for HostWiring {
             .field("hyphenation", &self.hyphenation.is_some())
             .field("device", &self.device.is_some())
             .field("net", &self.net.is_some())
+            .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
             .finish()
     }
@@ -82,6 +88,16 @@ impl HostWiring {
     #[must_use]
     pub fn net(mut self, inputs: NetInputs) -> Self {
         self.net = Some(inputs);
+        self
+    }
+
+    /// `core.sockets`: TCP sockets (and TLS, if the inputs have it) and UDP
+    /// broadcast, over the card and the shell's network ([`SockInputs`]). The
+    /// transport's reports come back through [`WiredHosts::sockets`]. The
+    /// network pool is the one `core.net` uses: name the same size in both.
+    #[must_use]
+    pub fn sockets(mut self, inputs: SockInputs) -> Self {
+        self.sockets = Some(inputs);
         self
     }
 
@@ -183,6 +199,7 @@ impl HyphenTables {
 pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
     net: Option<NetReports>,
+    sockets: Option<SockReports>,
     ui_skipped: bool,
 }
 
@@ -197,6 +214,12 @@ impl WiredHosts {
     #[must_use]
     pub fn net(&self) -> Option<&NetReports> {
         self.net.as_ref()
+    }
+
+    /// The transport's reports, if `core.sockets` was wired.
+    #[must_use]
+    pub fn sockets(&self) -> Option<&SockReports> {
+        self.sockets.as_ref()
     }
 
     /// Whether `core.ui` was asked for and not wired because its store could
@@ -217,6 +240,7 @@ impl HostResources {
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
+            || (wiring.sockets.is_some() && hosts.sockets().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
         {
             return Err(ERR_STATE);
@@ -232,9 +256,19 @@ impl HostResources {
         }
         if let Some(inputs) = wiring.net {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
-            let device = Rc::new(inputs.device(hosts.in_use().clone(), owners));
+            let (bytes, sessions) = inputs.pool_shape();
+            let pool = hosts.net_pool(bytes, sessions).clone();
+            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
             hosts.wire_net(device.clone())?;
             wired.net = Some(NetReports(device));
+        }
+        if let Some(inputs) = wiring.sockets {
+            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let (bytes, sessions) = inputs.pool_shape();
+            let pool = hosts.net_pool(bytes, sessions).clone();
+            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
+            hosts.wire_sockets(device.clone())?;
+            wired.sockets = Some(SockReports(device));
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
@@ -257,3 +291,7 @@ mod tests;
 #[cfg(test)]
 #[path = "shell_wiring/net_tests.rs"]
 mod net_tests;
+
+#[cfg(test)]
+#[path = "shell_wiring/sockets_tests.rs"]
+mod sockets_tests;

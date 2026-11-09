@@ -25,11 +25,14 @@ pub(crate) struct NetPool {
     /// One bit per service that wants the network ([`DEMAND_NET`],
     /// [`DEMAND_SOCK`]).
     wanted: Cell<u8>,
-    /// The TLS session's lease (outside the pool: the block is the shell's).
+    /// The TLS sessions' leases (outside the pool: the blocks are the
+    /// shell's).
     tls: Cell<Lease>,
+    /// How many sessions the device has (1 to [`TLS_SESSIONS_MAX`]).
+    tls_sessions: u8,
 }
 
-/// Who holds, or waits for, the device's one TLS session (about 40 KiB, a
+/// Who holds, or waits for, a TLS session (the X4 has one of about 40 KiB, a
 /// fixed block of the shell): a `core.net` request or a socket, by id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TlsHolder {
@@ -52,11 +55,14 @@ pub(crate) enum TlsLease {
 /// the largest device's limits.
 const TLS_WAITERS: usize = 16;
 
-/// The one lease of the TLS session: the holder and a FIFO of waiters. No
-/// allocation, so asking for it cannot fail for memory.
+/// The most TLS sessions a device has at once.
+pub(crate) const TLS_SESSIONS_MAX: usize = 4;
+
+/// The leases of the TLS sessions: the holders and a FIFO of waiters. No
+/// allocation, so asking for one cannot fail for memory.
 #[derive(Clone, Copy, Debug)]
 struct Lease {
-    holder: Option<TlsHolder>,
+    holders: [Option<TlsHolder>; TLS_SESSIONS_MAX],
     waiting: [Option<TlsHolder>; TLS_WAITERS],
 }
 
@@ -68,14 +74,28 @@ pub(crate) const DEMAND_SOCK: u8 = 2;
 impl NetPool {
     /// A pool of `capacity` bytes (0: the device has none).
     pub(crate) const fn new(capacity: u32) -> Self {
+        Self::with_tls_sessions(capacity, 1)
+    }
+
+    /// A pool of `capacity` bytes on a device with `tls_sessions` TLS
+    /// sessions (clamped to 1 to [`TLS_SESSIONS_MAX`]).
+    pub(crate) const fn with_tls_sessions(capacity: u32, tls_sessions: u8) -> Self {
+        let sessions = if tls_sessions == 0 {
+            1
+        } else if tls_sessions as usize > TLS_SESSIONS_MAX {
+            TLS_SESSIONS_MAX as u8
+        } else {
+            tls_sessions
+        };
         Self {
             capacity,
             used: Cell::new(0),
             wanted: Cell::new(0),
             tls: Cell::new(Lease {
-                holder: None,
+                holders: [None; TLS_SESSIONS_MAX],
                 waiting: [None; TLS_WAITERS],
             }),
+            tls_sessions: sessions,
         }
     }
 
@@ -89,43 +109,51 @@ impl NetPool {
         ((before != 0) != (after != 0)).then_some(after != 0)
     }
 
-    /// Asks for the TLS session for `who`: the first to ask is served first,
-    /// one holder at a time (NET's https and SOCK's secure sockets alike).
-    /// The caller asks again until it gets [`TlsLease::Held`], and gives the
-    /// session back, or its place in the queue, with [`Self::tls_drop`].
+    /// Asks for a TLS session for `who`: the first to ask is served first,
+    /// as many holders at a time as the device has sessions (NET's https and
+    /// SOCK's secure sockets alike). The caller asks again until it gets
+    /// [`TlsLease::Held`], and gives the session back, or its place in the
+    /// queue, with [`Self::tls_drop`].
     pub(crate) fn tls_request(&self, who: TlsHolder) -> TlsLease {
         let mut lease = self.tls.get();
-        if lease.holder == Some(who) {
+        let slots = usize::from(self.tls_sessions);
+        if lease.holders[..slots].contains(&Some(who)) {
             return TlsLease::Held;
         }
         if !lease.waiting.contains(&Some(who)) {
-            if lease.holder.is_none() && lease.waiting[0].is_none() {
-                lease.holder = Some(who);
+            let free = lease.holders[..slots].iter().position(Option::is_none);
+            if let (Some(free), None) = (free, lease.waiting[0]) {
+                lease.holders[free] = Some(who);
                 self.tls.set(lease);
                 return TlsLease::Held;
             }
             match lease.waiting.iter().position(Option::is_none) {
-                Some(free) => lease.waiting[free] = Some(who),
+                Some(place) => lease.waiting[place] = Some(who),
                 None => return TlsLease::Full,
             }
         }
-        let answer = if lease.holder.is_none() && lease.waiting[0] == Some(who) {
-            lease.holder = Some(who);
-            lease.waiting.copy_within(1.., 0);
-            lease.waiting[TLS_WAITERS - 1] = None;
-            TlsLease::Held
-        } else {
-            TlsLease::Wait
+        // The head of the queue takes a free session.
+        let free = lease.holders[..slots].iter().position(Option::is_none);
+        let answer = match free {
+            Some(free) if lease.waiting[0] == Some(who) => {
+                lease.holders[free] = Some(who);
+                lease.waiting.copy_within(1.., 0);
+                lease.waiting[TLS_WAITERS - 1] = None;
+                TlsLease::Held
+            }
+            _ => TlsLease::Wait,
         };
         self.tls.set(lease);
         answer
     }
 
-    /// `who` no longer holds or waits for the session. Idempotent.
+    /// `who` no longer holds or waits for a session. Idempotent.
     pub(crate) fn tls_drop(&self, who: TlsHolder) {
         let mut lease = self.tls.get();
-        if lease.holder == Some(who) {
-            lease.holder = None;
+        for holder in &mut lease.holders {
+            if *holder == Some(who) {
+                *holder = None;
+            }
         }
         if let Some(at) = lease.waiting.iter().position(|w| *w == Some(who)) {
             lease.waiting.copy_within(at + 1.., at);
@@ -134,15 +162,27 @@ impl NetPool {
         self.tls.set(lease);
     }
 
-    /// Whether anyone waits for the session.
+    /// Whether anyone waits for a session.
     pub(crate) fn tls_waiting(&self) -> bool {
         self.tls.get().waiting[0].is_some()
     }
 
-    /// Who holds the session now.
+    /// Whether `who` holds a session now.
+    #[cfg(test)]
+    pub(crate) fn tls_holds(&self, who: TlsHolder) -> bool {
+        self.tls.get().holders.contains(&Some(who))
+    }
+
+    /// The first session's holder (for a device with one session).
     #[cfg(test)]
     pub(crate) fn tls_holder(&self) -> Option<TlsHolder> {
-        self.tls.get().holder
+        self.tls.get().holders[0]
+    }
+
+    /// How many sessions are held now.
+    #[cfg(test)]
+    pub(crate) fn tls_held(&self) -> usize {
+        self.tls.get().holders.iter().flatten().count()
     }
 
     /// The pool's size; 0 for a device without one.
@@ -204,7 +244,7 @@ mod tests {
         assert_eq!(pool.tls_request(b), TlsLease::Wait);
         assert!(pool.tls_waiting());
         // Net and Sock ids are different holders even when equal.
-        assert_eq!(pool.tls_holder(), Some(n));
+        assert!(pool.tls_holds(n));
         pool.tls_drop(n);
         assert_eq!(pool.tls_request(b), TlsLease::Wait, "a asked first");
         assert_eq!(pool.tls_request(a), TlsLease::Held);
@@ -213,7 +253,7 @@ mod tests {
         pool.tls_drop(b);
         pool.tls_drop(a);
         assert!(!pool.tls_waiting());
-        assert_eq!(pool.tls_holder(), None);
+        assert_eq!(pool.tls_held(), 0);
         assert_eq!(pool.tls_request(b), TlsLease::Held);
         pool.tls_drop(b);
         pool.tls_drop(b);

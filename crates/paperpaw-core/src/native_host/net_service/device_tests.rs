@@ -18,6 +18,7 @@ use crate::native_host::{
     shell_wiring::{NetInputs, NetLimits, NetPowerEnd, ShellHttp, ShellNetwork},
 };
 use core::cell::{Cell, RefCell};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED};
 use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_sdk::MemoryStorage;
@@ -93,8 +94,13 @@ fn fixture(limits: NetLimits) -> Fixture {
     shell.up.set(true);
     let hosts = HostServices::new();
     let owners = hosts.owners().unwrap().try_clone().unwrap();
-    let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits)
-        .device(hosts.in_use().clone(), owners.try_clone().unwrap());
+    let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits).device(
+        hosts
+            .net_pool(limits.pool_bytes, limits.tls_sessions)
+            .clone(),
+        hosts.in_use().clone(),
+        owners.try_clone().unwrap(),
+    );
     // The plugin `mail` runs and subscribed to every event.
     owners.admit(OWNER, "mail").unwrap();
     owners.subscribe(OWNER, EventTags::collect(|_| true));
@@ -368,7 +374,11 @@ fn an_id_that_cannot_be_kept_is_still_used_but_not_cleaned_up_later() {
         crate::native_host::net_service::fail_nth(0);
         if first.is_err() {
             assert_eq!(first, Err(ERR_NO_MEMORY), "failure {nth}");
-            assert!(!f.device.in_use.holds(".paperpaw/plugins/mail/a.txt", false));
+            assert!(
+                !f.hosts
+                    .in_use()
+                    .holds(".paperpaw/plugins/mail/a.txt", false)
+            );
             continue;
         }
         // The owner left the directory; the cleanup needs the kept id.

@@ -1,7 +1,7 @@
 //! The request table of `core.net`: ids, tokens, the queue, the pool, the
 //! held answers and the routing of events 99 and 100.
 use super::super::host_services::Caller;
-use super::super::net_pool::{DEMAND_NET, NetPool};
+use super::super::net_pool::{DEMAND_NET, NetPool, TlsHolder, TlsLease};
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
@@ -59,6 +59,9 @@ struct Req {
     /// The plugin's own input, parsed again when the request starts.
     batch: Box<[u8]>,
     saving: bool,
+    /// An `https` request: it holds the device's one TLS session (shared
+    /// with `core.sockets`, `NetPool`) from its start to its end.
+    tls: bool,
     progress: bool,
     max_body: u32,
     max_file: u64,
@@ -131,7 +134,18 @@ impl Drop for NetTable {
     fn drop(&mut self) {
         let held = core::mem::take(&mut self.inner.get_mut().ledger);
         self.pool.release(held);
+        // A request that goes with the table gives the TLS session back.
+        for r in self.inner.get_mut().reqs.iter().filter(|r| r.tls) {
+            self.pool.tls_drop(TlsHolder::Net(r.id));
+        }
     }
+}
+
+/// Whether `url` is an `https` one (the scheme in any case).
+fn is_https(url: &str) -> bool {
+    url.as_bytes()
+        .get(..8)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case(b"https://"))
 }
 
 impl Inner {
@@ -244,6 +258,11 @@ impl Inner {
         if abort && r.state == State::Running {
             host.transport().abort(r.id);
         }
+        // The session goes back after the transport has let go of it, before
+        // the plugin is told: on every way a request ends.
+        if r.tls {
+            host.table().pool().tls_drop(TlsHolder::Net(r.id));
+        }
         if r.saving
             && let Ok(parsed) = args::parse_request(&r.batch)
             && let Some(file) = parsed.save
@@ -325,8 +344,22 @@ impl Inner {
             let need = if r.saving { IO_BUFFER } else { r.max_body };
             if running >= profile.connections
                 || (!r.saving && self.bodies() >= profile.memory_bodies)
-                || !self.reserve(host, need)
             {
+                break;
+            }
+            // An https request starts only once it holds the TLS session, in
+            // the order the requests and sockets asked for it. It asks only
+            // when it could otherwise start, and again at every turn, so a
+            // request at the head of the queue never blocks the ones behind
+            // it for longer than its own turn.
+            let (id, tls) = (r.id, r.tls);
+            if tls && host.table().pool().tls_request(TlsHolder::Net(id)) != TlsLease::Held {
+                break;
+            }
+            if !self.reserve(host, need) {
+                if tls {
+                    host.table().pool().tls_drop(TlsHolder::Net(id));
+                }
                 break;
             }
             self.reqs[index].reserved = if host.table().pool().capacity() == 0 {
@@ -454,6 +487,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         state: State::Queued,
         batch: batch.into_boxed_slice(),
         saving,
+        tls: is_https(parsed.head.url),
         progress: parsed.head.flags & args::FLAG_PROGRESS != 0,
         max_body,
         max_file: if parsed.head.max_file == 0 {
@@ -936,6 +970,9 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
         let r = &inner.reqs[index];
         if r.state == State::Running {
             host.transport().abort(r.id);
+        }
+        if r.tls {
+            host.table().pool().tls_drop(TlsHolder::Net(r.id));
         }
         if Inner::live(r)
             && r.saving

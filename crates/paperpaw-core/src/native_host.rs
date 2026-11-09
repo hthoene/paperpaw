@@ -158,7 +158,9 @@ pub(crate) mod lookup_service;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+pub(crate) mod save_files;
 mod service_slots;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;

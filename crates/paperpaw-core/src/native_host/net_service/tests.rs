@@ -17,6 +17,8 @@ mod admission;
 mod requests;
 #[path = "tests/serving.rs"]
 mod serving_tests;
+#[path = "tests/tls.rs"]
+mod tls_tests;
 
 std::thread_local! {
     /// Armed with `n`, the `n`th allocation gate of the test fails.
@@ -61,7 +63,10 @@ pub(crate) struct Fake {
 
 impl Fake {
     pub(crate) fn new(profile: NetProfile) -> Self {
-        Self::with_pool(profile, Rc::new(NetPool::new(profile.pool)))
+        Self::with_pool(
+            profile,
+            Rc::new(NetPool::with_tls_sessions(profile.pool, 4)),
+        )
     }
     /// A device whose pool is shared with someone else (`core.sockets`).
     pub(crate) fn with_pool(profile: NetProfile, pool: Rc<NetPool>) -> Self {

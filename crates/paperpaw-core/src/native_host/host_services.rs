@@ -54,6 +54,9 @@ pub(crate) struct HostServices {
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
+    /// The device's one network pool, shared by `core.net` and
+    /// `core.sockets`.
+    pool: OnceCell<Rc<super::net_pool::NetPool>>,
     /// The enabled owners' plugin ids and subscriptions, kept by the owner
     /// registry for the `core.net` adapter.
     owners: OnceCell<super::shared::Shared<super::owner_directory::OwnerDirectory>>,
@@ -111,6 +114,7 @@ impl HostServices {
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             in_use: OnceCell::new(),
+            pool: OnceCell::new(),
             owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
@@ -280,6 +284,21 @@ impl HostServices {
     /// Wire `core.net` once.
     pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
         self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    /// The device's one network pool, made by the first wiring that names a
+    /// size and a number of TLS sessions; a later one is ignored (a device has one pool).
+    pub(crate) fn net_pool(
+        &self,
+        capacity: u32,
+        tls_sessions: u8,
+    ) -> &Rc<super::net_pool::NetPool> {
+        self.pool.get_or_init(|| {
+            Rc::new(super::net_pool::NetPool::with_tls_sessions(
+                capacity,
+                tls_sessions,
+            ))
+        })
     }
 
     /// The paths in use by host writers (shared with `core.files`' busy check).

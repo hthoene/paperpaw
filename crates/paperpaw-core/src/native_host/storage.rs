@@ -24,8 +24,8 @@
 
 use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
-    ERR_UTF8,
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
+    ERR_UNSUPPORTED, ERR_UTF8,
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::Id;
@@ -51,6 +51,11 @@ pub struct StorageAdapter<'a> {
     storage: &'a dyn Storage,
     /// Owned for the public constructor, borrowed for a scoped raw callback.
     folder: Cow<'a, str>,
+    /// The paths the host's own writers hold (`core.net` saves, `core.sockets`
+    /// reads to a file, with their staged files): a write to one is
+    /// `ERR_BUSY`, so the plugin's own `name.pp-staged` recipe can never meet
+    /// the host's temporary file.
+    in_use: Option<&'a super::paths_in_use::PathsInUse>,
 }
 
 impl core::fmt::Debug for StorageAdapter<'_> {
@@ -74,12 +79,17 @@ impl<'a> StorageAdapter<'a> {
         (folder.len() <= MAX_FOLDER).then_some(Self {
             storage,
             folder: Cow::Owned(folder),
+            in_use: None,
         })
     }
 
     /// Borrow a stack-built plugin folder for one synchronous host callback.
     /// Validate the route without parsing an allocating SDK Id.
-    pub(crate) fn borrowed_folder(storage: &'a dyn Storage, folder: &'a str) -> Option<Self> {
+    pub(crate) fn borrowed_folder(
+        storage: &'a dyn Storage,
+        folder: &'a str,
+        in_use: Option<&'a super::paths_in_use::PathsInUse>,
+    ) -> Option<Self> {
         let owner = folder.strip_prefix(PREFIX)?.strip_suffix('/')?;
         if folder.len() > MAX_FOLDER
             || owner.contains('/')
@@ -90,6 +100,7 @@ impl<'a> StorageAdapter<'a> {
         Some(Self {
             storage,
             folder: Cow::Borrowed(folder),
+            in_use,
         })
     }
 
@@ -140,6 +151,15 @@ impl<'a> StorageAdapter<'a> {
                 act(joined).map_err(status)
             }
             other => other.map_err(status),
+        }
+    }
+
+    /// `ERR_BUSY` when a host writer holds `joined` (a file it is saving to, or
+    /// its staged file).
+    fn free_of_host_writers(&self, joined: &str) -> Result<(), i32> {
+        match self.in_use {
+            Some(table) if table.holds(joined, self.storage.ignores_case()) => Err(ERR_BUSY),
+            _ => Ok(()),
         }
     }
 
@@ -216,6 +236,7 @@ impl<'a> StorageAdapter<'a> {
             return Err(ERR_NO_SPACE);
         }
         self.resolve(root, path, |p| {
+            self.free_of_host_writers(p)?;
             self.check_room(data.len())?;
             self.with_parents(p, &act)
         })
@@ -230,14 +251,19 @@ impl<'a> StorageAdapter<'a> {
     /// An `ERR_*` status.
     pub fn rename(&self, root: u32, from: &[u8], to: &[u8]) -> Result<(), i32> {
         self.resolve(root, from, |f| {
-            self.resolve(root, to, |t| match self.storage.rename(f, t) {
-                // A missing `from` is NotFound too: folders above `to` are
-                // made only where `from` is there.
-                Err(StorageError::NotFound) if self.storage.exists(f) => {
-                    self.make_parents(t)?;
-                    self.storage.rename(f, t).map_err(status)
+            self.resolve(root, to, |t| {
+                // Neither end may be a file a host writer holds.
+                self.free_of_host_writers(f)?;
+                self.free_of_host_writers(t)?;
+                match self.storage.rename(f, t) {
+                    // A missing `from` is NotFound too: folders above `to` are
+                    // made only where `from` is there.
+                    Err(StorageError::NotFound) if self.storage.exists(f) => {
+                        self.make_parents(t)?;
+                        self.storage.rename(f, t).map_err(status)
+                    }
+                    other => other.map_err(status),
                 }
-                other => other.map_err(status),
             })
         })
     }
@@ -247,9 +273,12 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status.
     pub fn remove(&self, root: u32, path: &[u8]) -> Result<(), i32> {
-        self.resolve(root, path, |p| match self.storage.remove(p) {
-            Ok(()) | Err(StorageError::NotFound) => Ok(()),
-            Err(e) => Err(status(e)),
+        self.resolve(root, path, |p| {
+            self.free_of_host_writers(p)?;
+            match self.storage.remove(p) {
+                Ok(()) | Err(StorageError::NotFound) => Ok(()),
+                Err(e) => Err(status(e)),
+            }
         })
     }
 
