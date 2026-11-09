@@ -404,6 +404,11 @@ impl X4Device {
         true
     }
 
+    /// One generation counts for every list (networks, bonded devices, plugins
+    /// not installed, built-in plugins), so a change in one (a remote that
+    /// connects or disconnects) restarts the paging of the others: a reader
+    /// that is paging sees `ERR_STATE` once and reads again from the start. A
+    /// list that did not change never bumps it.
     fn bump(&self) {
         self.generation
             .set(self.generation.get().checked_add(1).unwrap_or(1));

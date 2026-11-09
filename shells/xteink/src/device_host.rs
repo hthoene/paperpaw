@@ -176,7 +176,11 @@ pub fn sync_networks(device: &X4Device, kernel: &paperpaw_core::Kernel) {
             network.secured,
         )
     }));
-    device.set_networks(&rows);
+    if !device.set_networks(&rows) {
+        // No room, or a plugin is reading the list: op 9 keeps the old one
+        // until the next scan.
+        log::warn!("device: the networks a scan found could not be kept");
+    }
 }
 
 /// The USB lines' readings, as they go to the kernel's status.
