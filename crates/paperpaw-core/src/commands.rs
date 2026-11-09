@@ -559,6 +559,7 @@ impl Kernel {
             Some(screen) => self.shared.registry.bind_user(slot.clone(), screen.clone()),
             None => self.shared.registry.unbind_user(&slot),
         }
+        self.shared.registry_generation.bump();
         self.update_config(&format_args!("slot `{slot}`"), |source| match &screen {
             Some(screen) => paperpaw_config::set(source, "slots", slot.as_str(), screen.as_str()),
             None => paperpaw_config::remove(source, "slots", slot.as_str()),
@@ -1154,6 +1155,15 @@ pub(crate) fn vet_reserved(
         !refused
     });
     out.len() != before
+}
+
+/// `text` cut to what the clipboard holds, at a character boundary.
+pub(crate) fn clipped(text: &str) -> String {
+    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    String::from(&text[..end])
 }
 
 #[cfg(test)]
