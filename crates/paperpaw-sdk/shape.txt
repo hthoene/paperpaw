@@ -1558,6 +1558,9 @@ const paperpaw_sdk::native::net::MAX_INLINE_BODY: usize = 2_048usize
 const paperpaw_sdk::native::net::MAX_URL: usize = 1_024usize
 const paperpaw_sdk::native::net::REPLY: usize = 4_096usize
 const paperpaw_sdk::native::net::REQUEST_INPUT: usize = 4_096usize
+const paperpaw_sdk::native::net::serve::MAX_RESPONSE_BODY: usize = 2_048usize
+const paperpaw_sdk::native::net::serve::MAX_RESPONSE_HEADERS: usize = 8usize
+const paperpaw_sdk::native::net::serve::MAX_SERVED_BODY: u64 = 67_108_864u64
 const paperpaw_sdk::native::sockets::BROADCAST_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::sockets::BROADCAST_MAX_PORTS: usize = 8usize
 const paperpaw_sdk::native::sockets::IDLE_MAX_MS: u32 = 1_800_000u32
@@ -3164,6 +3167,8 @@ struct paperpaw_sdk::native::net::HttpProgress { now_ms: u64, id: paperpaw_sdk::
 struct paperpaw_sdk::native::net::Net { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::net::Request<'a> { token: u32, method: &'a str, url: &'a str, headers: &'a [paperpaw_sdk::native::net::Header<'a>], body: &'a [u8], send: core::option::Option<(paperpaw_sdk::native::net::FileRoot, &'a str)>, save: core::option::Option<(paperpaw_sdk::native::net::FileRoot, &'a str)>, flags: u32, timeout_ms: u32, max_body: u32, max_file: u64 }
 struct paperpaw_sdk::native::net::RequestId(0: u32)
+struct paperpaw_sdk::native::net::serve::Response<'a> { request: u32, status: u16, content_type: &'a str, headers: &'a [paperpaw_sdk::native::net::Header<'a>], body: &'a [u8], send: core::option::Option<(paperpaw_sdk::native::net::FileRoot, &'a str)> }
+struct paperpaw_sdk::native::net::serve::Server { token: u32, port: u16, max_body: u64 }
 struct paperpaw_sdk::native::registry::PageCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::registry::Registry { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::registry::RegistryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::registry::RegistryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }

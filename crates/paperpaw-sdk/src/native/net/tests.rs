@@ -624,7 +624,8 @@ fn responses_are_checked_as_the_host_checks_them() {
 fn a_response_that_does_not_fit_or_is_refused_comes_back_as_an_error() {
     with_host(|host, state| {
         let net = Net::open(host).unwrap();
-        let headers = [Header::new("X", &"v".repeat(1024)).unwrap(); 4];
+        let value = "v".repeat(1024);
+        let headers = [Header::new("X", &value).unwrap(); 4];
         let response = Response::new(1, 200)
             .unwrap()
             .headers(&headers)

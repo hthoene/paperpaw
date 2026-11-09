@@ -1011,7 +1011,12 @@ fn firmware_commands_encode_with_their_options_and_key() {
         )
         .unwrap();
     sender
-        .install_firmware(3, InstallRoot::Data, "own.bin", FirmwareOptions::new().key(&key))
+        .install_firmware(
+            3,
+            InstallRoot::Data,
+            "own.bin",
+            FirmwareOptions::new().key(&key),
+        )
         .unwrap();
     sender.firmware_restart().unwrap();
     let mut seen = Vec::new();
