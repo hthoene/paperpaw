@@ -76,7 +76,13 @@ pub fn prepare(
         size = (size - 0.25).max(s.small);
     }
     let title = text::fit(font, size, title, room + 1.0)?;
-    let wide = font.measure_text(size, &title)?;
+    // Only a mirrored title needs its width, to put its right edge where the
+    // left edge was.
+    let wide = if s.rtl {
+        font.measure_text(size, &title)?
+    } else {
+        0.0
+    };
     page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
     page.paint.push(Paint::Text {
         text: title,
