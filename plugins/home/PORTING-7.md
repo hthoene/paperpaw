@@ -180,10 +180,12 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
 
 ### Gaps (each an ignored case in `tests/acceptance_pending.rs`)
 
-- **Named blocker `KERNEL-cell-hints` (draft 29):** a widget's least *width* and its square hint
-  (`CellSpan::min_w`, `square`; interface 6 `CellSpan::keep`) have no field in `widget_measure`'s
-  reply, so a widget may be made narrower than it wants or any shape when it is sized (or, when
-  added, gets the grid's width): `home-edit-arrange`, `home-add`. The TODO is in `native_measure.rs`.
+- **Cell hints (draft 29), done:** a widget's declared cells (`reg_widget.cells`: size, least size,
+  `square` flag) give the size it gets when added or placed (`native_source::declared`: within the
+  grid, no less than its least, square where it is, its least rows from `min_h`), without being made
+  and measured, as interface 6 `Geometry::size_of`. A widget that declares none (0 by 0) is measured
+  as before. Resizing with the buttons keeps a widget at least as high as it can do with and one
+  cell wide, as interface 6 did (it did not read the least width or the square hint there either).
 
 - Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4); the options' *Settings* entry (the widget's settings, with a placement of its own) is not ported: `home-edit-arrange`.
 - *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made

@@ -17,6 +17,9 @@ mod common;
 use common::*;
 
 const MENU: &str = "menu.list";
+/// Where the library entry leads: the library is the native `files` plugin's slot
+/// filler, which these kernel tests do not register, so the slot shows its placeholder.
+const LIBRARY_SLOT: &str = "core.placeholder";
 const PANEL: &str = "menu.panel";
 const BOOK: &str = "books/alice.txt";
 
@@ -92,7 +95,7 @@ fn every_entry_of_the_main_menu_opens_what_it_says() {
     let expected = [
         ("Quick panel", "menu.panel"),
         ("Home", "home.dashboard"),
-        ("Library", "files.browser"),
+        ("Library", LIBRARY_SLOT),
         ("Tools", MENU),
         ("Edit home screen", "home.dashboard"),
         ("Settings", "settings.list"),
@@ -393,7 +396,7 @@ fn menus_as_tiles_open_as_a_bar_with_every_entry() {
             app.run(actions::RIGHT);
             app.run(actions::CONFIRM);
         }
-        assert_eq!(app.screen(), "files.browser", "{}", app.described());
+        assert_eq!(app.screen(), LIBRARY_SLOT, "{}", app.described());
     }
 }
 

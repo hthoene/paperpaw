@@ -13,6 +13,10 @@ keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 
 [dependencies]
 embedded-hal = "1.0"
+# The `core.device` host the firmware wires (`device_host`): the kernel's trait.
+paperpaw-core.workspace = true
+# The status codes of a host (`ERR_NOT_FOUND`).
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 # The `[firmware]` section of paperpaw.ini, read as the kernel reads the file
 # (`dual_boot`).
@@ -33,7 +37,6 @@ paperpaw-default-packs.workspace = true
 paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 paperpaw-update.workspace = true
 paperpaw-digest.workspace = true
-paperpaw-core.workspace = true
 paperpaw-app.workspace = true
 # The waveform lab's screen, tried on the host (`tests/waveform_lab.rs`).
 paperpaw-graphics.workspace = true

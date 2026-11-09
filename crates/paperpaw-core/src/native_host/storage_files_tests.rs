@@ -139,15 +139,22 @@ fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
     // None, then some: nothing is wired, and the refusal is `ERR_STATE`. The
     // network's source is the host's own and is there from the first call.
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
-    let sources = resources.hosts().busy_sources();
+    let hosts = resources.hosts();
+    let sources = hosts.busy_sources();
     assert!(sources.has(BusyKind::Network));
+    assert!(
+        !sources.has(BusyKind::ReaderBook),
+        "the books are reported by the document service, not assumed"
+    );
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
-    assert!(resources.hosts().files().is_none(), "nothing half wired");
-    // The reader's book was the last: now it wires, once.
-    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
+    assert!(hosts.files().is_none(), "nothing half wired");
+    // The document service reports its books: the last source. Now it wires,
+    // once; the report can be registered once only.
+    hosts.register_reader_book_reporting().unwrap();
+    assert_eq!(hosts.register_reader_book_reporting(), Err(ERR_STATE));
     resources.wire(wiring()).unwrap();
-    assert!(resources.hosts().files().is_some());
+    assert!(hosts.files().is_some());
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
 }
 
@@ -155,12 +162,12 @@ fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
 fn the_wired_host_asks_the_device_sources() {
     let resources = HostResources::try_new().unwrap();
     let sources = resources.hosts().busy_sources();
-    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    let reader = Rc::new(Source {
+    let moving = Rc::new(Source {
         busy: Cell::new(true),
         moving: Cell::new(true),
     });
-    sources.register(BusyKind::ReaderBook, reader).unwrap();
+    sources.register(BusyKind::LibraryMoves, moving).unwrap();
+    resources.hosts().register_reader_book_reporting().unwrap();
     resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &resources.hosts().files().unwrap().0;
     assert!(files.busy("Books/a.epub", Access::Write));
@@ -179,7 +186,7 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
     assert!(sources.has(BusyKind::Network));
     assert!(!sources.complete());
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
+    hosts.register_reader_book_reporting().unwrap();
     assert!(hosts.net().is_none() && hosts.sockets().is_none());
     resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &hosts.files().unwrap().0;

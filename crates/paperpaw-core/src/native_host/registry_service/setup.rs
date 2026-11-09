@@ -15,6 +15,7 @@ use super::{
 };
 use crate::native_host::{
     declaration_store::{DeclarationStore, Kind},
+    item_state::ItemStates,
     registrations::{self as wire, Record},
 };
 use core::ops::ControlFlow;
@@ -36,17 +37,19 @@ fn key_of(record: &Record<'_>) -> Option<i64> {
 }
 
 /// Whether a declared step applies now: its setting condition holds, the
-/// device meets its need, and the plugin's last push (none is kept yet, so
-/// the declaration's own bit) says so.
-fn applies(env: &Env<'_>, step: &wire::SetupStep<'_>) -> bool {
+/// device meets its need, and the plugin's last push for the step
+/// (`command.set_item_state`: not hidden) says so; before any push the
+/// declaration's own bit does.
+fn applies(env: &Env<'_>, step: &wire::SetupStep<'_>, pushed_shown: Option<bool>) -> bool {
     rules::value_holds(env.settings(), step.applies_key, step.applies_value)
         && (step.flags & HAS_NEED == 0 || rules::need_met(step.need, step.capability, env.caps()))
-        && step.flags & DECLARED_APPLIES != 0
+        && pushed_shown.unwrap_or(step.flags & DECLARED_APPLIES != 0)
 }
 
 /// The row of a declared step.
 fn declared_row(
     env: &Env<'_>,
+    pushed: Option<&ItemStates>,
     plugin: &str,
     step: &wire::SetupStep<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
@@ -59,7 +62,17 @@ fn declared_row(
         page_kind: step.page_kind,
         page: step.page,
         order: step.order,
-        flags: if applies(env, step) { APPLIES } else { 0 },
+        flags: if applies(
+            env,
+            step,
+            pushed
+                .and_then(|states| states.get(plugin, step.name))
+                .map(|push| !push.hidden()),
+        ) {
+            APPLIES
+        } else {
+            0
+        },
         title: translated(env.i18n(), step.title, caps::TITLE),
     }))
 }
@@ -73,13 +86,18 @@ pub(super) fn rows(
         Some(directory) => Some(directory.store.try_borrow().map_err(|_| ERR_BUSY)?),
         None => None,
     };
-    let _end = merged(env, guard.as_deref(), visit);
+    let pushed = match sources.directory {
+        Some(directory) => Some(directory.items.try_borrow().map_err(|_| ERR_BUSY)?),
+        None => None,
+    };
+    let _end = merged(env, guard.as_deref(), pushed.as_deref(), visit);
     Ok(())
 }
 
 fn merged(
     env: &Env<'_>,
     store: Option<&DeclarationStore>,
+    pushed: Option<&ItemStates>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let mut own = env.setup().iter();
@@ -108,7 +126,7 @@ fn merged(
         };
         after = Some(sort);
         ordered::with_plugin(store, key, &mut |record, plugin| match record {
-            Record::SetupStep(step) => declared_row(env, plugin, &step, visit),
+            Record::SetupStep(step) => declared_row(env, pushed, plugin, &step, visit),
             _ => ControlFlow::Continue(()),
         })?;
         declared = ordered::next_after(store, &[Kind::SetupStep], &key_of, after);

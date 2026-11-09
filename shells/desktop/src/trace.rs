@@ -338,6 +338,10 @@ impl<S: Storage> Storage for Traced<S> {
         self.0.same_entry(a, b)
     }
 
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.0.free_space()
     }

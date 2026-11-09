@@ -209,12 +209,8 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
-    // Files, Home and Menu keep their order; Files and Menu are native
-    // plugins, linked (`NATIVE_PLUGINS`), where the feature says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_files::Files);
-    }
+    // Home and Menu keep their order; Files and Menu are native plugins,
+    // linked (`NATIVE_PLUGINS`), where the feature says.
     b = b.plugin(paperpaw_plugin_home::Home);
     #[cfg(not(feature = "native-linked"))]
     {

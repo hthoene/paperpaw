@@ -59,6 +59,7 @@ fn widget(id: &str, kind: &str) -> WidgetRow {
         id: id.to_string(),
         title: id.to_string(),
         kind: kind.to_string(),
+        span: None,
     }
 }
 
