@@ -2699,6 +2699,14 @@ to finish preparation. `reply_state` keeps the call's document and conversion
 identity. Scalar reply helpers validate the request operation before encoding
 into caller-owned output. Pass the returned bytes through `native::reply::Reply`.
 
+Blocks (op 8) are written with `FormatCall::reply_block(&BlockReply::new(&block)
+.next(offset), out)`, adding `.image_index(n)` for a picture block and `.last_in_section()`
+for the section's last block. The reply is one fragment of the block's record list,
+from the record the call's `cursor` names; when the block does not fit, the fragment
+ends with `more`, the next record index and the block's generation, and the host asks
+again with them (a changed block is answered `State`). `out` of 3,840 bytes always
+holds a fragment.
+
 Lists (sections, table of contents, links, fonts) are written with
 `FormatCall::rows(out)` and its typed row methods. A row that does not fit is
 `NoSpace`: end the page with `PageEnd::more(total, next, generation)`; the host asks

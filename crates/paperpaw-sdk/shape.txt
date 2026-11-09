@@ -3123,7 +3123,9 @@ struct paperpaw_sdk::native::fonts::Font<'cb> { host: &'cb paperpaw_sdk::native:
 struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
 struct paperpaw_sdk::native::fonts::icons::IconGlyph { bytes: [u8; 4], len: u8 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
-struct paperpaw_sdk::native::format::lists::FormatRows<'w> { writer: paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>, op: paperpaw_sdk::native::format::request::FormatOp, cap: usize, used: usize }
+struct paperpaw_sdk::native::format::blocks::BlockReply<'a> { block: &'a paperpaw_document::Block, image_index: u32, last_in_section: bool, next: u32 }
+struct paperpaw_sdk::native::format::lists::Budget { cap: usize, used: usize, rows: usize }
+struct paperpaw_sdk::native::format::lists::FormatRows<'w> { writer: paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w>, op: paperpaw_sdk::native::format::request::FormatOp, budget: paperpaw_sdk::native::format::lists::Budget }
 struct paperpaw_sdk::native::format::lists::PageEnd { last: bool, total: u32, next: u32, generation: u32 }
 struct paperpaw_sdk::native::format::replies::FormatFeatures(0: u32)
 struct paperpaw_sdk::native::format::replies::FormatState { state: u32, progress: u32, status: i32 }
