@@ -127,7 +127,7 @@ pub struct WifiState {
 }
 
 /// One network a scan found.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Found {
     ssid: Text<32>,
     signal: i32,
@@ -157,7 +157,7 @@ pub struct Bonded<'a> {
 }
 
 /// A bonded device kept in place (names cut at 64 bytes).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Kept {
     device: u32,
     name: Text<64>,
@@ -275,26 +275,44 @@ impl X4Device {
     }
 
     /// The networks the last scan found as `(ssid, signal in dBm, secured)`:
-    /// the strongest [`MAX_NETWORKS`] are kept. False where they could not be
-    /// kept (no room): the list is then as it was.
+    /// the strongest [`MAX_NETWORKS`] are kept, chosen while they are copied
+    /// (at most that many rows are ever allocated, whatever the scan found).
+    /// A hidden network (an empty ssid) is left out: no plugin can join it, as
+    /// op 9 says. The generation changes only where the list does. False where
+    /// they could not be kept (no room, or a visitor is reading the list): it
+    /// is then as it was.
     pub fn set_networks(&self, rows: &[(&str, i32, bool)]) -> bool {
-        let mut kept = Vec::new();
-        if kept.try_reserve_exact(rows.len()).is_err() {
+        let cap = rows.len().min(MAX_NETWORKS as usize);
+        let mut kept: Vec<Found> = Vec::new();
+        if kept.try_reserve_exact(cap).is_err() {
             return false;
         }
-        kept.extend(rows.iter().map(|&(ssid, signal, secured)| Found {
-            ssid: Text::new(ssid),
-            signal,
-            secured,
-        }));
-        kept.sort_unstable_by_key(|row| core::cmp::Reverse(row.signal));
-        kept.truncate(MAX_NETWORKS as usize);
+        for &(ssid, signal, secured) in rows.iter().filter(|row| !row.0.is_empty()) {
+            // After the last network that is as strong: stable for equals.
+            let at = kept.partition_point(|row| row.signal >= signal);
+            if at >= cap {
+                continue;
+            }
+            if kept.len() == cap {
+                kept.pop();
+            }
+            kept.insert(
+                at,
+                Found {
+                    ssid: Text::new(ssid),
+                    signal,
+                    secured,
+                },
+            );
+        }
         // A list in use by a visitor is left as it is: never a panic.
         let Ok(mut list) = self.networks.try_borrow_mut() else {
             return false;
         };
-        *list = kept;
-        self.bump();
+        if *list != kept {
+            *list = kept;
+            self.bump();
+        }
         true
     }
 
@@ -324,8 +342,10 @@ impl X4Device {
         let Ok(mut list) = self.bonded.try_borrow_mut() else {
             return false;
         };
-        *list = kept;
-        self.bump();
+        if *list != kept {
+            *list = kept;
+            self.bump();
+        }
         true
     }
 
@@ -347,7 +367,8 @@ impl X4Device {
     /// The plugins this start could not install (op 14): `(id, reason)`, with
     /// reason 1 other author, 2 damaged, 3 revoked. At most
     /// [`MAX_NOT_INSTALLED`] are kept. False where the rows could not be kept
-    /// (no room): the list is then as it was.
+    /// (no room, or a visitor is reading the list): the list is then as it
+    /// was. The generation changes only where the list does.
     pub fn set_not_installed(&self, rows: &[(&str, u32)]) -> bool {
         let rows = &rows[..rows.len().min(MAX_NOT_INSTALLED as usize)];
         let mut kept = Vec::new();
@@ -360,8 +381,10 @@ impl X4Device {
         let Ok(mut list) = self.not_installed.try_borrow_mut() else {
             return false;
         };
-        *list = kept;
-        self.bump();
+        if *list != kept {
+            *list = kept;
+            self.bump();
+        }
         true
     }
 
@@ -1242,5 +1265,64 @@ mod tests {
             })
             .unwrap();
         assert_eq!(inside, Some(false));
+    }
+
+    /// Hidden networks are left out; only the strongest 32 are kept, whatever
+    /// order the scan gave them in; the generation moves only on a change.
+    #[test]
+    fn networks_keep_the_strongest_leave_hidden_ones_out_and_bump_only_on_change() {
+        let device = device(&[]);
+        device.set_wifi(radio());
+        let hidden_and_many: Vec<(String, i32, bool)> = (0..100)
+            .map(|n| {
+                let name = if n % 10 == 0 {
+                    String::new()
+                } else {
+                    std::format!("n{n}")
+                };
+                (name, -100 + (n * 37 % 100), false)
+            })
+            .collect();
+        let rows: Vec<(&str, i32, bool)> = hidden_and_many
+            .iter()
+            .map(|(s, a, b)| (s.as_str(), *a, *b))
+            .collect();
+        assert!(device.set_networks(&rows));
+        let first = device.generation();
+        let mut seen = Vec::new();
+        device
+            .networks(&mut |row| {
+                seen.push((row.ssid.to_string(), row.signal));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(seen.len(), MAX_NETWORKS as usize);
+        assert!(seen.iter().all(|(ssid, _)| !ssid.is_empty()));
+        assert!(seen.windows(2).all(|pair| pair[0].1 >= pair[1].1));
+        // They are the strongest 32 of the named ones.
+        let mut named: Vec<i32> = rows
+            .iter()
+            .filter(|r| !r.0.is_empty())
+            .map(|r| r.1)
+            .collect();
+        named.sort_unstable_by(|a, b| b.cmp(a));
+        let expect: Vec<i32> = named.into_iter().take(32).collect();
+        assert_eq!(seen.iter().map(|r| r.1).collect::<Vec<_>>(), expect);
+        // The same scan again: nothing changed, the generation stays.
+        assert!(device.set_networks(&rows));
+        assert_eq!(device.generation(), first);
+        assert!(device.set_networks(&rows[..5]));
+        assert_ne!(device.generation(), first);
+    }
+
+    #[test]
+    fn plugins_not_installed_bump_the_generation_only_on_change() {
+        let device = device(&[]);
+        assert!(device.set_not_installed(&[("a", 1)]));
+        let first = device.generation();
+        assert!(device.set_not_installed(&[("a", 1)]));
+        assert_eq!(device.generation(), first);
+        assert!(device.set_not_installed(&[("a", 2)]));
+        assert_ne!(device.generation(), first);
     }
 }
