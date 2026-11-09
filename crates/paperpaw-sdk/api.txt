@@ -11202,6 +11202,8 @@ pub fn paperpaw_sdk::Params::is_empty(&self) -> bool
 pub fn paperpaw_sdk::Params::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &str)>
 pub const fn paperpaw_sdk::Params::new() -> Self
 pub fn paperpaw_sdk::Params::set(&mut self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, impl core::convert::Into<alloc::string::String>)
+pub fn paperpaw_sdk::Params::try_clone(&self) -> core::result::Result<Self, alloc::collections::TryReserveError>
+pub fn paperpaw_sdk::Params::try_set(&mut self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, &str) -> core::result::Result<(), alloc::collections::TryReserveError>
 pub fn paperpaw_sdk::Params::with(self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::cmp::Eq for paperpaw_sdk::Params
 impl core::cmp::PartialEq for paperpaw_sdk::Params
