@@ -86,6 +86,10 @@ impl Frame for CoreFrame<'_> {
         self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
     }
 
+    fn kernel_env(&self) -> Option<&Env<'_>> {
+        Some(self.env)
+    }
+
     fn with_stack(
         &self,
         visit: &mut dyn FnMut(&dyn super::context::ui_guard::UiStackView),
