@@ -150,12 +150,13 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 11] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 12] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
+    ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
     (
@@ -272,7 +273,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    b = b.plugin(paperpaw_plugin_lock::Lock);
     b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {

@@ -2277,10 +2277,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
- "paperpaw-plugin-sleep",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2472,7 +2468,9 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2644,8 +2642,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
