@@ -171,3 +171,21 @@ fn every_widget_has_the_shared_look_then_its_own() {
     // Interface 6: 13, 13 and 10 settings (the group is not a setting).
     assert_eq!(counts, [13, 13, 10]);
 }
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// vocabulary widgets declared none, so each stays pickable.
+#[test]
+fn no_widget_previews_a_settings_group() {
+    use paperpaw_core::native_host::registrations::Record;
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, declarations::WIDGETS.len());
+}

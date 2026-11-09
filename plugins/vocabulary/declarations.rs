@@ -300,9 +300,9 @@ pub fn widgets(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declare
         if widget.token == WORD_WIDGET_TOKEN {
             spec = spec.live();
         }
-        let spec = spec
-            .previews(&group)
-            .map_err(|_| DeclareError::TooLong("widget preview"))?;
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
         d.widget(spec)?;
         declare_all(&mut d, widget.name, &group, widget.all())?;
         d.submit()?;

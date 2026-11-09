@@ -259,15 +259,9 @@ fn stamp(host: &Host<'_>, item: &Item) -> Result<u64, Error> {
                 0,
             ]
         }
-        SAVED_WIDGET_TOKEN => {
-            let summary = read(store::summary(&folder))?;
-            [
-                summary.count as u64,
-                summary.books as u64,
-                summary.languages as u64,
-                summary.newest.map_or(0, |word| word.word.len() as u64 + 1),
-            ]
-        }
+        // The size of the file of words changes with any word added, deleted or
+        // replaced: no pass over the file, once a minute for each widget.
+        SAVED_WIDGET_TOKEN => [store::size(&folder), 0, 0, 0],
         _ => [
             crate::native_widget_due::due(host)?.map_or(0, |due| due as u64 + 1),
             0,
