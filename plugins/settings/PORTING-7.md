@@ -54,6 +54,15 @@ link them until the host activates native plugins; then they go together (no shi
 - Slots `core.settings` and `core.choose-value`; parameters (hand-over) `id`, `more`, `focus`,
   `text`, and `scope` (a root-1 book path: the screen sets the book scope while it is open).
 
+- *Placement pages:* the screen `settings.group` with `id` = `widgets.clock@2` shows the settings of
+  its widget's group as that placement has them: values read with the placement's key (slot 5
+  falls back to the widget's value, `registry.md` 10.1), a value the placement does not set itself
+  counts as default (op 18 with the placement), changes are set under the placement's key, and
+  *Reset to defaults* resets that placement only (`reset_setting` bit 3). No parts, actions, theme or
+  preview on such a page. The chooser for a placement's choice reads the options of the setting it
+  stands for. The id rules (`unplaced`, `unplaced_key`) are unit-tested and swept; the page itself
+  needs the host (ignored case `settings-placement-page`).
+
 ## Tests
 
 `native_model`: group membership, offered/visible levels, main-page order, sections, stepping and
@@ -65,8 +74,8 @@ search, secrets, restart).
 
 ## Not ported yet (explicit)
 
-- Placements (`widgets.clock@2`) pages and a widget look row: need the placement/widget host pieces
-  (H3); the preview of a group's settings (a widget composed above them) needs slot 35.
+- A widget look row (the *Widgets* chooser of interface 6) and the preview of a group's settings (a
+  widget composed above them: slot 35, H3) are not ported.
 - No icons in rows, switches are shown as *On*/*Off* text, no sliders (numbers use − and +); the kit
   draws none yet. Reading-font sizes that look alike are not merged when stepping.
 - A unit is the host's translated text: `{count}` is replaced, else the number comes first. Whether

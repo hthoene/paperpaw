@@ -235,6 +235,32 @@ pub fn visible(groups: &[Group], cx: Context, setting: &Setting, options: Option
             || group_is(groups, setting, DEVELOPER_GROUP))
 }
 
+/// The widget a placement id names: `widgets.clock` for `widgets.clock@2`;
+/// `None` for an id that is no placement.
+#[must_use]
+pub fn unplaced(id: &str) -> Option<&str> {
+    let (base, number) = id.rsplit_once('@')?;
+    (!base.is_empty() && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(base)
+}
+
+/// The setting a placement's setting stands for: `widgets.clock.face` for
+/// `widgets.clock@2.face`; `Ok(None)` for a key that is not a placement's.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the id cannot be built.
+pub fn unplaced_key(key: &str) -> Result<Option<String>, Error> {
+    let Some(at) = key.find('@') else {
+        return Ok(None);
+    };
+    let tail = &key[at + 1..];
+    let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+    if at == 0 || digits == 0 {
+        return Ok(None);
+    }
+    concat(&[&key[..at], &tail[digits..]]).map(Some)
+}
+
 /// The id of setting `id` of group `of` for its placement `placement`.
 ///
 /// # Errors

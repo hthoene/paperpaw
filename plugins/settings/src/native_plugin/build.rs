@@ -312,6 +312,37 @@ pub(super) fn build_list(
     Ok(())
 }
 
+/// The entry of a page's setting. On a placement's page (`of`, the placement
+/// and the keys it sets itself) the entry has the placement's key and value;
+/// a value the placement does not set counts as the default.
+fn entry_of(
+    host: &Host<'_>,
+    reader: &mut Reader<'_, '_>,
+    s: &Setting,
+    placement: Option<(&str, &str, &[String])>,
+) -> Result<Entry, Error> {
+    let detail = reader.detail(&s.key)?;
+    let options = if matches!(s.kind, Kind::Choice | Kind::Language) {
+        reader.choices(&s.key)?
+    } else {
+        Vec::new()
+    };
+    let mut setting = s.try_clone()?;
+    if let Some((of, placed, set)) = placement
+        && let Some(key) = model::placed(&s.key, of, placed)?
+    {
+        setting.value = native_data::read(host, &key)?;
+        setting.is_default = !set.contains(&key);
+        setting.in_scope = false;
+        setting.key = key;
+    }
+    Ok(Entry {
+        setting,
+        detail,
+        options,
+    })
+}
+
 /// Builds a group's page.
 pub(super) fn build_group(
     host: &Host<'_>,
@@ -322,7 +353,12 @@ pub(super) fn build_group(
     let all = reader.settings("")?;
     let cx = context(host, view.scoped)?;
     let mut messages = Messages::new()?;
-    let of = if view.group.is_empty() {
+    // A placement's page (`widgets.clock@2`) shows the settings of its widget's
+    // group, as that placement has them.
+    let placement = model::unplaced(&view.group);
+    let of = if let Some(base) = placement {
+        copy(base)?
+    } else if view.group.is_empty() {
         // A setting to focus, on its own group's page.
         match all.iter().find(|s| s.key == view.focus) {
             Some(s) => copy(listed_in(&groups, s))?,
@@ -331,7 +367,17 @@ pub(super) fn build_group(
     } else {
         copy(&view.group)?
     };
-    let group = copy(&of)?;
+    let group = if placement.is_some() {
+        copy(&view.group)?
+    } else {
+        copy(&of)?
+    };
+    // What the placement sets itself; the rest shows the widget's own value.
+    let set = if placement.is_some() {
+        reader.placement_keys(&view.group)?
+    } else {
+        Vec::new()
+    };
     let title = match groups.iter().find(|g| g.id == of) {
         Some(g) => copy(&g.title)?,
         None => String::new(),
@@ -370,20 +416,8 @@ pub(super) fn build_group(
     let has_more = !view.more && advanced_offered && !specs.iter().any(|s| s.has(flag::ADVANCED));
     let mut pool: Vec<Option<Entry>> = Vec::new();
     for s in &specs {
-        let detail = reader.detail(&s.key)?;
-        let options = if matches!(s.kind, Kind::Choice | Kind::Language) {
-            reader.choices(&s.key)?
-        } else {
-            Vec::new()
-        };
-        push(
-            &mut pool,
-            Some(Entry {
-                setting: s.try_clone()?,
-                detail,
-                options,
-            }),
-        )?;
+        let of_placement = placement.map(|_| (of.as_str(), view.group.as_str(), set.as_slice()));
+        push(&mut pool, Some(entry_of(host, reader, s, of_placement)?))?;
     }
     let (rows, entries) = page_rows(
         host,
@@ -429,7 +463,8 @@ pub(super) fn page_rows(
     let mut messages = Messages::new()?;
     let mut rows: Vec<Row> = Vec::new();
     let mut entries: Vec<Entry> = Vec::new();
-    if !view.more {
+    // A placement's page has no parts, actions or themes: those are the group's.
+    if !view.more && model::unplaced(&view.group).is_none() {
         // Its parts, each a page of its own, where they hold something.
         let held = holding(reader, groups, cx, all, true)?;
         for g in groups.iter().filter(|g| g.parent == of) {
@@ -515,14 +550,20 @@ pub(super) fn build_choose(
     view: &mut ChooseView,
 ) -> Result<(), Error> {
     let all = reader.settings("")?;
-    let Some(setting) = all.iter().find(|s| s.key == view.key) else {
+    // A placement's setting is chosen among the options of the setting it
+    // stands for; its value is its own.
+    let base = match model::unplaced_key(&view.key)? {
+        Some(base) => base,
+        None => copy(&view.key)?,
+    };
+    let Some(setting) = all.iter().find(|s| s.key == base) else {
         return Ok(());
     };
     let title = copy(&setting.title)?;
-    let options = reader.choices(&view.key)?;
+    let options = reader.choices(&base)?;
     // More ways to choose: the entries of the menu named like the setting.
     let mut more = Vec::new();
-    for page in reader.menu(&view.key)? {
+    for page in reader.menu(&base)? {
         if !page.section {
             push(&mut more, (page.action, page.title))?;
         }

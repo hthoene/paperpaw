@@ -1189,6 +1189,13 @@ impl NativeSettings {
     /// Resets the settings `group` holds that show (empty: all but the
     /// language); what is kept on reset, secrets and the reader's own stay.
     fn reset(&mut self, host: &Host<'_>, group: &str) -> Result<(), Error> {
+        // A placement's page: what that placement set goes, the widget's own
+        // settings stay.
+        if model::unplaced(group).is_some() {
+            let mut scratch = buffer(512)?;
+            CommandSender::new(host, &mut scratch).reset_setting(ResetTarget::Placement(group))?;
+            return Self::notify(host, "settings.reset-done");
+        }
         let mut reader = Reader::open(host)?;
         let found = (|| {
             let groups = reader.groups()?;
