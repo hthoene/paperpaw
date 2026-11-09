@@ -13,7 +13,8 @@ pub use crate::declarations::EXPORT_STAGE as STAGE;
 pub const ROOT_FILES: u32 = 1;
 
 /// The path of the notes file a run names; `None` for a file the plugin does
-/// not read (another root, an empty path).
+/// not read (another root, an empty path, a path with a control character: a
+/// newline would split the list of what waits).
 ///
 /// # Errors
 /// [`Error::Unsupported`] for another stage; [`Error::Invalid`] for an input
@@ -23,7 +24,8 @@ pub fn read<'a>(stage: &str, payload: &'a [u8]) -> Result<Option<&'a str>, Error
         return Err(Error::Unsupported);
     }
     let input = NotesExported::decode(payload).map_err(|_| Error::Invalid)?;
-    if input.root != ROOT_FILES || input.path.is_empty() {
+    if input.root != ROOT_FILES || input.path.is_empty() || input.path.chars().any(char::is_control)
+    {
         return Ok(None);
     }
     Ok(Some(input.path))
@@ -69,6 +71,7 @@ mod tests {
     fn another_root_or_no_path_is_not_read() {
         assert_eq!(read(STAGE, &input(0, "Notes/book.md")), Ok(None));
         assert_eq!(read(STAGE, &input(ROOT_FILES, "")), Ok(None));
+        assert_eq!(read(STAGE, &input(ROOT_FILES, "Notes/a\nb.md")), Ok(None));
     }
 
     #[test]
