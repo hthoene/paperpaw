@@ -253,25 +253,8 @@ impl<'a> CommandStage<'a> {
                 }
                 continue;
             };
-            let text = match value {
-                SettingValueRef::Text(text) => text.len(),
-                _ => 0,
-            };
-            bytes = bytes.saturating_add(key.len()).saturating_add(text);
-            if bytes > self.byte_limit {
-                return ERR_NO_SPACE;
-            }
-            let spec = match self.admitted(key) {
-                Ok(spec) => spec,
-                Err(error) => return error,
-            };
-            let scalar = match value {
-                SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
-                SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
-                _ => None,
-            };
-            if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
-                return ERR_INVALID;
+            if let Err(error) = self.validate_setting(key, value, &mut bytes) {
+                return error;
             }
         }
         let image_commands = self.image_count(batch, images.is_some());
@@ -319,6 +302,34 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// One `set_setting` of a batch: its bytes counted against the budget, the
+    /// setting registered and this plugin's to set, a scalar in its range.
+    fn validate_setting(
+        &self,
+        key: &str,
+        value: SettingValueRef<'_>,
+        bytes: &mut usize,
+    ) -> Result<(), i32> {
+        let text = match value {
+            SettingValueRef::Text(text) => text.len(),
+            _ => 0,
+        };
+        *bytes = bytes.saturating_add(key.len()).saturating_add(text);
+        if *bytes > self.byte_limit {
+            return Err(ERR_NO_SPACE);
+        }
+        let spec = self.admitted(key)?;
+        let scalar = match value {
+            SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
+            SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
+            _ => None,
+        };
+        if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
+            return Err(ERR_INVALID);
+        }
+        Ok(())
     }
 
     /// How many of `batch` are image commands the host admitted.
