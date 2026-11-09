@@ -47,6 +47,7 @@ pub use native_entry::NATIVE_ENTRY;
 pub mod native_plugin;
 
 pub mod model;
+mod native_widget;
 pub mod store;
 
 mod mood;

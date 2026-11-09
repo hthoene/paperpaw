@@ -1,7 +1,7 @@
 //! What elements are and set: their styles by name, stylesheet and
 //! attributes, which are blocks, headings, void or a page's furniture.
 
-use paperpaw_sdk::document::{Align, TextStyle};
+use paperpaw_sdk::document::{Align, DocumentError, TextStyle};
 
 use crate::css::{self, Props, Rules};
 
@@ -42,7 +42,8 @@ pub(super) fn element_props(
     attrs: &paperpaw_sdk::xml::Attrs<'_>,
     rules: &mut Rules,
     styles: bool,
-) -> Props {
+) -> Result<Props, DocumentError> {
+    let get = |name: &str| attrs.try_get(name).map_err(|_| crate::fallible::OOM);
     let mut props = Props::default();
     match tag {
         "b" | "strong" | "th" => props.bold = Some(true),
@@ -59,19 +60,19 @@ pub(super) fn element_props(
     }
     // The marker an old `type` attribute asks for, below the stylesheet's.
     if matches!(tag, "ol" | "ul" | "li")
-        && let Some(value) = attrs.get("type")
+        && let Some(value) = get("type")?
     {
         props.list_style = super::lists::type_attribute(&value);
     }
-    let classes = attrs.get("class").unwrap_or_default();
+    let classes = get("class")?.unwrap_or_default();
     props.apply(&rules.props_remembered(tag, &classes));
-    if let Some(value) = attrs.get("align") {
+    if let Some(value) = get("align")? {
         props.set_align(&value);
     }
-    if styles && let Some(css) = attrs.get("style") {
+    if styles && let Some(css) = get("style")? {
         props.apply(&rules.parse_style(&css));
     }
-    props
+    Ok(props)
 }
 
 /// `style` with bold, italic, small capitals, raised or lowered, the
@@ -108,56 +109,50 @@ pub(super) fn styled(style: TextStyle, props: &Props) -> TextStyle {
 
 /// Elements without content or end tag in HTML.
 pub(super) fn is_void(tag: &str) -> bool {
-    matches!(
-        tag.to_ascii_lowercase().as_str(),
-        "area"
-            | "base"
-            | "br"
-            | "col"
-            | "embed"
-            | "hr"
-            | "img"
-            | "input"
-            | "link"
-            | "meta"
-            | "source"
-            | "track"
-            | "wbr"
-    )
+    const VOID: [&str; 13] = [
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
+        "track", "wbr",
+    ];
+    VOID.iter().any(|void| void.eq_ignore_ascii_case(tag))
 }
 
 /// Parts of a web page that are not reading matter: navigation, forms,
 /// menus and the like, by element, ARIA role or class name. Headers and
 /// footers belong to the reading matter when it is marked (an article's
 /// title), else they are the site's.
-pub(super) fn furniture(tag: &str, attrs: &paperpaw_sdk::xml::Attrs<'_>, focus: bool) -> bool {
-    let role = attrs.get("role");
+pub(super) fn furniture(
+    tag: &str,
+    attrs: &paperpaw_sdk::xml::Attrs<'_>,
+    focus: bool,
+) -> Result<bool, DocumentError> {
+    let get = |name: &str| attrs.try_get(name).map_err(|_| crate::fallible::OOM);
+    let role = get("role")?;
     if matches!(
         role.as_deref(),
         Some("navigation" | "search" | "banner" | "contentinfo" | "complementary" | "menu")
-    ) || attrs.get("aria-hidden").as_deref() == Some("true")
+    ) || get("aria-hidden")?.as_deref() == Some("true")
     {
-        return true;
+        return Ok(true);
     }
     // A class or id naming furniture starts or ends with its word
     // (`nav-links`, `site-nav`); words in between describe a state
     // (`main-menu-pinned-disabled` on `<body>`).
-    let furniture_word = |word: &str| FURNITURE.contains(&word.to_ascii_lowercase().as_str());
-    let named = |name: &str| {
-        attrs.get(name).is_some_and(|value| {
+    let furniture_word = |word: &str| FURNITURE.iter().any(|f| f.eq_ignore_ascii_case(word));
+    let named = |name: &str| -> Result<bool, DocumentError> {
+        Ok(get(name)?.is_some_and(|value| {
             value.split_whitespace().any(|token| {
                 let mut words = token.split(['-', '_']).filter(|w| !w.is_empty());
                 let first = words.next();
                 let last = words.next_back();
                 first.is_some_and(furniture_word) || last.is_some_and(furniture_word)
             })
-        })
+        }))
     };
     let frame = matches!(tag, "html" | "body" | "main" | "article");
-    if !frame && (named("class") || named("id")) {
-        return true;
+    if !frame && (named("class")? || named("id")?) {
+        return Ok(true);
     }
-    matches!(
+    Ok(matches!(
         tag,
         "nav"
             | "aside"
@@ -170,7 +165,7 @@ pub(super) fn furniture(tag: &str, attrs: &paperpaw_sdk::xml::Attrs<'_>, focus: 
             | "template"
             | "dialog"
             | "menu"
-    ) || (!focus && matches!(tag, "header" | "footer"))
+    ) || (!focus && matches!(tag, "header" | "footer")))
 }
 
 pub(super) fn is_block(tag: &str) -> bool {

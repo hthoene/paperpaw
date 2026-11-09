@@ -91,7 +91,7 @@ impl Frame for CoreFrame<'_> {
 
     fn ui_x4(&self) -> Result<bool, i32> {
         self.callback_epoch()?;
-        Ok(self.env.device().id == "xteink-x4")
+        Ok(crate::native_host::ui_store::is_x4(self.env.device().id))
     }
 
     fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {
