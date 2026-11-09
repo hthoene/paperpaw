@@ -52,6 +52,13 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
+    emit(&mut source, "UI", |sink| {
+        declarations::ui(sink).map_err(|e| format!("invalid Mail actions: {e:?}"))
+    })?;
+    emit(&mut source, "SCREENS", |sink| {
+        let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
+        declarations::screens(&mut d).map_err(|e| format!("invalid Mail screens: {e:?}"))
+    })?;
     emit(&mut source, "EVENTS", |sink| {
         declarations::events(sink).map_err(|e| format!("invalid Mail event declarations: {e:?}"))
     })?;

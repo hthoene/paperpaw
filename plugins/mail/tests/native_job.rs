@@ -448,3 +448,22 @@ fn a_host_error_ends_the_job_and_closes_the_socket() {
         "the socket is closed with the job, not left to idle"
     );
 }
+
+#[test]
+fn a_cancelled_connection_closes_its_socket_and_is_idle() {
+    let mut fake = Fake::new(Proto::Imap, Script::default());
+    let mut job = Job::new();
+    start_imap(&mut job, &mut fake, Security::Implicit, 993, "secret");
+    assert!(job.working());
+    let mut wire = Wire::default();
+    job.cancel(FakeNet {
+        fake: &mut fake,
+        wire: &mut wire,
+    });
+    assert!(fake.closed);
+    assert_eq!(job.run, Run::Idle);
+    assert!(!job.working());
+    // A new connection can start.
+    start_imap(&mut job, &mut fake, Security::Implicit, 993, "secret");
+    assert!(job.working());
+}
