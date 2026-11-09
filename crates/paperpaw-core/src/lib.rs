@@ -1225,10 +1225,10 @@ impl Kernel {
         }
         self.now = now;
         self.last_activity = now;
-        // The time asleep is no screen's.
-        self.shown_since = now;
+        self.shown_since = now; // the time asleep is no screen's
         self.close_shut_out();
         self.count_free_again(now);
+        self.native_work_woke();
         self.output.commands.push(events::RESUME.emit(()));
     }
 

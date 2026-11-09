@@ -18,9 +18,11 @@
 //! (the file is named by the book's path): a reader keeps it with
 //! [`save_with_book`], and [`book`] reads it.
 
+use alloc::collections::TryReserveError;
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 
+use crate::data::Error;
 use crate::document::Locator;
 use crate::library::Fingerprint;
 use crate::{Storage, StorageError};
@@ -80,27 +82,11 @@ impl Position {
     /// Read from a position file's text (also a reader's `progress.ini`
     /// of before, whose section is `[progress]`).
     pub fn parse(text: &str) -> Option<Position> {
-        let (mut section, mut offset, mut percent) = (None, None, 0.0);
-        let mut position = Position::new(Locator::START, 0.0);
-        for entry in crate::config::parse(text).filter_map(Result::ok) {
-            if entry.section != "position" && entry.section != "progress" {
-                continue;
-            }
-            match entry.key {
-                "section" => section = entry.value.as_u32(),
-                "offset" => offset = entry.value.as_u32(),
-                "percent" => percent = entry.value.as_str().parse().unwrap_or(0.0),
-                "conversion" => {
-                    position.conversion = u64::from_str_radix(&entry.value.as_str(), 16).ok();
-                }
-                "xpointer" => position.xpointer = Some(entry.value.as_str().to_string()),
-                "updated" => position.updated = entry.value.as_i64().unwrap_or(0),
-                _ => {}
-            }
+        match try_parse(text, None) {
+            Ok(position) => position,
+            // Where there is no memory the program stops, as it always did.
+            Err(_) => alloc::alloc::handle_alloc_error(core::alloc::Layout::new::<Position>()),
         }
-        position.at = Locator::new(section?, offset?);
-        position.percent = percent;
-        Some(position)
     }
 
     /// As a position file's text.
@@ -149,6 +135,95 @@ pub fn load_for_update(
     Position::parse(text)
         .map(Some)
         .ok_or(StorageError::InvalidData)
+}
+
+/// The position file of the book at `book`, its name had fallibly.
+fn try_file(book: &str) -> Result<String, TryReserveError> {
+    let mut digits = [0_u8; crate::library::KEY_LEN];
+    let key = crate::library::key_into(book, &mut digits);
+    let mut name = String::new();
+    name.try_reserve_exact(DIR.len() + 1 + key.len() + ".txt".len())?;
+    for part in [DIR, "/", key, ".txt"] {
+        name.push_str(part);
+    }
+    Ok(name)
+}
+
+/// The longest XPointer (as the file writes it, escapes and all) that
+/// [`try_load`] holds: the bound of `doc_xpointer`, 1,024 bytes. A longer one
+/// (only a hand-edited file has one) is treated as absent: never held and
+/// never cut, and the rest of the position is read.
+pub const XPOINTER_MAX: usize = 1024;
+
+/// [`Position::parse`] with the memory error: the XPointer is the only
+/// thing held, in one fallible reservation of its length (resolved at once,
+/// so that an escaped one is not copied twice). With `limit`, a longer one
+/// (as written) is left out before anything is reserved.
+fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error> {
+    let (mut section, mut offset, mut percent) = (None, None, 0.0);
+    let mut position = Position::new(Locator::START, 0.0);
+    for entry in crate::config::parse(text).filter_map(Result::ok) {
+        if entry.section != "position" && entry.section != "progress" {
+            continue;
+        }
+        match entry.key {
+            "section" => section = entry.value.as_u32(),
+            "offset" => offset = entry.value.as_u32(),
+            "percent" => percent = entry.value.raw().parse().unwrap_or(0.0),
+            "conversion" => position.conversion = u64::from_str_radix(entry.value.raw(), 16).ok(),
+            "xpointer" => {
+                if limit.is_some_and(|limit| entry.value.raw().len() > limit) {
+                    // Treated as absent (a later, shorter one may still come).
+                    position.xpointer = None;
+                    continue;
+                }
+                let owned = match entry.value.try_as_str().map_err(|_| Error::OutOfMemory)? {
+                    alloc::borrow::Cow::Owned(owned) => owned,
+                    alloc::borrow::Cow::Borrowed(text) => {
+                        let mut owned = String::new();
+                        owned
+                            .try_reserve_exact(text.len())
+                            .map_err(|_| Error::OutOfMemory)?;
+                        owned.push_str(text);
+                        owned
+                    }
+                };
+                position.xpointer = Some(owned);
+            }
+            "updated" => position.updated = entry.value.as_i64().unwrap_or(0),
+            _ => {}
+        }
+    }
+    let (Some(section), Some(offset)) = (section, offset) else {
+        return Ok(None);
+    };
+    position.at = Locator::new(section, offset);
+    position.percent = percent;
+    Ok(Some(position))
+}
+
+/// [`load_for_update`] with the memory error: where the book was left,
+/// `Ok(None)` if none was kept. Held at most: the file's text (4 KiB, as a
+/// rule well under 1 KiB) and the XPointer ([`XPOINTER_MAX`], 1 KiB).
+///
+/// # Errors
+/// [`Error::OutOfMemory`] where either cannot be had; [`Error::Unreadable`]
+/// for a file that is no position; the storage's error otherwise. An
+/// XPointer past [`XPOINTER_MAX`] is not an error: the position has none.
+pub fn try_load(storage: &dyn Storage, book: &str) -> Result<Option<Position>, Error> {
+    let file = try_file(book).map_err(|_| Error::OutOfMemory)?;
+    let data = match crate::read_file(storage, &file, LIMIT) {
+        Ok(data) => data,
+        Err(StorageError::NotFound) => return Ok(None),
+        Err(StorageError::OutOfMemory) => return Err(Error::OutOfMemory),
+        Err(e) => return Err(e.into()),
+    };
+    drop(file);
+    let text =
+        core::str::from_utf8(crate::files::without_bom(&data)).map_err(|_| Error::Unreadable)?;
+    try_parse(text, Some(XPOINTER_MAX))?
+        .map(Some)
+        .ok_or(Error::Unreadable)
 }
 
 /// Keeps where the book at `book` was left.
@@ -236,5 +311,57 @@ mod tests {
             MemoryStorage::new().with(&file(book), "[position]\nsection = 1\noffset = 2\n"),
         );
         assert!(load_for_update(&failing, book).is_err());
+    }
+
+    /// The fallible read says what the plain one does, and every
+    /// refused allocation of it is the memory error.
+    #[test]
+    fn a_position_is_read_whole_or_refused_for_every_allocation() {
+        use crate::native::commands::menu_alloc_tests::refuse_nth;
+        let book = "books/a.epub";
+        let storage = MemoryStorage::new();
+        assert_eq!(try_load(&storage, book), Ok(None));
+        let position = Position::new(Locator::new(7, 1234), 41.5)
+            .conversion(255)
+            .xpointer(String::from(
+                "/body/DocFragment[8]/body/p[3]/text()[1].12 \"quoted\"",
+            ))
+            .updated(1_760_000_000);
+        save(&storage, book, &position).unwrap();
+        assert_eq!(try_load(&storage, book), Ok(Some(position.clone())));
+        assert_eq!(try_load(&storage, book).unwrap(), load(&storage, book));
+        let mut allocations = 0;
+        for number in 1.. {
+            let (result, refused) = refuse_nth(number, || try_load(&storage, book));
+            if !refused {
+                assert_eq!(result, Ok(Some(position.clone())));
+                allocations = number - 1;
+                break;
+            }
+            assert_eq!(result, Err(Error::OutOfMemory), "refusal {number}");
+        }
+        // The name, the text and the XPointer.
+        assert!(allocations >= 3, "{allocations}");
+        // An XPointer past the bound is left out before it is held (the plain
+        // read still has it), and one at the bound is read.
+        let longest =
+            Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(XPOINTER_MAX)));
+        save(&storage, book, &longest).unwrap();
+        assert_eq!(try_load(&storage, book), Ok(Some(longest)));
+        let too_long =
+            Position::new(Locator::new(1, 2), 1.0).xpointer(Some("x".repeat(XPOINTER_MAX + 1)));
+        save(&storage, book, &too_long).unwrap();
+        assert_eq!(
+            try_load(&storage, book),
+            Ok(Some(Position::new(Locator::new(1, 2), 1.0)))
+        );
+        assert_eq!(load(&storage, book), Some(too_long));
+        // A file that is no position is unreadable, never none.
+        storage
+            .write(&file(book), b"[position]\nsection = 1\n")
+            .unwrap();
+        assert_eq!(try_load(&storage, book), Err(Error::Unreadable));
+        storage.write(&file(book), &[0xff, 0xfe]).unwrap();
+        assert_eq!(try_load(&storage, book), Err(Error::Unreadable));
     }
 }
