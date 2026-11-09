@@ -2788,6 +2788,13 @@ ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound
 ended id: prepare it again. The host reads the file in bands, so a card failure can leave
 the bands drawn so far.
 
+`Library::cover(host, book, side, input, out)` gives a book's cover as an `ImageId` with its
+size (`Cover::image()`, `Cover::info()`), made by the book's format on first use and kept in the
+host's cover cache. `side` 0 is the list's size. `NotFound` means the book has no cover (show
+text); `Busy` means it is being made, so ask again when `library_changed` bit 6 says it is
+ready. Draw it with `Canvas::draw_image` and release it with `image_release` when it scrolls out
+of the list. `input` is 1,024 bytes and `out` 4,096.
+
 ### Book fields and badges
 
 Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
