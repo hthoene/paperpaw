@@ -55,7 +55,7 @@ code that sends and reads it is in place.
   title, among equal titles by its place among them; its new handle is used). If it is not, the
   refreshed list stays and a notice says so (`notes-overview.changed`). Interface 6 kept paths,
   which do not go stale. Tested: the matching of a book in the new list (`native_plugin` tests);
-  the refresh itself needs `i18n.copy`/`i18n.format` in the scripted host (the gap named below).
+  the refresh itself is not tested (the host-issued instances; see below).
 - The walk ends at the first book past the 200 (it only sets `more`), without walking the rest of
   the catalog. So the books listed are the first 200 with notes **in the catalog's title order**;
   interface 6 took the first 200 in the order of its walk of the library and then sorted them
@@ -107,8 +107,7 @@ code that sends and reads it is in place.
   is covered, and making the list again on each return would walk the library again. 75 KiB of the
   256 KiB heap is an X4 risk to measure (memory gate), not measured. Tested: the policy of
   `free_notes` (unit test over views); the opening of two books in the scripted host is not,
-  because the scripted host does not answer `i18n.copy`/`i18n.format` yet and the instances are
-  host-issued.
+  because the instances are host-issued.
 - **Paging (closes the parity item of the 100-note cap).** A book's notes are shown 100 to a page
   (`native_notes.rs`): a last row *Next notes* reads on from where the page ended and a first row
   *Previous notes* goes back; the page before is read again from its start (the starts of the pages
@@ -119,7 +118,7 @@ code that sends and reads it is in place.
   256th (25,600 notes) are not reachable; those notes are in the export. Tested over a scripted
   reply source (`native_notes_tests.rs`): the same pages at any reply size, forward and back, the
   ends (exactly 100 notes, none), a stale cursor, a host that never ends, every allocation
-  refused in turn. Not tested end to end: the rows' texts (scripted host without `i18n`).
+  refused in turn. Not tested end to end: the rows' texts of a notes page.
 - If the catalog changes between the handover of a chosen book and the book screen opening
   (`opened_book`; one host callback apart), the book's handle is stale (`State`/`NotFound`) and the
   screen does not open, with no notice. The list itself handles a stale handle before the handover
@@ -129,9 +128,8 @@ code that sends and reads it is in place.
   `core.library`: the pages of the catalog continued in their generation, each book's notes counted
   page by page, only the books with notes described, a stale catalog read again from its start,
   and a refusal of every service call and every service opening turning into an error status. The
-  scripted host does not answer `i18n.copy`/`i18n.format` yet (`ERR_UNSUPPORTED`), so the rows'
-  texts are not checked there and the callback ends in that status after the library was read: a
-  gap for Core.
+  scripted host answers `i18n.copy`/`i18n.format` from the plugin's catalogs now (the tests add
+  them), so the list callback ends whole (status 0); the rows' texts are still not compared.
 
 ## Ported (the export): `src/native_export.rs`, `native_staged.rs`, `native_run.rs`, `HostSource::for_export`
 
@@ -179,12 +177,12 @@ code that sends and reads it is in place.
   `NotFound`) is the host's error status, as for every plugin that opens a slot.
 - Tested: the place of every note on every page of a 300-note book (`native_notes_tests.rs`), and
   that the *Previous*/*Next notes* rows and one past the last have none; the page's `places` are
-  filled under the allocation-refusal sweep of `page`. Not tested end to end (the scripted host has
-  no `i18n` for the screen's rows, see above): the handover and the `command.open` itself.
+  filled under the allocation-refusal sweep of `page`. Not tested end to end (the scripted host has no
+  screen host for the choosing): the handover and the `command.open` itself.
 
 ## Not tested here (each is an ignored test in `tests/acceptance_pending.rs`)
 
-- The rows' texts and the pixels (H1/H3 and the catalog of messages in the scripted host).
+- The rows' texts and the pixels (H1/H3).
 - The staging and the move of the export onto the card (the scripted host has neither `storage`
   nor `core.files`), and the time of a library of thousands of books (a device measurement).
 - The reader honouring `section` and `offset` (the reader's port).

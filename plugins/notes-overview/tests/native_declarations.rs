@@ -66,7 +66,11 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     );
     assert_eq!(
         menus,
-        [("tools".to_string(), "notes-overview.open".to_string(), 37)]
+        [(
+            "core.tools".to_string(),
+            "notes-overview.open".to_string(),
+            37
+        )]
     );
     assert_eq!(
         icons,
