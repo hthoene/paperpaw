@@ -39,11 +39,13 @@ use alloc::{rc::Rc, string::String};
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
+mod device;
 mod serving;
 mod table;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use device::NetDevice;
 pub(crate) use table::NetTable;
 
 /// `event.http_done.reason` (`network.md` 4.1).
@@ -51,6 +53,7 @@ pub(crate) mod reason {
     pub(crate) const OK: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
     pub(crate) const DNS: u32 = 2;
+    pub(crate) const TLS: u32 = 3;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const TOO_LARGE: u32 = 6;
@@ -105,6 +108,10 @@ pub(crate) struct NetProfile {
     pub(crate) max_body: u32,
     /// Whether the cable server (`serve` port 0) exists.
     pub(crate) cable: bool,
+    /// `SERVERS`: servers open at once over all plugins, from `serve` until
+    /// they stop, fail or end (1 on the X4, 2 on the X4 Pro and Classic, 8
+    /// elsewhere). A `serve` past it answers `ERR_BUSY` and opens nothing.
+    pub(crate) servers: u32,
 }
 
 impl NetProfile {
@@ -117,6 +124,7 @@ impl NetProfile {
         connections: 2,
         max_body: 45_056,
         cable: true,
+        servers: 1,
     };
     /// Devices without a pool (Android, the emulator).
     pub(crate) const OTHER: Self = Self {
@@ -125,6 +133,7 @@ impl NetProfile {
         connections: 6,
         max_body: 1_048_576,
         cable: false,
+        servers: 8,
     };
 }
 
@@ -140,6 +149,8 @@ pub(crate) struct PowerEnd {
 
 /// What a request gives the transport when it starts.
 pub(crate) struct Start<'a> {
+    /// The plugin that made the request (the transport runs outside its call).
+    pub(crate) owner: u64,
     pub(crate) request: &'a args::Request<'a>,
     pub(crate) max_body: u32,
     pub(crate) max_file: u64,
@@ -148,6 +159,8 @@ pub(crate) struct Start<'a> {
 
 /// An answer to a served request.
 pub(crate) struct Reply<'a> {
+    /// The plugin that serves.
+    pub(crate) owner: u64,
     pub(crate) response: &'a args::Response<'a>,
     /// The file to send exists (a missing one is answered 404 by the
     /// transport; the service already checked).
@@ -221,6 +234,16 @@ pub(crate) trait NetHost {
     fn network_demand(&self, wanted: bool);
     /// The work run the current callback of the plugin belongs to.
     fn current_run(&self, owner: u64) -> Option<u64>;
+    /// A request of work run `run` was stored: the run does not end while it
+    /// lives (`work.md` 2.3). Called after the request was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// request is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The request of work run `run` ended (any way): exactly once for each
+    /// `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// The screen instance whose callback is running if it is showing.
     fn showing_screen(&self, owner: u64) -> Option<u64>;
     /// Whether `extra` more bytes can be written and the storage's free-space
@@ -342,15 +365,27 @@ fn own(text: &str) -> Result<String, i32> {
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use serving::{
-    Decision, screen_closed, served_body, served_gone, served_head, served_whole,
+    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_failed,
+    server_owner, server_started,
 };
 #[allow(
     unused_imports,
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use table::{
-    Finished, event_delivered, finished, network_lost, next_event, progress, tick, work_ended,
+    Finished, event_delivered, finished, network_lost, next_deadline, next_event, next_event_run,
+    progress, redirected_to_https, tick, work_ended,
 };
+
+/// A request as the dispatcher admits it, for the tests of the shell's wiring.
+#[cfg(test)]
+pub(crate) fn request_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
+    table::request(host, who, input)
+}
 
 /// The plugin stopped (its callbacks are revoked): its requests are
 /// cancelled without events, its servers stopped without events, held

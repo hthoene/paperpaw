@@ -362,3 +362,51 @@ fn folders_are_not_made_below_the_reserve() {
     assert_eq!(s.rename(0, b"f", b"g"), Ok(()));
     assert_eq!(get(&fake, "g").unwrap(), b"x");
 }
+
+#[test]
+fn a_file_a_host_writer_holds_is_busy_for_the_plugins_writes_not_for_its_reads() {
+    use super::super::paths_in_use::PathsInUse;
+    let fake = Fake::new();
+    let table = PathsInUse::default();
+    let name = |n: &str| alloc::format!("{DIR}{n}");
+    table.claim(7, &name("a.bin")).unwrap();
+    table.claim(7, &name("a.bin.pp-staged")).unwrap();
+    fake.files.write(&name("a.bin"), b"old").unwrap();
+    fake.files.write(&name("a.bin.pp-staged"), b"half").unwrap();
+    fake.files.write(&name("b.bin"), b"mine").unwrap();
+    let s = StorageAdapter::borrowed_folder(&fake, DIR, Some(&table)).unwrap();
+    // Reading is never busy.
+    let mut out = [0u8; 8];
+    assert_eq!(s.size(0, b"a.bin"), Ok(3));
+    assert_eq!(s.read_at(0, b"a.bin.pp-staged", 0, &mut out), Ok(4));
+    // Every write to either name, and a rename from or to one, is.
+    for file in [&b"a.bin"[..], b"a.bin.pp-staged"] {
+        assert_eq!(s.write(0, file, b"x"), Err(ERR_BUSY));
+        assert_eq!(s.append(0, file, b"x"), Err(ERR_BUSY));
+        assert_eq!(s.remove(0, file), Err(ERR_BUSY));
+        assert_eq!(s.rename(0, file, b"c.bin"), Err(ERR_BUSY));
+        assert_eq!(s.rename(0, b"b.bin", file), Err(ERR_BUSY));
+    }
+    // The plugin's own staged recipe on a file the host holds cannot rename
+    // the host's half-written file into place.
+    assert_eq!(s.rename(0, b"a.bin.pp-staged", b"a.bin"), Err(ERR_BUSY));
+    assert_eq!(get(&fake, "a.bin").unwrap(), b"old");
+    assert_eq!(get(&fake, "a.bin.pp-staged").unwrap(), b"half");
+    assert_eq!(get(&fake, "b.bin").unwrap(), b"mine");
+    // Other files are free.
+    assert_eq!(s.write(0, b"b.bin", b"new"), Ok(()));
+    assert_eq!(s.rename(0, b"b.bin", b"d.bin"), Ok(()));
+    assert_eq!(s.remove(0, b"d.bin"), Ok(()));
+    // Once the claims are gone, so is the refusal.
+    table.release(7, &name("a.bin"));
+    table.release(7, &name("a.bin.pp-staged"));
+    assert_eq!(s.write(0, b"a.bin", b"x"), Ok(()));
+    assert_eq!(s.rename(0, b"a.bin", b"c.bin"), Ok(()));
+}
+
+#[test]
+fn a_plugin_folder_without_a_table_is_never_busy() {
+    let fake = Fake::new();
+    let s = adapter(&fake);
+    assert_eq!(s.write(0, b"a.bin", b"x"), Ok(()));
+}
