@@ -68,6 +68,8 @@ struct Probe {
     answer: Rc<Cell<Result<i32, i32>>>,
     /// Opens a resource of the run in the due callback (the run stays open).
     hold_run: Rc<Cell<bool>>,
+    /// What the plugin does in its due callback (given its owner key).
+    on_due: Rc<RefCell<Option<Rc<dyn Fn(u64)>>>>,
 }
 
 impl NativeInstance for Probe {
@@ -112,6 +114,10 @@ impl NativeInstance for Probe {
         {
             self.sched.resource_opened(run as u32).unwrap();
         }
+        let hook = self.on_due.borrow().clone();
+        if let (Some(hook), 103) = (hook, told.tag) {
+            hook(self.owner.get());
+        }
         self.told.borrow_mut().push(told);
         self.answer.get()
     }
@@ -144,6 +150,7 @@ struct World {
     told: Vec<Rc<RefCell<Vec<Told>>>>,
     answers: Vec<Rc<Cell<Result<i32, i32>>>>,
     holds: Vec<Rc<Cell<bool>>>,
+    on_dues: Vec<Rc<RefCell<Option<Rc<dyn Fn(u64)>>>>>,
 }
 
 const NAMES: [&str; 3] = ["a", "b", "c"];
@@ -162,11 +169,13 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
     });
     let (mut owners, mut told) = (Vec::new(), Vec::new());
     let (mut answers, mut holds) = (Vec::new(), Vec::new());
+    let mut on_dues = Vec::new();
     for name in NAMES.iter().take(plugins) {
         let log = Rc::new(RefCell::new(Vec::new()));
         let answer = Rc::new(Cell::new(Ok(OK)));
         let hold = Rc::new(Cell::new(false));
         let me = Rc::new(Cell::new(0));
+        let on_due: Rc<RefCell<Option<Rc<dyn Fn(u64)>>>> = Rc::new(RefCell::new(None));
         let probe = Probe {
             told: Rc::clone(&log),
             sched: Rc::clone(&sched),
@@ -175,6 +184,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
             running: Cell::new(true),
             answer: Rc::clone(&answer),
             hold_run: Rc::clone(&hold),
+            on_due: Rc::clone(&on_due),
         };
         let lease = NativeLease::try_new(probe).unwrap();
         let owner = kernel
@@ -186,6 +196,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         owners.push(owner);
         told.push(log);
         answers.push(answer);
+        on_dues.push(on_due);
         holds.push(hold);
     }
     kernel
@@ -207,6 +218,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         told,
         answers,
         holds,
+        on_dues,
     }
 }
 
@@ -459,4 +471,149 @@ fn one_pass_calls_a_capped_number_of_plugins_and_asks_for_another() {
     assert_eq!(first, 32);
     assert!(!w.pump());
     assert_eq!(w.told(0).len() + w.told(1).len(), 8);
+}
+
+/// `core.net` wired on the world's pool, the work scheduler attached to its
+/// owner directory (`wire_work`): a request a `work_due` callback starts
+/// belongs to the run.
+mod network {
+    use super::*;
+    use crate::native_host::admitted_features::AdmittedFeatures;
+    use crate::native_host::{
+        event_tags::EventTags,
+        host_services::{Caller, HostServices},
+        net_service,
+        service_events::ServiceEvents,
+        shell_wiring::{
+            HostWiring, HttpDone, HttpJob, HttpReason, NetInputs, NetLimits, NetReports,
+            ServedReply, ServerReason, ShellHttp, ShellNetwork,
+        },
+    };
+    use paperpaw_sdk::MemoryStorage;
+
+    #[derive(Default)]
+    struct Shell {
+        started: RefCell<Vec<u32>>,
+    }
+    impl ShellHttp for Shell {
+        fn start(&self, job: &HttpJob<'_>) -> Result<(), i32> {
+            self.started.borrow_mut().push(job.id);
+            Ok(())
+        }
+        fn abort(&self, _: u32) {}
+        fn listen(&self, _: u32, _: u32, _: &mut [u8]) -> Result<usize, ServerReason> {
+            Err(ServerReason::Refused)
+        }
+        fn unlisten(&self, _: u32) {}
+        fn reply(&self, _: u32, _: &ServedReply<'_>) -> Result<(), i32> {
+            Ok(())
+        }
+        fn close_served(&self, _: u32, _: u32) {}
+    }
+    impl ShellNetwork for Shell {
+        fn now_ms(&self) -> u64 {
+            0
+        }
+        fn network_up(&self) -> bool {
+            true
+        }
+        fn network_demand(&self, _: bool) {}
+    }
+
+    /// A world whose plugin starts one `core.net` request in its `work_due`
+    /// callback; `(world, the request's id, the shell's reports)`.
+    fn with_request() -> (World, Rc<Cell<u32>>, Rc<NetReports>) {
+        let mut w = world();
+        let shell = Rc::new(Shell::default());
+        let (reports, host) = {
+            let resources = w.kernel.shared.native_instances.test_resources().unwrap();
+            let wired = resources
+                .wire(HostWiring::new().net(NetInputs::new(
+                    Rc::new(MemoryStorage::new()),
+                    shell.clone(),
+                    shell,
+                    NetLimits::new(49_152, 2),
+                )))
+                .unwrap();
+            let reports = Rc::new(wired.net().unwrap().clone());
+            let host = Rc::clone(&resources.hosts().net().unwrap().0);
+            // The plugin subscribed to `http_done` (a request needs it).
+            let owners = resources.hosts().owners().unwrap();
+            let _ = owners.admit(w.owners[0], "a");
+            owners.subscribe(
+                w.owners[0],
+                EventTags::collect(|tag| tag == wire::EVENT_HTTP_DONE_TAG),
+            );
+            (reports, host)
+        };
+        // The user's network settings, read into the policy as at start.
+        w.kernel.sync_net_policy();
+        let id = Rc::new(Cell::new(0));
+        let started = Rc::clone(&id);
+        *w.on_dues[0].borrow_mut() = Some(Rc::new(move |owner| {
+            let hosts = HostServices::new();
+            let who = Caller {
+                owner,
+                plugin: "a",
+                features: AdmittedFeatures::NONE,
+                hosts: &hosts,
+            };
+            let mut input = [0u8; 4_096];
+            let used = wire::records_encode_counted(
+                &[wire::Record::ServiceNetRequest(wire::ServiceNetRequest {
+                    token: 3,
+                    method: "GET",
+                    url: "https://example.org/a",
+                    flags: 0,
+                    timeout_ms: 0,
+                    max_body: 0,
+                    max_file: 0,
+                })],
+                20,
+                4_096,
+                &mut input,
+            )
+            .unwrap();
+            let input = &input[..used];
+            started.set(net_service::request_for_tests(&*host, &who, input).unwrap());
+        }));
+        w.declare(0, &spec("fetch", 1));
+        (w, id, reports)
+    }
+
+    #[test]
+    fn a_request_the_callback_starts_keeps_the_run_open_until_it_ends() {
+        let (mut w, id, reports) = with_request();
+        w.pump();
+        assert_eq!(w.told(0), [due(1, why::TIME, "fetch", true)]);
+        assert_ne!(id.get(), 0, "the request was started");
+        // The callback returned; the request goes on, so does the run.
+        assert_eq!(w.sched.counts(), (1, 1));
+        assert_eq!(w.kernel.work_pump_due(), Some(Instant(1_000 + RUN_MAX_MS)));
+        reports
+            .finished(id.get(), HttpDone::new(200, HttpReason::Ok))
+            .unwrap();
+        assert_eq!(w.sched.counts(), (0, 0), "the run ended with its request");
+    }
+
+    #[test]
+    fn the_longest_time_ends_the_runs_request_with_work_ended() {
+        let (mut w, id, _reports) = with_request();
+        w.pump();
+        assert_eq!(w.sched.counts(), (1, 1));
+        w.env.now.set(1_000 + RUN_MAX_MS);
+        w.pump();
+        assert_eq!(w.sched.counts(), (0, 0), "the run is over");
+        // What the plugin is told of its request: ended with reason 14.
+        let instances = &w.kernel.shared.native_instances;
+        let net = instances.test_resources().unwrap().hosts().net().unwrap();
+        let mut buffer = [0u8; 1_280];
+        let owner = w.owners[0];
+        let len = net.next_event(owner, &mut buffer).unwrap().unwrap();
+        let wire::Record::EventHttpDone(done) = wire::record_decode_one(&buffer[..len]).unwrap()
+        else {
+            panic!("an http_done event");
+        };
+        assert_eq!((done.id, done.reason), (id.get(), 14));
+    }
 }
