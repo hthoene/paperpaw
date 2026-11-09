@@ -3,6 +3,7 @@
 //! fields plugins keep, the file with its size, and the folder. What the
 //! SDK cannot give yet (the cover, the tags' text, the language and the
 //! description, which are the format's) is in `PORTING-7.md`.
+use crate::native_list::{Cell, Row};
 use crate::native_shelves::short;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
@@ -10,7 +11,7 @@ use paperpaw_sdk::native::{
     library::{Book, BookRef, FieldCursor, Library},
 };
 use paperpaw_ui_kit::{
-    Item, Messages,
+    Messages,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy, decimal, decimal_u64},
 };
@@ -23,6 +24,9 @@ pub struct Info {
     pub author: String,
     /// Label and value, in order.
     pub rows: Vec<(String, String)>,
+    /// The catalog's key and generation of the book, where it knows it: its
+    /// cover is asked of the host by them.
+    pub cover: Option<(u32, u32)>,
 }
 
 /// The most field rows shown (the host has at most 64 fields), and the most
@@ -48,6 +52,7 @@ pub fn read(host: &Host<'_>, library: &Library, path: &str) -> Result<Info, Erro
         Ok(book) => {
             info.title = copy(book.title())?;
             info.author = copy(book.author())?;
+            info.cover = Some((book.key(), book.generation()));
             series_row(host, &mut say, &mut info, book)?;
             if let Some(progress) = book.progress() {
                 let mut digits = [0; 20];
@@ -244,20 +249,25 @@ pub fn extension(name: &str) -> &str {
     name.rsplit_once('.').map_or("", |(_, extension)| extension)
 }
 
-/// The rows as the list shows them: the label with the value.
+/// The cells of the screen: the book as a card (its cover, title and author)
+/// above the labelled rows.
 ///
 /// # Errors
-/// `NoMemory` when a text cannot be kept.
-pub fn items(info: &Info) -> Result<Vec<Item>, Error> {
-    let mut items = Vec::new();
-    push(&mut items, Item::heading(&info.title)?)?;
-    if !info.author.is_empty() {
-        push(&mut items, Item::heading(&info.author)?)?;
-    }
+/// `NoMemory`.
+pub fn cells(info: &Info) -> Result<Vec<Cell>, Error> {
+    let mut cells = Vec::new();
+    push(
+        &mut cells,
+        Cell {
+            note: copy(&info.author)?,
+            card: true,
+            ..Cell::plain(Row::Book(0), &info.title, "")?
+        },
+    )?;
     for (label, value) in &info.rows {
-        push(&mut items, Item::row(label, value)?)?;
+        push(&mut cells, Cell::plain(Row::Field, label, value)?)?;
     }
-    Ok(items)
+    Ok(cells)
 }
 
 #[cfg(test)]
@@ -296,17 +306,31 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_are_a_heading_for_the_title_and_one_noted_row_each() {
+    fn the_book_is_a_card_with_its_cover_above_one_row_for_each_label() {
         let info = Info {
             title: "T".into(),
             author: "A".into(),
             rows: alloc::vec![("Folder".into(), "books".into())],
+            cover: Some((7, 4)),
         };
-        assert_eq!(items(&info).unwrap().len(), 3);
+        let cells = cells(&info).unwrap();
+        assert_eq!(cells.len(), 2);
+        // The card asks for the cover of the book, which is the one at 0.
+        assert!(cells[0].card && cells[0].row == Row::Book(0));
+        assert_eq!(
+            (cells[0].title.as_str(), cells[0].note.as_str()),
+            ("T", "A")
+        );
+        assert_eq!(cells[1].row, Row::Field);
+        assert_eq!(
+            (cells[1].title.as_str(), cells[1].value.as_str()),
+            ("Folder", "books")
+        );
+        // A book the catalog does not know has a card too, without an author.
         let bare = Info {
             title: "T".into(),
             ..Info::default()
         };
-        assert_eq!(items(&bare).unwrap().len(), 1);
+        assert_eq!(super::cells(&bare).unwrap().len(), 1);
     }
 }
