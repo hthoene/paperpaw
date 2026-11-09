@@ -30,8 +30,9 @@
 # (`root trait`: every impl method and default method of a trait; `root impl`: one type's). Not
 # rooted, and why: `&dyn Frame` (`abi7::context::Frame`) has no impl in this image (the dispatch
 # frames, `Env` and `CoreFrame`, are not instantiated until the linked-plugin path of todo 150 is
-# wired: add `root trait paperpaw_core::abi7::context::Frame` with it; the root fails while it
-# matches nothing, so it cannot be forgotten); the registration sink (`Target<T>` of
+# wired: replace the `absent trait` line below with `root trait paperpaw_core::abi7::context::Frame`
+# then; the `absent` line fails as soon as the trait has code in the image, so wiring cannot go
+# unnoticed); the registration sink (`Target<T>` of
 # registration_scope.rs) has no symbol of its own for its methods (generic over the make closure,
 # merged into the registration closures), so its calls are listed here and left to device test S4.
 #
@@ -41,6 +42,7 @@
 # To refresh the lines after a change: run the scan, read what it reports, and decide for
 # each site (a new indirect call needs its reason, not a number changed).
 
+absent trait paperpaw_core::abi7::context::Frame no impl in the image until the linked-plugin path wires CoreFrame/Env (todo 150, 251): then `root trait` replaces this line
 table PAPERPAW_HOST_TABLE_ANCHOR
 root trait paperpaw_platform::storage::Storage
 root trait paperpaw_text::stored::Pack

@@ -168,6 +168,86 @@ fn root_trait_names_the_methods_of_every_impl_of_a_trait_and_its_default_methods
 }
 
 #[test]
+fn an_absent_trait_fails_once_the_image_has_code_of_it() {
+    let fine = f(&[&entry(32), &RETW_N]);
+    let root = ("root", fine.clone());
+    // Nothing implements it: the line holds, and `absent` is no root.
+    let report = run(
+        std::slice::from_ref(&root),
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    // An impl method appears: it fails, by its path, with the reason.
+    let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let report = run(
+        &[root.clone(), (one, fine.clone())],
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("has code in the image now"));
+    assert!(report.problems[0].contains("no impl until the linked path lands"));
+    // A default method of the trait counts as code of it.
+    let default = "_ZN1a1T3dft17h0123456789abcdefE";
+    let report = run(
+        &[root, (default, fine)],
+        &["root"],
+        "absent trait a::T why\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    // A line with no reason is not a line of the budget.
+    assert!(Budget::parse("root x\nabsent trait a::T\n").is_err());
+}
+
+/// A firmware whose functions are `(name, bytes)`, and `also` more names for
+/// the code of the function at that index (folded or aliased code).
+fn firmware_aliased(funcs: &[(&str, Vec<u8>)], also: &[(usize, &str)]) -> Vec<u8> {
+    let mut code = Vec::new();
+    let mut at = Vec::new();
+    for (_, bytes) in funcs {
+        while code.len() % 16 != 0 {
+            code.push(0);
+        }
+        at.push((BASE + code.len() as u32, bytes.len() as u32));
+        code.extend_from_slice(bytes);
+    }
+    let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+    let text = b.section(".text", 0x6, BASE, &code, 16);
+    for ((name, _), (start, size)) in funcs.iter().zip(&at) {
+        b.function(name, *start, *size, text as u16, false);
+    }
+    for (index, name) in also {
+        let (start, size) = at[*index];
+        b.function(name, start, size, text as u16, false);
+    }
+    b.build()
+}
+
+#[test]
+fn a_root_or_trait_is_found_by_any_name_at_an_address_not_only_the_first() {
+    let fine = f(&[&entry(32), &RETW_N]);
+    let plain = "_ZN1a5plain17h0123456789abcdefE";
+    let method = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    // The code of `plain` also has the name of an impl method of `a::T` (the
+    // linker folded two identical functions): the first name is `plain`.
+    let bytes = firmware_aliased(&[("root", fine.clone()), (plain, fine)], &[(1, method)]);
+    let elf = Elf::parse(&bytes).unwrap();
+    let check_with = |text: &str| check(&elf, &Budget::parse(text).unwrap()).unwrap();
+    // `absent` sees the trait's code under the second name.
+    let report = check_with("root root\nabsent trait a::T folded\n");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("has code in the image now"));
+    // `root trait` roots it, `root impl` too, and the family by the first name.
+    let report = check_with("root root\nroot trait a::T\n");
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.checked, 2);
+    let report = check_with("root root\nroot impl a::Type\n");
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.checked, 2);
+}
+
+#[test]
 fn a_frame_of_the_limit_in_a_function_reached_is_refused_and_one_not_reached_is_not() {
     let a = BASE;
     let root = f(&[&entry(32), &call(12, a + 3, a + 16), &RETW_N]);
