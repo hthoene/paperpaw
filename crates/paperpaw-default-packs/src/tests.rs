@@ -30,6 +30,8 @@ struct Card {
     room: Cell<Option<usize>>,
     /// Calls of `sync`.
     syncs: Cell<usize>,
+    /// `list` fails (a card that cannot be read, not a folder that is not there).
+    list_fails: Cell<bool>,
 }
 
 impl Card {
@@ -40,6 +42,7 @@ impl Card {
             free: None,
             room: Cell::new(None),
             syncs: Cell::new(0),
+            list_fails: Cell::new(false),
         }
     }
 }
@@ -74,6 +77,9 @@ impl Storage for Card {
         self.files.append(path, data)
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        if self.list_fails.get() {
+            return Err(StorageError::Io);
+        }
         self.files.list(dir, visit)
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -251,6 +257,41 @@ fn a_failed_write_over_a_broken_plugin_ini_keeps_the_readers_files() {
     for path in theirs {
         assert!(card.exists(path), "{path}");
     }
+}
+
+/// A pack made for a later PaperPaw (a newer firmware's, or the store's after a
+/// downgrade) is not ours to judge: kept as it is, no mark.
+#[test]
+fn a_pack_made_for_a_later_paperpaw_is_left_alone() {
+    let card = Card::new();
+    let ini: &[u8] =
+        b"[plugin]\nid = hyphenation\nformats = 999\n\n[hyphenation]\nen = hyphenation/en.pphp\n";
+    card.files.write(INI, ini).unwrap();
+    card.files.write(TABLE, b"newer table").unwrap();
+    assert_eq!(seed_hyphenation(&card), Seeded::Kept);
+    assert!(
+        !card.exists(MARK),
+        "no mark: judged again at the next start"
+    );
+    assert_eq!(card.size(INI).unwrap(), ini.len() as u64);
+    let mut table = [0u8; 16];
+    let n = card.read_at(TABLE, 0, &mut table).unwrap();
+    assert_eq!(&table[..n], b"newer table");
+}
+
+/// A listing that fails (not "no such folder") counts as files there: a write
+/// that fails after it never takes the folder away.
+#[test]
+fn a_listing_that_fails_never_lets_the_folder_go() {
+    let card = Card::new();
+    card.files.write(INI, b"").unwrap();
+    card.files
+        .write("plugins/hyphenation/hyphenation/de.pphp", b"german")
+        .unwrap();
+    card.list_fails.set(true);
+    card.writes.set(Some(1));
+    assert_eq!(seed_hyphenation(&card), Seeded::Failed);
+    assert!(card.exists("plugins/hyphenation/hyphenation/de.pphp"));
 }
 
 /// The old, broken `plugin.ini` goes (and the card is synced) before the first

@@ -111,7 +111,7 @@ pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::{CORE, CorePlugin};
-pub use crate::data_plugin::hyphenation::hyphenation_tables;
+pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
 pub use crate::io::cable::PREFIX as CABLE_PREFIX;

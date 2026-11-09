@@ -57,7 +57,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 
-use paperpaw_platform::Storage;
+use paperpaw_platform::{Storage, StorageError};
 
 /// The package's id, and its folder under `plugins/`.
 pub const HYPHENATION: &str = "hyphenation";
@@ -117,7 +117,8 @@ enum Found {
     Usable,
     /// Not one: written over.
     Broken,
-    /// Could not be told (too big, a read failed, no room to read it).
+    /// Could not be told (too big, a read failed, no room to read it, made for
+    /// a later PaperPaw).
     Unknown,
 }
 
@@ -154,6 +155,10 @@ fn judge(storage: &dyn Storage, folder: &str) -> Found {
         {
             Found::Usable
         }
+        // A pack made for a later PaperPaw (a newer firmware's, or the
+        // store's, after a downgrade) is not this one's to judge or to
+        // replace: left as it is, no mark, looked at again at the next start.
+        Err(paperpaw_core::ManifestRefusal::LaterFormats { .. }) => Found::Unknown,
         _ => Found::Broken,
     }
 }
@@ -217,8 +222,13 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     // Files that are there already (a broken `plugin.ini` beside the reader's
     // other tables, tables with no manifest) are not this start's to take
     // back if it fails.
+    // A listing that fails for any other reason than "no such folder" counts
+    // as files there: a failed write then never takes the folder away.
     let mut held = false;
-    let _ = storage.list(&folder, &mut |_| held = true);
+    match storage.list(&folder, &mut |_| held = true) {
+        Ok(()) | Err(StorageError::NotFound) => {}
+        Err(_) => held = true,
+    }
     let mut before = [false; MAX_FILES];
     if held {
         for (at, &(path, _)) in ENGLISH.iter().enumerate().take(MAX_FILES) {
