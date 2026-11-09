@@ -155,6 +155,7 @@ pub(crate) mod image_service;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 #[allow(
@@ -186,6 +187,7 @@ mod stage_wire;
     reason = "the NET and SOCK adapters name their staged file by it"
 )]
 pub(crate) mod staged_name;
+mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod work_pump;
