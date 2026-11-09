@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 7] = [
     // A book opens at the position it was left at, in the reading font and
     // the settings of the book (the user's reading settings win over a
     // plugin's defaults, decision 131), pages turn, the page index builds in
@@ -51,6 +51,15 @@ const CASES: [Case; 6] = [
         name: "reader-stages",
         golden: None,
         blocked_by: &["reader-api-224", "stage-run-host"],
+    },
+    // A book handed over with `section` and `offset` (notes overview, an
+    // annotation's start) opens at that place, over `page` and the saved
+    // place; a place the book lacks opens it as without. The rule is
+    // `native_open`; the document host's answer on the place is pending.
+    Case {
+        name: "reader-open-at-place",
+        golden: None,
+        blocked_by: &["DOC-open-layout", "H1"],
     },
 ];
 
@@ -98,4 +107,10 @@ fn status_lines_and_sample() {
 #[ignore = "BLOCKED reader-api-224, stage-run-host: the reader's stage schemas (#224) are not on integration"]
 fn stages() {
     CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED DOC-open-layout, H1: no document host to check the place against, no native screen to open"]
+fn open_at_place() {
+    CASES[6].refuse().unwrap();
 }

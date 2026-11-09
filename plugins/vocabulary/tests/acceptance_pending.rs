@@ -14,7 +14,8 @@ const COLLECT: Case = Case {
     golden: None,
     blocked_by: &["native shell", "H1", "H4"],
 };
-/// The screens: word list, choice dialogs, flash cards, decks, card files.
+/// The screens: word list, choice dialogs, card files. (The flash cards' decks and review are ported;
+/// what they draw is proved by their tests of the rows and the decisions, not on a host.)
 const SCREENS: Case = Case {
     name: "vocabulary-screens",
     golden: None,

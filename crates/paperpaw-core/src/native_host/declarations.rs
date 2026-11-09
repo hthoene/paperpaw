@@ -106,13 +106,10 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
         | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
-        // The one registry declaration not admitted yet: checked, then
-        // refused until the host admits it together with its own cross-checks
-        // (a step's name against the plugin's actions, screens, settings and
-        // menu items, `registry.md` section 6).
-        Record::SetupStep(_) => {
-            super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
-        }
+        // A setup step (`registry.md` section 6): checked here, its name
+        // against the plugin's actions, screens, settings and menu sections at
+        // commit (`declaration_checks.rs`).
+        Record::SetupStep(_) => super::declaration_reg_checks::validate(plugin_id, record),
         // Input and help declarations (`docs/abi/ui.md`): refused until the
         // host admits them (UIX hand-off).
         Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),

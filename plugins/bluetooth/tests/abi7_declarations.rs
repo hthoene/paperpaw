@@ -54,7 +54,7 @@ fn the_image_is_what_the_builder_makes() {
 /// The host takes the settings, the screens, the action, the icons, the menu
 /// needs, the slot offer and the events (`screens-input.md` section 1).
 #[test]
-fn the_host_admits_what_it_can_and_names_what_it_refuses() {
+fn the_host_admits_every_declaration() {
     for batch in batches!(declarations::settings)
         .into_iter()
         .chain(batches!(declarations::screens))

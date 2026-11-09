@@ -10,7 +10,7 @@ fn is_furniture(tag: &str) -> bool {
             found = Some(furniture(name, &attrs, true));
         }
     });
-    found.unwrap()
+    found.unwrap().unwrap()
 }
 
 /// A storage that notes the largest piece appended to a file.
@@ -64,7 +64,7 @@ fn origins_are_written_as_they_come() {
         page.push_str(&alloc::format!("<a href=\"#n{i}\">{i}</a> "));
     }
     page.push_str("</p></body></html>");
-    let paths = CachePaths::new("c", "0");
+    let paths = CachePaths::new("c", "0").unwrap();
     let storage = Spy {
         inner: paperpaw_sdk::MemoryStorage::new().with("page.html", page.as_str()),
         watched: paths.xpointers.clone(),

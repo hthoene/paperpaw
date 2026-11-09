@@ -15,7 +15,7 @@
 use alloc::vec::Vec;
 
 use crate::jpeg::{
-    Bits, Component, Huffman, ZIGZAG, idct_scaled, read_huffman, read_quant, ycbcr_to_rgb,
+    Bits, Component, Huffman, Tables, ZIGZAG, idct_scaled, read_huffman, read_quant, ycbcr_to_rgb,
 };
 use crate::{Downscaler, Fit, ImageError, ImageSink, Reader, block_side, zeroed};
 
@@ -33,9 +33,7 @@ pub(crate) struct Frame {
     pub width: u32,
     pub height: u32,
     pub components: Vec<Component>,
-    pub quant: [[u16; 64]; 4],
-    pub dc_tables: [Option<Huffman>; 4],
-    pub ac_tables: [Option<Huffman>; 4],
+    pub tables: Tables,
     pub restart_interval: u32,
 }
 
@@ -226,8 +224,8 @@ pub(crate) fn decode(
                     .checked_sub(2)
                     .ok_or(ImageError::Invalid("bad segment length"))?;
                 match marker {
-                    0xc4 => read_huffman(reader, len, &mut frame.dc_tables, &mut frame.ac_tables)?,
-                    0xdb => read_quant(reader, len, &mut frame.quant)?,
+                    0xc4 => read_huffman(reader, len, &mut frame.tables.dc, &mut frame.tables.ac)?,
+                    0xdb => read_quant(reader, len, &mut frame.tables.quant)?,
                     0xdd => {
                         frame.restart_interval = u32::from(reader.u16_be()?);
                         reader.skip(len.saturating_sub(2))?;
@@ -336,8 +334,8 @@ fn scan(
     for &c in &members {
         let component = frame.components[c];
         let missing = match kind {
-            Kind::DcFirst => frame.dc_tables[component.dc].is_none(),
-            Kind::AcFirst | Kind::AcRefine => frame.ac_tables[component.ac].is_none(),
+            Kind::DcFirst => frame.tables.dc[component.dc].is_none(),
+            Kind::AcFirst | Kind::AcRefine => frame.tables.ac[component.ac].is_none(),
             Kind::DcRefine => false,
         };
         if missing {
@@ -402,8 +400,8 @@ fn scan(
                     Go::End => return Ok(END),
                 }
                 let block = by * layout.stride(&component) + bx;
-                let dc = frame.dc_tables[component.dc].as_ref();
-                let ac = frame.ac_tables[component.ac].as_ref();
+                let dc = frame.tables.dc[component.dc].as_ref();
+                let ac = frame.tables.ac[component.ac].as_ref();
                 decode_block(
                     &mut bits,
                     kind,
@@ -437,7 +435,7 @@ fn scan(
                             let block = (my * component.v + by) * layout.stride(&component)
                                 + mx * component.h
                                 + bx;
-                            let dc = frame.dc_tables[component.dc].as_ref();
+                            let dc = frame.tables.dc[component.dc].as_ref();
                             decode_block(
                                 &mut bits,
                                 kind,
@@ -628,7 +626,7 @@ fn output(
     for my in 0..layout.mcus_y {
         for ((component, kept), plane) in frame.components.iter().zip(coefficients).zip(&mut planes)
         {
-            let quant = &frame.quant[component.quant];
+            let quant = &frame.tables.quant[component.quant];
             let (sx, sy) = (layout.h_max / component.h, layout.v_max / component.v);
             // The zig-zag index of each kept coefficient.
             let mut zigzag_of = [0usize; 64];

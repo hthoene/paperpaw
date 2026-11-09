@@ -24,13 +24,14 @@ on:
       - "AGENTS.md"
       - ".claude/**"
 
-# A newer push to the same pull request cancels the run before it. Push
-# runs (main, integration, abi7/integration) each get their own group, keyed
-# by commit, so none is cancelled or replaced while queued and every merge
-# keeps a full result.
+# A newer push to the same pull request or branch cancels the run before it,
+# so the queue does not fill with runs that the next merge makes obsolete
+# (abi7/integration gets one push per merge). main keeps a full run for every
+# commit (group per commit, nothing cancelled). CI has no tag trigger; the
+# release and update jobs are in release.yml, which never cancels.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
