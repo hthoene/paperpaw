@@ -32,6 +32,12 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_driver.rs"]
+#[allow(
+    dead_code,
+    reason = "the firmware commands and the kernel's pump wire it (slice B2a-2); tests do today"
+)]
+pub(crate) mod firmware_driver;
 #[path = "native_host/firmware_install.rs"]
 #[allow(
     dead_code,
