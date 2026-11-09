@@ -1498,3 +1498,4 @@ mod native_commit;
 #[path = "shell/shared_table.rs"]
 mod shared_table;
 use shared_table::SharedTable;
+pub use shared_table::{handed_table, same_table};

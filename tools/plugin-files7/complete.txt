@@ -11,5 +11,6 @@ joplin
 keys
 menu-editor
 profiles
+notes-overview
 rules
 weather
