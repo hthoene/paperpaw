@@ -8,6 +8,7 @@
 //! This is not a second registry: it copies what the store held at one
 //! moment, bounded (4 stages of at most 32 members) and dropped by the next
 //! callback.
+use super::native_declarations::NativeDeclarations;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 
@@ -74,5 +75,47 @@ impl StageMembers {
             }
         };
         Ok(self.stages[at].1.get(cursor))
+    }
+}
+
+impl StageMembers {
+    /// Frees what the callback `epoch` froze; another callback's list stays.
+    pub(crate) fn end(&mut self, epoch: u64) {
+        if self.epoch == epoch {
+            self.epoch = 0;
+            self.stages = Vec::new();
+        }
+    }
+
+    /// Whether nothing is frozen.
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.stages.is_empty()
+    }
+}
+
+/// Frees the lists a callback froze when it ends, so that nothing stays held
+/// between callbacks (up to 32 members of each of 4 stages). A nested
+/// callback has an epoch of its own and leaves its caller's lists alone.
+pub(crate) struct Release<'a> {
+    directory: Option<&'a NativeDeclarations>,
+    epoch: u64,
+}
+
+impl<'a> Release<'a> {
+    pub(crate) fn new(directory: Option<&'a NativeDeclarations>, epoch: u64) -> Self {
+        Self { directory, epoch }
+    }
+}
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        // The list is only borrowed inside `stage.run`; a refusal here leaves
+        // it to the next callback, which starts from a fresh list anyway.
+        if let Some(directory) = self.directory
+            && let Ok(mut members) = directory.members.try_borrow_mut()
+        {
+            members.end(self.epoch);
+        }
     }
 }

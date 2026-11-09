@@ -33,7 +33,7 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
-    pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) meter: &'a alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
     pub(crate) usage: &'a Usage,
