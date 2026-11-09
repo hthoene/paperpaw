@@ -204,13 +204,17 @@ fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
 }
 
 fn ask(w: &World, kind: u32, epoch: u64) -> u32 {
+    ask_with(w, kind, 0, if kind == 1 { "one\ntwo,x" } else { "" }, epoch)
+}
+
+fn ask_with(w: &World, kind: u32, flags: u32, choices: &str, epoch: u64) -> u32 {
     let question = Question {
         kind,
-        flags: 0,
+        flags,
         remote: false,
         title: "Title",
         text: "Question",
-        choices: if kind == 1 { "one\ntwo" } else { "" },
+        choices,
     };
     let who = Stamp::new(w.owner, epoch).unwrap();
     w.store
@@ -413,4 +417,84 @@ fn another_plugin_can_neither_answer_cancel_nor_fail_the_request_of_an_asker() {
     );
     assert!(w.seen.borrow().is_empty());
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
+}
+
+fn act(w: &mut World, at: u64, action: paperpaw_sdk::Id) {
+    w.kernel.run_action(Instant(at), action);
+}
+
+fn answers(w: &World) -> Vec<(u32, u32, u32, u32)> {
+    w.seen
+        .borrow()
+        .iter()
+        .map(|a| (a.kind, a.outcome, a.choice, a.flags & 1))
+        .collect()
+}
+
+/// With no dialog plugin on the slot, the host's own confirm answers the question.
+#[test]
+fn a_confirm_question_is_answered_by_the_host_dialog() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    // `focus_yes` (bit 9): the focus starts on yes.
+    let id = ask_with(&w, 2, 1 << 9, "", 1);
+    w.kernel.native_dialog_pump();
+    assert_eq!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.confirm-dialog")
+    );
+    act(&mut w, 10, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    // Yes is choice 1, outcome 0; the reply event reached nobody else.
+    assert_eq!(answers(&w), [(2, 0, 1, 0)]);
+    assert_eq!(w.seen.borrow()[0].request, id);
+    assert_eq!(w.store.request_count(), 0);
+    assert_ne!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.confirm-dialog")
+    );
+}
+
+#[test]
+fn back_on_a_host_dialog_cancels_the_question() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 0, "", 1);
+    w.kernel.native_dialog_pump();
+    act(&mut w, 10, actions::BACK);
+    w.kernel.native_dialog_pump();
+    // Cancelled (outcome 1) by the close of the dialog, bit 0 `dialog closed`.
+    assert_eq!(answers(&w), [(2, 1, 0, 1)]);
+    assert_eq!(w.store.request_count(), 0);
+}
+
+#[test]
+fn a_choice_question_answers_the_line_chosen_commas_kept() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    // Two lines, the second holds a comma of its own.
+    ask_with(&w, 1, 0, "one\ntwo,x", 1);
+    w.kernel.native_dialog_pump();
+    assert_eq!(
+        w.kernel.active_screen().map(Id::as_str),
+        Some("core.choice-dialog")
+    );
+    // The first step shows the focus, the second moves it to the second line.
+    act(&mut w, 10, actions::DOWN);
+    act(&mut w, 20, actions::DOWN);
+    act(&mut w, 30, actions::CONFIRM);
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+}
+
+#[test]
+fn a_question_whose_dialog_the_stack_closes_is_cancelled() {
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 0, "", 1);
+    w.kernel.native_dialog_pump();
+    // The stack closes it with no answer (a guard, a shell).
+    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.finish();
+    w.kernel.native_dialog_pump();
+    assert_eq!(answers(&w), [(2, 1, 0, 1)]);
 }

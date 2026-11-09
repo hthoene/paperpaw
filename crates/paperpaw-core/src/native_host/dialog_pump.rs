@@ -150,9 +150,37 @@ impl crate::Kernel {
             let _ = store.dialog_failed(start.request);
             return;
         };
-        let params = Params::new()
-            .with("core.request", request)
-            .with("core.kind", kind);
+        // The host's own choice and confirm answer through a wrapper
+        // (`host_dialog`): the slot resolves to their screen, and the question
+        // is handed to it as the params it knows. Any other screen reads the
+        // question from the store with op 2.
+        let host = matches!(start.kind, 1 | 2)
+            && self
+                .shared
+                .registry
+                .resolve_slot(slot.as_str())
+                .is_some_and(|id| {
+                    *id == paperpaw_sdk::builtin::screens::CHOICE
+                        || *id == paperpaw_sdk::builtin::screens::CONFIRM
+                });
+        let mut options = alloc::vec::Vec::new();
+        let params = if host
+            && let Ok(Some((inner, listed))) = store.starting_question(start.request, |shown| {
+                super::host_dialog::inner_params(
+                    shown.kind,
+                    shown.flags,
+                    shown.title,
+                    shown.text,
+                    shown.choices,
+                )
+            }) {
+            options = listed;
+            inner
+        } else {
+            Params::new()
+        }
+        .with("core.request", request)
+        .with("core.kind", kind);
         let own = self.guard().is_some_and(|guard| {
             self.shared
                 .native_instances
@@ -174,6 +202,23 @@ impl crate::Kernel {
         match opened {
             Some(dialog) => {
                 dialog.guard_dialog = own;
+                if host && let Some(ui) = self.shared.native_instances.ui_services() {
+                    if let Some(shared) = ui.store.try_clone() {
+                        let inner = core::mem::replace(
+                            &mut dialog.screen,
+                            alloc::boxed::Box::new(crate::screens::Gone),
+                        );
+                        dialog.screen =
+                            alloc::boxed::Box::new(super::host_dialog::HostDialog::new(
+                                inner,
+                                shared,
+                                dialog.serial,
+                                start.request,
+                                start.kind,
+                                options,
+                            ));
+                    }
+                }
                 let _ = store.dialog_opened(start.request, dialog.serial);
             }
             None => {

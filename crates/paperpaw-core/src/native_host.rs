@@ -139,6 +139,7 @@ pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
 pub mod formatting;
 pub(crate) mod hint_labels;
+pub(crate) mod host_dialog;
 pub(crate) mod host_services;
 #[allow(
     dead_code,
