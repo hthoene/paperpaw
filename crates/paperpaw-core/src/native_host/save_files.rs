@@ -17,7 +17,7 @@
 //!
 //! Every allocation is fallible, and made when the claim is: a commit that
 //! fails never needs memory to keep the file.
-use super::paths_in_use::{PathsInUse, same_name};
+use super::{files_service::same_fold, paths_in_use::PathsInUse};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_IO, ERR_NO_MEMORY};
@@ -52,7 +52,7 @@ pub(crate) struct SaveFiles {
 }
 
 fn same_target(a: &str, b: &str, ignore_case: bool) -> bool {
-    if ignore_case { same_name(a, b) } else { a == b }
+    if ignore_case { same_fold(a, b) } else { a == b }
 }
 
 fn copy(text: &str) -> Result<String, i32> {

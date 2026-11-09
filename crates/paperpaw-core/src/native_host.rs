@@ -113,6 +113,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
@@ -158,6 +159,7 @@ pub(crate) mod lib_moves_journal;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 #[allow(
@@ -187,6 +189,7 @@ mod stage_wire;
     reason = "the NET and SOCK adapters name their staged file by it"
 )]
 pub(crate) mod staged_name;
+mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod work_pump;

@@ -17,6 +17,7 @@ use super::{
     hyphen_card::CardTables,
     resources::HostResources,
     shared::Shared,
+    storage_files::StorageFiles,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
@@ -40,6 +41,7 @@ pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, 
 #[non_exhaustive]
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
+    files: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
     net: Option<NetInputs>,
     sockets: Option<SockInputs>,
@@ -51,6 +53,7 @@ impl core::fmt::Debug for HostWiring {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
+            .field("files", &self.files.is_some())
             .field("device", &self.device.is_some())
             .field("net", &self.net.is_some())
             .field("sockets", &self.sockets.is_some())
@@ -72,6 +75,23 @@ impl HostWiring {
     #[must_use]
     pub fn hyphenation(mut self, storage: Rc<dyn Storage>) -> Self {
         self.hyphenation = Some(storage);
+        self
+    }
+
+    /// `core.files`: the plugins' file service over this storage (the card).
+    /// The shell gives only the storage; core composes the rest: the host's
+    /// own folders by identity (an 8.3 alias of `.paperpaw` is refused; the
+    /// check over-refuses until the storage can answer "same entry"), what is
+    /// in use (downloads, staged installs, served bodies, the library's move
+    /// job: `ERR_BUSY`) and the move itself. [`HostResources::wire`] refuses
+    /// it (`ERR_STATE`, nothing wired) until the host has a source for each of
+    /// the library's move job, the network's files and the reader's open book:
+    /// nothing busy would be a wrong answer for state the host does hold. The
+    /// sources are core's adapters and register as they land; a shell treats
+    /// the refusal as "no `core.files`" and carries on.
+    #[must_use]
+    pub fn files(mut self, storage: Rc<dyn Storage>) -> Self {
+        self.files = Some(storage);
         self
     }
 
@@ -253,7 +273,17 @@ impl HostResources {
     /// wired then).
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
+        // What `core.net` and `core.sockets` hold in use is a busy source of
+        // the device from the start (the table is the host's own, whether
+        // or not either service is wired), so a call that names the network
+        // and `core.files` together is judged on the other two sources only.
+        hosts.register_in_use_source()?;
+        // `core.files` needs every source of what the host holds in use
+        // (the library's move, the network's files, the reader's book):
+        // without one "nothing is busy" would be wrong, so it is refused.
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
+            || (wiring.files.is_some()
+                && (hosts.files().is_some() || !hosts.busy_sources().complete()))
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
@@ -308,6 +338,13 @@ impl HostResources {
             ));
             hosts.wire_sockets(device.clone())?;
             wired.sockets = Some(SockReports(device));
+        }
+        if let Some(storage) = wiring.files {
+            hosts.wire_files(Rc::new(StorageFiles::new(
+                storage,
+                hosts.busy_sources().clone(),
+                hosts.linked().clone(),
+            )))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
