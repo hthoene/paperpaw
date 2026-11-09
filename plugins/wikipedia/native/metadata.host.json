@@ -112,6 +112,7 @@
     "core.ui"
   ],
   "features": [
-    "uses.network"
+    "uses.network",
+    "uses.wifi"
   ]
 }

@@ -1,8 +1,50 @@
-# Interface-7 port (slice 1: the rules, the lists and the declarations)
+# Interface-7 port (slice 3: downloads)
 
-Version 1.0.8. Partial: what the browser decides and keeps, and what it declares, without the host.
-No native screen and no `NATIVE_ENTRY` yet; the interface-6 `Browser` and everything of it stays
-until the host activates native plugins (then it goes together, no shim).
+Version 1.0.8. Everything the browser does is native; what is left is host pieces (the blocked cases
+below). The interface-6 `Browser` and everything of it stays until
+the host activates native plugins (then it goes together, no shim: todo 90).
+
+## Slice 3: downloads (`src/native_save.rs`)
+
+- A book (EPUB, text) goes to the library with `library.import` from the download file (root 0),
+  the server's file name, **free name** (`name (2).epub`): the host moves it and catalogues it. The
+  plugin then says "in the library" and asks *Read now* / *OK*; *Read now* opens it with
+  `command.open` on slot `core.reader` and the hand-over `path`.
+- A font goes to the card's `fonts` folder, any other file to `Downloads`, by `core.files` move from
+  root 0 to root 1 (`uses.storage`), each with the first free name of ninety-nine (`State` for a taken
+  name, never a replace). `Unsupported` for a font says `browser.no-fonts` (a host without a card
+  root has no fonts folder to give).
+- `uses.library` and `uses.storage` are not required: without them (`Denied`) a download says
+  `browser.no-permission`; ninety-nine taken names say `browser.name-taken`; pages and bookmarks still work.
+- Differences from interface 6: (1) a book keeps the server's file name; interface 6 renamed it after
+  its author and title. That needs the document service's metadata (`doc_meta`, op 3): the SDK has no
+  wrapper yet and the host piece is **DOC-metadata**, so it is an ignored case, not faked. (2) The
+  *Read now* offer is for every book (EPUB or text: the kinds the browser takes as books), where
+  interface 6 asked the format registry first. (3) The fonts folder is the card's `fonts` folder;
+  interface 6 used the device's first font folder (`Env::font_dirs`), which native has no call for.
+  (4) A request sets no `max_file` (0 = the host's 64 MiB) for pages and downloads alike, as Kernel
+  ruled (todo 319): Beta 3 saved every answer with one `save_to` and no cap; a full card ends with
+  `too_large` or a card error. The page is read in bounded steps (`keep_page`, 4 KiB pieces).
+
+## Slice 2 (`src/native_plugin.rs`, `NATIVE_ENTRY` with `linked`)
+
+- The start screen (`paperpaw_ui_kit` item list): *Search or enter address*, the bookmarks and the
+  pages read lately, a line for messages below. Holding an entry offers open / bookmark / delete
+  (bookmarks: open / delete) as a choice dialog; the address is typed in a text dialog (URL mode).
+- Loading: `core.net` GET with `save_to` (data folder, `download.tmp`), `User-Agent` and `Accept`
+  as in interface 6; the answer is read from `http_done` (status, final address, content type). An
+  error answer's page comes in memory (`Net::body`) and is kept to be shown; an error without a page
+  is told (`browser.error`). No network, offline, saving or the radio off is `browser.no-network`.
+- A page is kept with its address as `<base href>`, titled, put in the history and opened in the
+  reader with a hand-over of `root=0`, `path=pages/<hash>.html` (`command.open` on slot `core.reader`).
+  Back from the reader goes through the pages of this time; a page whose file is gone is loaded again.
+- Closing the last browser screen cancels the request (`Net::cancel`); an answer that still comes
+  with no screen open is discarded (its file removed), so the reader is never opened over a book.
+  - The screen takes the address as the hand-over parameter `url` (interface 6: `params::URL`).
+- Memory is refused, never aborted: every allocation of the plugin is fallible. Frames stay below
+  2,048 B (the kit's list). The texts (en/de) are the ones of interface 6.
+- `tests/hosted_construction.rs`: construction in the host's registered scope, `make` runs to its end; the host's commit is refused
+  (`DeclarationViewsUnavailable`) until it wires the registry views (`BLOCKED #944`).
 
 ## Ported
 
@@ -42,19 +84,14 @@ until the host activates native plugins (then it goes together, no shim).
   held entry, the address dialog and the messages.
 - Loading: `core.net` GET with `save_to` (data folder) and the `Accept` and `User-Agent` headers, the
   answer from `http_done`, an error page kept to be shown; no host for requests on integration
-  (`core-net-host`). `network.md` 8 gives the browser no `max_file`: **to settle** with Kernel
-  whether a download without a cap is allowed, and what the host's default is.
+  (`core-net-host`).
 - Opening a kept page in the reader (`command.open` mode 1 or 3 with `page`, `ui.md`: the table of interface-6 commands): the page is a
   file in the data folder; the host must open a path of the plugin's own folder (`DOC-open-page`).
-- Downloads: books go to `library.import` (`library.md` 2.3, from root 0, free name; it needs no
-  `uses.storage`), fonts to the fonts folder and other files to `Downloads` (root 1, `core.files`
-  move between roots 0 and 1, `uses.storage`); a book is named after its author and title with the
-  document service's metadata (`DOC-metadata`) and `try_clean_name`. None of these hosts is on
-  integration.
+- Downloads: the import, the moves and the offer to read need the library and files hosts (`LIB-import`,
+  `FS-core-files`) and the dialog (H2); naming after author and title needs `DOC-metadata` and an SDK
+  wrapper for `doc_meta`.
 - The slot `core.browser` is offered, but the screen takes the address as a parameter (`params::URL`)
   in interface 6 and the native hand-over of a parameter to a slot's screen is **to settle** with
   Kernel (`ui.md` 1.3).
-- Plugin metadata (`uses.network`, `uses.library`, `uses.storage`, `core.files` with the downloads)
-  is made with the native entry, with the screens.
 - The `ui::offline::OfflineOffer` and the chooser in the screen are interface-6 widgets; the native
   start screen is lists of `paperpaw_ui_kit`.

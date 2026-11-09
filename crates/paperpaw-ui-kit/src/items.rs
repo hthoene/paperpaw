@@ -117,6 +117,15 @@ pub enum Footer<'a> {
         /// Said in small letters, wrapped.
         text: &'a str,
     },
+    /// A QR code centred in the room below the rows (on a list of one page),
+    /// with `caption` (an address to type, wrapped) under it. Drawn straight
+    /// to the canvas, in runs: no operation is kept per module.
+    Code {
+        /// The code to draw, black on white with its quiet zone.
+        code: &'a paperpaw_sdk::qr::QrCode,
+        /// What is said under it.
+        caption: &'a str,
+    },
 }
 
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.
@@ -353,22 +362,9 @@ impl ItemList {
         let mut area = Rect::new(0, top, width, height.saturating_sub(top));
         let mut note = None;
         if let Footer::Note(text) = footer {
-            let lines = text::wrap_with(
-                |line| font.measure_text(style.small, line),
-                text,
-                f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
-                4,
-            )?;
-            let line = crate::geometry::line_height(&font, style.small)?;
-            let notes =
-                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
-            let high = (style.row.saturating_mul(3) / 2)
-                .max(style.line.saturating_add(notes).saturating_add(1));
-            area.height = area.height.saturating_sub(high);
-            note = Some((
-                Rect::new(0, height.saturating_sub(high), width, high),
-                lines,
-            ));
+            let (rect, lines) = note_block(&font, &style, width, height, text)?;
+            area.height = area.height.saturating_sub(rect.height);
+            note = Some((rect, lines));
         }
         let mut heights = Vec::new();
         heights
@@ -435,7 +431,12 @@ impl ItemList {
             let area = Rect::new(0, y, width, height.saturating_sub(y));
             draw_empty(&mut body, &font, &style, area, title, text)?;
         }
+        let below = Rect::new(0, y, width, height.saturating_sub(y));
+        let code = code_footer(&mut body, &font, &style, footer, below, starts.len())?;
         paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
+        if let Some((qr, room)) = code {
+            paint::draw_code(frame, qr, room)?;
+        }
         font.release()?;
         header.paint = Vec::new();
         self.header = header;
@@ -444,6 +445,30 @@ impl ItemList {
         self.steps = steps;
         Ok(())
     }
+}
+
+/// The wrapped lines of a footer note and the strip they take at the bottom.
+fn note_block(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    height: u16,
+    text: &str,
+) -> Result<(Rect, Vec<String>), Error> {
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        text,
+        f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
+        4,
+    )?;
+    let line = crate::geometry::line_height(font, style.small)?;
+    let notes = crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
+    let high =
+        (style.row.saturating_mul(3) / 2).max(style.line.saturating_add(notes).saturating_add(1));
+    Ok((
+        Rect::new(0, height.saturating_sub(high), width, high),
+        lines,
+    ))
 }
 
 fn draw_note(
@@ -489,6 +514,66 @@ fn draw_note(
 }
 
 /// A title and a few lines, centred in `area`.
+/// The caption of a code, centred at the bottom of `area` in small letters;
+/// what is left above it for the code.
+/// The caption of a [`Footer::Code`] on a list of one page, and the room left
+/// for the code above it.
+fn code_footer<'a>(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    footer: Footer<'a>,
+    area: Rect,
+    pages: usize,
+) -> Result<Option<(&'a paperpaw_sdk::qr::QrCode, Rect)>, Error> {
+    match footer {
+        Footer::Code { code, caption } if pages == 1 => Ok(Some((
+            code,
+            draw_caption(paint, font, style, area, caption)?,
+        ))),
+        _ => Ok(None),
+    }
+}
+
+fn draw_caption(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    area: Rect,
+    caption: &str,
+) -> Result<Rect, Error> {
+    let room = f32::from(area.width.saturating_sub(2 * style.margin)).max(1.0);
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        caption,
+        room,
+        3,
+    )?;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let high = crate::geometry::clamp_u16(i64::from(line) * lines.len() as i64);
+    let mut y = area.y.saturating_add(area.height.saturating_sub(high));
+    for text in &lines {
+        let x = (f32::from(area.width) - font.measure_text(style.small, text)?).max(0.0) / 2.0;
+        text::label(
+            paint,
+            font,
+            text,
+            style.small,
+            x,
+            Rect::new(0, y, area.width, line),
+            style.ink,
+            None,
+        )?;
+        y = y.saturating_add(line);
+    }
+    Ok(Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        area.height.saturating_sub(high.saturating_add(style.gap)),
+    ))
+}
+
 fn draw_empty(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
