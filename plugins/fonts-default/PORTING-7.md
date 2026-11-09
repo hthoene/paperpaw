@@ -24,8 +24,10 @@ firmware links.
 
 ## Gates that keep it right (existing tests)
 
-- `tests/faces.rs`: ids, roles, families, weights and the lean build's missing styles are pinned.
-- `tests/style_reads.rs`: the faces read as the interface-6 kernel reads them.
+- `tests/faces.rs`: every role is bound to a face of the right family, weight and slant; the text faces
+  and the packs hold the Latin set at every size; bold is bolder and the UI face a little above regular;
+  the icon font holds every icon the first-party plugins ask for.
+- `tests/style_reads.rs`: what reading a bold pack from the card costs against the firmware's copy.
 - `translations_are_complete` (en/de).
 - The data plugins that go with it keep their own versions (`tools/plugin-files/data.toml`:
   `literata-styles`, `literata-large`, `literata-bold-italic`); they read this plugin's font files as inputs.
