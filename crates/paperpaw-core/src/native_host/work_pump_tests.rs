@@ -610,7 +610,9 @@ mod network {
         let mut buffer = [0u8; 1_280];
         let owner = w.owners[0];
         let len = net.next_event(owner, &mut buffer).unwrap().unwrap();
-        let wire::Record::EventHttpDone(done) = wire::record_decode_one(&buffer[..len]).unwrap()
+        // A one-record batch, as `service_event` and the SDK read it.
+        let wire::Record::EventHttpDone(done) =
+            wire::records_decode_single(&buffer[..len]).unwrap()
         else {
             panic!("an http_done event");
         };
