@@ -196,6 +196,12 @@ path = "src/bin/fonts-browser.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "transfer"
+path = "src/bin/transfer.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
@@ -228,6 +234,7 @@ paperpaw-plugin-picture-home = { path = "../../plugins/picture-home", features =
 paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entry"] }
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
+paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

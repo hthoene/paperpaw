@@ -2598,6 +2598,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-qr",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 

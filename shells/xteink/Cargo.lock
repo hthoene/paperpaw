@@ -2602,6 +2602,7 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
