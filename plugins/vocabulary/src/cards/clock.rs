@@ -57,6 +57,11 @@ pub(crate) fn now(env: &Env<'_>) -> i64 {
     paperpaw_sdk::time::unix_seconds(env).unwrap_or_else(|| kept(env.storage()).clock)
 }
 
+/// The time now when the device tells it (`unix`), else the last one known.
+pub(crate) fn now_of(storage: &dyn Storage, unix: Option<i64>) -> i64 {
+    unix.unwrap_or_else(|| kept(storage).clock)
+}
+
 /// The local day a time is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Day {

@@ -1,6 +1,6 @@
-# Interface 7 family SOCK: TCP and TLS sockets, UDP broadcast (draft)
+# Interface 7 family SOCK: TCP and TLS sockets, UDP broadcast
 
-Contract draft for #228 (assignment #1088), reviewed with `work.md` (ASY). Items marked [D] are
+Contract for #228 (assignment #1088), reviewed with `work.md` (ASY). Items marked [D] are
 proposed decisions, [Q] open questions for Plugin, Firmware and Senior. Inputs: an audit of
 interface 6's sockets (the SDK's `sockets.rs`, `command.rs`, `replies.rs`; the kernel's
 `io/sockets.rs`, `network.rs`, `work.rs`; the X4 shell's `sockets.rs`, `tls_slots.rs`, `net.rs`,
@@ -8,7 +8,8 @@ interface 6's sockets (the SDK's `sockets.rs`, `command.rs`, `replies.rs`; the k
 the two first-party plugins that use them, mail and calibre (section 7), ADR 0014 (sockets for
 plugins), ADR 0017 (TLS on the X4), `network.md` (NET: `uses.network`, waiting for the network,
 power ends, TLS, `MEMORY_BODIES`), `files.md` (roots, `.pp-staged` files) and `work.md` (runs).
-Doc-only; records follow once approved. Tags are proposed and numbered without gaps at the records step.
+Records: `abi/services/core.sockets@1.def` and `abi/abi.def`; interface 7 stays a draft
+(`native::DRAFT`) until it is frozen.
 
 ## 0. Scope and principles
 

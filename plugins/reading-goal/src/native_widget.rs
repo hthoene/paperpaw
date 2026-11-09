@@ -99,7 +99,9 @@ pub fn shows(host: &Host<'_>, kept: &Kept, statistics: Statistics) -> Result<u64
     Ok(mark(&today))
 }
 
-fn mark(today: &Today) -> u64 {
+/// What the widget shows of `today`, as one number: when it differs from the
+/// one noted at the last draw, the widget is out of date.
+pub(crate) fn mark(today: &Today) -> u64 {
     let state = match today.statistics {
         Statistics::Counting => 1,
         Statistics::Off => 2,

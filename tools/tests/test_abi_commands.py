@@ -420,7 +420,8 @@ class CommandTests(unittest.TestCase):
             lambda s: field(s, 'command.wifi_join', 'password').update(secret=False),
             lambda s: field(s, 'command.wifi_join', 'request').update(secret=True),
             lambda s: field(s, 'command.install_firmware', 'key').update(secret=True),
-            lambda s: field(s, 'event.wifi_done', 'ssid').update(secret=True),
+            # An event's str field may be secret (text_typed.text is), not a scalar.
+            lambda s: field(s, 'event.wifi_done', 'now_ms').update(secret=True),
             lambda s: field(s, 'command.set_menu', 'items').update(secret=True),
             # A bytes field may be secret only in a service record (sec_bytes.data is).
             lambda s: field(s, 'service.sec_bytes', 'flags').update(secret=True),
@@ -430,6 +431,9 @@ class CommandTests(unittest.TestCase):
             mutate(candidate)
             with self.subTest(index=index), self.assertRaises(ValueError):
                 ABI.validate(candidate)
+        # Typed text may be a password: the event's text stays out of Debug.
+        typed = field(self.schema, 'event.text_typed', 'text')
+        self.assertIs(typed.get('secret'), True)
 
     def item_state(self, schema):
         return next(item for item in schema['records']

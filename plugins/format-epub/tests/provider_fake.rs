@@ -11,7 +11,8 @@
 
 use paperpaw_plugin_format_epub::provider::FormatProvider;
 use paperpaw_sdk::document::{
-    Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata,
+    Annotation, AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, Locator,
+    Metadata,
 };
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
@@ -37,7 +38,27 @@ impl Document for Fake {
     }
     fn block_at(&self, _: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
         Ok(match at.offset {
-            0..=9 => Some(Block::new(BlockKind::Paragraph, 0, 10, "some words".into())),
+            0..=9 => {
+                let mut b = Block::new(BlockKind::Paragraph, 0, 10, "some words".into());
+                b.lang = paperpaw_sdk::Lang::parse("de");
+                b.inline_langs = Some(Box::new([
+                    paperpaw_sdk::Lang::parse("fr"),
+                    paperpaw_sdk::Lang::parse("pt-BR"),
+                ]));
+                for (i, kind) in [
+                    AnnotationKind::Ruby,
+                    AnnotationKind::Phonetic,
+                    AnnotationKind::Gloss,
+                    AnnotationKind::Other(2),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    b.annotations
+                        .push(Annotation::new(0, 4, format!("note{i}"), kind));
+                }
+                Some(b)
+            }
             10..=19 => {
                 let mut b = Block::new(BlockKind::Image, 10, 20, String::new());
                 b.image = Some(ImageRef {
@@ -166,5 +187,28 @@ fn hostile_calls_are_refused_and_the_provider_reads_on() {
         rows(&reply)
             .iter()
             .any(|r| matches!(r, stage::Record::FmtTextPart(t) if t.text == "some words"))
+    );
+}
+
+#[test]
+fn inline_languages_and_ruby_kinds_are_sent() {
+    let (mut p, io) = opened();
+    let reply = run(&mut p, &io, &call(8, |_| {})).unwrap();
+    let mut langs = Vec::new();
+    let mut kinds = Vec::new();
+    let mut block_lang = "";
+    for row in rows(&reply) {
+        match row {
+            stage::Record::FmtBlock(b) => block_lang = b.lang,
+            stage::Record::FmtInlineLang(l) => langs.push(l.lang),
+            stage::Record::FmtRuby(r) => kinds.push((r.kind, r.text)),
+            _ => {}
+        }
+    }
+    assert_eq!(block_lang, "de");
+    assert_eq!(langs, ["fr", "pt-BR"]);
+    assert_eq!(
+        kinds,
+        [(0, "note0"), (1, "note1"), (2, "note2"), (5, "note3")]
     );
 }
