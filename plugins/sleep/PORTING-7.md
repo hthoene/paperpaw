@@ -54,6 +54,45 @@ time it shows (not for `page`).
 (Done in this slice: the screen itself, the widgets composed with `ui.compose`, the presses taken while asleep, and
 closing on wake: only a close, as interface 6 did.)
 
+## What is missing to be native-only (state of #692, 2026-11-09)
+
+The image facade is PR #692 (`native::image`, base `kernel/abi7-draft30-228`, in the draft-31 carrier after #610):
+`CommandSender::image_prepare(PrepareImage::new(PrepareRoot::Data | Library, path, cookie).side(n))` decodes a
+JPEG, PNG (not interlaced) or the first GIF frame of one of the plugin's **files** in the background; one
+`event.image_ready` (`ImageReady`: status, `ImageId`, size) answers per cookie; `Canvas::draw_image(id, rect,
+ImageStyle::new().fill().small().transparency(n))` draws it in bands inside a draw callback; `image_release` gives it
+back; at most 8 prepared and 4 waiting per plugin. With it the items below become native:
+
+1. **The cat and the logo.** Both are embedded (`pictures/sleeping-cat.png`, the SDK's logo): write each once into the
+   data folder (`DataStorage`, as `format-images` and `translate` write their files), `image_prepare` it at the first
+   draw's size (side of a third of the screen for the logo), keep the `ImageId` in `Laid`, draw it with `draw_image`
+   (centred, `small()` for the logo), release it when the screen closes. The first draw has no picture yet: the
+   screen draws the message and asks for a redraw on `image_ready` (a `Partial` refresh, then it shows).
+2. **The picture of the folder** (`picture`) and the picture over the page: the next file of
+   the folder setting (the plugin's `Pictures`, `shown_before` kept in `next.txt`) is a file of the user's
+   card, not of the plugin's data folder: listing it needs `core.files` and `PrepareRoot::Library` needs
+   `uses.storage`, which the plugin's metadata does not declare yet (interface 6 read the card without a consent:
+   a new consent for the user to give), with the path inside the library; the answer's size gives the scale; `draw_image(..).fill()` is
+   what interface 6's `fit` did for `cover`/`picture`.
+3. **The cover** (`cover`): the cover of the book last read is a file the host's library keeps: it needs the library
+   facade's cover path (`services/abi7-sdk-cover-228`) to name it for `image_prepare`; until that lands the cover
+   mode falls back to the message as the decision table already says (`facts.cover` false).
+4. **The picker (`pick-overlay`):** not an image matter: a list screen of the picture folder (`core.files` listing,
+   as `picture-home`'s chooser) and of the widgets (`core.registry`): a slice of its own; the two settings have no
+   editor until then.
+5. **Another plugin's mode (reading-goal's `reading-goal.sleep`):** on interface 6 the plugin adds the choice
+   with `Registrar::add_choice(sleep::SHOW, …)` and the sleep screen embeds the plugin's `Screen`. Natively the
+   choice is the foreign `setting.choice` declaration (`registry.md` record 26: `key`, `value`, `title`), whose wire
+   record exists (`SettingChoice`) but which has **no `Declarations` builder** yet, so no native plugin can offer a mode:
+   a small SDK addition (Services) that `reading-goal` needs. A mode's screen cannot be embedded in another plugin's
+   draw: the contract to settle (Kernel) is that the sleep screen opens it with `command.open` in `replace` mode (the
+   offered screen declared `overlay`, closing itself on `event.resume`). Until both exist, `native_sleep::decide`
+   answers `Content::Other` and the screen shows the message, as it does now.
+6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
+
+The order that makes the plugin native-only: #692 → 1 and 2 (one stacked PR on #692's branch; one decode at a time,
+four waiting at most) → 3 with the cover facade → 5 with the builder → 4.
+
 ## Removal step (one sweep, with the reader port and Core #944)
 
 1. `Sleep` and its `Plugin` impl, `SleepScreen`, the `cat` module's interface-6 drawing, `overlay`'s `Canvas` code
