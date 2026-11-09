@@ -223,9 +223,13 @@ pub(super) fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
                 "step {} {} {} {} {} {}",
                 r.id, r.page_kind, r.page, r.order, r.flags, r.title
             ),
-            Record::ServiceRegWidget(r) => format!(
+            Record::ServiceRegWidget(r) if r.previews.is_empty() => format!(
                 "widget {} {} {} {} {} cells={} {}",
                 r.id, r.plugin, r.kind, r.icon, r.flags, r.cells, r.title
+            ),
+            Record::ServiceRegWidget(r) => format!(
+                "widget {} {} {} {} {} cells={} previews={} {}",
+                r.id, r.plugin, r.kind, r.icon, r.flags, r.cells, r.previews, r.title
             ),
             Record::ServiceRegStatus(r) => format!(
                 "status {} {} kind={} flags={} priority={} size={} tap={} {}",

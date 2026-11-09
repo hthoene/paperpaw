@@ -25,10 +25,9 @@ use crate::overview_rows::{self, Chart, Facts, Tile, Way};
 use crate::store;
 use crate::texts::{HostWords, Words};
 
-/// Whether a way's screen is on interface 7; the other (the sync) is left out
-/// until it is.
-fn shown(way: &Way) -> bool {
-    matches!(way, Way::ThisBook(_) | Way::Calendar | Way::Books)
+/// Whether a way's screen is on interface 7: all of them are.
+fn shown(_way: &Way) -> bool {
+    true
 }
 
 /// The overview's contents and what was last drawn of it.
@@ -426,8 +425,10 @@ fn open_way(host: &Host<'_>, ui: &Ui, way: Way) -> Result<(), Error> {
             let mut scratch = [0; 256];
             CommandSender::new(host, &mut scratch).open(Open::screen("stats.calendar")?)
         }
-        // Its screen is not on interface 7 yet; its row is not shown.
-        Way::Sync => Ok(()),
+        Way::Sync => {
+            let mut scratch = [0; 256];
+            CommandSender::new(host, &mut scratch).open(Open::screen("stats.sync")?)
+        }
     }
 }
 

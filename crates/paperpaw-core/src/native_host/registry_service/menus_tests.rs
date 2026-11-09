@@ -16,7 +16,7 @@ use crate::native_host::{
 };
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
     MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
@@ -123,7 +123,7 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     })?;
     r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
-    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n")?;
+    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
 }
 
@@ -675,10 +675,15 @@ fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
     assert!(global.contains(&"bind global swipe.right demo.save 1".into()));
     let screen = rows_of(&kernel, None, schema::OP_BINDINGS, "demo.main", 0);
     assert_eq!(screen, ["bind demo.main tap.center demo.save 0"]);
-    // No scope: every layer, the global one first, then each screen's.
+    // No scope: every layer with a binding, in the keymap's sorted order,
+    // however its name came about: a screen's, `global`, and one that is
+    // neither a screen nor a slot.
     let all = rows_of(&kernel, None, schema::OP_BINDINGS, "", 0);
-    assert!(all[0].starts_with("bind global "));
+    let layers: Vec<&str> = all.iter().filter_map(|row| row.split(' ').nth(1)).collect();
+    assert!(layers.is_sorted(), "{layers:?}");
+    assert!(all.contains(&"bind demo.custom swipe.up demo.open 0".into()));
     assert!(all.contains(&"bind demo.main tap.center demo.save 0".into()));
+    assert!(all.iter().any(|row| row.starts_with("bind global ")));
     // Each layer is read once.
     assert_eq!(all.iter().filter(|row| **row == screen[0]).count(), 1);
     assert!(all.len() >= global.len() + screen.len());
@@ -816,6 +821,44 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     assert!(rows[0].starts_with("widget nat.quote "));
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 0);
     assert!(rows.is_empty());
+}
+
+#[test]
+fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        widget("quote", "core.widgets.words", 0, 0, ""),
+        widget("sample", "core.widgets.words", 0, 0, "demo.top"),
+        widget("other", "core.widgets.words", 0, 0, "demo.else"),
+        widget("later", "core.widgets.words", 0, 0, "demo.top"),
+    ]);
+    // In op 19's order (the store's for declarations); a page shows the last.
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
+    assert_eq!(
+        rows,
+        [
+            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+        ]
+    );
+    // Without the bit the group is a kind nobody has; previews never show.
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 0).is_empty());
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
+    assert!(rows.iter().all(|row| !row.contains("previews=")));
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 1).is_empty());
+    // A group is needed.
+    assert_eq!(
+        call_in(
+            &kernel,
+            Some(&directory),
+            schema::OP_WIDGETS,
+            &query_flags("", 0, 0, 1),
+            4096
+        ),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]

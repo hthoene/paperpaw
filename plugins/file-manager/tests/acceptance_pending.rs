@@ -9,13 +9,13 @@ fn the_browser_lists_renames_moves_copies_and_deletes_on_the_card() {
 }
 
 #[test]
-#[ignore = "needs core.library (ops 19-21, books_in, tell_moved): Services/Host work"]
-fn a_book_that_moves_keeps_its_reading_place_and_notes() {
-    unreachable!("tell_moved on move and rename, books_in before delete, BOOK_REMOVED");
+#[ignore = "needs the activation of native plugins (#944, #417) and the host's core.library and core.document"]
+fn a_book_opens_and_is_deleted_from_the_file_manager() {
+    unreachable!("Open, Open with and Delete (through the library) in the options of a book");
 }
 
 #[test]
-#[ignore = "needs the readers service (document.md op 21) and core.format (ops 19, 20)"]
-fn a_book_opens_from_the_file_manager() {
-    unreachable!("Open, Open with, Reading app in the options of a file or folder");
+#[ignore = "needs the host's journalled moves (files.md 2.6) behind core.files"]
+fn a_book_that_moves_keeps_its_reading_place_and_notes() {
+    unreachable!("a move and a rename on the card, the host follows them");
 }

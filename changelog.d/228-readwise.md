@@ -1,0 +1,3 @@
+### Changed
+
+- **Readwise runs on interface 7** (#228). The Readwise plugin is now a native plugin only: the highlights of an exported book go to Readwise over the network service, the access token is asked for on the keyboard and kept with the other passwords and keys, and what cannot be sent waits and is sent again when the network is there (declared work, within half an hour), with the same texts in English and German. A highlight that does not fit in memory ends that sending with a notice instead of aborting, and the request body is written a highlight at a time. The plugin hears the reader's export once the reader's export stage exists; until then it sends nothing by itself.

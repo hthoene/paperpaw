@@ -10,7 +10,7 @@ use crate::native_host::work_sched::{Limits, Power};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Settings};
@@ -23,6 +23,8 @@ static WIRED: &[Feature<'static>] = &[Feature {
 struct Clock {
     now: Cell<u64>,
     allowed: Cell<bool>,
+    /// Owners that subscribed to `work_due`.
+    subscribed: Vec<u64>,
 }
 impl WorkEnv for Clock {
     fn now_ms(&self) -> u64 {
@@ -46,6 +48,9 @@ impl WorkEnv for Clock {
     }
     fn saving_manual(&self, _: u64) -> bool {
         false
+    }
+    fn subscribed(&self, owner: u64, tag: u32) -> bool {
+        tag == wire::EVENT_WORK_DUE_TAG && self.subscribed.contains(&owner)
     }
 }
 
@@ -106,6 +111,8 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
+        // Owners 1 and 2 are plugins that subscribed to `work_due`; 3 did not.
+        subscribed: Vec::from([1, 2]),
     });
     let sched = Rc::new(WorkSched::new(Limits::X4));
     let hosts = crate::native_host::host_services::HostServices::new();
@@ -146,6 +153,34 @@ fn an_unwired_family_is_unsupported() {
         assert_eq!(
             v.call(1, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
             Some(ERR_UNSUPPORTED)
+        );
+    });
+}
+
+#[test]
+fn declare_needs_a_subscription_to_work_due() {
+    with_view(true, |v| {
+        // Owner 3 never subscribed: its work is refused, nothing is kept.
+        assert_eq!(
+            v.call(3, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
+            Some(ERR_STATE)
+        );
+        assert_eq!(v.sched.counts(), (0, 0));
+        // A form that is wrong is still the form's status first.
+        let mut bad = spec("a");
+        bad.needs = 8;
+        assert_eq!(
+            v.call(3, NONE, 1, Record::ServiceWorkSpec(bad)).err(),
+            Some(ERR_UNSUPPORTED)
+        );
+        // Subscribed: declared.
+        v.call(1, NONE, 1, Record::ServiceWorkSpec(spec("a")))
+            .unwrap();
+        assert_eq!(v.sched.counts(), (1, 0));
+        // A plugin the host does not know is not subscribed either.
+        assert_eq!(
+            v.call(9, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
+            Some(ERR_STATE)
         );
     });
 }
@@ -314,6 +349,7 @@ fn a_table_cannot_overflow_the_state_reply() {
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
+        subscribed: Vec::from([1]),
     });
     let sched = Rc::new(WorkSched::new(Limits::OTHER));
     let hosts = crate::native_host::host_services::HostServices::new();

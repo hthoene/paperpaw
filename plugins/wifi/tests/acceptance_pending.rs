@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
     // network, typing its password and forgetting one work. The screens are
     // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
@@ -21,12 +21,13 @@ const CASES: [Case; 5] = [
     },
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
-    // `native_phone` (compared with the old screen); serving them, the codes
-    // and the screen are what waits.
+    // `native_phone` (compared with the old screen); serving them and
+    // answering are run in `tests/scripted_phone.rs`. Drawing the screen with
+    // its codes (the ui kit's `Footer::Code`) waits for the host's compose.
     Case {
         name: "wifi-phone",
         golden: None,
-        blocked_by: &["NET-serve"],
+        blocked_by: &["H3"],
     },
     // Networks and passwords kept and forgotten through `core.secrets`, and a
     // `wifi.ini` on the card read once at a start. What the plugin keeps and
@@ -43,11 +44,23 @@ const CASES: [Case; 5] = [
     // The own network opened for the phone: its name and drawn password, the
     // token of its page, the join code (`native_own`), with the bytes from
     // `core.secrets` `random`. The setup screen prepares them from a fully
-    // random draw only; opening the network and the served page wait.
+    // random draw only; the radio opening the network for real waits for the
+    // host (the scripted one cannot stage Wi-Fi commands; what is sent is read
+    // from the bytes in `tests/scripted_phone.rs`).
     Case {
         name: "wifi-own-network",
         golden: None,
-        blocked_by: &["NET-serve"],
+        blocked_by: &["H4"],
+    },
+    // `serve` from the callback of the radio's event (the own network opens
+    // asynchronously): network.md 5.1 is relaxed to any callback while one of
+    // the plugin's screens is showing; the host still answers `ERR_STATE`
+    // there (`net_service/serving.rs`). The plugin treats `ERR_STATE` as "not
+    // on screen" and does not fail.
+    Case {
+        name: "wifi-phone-serve-from-event",
+        golden: None,
+        blocked_by: &["NET-serve-event"],
     },
     // The status item shows the sign while the device is in a network.
     Case {
@@ -74,7 +87,7 @@ fn wifi_pages() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
+#[ignore = "BLOCKED H3: the screen with its join and page codes is drawn by the host's compose"]
 fn wifi_phone() {
     CASES[1].refuse().unwrap();
 }
@@ -86,13 +99,19 @@ fn wifi_passwords() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: opening the own network and the served page"]
+#[ignore = "BLOCKED H4: the radio opening the own network for real; the scripted host cannot stage Wi-Fi commands"]
 fn wifi_own_network() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
+#[ignore = "BLOCKED NET-serve-event: the host takes `serve` only from a screen callback, not yet from the radio's event"]
+fn wifi_phone_serve_from_event() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn wifi_status_item() {
-    CASES[4].refuse().unwrap();
+    CASES[5].refuse().unwrap();
 }

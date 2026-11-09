@@ -195,8 +195,21 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.groups, old.groups);
     assert_eq!(native.specs.len(), 9);
     assert_eq!(native.specs, old.specs);
-    assert_eq!(native.extras, old.extras);
-    assert_eq!(native.screens, old.screens);
+    // The picker of the picture and of the widget over the page (`pick-overlay`) is
+    // blocked (`PORTING-7.md`): the two settings have no editor, and there is no
+    // screen for one to open.
+    let without_picker = |rows: &[String], key: &str| -> Vec<String> {
+        rows.iter()
+            .filter(|row| !row.contains(key))
+            .cloned()
+            .collect()
+    };
+    let old_extras: Vec<String> = without_picker(&old.extras, "pick-overlay");
+    assert_eq!(native.extras, old_extras);
+    assert_eq!(old.extras.len(), native.extras.len() + 2);
+    let old_screens: Vec<String> = without_picker(&old.screens, "pick-overlay");
+    assert_eq!(native.screens, old_screens);
+    assert_eq!(old.screens.len(), native.screens.len() + 1);
     // The navigation records, decoded: the offer, the two places of widgets
     // (their settings, the layout, the condition), the icon and the ten needs.
     assert_eq!(native.slots, old.slots);

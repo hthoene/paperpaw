@@ -263,6 +263,10 @@ impl Storage for Traced {
         self.0.ignores_case()
     }
 
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.0.free_space()
     }

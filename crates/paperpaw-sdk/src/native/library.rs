@@ -29,6 +29,8 @@ mod files;
 pub use files::{DeleteReport, DeleteRow, Existing, Import, MAX_DELETE_PATHS};
 mod position;
 pub use position::{BookKey, Position, PositionWrite};
+mod provide;
+pub use provide::Provided;
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};

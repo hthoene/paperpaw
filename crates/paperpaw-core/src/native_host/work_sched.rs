@@ -105,6 +105,9 @@ pub(crate) trait WorkEnv {
     fn network_allowed(&self, owner: u64) -> bool;
     /// The plugin's own saving setting is held to manual.
     fn saving_manual(&self, owner: u64) -> bool;
+    /// Whether the plugin subscribed to the event `tag` (the owner registry's
+    /// answer; `false` for an owner that is unknown or stopped).
+    fn subscribed(&self, owner: u64, tag: u32) -> bool;
 }
 
 /// The device's table sizes.
