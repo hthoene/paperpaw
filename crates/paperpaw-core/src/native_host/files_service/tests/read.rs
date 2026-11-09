@@ -143,6 +143,47 @@ fn root_one_hides_the_protected_folders_by_name_and_by_alias() {
 }
 
 #[test]
+fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
+    // The driver compares names in upper case, the whole name: `ı` is `I`,
+    // `ſ` is `S`, so these reach `plugins` and `.paperpaw` unless refused.
+    let (card, host) = fixture();
+    for dir in ["Books", "plugins", "plugıns", "pluginſ"] {
+        card.dir(dir);
+    }
+    assert_eq!(list_all(&host, 1, "").unwrap(), ["Books"]);
+    for protected in [
+        "plugıns",
+        "PLUGıNS/x",
+        "pluginſ",
+        "PLUGINſ/x",
+        "plugıns/files",
+        "plugınſ",
+    ] {
+        assert_eq!(
+            call(&host, 1, list_record(1, protected, 0)),
+            Err(ERR_INVALID),
+            "{protected}"
+        );
+        assert_eq!(
+            call(&host, 2, path(1, protected)),
+            Err(ERR_INVALID),
+            "{protected}"
+        );
+    }
+    // Folds that do not land on the name are not it: the Kelvin sign stays a
+    // letter of its own, and `plugin` + `ß` is `PLUGINSS`.
+    for other in ["plugin\u{df}", "\u{212a}Books"] {
+        card.dir(other);
+        assert!(
+            list_all(&host, 1, "")
+                .unwrap()
+                .contains(&std::string::String::from(other)),
+            "{other}"
+        );
+    }
+}
+
+#[test]
 fn root_zero_and_two_are_the_plugins_own_folders() {
     let (card, host) = fixture();
     card.file(&std::format!("{DATA}/notes.txt"), 5);
@@ -181,6 +222,38 @@ fn a_root_whose_folder_is_not_made_yet_is_empty() {
             Err(ERR_NOT_FOUND)
         );
     }
+}
+
+#[test]
+fn a_built_in_plugins_install_folder_is_empty_whatever_a_leftover_holds() {
+    let (card, host) = fixture();
+    // A leftover of an older install (Beta 3 kept `plugins/<id>/` for the
+    // linked plugins too).
+    card.file(&std::format!("{BUNDLE}/data/old.txt"), 9);
+    card.file(&std::format!("{BUNDLE}/plugin.ini"), 9);
+    assert_eq!(list_all(&host, 2, "").unwrap(), ["data", "plugin.ini"]);
+    host.built_in.borrow_mut().push("files");
+    // Listing: no rows, the last page. Stat of the folder: a folder.
+    let reply = call(&host, 1, list_record(2, "", 0)).unwrap();
+    let (page, end) = rows(&reply);
+    assert!(page.is_empty());
+    assert_eq!(end.unwrap().flags, 1);
+    let entry = call(&host, 2, path(2, "")).unwrap();
+    assert_eq!(rows(&entry).0[0].1, 1);
+    // Every path in it is not found; a bad one is still refused as bad.
+    for p in ["plugin.ini", "data", "data/old.txt", "nope"] {
+        assert_eq!(call(&host, 2, path(2, p)), Err(ERR_NOT_FOUND), "{p}");
+        assert_eq!(
+            call(&host, 1, list_record(2, p, 0)),
+            Err(ERR_NOT_FOUND),
+            "{p}"
+        );
+    }
+    assert_eq!(call(&host, 2, path(2, "../x")), Err(ERR_INVALID));
+    // Another root of the same plugin is as it was; a change of root 2 is
+    // still denied.
+    card.file(&std::format!("{DATA}/notes.txt"), 5);
+    assert_eq!(list_all(&host, 0, "").unwrap(), ["notes.txt"]);
 }
 
 #[test]

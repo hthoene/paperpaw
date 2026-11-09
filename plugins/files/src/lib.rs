@@ -34,9 +34,13 @@ mod list;
 mod names;
 mod native_entry;
 #[doc(hidden)]
+pub mod native_info;
+#[doc(hidden)]
 pub mod native_model;
-/// The interface-7 library plugin (slice 1; see `PORTING-7.md`).
+/// The interface-7 library plugin (see `PORTING-7.md`).
 pub mod native_plugin;
+#[doc(hidden)]
+pub mod native_shelves;
 mod shelves;
 
 #[cfg(feature = "linked")]

@@ -1,15 +1,14 @@
-//! The native readers of Wallabag's answers (`native_fetch`) against the
-//! interface-6 ones (`unread` and `is_archived` in `lib.rs`): equal on the
-//! same text, at any piece size, and refusing instead of aborting when
-//! memory runs short. The read caps of the lists are those of interface 6.
+//! The readers of Wallabag's answers (`native_fetch`): the same result of the
+//! same text at any piece size, and refusing instead of aborting when memory
+//! runs short. The read caps of the lists are those of interface 6.
 use crate::fail_alloc::sweep;
 use crate::native_fetch::{Archived, Unread};
 use crate::native_wallabag::{self as native, ARTICLES_CAP, FINISHED_CAP};
-use crate::{data, is_archived, unread};
 use alloc::format;
 use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec;
 use alloc::vec::Vec;
-use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
 
 fn entries(items: &[(&str, &str)]) -> String {
@@ -27,51 +26,75 @@ fn entries(items: &[(&str, &str)]) -> String {
     out
 }
 
-fn old_unread(text: &str) -> Option<Vec<(String, String)>> {
-    let storage = MemoryStorage::new().with(&data("entries.json"), text);
-    // The title of interface 6 is only ever used as the name of a book; the
-    // native reading keeps it as that (see the test below).
-    unread(&storage).map(|list| {
-        list.into_iter()
-            .map(|(id, title)| {
-                let name = paperpaw_sdk::web::clean_name(&title, native::NAME_UNITS);
-                (id, name.unwrap_or_default())
-            })
-            .collect()
-    })
+type Names = Vec<(String, String)>;
+
+/// A title as the book's name is made of it.
+fn name(title: &str) -> String {
+    paperpaw_sdk::web::clean_name(title, native::NAME_UNITS).unwrap_or_default()
 }
 
-fn new_unread(text: &str) -> Option<Vec<(String, String)>> {
+fn new_unread(text: &str) -> Option<Names> {
     Unread::read(text.as_bytes())
         .unwrap()
         .map(|list| list.into_iter().map(|e| (e.id, e.title)).collect())
 }
 
+fn pair(id: &str, title: &str) -> (String, String) {
+    (id.to_string(), name(title))
+}
+
 #[test]
-fn the_unread_list_is_read_as_before() {
+fn the_unread_list_is_read() {
     let many: Vec<(String, String)> = (0..45)
         .map(|i| (format!("{}", 100 + i), format!("Article {i}")))
         .collect();
     let many: Vec<(&str, &str)> = many.iter().map(|(a, b)| (&a[..], &b[..])).collect();
-    let texts = [
-        entries(&[]),
-        entries(&[("12", "One"), ("13", "Zwei \\u00e4 \\\"q\\\"")]),
-        entries(&[("12", "One"), ("\"x\"", "Not a number"), ("14", "Three")]),
-        entries(&[("\"-1\"", "a"), ("\"1.5\"", "b"), ("\"\"", "c"), ("7", "d")]),
-        entries(&many),
+    let texts: [(String, Option<Names>); 13] = [
+        (entries(&[]), Some(vec![])),
+        (
+            entries(&[("12", "One"), ("13", "Zwei \\u00e4 \\\"q\\\"")]),
+            Some(vec![pair("12", "One"), pair("13", "Zwei \u{e4} \"q\"")]),
+        ),
+        // An id that is not a number is left out.
+        (
+            entries(&[("12", "One"), ("\"x\"", "Not a number"), ("14", "Three")]),
+            Some(vec![pair("12", "One"), pair("14", "Three")]),
+        ),
+        (
+            entries(&[("\"-1\"", "a"), ("\"1.5\"", "b"), ("\"\"", "c"), ("7", "d")]),
+            Some(vec![pair("7", "d")]),
+        ),
+        // The newest 30 only.
+        (
+            entries(&many),
+            Some(many.iter().take(30).map(|(i, t)| pair(i, t)).collect()),
+        ),
         // Not whole: the items never end.
-        String::from(r#"{"_embedded":{"items":[{"id":1,"title":"a"},{"id":2"#),
-        String::from(r#"{"_embedded":{"items":[{"id":1,"title":"a"}"#),
-        // Another shape, other members, an id twice, a title before the id.
-        String::from(r#"{"items":[{"id":1}]}"#),
-        String::from(r#"{"_embedded":{"items":[{"title":"t","id":5,"id":6}]}}"#),
-        String::from(r#"{"_embedded":{"items":[{"id":8,"tags":[{"id":9,"title":"deep"}]}]}}"#),
-        String::from(r#"{"_embedded":{"items":[[{"id":8}],{"id":10}]}}"#),
-        String::new(),
-        String::from("not json"),
+        (
+            String::from(r#"{"_embedded":{"items":[{"id":1,"title":"a"},{"id":2"#),
+            None,
+        ),
+        (
+            String::from(r#"{"_embedded":{"items":[{"id":1,"title":"a"}"#),
+            None,
+        ),
+        // Another shape; a title before the id and an id twice (the last
+        // counts); an id inside a tag does not count.
+        (String::from(r#"{"items":[{"id":1}]}"#), None),
+        (
+            String::from(r#"{"_embedded":{"items":[{"title":"t","id":5,"id":6}]}}"#),
+            Some(vec![pair("6", "t")]),
+        ),
+        (
+            String::from(r#"{"_embedded":{"items":[{"id":8,"tags":[{"id":9,"title":"deep"}]}]}}"#),
+            Some(vec![pair("8", "")]),
+        ),
+        (String::new(), None),
+        (String::from("not json"), None),
+        (String::from(r#"{"_embedded":{"items":[]}}"#), Some(vec![])),
     ];
-    for text in &texts {
-        assert_eq!(old_unread(text), new_unread(text), "{text:?}");
+    for (text, expected) in &texts {
+        assert_eq!(&new_unread(text), expected, "{text:?}");
         // Whatever the size of the pieces the file is read in.
         for size in [1, 2, 7, 64, 2048] {
             let mut reading = Unread::new();
@@ -83,46 +106,63 @@ fn the_unread_list_is_read_as_before() {
                     .map(|e| (e.id, e.title))
                     .collect::<Vec<_>>()
             });
-            assert_eq!(old_unread(text), new, "{size} {text:?}");
+            assert_eq!(&new, expected, "{size} {text:?}");
         }
     }
-    let list = new_unread(&texts[4]).unwrap();
-    assert_eq!(list.len(), native::MAX_ARTICLES);
-    assert_eq!(list[0], ("100".into(), "Article 0".into()));
+    // Items inside items: whatever the reading makes of them, in any pieces
+    // it is the same.
+    let odd = r#"{"_embedded":{"items":[[{"id":8}],{"id":10}]}}"#;
+    let whole = new_unread(odd);
+    for size in [1, 3, 64] {
+        let mut reading = Unread::new();
+        for piece in odd.as_bytes().chunks(size) {
+            reading.feed(piece).unwrap();
+        }
+        let split = reading.finish().unwrap().map(|list| {
+            list.into_iter()
+                .map(|e| (e.id, e.title))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(split, whole, "{size}");
+    }
 }
 
 #[test]
-fn the_archived_flag_is_read_as_before() {
-    for text in [
-        r#"{"id":7,"is_archived":1,"title":"t"}"#,
-        r#"{"id":7,"is_archived":0}"#,
-        r#"{"is_archived":true,"id":7}"#,
-        r#"{"is_archived":false,"id":7}"#,
-        r#"{"id":8,"is_archived":1}"#,
-        r#"{"id":7}"#,
-        r#"{"is_archived":1}"#,
-        r#"{"id":7,"is_archived":"yes"}"#,
-        r#"{"id":7,"is_archived":null}"#,
-        r#"{"id":7,"tags":[{"id":8,"is_archived":1}],"is_archived":0}"#,
-        r#"[{"id":7,"is_archived":1}]"#,
-        r#"{"id":"7","is_archived":"1"}"#,
-        "",
-        "{",
+fn the_archived_flag_is_read() {
+    for (text, id, expected) in [
+        (r#"{"id":7,"is_archived":1,"title":"t"}"#, "7", Some(true)),
+        (r#"{"id":7,"is_archived":0}"#, "7", Some(false)),
+        (r#"{"is_archived":true,"id":7}"#, "7", Some(true)),
+        (r#"{"is_archived":false,"id":7}"#, "7", Some(false)),
+        // Another article's answer says nothing of this one.
+        (r#"{"id":8,"is_archived":1}"#, "7", None),
+        (r#"{"id":7,"is_archived":1}"#, "8", None),
+        (r#"{"id":7,"is_archived":1}"#, "", None),
+        (r#"{"id":7}"#, "7", None),
+        (r#"{"is_archived":1}"#, "7", None),
+        (r#"{"id":7,"is_archived":"yes"}"#, "7", None),
+        (r#"{"id":7,"is_archived":null}"#, "7", None),
+        // Only the top of the answer counts.
+        (
+            r#"{"id":7,"tags":[{"id":8,"is_archived":1}],"is_archived":0}"#,
+            "7",
+            Some(false),
+        ),
+        (r#"[{"id":7,"is_archived":1}]"#, "7", None),
+        (r#"{"id":"7","is_archived":"1"}"#, "7", Some(true)),
+        ("", "7", None),
+        ("{", "7", None),
     ] {
-        let storage = MemoryStorage::new().with(&data("entry.json"), text);
-        for id in ["7", "8", ""] {
-            let old = is_archived(&storage, id);
-            assert_eq!(
-                old,
-                Archived::read(id, text.as_bytes()).unwrap(),
-                "{id} {text}"
-            );
-            let mut reading = Archived::new(id);
-            for piece in text.as_bytes().chunks(3) {
-                reading.feed(piece).unwrap();
-            }
-            assert_eq!(old, reading.finish().unwrap(), "{id} {text}");
+        assert_eq!(
+            Archived::read(id, text.as_bytes()).unwrap(),
+            expected,
+            "{id} {text}"
+        );
+        let mut reading = Archived::new(id);
+        for piece in text.as_bytes().chunks(3) {
+            reading.feed(piece).unwrap();
         }
+        assert_eq!(reading.finish().unwrap(), expected, "{id} {text}");
     }
 }
 
@@ -140,8 +180,6 @@ fn the_lists_have_the_read_caps_of_interface_6() {
     );
     let over = at_cap + "\n";
     assert_eq!(native::articles(&over).err(), Some(Error::NoSpace));
-    let storage = MemoryStorage::new().with(&data("articles.txt"), over.as_str());
-    assert!(crate::articles(&storage).is_err());
 
     let ids = "12345\n".repeat(FINISHED_CAP / 6);
     let at_cap = ids.clone() + &"\n".repeat(FINISHED_CAP - ids.len());
@@ -150,26 +188,17 @@ fn the_lists_have_the_read_caps_of_interface_6() {
         native::finished(&(at_cap + "\n")).err(),
         Some(Error::NoSpace)
     );
-    let storage = MemoryStorage::new().with(&data("finished.txt"), "\n".repeat(FINISHED_CAP + 1));
-    assert!(crate::finished(&storage).is_err());
 }
 
 #[test]
 fn a_byte_order_mark_is_left_out_of_the_lists() {
-    for text in ["\u{feff}7\tx\n8\ty\n", "\u{feff}\u{feff}7\tx\n"] {
-        let storage = MemoryStorage::new().with(&data("articles.txt"), text);
-        let old = crate::articles(&storage).unwrap();
-        let new = native::articles(text).unwrap();
-        assert_eq!(old.len(), new.len(), "{text:?}");
-        for (o, n) in old.iter().zip(&new) {
-            assert_eq!((&o.id, &o.path), (&n.id, &n.path));
-        }
-        let storage = MemoryStorage::new().with(&data("finished.txt"), text);
-        assert_eq!(
-            crate::finished(&storage).unwrap(),
-            native::finished(text).unwrap()
-        );
-    }
+    let list = native::articles("\u{feff}7\tx\n8\ty\n").unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!((list[0].id.as_str(), list[0].path.as_str()), ("7", "x"));
+    assert_eq!(native::finished("\u{feff}7\n8\n").unwrap(), ["7", "8"]);
+    // Only one is left out.
+    let list = native::articles("\u{feff}\u{feff}7\tx\n").unwrap();
+    assert_eq!(list[0].id, "\u{feff}7");
 }
 
 #[test]

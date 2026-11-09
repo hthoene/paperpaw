@@ -64,9 +64,23 @@ impl crate::Kernel {
                 Refusal::Metadata(_) => ERR_UNSUPPORTED,
             })
         })?;
+        // The id is a linked plugin's for `core.files` before the plugin can
+        // run; a registration that fails takes it back.
+        let linked = resources.hosts().linked().clone();
+        linked.add(id).map_err(shell::Error::Status)?;
         // SAFETY: the caller guarantees the factory contract and static code.
-        let host = unsafe { admitted.hosted(services, id, teardown, resources) }?;
-        self.register_native(host, depth, report)
+        let host = match unsafe { admitted.hosted(services, id, teardown, resources) } {
+            Ok(host) => host,
+            Err(error) => {
+                linked.remove(id);
+                return Err(error);
+            }
+        };
+        let registered = self.register_native(host, depth, report);
+        if registered.is_err() {
+            linked.remove(id);
+        }
+        registered
     }
 }
 

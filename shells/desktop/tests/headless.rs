@@ -76,6 +76,49 @@ fn emulator(args: &[&str]) -> Run {
         .into()
 }
 
+/// Files under `dir`, all levels.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// A run that ends on a wrong argument writes nothing into the library it
+/// would have used (the default one, `samples/library`, is relative to the
+/// folder the emulator runs in: a test run must not fill the checkout with
+/// the English hyphenation pack).
+#[test]
+fn a_wrong_argument_leaves_the_default_library_alone() {
+    let cwd = std::env::temp_dir().join(format!("paperpaw-headless-cwd-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&cwd);
+    fs::create_dir_all(&cwd).unwrap();
+    for args in [
+        &["--heap-report"][..],
+        &["--script", "confirm"][..],
+        &["--headless", "--config", "no/such/paperpaw.ini"][..],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+            .args(args)
+            .current_dir(&cwd)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?} ran");
+    }
+    let written = files_under(&cwd);
+    let _ = fs::remove_dir_all(&cwd);
+    assert!(written.is_empty(), "wrote {written:?}");
+}
+
 /// Runs `script` headless on `profile` in the library `library`, with
 /// `args` more.
 fn run_in(library: &Path, profile: &str, script: &str, args: &[&str]) -> Run {

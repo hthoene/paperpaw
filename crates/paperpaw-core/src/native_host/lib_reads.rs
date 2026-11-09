@@ -46,6 +46,7 @@ use paperpaw_sdk::library::{self, catalog};
 mod annotations;
 mod book;
 mod position;
+mod provide;
 
 const PPM: u32 = 1_000_000;
 /// Counts of the books `state` takes while the catalog changes under it.

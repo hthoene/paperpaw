@@ -617,8 +617,9 @@ impl Pictures {
 }
 
 /// When a bar shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Visible {
+    #[default]
     Off,
     /// After a press, for a few seconds.
     Auto,

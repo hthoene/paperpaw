@@ -9,7 +9,10 @@
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
-use paperpaw_core::native_host::registrations::{Record, records_decode};
+use paperpaw_core::native_host::{
+    declarations::validate_batch,
+    registrations::{Record, records_decode},
+};
 use paperpaw_plugin_reader::Reader;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
@@ -211,4 +214,27 @@ fn the_declared_texts_have_words() {
         }
     }
     assert!(asked >= 40, "{asked}");
+}
+
+/// The stage the reader runs after an export: the host admits its declaration, and
+/// the bounds declared are the generated codec's (`stages/*.def`).
+#[test]
+fn the_notes_stage_is_declared_with_the_codecs_bounds() {
+    use paperpaw_plugin_reader::stages::reader_notes_exported_v1 as stage;
+    let mut stages = 0;
+    for batch in batches(|d| declarations::stages(d).unwrap()) {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("reader", &records).unwrap();
+        for record in records.iter() {
+            assert!(matches!(record, Record::StageSpec(_)), "{record:?}");
+            stages += 1;
+        }
+    }
+    assert_eq!(stages, 1);
+    assert_eq!(declarations::NOTES_MAX_INPUT as usize, stage::MAX_INPUT);
+    assert_eq!(declarations::NOTES_MAX_REPLY as usize, stage::MAX_REPLY);
+    assert_eq!(
+        declarations::NOTES_MAX_RECORDS as usize,
+        stage::MAX_SUBSCRIBERS
+    );
 }

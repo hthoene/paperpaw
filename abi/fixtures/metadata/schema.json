@@ -5636,6 +5636,15 @@
           "ordinal": 0,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 128,
+          "name": "previews",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "str"
         }
       ],
       "id": 1040,

@@ -1,10 +1,13 @@
 # Translation on interface 7 (slices 1 to 3, partly ported)
 
-Status: **not complete.** The interface-6 plugin (`Translate`, the panel, the request and the
-answer in `lib.rs`) is still in place beside the native one, as the reference of the differential
-tests (`src/native_parity_tests.rs`, `src/answer_tests.rs`, `tests/panel.rs`). The native plugin now
-registers the language setting and the slot offer itself; the interface-6 code goes in the next PR
-(the differential tests become pinned ones), and `PORTING-7.md` then says *complete*.
+Status: **complete.** The plugin is the native plugin only. The interface-6 plugin (`Translate`, its
+panel, request and answer in `lib.rs`), its tests (`tests/panel.rs`, the differential
+`native_parity_tests.rs` and `answer_tests.rs`), its registration in `paperpaw-app` and its store-file
+builder (`tools/plugin-files`, `plugins.txt` keeps a comment line) are gone; the values the
+differential tests compared are pinned in `src/native_model_tests.rs` and
+`tests/native_declarations.rs`, taken from the interface-6 plugin before it was removed. What waits for
+hosts is under *What is still missing*: the reader's side of the slot offer, the panel's pixels, and
+the hint "Close" (an SDK gap, Kernel's).
 
 Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
 `declarations.rs` built into the image by `build.rs`, the host-free parts in
@@ -15,11 +18,12 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 ## The plan (slices)
 
 1. **Slice 1 (done):** the panel's screen declared and submitted, the model (target language,
-   request, answer) fallible and compared with interface 6, the tests, the pending acceptance.
+   request, answer) fallible and compared with interface 6 (pinned since), the tests, the pending acceptance.
 2. **Slice 2 (done):** the request and the key (see below). Asking DeepL and keeping the key are
    written and run against scripted `core.net` and `core.secrets` services.
-3. **Slice 3 (this one):** the panel on `core.ui` (see below). What is left (the language setting,
-   the reader's side of the slot offer) waits for the hosts and the contract, then the interface-6 code goes.
+3. **Slice 3 (done):** the panel on `core.ui` (see below).
+4. **Slices 4 to 6 (done):** the slot offer, the language setting, and the removal of the interface-6
+   code (this file's status).
 
 ## Ported in slice 1
 
@@ -27,7 +31,7 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   as the interface-6 screen drew in a `region`), with the title `translate.title`; the en/de texts
   are the existing ones.
 - `src/native_model.rs`, each part the interface-6 code made fallible and tested to give the same
-  answers (`src/native_parity_tests.rs`): the DeepL target language for a setting value and PaperPaw's
+  answers (pinned in `src/native_model_tests.rs`): the DeepL target language for a setting value and PaperPaw's
   language (`target`), the service for a key (`host`, `url`: free keys, ending in `:fx`, go to
   `api-free.deepl.com`), the form body (`body`: the first 3,000 characters, `+` for spaces, percent
   encoding), the line that carries the key (`authorization`, a `Secret` that wipes itself and
@@ -40,7 +44,7 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
   reader's own language is asked for) and capitals are ASCII ones.
 - `tests/native_alloc_refusal.rs` refuses each allocation of the model in turn;
   `any_body_is_read_without_a_panic` feeds random text to the reader.
-- Declarations are compared with the interface-6 registration by the shared helper
+- Declarations are pinned to what the interface-6 registration was
   (`tests/native_declarations.rs`): the screen and its title, and the slot offer.
 
 ## Ported in slice 2
@@ -143,19 +147,22 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 - **The language setting `translate.to`** is in the image and **submitted** in `make` (the first
   batch, before the screen): a choice of the reader's own language and the 32 DeepL ones (33
   values, within the 64 a `setting.spec` takes since draft 29), default PaperPaw's, advanced, in
-  the reading group, under the section `translate.section`. `tests/native_declarations.rs` compares
-  it with what the interface-6 plugin registers (the spec with its choices, help and `advanced`,
+  the reading group, under the section `translate.section`. `tests/native_declarations.rs` pins
+  what the interface-6 plugin registered (the spec with its choices, help and `advanced`,
   the extra with the section, the group), pins the image to the builders, and checks that the host
   admits it. The plugin reads the setting as before (`translate.to`); where it is not registered
   it translates into PaperPaw's language.
 - **The slot offer** for `core.translate` is in the image and **submitted** in `make`, after the screen it
   names (the host admits slot offers since #522; `tests/native_declarations.rs` validates it,
-  `tests/native_asking.rs` pins the order). What is still open is the reader's side: its *Translate*
-  finds the native panel only when the reader's slot host reads native offers (an ignored case in
-  `tests/acceptance_pending.rs`); the interface-6 plugin still binds the slot until it goes.
+  `tests/native_asking.rs` pins the order). The host side is done: Core #595 binds a native offer, so
+  `Env::has_slot("core.translate")` is true and `slot_screen` names the panel (Core's
+  `native_slot_offers_tests`), and #598 carries a hand-over into a native screen. What is still open is
+  the end-to-end case (an ignored case in `tests/acceptance_pending.rs`): the reader selects text,
+  its *Translate* opens the panel with it. That needs a kernel test that loads this native plugin
+  next to the interface-6 reader and drives a selection (the hosted construction of #944); the
+  interface-6 plugin that bound the slot is gone.
 - **Not run against the real hosts:** the panel's drawing (it needs the font and the style: a
   pixel harness backed by the kernel, as Battery's), the staging of a form over 2,048 bytes (the
   scripted host has no storage), allocation refusal inside the linked plugin (it allocates from the
   test's allocator, not the host's heap slot; every allocation is fallible by construction).
   Each is an ignored case in `tests/acceptance_pending.rs`.
-- `tests/panel.rs` (the interface-6 test, driving a kernel) stays as the reference.

@@ -209,10 +209,10 @@ fn ppn_files_are_checked_and_releases_must_be_versions() {
 /// device loads no code of another.
 #[test]
 fn a_code_plugins_folder_names_its_codes_version() {
-    // The weather plugin's own version, as its crate names it: plugins
+    // The widgets plugin's own version, as its crate names it: plugins
     // have versions of their own, not PaperPaw's.
     let manifest = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/weather/Cargo.toml"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/widgets/Cargo.toml"),
     )
     .unwrap();
     let version = manifest
@@ -223,12 +223,12 @@ fn a_code_plugins_folder_names_its_codes_version() {
         .to_string();
     let folder = |name: &str, version: &str| {
         let ini = format!(
-            "[plugin]\nid = weather\nname = Weather\ndescription = The weather.\nversion = {version}\n"
+            "[plugin]\nid = widgets\nname = Widgets\ndescription = The widgets.\nversion = {version}\n"
         );
         let mut context = context(name, &[]);
-        context.target.plugins = vec!["weather".into()];
+        context.target.plugins = vec!["widgets".into()];
         context.target.data = vec![paperpaw_dev::target::DataPlugin::new(
-            "weather",
+            "widgets",
             [(String::from("plugin.ini"), ini.into_bytes())],
         )];
         run(&context)

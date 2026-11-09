@@ -175,6 +175,16 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         Ok(found)
     }
 
+    /// The settings a placement (`widgets.clock@2`) sets itself; every other
+    /// setting of its widget has the widget's own value.
+    pub fn placement_keys(&mut self, placement: &str) -> Result<Vec<String>, Error> {
+        let mut found = Vec::new();
+        rows!(cursor => self.registry.values(self.host, ValuesQuery::Placement(placement), cursor, &mut self.input, &mut self.output), |row| {
+            push(&mut found, copy(row.key())?)
+        })?;
+        Ok(found)
+    }
+
     /// What a preset sets: setting and value (`None`: back to the default).
     pub fn preset_values(&mut self, preset: &str) -> Result<Vec<(String, Option<Val>)>, Error> {
         let mut found = Vec::new();

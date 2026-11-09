@@ -101,8 +101,18 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.net",
+    "core.ui"
+  ],
+  "features": [
+    "uses.network",
+    "uses.wifi"
+  ]
 }

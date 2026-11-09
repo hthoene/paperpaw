@@ -121,6 +121,11 @@ fn run() -> Result<(), String> {
     let profile = profiles::find(profile_id)
         .ok_or_else(|| format!("unknown profile `{profile_id}` (see --list-profiles)"))?;
 
+    // Checked before the library is touched: a run that ends on a wrong
+    // argument leaves the library as it was.
+    if !options.headless && (options.script.is_some() || options.screenshot.is_some()) {
+        return Err("--script and --screenshot require --headless".into());
+    }
     let library = options
         .library
         .clone()
@@ -153,7 +158,15 @@ fn run() -> Result<(), String> {
     if let Some(limit) = options.heap_budget {
         budget::override_limit(limit);
     }
-    let mut device = Device::new(profile, user_config(&options)?, storage, options.headless)
+    let config = user_config(&options)?;
+    // Last, once the arguments are known to be good.
+    // English hyphenation is a data plugin: in a library that has none (and
+    // never had), put it there, as the web flasher does on a card.
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        eprintln!("library: English hyphenation: {seeded:?}");
+    }
+    let mut device = Device::new(profile, config, storage, options.headless)
         .map_err(|e| format!("{}: {e}", profile.device.id))?;
     if options.fixtures {
         device.use_fixtures();
@@ -203,9 +216,6 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    if options.script.is_some() || options.screenshot.is_some() {
-        return Err("--script and --screenshot require --headless".into());
-    }
     let recorder = match &options.record {
         Some(path) => Some(record::Recorder::create(path, profile.device.id)?),
         None => None,
