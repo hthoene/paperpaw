@@ -21,7 +21,8 @@
 //! This part answers ops 1 (the device), 2 (named values), 3 (the running
 //! firmware), 4 (the plugins built into the image), 5 (what a code plugin must
 //! be built for), 7 (memory), 8 and 9 (the Wi-Fi radio and the networks
-//! found), 12 (the power level and mode), 14 (the plugins a start could not
+//! found), 10 and 11 (the Bluetooth radio and the bonded devices, in builds
+//! that have one), 12 (the power level and mode), 14 (the plugins a start could not
 //! install) and 15 (the physical keys); every other part is
 //! `ERR_NOT_FOUND` (the default of [`DeviceHost`]) until its slice lands, and
 //! [`Identity::caps`] carries only the bits of the parts that are answered
@@ -33,9 +34,9 @@ use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
 
 use paperpaw_core::native_host::device_service::{
-    BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_NETWORKS, MAX_NOT_INSTALLED,
-    MAX_VALUES, MemoryFacts, NativeFacts, NetworkRow, NotInstalledRow, ProbeCache, Reading,
-    WifiFacts,
+    BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_BONDED,
+    MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, MemoryFacts, NativeFacts, NetworkRow,
+    NotInstalledRow, ProbeCache, Reading, WifiFacts,
 };
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::firmware::{PROJECT_MAX, Running, Text, VERSION_MAX};
@@ -133,6 +134,39 @@ struct Found {
     secured: bool,
 }
 
+/// The Bluetooth radio (op 10): 0 off, 1 on.
+#[derive(Clone, Copy, Debug)]
+pub struct BluetoothState {
+    pub radio: u32,
+    /// The most links kept at once.
+    pub max_links: u32,
+}
+
+/// One bonded device (op 11), as the firmware keeps it.
+#[derive(Clone, Copy, Debug)]
+pub struct Bonded<'a> {
+    /// The device's number.
+    pub device: u32,
+    pub name: &'a str,
+    pub kind: u32,
+    pub connected: bool,
+    /// Its keys go to the key maps.
+    pub remote_keys: bool,
+    /// The plugin a sensor is handed to, empty for none.
+    pub given: &'a str,
+}
+
+/// A bonded device kept in place (names cut at 64 bytes).
+#[derive(Clone, Copy, Debug)]
+struct Kept {
+    device: u32,
+    name: Text<64>,
+    kind: u32,
+    connected: bool,
+    remote_keys: bool,
+    given: Text<64>,
+}
+
 /// The longest plugin id (and what is kept of a longer one).
 const ID_MAX: usize = 64;
 
@@ -160,6 +194,8 @@ pub struct X4Device {
     wifi: Cell<Option<WifiState>>,
     /// The networks the last scan found, strongest first.
     networks: RefCell<Vec<Found>>,
+    bluetooth: Cell<Option<BluetoothState>>,
+    bonded: RefCell<Vec<Kept>>,
     power: RefCell<Power>,
     /// Changes when a list changes (never 0).
     generation: Cell<u32>,
@@ -192,6 +228,8 @@ impl X4Device {
             not_installed: RefCell::new(Vec::new()),
             wifi: Cell::new(None),
             networks: RefCell::new(Vec::new()),
+            bluetooth: Cell::new(None),
+            bonded: RefCell::new(Vec::new()),
             power: RefCell::new(Power::default()),
             generation: Cell::new(1),
         }
@@ -253,6 +291,37 @@ impl X4Device {
         kept.truncate(MAX_NETWORKS as usize);
         // A list in use by a visitor is left as it is: never a panic.
         let Ok(mut list) = self.networks.try_borrow_mut() else {
+            return false;
+        };
+        *list = kept;
+        self.bump();
+        true
+    }
+
+    /// The Bluetooth radio (ops 10 and 11): `Identity::caps` has the Bluetooth
+    /// bit exactly where the firmware calls this (a build with a radio).
+    pub fn set_bluetooth(&self, state: BluetoothState) {
+        self.bluetooth.set(Some(state));
+    }
+
+    /// The bonded devices in the firmware's order; at most [`MAX_BONDED`] are
+    /// kept. False where they could not be kept (no room, or a visitor is
+    /// reading them): the list is then as it was.
+    pub fn set_bonded(&self, rows: &[Bonded<'_>]) -> bool {
+        let rows = &rows[..rows.len().min(MAX_BONDED as usize)];
+        let mut kept = Vec::new();
+        if kept.try_reserve_exact(rows.len()).is_err() {
+            return false;
+        }
+        kept.extend(rows.iter().map(|row| Kept {
+            device: row.device,
+            name: Text::new(row.name),
+            kind: row.kind,
+            connected: row.connected,
+            remote_keys: row.remote_keys,
+            given: Text::new(row.given),
+        }));
+        let Ok(mut list) = self.bonded.try_borrow_mut() else {
             return false;
         };
         *list = kept;
@@ -467,6 +536,35 @@ impl DeviceHost for X4Device {
                 signal: found.signal,
                 secured: found.secured,
                 known: false,
+            };
+            if visit(&row).is_break() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn bluetooth(&self) -> Result<BluetoothFacts, i32> {
+        let radio = self.bluetooth.get().ok_or(ERR_NOT_FOUND)?;
+        Ok(BluetoothFacts {
+            radio: radio.radio,
+            max_links: radio.max_links,
+        })
+    }
+
+    /// A radio with nothing bonded is an empty list, not "not here". Who may
+    /// see `given` is the host slot's owner ([`DeviceHost::bluetooth_manager`],
+    /// not answered by this part: nobody).
+    fn bonded(&self, visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>) -> Result<(), i32> {
+        self.bluetooth.get().ok_or(ERR_NOT_FOUND)?;
+        for row in self.bonded.borrow().iter() {
+            let row = BondedRow {
+                device: row.device,
+                name: row.name.as_str(),
+                kind: row.kind,
+                connected: row.connected,
+                remote_keys: row.remote_keys,
+                given: row.given.as_str(),
             };
             if visit(&row).is_break() {
                 break;
@@ -1077,5 +1175,69 @@ mod tests {
             .power(&mut |_| power_inside = Some(device.set_power(Power::default())))
             .unwrap();
         assert_eq!(power_inside, Some(false));
+    }
+
+    /// Bluetooth is here exactly where the caps say so; ops 10 and 11 answer
+    /// together.
+    #[test]
+    fn the_bluetooth_bit_and_ops_10_and_11_agree() {
+        let device = X4Device::new(
+            Identity {
+                caps: identity().caps | caps::BLUETOOTH,
+                ..identity()
+            },
+            list(&[]),
+        );
+        assert!(check_caps_agree(&device).is_err(), "no radio yet");
+        device.set_bluetooth(BluetoothState {
+            radio: 1,
+            max_links: 2,
+        });
+        assert_eq!(check_caps_agree(&device), Ok(()));
+        let facts = device.bluetooth().unwrap();
+        assert_eq!((facts.radio, facts.max_links), (1, 2));
+        assert_eq!(device.bonded(&mut |_| ControlFlow::Break(())), Ok(()));
+    }
+
+    #[test]
+    fn the_bonded_devices_are_kept_in_order_and_capped() {
+        let device = device(&[]);
+        device.set_bluetooth(BluetoothState {
+            radio: 0,
+            max_links: 2,
+        });
+        let names: Vec<String> = (0..20).map(|n| std::format!("pad{n}")).collect();
+        let rows: Vec<Bonded<'_>> = names
+            .iter()
+            .enumerate()
+            .map(|(n, name)| Bonded {
+                device: n as u32,
+                name,
+                kind: 1,
+                connected: n == 0,
+                remote_keys: true,
+                given: "",
+            })
+            .collect();
+        assert!(device.set_bonded(&rows));
+        let mut seen = Vec::new();
+        device
+            .bonded(&mut |row| {
+                seen.push((row.device, row.name.to_string(), row.connected));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(seen.len(), MAX_BONDED as usize);
+        assert_eq!(seen[0], (0, "pad0".to_string(), true));
+        assert_eq!(seen[15].1, "pad15");
+        // From inside a visitor: refused, not a panic.
+        let mut inside = None;
+        device
+            .bonded(&mut |_| {
+                inside = Some(device.set_bonded(&[]));
+                ControlFlow::Break(())
+            })
+            .unwrap();
+        assert_eq!(inside, Some(false));
     }
 }
