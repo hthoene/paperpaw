@@ -1072,7 +1072,7 @@ pub(crate) fn next_event_run(
             .end
             .map_or((0, kind::FAILED, 0, 0), |(e, k, r)| (e.at, k, r, 0)),
     };
-    let used = codec::encode_one(
+    let used = codec::encode_event(
         &Record::EventSocket(wire::EventSocket {
             now_ms: at,
             socket: s.id,

@@ -393,7 +393,11 @@ impl Ev {
 fn next(f: &Fake, owner: u64) -> Option<Ev> {
     let mut out = std::vec![0; 256];
     let used = next_event(f, owner, &mut out).unwrap()?;
-    match wire::record_decode_one(&out[..used]).unwrap() {
+    // What the plugin's callback gets: the SDK frames it as a batch of one and
+    // decodes it (the kernel's `service_event` reads its tag the same way).
+    let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
+    assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
         Record::EventSocket(e) => Some(Ev::new(e.socket, e.token, e.kind, e.reason, e.len)),
         other => panic!("not event 106: {other:?}"),
     }
