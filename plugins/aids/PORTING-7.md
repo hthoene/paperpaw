@@ -23,15 +23,29 @@ host activates native plugins (then the interface-6 text filters go, no shim).
   caption word, source positions), with fallible allocation and refusal sweeps
   (`tests/filter_allocation.rs`).
 
+- The `reader.filter@1` stage (schema: `stages/reader.filter@1.def`, a copy of the reader's
+  `plugins/reader/stages/reader.filter@1.def`, Kernel-approved; the codec is `src/reader_filter/stages.rs`,
+  made by `tools/stage-codec.py plugins/aids/stages plugins/aids/src/reader_filter/stages.rs --plugin reader`).
+  `make` subscribes (`declarations::subscriptions`, a host that does not admit it yet answers
+  `ERR_UNSUPPORTED` and the plugin goes on). `NativeAids::event` answers each `Event::StageCall` of
+  `reader.filter` from the settings as they are then: `filter.rules` (signature of the canonical rules,
+  bold, pictures policy, caption word in the asked language: `Bild` for `de`, else `Picture`; a book of
+  pictures only keeps them) and up to 32 `filter.pair`. Rules the reply cannot hold (over 32 pairs, a
+  string over 96 bytes, over 3,840 bytes) refuse the call (`ERR_NO_SPACE`), so the reader applies none
+  of this plugin's rules. Buffers are heap (4 KiB setting, 3,840 B reply), fallibly allocated; frames
+  stay small. The reader folds the reply's `signature` (it changes with the settings; the
+  subscription's stays 0), the plugin id and the version into its layout key.
+- `reader_filter::apply` (rules applied to one block) stays here until the reader screens take it
+  over: the reader owns the pipeline (Kernel).
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
 - Removing the interface-6 text filters (`add_text_filter` in `register`, `bold_beginnings`,
   `replace`, `pictures::apply`, `filters_tests.rs`, the `Aids` plugin): with the reader calling the
   stage; until then they are the only way the rules apply, and the reader's cache keys depend on
   their signatures. They go in one commit then, no shim.
-- The reader calling the stage (READER-filter-stage). The stage subscription is not declared: a
-  subscription to a stage no one defines is refused, and the subscription's `signature` (the rules'
-  hash, which the reader folds into its layout key) changes with the settings, so it has to be
-  declared again when they change.
+- The reader asking the stage and applying the rules to each block (`BLOCKED READER-filter-fire`:
+  the stage is defined and declared (PR #807), the native reader screens do not ask it yet).
+  Without that, nothing applies the rules on a native host.
 - Refusing a configuration the payload cannot hold before it is adopted (SETTINGS-validation): the
   settings editor has no hook for it yet.

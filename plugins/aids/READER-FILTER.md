@@ -1,4 +1,9 @@
-# reader.filter schema 1 preparation
+# reader.filter@1 (stage schema `stages/reader.filter@1.def`, see PORTING-7.md)
+
+The reader owns the stage; the plugin subscribes and answers each ask with the rules of its settings
+(`native_plugin.rs`). The notes below on the payload still hold; the codec is now the stage codec.
+
+## Preparation notes
 
 Opt-in `reader-filter` feature; default registrations still use the existing
 interface. No stage broker, native activation, or settings validation UI is

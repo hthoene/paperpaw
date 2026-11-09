@@ -23,6 +23,10 @@
       "name": "registrations.submit"
     },
     {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
