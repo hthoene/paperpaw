@@ -234,6 +234,11 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         // The same event in two batches; the same draw in two batches.
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
+        // `event.widget_changed`, which a maker registers for (`widget_events`).
+        13 => &[&[wire::Registration::Event {
+            event_tag: wire::EVENT_WIDGET_CHANGED_TAG,
+            token: 91,
+        }]],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
@@ -746,6 +751,21 @@ fn a_draw_of_a_token_two_declarations_claim_or_none_refuses_the_install() {
         assert!(kernel.shared.native_instances.find("factory").is_none());
         assert_eq!(DESTROYED.with(Cell::get), 1, "mode {regs}");
     }
+}
+
+/// A real plugin registers for `event.widget_changed` (86): admitted at the
+/// install, not refused as an event with no delivery.
+#[test]
+fn a_registration_for_widget_changed_is_admitted() {
+    let (kernel, result) = regs_kernel(13);
+    result.unwrap();
+    let key = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .subscribed(key, wire::EVENT_WIDGET_CHANGED_TAG)
+    );
 }
 
 #[test]

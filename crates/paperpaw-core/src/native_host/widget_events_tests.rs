@@ -15,7 +15,7 @@ use crate::native_host::{
     ui_store::{Limits, UiStore},
 };
 use alloc::{rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::Id;
@@ -26,6 +26,9 @@ const TOKEN: u32 = 41;
 struct Maker {
     log: Rc<RefCell<Vec<u32>>>,
     subscribed: bool,
+    /// An instance it says changed, from inside its event callback.
+    says: Rc<Cell<Option<u32>>>,
+    said: Rc<Cell<Option<i32>>>,
 }
 
 impl NativeInstance for Maker {
@@ -49,8 +52,15 @@ impl NativeInstance for Maker {
         &self,
         bytes: &[u8],
         env: &paperpaw_sdk::Env<'_>,
-        _: &mut CommandStage<'_>,
+        stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
+        if let Some(instance) = self.says.take() {
+            let mut batch = [0; 64];
+            let len =
+                commands_encode(&[WireCommand::WidgetChanged { instance }], &mut batch).unwrap();
+            self.said
+                .set(Some(stage.stage(&commands_decode(&batch[..len]).unwrap())));
+        }
         self.service_event(bytes, env)
     }
 }
@@ -81,6 +91,8 @@ struct World {
     kernel: crate::Kernel,
     key: u64,
     log: Rc<RefCell<Vec<u32>>>,
+    says: Rc<Cell<Option<u32>>>,
+    said: Rc<Cell<Option<i32>>>,
 }
 
 const OWNER: u64 = 900;
@@ -99,9 +111,12 @@ fn world(subscribed: bool) -> World {
         .build()
         .unwrap();
     let log = Rc::new(RefCell::new(Vec::new()));
+    let (says, said) = (Rc::new(Cell::new(None)), Rc::new(Cell::new(None)));
     let lease = NativeLease::try_new(Maker {
         log: Rc::clone(&log),
         subscribed,
+        says: Rc::clone(&says),
+        said: Rc::clone(&said),
     })
     .unwrap();
     let key = kernel
@@ -120,6 +135,8 @@ fn world(subscribed: bool) -> World {
         kernel,
         key,
         log,
+        says,
+        said,
     }
 }
 
@@ -151,6 +168,66 @@ fn the_maker_hears_once_of_a_change_however_often_the_owner_said_it() {
     w.ui().widgets_changed(OWNER, &[b]).unwrap();
     w.kernel.native_widget_pump();
     assert_eq!(&*w.log.borrow(), &[a, b, b]);
+}
+
+/// A guard does not hold the event: the maker whose screen lies under another
+/// plugin's guard is told as any plugin is (it is a hint; what the maker may
+/// then do to its screen is the stack's rule, `redraw` of a screen that is not
+/// on top being `ERR_STATE`).
+#[test]
+fn a_maker_under_anothers_guard_is_told_all_the_same() {
+    use crate::native_host::stack_rows::{GUARDS, StackRow};
+    let mut w = world(true);
+    w.kernel.shared.stack_rows.update([
+        StackRow {
+            instance: 1,
+            owner: w.key,
+            flags: 0,
+        },
+        StackRow {
+            instance: 2,
+            owner: w.key + 1,
+            flags: GUARDS,
+        },
+    ]);
+    let a = w.made(1);
+    w.ui().widgets_changed(OWNER, &[a]).unwrap();
+    assert!(!w.kernel.native_widget_pump());
+    assert_eq!(&*w.log.borrow(), &[a]);
+}
+
+/// The command is as good in an event callback as in a shell one: staged in the
+/// callback, marked after it, told to the maker by the pump.
+#[test]
+fn an_event_callback_can_say_its_own_widget_changed() {
+    use crate::native_host::native_instances::InstanceState;
+    let mut w = world(true);
+    // The maker is also the owner of this one.
+    let a = w
+        .ui()
+        .widgets
+        .handles
+        .borrow_mut()
+        .make_widget(w.key, w.key, 5, TOKEN, false)
+        .unwrap();
+    w.says.set(Some(a));
+    let Ok(InstanceState::Running(lease)) = w.kernel.shared.native_instances.state(w.key) else {
+        panic!("the maker runs");
+    };
+    let mut bytes = [0; 64];
+    let record = wire::Record::EventWidgetChanged(wire::EventWidgetChanged {
+        now_ms: 0,
+        instance: 0,
+    });
+    let len = crate::native_host::codec::encode_batch(&[record], &mut bytes).unwrap();
+    assert_eq!(
+        w.kernel.native_event_call(w.key, &lease, &bytes[..len]),
+        Ok(OK)
+    );
+    assert_eq!(w.said.get(), Some(OK), "the command was admitted");
+    assert!(w.ui().widget_change_waits());
+    w.kernel.native_widget_pump();
+    assert_eq!(&*w.log.borrow(), &[0, a]);
 }
 
 #[test]
