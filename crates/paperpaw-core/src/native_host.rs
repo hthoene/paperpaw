@@ -146,6 +146,8 @@ pub(crate) mod hyphen_service;
     dead_code,
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
+pub(crate) mod event_call;
+pub(crate) mod image_pump;
 pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;

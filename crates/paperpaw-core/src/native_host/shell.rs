@@ -151,6 +151,29 @@ impl<S> Context<S> {
     pub(crate) fn plugin_id(&self) -> &str {
         &self.id
     }
+
+    /// The host owner key of the plugin (the key of its native instance).
+    pub(crate) fn owner_key(&self) -> u64 {
+        self.resources.owner_id()
+    }
+
+    /// What a command stage checks the plugin's image commands against:
+    /// whether root 1 is open to it (`uses.storage`) and how many more
+    /// requests it may queue now.
+    pub(crate) fn image_admit(&self) -> super::image_service::commands::ImageAdmit {
+        super::image_service::commands::ImageAdmit {
+            storage_root: self
+                .declared_services
+                .features()
+                .feature("uses.storage")
+                .is_ok(),
+            room: self
+                .resources
+                .hosts()
+                .images()
+                .prepare_room(self.resources.owner_id()),
+        }
+    }
 }
 
 /// The pinned owner of one plugin.
@@ -884,7 +907,9 @@ mod tokens;
     unused_imports,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) use tokens::{TokenInvocation, dispatch_token, dispatch_token_draw};
+pub(crate) use tokens::{
+    TokenInvocation, dispatch_token, dispatch_token_draw, dispatch_token_staged,
+};
 
 /// Dispatches record `index` without a frame.
 ///

@@ -27,6 +27,8 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 )]
 #[path = "commands_ui.rs"]
 mod ui;
+/// A redraw a stage kept for its screen (run by the kernel after the callback).
+pub(crate) use ui::Redraw;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -104,6 +106,9 @@ pub struct CommandStage<'a> {
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
+    /// The callback belongs to a work run (`work.md` section 2, "background
+    /// work is quiet"): commands that show something are refused.
+    quiet: bool,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
 }
@@ -138,6 +143,7 @@ impl<'a> CommandStage<'a> {
             redraw: None,
             accepted: 0,
             images: None,
+            quiet: false,
             staged_images: Vec::new(),
         }
     }
@@ -147,22 +153,27 @@ impl<'a> CommandStage<'a> {
     /// [`ImageAdmit`]. The admitted ones come back from
     /// [`Self::take_image_commands`].
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "the shell's command runner wires it with the owner's host id"
-    )]
     pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
         self.images = Some(images);
         self
     }
 
+    /// Marks the callback as one of a work run: every command that would
+    /// show the user something they did not ask for is `ERR_STATE` at submit
+    /// ([`shows_the_user_something`]).
+    pub(crate) fn set_quiet(&mut self, quiet: bool) {
+        self.quiet = quiet;
+    }
+
+    /// As [`Self::with_images`], on a stage already lent (the instance's
+    /// own features are known only inside its callback scope).
+    pub(crate) fn admit_images(&mut self, images: ImageAdmit) {
+        self.images = Some(images);
+    }
+
     /// The admitted image commands, in order, for the host to apply after
     /// the callback (call it before [`Self::into_commands`]).
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "the shell's command runner wires it with the owner's host id"
-    )]
     pub(crate) fn take_image_commands(&mut self) -> Vec<ImageCommand> {
         core::mem::take(&mut self.staged_images)
     }
@@ -197,9 +208,18 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
-    fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
+    pub(crate) fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
+        }
+        // Whole batch refused, the stage as it was: the callback sees it and
+        // what it staged before stays valid.
+        if self.quiet
+            && batch
+                .iter()
+                .any(|command| shows_the_user_something(&command))
+        {
+            return ERR_STATE;
         }
         // `answer_plugin` needs the install feature (`uses.install`, DEV,
         // `docs/abi/device.md` section 1). Until command staging checks
@@ -416,6 +436,26 @@ impl fmt::Debug for CommandStage<'_> {
             .field("byte_limit", &self.byte_limit)
             .finish_non_exhaustive()
     }
+}
+
+/// Whether a command shows, opens, raises or says something to the user. A
+/// callback of a work run may not stage one (`work.md` section 2): it may
+/// redraw its own screens, change settings and data, use the network and its
+/// sockets and declare work.
+fn shows_the_user_something(command: &WireCommand<'_>) -> bool {
+    matches!(
+        command,
+        WireCommand::OpenScreen { .. }
+            | WireCommand::Open { .. }
+            | WireCommand::RunAction { .. }
+            | WireCommand::CloseScreen
+            | WireCommand::Close { .. }
+            | WireCommand::BackTo { .. }
+            | WireCommand::ShowHints {}
+            | WireCommand::RaiseInput { .. }
+            | WireCommand::Speak { .. }
+            | WireCommand::StopSpeaking {}
+    )
 }
 
 /// Allocation-free command slot inside a pinned host context.

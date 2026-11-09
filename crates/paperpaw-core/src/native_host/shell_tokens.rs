@@ -34,6 +34,26 @@ pub(crate) fn dispatch_token<S, M>(
     })?
 }
 
+/// As [`dispatch_token`], with the command stage of the callback lent to
+/// the plugin's `commands.submit` for its duration (every callback but
+/// `draw` gets one). The stage is the caller's: it reads what was accepted
+/// after the callback returned.
+pub(crate) fn dispatch_token_staged<S, M>(
+    batch: &Batch<'_, S, M, Registration>,
+    token: u32,
+    depth: &DispatchDepth,
+    frame: &crate::abi7::core_frame::CoreFrame<'_>,
+    invocation: TokenInvocation<'_>,
+    stage: &mut super::super::commands::CommandStage<'_>,
+) -> Result<i32, Error> {
+    batch.dispatch_owner(depth, |context| {
+        stage.admit_images(context.image_admit());
+        // SAFETY: the admitted owner structurally pins the command scope.
+        let scope = unsafe { context.map_unchecked(|value| &value.commands) };
+        scope.scope(stage, || invoke_token(context, token, frame, invocation))?
+    })?
+}
+
 pub(super) fn invoke_token<S>(
     context: core::pin::Pin<&super::Context<S>>,
     token: u32,

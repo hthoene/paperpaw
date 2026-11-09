@@ -1,0 +1,3 @@
+### Fixed
+
+- **Service-event callbacks get a command stage** (#228). The events the host raises (`image_ready`, work 103 to 105, `core.net` and `core.sockets` events) run with the stage every callback but `draw` has (`screens-input.md` 2.1): what a plugin submits there is kept when the callback returns `0` or `1` and run by the kernel before the next callback is called; an error drops the whole batch. In the callback of a work run (quiet), a command that would show something is refused at submit with `ERR_STATE` (`open`, `open_screen`, `run_action`, `close`, `back_to`, `show_hints`, `raise_input`, speech); a redraw of the plugin's own screen, settings, data, network and work stay allowed.

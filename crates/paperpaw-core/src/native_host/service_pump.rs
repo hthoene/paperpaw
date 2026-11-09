@@ -32,6 +32,7 @@ fn pump(
     instances: &NativeInstances,
     services: &[Option<&dyn ServiceEvents>; 2],
     env: &Env<'_>,
+    call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {
     for service in services.iter().flatten() {
         // A borrowed table waits for the next pass.
@@ -65,13 +66,31 @@ fn pump(
     instances.set_service_retry(None);
     let sched = instances.work_services().map(|work| &*work.sched);
     let mut more = false;
-    let mut index = 0;
-    while let Some((key, lease)) = instances.running_nth(index) {
-        index += 1;
+    let running = (0..)
+        .take_while(|&n| instances.running_nth(n).is_some())
+        .count();
+    // Each pass starts where the last one stopped for a staged batch, so a
+    // plugin whose every event stages commands does not keep the others
+    // waiting.
+    let start = instances.service_cursor().checked_rem(running).unwrap_or(0);
+    for step in 0..running {
+        let index = (start + step) % running;
+        let Some((key, lease)) = instances.running_nth(index) else {
+            break;
+        };
         for service in services.iter().flatten() {
-            more |= drain(*service, key, lease, &mut buffer, env, sched);
+            more |= drain(*service, key, lease, &mut buffer, sched, instances, call);
+            if instances.outbox.full() {
+                break;
+            }
+        }
+        // A callback's commands wait: none is called before they ran.
+        if instances.outbox.full() {
+            instances.set_service_cursor(index + 1);
+            return true;
         }
     }
+    instances.set_service_cursor(0);
     more
 }
 
@@ -82,8 +101,9 @@ fn drain(
     owner: u64,
     lease: &super::native_instances::NativeLease,
     buffer: &mut [u8],
-    env: &Env<'_>,
     sched: Option<&super::work_sched::WorkSched>,
+    instances: &NativeInstances,
+    call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
@@ -96,9 +116,13 @@ fn drain(
                     .map(|(sched, run)| sched.enter_run_callback(owner, run));
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
-                let _ = lease.service_event(&buffer[..len], env);
+                call(owner, lease, &buffer[..len]);
                 drop(_guard);
                 if service.event_delivered(owner) == Err(ERR_BUSY) {
+                    return true;
+                }
+                // What it staged runs before the next callback.
+                if instances.outbox.full() {
                     return true;
                 }
             }
@@ -119,14 +143,27 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
-        let env = self.shared.env(self.now);
-        let instances = &self.shared.native_instances;
-        let more = pump(instances, &instances.event_services(), &env);
+        let more = {
+            let env = self.shared.env(self.now);
+            let instances = &self.shared.native_instances;
+            pump(
+                instances,
+                &instances.event_services(),
+                &env,
+                // The callback gets its command stage; its batch is run below.
+                &|owner, lease, bytes| {
+                    let _ = self.native_event_call(owner, lease, bytes);
+                },
+            )
+        };
+        self.native_outbox_run();
         // Declared work comes due on the same tick (`work_pump`).
         let work_more = self.native_work_pump();
+        // Pictures a plugin asked for decode one a turn (`image_pump`).
+        let image_more = self.native_image_pump();
         self.shared
             .native_instances
-            .set_service_more(more || work_more);
+            .set_service_more(more || work_more || image_more);
     }
 
     /// When the pump wants to run again: now while events remain, else at
