@@ -203,9 +203,13 @@ fn set_field(host: &dyn super::LibHost, who: &Caller<'_>, input: &[u8]) -> Resul
 }
 
 /// A provided text: not blank (`str::trim`, Unicode White_Space) and with no
-/// control character (U+0000-U+001F, U+007F).
+/// control character (`char::is_control`: U+0000-U+001F, U+007F, U+0080-U+009F)
+/// and no line or paragraph separator (U+2028, U+2029).
 fn is_text(text: &str) -> bool {
-    !text.trim().is_empty() && !text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}')
+    !text.trim().is_empty()
+        && !text
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
 }
 
 fn provide(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {

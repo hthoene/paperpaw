@@ -56,12 +56,12 @@ pub(super) fn surviving<T>(result: Result<T, Error>) -> Option<T> {
 }
 
 /// `text` as a new `String`, reserved fallibly.
-fn copy(text: &str) -> Result<String, TryReserveError> {
+pub(super) fn copy(text: &str) -> Result<String, TryReserveError> {
     join(&[text])
 }
 
 /// `parts` one after the other as a new `String`, reserved fallibly once.
-fn join(parts: &[&str]) -> Result<String, TryReserveError> {
+pub(super) fn join(parts: &[&str]) -> Result<String, TryReserveError> {
     let mut out = String::new();
     out.try_reserve_exact(parts.iter().map(|part| part.len()).sum())?;
     for part in parts {

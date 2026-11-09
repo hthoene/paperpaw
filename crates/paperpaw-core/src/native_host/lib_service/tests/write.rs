@@ -1015,7 +1015,7 @@ fn provided_refuses_control_characters_and_never_escapes_them() {
     let fake = Fake::new();
     let provide = |record| go(&fake, 24, &[book(), record]);
     let mut bad = std::vec::Vec::new();
-    for c in (0_u32..=0x1f).chain([0x7f]) {
+    for c in (0_u32..=0x1f).chain(0x7f..=0x9f).chain([0x2028, 0x2029]) {
         bad.push(std::format!("a{}b", char::from_u32(c).unwrap()));
     }
     for text in bad {
@@ -1048,8 +1048,8 @@ fn provided_refuses_control_characters_and_never_escapes_them() {
             );
         }
     }
-    // Other characters, the C1 range and non-ASCII among them, are text.
-    assert!(provide(provided(0b0001, "Caf\u{e9} \u{85}x", "")).is_ok());
+    // Other characters, non-ASCII among them (U+00A0 is the first after the C1 range), are text.
+    assert!(provide(provided(0b0001, "Caf\u{e9} \u{a0}x\u{2027}\u{202a}", "")).is_ok());
     assert!(provide(provided(0b10000, "", "\u{e9}l\u{fc}\n\u{4e2d}")).is_ok());
 }
 
