@@ -38,7 +38,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop), item_states) = {
+        let (status, owner, (commands, redraw, _hop), item_states, presets) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -88,12 +88,14 @@ impl Kernel {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
                 let item_states = stage.take_item_states();
+                let presets = stage.take_presets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output, item_states))
+                Ok::<_, Error>((status, owner, output, item_states, presets))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
         self.apply_item_states(&owner, item_states);
+        self.apply_native_presets(presets);
         Ok(status)
     }
 

@@ -52,7 +52,7 @@ fn kernel(settings: usize, directory: bool) -> crate::Kernel {
 
 /// Submits `commands` in one batch from a callback that returns `returned`;
 /// the submit status and the callback's result.
-fn run(
+pub(super) fn run(
     kernel: &mut crate::Kernel,
     commands: &[WireCommand<'_>],
     returned: i32,
