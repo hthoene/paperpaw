@@ -414,19 +414,31 @@ impl HostServices {
     /// # Errors
     /// `ERR_FULL` when the table has no slot for it (the open is refused
     /// with it); `ERR_BUSY` when the table is borrowed.
-    #[allow(dead_code, reason = "the document service calls it (Host Engineer, train 6)")]
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
     pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
         use paperpaw_native::host_glue::{ERR_FULL, ERR_NO_MEMORY};
         self.in_use()
             .claim(super::busy_adapters::READER_OWNER, path)
-            .map_err(|status| if status == ERR_NO_MEMORY { ERR_FULL } else { status })
+            .map_err(|status| {
+                if status == ERR_NO_MEMORY {
+                    ERR_FULL
+                } else {
+                    status
+                }
+            })
     }
 
     /// A document of the book at `path` ended (an explicit close, its opener
     /// or format stopping, the card going, the book moved or removed, its
     /// place lost to another book): one hold on the path is given back. The
     /// document service calls it once for each document that ended.
-    #[allow(dead_code, reason = "the document service calls it (Host Engineer, train 6)")]
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
     pub(crate) fn reader_book_closed(&self, path: &str) {
         self.in_use()
             .release(super::busy_adapters::READER_OWNER, path);

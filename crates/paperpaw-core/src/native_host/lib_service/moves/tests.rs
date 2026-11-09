@@ -837,10 +837,16 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
     let card = Rc::new(paperpaw_sdk::MemoryStorage::new());
     card.write("Books/a.epub", b"x").unwrap();
     // Until the library's job is registered, core.files is refused.
-    assert!(resources.wire(HostWiring::new().files(card.clone())).is_err());
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
     let w = Rc::new(world(3));
     let moves = Rc::new(Moves::default());
-    hosts.register_library_moves(moves.clone(), w.clone()).unwrap();
+    hosts
+        .register_library_moves(moves.clone(), w.clone())
+        .unwrap();
     resources.wire(HostWiring::new().files(card)).unwrap();
     let files = &hosts.files().unwrap().0;
     assert!(!files.moving() && !files.busy("Books/old", Access::Remove));

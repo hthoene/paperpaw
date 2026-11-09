@@ -141,7 +141,10 @@ fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     let sources = resources.hosts().busy_sources();
     assert!(sources.has(BusyKind::Network));
-    assert!(sources.has(BusyKind::ReaderBook), "the in-use table counts books");
+    assert!(
+        sources.has(BusyKind::ReaderBook),
+        "the in-use table counts books"
+    );
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     assert!(resources.hosts().files().is_none(), "nothing half wired");
     // The library's move job was the last: now it wires, once.
