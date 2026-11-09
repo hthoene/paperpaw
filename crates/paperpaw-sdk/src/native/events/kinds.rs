@@ -105,6 +105,9 @@ kinds! {
     Bluetooth => EVENT_BLUETOOTH_TAG, core_events::bluetooth, Bluetooth;
     HttpDone => EVENT_HTTP_DONE_TAG, core_events::http_done, HttpDone;
     HttpProgress => EVENT_HTTP_PROGRESS_TAG, core_events::http_progress, HttpProgress;
+    Server => EVENT_SERVER_TAG, core_events::server, Server;
+    ServedRequest => EVENT_SERVED_REQUEST_TAG, core_events::served_request, ServedRequest;
+    ImageReady => EVENT_IMAGE_READY_TAG, core_events::image_ready, ImageReady;
     Socket => EVENT_SOCKET_TAG, core_events::socket, Socket;
     Broadcast => EVENT_BROADCAST_TAG, core_events::broadcast, Broadcast;
     WorkDue => EVENT_WORK_DUE_TAG, core_events::work_due, WorkDue;

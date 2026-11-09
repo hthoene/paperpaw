@@ -1,7 +1,8 @@
 //! The request table: the pool, the queue, the ends, the answer hold, the
 //! events.
 use super::*;
-use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use crate::native_host::net_service::table::cancel;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 fn done(id: u32, token: u32, status: u32, why: u32, flags: u32, body_len: u32) -> Event {
     Event::Done {
@@ -110,6 +111,7 @@ fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
         memory_bodies: 8,
         connections: 8,
         cable: false,
+        servers: 8,
     };
     let fake = Fake::new(profile);
     let long_len = long.len() as u32;
@@ -699,7 +701,7 @@ fn the_network_manager_hears_demand_and_idle_once_each() {
 #[test]
 fn net_idle_while_a_socket_is_live_is_no_idle_edge() {
     use crate::native_host::net_pool::{DEMAND_SOCK, NetPool};
-    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
     let fake = Fake::with_pool(NetProfile::X4, pool.clone());
     // A socket wants the network first: NET adds no edge.
     assert_eq!(pool.demand(DEMAND_SOCK, true), Some(true));
@@ -1239,7 +1241,7 @@ fn an_error_answer_keeps_status_and_body_when_its_head_cannot_be_held() {
 
 #[test]
 fn dropping_the_net_tables_gives_back_only_their_own_charges() {
-    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
     // core.sockets holds 8 KiB for the whole test.
     assert!(pool.reserve(8_192));
     {
@@ -1260,7 +1262,7 @@ fn dropping_the_net_tables_gives_back_only_their_own_charges() {
 fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     let external = 8_192;
     let new_fake = || {
-        let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+        let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
         assert!(pool.reserve(external));
         (Fake::with_pool(NetProfile::X4, pool.clone()), pool)
     };
@@ -1309,4 +1311,188 @@ fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     request(&fake, OWNER, &save_to(2, 0, "same.bin")).unwrap();
     owner_stopped(&fake, OWNER).unwrap();
     assert_eq!(pool.used(), external, "replaced and stopped");
+}
+
+#[test]
+fn turning_a_plugins_network_off_ends_what_it_has_open_at_the_next_pass() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    assert_eq!(fake.started.borrow().len(), 1, "it runs");
+    // Offline and saving let a running request finish; "off" does not wait.
+    for later_end in [reason::OFFLINE, reason::SAVING] {
+        fake.power.set(Some(PowerEnd {
+            reason: later_end,
+            later: true,
+        }));
+        tick(&fake).unwrap();
+        assert_eq!(drain(&fake, OWNER), [], "{later_end}: left to finish");
+    }
+    fake.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&fake).unwrap();
+    assert_eq!(*fake.aborted.borrow(), [id], "the transport let go of it");
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 0, reason::NETWORK_OFF, 0, 0)]
+    );
+    assert_eq!(fake.pool_used(), 0);
+}
+
+/// Every request of work run 7 that was stored told the run it opened, and
+/// told it exactly once that it ended: after the plugin was told of the end
+/// (the events are delivered here), or at once when no event is left to tell.
+fn balanced(fake: &Fake, opened: usize) {
+    let _ = drain(fake, OWNER);
+    assert_eq!(
+        *fake.run_opened.borrow(),
+        std::vec![7; opened],
+        "opened {opened}"
+    );
+    assert_eq!(
+        *fake.run_closed.borrow(),
+        std::vec![7; opened],
+        "each closed exactly once"
+    );
+}
+
+fn memory_answer() -> Finished<'static> {
+    Finished {
+        status: 200,
+        reason: 0,
+        saved: false,
+        truncated: false,
+        etag: "",
+        content_type: "",
+        final_url: "",
+        body: std::vec![1],
+    }
+}
+
+#[test]
+fn a_request_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
+    // Done.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    assert!(
+        fake.run_closed.borrow().is_empty(),
+        "alive: the run goes on"
+    );
+    finished(&fake, id, memory_answer()).unwrap();
+    // The run counts the request until the plugin has been told of its end.
+    assert!(fake.run_closed.borrow().is_empty(), "ended, not yet told");
+    assert!(next(&fake, OWNER).is_some());
+    assert!(
+        fake.run_closed.borrow().is_empty(),
+        "told, callback running"
+    );
+    event_delivered(&fake, OWNER).unwrap();
+    assert_eq!(*fake.run_closed.borrow(), [7], "the callback returned");
+    balanced(&fake, 1);
+    // A report that comes again changes nothing.
+    finished(&fake, id, memory_answer()).unwrap();
+    balanced(&fake, 1);
+    // Cancelled by the plugin.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    request(&fake, OWNER, &get(1)).unwrap();
+    cancel(&fake, OWNER, 1).unwrap();
+    cancel(&fake, OWNER, 1).unwrap();
+    balanced(&fake, 1);
+    // The user turned the plugin's network off while it ran.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    request(&fake, OWNER, &get(1)).unwrap();
+    fake.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&fake).unwrap();
+    tick(&fake).unwrap();
+    balanced(&fake, 1);
+    // The run reached its longest time.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    request(&fake, OWNER, &get(1)).unwrap();
+    work_ended(&fake, OWNER, 7).unwrap();
+    work_ended(&fake, OWNER, 7).unwrap();
+    balanced(&fake, 1);
+    // The plugin stopped, with one running and one queued.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    for token in 1..=8 {
+        let _ = request(&fake, OWNER, &get(token));
+    }
+    let opened = fake.run_opened.borrow().len();
+    assert!(opened >= 2);
+    owner_stopped(&fake, OWNER).unwrap();
+    owner_stopped(&fake, OWNER).unwrap();
+    balanced(&fake, opened);
+    // Ended by the power rules before it started (it was stored first).
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    fake.power.set(Some(PowerEnd {
+        reason: reason::SAVING,
+        later: true,
+    }));
+    request(&fake, OWNER, &get(1)).unwrap();
+    balanced(&fake, 1);
+    // A transport that cannot start it, after it was stored.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    fake.start_fails.set(Some(ERR_IO));
+    request(&fake, OWNER, &get(1)).unwrap();
+    balanced(&fake, 1);
+    // No run: nothing is told.
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    finished(&fake, id, memory_answer()).unwrap();
+    assert!(fake.run_opened.borrow().is_empty() && fake.run_closed.borrow().is_empty());
+}
+
+#[test]
+fn a_request_replaced_by_the_same_plugin_gives_its_run_back_once() {
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    request(&fake, OWNER, &save_to(1, 0, "a.bin")).unwrap();
+    request(&fake, OWNER, &save_to(2, 0, "a.bin")).unwrap();
+    assert_eq!(fake.run_opened.borrow().len(), 2);
+    assert!(
+        fake.run_closed.borrow().is_empty(),
+        "the first is not told yet"
+    );
+    let _ = drain(&fake, OWNER);
+    assert_eq!(fake.run_closed.borrow().len(), 1, "the first, replaced");
+    cancel(&fake, OWNER, 2).unwrap();
+    balanced(&fake, 2);
+}
+
+#[test]
+fn a_run_that_cannot_be_kept_refuses_the_request_and_nothing_is_held() {
+    for error in [ERR_BUSY, ERR_NOT_FOUND] {
+        let fake = Fake::x4();
+        fake.run.set(Some(7));
+        fake.run_open_fails.set(Some(error));
+        assert_eq!(request(&fake, OWNER, &get(1)), Err(error));
+        assert_eq!(
+            request(&fake, OWNER, &save_to(2, 0, "a.bin")),
+            Err(error),
+            "a saving one"
+        );
+        assert!(fake.started.borrow().is_empty());
+        assert_eq!(fake.pool_used(), 0);
+        assert!(fake.claims.borrow().is_empty(), "no claim is left");
+        assert!(fake.run_closed.borrow().is_empty(), "nothing was opened");
+    }
+    // A save refused for its claim gives the run back it had opened.
+    let fake = Fake::x4();
+    fake.run.set(Some(7));
+    fake.claim_fails.set(Some(ERR_BUSY));
+    assert_eq!(
+        request(&fake, OWNER, &save_to(1, 0, "a.bin")),
+        Err(ERR_BUSY)
+    );
+    balanced(&fake, 1);
 }
