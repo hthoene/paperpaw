@@ -52,6 +52,7 @@ pub mod gt911;
 pub mod install_note;
 pub mod light_timer;
 pub mod mdns;
+pub mod net_lost;
 pub mod nvs;
 pub mod ota;
 pub mod otp;

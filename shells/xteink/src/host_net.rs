@@ -37,6 +37,7 @@ use paperpaw_core::sdk::{CertificateHash, Distrust, KeyHash, SocketError, Trust}
 use paperpaw_core::{Effects, Kernel, SocketCall, SocketEvent, TlsSetup};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{Instant, Storage};
+use paperpaw_x4::net_lost::{NetLost, Service};
 
 use crate::http::Calls;
 use crate::net::Net;
@@ -60,8 +61,6 @@ enum Out {
     Socket(SocketEvent),
     /// A socket that was short of room can take more.
     Writable(u32),
-    /// The network went: every socket core holds ends.
-    NetworkLost,
     /// What the HTTP requests came to.
     Net(http::NetOut),
 }
@@ -111,6 +110,10 @@ struct Inner {
     http_was: bool,
     /// A request stalled without an answer: the radio starts anew.
     restart: bool,
+    /// The services still to be told the network is lost: flags, never a
+    /// list item, so that saying so needs no memory (and is made again where
+    /// core is busy).
+    lost: NetLost,
 }
 
 /// The shell side of `core.sockets`, shared by the loader (which wires core
@@ -147,6 +150,7 @@ impl Bridge {
                 caps: Vec::new(),
                 http_was: false,
                 restart: false,
+                lost: NetLost::new(),
             }),
             up: Cell::new(false),
         })
@@ -202,7 +206,7 @@ impl Bridge {
         if inner.sockets.stale(net) {
             drop(inner.sockets.lost_events(None));
             inner.forget_all();
-            push_out(&mut out, Out::NetworkLost, &mut inner.oom);
+            inner.lost.raise_sockets();
         }
         // In the order core asked; the queue keeps its room.
         while !inner.calls.is_empty() {
@@ -252,10 +256,10 @@ impl Bridge {
             drop(inner.sockets.lost_events(Some(net)));
             inner.forget_all();
             inner.http.clear(Some(net));
+            // Core is told by flags, which need no memory.
             out.clear();
-            out.shrink_to_fit();
-            let _ = out.try_reserve(1);
-            out.push(Out::NetworkLost);
+            inner.lost.raise_sockets();
+            inner.lost.raise_requests();
         }
         out
     }
@@ -264,9 +268,8 @@ impl Bridge {
     /// the network is gone, once.
     fn step_offline(&self, mut net: Option<&mut Net>) -> Vec<Out> {
         self.up.set(false);
-        let mut out = Vec::new();
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
-            return out;
+            return Vec::new();
         };
         let inner = &mut *inner;
         // Released on the network they were opened on; core hears one
@@ -278,11 +281,12 @@ impl Bridge {
         inner.connects.clear();
         inner.was_up = false;
         if had {
-            push_out(&mut out, Out::NetworkLost, &mut inner.oom);
+            inner.lost.raise_sockets();
         }
-        inner.http_offline(net, &mut out);
+        inner.http_offline(net);
         inner.oom = false;
-        out
+        // Core is told by the flag, which is made at the report.
+        Vec::new()
     }
 
     /// Reports what the step came to, then the kernel ticks once: the pump
@@ -297,7 +301,27 @@ impl Bridge {
         })?;
         // One report at a time: what core refuses `ERR_BUSY` is kept for the
         // next step, if there is room to keep it (else the sockets end).
-        let mut told = false;
+        // The network lost comes first, from its flags (nothing is allocated
+        // to say it); where core is busy it stays raised.
+        let mut pending = self
+            .inner
+            .try_borrow_mut()
+            .map(|mut inner| inner.lost.take())
+            .unwrap_or_default();
+        let mut told = pending.report(|service| match service {
+            Service::Sockets => sockets
+                .as_ref()
+                .is_none_or(|sockets| sockets.network_lost() != Err(ERR_BUSY)),
+            Service::Requests => net
+                .as_ref()
+                .is_none_or(|net| net.network_lost() != Err(ERR_BUSY)),
+            _ => true,
+        });
+        if pending.any()
+            && let Ok(mut inner) = self.inner.try_borrow_mut()
+        {
+            inner.lost.merge(pending);
+        }
         for item in out {
             match self.report_one(net.as_ref(), sockets.as_ref(), item) {
                 Ok(()) => told = true,
@@ -336,7 +360,6 @@ impl Bridge {
         };
         let result = match &item {
             Out::Writable(id) => sockets.writable(*id),
-            Out::NetworkLost => sockets.network_lost(),
             Out::Socket(event) => self.report_socket(sockets, event),
             Out::Net(_) => return Ok(()),
         };

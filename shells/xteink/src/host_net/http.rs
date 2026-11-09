@@ -42,8 +42,6 @@ pub(super) enum NetOut {
     Progress(u32, u64, Option<u64>),
     /// The request was redirected to `https` and parked.
     Parked(u32),
-    /// The network went: every request core holds ends.
-    Lost,
 }
 
 impl Inner {
@@ -89,14 +87,15 @@ impl Inner {
 
     /// No network: what was going on is dropped, and core hears the network
     /// is gone, once.
-    pub(super) fn http_offline(&mut self, net: Option<&mut Net>, out: &mut Vec<Out>) {
+    pub(super) fn http_offline(&mut self, net: Option<&mut Net>) {
         let had = self.http.busy() || !self.aborts.is_empty() || self.http_was;
         self.http.clear(net);
         self.aborts.clear();
         self.caps.clear();
         self.http_was = false;
         if had {
-            push_out(out, Out::Net(NetOut::Lost), &mut self.oom);
+            // A flag: nothing is allocated to say it.
+            self.lost.raise_requests();
         }
     }
 }
@@ -106,7 +105,6 @@ impl Bridge {
     /// made with `ERR_BUSY` (it is made again on the next step).
     pub(super) fn report_net(&self, net: &NetReports, item: NetOut) -> Result<(), NetOut> {
         match item {
-            NetOut::Lost => again(net.network_lost(), NetOut::Lost),
             NetOut::Progress(id, received, total) => again(
                 net.progress(id, 200, received, total),
                 NetOut::Progress(id, received, total),
