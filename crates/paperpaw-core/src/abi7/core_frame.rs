@@ -42,6 +42,17 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        full_stage: &str,
+        cursor: u32,
+        input: &[u8],
+        out: &mut [core::mem::MaybeUninit<u8>],
+    ) -> Result<usize, i32> {
+        crate::native_host::stage_run::run(self, full_stage, cursor, input, out)
+    }
+
     fn caller(&self) -> Result<u64, i32> {
         self.callback
             .filter(|stamp| stamp.epoch != 0)
