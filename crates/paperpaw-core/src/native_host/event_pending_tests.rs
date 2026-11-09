@@ -178,7 +178,8 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 
 #[test]
 fn pending_unsupported_events_do_not_enable_admission() {
-    for tag in 64..=74 {
+    // The book events 65-67 register (nothing queues them: they are no hints).
+    for tag in [64].into_iter().chain(68..=74) {
         assert!(!super::super::events::is_event_tag(tag));
     }
     let budget = EventBudget::try_new().unwrap();
