@@ -27,12 +27,13 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-const ALWAYS: [&str; 13] = [
+/// (The library, `files`, is a native plugin: the app registers none until the
+/// host activates them, `NATIVE_PLUGINS`.)
+const ALWAYS: [&str; 12] = [
     "fonts-default",
     "format-epub",
     "format-txt",
     "reader",
-    "files",
     "home",
     "menu",
     "settings",

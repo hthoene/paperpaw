@@ -30,6 +30,18 @@ mod images;
 mod mem;
 mod parts;
 pub mod provider;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod writer;
 
 use alloc::borrow::Cow;

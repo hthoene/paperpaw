@@ -4,9 +4,8 @@
 //! of what waits as declared work (`core.work`). The decisions are in
 //! `native_send` and `native_readwise`; this file is the host's side of them.
 //!
-//! The export itself arrives through [`NativeReadwise::exported`], which the
-//! reader's export stage will call once that stage is defined
-//! (`PORTING-7.md`).
+//! The export itself arrives as the reader's stage `reader.notes-exported@1`
+//! ([`crate::native_export`]), which calls [`NativeReadwise::exported`].
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
@@ -22,7 +21,8 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{Messages, files::Volume, mem, read_event, text};
 
-use crate::declarations::{HTTP_TOKEN, STARTED_TOKEN, WORK_TOKEN};
+use crate::declarations::{EXPORT_TOKEN, HTTP_TOKEN, STARTED_TOKEN, WORK_TOKEN};
+use crate::native_export;
 use crate::native_send::{
     BODY, Done, MAX_TOKEN, REQUEST_TOKEN, Secret, Sender, Start, Step, Tell, Wire, authorization,
     waiting,
@@ -229,10 +229,11 @@ impl Plugin for NativeReadwise {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
+            kinds::StageCall,
             kinds::Started,
             kinds::WorkDue,
             kinds::HttpDone,
@@ -241,6 +242,14 @@ impl Plugin for NativeReadwise {
             return Ok(());
         };
         match event {
+            Event::StageCall { stage, payload, .. } if token == EXPORT_TOKEN => {
+                let Some(path) = native_export::read(stage, payload)? else {
+                    return Ok(());
+                };
+                // The reader ignores what is answered: the run is done either way.
+                let sent = self.exported(host, path);
+                native_export::done(reply, sent.is_ok())
+            }
             Event::Started { .. } if token == STARTED_TOKEN => self.retry_later(host),
             Event::WorkDue(_) if token == WORK_TOKEN => {
                 let step = self.sender.start(

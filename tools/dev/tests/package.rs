@@ -95,7 +95,7 @@ fn a_plugin_wrong_everywhere_is_caught() {
             .any(|f| f.check == "package.settings" && f.place == place && f.message.contains(part))
     };
     assert!(says("settings.ini:8", "a whole number from"), "{text}");
-    assert!(says("settings.ini:11", "files.view.covers"), "{text}");
+    assert!(says("settings.ini:11", "menu.style.tiles"), "{text}");
     assert!(says("settings.ini:14", "`home.clock.date`"), "{text}");
     assert!(
         has(&report, "package.keymap", "keymap.ini:2", Level::Warning),

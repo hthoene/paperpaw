@@ -9,7 +9,7 @@ use paperpaw_sdk::native::declare::{
 pub const OVERLAY: u32 = 10;
 pub const AGAIN: u32 = 11;
 /// Event tokens.
-pub const SHOWN: u32 = 2;
+pub const STACK: u32 = 2;
 pub const READY: u32 = 3;
 
 const SECTION: &str = "help.section";
@@ -56,11 +56,13 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// A screen shown, or ready for its hints: they may open.
+/// A screen ready for its hints (they may open), and the stack changed (hints
+/// that another screen now covers close). `event.screen_shown` (38) cannot be
+/// registered for: it goes to a screen's own token only.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.subscribe_event(EventKind::ScreenShown, SHOWN)?;
+    d.subscribe_event(EventKind::StackChanged, STACK)?;
     d.subscribe_event(EventKind::ScreenReady, READY)?;
     d.submit()?;
     Ok(())

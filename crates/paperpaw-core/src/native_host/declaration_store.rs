@@ -70,7 +70,9 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 29;
+const KIND_COUNT: usize = 31;
+/// The leading kinds with a per-kind record limit (`limits` in `charge`).
+const LIMITED_KINDS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -109,8 +111,12 @@ pub(crate) enum Kind {
     Subscription,
     /// `setup.step` (category 8).
     SetupStep,
+    /// `input.spec` (category 16): an input or gesture of the plugin's own.
+    InputSpec,
+    /// `help.hint` (category 17): a hint for any screen.
+    HelpHint,
 }
-const _: () = assert!(Kind::SetupStep as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::HelpHint as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -143,6 +149,8 @@ impl Kind {
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
             Self::SetupStep => 8,
+            Self::InputSpec => 16,
+            Self::HelpHint => 17,
         }
     }
 
@@ -177,6 +185,8 @@ impl Kind {
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
             Record::SetupStep(_) => Self::SetupStep,
+            Record::InputSpec(_) => Self::InputSpec,
+            Record::HelpHint(_) => Self::HelpHint,
             _ => return None,
         })
     }
@@ -258,8 +268,9 @@ pub(crate) struct PendingDeclarations {
     index_bytes: usize,
     image_entries: usize,
     /// Records of owned (not image-backed) batches, by kind, for the per-kind
-    /// limits.
-    owned_counts: [u16; KIND_COUNT],
+    /// limits: only the first kinds have one (the rest share the aggregate
+    /// byte cap), so the table does not grow as kinds are added.
+    owned_counts: [u16; LIMITED_KINDS],
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
@@ -300,7 +311,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         }
     }
 
@@ -320,7 +331,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         })
     }
 
@@ -516,6 +527,9 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 // `setup.step` shares the aggregate byte cap.
+                usize::MAX,
+                // So do `input.spec` and `help.hint`.
+                usize::MAX,
                 usize::MAX,
             ];
             if self
