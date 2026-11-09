@@ -2,6 +2,7 @@
 use super::{
     Declarations, DeclareError, filled, menus::menu_identifier, records_wire as wire, within,
 };
+use paperpaw_native::host_glue::ERR_INVALID;
 
 /// One plugin-owned book field; values are kept by the library service.
 #[derive(Clone, Copy, Debug)]
@@ -75,13 +76,15 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// # Errors
     /// Returns a name, encoding, allocation or latched sink refusal.
     pub fn book_data(&mut self, name: &str, kind: BookDataKind) -> Result<&mut Self, DeclareError> {
-        let record = folder_name(name, wire::BOOK_DATA_SPEC_NAME_MAX_BYTES, "book data name")
-            .map(|()| wire::BookDataSpec {
-                name,
-                kind: match kind {
-                    BookDataKind::UserData => 0,
-                    BookDataKind::Cache => 1,
-                },
+        let record =
+            folder_name(name, wire::BOOK_DATA_SPEC_NAME_MAX_BYTES, "book data name").map(|()| {
+                wire::BookDataSpec {
+                    name,
+                    kind: match kind {
+                        BookDataKind::UserData => 0,
+                        BookDataKind::Cache => 1,
+                    },
+                }
             });
         self.accept_record(record)
     }
