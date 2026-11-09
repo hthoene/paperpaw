@@ -29,7 +29,7 @@ pub const STREAK_TOKEN: u32 = 43;
 pub const CALENDAR_WIDGET_TOKEN: u32 = 44;
 pub const YEAR_TOKEN: u32 = 45;
 /// The status items "Time left in chapter" and "Time left in book".
-pub const STATUS_TOKEN: u32 = 3;
+pub const STATUS_TOKEN: u32 = 4;
 
 pub const GROUP: &str = "stats.group";
 
