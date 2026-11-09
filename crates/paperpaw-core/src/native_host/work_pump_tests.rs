@@ -32,6 +32,8 @@ struct Fake {
     up: Cell<bool>,
     level: Cell<u32>,
     denied: Cell<bool>,
+    /// The events the plugins subscribed to (all of them the same).
+    tags: Vec<u32>,
 }
 
 impl WorkEnv for Fake {
@@ -56,6 +58,9 @@ impl WorkEnv for Fake {
     }
     fn saving_manual(&self, _: u64) -> bool {
         false
+    }
+    fn subscribed(&self, _: u64, tag: u32) -> bool {
+        self.tags.contains(&tag)
     }
 }
 
@@ -198,6 +203,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         up: Cell::new(true),
         level: Cell::new(0),
         denied: Cell::new(false),
+        tags: tags.to_vec(),
     });
     let (mut owners, mut told) = (Vec::new(), Vec::new());
     let (mut answers, mut holds) = (Vec::new(), Vec::new());

@@ -119,6 +119,7 @@ impl MoveHost for World {
                 to: t,
                 replace: *r,
                 identity: *i,
+                renamed: false,
             });
             true
         }))
@@ -825,4 +826,67 @@ fn a_replacing_move_of_a_book_without_data_leaves_the_replaced_data_behind_nowhe
     moves.start(&w).unwrap();
     run(&moves, &w);
     assert_eq!(w.catalog.borrow().get("Books/b.epub"), Some(&7));
+}
+
+#[test]
+fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
+    use crate::native_host::{resources::HostResources, shell_wiring::HostWiring};
+    use paperpaw_platform::Storage;
+    use std::rc::Rc;
+    let resources = HostResources::try_new().unwrap();
+    let hosts = resources.hosts();
+    let card = Rc::new(paperpaw_sdk::MemoryStorage::new());
+    card.write("Books/a.epub", b"x").unwrap();
+    // Until the library's job is registered, core.files is refused.
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
+    let w = Rc::new(world(3));
+    let moves = Rc::new(Moves::default());
+    hosts
+        .register_library_moves(moves.clone(), w.clone())
+        .unwrap();
+    // Not yet: the document service has not said it reports its books.
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
+    hosts.register_reader_book_reporting().unwrap();
+    resources.wire(HostWiring::new().files(card)).unwrap();
+    let files = &hosts.files().unwrap().0;
+    assert!(!files.moving() && !files.busy("Books/old", Access::Remove));
+    // The job: its names are busy, every move is, and all of it ends with it.
+    moves.begin(&*w, "Books/old", "Books/new", false).unwrap();
+    assert!(files.moving());
+    assert!(files.busy("Books/old", Access::Remove) && files.busy("Books/new", Access::Rename));
+    assert!(!files.busy("Elsewhere", Access::Remove));
+    run(&moves, &w);
+    assert!(!files.moving() && !files.busy("Books/new", Access::Remove));
+    // The reader's book: a change to it or to the folder that holds it is
+    // busy, until the reader lets it go.
+    hosts.reader_book_opened("Books/a.epub").unwrap();
+    for access in [Access::Write, Access::Remove, Access::Rename] {
+        assert!(files.busy("Books/a.epub", access), "{access:?}");
+        assert!(files.busy("Books", access), "{access:?} the folder");
+    }
+    assert!(!files.busy("Books/b.epub", Access::Remove));
+    // Counted per path: two documents of one book hold it until both end.
+    hosts.reader_book_opened("Books/a.epub").unwrap();
+    assert!(hosts.reader_book_closed("Books/a.epub"));
+    assert!(files.busy("Books/a.epub", Access::Remove));
+    assert!(hosts.reader_book_closed("Books/a.epub"));
+    assert!(!files.busy("Books/a.epub", Access::Remove));
+    // A close with no hold is unbalanced and says so.
+    assert!(!hosts.reader_book_closed("Books/a.epub"));
+    // A plugin owner's claim and the reader's are told apart.
+    hosts.in_use().claim(7, "Books/a.epub").unwrap();
+    hosts.reader_book_opened("Books/a.epub").unwrap();
+    assert!(hosts.reader_book_closed("Books/a.epub"));
+    assert!(
+        files.busy("Books/a.epub", Access::Remove),
+        "the plugin's claim stays"
+    );
 }

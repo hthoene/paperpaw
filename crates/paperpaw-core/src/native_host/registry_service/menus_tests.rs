@@ -16,7 +16,7 @@ use crate::native_host::{
 };
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
     MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
@@ -123,7 +123,7 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     })?;
     r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
-    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n")?;
+    r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
 }
 
@@ -244,6 +244,8 @@ fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     NativeDeclarations {
         store: RefCell::new(store),
         catalog: Default::default(),
+        items: Default::default(),
+        item_room: Default::default(),
     }
 }
 
@@ -662,6 +664,81 @@ fn op_12_titles_follow_the_users_language() {
     assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe=Eine Zeile"));
 }
 
+/// What `plugin` pushed for `item`, stored as the host does after a callback.
+fn push(
+    directory: &NativeDeclarations,
+    plugin: &str,
+    item: &str,
+    flags: u32,
+    label: &str,
+    badge: &str,
+) {
+    let push =
+        crate::native_host::item_state::ItemPush::copied(item, flags, (label, b""), (badge, b""))
+            .unwrap();
+    let mut states = directory.items.borrow_mut();
+    states.reserve(plugin, 1).unwrap();
+    states.apply(plugin, push).unwrap();
+}
+
+#[test]
+fn op_12_shows_what_the_plugin_pushed_and_the_pushed_state_wins() {
+    use crate::native_host::item_state::{FAINT, HIDDEN, ON, SWITCH};
+    let mut kernel = kernel();
+    kernel.shared.translator.add(
+        paperpaw_i18n::Catalog::parse(Cow::Borrowed(
+            "[meta]\nlanguage = de\nname = Deutsch\nplural = one-other\n\n[messages]\n\
+             demo.action.open = Oeffnen\ndemo.line.open = Eine Zeile\n",
+        ))
+        .unwrap(),
+    );
+    kernel.shared.translator.set_language("de");
+    let directory = native_menus();
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(
+        row(&rows, "demo.open").contains("flags=34 "),
+        "before a push"
+    );
+    // Faint and a label and a badge: enabled goes, the texts are the catalog's.
+    push(
+        &directory,
+        "demo",
+        "open",
+        FAINT,
+        "demo.line.open",
+        "demo.action.open",
+    );
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert_eq!(
+        row(&rows, "demo.open"),
+        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe=Eine Zeile"
+    );
+    // A switch that is on: checked and switch.
+    push(&directory, "demo", "open", SWITCH | ON, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(row(&rows, "demo.open").contains("flags=99 "), "{rows:?}");
+    // A key the catalogs no longer have: the title, no badge, never a raw key.
+    push(&directory, "demo", "open", FAINT, "gone.key", "gone.badge");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(
+        row(&rows, "demo.open").contains("title=Oeffnen "),
+        "{rows:?}"
+    );
+    assert!(row(&rows, "demo.open").contains("badge= "));
+    // Hidden: out of the default view, listed hidden in the editor's view.
+    push(&directory, "demo", "open", HIDDEN, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(!items(&rows).contains(&"demo.open"));
+    let all = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", ALL);
+    assert!(
+        row(&all, "demo.open").contains("flags=") && row(&all, "demo.open").contains(" kind=0 ")
+    );
+    // The default state removes the push: the item shows as declared again.
+    push(&directory, "demo", "open", 0, "", "");
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert!(row(&rows, "demo.open").contains("flags=34 "));
+}
+
 #[test]
 fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
     let kernel = kernel();
@@ -675,10 +752,15 @@ fn op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one() {
     assert!(global.contains(&"bind global swipe.right demo.save 1".into()));
     let screen = rows_of(&kernel, None, schema::OP_BINDINGS, "demo.main", 0);
     assert_eq!(screen, ["bind demo.main tap.center demo.save 0"]);
-    // No scope: every layer, the global one first, then each screen's.
+    // No scope: every layer with a binding, in the keymap's sorted order,
+    // however its name came about: a screen's, `global`, and one that is
+    // neither a screen nor a slot.
     let all = rows_of(&kernel, None, schema::OP_BINDINGS, "", 0);
-    assert!(all[0].starts_with("bind global "));
+    let layers: Vec<&str> = all.iter().filter_map(|row| row.split(' ').nth(1)).collect();
+    assert!(layers.is_sorted(), "{layers:?}");
+    assert!(all.contains(&"bind demo.custom swipe.up demo.open 0".into()));
     assert!(all.contains(&"bind demo.main tap.center demo.save 0".into()));
+    assert!(all.iter().any(|row| row.starts_with("bind global ")));
     // Each layer is read once.
     assert_eq!(all.iter().filter(|row| **row == screen[0]).count(), 1);
     assert!(all.len() >= global.len() + screen.len());
@@ -751,6 +833,54 @@ fn op_15_lists_every_step_in_order_with_what_applies_merged_with_the_declared_on
     assert_eq!((rows.len(), end.total), (6, 6));
 }
 
+#[test]
+fn op_15_applies_by_the_plugins_last_push_before_the_declaration() {
+    use crate::native_host::item_state::{FAINT, HIDDEN};
+    let kernel = kernel();
+    let step = |name, flags| {
+        Record::SetupStep(wire::SetupStep {
+            name,
+            title: "nat.step",
+            help: "",
+            order: 15,
+            page_kind: 0,
+            page: "demo.flag",
+            applies_key: "",
+            applies_value: "",
+            need: 0,
+            capability: 0,
+            flags,
+        })
+    };
+    // `plain` applies by its declaration, `later` does not.
+    let directory = declarations(&[step("plain", 1), step("later", 0)]);
+    let applies = |directory: &NativeDeclarations, name: &str| {
+        let rows = rows_of(&kernel, Some(directory), schema::OP_SETUP, "", 0);
+        rows.iter()
+            .find(|row| row.starts_with(&format!("step nat.{name} ")))
+            .map(|row| row.split(' ').nth(5).unwrap() == "1")
+            .unwrap()
+    };
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (true, false)
+    );
+    // The push wins: shown (not hidden) applies, hidden does not.
+    push(&directory, "nat", "later", FAINT, "", "");
+    push(&directory, "nat", "plain", HIDDEN, "", "");
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (false, true)
+    );
+    // Without a push, as declared again.
+    push(&directory, "nat", "later", 0, "", "");
+    push(&directory, "nat", "plain", 0, "", "");
+    assert_eq!(
+        (applies(&directory, "plain"), applies(&directory, "later")),
+        (true, false)
+    );
+}
+
 fn widget(
     name: &'static str,
     category: &'static str,
@@ -816,6 +946,44 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     assert!(rows[0].starts_with("widget nat.quote "));
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 0);
     assert!(rows.is_empty());
+}
+
+#[test]
+fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        widget("quote", "core.widgets.words", 0, 0, ""),
+        widget("sample", "core.widgets.words", 0, 0, "demo.top"),
+        widget("other", "core.widgets.words", 0, 0, "demo.else"),
+        widget("later", "core.widgets.words", 0, 0, "demo.top"),
+    ]);
+    // In op 19's order (the store's for declarations); a page shows the last.
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
+    assert_eq!(
+        rows,
+        [
+            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+        ]
+    );
+    // Without the bit the group is a kind nobody has; previews never show.
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 0).is_empty());
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
+    assert!(rows.iter().all(|row| !row.contains("previews=")));
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 1).is_empty());
+    // A group is needed.
+    assert_eq!(
+        call_in(
+            &kernel,
+            Some(&directory),
+            schema::OP_WIDGETS,
+            &query_flags("", 0, 0, 1),
+            4096
+        ),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]
@@ -911,6 +1079,89 @@ fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
     let lines = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "line", 0);
     assert_eq!(lines, &all[1..]);
     assert!(rows_of(&kernel, Some(&directory), schema::OP_STATUS, "other", 0).is_empty());
+}
+
+#[test]
+fn op_14_lists_the_natively_declared_inputs_the_device_meets() {
+    let kernel = kernel();
+    let spec = |name, kind, need| {
+        Record::InputSpec(wire::InputSpec {
+            name,
+            title: "nat.input.title",
+            kind,
+            need,
+            capability: 0,
+            flags: u32::from(need != 0),
+        })
+    };
+    // Touch (4) and no touch (3): the device meets one of them, never both.
+    let directory = declarations(&[
+        spec("chord", 0, 0),
+        spec("shake", 1, 0),
+        spec("with-touch", 0, 4),
+        spec("without-touch", 0, 3),
+    ]);
+    let all = rows_of(&kernel, Some(&directory), schema::OP_INPUTS, "", 0);
+    // Declared (bit 4); a gesture also bit 2.
+    assert!(all.contains(&"item input.nat.chord nat 16 nat.input.title".into()));
+    assert!(all.contains(&"item gesture.nat.shake nat 20 nat.input.title".into()));
+    let touch = all.iter().any(|row| row.contains("input.nat.with-touch"));
+    let no_touch = all
+        .iter()
+        .any(|row| row.contains("input.nat.without-touch"));
+    assert_ne!(touch, no_touch, "{all:?}");
+    // The device's own inputs come first.
+    assert!(all[0].starts_with("item ") && !all[0].contains(".nat."));
+}
+
+#[test]
+fn op_14_pages_over_the_device_inputs_and_forty_declared_ones() {
+    let kernel = kernel();
+    let names: Vec<String> = (0..40).map(|n| format!("in{n}")).collect();
+    let records: Vec<Record<'_>> = names
+        .iter()
+        .map(|name| {
+            Record::InputSpec(wire::InputSpec {
+                name,
+                title: "nat.input.title",
+                kind: 0,
+                need: 0,
+                capability: 0,
+                flags: 0,
+            })
+        })
+        .collect();
+    let directory = declarations(&records);
+    // The first page is full and says more follow, under one generation.
+    let first = call_in(
+        &kernel,
+        Some(&directory),
+        schema::OP_INPUTS,
+        &query_flags("", 0, 0, 0),
+        4096,
+    )
+    .unwrap();
+    let (rows, end) = read(&first);
+    let end = end.unwrap();
+    assert_eq!((end.flags & 1, rows.len()), (0, 32));
+    assert!(
+        end.total > 40,
+        "the device's inputs come too: {}",
+        end.total
+    );
+    // Every page together is every row once, the declared ones in order.
+    let all = rows_of(&kernel, Some(&directory), schema::OP_INPUTS, "", 0);
+    assert_eq!(all.len(), end.total as usize);
+    let declared: Vec<&String> = all.iter().filter(|row| row.contains(".nat.")).collect();
+    assert_eq!(declared.len(), 40);
+    for name in &names {
+        let id = format!("input.nat.{name} ");
+        assert_eq!(
+            all.iter().filter(|row| row.contains(&id)).count(),
+            1,
+            "{name}"
+        );
+    }
 }
 
 #[test]

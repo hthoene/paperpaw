@@ -27,6 +27,27 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 )]
 #[path = "commands_ui.rs"]
 mod ui;
+/// A redraw a stage kept for its screen (run by the kernel after the callback).
+pub(crate) use ui::Redraw;
+
+#[path = "commands_items.rs"]
+mod items;
+pub(crate) use items::ItemAdmit;
+#[cfg_attr(
+    not(test),
+    allow(
+        unused_imports,
+        reason = "the shell's command runner names it; that runner is wired with the shell"
+    )
+)]
+pub(crate) use items::ItemRoom;
+
+#[path = "commands_presets.rs"]
+mod preset;
+#[cfg(test)]
+pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
+#[path = "commands_nav.rs"]
+mod nav;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -104,8 +125,24 @@ pub struct CommandStage<'a> {
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
+    /// Picture requests of the plugin held elsewhere (kept for a retry or
+    /// failed, not yet told): they count against its room.
+    images_held: usize,
+    /// The callback belongs to a work run (`work.md` section 2, "background
+    /// work is quiet"): commands that show something are refused.
+    quiet: bool,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
+    /// `command.set_item_state` once the host gave it (`commands_items.rs`),
+    /// and the admitted states, applied by the host after the callback.
+    items: Option<ItemAdmit<'a>>,
+    staged_items: Vec<super::item_state::ItemPush>,
+    /// The presets to apply after the callback (`commands_presets.rs`).
+    staged_presets: Vec<alloc::boxed::Box<str>>,
+    /// Entries of room this callback holds in the item-state table.
+    room: core::cell::RefCell<Option<items::ItemRoom>>,
+    /// The checked `command.set_hint` copies, applied after the callback.
+    staged_hints: Vec<super::hint_labels::HintSet>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -138,7 +175,14 @@ impl<'a> CommandStage<'a> {
             redraw: None,
             accepted: 0,
             images: None,
+            quiet: false,
+            images_held: 0,
             staged_images: Vec::new(),
+            items: None,
+            staged_items: Vec::new(),
+            staged_presets: Vec::new(),
+            room: core::cell::RefCell::new(None),
+            staged_hints: Vec::new(),
         }
     }
 
@@ -149,20 +193,34 @@ impl<'a> CommandStage<'a> {
     #[must_use]
     #[allow(
         dead_code,
-        reason = "the shell's command runner wires it with the owner's host id"
+        reason = "the staged command path (with_native_commands) is wired with the shell's production command stage"
     )]
     pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
         self.images = Some(images);
         self
     }
 
+    /// Marks the callback as one of a work run: a command not on the list of
+    /// [`allowed_in_a_run`] is `ERR_STATE` at submit.
+    pub(crate) fn set_quiet(&mut self, quiet: bool) {
+        self.quiet = quiet;
+    }
+
+    /// The picture requests of the plugin that wait outside the table.
+    pub(crate) fn set_images_held(&mut self, held: usize) {
+        self.images_held = held;
+    }
+
+    /// As [`Self::with_images`], on a stage already lent (the instance's
+    /// own features are known only inside its callback scope).
+    pub(crate) fn admit_images(&mut self, mut images: ImageAdmit) {
+        images.room = images.room.saturating_sub(self.images_held);
+        self.images = Some(images);
+    }
+
     /// The admitted image commands, in order, for the host to apply after
     /// the callback (call it before [`Self::into_commands`]).
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "the shell's command runner wires it with the owner's host id"
-    )]
     pub(crate) fn take_image_commands(&mut self) -> Vec<ImageCommand> {
         core::mem::take(&mut self.staged_images)
     }
@@ -197,11 +255,11 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
-    fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
+    pub(crate) fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        if let Some(status) = refused_outright(batch) {
+        if let Some(status) = self.refused_before_checks(batch) {
             return status;
         }
         if let Err(status) = self
@@ -216,52 +274,41 @@ impl<'a> CommandStage<'a> {
             Ok(bytes) => bytes,
             Err(status) => return status,
         };
+        // Item states (`commands_items.rs`): checked and copied whole.
+        let (item_states, item_bytes) = match self.validate_item_states(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
+        // Presets (`commands_presets.rs`): checked, their names copied.
+        let (presets, preset_bytes) = match self.validate_presets(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
-        let mut bytes = self.bytes.saturating_add(dev_bytes);
+        let mut bytes = self
+            .bytes
+            .saturating_add(dev_bytes)
+            .saturating_add(item_bytes)
+            .saturating_add(preset_bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
         let mut images = self.images;
-        for command in batch.iter() {
-            if let Some(admit) = images.as_mut()
-                && let Some(result) = admit.admit_counted(&command, &mut bytes, self.byte_limit)
-            {
-                if let Err(error) = result {
-                    return error;
-                }
-                continue;
-            }
-            let WireCommand::SetSetting { key, value } = command else {
-                let checked = if dev::is_dev(&command) {
-                    Ok(0)
-                } else {
-                    self.validate_ui(command)
-                };
-                match checked {
-                    Ok(extra) => bytes = bytes.saturating_add(extra),
-                    Err(error) => return error,
-                }
-                if bytes > self.byte_limit {
-                    return ERR_NO_SPACE;
-                }
-                continue;
-            };
-            if let Err(error) = self.validate_setting(key, value, &mut bytes) {
-                return error;
-            }
+        if let Err(error) = self.validate_each(batch, &mut images, &mut bytes) {
+            return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = batch
-            .iter()
-            .filter(|command| {
-                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
-            })
-            .count()
-            - image_commands;
+        let stored = Self::stored_count(batch) - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
+            || self.staged_items.try_reserve(item_states.len()).is_err()
+            || self.staged_presets.try_reserve(presets.len()).is_err()
         {
             return ERR_NO_MEMORY;
+        }
+        let start_hints = self.staged_hints.len();
+        if let Err(error) = self.reserve_hints(batch) {
+            return error;
         }
         if let Err(error) = self
             .dev_reserve(batch)
@@ -280,11 +327,15 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
+            self.staged_hints.truncate(start_hints);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
             return error;
         }
+        // Capacity is reserved, so this cannot reallocate.
+        self.staged_items.extend(item_states);
+        self.staged_presets.extend(presets);
         self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -295,6 +346,68 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// Every command of a batch but the item states and the dev commands:
+    /// image admission, scalar ranges, settings, and the byte budget.
+    fn validate_each(
+        &self,
+        batch: &CommandBatch<'_>,
+        images: &mut Option<ImageAdmit>,
+        bytes: &mut usize,
+    ) -> Result<(), i32> {
+        for command in batch.iter() {
+            if let Some(admit) = images.as_mut()
+                && let Some(result) = admit.admit_counted(&command, bytes, self.byte_limit)
+            {
+                result?;
+                continue;
+            }
+            let WireCommand::SetSetting { key, value } = command else {
+                let checked = if dev::is_dev(&command)
+                    || Self::is_item_state(&command)
+                    || Self::is_preset(&command)
+                {
+                    Ok(0)
+                } else {
+                    self.validate_ui(command)
+                };
+                *bytes = bytes.saturating_add(checked?);
+                if *bytes > self.byte_limit {
+                    return Err(ERR_NO_SPACE);
+                }
+                continue;
+            };
+            self.validate_setting(key, value, bytes)?;
+        }
+        Ok(())
+    }
+
+    /// A batch refused whole, whatever else it holds, the stage as it was.
+    fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
+        // `answer_plugin` and a write of a grant are refused for every plugin
+        // (`refused_outright`).
+        if let Some(status) = refused_outright(batch) {
+            return Some(status);
+        }
+        // In a work run's callback only the listed commands are staged (the
+        // callback sees the refusal and what it staged before stays valid).
+        (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
+    }
+
+    /// How many of `batch` go to the staged `Command`s (before the images).
+    fn stored_count(batch: &CommandBatch<'_>) -> usize {
+        batch
+            .iter()
+            .filter(|command| {
+                !matches!(
+                    command,
+                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                ) && !dev::is_dev(command)
+                    && !Self::is_item_state(command)
+                    && !Self::is_preset(command)
+            })
+            .count()
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
@@ -345,11 +458,23 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. }) {
+            if matches!(command, WireCommand::Redraw { .. })
+                || Self::is_item_state(&command)
+                || Self::is_preset(&command)
+            {
+                continue;
+            }
+            // Copied and listed ahead (`reserve_hints`).
+            if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
             if dev::is_dev(&command) {
                 self.dev_push(command)?;
+                continue;
+            }
+            // A close of the root and a `back_to` with nothing above change
+            // nothing: `OK`, nothing staged.
+            if self.nav_no_effect(&command) {
                 continue;
             }
             if images && let Some(image) = image_service::commands::owned(&command) {
@@ -409,6 +534,33 @@ impl fmt::Debug for CommandStage<'_> {
             .field("byte_limit", &self.byte_limit)
             .finish_non_exhaustive()
     }
+}
+
+/// Whether a callback of a work run may stage `command` (`work.md` section
+/// 2, "background work is quiet"): a redraw of its own screens, settings,
+/// pictures, widget values and item states, and the network. Everything else
+/// is refused, so a command added later (a notice, a preview, an install or
+/// firmware confirmation, Bluetooth pairing, an `open`) shows nothing in the
+/// background until it is named here.
+fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
+    matches!(
+        command,
+        WireCommand::Redraw { .. }
+            | WireCommand::SetSetting { .. }
+            | WireCommand::ResetSetting { .. }
+            | WireCommand::SetItemState { .. }
+            | WireCommand::WidgetChanged { .. }
+            | WireCommand::ImagePrepare { .. }
+            | WireCommand::ImageRelease { .. }
+            | WireCommand::WifiOn {}
+            | WireCommand::WifiOff {}
+            | WireCommand::WifiScan {}
+            | WireCommand::WifiJoin { .. }
+            | WireCommand::WifiLeave {}
+            | WireCommand::WifiHost { .. }
+            | WireCommand::NetworkNone {}
+            | WireCommand::GoOnline { .. }
+    )
 }
 
 /// Allocation-free command slot inside a pinned host context.
@@ -519,7 +671,9 @@ fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
         .then_some(ERR_DENIED)
 }
 
-/// Whether `command` writes a user grant (`core.grant.*`).
+/// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
+/// a preset by id only and writes nothing here; what a preset sets is checked
+/// where presets resolve (REG), where a grant key must be dropped as well.
 fn touches_grant(command: WireCommand<'_>) -> bool {
     match command {
         WireCommand::SetSetting { key, .. }
@@ -544,6 +698,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_hint_tests.rs"]
+mod hint_tests;
 
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]

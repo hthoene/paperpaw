@@ -15,7 +15,7 @@ const CASES: [Case; 2] = [
     Case {
         name: "the-readers-translate-action-opens-the-panel-with-the-selected-text",
         golden: None,
-        blocked_by: &["reader-translate-slot-host"],
+        blocked_by: &["hosted-native-construction-with-reader"],
     },
 ];
 
@@ -33,7 +33,7 @@ fn the_panel_is_drawn() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the reader's slot host (the offer is submitted since #522; nothing yet reads it from the reader's side)"]
+#[ignore = "BLOCKED: a kernel test that loads this native plugin beside the reader and drives a selection (hosted construction, #944); the slot offer itself is bound since Core #595 and its hand-over since #598"]
 fn the_reader_opens_the_panel() {
     CASES[1].refuse().unwrap();
 }

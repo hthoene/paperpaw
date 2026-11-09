@@ -41,8 +41,12 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  check:
-    name: Format, lint, test
+  # "Format, lint, test" is the required check and is the job `check` at the
+  # end of this group: it passes only when both parts below passed (not
+  # skipped, not cancelled). The parts run side by side, which takes the
+  # lint (about 4 minutes) off the path of the tests (about 16).
+  lint:
+    name: Format, lint, docs
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
@@ -51,13 +55,42 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+      # One cache for the lint and the test job (the key the single job had):
+      # the test job alone saves it.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          shared-key: check
+          save-if: false
       - run: cargo fmt --all --check
       # The firmware is a crate of its own, outside the workspace.
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
       - run: cargo clippy --workspace --all-targets
+      - name: Bluetooth shell host regressions
+        run: |
+          cargo fmt --manifest-path tools/bluetooth-tests/Cargo.toml --check
+          cargo clippy --manifest-path tools/bluetooth-tests/Cargo.toml --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+          cargo test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
+      - name: API documentation without broken links
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      # One cache for the lint and the test job (the key the single job had):
+      # the test job alone saves it.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo test --workspace
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
@@ -80,19 +113,26 @@ jobs:
           done
           python3 tools/linebreak-table.py "$dir" --check
           PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
-      - name: Bluetooth shell host regressions
-        run: |
-          cargo fmt --manifest-path tools/bluetooth-tests/Cargo.toml --check
-          cargo clippy --manifest-path tools/bluetooth-tests/Cargo.toml --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
-          cargo test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
-      - name: API documentation without broken links
-        run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
       - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+
+  check:
+    name: Format, lint, test
+    # Runs whatever the parts did (a failed or cancelled part must not leave
+    # this check missing or skipped), but not for a draft pull request.
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    env:
+      LINT: ${{ needs.lint.result }}
+      TEST: ${{ needs.test.result }}
+    steps:
+      - name: Both parts passed
+        run: |
+          echo "lint: $LINT, test: $TEST"
+          [ "$LINT" = success ] && [ "$TEST" = success ]
 
   screens:
     name: Screens checked (paperpaw-dev)
@@ -124,9 +164,12 @@ jobs:
       # warnings). A plugin built into the firmware says why it embeds
       # large files in its Cargo.toml (`embedded-assets`).
       - name: Every first-party plugin keeps the plugin conventions
-        # `plugins/test-support/` holds shared test code, not a plugin.
+        # `plugins/test-support/` holds shared test code, not a plugin. The
+        # hyphenation folders are sources (patterns, texts) of data plugins that
+        # `tools/hyphenation-packs` builds and checks (its tests run in Tests);
+        # `paperpaw-dev package` does not know their `[hyphenation]` file kind yet.
         run: |
-          dirs=$(ls -d plugins/*/ | grep -v '^plugins/test-support/$')
+          dirs=$(ls -d plugins/*/ | grep -v -E '^plugins/(test-support|hyphenation[a-z-]*)/$')
           target/release/paperpaw-dev package --strict $dirs
 
   msrv:
@@ -538,7 +581,17 @@ jobs:
       - name: A plugin's own stage codec is its schema's
         # plugins/about/src/stages.rs from plugins/about/stages/*.def by
         # tools/stage-codec.py (needs rustfmt, which this job has).
-        run: python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
+        run: |
+          python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
+          python3 tools/stage-codec.py plugins/reader/stages plugins/reader/src/stages.rs --check --plugin reader
+          python3 tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check
+          cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def
+      - name: A subscriber's stage codec is its copy of the owner's schema
+        # plugins/wikipedia/src/stages.rs from the copy of about.lines@1.def (a test holds
+        # the copy to the owner's file); no --plugin: the stage is About's.
+        run: python3 tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check
+      - name: Joplin's copy of the reader's export stage codec is the schema's
+        run: python3 tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check
       - name: The plugin store's rules are the site's
         # tools/publish/store-rules.json, which paperpaw-dev and
         # paperpaw-sign check by, against paperpaw.org's own (where it
@@ -832,3 +885,25 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget-ppn5.txt
+
+  # After a push to a branch that saves caches: the newest Rust cache entry of
+  # each prefix stays, the older ones go. Every Cargo.lock change otherwise
+  # leaves a stale ~1 GB entry per firmware build, the 10 GB quota fills, and
+  # GitHub then evicts by last use, the small entries that save the most
+  # (the Xtensa toolchain: 5 minutes on each S3 job) included. It runs after
+  # everything else has saved its own entry, is no required check, and a
+  # failure of it changes nothing.
+  prune-caches:
+    name: Old Rust caches removed
+    if: ${{ always() && github.event_name == 'push' }}
+    needs: [check, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -I tools/ci/prune_caches.py "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

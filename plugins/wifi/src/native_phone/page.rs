@@ -239,6 +239,33 @@ pub fn choose_page(
     wrap(texts, &body.0)
 }
 
+/// The most bytes the answer may take where it is sent from a file of the data
+/// folder (one write of the host's, `storage` 4,096).
+pub const MOST_PAGE: usize = 4_096;
+
+/// [`choose_page`] with the weakest networks left out (`networks` comes
+/// strongest first) until the page is at most `most` bytes.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn choose_page_fit(
+    texts: &Texts<'_>,
+    networks: &[Found<'_>],
+    again: bool,
+    token: &str,
+    most: usize,
+) -> Result<String, Error> {
+    let mut count = networks.len();
+    loop {
+        let page = choose_page(texts, &networks[..count], again, token)?;
+        if page.len() <= most || count == 0 {
+            return Ok(page);
+        }
+        // A network takes at least a hundred bytes of the page.
+        count = count.saturating_sub(1 + (page.len() - most) / 200);
+    }
+}
+
 /// The page that says `line` (what is being joined), as a heading.
 ///
 /// # Errors

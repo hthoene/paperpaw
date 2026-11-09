@@ -880,6 +880,7 @@ fn invoke_registration<S>(
 mod doc_slots;
 #[path = "shell_tokens.rs"]
 mod tokens;
+pub(crate) use tokens::dispatch_token_staged;
 #[allow(
     unused_imports,
     reason = "native built-in adapter follows this prerequisite"
@@ -1493,7 +1494,7 @@ pub(crate) use stage::dispatch_stage;
 
 #[path = "shell/native_commit.rs"]
 mod native_commit;
-
 #[path = "shell/shared_table.rs"]
 mod shared_table;
 use shared_table::SharedTable;
+pub use shared_table::{handed_table, same_table};

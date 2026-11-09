@@ -8,10 +8,13 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     native::{
         Error, Host,
-        registry::{MenuQuery, Registry, RegistryMenuKind},
+        registry::{MenuQuery, Registry, RegistryMenuKind, RegistryWidget},
         settings::{self, SettingValue},
     },
-    widgets::grid::Geometry,
+    widgets::{
+        CellSpan,
+        grid::{Cells, Geometry},
+    },
 };
 use paperpaw_ui_kit::{
     mem::{SERVICE_BUFFER, buffer, push},
@@ -43,7 +46,9 @@ const FOCUS_AT_ONCE: &str = "home.focus-at-once";
 const ARROWS_STAY: &str = "core.arrows-stay-on-page";
 /// The menu of the footer's actions.
 const FOOTER: &str = "home.footer";
-/// The registry's menu row flag: chosen now (else faint).
+/// The registry's menu row flags: shown as on (a switch that is on), and chosen
+/// now (else faint).
+const CHECKED: u32 = 1;
 const ENABLED: u32 = 1 << 1;
 /// The widest a widget is on a screen on its side, in millimetres.
 pub const WIDEST_MM: u32 = 110;
@@ -51,6 +56,46 @@ pub const WIDEST_MM: u32 = 110;
 const MOST: usize = 256;
 /// A page's text is at most this long (the settings' own cap).
 const TEXT_MAX: usize = 4096;
+
+/// How a menu row looks: its icon's name and whether it is chosen and enabled
+/// now (a switch that is on, a tool its plugin shows faint).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Look {
+    pub icon: String,
+    pub checked: bool,
+    pub enabled: bool,
+}
+
+impl Look {
+    /// No icon, enabled: a tool the menu does not describe.
+    #[must_use]
+    pub fn plain() -> Self {
+        Self {
+            icon: String::new(),
+            checked: false,
+            enabled: true,
+        }
+    }
+
+    fn of(row: &paperpaw_sdk::native::registry::RegistryMenuRow<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            icon: copy(row.icon())?,
+            checked: row.flags() & CHECKED != 0,
+            enabled: row.flags() & ENABLED != 0,
+        })
+    }
+}
+
+/// What one read of the registry returns.
+struct Read {
+    widgets: Vec<WidgetRow>,
+    tools: Vec<(String, String)>,
+    /// The look of each tool, in the order of `tools`.
+    looks: Vec<Look>,
+    footer: Vec<(String, String, bool)>,
+    /// The look of each footer action, in the order of `footer`.
+    footer_looks: Vec<Look>,
+}
 
 /// The snapshot.
 #[derive(Debug, Default)]
@@ -69,8 +114,12 @@ pub struct HostSource {
     widgets: Vec<WidgetRow>,
     /// The tools' actions and their names.
     tools: Vec<(String, String)>,
+    /// The look of each tool, in the order of `tools`.
+    looks: Vec<Look>,
     /// The footer's actions: the action, its name, whether it is chosen now.
     pub footer: Vec<(String, String, bool)>,
+    /// The look of each footer action, in the order of `footer`.
+    pub footer_looks: Vec<Look>,
     widest: u32,
     /// What widgets measured at the grid's width: id, rows, fewest rows.
     measured: Vec<(String, u8, u8)>,
@@ -122,7 +171,13 @@ impl HostSource {
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);
-        let (widgets, tools, footer) = found?;
+        let Read {
+            widgets,
+            tools,
+            looks,
+            footer,
+            footer_looks,
+        } = found?;
         released?;
         Ok(Self {
             texts,
@@ -136,27 +191,15 @@ impl HostSource {
             arrows_stay,
             widgets,
             tools,
+            looks,
             footer,
+            footer_looks,
             widest: mm(dpi, WIDEST_MM),
             measured: Vec::new(),
         })
     }
 
-    #[allow(
-        clippy::type_complexity,
-        reason = "what one read of the registry returns"
-    )]
-    fn registry(
-        host: &Host<'_>,
-        registry: &Registry,
-    ) -> Result<
-        (
-            Vec<WidgetRow>,
-            Vec<(String, String)>,
-            Vec<(String, String, bool)>,
-        ),
-        Error,
-    > {
+    fn registry(host: &Host<'_>, registry: &Registry) -> Result<Read, Error> {
         let mut input = buffer(512)?;
         let mut out = buffer(SERVICE_BUFFER)?;
         let mut widgets = Vec::new();
@@ -168,6 +211,7 @@ impl HostSource {
                         id: copy(w.id())?,
                         title: copy(w.title())?,
                         kind: copy(w.kind())?,
+                        span: span_of(&w),
                     },
                 )
             } else {
@@ -175,6 +219,7 @@ impl HostSource {
             }
         })?;
         let mut tools: Vec<(String, String)> = Vec::new();
+        let mut looks: Vec<Look> = Vec::new();
         for menu in TOOL_MENUS {
             rows!(cursor => registry.menu(host, menu, MenuQuery::Current, cursor, &mut input, &mut out), |r| {
                 let here_useless = menu == "core.tools" && r.item() == SCREENSHOT;
@@ -183,6 +228,7 @@ impl HostSource {
                     && tools.len() < MOST
                     && !tools.iter().any(|(t, _)| t == r.item());
                 if wanted {
+                    push(&mut looks, Look::of(&r)?)?;
                     push(&mut tools, (copy(r.item())?, copy(r.title())?))
                 } else {
                     Ok(())
@@ -191,11 +237,14 @@ impl HostSource {
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
             // Named as the core names it; the catalog key stands for the word.
+            push(&mut looks, Look::plain())?;
             push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
         }
         let mut footer = Vec::new();
+        let mut footer_looks = Vec::new();
         rows!(cursor => registry.menu(host, FOOTER, MenuQuery::Current, cursor, &mut input, &mut out), |r| {
             if r.kind() == RegistryMenuKind::Action && footer.len() < MOST {
+                push(&mut footer_looks, Look::of(&r)?)?;
                 push(
                     &mut footer,
                     (copy(r.item())?, copy(r.title())?, r.flags() & ENABLED != 0),
@@ -204,7 +253,29 @@ impl HostSource {
                 Ok(())
             }
         })?;
-        Ok((widgets, tools, footer))
+        Ok(Read {
+            widgets,
+            tools,
+            looks,
+            footer,
+            footer_looks,
+        })
+    }
+
+    /// How the tool of `action` looks: its icon's name and state. A tool the
+    /// menu does not list (it is shown by its id) has no icon, and is enabled.
+    #[must_use]
+    pub fn tool_look(&self, action: &str) -> &Look {
+        const PLAIN: &Look = &Look {
+            icon: String::new(),
+            checked: false,
+            enabled: true,
+        };
+        self.tools
+            .iter()
+            .position(|(id, _)| id == action)
+            .and_then(|at| self.looks.get(at))
+            .unwrap_or(PLAIN)
     }
 
     /// The name of a tool, as the user reads it (the action's id where the
@@ -253,10 +324,53 @@ pub fn mm(dpi: u16, mm: u32) -> u32 {
     if px == 0 && tenths > 0 { 1 } else { px }
 }
 
+/// The cells a widget declared, as the SDK's hint has them: `None` where the
+/// place decides (0 by 0 cells).
+fn span_of(widget: &RegistryWidget<'_>) -> Option<CellSpan> {
+    let (w, h) = widget.cells();
+    if w == 0 && h == 0 {
+        return None;
+    }
+    let (min_w, min_h) = widget.min_cells();
+    let span = CellSpan::new(w, h).min(min_w, min_h);
+    Some(if widget.square() { span.square() } else { span })
+}
+
+/// The size a widget gets from what it declared, within the grid, as interface
+/// 6 `Geometry::size_of` has it: the cells it says, no less than its least,
+/// square where it is, and the fewest rows it can do with.
+fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
+    let w = hint.w.clamp(1, geometry.columns.max(1));
+    let h = hint.h.clamp(1, geometry.rows.max(1));
+    let cells = hint.keep(Cells::new(0, 0, w, h), w <= h);
+    let (w, h) = (cells.w.min(geometry.columns), cells.h.min(geometry.rows));
+    (w, h, hint.min_h.clamp(1, h))
+}
+
+impl HostSource {
+    /// Whether widget `id` (or its base) declared how many cells it takes.
+    #[must_use]
+    pub fn declares(&self, id: &str) -> bool {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .any(|row| row.id == base && row.span.is_some())
+    }
+}
+
 impl Sizes for HostSource {
-    /// As measured; a widget not measured takes the grid's width and one row.
+    /// As declared where the widget says how many cells it takes; else as
+    /// measured, and a widget not measured takes the grid's width and one row.
     fn widget(&self, geometry: &Geometry, id: &str) -> (u8, u8, u8) {
         let base = native_pages::base(id);
+        if let Some(hint) = self
+            .widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span.as_ref())
+        {
+            return declared(geometry, hint);
+        }
         let (rows, least) = self
             .measured
             .iter()
@@ -324,6 +438,7 @@ mod tests {
                     id: (*s).into(),
                     title: (*s).into(),
                     kind: "k".into(),
+                    span: None,
                 })
                 .collect(),
             tools: [("core.library", "Library"), ("core.settings", "Settings")]
@@ -359,6 +474,41 @@ mod tests {
         assert_eq!(src.widget(&geometry, "home.clock@2"), (4, 3, 3));
         src.measured("home.clock", 2, 1).unwrap();
         assert_eq!(src.widget(&geometry, "home.clock"), (4, 2, 1));
+    }
+
+    #[test]
+    fn a_widget_that_declared_its_cells_takes_them_within_the_grid() {
+        let geometry = Geometry::of(paperpaw_sdk::Rect::new(0, 0, 400, 300), 4, 3, 0);
+        let mut src = source();
+        src.widgets[0].span = Some(CellSpan::new(2, 1));
+        // As declared, without being measured; its least rows from its least.
+        assert_eq!(src.widget(&geometry, "home.clock"), (2, 1, 1));
+        assert_eq!(src.widget(&geometry, "home.clock@3"), (2, 1, 1));
+        // Not less than its least width, within the grid.
+        src.widgets[0].span = Some(CellSpan::new(1, 2).min(3, 2));
+        assert_eq!(src.widget(&geometry, "home.clock"), (3, 2, 2));
+        src.widgets[0].span = Some(CellSpan::new(9, 9));
+        assert_eq!(src.widget(&geometry, "home.clock"), (4, 3, 1));
+        // Measuring does not change what it declared.
+        src.measured("home.clock", 2, 1).unwrap();
+        assert_eq!(src.widget(&geometry, "home.clock"), (4, 3, 1));
+        // The others are still as measured.
+        assert_eq!(src.widget(&geometry, "home.recent"), (4, 1, 1));
+    }
+
+    #[test]
+    fn a_square_widget_is_as_wide_as_it_is_high() {
+        let geometry = Geometry::of(paperpaw_sdk::Rect::new(0, 0, 400, 300), 4, 3, 0);
+        let mut src = source();
+        // 2 wide, 1 high: square follows the side that is not the wider one
+        // (`CellSpan::keep`: width <= height makes the height the width, else
+        // the width the height).
+        src.widgets[0].span = Some(CellSpan::new(2, 1).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (1, 1, 1));
+        src.widgets[0].span = Some(CellSpan::new(1, 2).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (1, 1, 1));
+        src.widgets[0].span = Some(CellSpan::new(2, 2).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (2, 2, 1));
     }
 
     #[test]

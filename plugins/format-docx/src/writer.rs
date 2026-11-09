@@ -176,7 +176,8 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn stopped(&self) -> bool {
+    /// Whether the conversion has ended (a failure, memory, or the text's cap).
+    pub(crate) fn stopped(&self) -> bool {
         self.failed.is_some() || self.oom.get() || self.out.failed() || self.pos > MAX_TEXT_BYTES
     }
 

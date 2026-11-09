@@ -19,7 +19,7 @@ use paperpaw_sdk::digest::md5;
 use paperpaw_sdk::{Storage, StorageError};
 
 use crate::store::{self, Book, PageStat};
-use crate::{fmt, room};
+use crate::{room, texts};
 
 /// Most stays kept while the device does not know the time (about 4 KiB):
 /// an hour or two of reading.
@@ -604,7 +604,7 @@ fn register_book(
 /// reached again), so that a book read again in a later year counts then
 /// too. Where `books.ini` cannot be read or written, it stays as it was.
 fn mark_finished(cx: &dyn Surroundings, path: &str, now: i64) -> Result<(), StorageError> {
-    let year = |unix: i64| fmt::date_of(cx.day_of(unix.max(0) as u32)).year;
+    let year = |unix: i64| texts::date_of(cx.day_of(unix.max(0) as u32)).year;
     store::update_books(cx.data(), |books| {
         match books.iter_mut().find(|b| b.path == path) {
             Some(book) if book.finished <= 0 || year(book.finished) != year(now) => {

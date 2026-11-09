@@ -5,13 +5,14 @@ use paperpaw_sdk::{
     native::{
         Error,
         callbacks::{DrawFrame, FrameRect},
-        fonts::{Font, TextOrigin},
+        fonts::{Font, IconGlyph, TextOrigin},
     },
 };
 
 /// One drawing operation with owned text and scalar geometry only, so
 /// nothing callback-scoped (fonts, canvas) outlives its callback.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Paint {
     /// A filled rectangle.
     Fill(Rect, Color),
@@ -38,6 +39,18 @@ pub enum Paint {
         /// Where the baseline starts.
         origin: TextOrigin,
         /// Text colour.
+        color: Color,
+    },
+    /// A named icon: one character of the bound icon font; drawn only by
+    /// [`replay_icons`] given that font.
+    Icon {
+        /// The character the host gave for the icon's name.
+        glyph: IconGlyph,
+        /// Size in pixels.
+        size: f32,
+        /// Where the baseline starts.
+        origin: TextOrigin,
+        /// Colour.
         color: Color,
     },
     /// A text run, optionally clipped.
@@ -118,6 +131,55 @@ pub fn replay<'a>(
     replay_with(frame, font, None, ops)
 }
 
+/// Draws the QR code `code`, black on white with the four modules of quiet
+/// zone the standard asks for, as large as a whole number of pixels per
+/// module allows in `area` and centred in it: each run of dark modules in a
+/// row is one rectangle. Nothing is drawn where not even one pixel a module
+/// fits.
+///
+/// # Errors
+/// Propagates canvas errors.
+pub fn draw_code(
+    frame: &mut DrawFrame<'_>,
+    code: &paperpaw_sdk::qr::QrCode,
+    area: Rect,
+) -> Result<(), Error> {
+    let Some(modules) = u16::try_from(code.size())
+        .ok()
+        .and_then(|size| size.checked_add(8))
+    else {
+        return Ok(());
+    };
+    let scale = area.width.min(area.height) / modules;
+    if scale == 0 {
+        return Ok(());
+    }
+    let side = scale * modules;
+    let x = area.x.saturating_add((area.width - side) / 2);
+    let y = area.y.saturating_add((area.height - side) / 2);
+    let canvas = frame.draw_canvas()?;
+    canvas.fill_rectangle(frame_rect(Rect::new(x, y, side, side)), Color::WHITE)?;
+    let (x0, y0) = (x + 4 * scale, y + 4 * scale);
+    for row in 0..code.size() {
+        let mut at = 0;
+        while at < code.size() {
+            if !code.dark(at, row) {
+                at += 1;
+                continue;
+            }
+            let start = at;
+            while at < code.size() && code.dark(at, row) {
+                at += 1;
+            }
+            // Both fit a `u16`: the code is at most 57 modules a side.
+            let (left, top) = (x0 + start as u16 * scale, y0 + row as u16 * scale);
+            let width = (at - start) as u16 * scale;
+            canvas.fill_rectangle(frame_rect(Rect::new(left, top, width, scale)), Color::BLACK)?;
+        }
+    }
+    Ok(())
+}
+
 /// [`replay`] with a bold font for [`Paint::Bold`] runs.
 ///
 /// # Errors
@@ -127,6 +189,36 @@ pub fn replay_with<'a>(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     bold: Option<&Font<'_>>,
+    ops: impl IntoIterator<Item = &'a Paint>,
+) -> Result<(), Error> {
+    replay_all(frame, font, (bold, None), ops)
+}
+
+/// [`replay`] with the icon font for [`Paint::Icon`] runs: an icon is left
+/// out where there is no icon font (the callers gave a name the host knows only
+/// with one).
+///
+/// # Errors
+/// Propagates canvas and font errors.
+pub fn replay_icons<'a>(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    icons: Option<&Font<'_>>,
+    ops: impl IntoIterator<Item = &'a Paint>,
+) -> Result<(), Error> {
+    replay_all(frame, font, (None, icons), ops)
+}
+
+/// Draws `ops` in order with `font`, the bold font of [`Paint::Bold`] runs and
+/// the icon font of [`Paint::Icon`] runs.
+///
+/// # Errors
+/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
+/// without a bold font. An icon without an icon font is not drawn.
+pub fn replay_all<'a>(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    (bold, icons): (Option<&Font<'_>>, Option<&Font<'_>>),
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
     let mut canvas = frame.draw_canvas()?;
@@ -158,6 +250,16 @@ pub fn replay_with<'a>(
             } => {
                 let bold = bold.ok_or(Error::Unsupported)?;
                 bold.render_text(&canvas, *size, *origin, *color, text)?;
+            }
+            Paint::Icon {
+                glyph,
+                size,
+                origin,
+                color,
+            } => {
+                if let Some(icons) = icons {
+                    icons.render_text(&canvas, *size, *origin, *color, glyph.as_str())?;
+                }
             }
             Paint::Text {
                 text,

@@ -41,7 +41,7 @@ mod menus_tests;
 mod ordered;
 mod plugins;
 mod presets;
-mod rules;
+pub(in crate::native_host) mod rules;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -149,11 +149,11 @@ fn list(
 }
 
 /// The `reg_query.flags` bits an op knows: op 12's `all` and `declared`, op
-/// 18's placement bit; no other op reads any.
+/// 18's placement bit, op 19's previews bit; no other op reads any.
 const fn query_flags_of(op: u32) -> u32 {
     match op {
         schema::OP_MENU => 0b11,
-        schema::OP_VALUES => 0b1,
+        schema::OP_VALUES | schema::OP_WIDGETS => 0b1,
         _ => 0,
     }
 }

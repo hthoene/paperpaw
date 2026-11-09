@@ -61,7 +61,7 @@ impl<'cb> Reply<'cb> {
     /// What `encode` returns; nothing is counted then, and the bytes written
     /// before stay as they were. `NoSpace` if `encode` reports more bytes than
     /// the rest holds.
-    pub(super) fn write_with(
+    pub fn write_with(
         &mut self,
         encode: impl FnOnce(&mut [u8]) -> Result<usize, Error>,
     ) -> Result<(), Error> {
