@@ -247,6 +247,9 @@ struct Function {
     /// The raw symbol (`_ZN…E`, with its hash): the one name no other function
     /// has.
     symbol: String,
+    /// The symbol as a budget names it: [`stable`] (no hash, no `.NNNN`), the
+    /// name that stays the same when other code in the build changes.
+    stable: String,
     /// What the problems call the function: its path, or its symbol when
     /// another function of the image has the same path (the path drops the
     /// generics, so every `drop_in_place<…>` is `core::ptr`).
@@ -260,10 +263,42 @@ struct Function {
 
 impl Function {
     /// Whether `name`, as an `allow` line gives it, is this function's: its
-    /// path or its raw symbol.
+    /// path, its stable symbol or its raw symbol. The stable symbol is the
+    /// same for every instance of one generic function (the hash is what tells
+    /// them apart), so a line naming it covers each instance whose site it
+    /// describes: an `allow indirect` by its count, an `allow call` by its
+    /// callee.
     fn is(&self, name: &str) -> bool {
-        self.path == name || self.symbol == name
+        self.path == name || self.stable == name || self.symbol == name
     }
+}
+
+/// A symbol as a budget line names it: without the legacy hash (`17h` and
+/// sixteen hex digits before the closing `E`) and without the suffix LLVM adds
+/// to a local copy (`.1322`, `.llvm.1234`). Both change with the build (a
+/// dependency, an unrelated change), so a line that kept them would fail
+/// unrelated pull requests; the rest of the symbol (the path, the type of an
+/// impl) is the function's own.
+pub(crate) fn stable(symbol: &str) -> String {
+    let mut s = symbol;
+    // `.NNNN` and `.llvm.NNNN`, possibly both, at the end.
+    while let Some((head, tail)) = s.rsplit_once('.') {
+        if tail == "llvm" || (!tail.is_empty() && tail.bytes().all(|c| c.is_ascii_digit())) {
+            s = head;
+        } else {
+            break;
+        }
+    }
+    // `17h<16 hex>E` at the end of a legacy symbol: 19 bytes before the `E`.
+    if let Some(body) = s.strip_suffix('E')
+        && body.len() > 19
+        && let Some((head, hash)) = body.split_at_checked(body.len() - 19)
+        && hash.starts_with("17h")
+        && hash[3..].bytes().all(|c| c.is_ascii_hexdigit())
+    {
+        return head.to_string();
+    }
+    s.to_string()
 }
 
 /// What the code of a function does that matters here.
@@ -664,6 +699,7 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         let function = Function {
             path: path(&s.name),
             symbol: s.name.clone(),
+            stable: stable(&s.name),
             shown: String::new(),
             start: s.value,
             size: s.size,
@@ -689,7 +725,7 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         .collect();
     for f in &mut funcs {
         f.shown = if shared.contains(&f.path) {
-            f.symbol.clone()
+            f.stable.clone()
         } else {
             f.path.clone()
         };
@@ -1049,9 +1085,11 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             (&mut queue, &mut seen),
         );
     }
-    // A line names one function: its path (which drops the generics, so
-    // several can share it) must not match more than one function reached;
-    // the raw symbol of each names it alone.
+    // A line names one function, or the instances of one generic function: a
+    // path (which drops the generics, so several functions can share it) must
+    // not match more than one function reached; a stable symbol can (the
+    // instances differ only by their hash), and the line's own count or callee
+    // says which of them it describes.
     for (allow, _) in &budget.allow {
         let name = match allow {
             Allow::Call { caller: n, .. }
@@ -1060,17 +1098,20 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             | Allow::Form { caller: n, .. }
             | Allow::NoSize { name: n } => n,
         };
-        let named: Vec<&str> = seen
+        let named: Vec<&Function> = seen
             .iter()
             .map(|&i| &funcs[i])
             .filter(|f| f.is(name))
-            .map(|f| f.symbol.as_str())
             .collect();
-        if named.len() > 1 {
+        let by_symbol = named.iter().all(|f| f.stable == *name || f.symbol == *name);
+        if named.len() > 1 && !by_symbol {
+            let mut symbols: Vec<&str> = named.iter().map(|f| f.stable.as_str()).collect();
+            symbols.sort_unstable();
+            symbols.dedup();
             report.problems.push(format!(
-                "an `allow` line names {} functions, `{name}` is the path of each: name one by its symbol ({})",
+                "an `allow` line names {} functions, `{name}` is the path of each: name them by their symbol without the hash ({}), as the scan's reports give it",
                 named.len(),
-                named.join(", ")
+                symbols.join(", ")
             ));
         }
     }

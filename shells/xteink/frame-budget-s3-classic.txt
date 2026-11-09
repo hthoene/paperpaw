@@ -20,8 +20,12 @@
 #     --config 'target.xtensa-esp32s3-none-elf.rustflags=["-Z","unstable-options","-C","symbol-mangling-version=legacy"]'
 # A function is named by its path; the path drops the generics, so when other functions of the
 # image share it (every `drop_in_place<..>`, each instance of a generic) the scan names it by
-# its raw symbol, hash included, and a line whose path matches more than one function reached is
-# an error. A symbol changes when the code behind it does: such a line is refreshed with it.
+# its symbol without the compiler's hash and without LLVM's `.NNNN` suffix (both change from one
+# build to the next, an unrelated change included, so a line that kept them would fail every other
+# pull request). That name is the same for each instance of one generic function: a line naming it
+# covers the instances whose site it describes (`allow indirect` by its count, `allow call` by its
+# callee); an instance with another count needs its own line. A line whose path matches more than
+# one function reached is an error. A line changes only when the code behind it does.
 # To refresh the lines after a change: run the scan, read what it reports, and decide for
 # each site (a new indirect call needs its reason, not a number changed).
 
@@ -75,8 +79,8 @@ allow call paperpaw_graphics::canvas::Canvas::draw_line -> __udivdi3 the ROM's 6
 allow call paperpaw_core::native_host::fonts::resolve -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::abi7::commands_wire::commands_decode -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::presets::Presets::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend17hf88b270565898bbbE -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize17h33e662b6dd03c5b8E -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage_slots::put -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> __umoddi3 the ROM's 64-bit unsigned modulo (libgcc): not scanned here (device test S4)
@@ -86,7 +90,7 @@ allow call paperpaw_core::native_host::formatting::format_message -> __udivdi3 t
 allow call core::alloc::global::GlobalAlloc::realloc -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::micros -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Settings::placed_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get17hf2889109994b584cE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call core::slice::copy_from_slice_impl -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::get -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -102,25 +106,24 @@ allow call paperpaw_sdk::fonts::FontHandle::measure_in -> memcpy the chip's ROM 
 allow call paperpaw_sdk::action::Actions::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::action::Actions::find_fixed -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call core::slice::cmp::eq -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$12strip_prefix17h31b2544654ff6ddbE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN4core3str21_$LT$impl$u20$str$GT$12strip_prefix -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call core::str::strip_suffix -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next17h376b170292ceb3ccE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$11starts_with17h21d807167eb3fa0cE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN90_$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN4core3str21_$LT$impl$u20$str$GT$11starts_with -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage::StorageAdapter::check_room -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$11starts_with17h0e4060b84714d684E -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match17h53399c141bea26cbE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find17h31e5aa8ec89bb27aE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Settings::scoped_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::specs::Specs::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::cmp_key -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::built::Built::key_cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN5alloc3vec9from_elem17he28e1054970fea5aE -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN4core6option15Option$LT$T$GT$3map17h0340f39d67f5821dE -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN5alloc3vec9from_elem -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN4core6option15Option$LT$T$GT$3map -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_text::font::Font::largest_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::family_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::family_face -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::proposed -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$11extend_with17ha7aecd86c6aec770E -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$11extend_with -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_text::bidi::reset_line_end -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_text::around::measure_in -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_text::bitmap::BitmapFont::glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -128,33 +131,26 @@ allow call paperpaw_sdk::fonts::FontHandle::draw_toned -> memcpy the chip's ROM 
 allow call paperpaw_sdk::settings::Choices::position -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_xteink::crash::handle -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_xteink::crash::handle -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find17h38a624848e0216caE -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::best_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_text::bidi::walk::Carry::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level17h42634f64d5a9ffcfE -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN5alloc3vec9from_elem17he7732d6757146b7eE -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN5alloc3vec9from_elem17h1ee74f9a9d5207c9E -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN5alloc3vec9from_elem17hce2354875fc145a0E -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN64_$LT$paperpaw_xteink..crash..Cut$u20$as$u20$core..fmt..Write$GT$9write_str17h20ac3eafc8bbd029E -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN64_$LT$paperpaw_xteink..crash..Cut$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call core::str::pattern::StrSearcher::new -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call esp_backtrace::arch::backtrace -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::safe_mode::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::safe_mode::write -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call esp_hal::system::software_reset -> software_reset the ROM's reset (does not return): not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs17h601bc7f0fa498f3fE -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs17h601bc7f0fa498f3fE -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$4peek17h494e72ef81c2b199E -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$4peek -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 
 # Privileged forms of the critical-section code (esp-hal's `critical_section`/`esp_sync`).
 # `rsil aN, 5` raises the interrupt level and saves PS in aN; `wsr.scompare1` sets the compare
 # value of the atomic `s32c1i`; `wsr.ps aN` restores the PS saved by the `rsil` of the same
 # function. None writes a1, WINDOWBASE or WINDOWSTART.
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hc3dc7f8bf4c40531E rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hc3dc7f8bf4c40531E wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hc3dc7f8bf4c40531E wsr.ps restores the PS that the `rsil` of this function saved
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17h897cbc570991ab44E rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17h897cbc570991ab44E wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17h897cbc570991ab44E wsr.ps restores the PS that the `rsil` of this function saved
+allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
+allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
+allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with wsr.ps restores the PS that the `rsil` of this function saved
 allow form paperpaw_xteink::crash::handle rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
 allow form paperpaw_xteink::crash::handle wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
 allow form paperpaw_xteink::crash::handle wsr.ps restores the PS that the `rsil` of this function saved
@@ -164,9 +160,6 @@ allow form esp_println::Printer::write_bytes wsr.ps restores the PS that the `rs
 allow form _critical_section_1_0_acquire rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
 allow form _critical_section_1_0_acquire wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
 allow form _critical_section_1_0_acquire wsr.ps restores the PS that the `rsil` of this function saved
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hdd12cd77d630a3a8E rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hdd12cd77d630a3a8E wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hdd12cd77d630a3a8E wsr.ps restores the PS that the `rsil` of this function saved
 
 # Changes of the stack pointer other than by `entry`.
 allow sp esp_backtrace::arch::sp esp-backtrace's `sp()` spills the register windows with `rotw` and reads a1; it runs on the panic path only, which ends in the crash handler and never returns to a plugin
@@ -195,7 +188,7 @@ allow indirect paperpaw_core::native_host::shell::service_open 1 vtable or fn-po
 allow indirect paperpaw_core::native_host::shell::service_call 4 vtable or fn-pointer call at core/native_host/call_services.rs:126, core/native_host/resources/services.rs:179: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::ui_compose::compose 10 vtable or fn-pointer call at core/native_host/ui_compose.rs:155: `&dyn Frame` methods (compose); literal call not proven on every path
 allow indirect paperpaw_core::native_host::shell::text_covers::covers 1 vtable or fn-pointer call at core/native_host/fonts.rs:306: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
-allow indirect _ZN95_$LT$core..str..pattern..CharArraySearcher$LT$_$GT$$u20$as$u20$core..str..pattern..Searcher$GT$10next_match17h664be9de47b879a7E 2 vtable or fn-pointer call at core/str/pattern.rs:648, core/str/pattern.rs:696: a trait-object or function-pointer call
+allow indirect _ZN95_$LT$core..str..pattern..CharArraySearcher$LT$_$GT$$u20$as$u20$core..str..pattern..Searcher$GT$10next_match 2 vtable or fn-pointer call at core/str/pattern.rs:648, core/str/pattern.rs:696: a trait-object or function-pointer call
 allow indirect paperpaw_core::abi7::settings_wire::settings_encode 1 jump table of a `match` at core/abi7/settings_wire.rs:38
 allow indirect paperpaw_core::native_host::fonts::resolve_role 2 jump table of a `match` at core/native_host/fonts.rs:28; literal call not proven on every path
 allow indirect paperpaw_graphics::canvas::Canvas::fill_round_rect 1 vtable or fn-pointer call at graphics/canvas.rs:631, graphics/canvas.rs:632: `paperpaw_graphics` canvas/framebuffer dispatch
@@ -204,7 +197,7 @@ allow indirect paperpaw_core::native_host::fonts::resolve 2 vtable or fn-pointer
 allow indirect paperpaw_core::abi7::commands_wire::commands_decode 2 jump table of a `match` at core/abi7/commands_wire.rs:933
 allow indirect paperpaw_sdk::presets::Presets::get 1 vtable or fn-pointer call at core/slice/cmp.rs:157: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect core::slice::index::slice_index_fail 1 literal call not proven on every path
-allow indirect _ZN4core3ptr47drop_glue$LT$paperpaw_sdk..command..Command$GT$17h9d064f540e0555c7E 3 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
+allow indirect _ZN4core3ptr47drop_glue$LT$paperpaw_sdk..command..Command$GT$ 3 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
 allow indirect paperpaw_core::native_host::registrations::wire::host_records_decode_with 4 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23027, core/native_host/../abi7/records_wire.rs:23028: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::registrations::refuse 1 vtable or fn-pointer call at core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object)
 allow indirect paperpaw_platform::storage::is_valid_path 2 vtable or fn-pointer call at platform/storage.rs:598, platform/storage.rs:599: `&dyn Storage`/path helpers on the card's storage
@@ -213,24 +206,24 @@ allow indirect paperpaw_core::native_host::storage::StorageAdapter::make_parents
 allow indirect paperpaw_i18n::Translator::lookup_plural 3 jump table of a `match` at i18n/plural.rs:158
 allow indirect paperpaw_core::native_host::formatting::format_message 3 literal call not proven on every path
 allow indirect paperpaw_sdk::fonts::FontHandle::line_metrics 2 vtable or fn-pointer call at text/stored.rs:363: `paperpaw_text` font/strike trait objects (the font packs in use); literal call not proven on every path
-allow indirect _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match17h53399c141bea26cbE.1064 1 literal call not proven on every path
-allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get17hf2889109994b584cE 1 literal call not proven on every path
+allow indirect _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match 1 literal call not proven on every path
+allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get 1 literal call not proven on every path
 allow indirect paperpaw_i18n::catalog::Catalog::get 6 vtable or fn-pointer call at core/slice/cmp.rs:157, i18n/built.rs:151: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope; literal call not proven on every path
 allow indirect paperpaw_sdk::fonts::Fonts::handle 5 vtable or fn-pointer call at core/slice/cmp.rs:157, sdk/fonts.rs:702: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect paperpaw_graphics::framebuffer::Framebuffer::fill_clipped 1 jump table of a `match` at graphics/framebuffer.rs:767
 allow indirect paperpaw_sdk::fonts::FontHandle::measure_in 1 vtable or fn-pointer call at sdk/fonts/split.rs:61: `paperpaw_sdk::fonts` font handles (the font packs in use)
 allow indirect paperpaw_text::font::Font::advance 3 vtable or fn-pointer call at text/stored.rs:371, text/stored.rs:372: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_core4abi713settings_wire15settings_decode17h48dfa9bd652857f1E 1 jump table of a `match` at core/abi7/settings_wire.rs:93
+allow indirect _ZN13paperpaw_core4abi713settings_wire15settings_decode 1 jump table of a `match` at core/abi7/settings_wire.rs:93
 allow indirect paperpaw_sdk::action::Actions::find 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect paperpaw_sdk::action::Actions::find_fixed 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect _ZN4core3ptr60drop_glue$LT$paperpaw_sdk..bluetooth..request..BtCommand$GT$17h630358efdefcb881E 2 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
+allow indirect _ZN4core3ptr60drop_glue$LT$paperpaw_sdk..bluetooth..request..BtCommand$GT$ 2 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
 allow indirect paperpaw_core::native_host::registrations::subset::as_wire 1 jump table of a `match` at core/native_host/registrations/subset.rs:299
 allow indirect paperpaw_core::native_host::registrations::wire::record_framed_len_of 2 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22285, core/native_host/../abi7/records_wire.rs:22286: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::registrations::wire::record_encode_of 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22300, core/native_host/../abi7/records_wire.rs:22302: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::check_room 2 vtable or fn-pointer call at core/native_host/storage.rs:266, core/native_host/storage.rs:272: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_text::font::Font::size_for 1 vtable or fn-pointer call at text/bitmap.rs:424: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect paperpaw_core::native_host::registrations::wire::host_records_pass 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23096, core/native_host/../abi7/records_wire.rs:23097: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
-allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find17h31e5aa8ec89bb27aE 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
+allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect paperpaw_sdk::settings::specs::Specs::find 2 vtable or fn-pointer call at core/slice/cmp.rs:339, sdk/settings/specs.rs:46: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect paperpaw_text::font::Font::largest_size 6 vtable or fn-pointer call at alloc/raw_vec/mod.rs:675, core/iter/traits/iterator.rs:2999: the global allocator (`GlobalAlloc` of esp-alloc's heap)
 allow indirect paperpaw_sdk::fonts::Fonts::proposed 2 vtable or fn-pointer call at core/slice/cmp.rs:157, sdk/fonts.rs:551: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
@@ -239,16 +232,15 @@ allow indirect paperpaw_graphics::framebuffer::Framebuffer::store 1 jump table o
 allow indirect paperpaw_sdk::fonts::split::pick_text 1 literal call not proven on every path
 allow indirect paperpaw_text::around::measure_in 2 vtable or fn-pointer call at text/lib.rs:110, text/lib.rs:112: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect paperpaw_sdk::fonts::FontHandle::draw_toned 2 vtable or fn-pointer call at sdk/fonts.rs:1297: `paperpaw_sdk::fonts` font handles (the font packs in use); literal call not proven on every path
-allow indirect _ZN5alloc2rc15Rc$LT$T$C$A$GT$9drop_slow17h23faa8ad8dd231c2E 1 vtable or fn-pointer call at core/ptr/mod.rs:825: a trait-object or function-pointer call
-allow indirect _ZN88_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..ReverseSearcher$GT$15next_match_back17h18b2ebf554de45baE.1066 1 vtable or fn-pointer call at core/slice/cmp.rs:157, core/str/pattern.rs:509: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
+allow indirect _ZN5alloc2rc15Rc$LT$T$C$A$GT$9drop_slow 1 vtable or fn-pointer call at core/ptr/mod.rs:825: a trait-object or function-pointer call
+allow indirect _ZN88_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..ReverseSearcher$GT$15next_match_back 1 vtable or fn-pointer call at core/slice/cmp.rs:157, core/str/pattern.rs:509: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect core::fmt::write 5 vtable or fn-pointer call at core/fmt/mod.rs:1633, core/fmt/mod.rs:1665: `core::fmt`: `Display`/`Write` of the values formatted
 allow indirect paperpaw_text::stored::StoredPack::has_char 3 vtable or fn-pointer call at text/stored.rs:358, text/stored.rs:359: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find17h38a624848e0216caE 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level17h42634f64d5a9ffcfE 1 vtable or fn-pointer call at text/bidi/walk.rs:847: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_text6around3Set3lay17hab021b7ada1ef066E 2 vtable or fn-pointer call at text/hangul.rs:69: `paperpaw_text` font/strike trait objects (the font packs in use); literal call not proven on every path
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level 1 vtable or fn-pointer call at text/bidi/walk.rs:847: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect _ZN13paperpaw_text6around3Set3lay 2 vtable or fn-pointer call at text/hangul.rs:69: `paperpaw_text` font/strike trait objects (the font packs in use); literal call not proven on every path
 allow indirect paperpaw_text::charset::stand_in 2 jump table of a `match` at text/charset.rs:111
-allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4fold17hf87da2114e7f6003E 2 vtable or fn-pointer call at sdk/widgets/grid/view.rs:733: a trait-object or function-pointer call; literal call not proven on every path
+allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4fold 2 vtable or fn-pointer call at sdk/widgets/grid/view.rs:733: a trait-object or function-pointer call; literal call not proven on every path
 allow indirect paperpaw_text::draw_text 3 vtable or fn-pointer call at text/cache.rs:143, text/lib.rs:261: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs17h601bc7f0fa498f3fE 1 vtable or fn-pointer call at text/bidi/walk.rs:740: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with17hdd12cd77d630a3a8E 1 literal call not proven on every path
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$10early_weak17ha186077c31308f1bE 1 vtable or fn-pointer call at text/bidi/walk.rs:347: `paperpaw_text` font/strike trait objects (the font packs in use); jump table of a `match` at text/bidi/walk.rs:401
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs 1 vtable or fn-pointer call at text/bidi/walk.rs:740: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with 1 literal call not proven on every path
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$10early_weak 1 vtable or fn-pointer call at text/bidi/walk.rs:347: `paperpaw_text` font/strike trait objects (the font packs in use); jump table of a `match` at text/bidi/walk.rs:401

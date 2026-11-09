@@ -989,12 +989,12 @@ fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
     ]);
     let one = f(&[&entry(32), &callx_reg(8, 2), &RETW_N]);
     let funcs = [("root", root), (s1, one.clone()), (s2, one)];
-    // Bare: both are reported, each by its symbol (the path alone would not
-    // tell them apart).
+    // Bare: both are reported by the symbol without its hash (the path alone
+    // would not tell them from every other `core::ptr` function), one line.
+    let stable_name = "_ZN4core3ptr13drop_in_place";
     let bare = run(&funcs, &["root"], "");
-    assert_eq!(bare.problems.len(), 2, "{:?}", bare.problems);
-    assert!(bare.problems.iter().any(|p| p.contains(s1)));
-    assert!(bare.problems.iter().any(|p| p.contains(s2)));
+    assert_eq!(bare.problems.len(), 1, "{:?}", bare.problems);
+    assert!(bare.problems[0].contains(stable_name) && !bare.problems[0].contains("17h"));
     // A line by the path names two functions: an error.
     let by_path = run(
         &funcs,
@@ -1005,11 +1005,49 @@ fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
         by_path
             .problems
             .iter()
-            .any(|p| p.contains("names 2 functions") && p.contains(s1) && p.contains(s2)),
+            .any(|p| p.contains("names 2 functions") && p.contains(stable_name)),
         "{:?}",
         by_path.problems
     );
-    // By symbol, one line each: passes.
+    // By the symbol without the hash: one line covers the instances that make
+    // that many calls, and survives a rebuild that changes every hash.
+    let by_stable = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    let rebuilt = [
+        ("root", funcs[0].1.clone()),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000aaE.1322",
+            funcs[1].1.clone(),
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000bbE.77",
+            funcs[2].1.clone(),
+        ),
+    ];
+    let by_stable = run(
+        &rebuilt,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    // An instance with another count is not covered.
+    let two = f(&[&entry(32), &callx_reg(8, 2), &callx_reg(8, 3), &RETW_N]);
+    let uneven = [
+        ("root", funcs[0].1.clone()),
+        (s1, funcs[1].1.clone()),
+        (s2, two),
+    ];
+    let uneven = run(
+        &uneven,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 one call\n"),
+    );
+    assert!(!uneven.problems.is_empty(), "{:?}", uneven.problems);
+    // By raw symbol, one line each: passes too.
     let by_symbol = run(
         &funcs,
         &["root"],
@@ -1024,4 +1062,30 @@ fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
         &format!("allow indirect {s1} 1 first\nallow indirect core::ptr::drop_in_place 1 second\n"),
     );
     assert!(!mixed.problems.is_empty());
+}
+
+#[test]
+fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
+    for (symbol, name) in [
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.1322",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.llvm.99",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+        ),
+        ("memcpy", "memcpy"),
+        ("a.b", "a.b"),
+    ] {
+        assert_eq!(stable(symbol), name, "{symbol}");
+    }
 }
