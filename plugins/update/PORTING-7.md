@@ -1,11 +1,11 @@
-# Interface-7 port (slices 1 to 4: the decisions and declarations, the native entry and the card page, the file check, the online flow)
+# Interface-7 port (slices 1 to 5: the decisions and declarations, the native entry and the card page, the file check, the online flow, the update that waits for plugins)
 
 Version 1.0.7 (already above its Beta 3 version; no further bump). Status: **not complete**: the native entry
 (`NativeUpdate`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `update`) has the whole card flow
 (checks, states, install, offer at start) and, since slice 4, the online flow (search, offer, download, the fetch of
-code plugin builds, the weekly look and the check a rule asks for). What is still named below (the plugins an
-update leaves out, an update that waits for plugins, the dual-boot notice, the badge, a built-in plugin that comes
-back as a file) keeps the plugin **gated**: it is not in `NATIVE_PLUGINS` and not in
+code plugin builds, the weekly look and the check a rule asks for) and, since slice 5, the update that waits for
+plugins. What is still named below (the plugins an update leaves out, the dual-boot notice, the badge, a built-in
+plugin that comes back as a file) keeps the plugin **gated**: it is not in `NATIVE_PLUGINS` and not in
 `tools/plugin-files7/complete.txt` (its native file is not the whole plugin). The interface-6 `Update` and
 everything of it stays until the host activates native plugins (then it goes together, no shim; see the removal
 step).
@@ -152,8 +152,48 @@ the dates, the server's address), `src/native_plugin/online.rs` (the page's sear
   date*, *No answer* (the reason, or the server's HTTP status, with *Try again*), the offer, *Downloading* (the
   percent) and the same layout as the card flow (the rows on top, the large line and the words under them).
 - New texts (en and de): `update.downloading.percent`, `update.size.kb`, `update.size.mb`, `update.net.*`; the
-  interface-6 texts of the states are used as they are. The interface-6 `update.offer.*` / `update.waiting.*`
-  keys stay for the states still to port.
+  interface-6 texts of the states are used as they are.
+
+## Update that waits for plugins (slice 5)
+
+Files: `src/native_waiting.rs` (no host, tested: the record `waiting.txt`, what an answer says the update waits
+for, when to ask again and when the page opens), `src/native_plugin/waiting.rs` (the host's part: the registry,
+the work, the page's two states). Services: `core.registry`, `core.device`, `core.work` (already declared; no
+change to `native/metadata*.json`). The file `waiting.txt` is interface 6's, unchanged (`docs/data-files.md`,
+version 1; `testdata/waiting.txt.v1` is read and written back byte for byte).
+
+- **What waits.** An answer naming a newer PaperPaw whose `waiting` lines name code plugins of the question it has
+  no build for, or whose `missing` lines say `not-ready` for crates built in now, **waits**; each of them is kept
+  only while it still holds: a code plugin installed, switched on (`core.registry` `plugins` flag bit 0) and at
+  the version asked about, a crate still built in (`core.device` `builtins`, the crate `paperpaw-plugin-<id>`
+  against the plugin's id). The offer stays in `offer.txt` as before (its `waiting` and `missing` lines are what
+  is read); `waiting.txt` keeps the version, `since`, `checked`, the flags `asked`, `seen`, `told`, and the
+  `plugin`/`crate` lines.
+- **Asking again.** A start and each answer that waits declare the question as declared work (key
+  `update.check-due`, network work at a cheap moment: at a start within a day, after an answer not before a day,
+  within two days); a question that could not be asked or answered (a refused request, an HTTP error) is
+  declared again in a day. A question asked is counted in `checked` (without a clock: `asked`, once). The
+  answer is read as any answer: still waiting is kept, ready is offered as any update, none removes the record.
+  Interface 6 declared the same work; it is the quiet check of the page (`quiet`), so nothing is said.
+- **The page.** *PaperPaw 0.5.0 waits for plugins* names the plugins (their names from `core.registry`, a
+  first-party crate by the name of its plugin) and the crates that never come (the server says they are not in
+  its library and the update does not name them); rows: *Keep waiting* (leaves; the way on), *Update anyway*,
+  *Check again*. *Update anyway* shows the offer with *Update later* first and *Download anyway* second, and
+  words what stops working (`update.stopping`, the code plugins) and what is gone after the update
+  (`update.leaves.anyway`, the crates it is not ready for and those that never come); **as the server's answer
+  names them** (the device's own list of what an update leaves out is still blocked, below). *Download anyway*
+  downloads as any download. Where nothing holds any more the offer is shown as any offer.
+- **Seen, and a week unseen.** Showing the waiting state records `seen` (nothing opens it by itself after).
+  At a start, an update that waits and has not been seen or told for a week (`since`, counted from the first
+  answer; the clock set back counts from now) opens the page once and records `told`; never again for that
+  version. A start that finds an offer with no `waiting.txt` (kept before the file was written) records it. A
+  start that finds the update installed or no longer newer removes `offer.txt` and `waiting.txt`; one that finds
+  nothing that holds any more removes `waiting.txt`.
+- **Changed from interface 6:** a finished download (the update is in `updates`) removes `waiting.txt` and
+  cancels the declared question, so that an update the reader chose to take anyway is not asked about again (in
+  interface 6 the record stayed until the next start). The check the action `update.check` asks for never opens
+  the page (no flag tells a rule from the reader, above), so an update that waits shows only on the page, as one
+  that does not.
 
 ## Before activation
 
@@ -186,12 +226,9 @@ the dates, the server's address), `src/native_plugin/online.rs` (the page's sear
    as *This device does not install updates from here*, and the online flow does not ask where there is none.
    **Firmware to confirm** that a dual-boot setup answers so; if it does not, a dual-boot device would be offered
    an install the host must refuse.
-4. **An update that waits for plugins** (`waiting.rs`, the offer's `waiting` lines and `missing ... not-ready`, the
-   *Keep waiting*, *Update anyway* and *Check again* choices, the daily question at a cheap moment, the page that
-   opens once after a week unseen, `waiting.txt`). **Not blocked by the host; not done in slice 4** (it needs the
-   code plugins in use with their versions and switch, which `core.registry` `plugins` gives, and a page state
-   with three buttons; about 250 lines). Until it is done an update the server says waits for plugins is offered
-   as any update. The offer keeps the `waiting` and `missing` lines (`offer.txt`), so nothing is lost.
+4. ~~**An update that waits for plugins**~~ **Done in slice 5** (above): the offer's `waiting` lines and
+   `missing ... not-ready`, *Keep waiting*, *Update anyway*, *Check again*, the daily question at a cheap moment,
+   the page that opens once after a week unseen, `waiting.txt`.
 5. **A built-in plugin an update leaves out that comes back as a file** (the builds of plugins built in now, with
    the author key the server names for a plugin new here): the running firmware has the id built in, so
    `install_plugin` of its file is not the way, and the host has no way to put a plugin in place for the *next*

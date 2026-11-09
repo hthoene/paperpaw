@@ -49,6 +49,7 @@ use paperpaw_ui_kit::{
 
 mod fetch;
 mod online;
+mod waiting;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/update_declarations.rs"));
@@ -98,6 +99,10 @@ enum View {
     Unreachable(Trouble),
     /// An update the server named, to download.
     Offer(Offer),
+    /// An update the server named that waits for plugins.
+    Waiting(waiting::Waited),
+    /// The same, which the reader chose to download anyway.
+    Anyway(waiting::Waited),
     /// The update (then the plugins for it) is downloaded: its version, how far.
     Downloading(String, Option<i64>),
 }
@@ -190,6 +195,8 @@ pub struct NativeUpdate {
     searched: bool,
     /// The reader left for Wi-Fi transfer: back here, the card is looked at again.
     away: bool,
+    /// The reader chose to update anyway, while it waits for plugins.
+    anyway: bool,
     online: online::Online,
 }
 
@@ -258,8 +265,11 @@ impl Plugin for NativeUpdate {
             }
             Event::FirmwareChanged { .. } if token == FIRMWARE_CHANGED => self.progress(host),
             Event::ScreenOpened { instance, .. } if token == PAGE => {
+                self.anyway = false;
                 let page = self.look(host)?;
-                self.screens.open(instance, page)
+                let seen = self.waiting_seen(host, &page.view);
+                self.screens.open(instance, page)?;
+                online::tolerate(seen)
             }
             Event::ScreenShown {
                 instance: Some(instance),
@@ -394,16 +404,16 @@ impl NativeUpdate {
         let Some(offer) = Self::offer(host, &self.version)? else {
             return Ok(view);
         };
-        Ok(match view {
+        match view {
             View::Ready(image)
                 if image.order.is_gt()
                     && !compare_versions(&image.version, &offer.version).is_lt() =>
             {
-                View::Ready(image)
+                Ok(View::Ready(image))
             }
-            View::Nothing | View::Unfit(_) | View::Ready(_) => View::Offer(offer),
-            other => other,
-        })
+            View::Nothing | View::Unfit(_) | View::Ready(_) => self.offer_view(host, offer),
+            other => Ok(other),
+        }
     }
 
     /// The card's files: what an offer at start found, a check going on, or the
@@ -606,6 +616,12 @@ impl NativeUpdate {
                 };
                 match core::mem::replace(&mut page.view, View::Searching) {
                     View::Offer(offer) => self.download(host, offer),
+                    View::Anyway(waited) => self.download(host, waited.offer),
+                    // Chosen anyway: the offer first, which says what stops.
+                    View::Waiting(waited) => {
+                        self.anyway = true;
+                        self.show(host, View::Anyway(waited))
+                    }
                     other => {
                         page.view = other;
                         Ok(())
@@ -721,6 +737,9 @@ impl NativeUpdate {
     }
 
     fn show_page(&mut self, host: &Host<'_>, page: Page) -> Result<(), Error> {
+        if self.screens.top(PAGE).is_some() {
+            online::tolerate(self.waiting_seen(host, &page.view))?;
+        }
         if let Some(open) = self.screens.top(PAGE) {
             *open = page;
             let mut scratch = [0; 64];
@@ -783,6 +802,16 @@ impl NativeUpdate {
             let text = messages.format(host, "update.undone", &arguments)?;
             announce(host, &text)?;
             return Ok(());
+        }
+        // An update that waits for plugins: asked for again where due; a week
+        // unseen, the page opens once.
+        let open = match self.waiting_start(host, &running) {
+            Ok(open) => open,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => false,
+        };
+        if open {
+            return Self::open_page(host);
         }
         // A newer update on the card, not offered before: checked now, offered
         // when the device has said what it is.
@@ -1003,6 +1032,8 @@ fn rows_of(
                 Button::Download,
             )?;
         }
+        View::Waiting(_) => return waiting::rows(host, messages, false),
+        View::Anyway(_) => return waiting::rows(host, messages, true),
         View::Unreachable(_) => {
             plain(host, messages, &mut rows, "update.retry", Button::Search)?;
         }
@@ -1136,6 +1167,8 @@ fn texts(
         View::UpToDate => ("update.up-to-date.title", "update.up-to-date.help", true),
         View::Unreachable(trouble) => return unreachable_texts(host, messages, *trouble),
         View::Offer(offer) => return offer_texts(host, messages, offer, current),
+        View::Waiting(waited) => return waiting::texts(host, messages, waited, false),
+        View::Anyway(waited) => return waiting::texts(host, messages, waited, true),
         View::Downloading(version, percent) => {
             return downloading_texts(host, messages, version, *percent);
         }

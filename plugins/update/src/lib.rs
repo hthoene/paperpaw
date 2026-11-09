@@ -41,6 +41,7 @@ mod native_online;
 /// The interface-7 plugin.
 pub mod native_plugin;
 pub mod native_update;
+mod native_waiting;
 mod not_dual;
 pub mod online;
 mod page;
@@ -338,6 +339,7 @@ mod tests {
             include_str!("native_plugin.rs"),
             include_str!("native_plugin/online.rs"),
             include_str!("native_plugin/fetch.rs"),
+            include_str!("native_plugin/waiting.rs"),
             include_str!("native_card.rs"),
             include_str!("native_online.rs"),
         ] {
