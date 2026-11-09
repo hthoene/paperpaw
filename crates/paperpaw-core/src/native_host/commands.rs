@@ -30,6 +30,9 @@ mod ui;
 /// A redraw a stage kept for its screen (run by the kernel after the callback).
 pub(crate) use ui::Redraw;
 
+#[path = "commands_nav.rs"]
+mod nav;
+
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
@@ -405,6 +408,11 @@ impl<'a> CommandStage<'a> {
             }
             if dev::is_dev(&command) {
                 self.dev_push(command)?;
+                continue;
+            }
+            // A close of the root and a `back_to` with nothing above change
+            // nothing: `OK`, nothing staged.
+            if self.nav_no_effect(&command) {
                 continue;
             }
             if images && let Some(image) = image_service::commands::owned(&command) {

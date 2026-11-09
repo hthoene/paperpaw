@@ -70,6 +70,7 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
+                .with_stack(&self.shared.stack_rows, context.owner_key())
                 .with_images({
                     // Requests held outside the table count against the room.
                     let mut admit = context.image_admit();
