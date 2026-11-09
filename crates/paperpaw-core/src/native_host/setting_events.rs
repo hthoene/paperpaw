@@ -45,8 +45,13 @@ use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 const TAG: u32 = wire::EVENT_SETTING_CHANGED_TAG;
 
 /// The hint events a plugin can subscribe to.
-const HINTS: core::ops::RangeInclusive<u32> =
-    wire::EVENT_PLUGINS_CHANGED_TAG..=wire::EVENT_CHARGE_CHANGED_TAG;
+const HINTS: [u32; 5] = [
+    wire::EVENT_PLUGINS_CHANGED_TAG,
+    wire::EVENT_WIFI_CHANGED_TAG,
+    wire::EVENT_POWER_CHANGED_TAG,
+    wire::EVENT_STATUS_CHANGED_TAG,
+    wire::EVENT_CHARGE_CHANGED_TAG,
+];
 
 /// Events told to one plugin in one pass.
 pub(crate) const PER_OWNER: usize = 4;
@@ -76,9 +81,7 @@ impl SettingEvents {
     /// Whether `owner` subscribed to any event of these queues.
     fn listens(instances: &NativeInstances, owner: u64) -> bool {
         instances.subscribed(owner, TAG)
-            || HINTS
-                .into_iter()
-                .any(|tag| instances.subscribed(owner, tag))
+            || HINTS.iter().any(|&tag| instances.subscribed(owner, tag))
     }
 
     /// The queue of `owner`, made on first use.
