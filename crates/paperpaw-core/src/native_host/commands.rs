@@ -28,6 +28,10 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 #[path = "commands_ui.rs"]
 mod ui;
 
+#[path = "commands_open.rs"]
+mod open;
+pub(crate) use open::Opens;
+
 #[allow(
     dead_code,
     reason = "native screen dispatch installs DEV command authority next"
@@ -94,6 +98,8 @@ pub struct CommandStage<'a> {
     bytes: usize,
     ui: Option<ui::UiContext<'a>>,
     dev: Option<dev::DevStage<'a>>,
+    handovers: Option<open::Handovers<'a>>,
+    opens: Opens,
     redraw: Option<u32>,
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
@@ -129,6 +135,8 @@ impl<'a> CommandStage<'a> {
             bytes: 0,
             ui: None,
             dev: None,
+            handovers: None,
+            opens: Opens::default(),
             redraw: None,
             accepted: 0,
             images: None,
@@ -170,8 +178,8 @@ impl<'a> CommandStage<'a> {
 
     /// Hand accepted commands to the host's queue after the callback returns.
     #[must_use]
-    pub fn into_commands(self) -> Vec<Command> {
-        self.staged
+    pub fn into_commands(mut self) -> Vec<Command> {
+        core::mem::take(&mut self.staged)
     }
 
     /// The setting's spec, if this plugin may set it through slot 15.
@@ -206,7 +214,10 @@ impl<'a> CommandStage<'a> {
         {
             return ERR_DENIED;
         }
-        if let Err(status) = self.validate_open_budget(batch) {
+        if let Err(status) = self
+            .validate_open_budget(batch)
+            .and_then(|()| self.validate_handovers(batch))
+        {
             return status;
         }
         // Wi-Fi and power commands (`commands_dev.rs`): features, limits,
@@ -245,25 +256,8 @@ impl<'a> CommandStage<'a> {
                 }
                 continue;
             };
-            let text = match value {
-                SettingValueRef::Text(text) => text.len(),
-                _ => 0,
-            };
-            bytes = bytes.saturating_add(key.len()).saturating_add(text);
-            if bytes > self.byte_limit {
-                return ERR_NO_SPACE;
-            }
-            let spec = match self.admitted(key) {
-                Ok(spec) => spec,
-                Err(error) => return error,
-            };
-            let scalar = match value {
-                SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
-                SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
-                _ => None,
-            };
-            if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
-                return ERR_INVALID;
+            if let Err(error) = self.validate_setting(key, value, &mut bytes) {
+                return error;
             }
         }
         let image_commands = self.image_count(batch, images.is_some());
@@ -277,18 +271,30 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_hints(batch) {
             return error;
         }
-        if let Err(error) = self.dev_reserve(batch) {
+        if let Err(error) = self
+            .dev_reserve(batch)
+            .and_then(|()| self.reserve_opens(batch))
+        {
             return error;
         }
+        // Everything fallible is reserved: the opens' hand-overs are claimed.
+        let claims = match self.claim_handovers(batch) {
+            Ok(claims) => claims,
+            Err(error) => return error,
+        };
         let (start, dev_start) = (self.staged.len(), self.dev_len());
+        let opens = self.opens.at.len();
         let start_images = self.staged_images.len();
         if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
+            self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
+            self.unclaim(claims);
             return error;
         }
+        self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
                 self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
@@ -311,6 +317,34 @@ impl<'a> CommandStage<'a> {
                 ) && !dev::is_dev(command)
             })
             .count()
+    }
+
+    /// One `set_setting` of a batch: its bytes counted against the budget, the
+    /// setting registered and this plugin's to set, a scalar in its range.
+    fn validate_setting(
+        &self,
+        key: &str,
+        value: SettingValueRef<'_>,
+        bytes: &mut usize,
+    ) -> Result<(), i32> {
+        let text = match value {
+            SettingValueRef::Text(text) => text.len(),
+            _ => 0,
+        };
+        *bytes = bytes.saturating_add(key.len()).saturating_add(text);
+        if *bytes > self.byte_limit {
+            return Err(ERR_NO_SPACE);
+        }
+        let spec = self.admitted(key)?;
+        let scalar = match value {
+            SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
+            SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
+            _ => None,
+        };
+        if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
+            return Err(ERR_INVALID);
+        }
+        Ok(())
     }
 
     /// How many of `batch` are image commands the host admitted.
@@ -350,6 +384,9 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             let owned = self.owned(command)?;
+            if let WireCommand::Open { mode, handover, .. } = command {
+                self.record_open(self.staged.len(), mode, handover)?;
+            }
             // Capacity is reserved, so this push cannot reallocate.
             self.staged.push(owned);
         }

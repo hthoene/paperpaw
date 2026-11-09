@@ -17,6 +17,16 @@ pub(super) struct UiContext<'a> {
     )>,
 }
 
+impl<'a> UiContext<'a> {
+    pub(super) fn env(&self) -> &'a Env<'a> {
+        self.env
+    }
+
+    pub(super) fn hop(&self) -> u8 {
+        self.hop
+    }
+}
+
 /// Deferred redraw retains the original screen instance, never a later top one.
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
@@ -130,11 +140,24 @@ impl<'a> CommandStage<'a> {
         let queued = self
             .staged
             .iter()
-            .filter(|command| matches!(command, Command::OpenScreen(..)))
+            .filter(|command| {
+                matches!(
+                    command,
+                    Command::OpenScreen(..)
+                        | Command::OpenSlot(..)
+                        | Command::OpenInSlot(..)
+                        | Command::Replace(..)
+                )
+            })
             .count();
         let incoming = batch
             .iter()
-            .filter(|command| matches!(command, WireCommand::OpenScreen { .. }))
+            .filter(|command| {
+                matches!(
+                    command,
+                    WireCommand::OpenScreen { .. } | WireCommand::Open { .. }
+                )
+            })
             .count();
         if queued.saturating_add(incoming) > ui.open_budget as usize {
             return Err(ERR_NO_SPACE);
@@ -143,7 +166,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
-    pub(crate) fn into_ui_output(self) -> (Vec<Command>, Option<Redraw>, u8) {
+    pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
         let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
             screen,
@@ -154,10 +177,14 @@ impl<'a> CommandStage<'a> {
                 _ => None,
             },
         });
-        (self.staged, redraw, self.ui.map_or(0, |ui| ui.hop))
+        (
+            core::mem::take(&mut self.staged),
+            redraw,
+            self.ui.as_ref().map_or(0, |ui| ui.hop),
+        )
     }
 
-    fn own_top(&self) -> Result<ScreenKey, i32> {
+    pub(super) fn own_top(&self) -> Result<ScreenKey, i32> {
         let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
         let top = ui.env.stack().last().ok_or(ERR_STATE)?;
         if Some(top.key) != ui.screen || top.screen.namespace() != self.owner.as_str() {
@@ -179,6 +206,9 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(screen.len())
             }
+            WireCommand::Open {
+                target, mode, slot, ..
+            } => self.validate_open(target, mode, slot),
             WireCommand::RunAction { action } => {
                 super::super::declarations::full_id(action)?;
                 if ui.hop >= 8 {
@@ -211,6 +241,9 @@ impl<'a> CommandStage<'a> {
             WireCommand::OpenScreen { screen } => {
                 Ok(Command::OpenScreen(copy_id(screen)?, Params::new()))
             }
+            WireCommand::Open {
+                target, mode, slot, ..
+            } => super::open::command(target, mode, slot),
             WireCommand::RunAction { action } => {
                 Ok(Command::RunAction(copy_id(action)?, Params::new()))
             }
@@ -235,10 +268,58 @@ impl crate::Kernel {
         commands: Vec<Command>,
         redraw: Option<Redraw>,
     ) {
-        for command in commands {
-            self.drain_native_command(owner, command);
+        self.drain_native_opens(owner, commands, redraw, super::Opens::default());
+    }
+
+    /// As [`Self::drain_native_ui`], for a stage whose opens name hand-overs:
+    /// each goes to the instance its open shows (docs/abi/ui.md 1.1 step 5),
+    /// and one whose open did not apply (a guard refused, a stale target) is
+    /// freed with the old one staying (step 4).
+    pub(crate) fn drain_native_opens(
+        &mut self,
+        owner: &Id,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+        opens: super::Opens,
+    ) {
+        let super::Opens { at, claims } = opens;
+        for (index, command) in commands.into_iter().enumerate() {
+            let staged = at.iter().find(|open| open.index == index);
+            // A replace is the submitter's own top screen's, nobody else's: if
+            // another is on top by now (an earlier open of the same batch), it
+            // does not apply and its hand-over is freed.
+            let displaced = staged.and_then(|open| open.replaces).is_some_and(|key| {
+                self.stack
+                    .last()
+                    .is_none_or(|top| ScreenKey::new(top.serial) != key)
+            });
+            if displaced {
+                self.warn_runtime("native replace dropped: its screen is no longer on top");
+            } else {
+                self.shared
+                    .native_instances
+                    .set_pending_handover(staged.map(|open| open.handover));
+                self.drain_native_command(owner, command);
+            }
+            // The open that did not apply (a guard refused, a stale target):
+            // its claim is freed and the instance's old hand-over stays.
+            self.release_pending_handover();
+        }
+        // Nothing stays claimed once the batch is applied.
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            for claims in claims {
+                let _ = store.rollback(claims);
+            }
         }
         self.finish_native_redraw(owner, redraw);
+    }
+
+    fn release_pending_handover(&mut self) {
+        if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
+            && let Some(store) = self.shared.native_instances.ui_store()
+        {
+            let _ = store.release(id);
+        }
     }
 
     /// Apply one staged command of `owner`; a close of a screen that is gone
