@@ -18,11 +18,18 @@ const INI: &str = "plugins/hyphenation/plugin.ini";
 const TABLE: &str = "plugins/hyphenation/hyphenation/en.pphp";
 
 /// A storage that can fail writes after some number and tell its free space.
+/// With `full`, writes fail from that many bytes written on, as a card fills
+/// up.
 struct Card {
     files: MemoryStorage,
     /// Writes allowed before every write fails (`None`: no limit).
     writes: Cell<Option<usize>>,
     free: Option<u64>,
+    /// Bytes the card still takes (`None`: unlimited); a write that does not
+    /// fit fails, one that does uses it up.
+    room: Cell<Option<usize>>,
+    /// Calls of `sync`.
+    syncs: Cell<usize>,
 }
 
 impl Card {
@@ -31,6 +38,8 @@ impl Card {
             files: MemoryStorage::new(),
             writes: Cell::new(None),
             free: None,
+            room: Cell::new(None),
+            syncs: Cell::new(0),
         }
     }
 }
@@ -49,7 +58,17 @@ impl Storage for Card {
             }
             self.writes.set(Some(left - 1));
         }
+        if let Some(room) = self.room.get() {
+            if data.len() > room {
+                return Err(StorageError::Full);
+            }
+            self.room.set(Some(room - data.len()));
+        }
         self.files.write(path, data)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.syncs.set(self.syncs.get() + 1);
+        Ok(())
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.files.append(path, data)
@@ -59,6 +78,9 @@ impl Storage for Card {
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.files.remove(path)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.files.remove_dir_all(path)
     }
     fn free_space(&self) -> Option<u64> {
         self.free
@@ -154,6 +176,10 @@ fn a_power_cut_while_copying_leaves_no_plugin_and_the_next_start_finishes() {
         // No manifest, so no plugin; no mark, so it is tried again.
         assert!(!card.exists(INI), "{allowed}");
         assert!(!card.exists(MARK), "{allowed}");
+        assert!(
+            !card.exists(TABLE),
+            "{allowed}: what was written is taken back"
+        );
         card.writes.set(None);
         assert_eq!(seed_hyphenation(&card), Seeded::Installed, "{allowed}");
         assert!(card.exists(INI));
@@ -170,4 +196,37 @@ fn a_card_with_no_room_is_left_alone_and_tried_again() {
     assert!(!card.exists(INI) && !card.exists(MARK));
     card.free = Some(ROOM);
     assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+}
+
+#[test]
+fn a_card_that_fills_up_part_way_is_cleaned_and_given_up_after_three_starts() {
+    // The X4 does not know the free space at the start: nothing says no
+    // room, and the table does not fit.
+    let card = Card::new();
+    card.room.set(Some(10_000));
+    for n in 1..=TRIES {
+        card.room.set(Some(10_000));
+        assert_eq!(seed_hyphenation(&card), Seeded::Failed, "start {n}");
+        assert!(
+            !card.exists(TABLE) && !card.exists(INI),
+            "start {n}: cleaned"
+        );
+        assert!(!card.exists(MARK));
+        assert_eq!(card.size(TRIED).unwrap(), n as u64, "start {n}");
+    }
+    // Given up: nothing is written any more, even with room.
+    card.room.set(None);
+    assert_eq!(seed_hyphenation(&card), Seeded::GaveUp);
+    assert!(!card.exists(INI) && !card.exists(TABLE));
+    // Removing the notes lets it try once more.
+    card.files.remove_dir_all(".paperpaw/seeded").unwrap();
+    assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+}
+
+#[test]
+fn every_file_is_synced_before_the_manifest_is_written() {
+    let card = Card::new();
+    assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+    // One `sync` before `plugin.ini`, one at the end.
+    assert_eq!(card.syncs.get(), 2);
 }

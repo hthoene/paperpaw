@@ -19,6 +19,7 @@ pub fn hyphenation(storage: &dyn Storage) {
         Seeded::Failed => {
             warn!("seed: English hyphenation could not be written: tried again next start")
         }
+        Seeded::GaveUp => warn!("seed: English hyphenation given up after failed starts"),
         _ => {}
     }
 }

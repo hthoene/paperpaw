@@ -28,10 +28,15 @@
 //!    copying leaves nothing half installed, and the next start writes it all
 //!    again over what is there. Then the mark is written.
 //!
-//! No room on the card (less than [`ROOM`] free) or a write that fails
-//! leaves no mark: it is tried again at the next start. Nothing here
-//! allocates more than a path, and the files are written straight from the
-//! program's image. Nothing panics.
+//! No room on the card (less than [`ROOM`] free, where the card says) leaves
+//! no mark: tried again at the next start. A write that fails (the X4 does not
+//! know the free space at this point of the start, so a nearly full card fails
+//! part-way) removes what was written, counts the failure
+//! (`.paperpaw/seeded/hyphenation.tried`) and is tried again at the next
+//! start, [`TRIES`] times at most, then given up. Each file is on the card
+//! (`sync`) before `plugin.ini` is written. Nothing here allocates more than a
+//! path, and the files are written straight from the program's image. Nothing
+//! panics.
 
 #![no_std]
 
@@ -72,8 +77,29 @@ pub enum Seeded {
     Installed,
     /// Less than [`ROOM`] is free: nothing written, tried again next start.
     NoRoom,
-    /// A file could not be written: tried again next start.
+    /// A file could not be written (the card filled up, a read-only card): what
+    /// was written is removed again, and it is tried again at the next start,
+    /// at most [`TRIES`] times in all.
     Failed,
+    /// [`TRIES`] starts failed: given up, nothing written. Remove
+    /// `.paperpaw/seeded/` to try once more.
+    GaveUp,
+}
+
+/// Starts that may fail to write the package before it is given up (each
+/// writes and removes up to 60 KB: a card that is nearly full would be worn
+/// by it at every start).
+pub const TRIES: usize = 3;
+
+/// Where the failed starts are counted (one byte each).
+const TRIED: &str = ".paperpaw/seeded/hyphenation.tried";
+
+/// Removes what a failed start wrote, as far as the card lets it.
+fn take_back(storage: &dyn Storage, folder: &str) {
+    for &(path, _) in ENGLISH {
+        let _ = storage.remove(&format!("{folder}/{path}"));
+    }
+    let _ = storage.remove_dir_all(folder);
 }
 
 /// Puts the English hyphenation package on `storage` if this device never
@@ -88,16 +114,29 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
         let _ = storage.write(MARK, b"");
         return Seeded::Kept;
     }
+    let tried = storage.size(TRIED).unwrap_or(0) as usize;
+    if tried >= TRIES {
+        return Seeded::GaveUp;
+    }
     if storage.free_space().is_some_and(|free| free < ROOM) {
         return Seeded::NoRoom;
     }
-    // `plugin.ini` last: without it the folder is no plugin.
+    // `plugin.ini` last: without it the folder is no plugin. Everything
+    // else is on the card (`sync`) before it is written, so a power cut
+    // cannot leave a manifest over files that were not written back.
     let manifest = |path: &str| path == "plugin.ini";
     for pass in [false, true] {
         for &(path, bytes) in ENGLISH.iter().filter(|(p, _)| manifest(p) == pass) {
             if storage.write(&format!("{folder}/{path}"), bytes).is_err() {
+                take_back(storage, &folder);
+                let _ = storage.append(TRIED, &[1]);
                 return Seeded::Failed;
             }
+        }
+        if !pass && storage.sync().is_err() {
+            take_back(storage, &folder);
+            let _ = storage.append(TRIED, &[1]);
+            return Seeded::Failed;
         }
     }
     let _ = storage.sync();
