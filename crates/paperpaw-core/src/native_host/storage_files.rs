@@ -86,7 +86,7 @@ impl StorageFiles {
         Self { storage, sources }
     }
 
-    /// Whether `parent/name` exists.
+    /// Whether the file or folder `parent/name` exists.
     fn exists_in(&self, parent: &str, name: &str) -> bool {
         let mut buf = [0u8; JOINED];
         let need = parent.len() + usize::from(!parent.is_empty()) + name.len();
@@ -104,7 +104,10 @@ impl StorageFiles {
         };
         tail.copy_from_slice(name.as_bytes());
         // Both parts are `str` and the `/` is ASCII: the join is UTF-8.
-        core::str::from_utf8(room).map_or(true, |path| self.storage.exists(path))
+        core::str::from_utf8(room).map_or(true, |path| {
+            // A file, or a folder (listing it as far as its first entry).
+            self.storage.exists(path) || self.storage.list_from(path, 0, &mut |_| false).is_ok()
+        })
     }
 }
 
