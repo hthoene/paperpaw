@@ -41,7 +41,7 @@ impl Choice {
         // A sheet in the readable column where the screen is wider than that.
         let column = ui::readable(env, &style, Rect::new(0, 0, display.width, display.height));
         let title_text = title.to_string();
-        let row = style.row() as u16;
+        let row = style.row();
         // A long title takes up to three lines.
         let lines = style.font(env).map_or((1, 0.0), |font| {
             let width = f32::from(column.width) - 2.0 * style.margin() as f32;
@@ -56,7 +56,7 @@ impl Choice {
         });
         let title_height = match lines {
             (1, _) => row,
-            (_, tall) => tall as u16 + style.gap() as u16,
+            (_, tall) => tall as u16 + style.gap(),
         };
         // As many options as the screen holds below the title; more go on
         // pages, with a pager below them.
@@ -75,12 +75,7 @@ impl Choice {
             (u32::from(title_height) + list_height + pager_height + u32::from(style.gap()) * 2)
                 .min(u32::from(display.height)) as u16;
         let region = Rect::new(column.x, display.height - height, column.width, height);
-        let title = Rect::new(
-            column.x,
-            region.y + style.gap() as u16,
-            column.width,
-            title_height,
-        );
+        let title = Rect::new(column.x, region.y + style.gap(), column.width, title_height);
         let list_area = Rect::new(
             column.x,
             title.y + title_height,
