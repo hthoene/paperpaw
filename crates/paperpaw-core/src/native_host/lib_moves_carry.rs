@@ -25,6 +25,7 @@
 //! of a book goes with it. A moved single file is one book whatever its
 //! name now (`a.epub.bak` may be named back).
 use super::lib_moves_host::MoveCarry;
+use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
 use alloc::{format, string::String, vec::Vec};
 use core::cell::RefCell;
@@ -44,18 +45,25 @@ pub(crate) struct EnvCarry<'a> {
     formats: &'a Formats,
     book_data: &'a [BookData],
     settings: &'a Settings,
+    /// The walk kept between steps.
+    resume: &'a Resume,
     /// Where the events and the setting changes go (the kernel's queue).
     out: RefCell<&'a mut dyn FnMut(Command)>,
 }
 
 impl<'a> EnvCarry<'a> {
     /// The catalog of `env`, sending commands to `out`.
-    pub(crate) fn new(env: &'a Env<'a>, out: &'a mut dyn FnMut(Command)) -> Self {
+    pub(crate) fn new(
+        env: &'a Env<'a>,
+        resume: &'a Resume,
+        out: &'a mut dyn FnMut(Command),
+    ) -> Self {
         Self::from_parts(
             env.storage(),
             env.formats(),
             env.book_data(),
             env.settings(),
+            resume,
             out,
         )
     }
@@ -65,6 +73,7 @@ impl<'a> EnvCarry<'a> {
         formats: &'a Formats,
         book_data: &'a [BookData],
         settings: &'a Settings,
+        resume: &'a Resume,
         out: &'a mut dyn FnMut(Command),
     ) -> Self {
         Self {
@@ -72,6 +81,7 @@ impl<'a> EnvCarry<'a> {
             formats,
             book_data,
             settings,
+            resume,
             out: RefCell::new(out),
         }
     }
@@ -82,45 +92,27 @@ impl<'a> EnvCarry<'a> {
         Ok(())
     }
 
-    /// The books at `to` after the first `cursor` in walk order, at most
-    /// [`STEP_BOOKS`] of them, and whether there are more: the books of a
-    /// folder below it (every file a format opens, not in hidden folders), or
-    /// `to` itself when it is a file (whatever its name). They are collected
-    /// first and used after the walk: the walk holds the storage's listing,
-    /// and nothing may change the storage inside it.
+    /// The books at `to` after the first `cursor` of the pass, at most
+    /// [`STEP_BOOKS`] of them, and whether there are more: a folder's books
+    /// by the resumable walk ([`Resume`]: a step costs what its books cost,
+    /// not the folder), or `to` itself when it is a file (whatever its
+    /// name). They are collected first and used after the walk: the walk
+    /// holds the storage's listing, and nothing may change the storage in it.
     ///
     /// # Errors
-    /// `ERR_NO_MEMORY`.
-    fn window(&self, to: &str, cursor: u64) -> Result<(Vec<String>, bool), i32> {
+    /// `ERR_NO_MEMORY`, the card's status.
+    fn window(&self, events: bool, to: &str, cursor: u64) -> Result<(Vec<String>, bool), i32> {
         let to = to.trim_matches('/');
-        let mut found: Vec<String> = Vec::new();
-        found
-            .try_reserve_exact(STEP_BOOKS)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let (mut seen, mut more, mut failed) = (0u64, false, Ok(()));
-        let mut take = |book: &str| {
-            seen += 1;
-            if seen <= cursor || failed.is_err() {
-                return;
-            }
-            if found.len() == STEP_BOOKS {
-                more = true;
-                return;
-            }
-            match own(book) {
-                Ok(book) => found.push(book),
-                Err(error) => failed = Err(error),
-            }
-        };
         if !files::is_dir(self.storage, to) {
-            if self.storage.exists(to) {
-                take(to);
+            let mut one = Vec::new();
+            if cursor == 0 && self.storage.exists(to) {
+                one.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
+                one.push(own(to)?);
             }
-        } else {
-            library::books_in(self.storage, self.formats, to, &mut take);
+            return Ok((one, false));
         }
-        failed?;
-        Ok((found, more))
+        self.resume
+            .books(self.storage, self.formats, events, to, cursor, STEP_BOOKS)
     }
 
     /// The old path of `book` (a path at or below `to`).
@@ -184,7 +176,7 @@ impl MoveCarry for EnvCarry<'_> {
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         match phase {
             Phase::Books(cursor) => {
-                let (books, more) = self.window(to, cursor)?;
+                let (books, more) = self.window(false, to, cursor)?;
                 for book in &books {
                     self.carry_one(&Self::old_path(from, to, book), book);
                 }
@@ -212,12 +204,14 @@ impl MoveCarry for EnvCarry<'_> {
                     self.send(events::LIBRARY_CHANGED.emit(()))?;
                     return Ok(Phase::Done);
                 }
-                let (books, more) = self.window(to, cursor)?;
+                let (books, more) = self.window(true, to, cursor)?;
                 for book in &books {
-                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(
-                        Self::old_path(from, to, book),
-                        book.clone(),
-                    )))?;
+                    // Carried once more: a book the first pass missed (a file
+                    // added from outside shifted its place) is caught here;
+                    // for one already carried it changes nothing.
+                    let old = Self::old_path(from, to, book);
+                    self.carry_one(&old, book);
+                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
                 }
                 if more {
                     return Ok(Phase::Events(cursor + books.len() as u64));

@@ -14,6 +14,7 @@ use super::{
     host_services::HostServices,
     lib_moves_carry::EnvCarry,
     lib_moves_host::{CardMoves, StepHost},
+    lib_moves_walk::Resume,
     lib_service::moves::Moves,
 };
 use alloc::rc::Rc;
@@ -39,6 +40,8 @@ pub(crate) struct LibraryMoves {
     card: Rc<CardMoves>,
     /// The machine has read the journal at least once with a catalog.
     started: Cell<bool>,
+    /// The walk over the moved folder, kept between steps.
+    resume: Resume,
 }
 
 impl LibraryMoves {
@@ -47,6 +50,7 @@ impl LibraryMoves {
             moves: Rc::default(),
             card: Rc::new(CardMoves::new(storage)),
             started: Cell::new(false),
+            resume: Resume::default(),
         }
     }
 
@@ -81,7 +85,7 @@ impl LibraryMoves {
     /// One step of the job with the catalog of `env`; events and setting
     /// changes go to `out`.
     pub(crate) fn pump(&self, env: &Env<'_>, out: &mut dyn FnMut(Command)) -> Pump {
-        let carry = EnvCarry::new(env, out);
+        let carry = EnvCarry::new(env, &self.resume, out);
         let step = StepHost::new(&self.card, &carry);
         if !self.started.get() {
             if self.moves.start(&step).is_err() {

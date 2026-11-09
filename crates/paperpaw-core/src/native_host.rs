@@ -160,6 +160,7 @@ pub(crate) mod lib_moves_journal;
     reason = "the kernel's service pump calls `pump_library_moves` (Core wires it)"
 )]
 pub(crate) mod lib_moves_service;
+pub(crate) mod lib_moves_walk;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]

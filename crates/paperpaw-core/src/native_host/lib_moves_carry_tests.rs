@@ -4,6 +4,8 @@
 extern crate std;
 use super::*;
 use alloc::{borrow::Cow, vec::Vec};
+use core::cell::Cell;
+use paperpaw_platform::{DirEntry, StorageError};
 use paperpaw_sdk::{
     FormatSpec, Id, MemoryStorage, SettingExtra, SettingSpec,
     builtin::groups,
@@ -19,6 +21,7 @@ struct Fixture {
     formats: Formats,
     data: Vec<BookData>,
     settings: Settings,
+    resume: Resume,
 }
 
 fn fixture() -> Fixture {
@@ -40,6 +43,7 @@ fn fixture() -> Fixture {
             BookDataKind::UserData
         )],
         settings: Settings::new(),
+        resume: Resume::default(),
     }
 }
 
@@ -79,6 +83,7 @@ impl Fixture {
                 &self.formats,
                 &self.data,
                 &self.settings,
+                &self.resume,
                 &mut out,
             );
             let mut phase = start;
@@ -174,7 +179,14 @@ fn one_book_carried_for_a_reader_and_the_walk_after_it_agree() {
     f.place("Books/old/a.epub");
     let mut sent = Vec::new();
     let mut out = |c| sent.push(c);
-    let carry = EnvCarry::from_parts(&f.storage, &f.formats, &f.data, &f.settings, &mut out);
+    let carry = EnvCarry::from_parts(
+        &f.storage,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
     carry
         .carry_book("Books/old", "Books/new", "Books/new/a.epub")
         .unwrap();
@@ -213,7 +225,14 @@ fn the_replaced_files_data_is_discarded() {
     f.place("Books/b.epub");
     library::set_favourite(&f.storage, "Books/b.epub", true);
     let mut out = |_| ();
-    let carry = EnvCarry::from_parts(&f.storage, &f.formats, &f.data, &f.settings, &mut out);
+    let carry = EnvCarry::from_parts(
+        &f.storage,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
     carry.discard("Books/b.epub").unwrap();
     assert!(!f.has_place("Books/b.epub"));
     assert!(library::favourites(&f.storage).is_empty());
@@ -270,4 +289,147 @@ fn a_cut_events_step_replays_from_its_cursor_or_from_the_start() {
     // From a cursor: the rest only.
     let (rest, _) = f.run_from("Books/old", "Books/new", Phase::Events(STEP_BOOKS as u64));
     assert_eq!(moved_events(&rest).len(), 4);
+}
+
+/// A card that counts the directory entries the walk is shown.
+struct Counting {
+    inner: MemoryStorage,
+    shown: Cell<usize>,
+}
+
+impl Storage for Counting {
+    fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+        self.inner.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.inner.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.inner.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.inner.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.inner.list(d, &mut |e| {
+            self.shown.set(self.shown.get() + 1);
+            v(e);
+        })
+    }
+    fn list_from(
+        &self,
+        d: &str,
+        from: u64,
+        v: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.inner.list_from(d, from, &mut |e| {
+            self.shown.set(self.shown.get() + 1);
+            v(e)
+        })
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.inner.rename(f, t)
+    }
+}
+
+#[test]
+fn a_step_costs_its_books_not_the_folder_on_a_big_library() {
+    // 1,000 books in 10 folders of 100, one flat folder of 1,000 beside.
+    for layout in [10, 1] {
+        let f = fixture();
+        let counting = Counting {
+            inner: MemoryStorage::new(),
+            shown: Cell::new(0),
+        };
+        let per = 1000 / layout;
+        for n in 0..1000 {
+            counting
+                .inner
+                .write(&std::format!("Books/new/f{}/b{n:04}.epub", n / per), b"b")
+                .unwrap();
+        }
+        let mut sent = Vec::new();
+        let mut out = |c| sent.push(c);
+        let carry = EnvCarry::from_parts(
+            &counting,
+            &f.formats,
+            &f.data,
+            &f.settings,
+            &f.resume,
+            &mut out,
+        );
+        let (mut phase, mut steps, mut worst) = (Phase::Books(0), 0, 0);
+        while phase != Phase::Done {
+            let before = counting.shown.get();
+            phase = carry.carry("Books/old", "Books/new", phase).unwrap();
+            worst = worst.max(counting.shown.get() - before);
+            steps += 1;
+            assert!(steps < 500);
+        }
+        // Each step is shown what it takes plus a folder's entries at most
+        // (the list is counted from a place here; a FAT card seeks to it).
+        assert!(worst <= 16 + per + layout + 2, "{layout}: worst {worst}");
+        // Two passes over the books (carry, events) and the folders once.
+        let total = counting.shown.get();
+        assert!(
+            total <= 2 * (1000 + layout) + steps * (per + 2),
+            "{layout}: {total}"
+        );
+        drop(carry);
+        assert_eq!(moved_events(&sent).len(), 1000);
+    }
+}
+
+#[test]
+fn a_book_the_first_pass_missed_is_carried_by_the_events_pass() {
+    let f = fixture();
+    f.book("Books/new/a.epub");
+    f.place("Books/old/a.epub");
+    // The books pass did not reach it; the events pass carries it too.
+    let (sent, _) = f.run_from("Books/old", "Books/new", Phase::Events(0));
+    assert!(f.has_place("Books/new/a.epub") && !f.has_place("Books/old/a.epub"));
+    assert_eq!(moved_events(&sent).len(), 1);
+}
+
+#[test]
+fn a_saved_walk_that_is_not_at_the_cursor_begins_again_and_gives_the_same_books() {
+    let f = fixture();
+    for n in 0..(STEP_BOOKS * 3) {
+        f.book(&std::format!("Books/new/b{n:03}.epub"));
+    }
+    let take = |cursor: u64| {
+        f.resume
+            .books(
+                &f.storage,
+                &f.formats,
+                false,
+                "Books/new",
+                cursor,
+                STEP_BOOKS,
+            )
+            .unwrap()
+    };
+    let (first, more) = take(0);
+    assert!(more && first.len() == STEP_BOOKS);
+    let (second, _) = take(STEP_BOOKS as u64);
+    // Asked for again (a failed step is retried): the same books.
+    let (again, _) = take(STEP_BOOKS as u64);
+    assert_eq!(second, again);
+    // A restart passes the first books and gives the next ones.
+    let fresh = Resume::default();
+    let (restarted, _) = fresh
+        .books(
+            &f.storage,
+            &f.formats,
+            false,
+            "Books/new",
+            STEP_BOOKS as u64,
+            STEP_BOOKS,
+        )
+        .unwrap();
+    assert_eq!(second, restarted);
+    assert!(first.iter().all(|b| !second.contains(b)));
 }
