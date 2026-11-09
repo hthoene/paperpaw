@@ -33,6 +33,12 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> Book {
         // Copied fallibly; with no memory the book is not written down (it
         // is read from the book again at the next walk).
         if super::fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
+            // Not indexed (nor marked as read), and of no known size: the
+            // catalog line made of it names the file, and a line of a book
+            // of another size is made again at the next walk (a walk that
+            // finds the size it names takes the line as it is).
+            book.indexed = false;
+            book.size = 0;
             return book;
         }
     }
