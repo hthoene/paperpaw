@@ -134,7 +134,11 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
   provider keeps its documents between calls.
 - Gaps (ignored cases): the host takes the declaration (`BLOCKED DOC-format-declaration`, Host #417 /
   Core #944), puts the card path in `fmt.call.text` (`BLOCKED DOC-format-card-path`, Kernel todo 336,
-  Host todos 329/109); so a note cannot be opened through the real document service yet. The
+  Host todos 329/109); so a note cannot be opened through the real document service yet.
+  Activation list (cases to un-ignore when the host lands, in `tests/acceptance_pending.rs`):
+  `BLOCKED DOC-format-declaration` (the host takes `notes-vault.markdown`) and
+  `BLOCKED DOC-format-card-path` (the card path in `fmt.call.text`); both must pass before the
+  interface-6 `MarkdownDocument` registration goes with todo 90. The
   `add_book_cache` registration has no interface-7 form: the host owns each document's cache (root 6).
   Each `core.format` call opens `core.files` and gives it back (two buffers of about 4 KiB); not
   measured on the X4. No scripted-host test of `Event::StageCall` (the scripted host has none).

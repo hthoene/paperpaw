@@ -383,6 +383,23 @@ impl<'a> Vault<'a> {
     }
 }
 
+/// How much of `bytes` ends on a character: the cut-off beginning of a
+/// UTF-8 sequence at the end is left out.
+fn whole_chars(bytes: &[u8]) -> usize {
+    for back in 1..=bytes.len().min(3) {
+        let at = bytes.len() - back;
+        let need = match bytes[at] {
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
+            0x80..=0xbf => continue,
+            _ => return bytes.len(),
+        };
+        return if need > back { at } else { bytes.len() };
+    }
+    bytes.len()
+}
+
 /// The pictures the file at `path` embeds (`![[name]]`), each once, at
 /// most [`MAX_LOOKUPS`]: read a piece at a time, as the file is converted.
 fn embedded_pictures(storage: &dyn Storage, path: &str) -> Result<Vec<String>, DocumentError> {
@@ -400,7 +417,9 @@ fn embedded_pictures(storage: &dyn Storage, path: &str) -> Result<Vec<String>, D
         at += n as u64;
         fallible::reserve(&mut window, n)?;
         window.extend_from_slice(&chunk[..n]);
-        let text = fallible::lossy(&window)?;
+        // A character cut by the end of the piece waits for the next one.
+        let whole = whole_chars(&window);
+        let text = fallible::lossy(&window[..whole])?;
         let mut from = 0;
         while let Some(found) = text[from..].find("![[") {
             let start = from + found;
@@ -429,8 +448,9 @@ fn embedded_pictures(storage: &dyn Storage, path: &str) -> Result<Vec<String>, D
             keep += 1;
         }
         let mut rest: Vec<u8> = Vec::new();
-        fallible::reserve_exact(&mut rest, text.len() - keep)?;
+        fallible::reserve_exact(&mut rest, text.len() - keep + (window.len() - whole))?;
         rest.extend_from_slice(&text.as_bytes()[keep..]);
+        rest.extend_from_slice(&window[whole..]);
         window = rest;
         if window.len() > MAX_LINK + 8 {
             window.clear();
@@ -613,6 +633,26 @@ mod tests {
         assert_eq!(vault.find("none.png").unwrap(), None);
         // Answered from what was kept: nothing more is listed.
         assert_eq!(storage.1.get(), listed);
+    }
+
+    #[test]
+    fn a_name_cut_by_the_end_of_a_piece_is_found_whole() {
+        // The first piece read ends inside the multi-byte character of the
+        // name, at each byte of it.
+        for ch in ['ü', '€', '😀'] {
+            for inside in 1..ch.len_utf8() {
+                let name = alloc::format!("b{ch}.png");
+                let pad = 1024 - "![[b".len() - inside;
+                let note = alloc::format!("{}![[{name}]] ", " ".repeat(pad));
+                let storage = MemoryStorage::new().with("v/n.md", note.into_bytes());
+                let found = embedded_pictures(&storage, "v/n.md").unwrap();
+                assert_eq!(
+                    found.as_slice(),
+                    &[name.as_str()],
+                    "{name}, cut {inside} bytes in"
+                );
+            }
+        }
     }
 
     #[test]

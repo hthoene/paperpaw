@@ -68,6 +68,9 @@ impl MarkdownDocument {
             || storage.size(&html_path).is_err()
         {
             let _ = storage.create_dir(&dir);
+            // A stamp that still matches would vouch for a half-written
+            // `book.html` if the conversion stops (a refused allocation).
+            let _ = storage.remove(&stamp_path);
             convert(storage, path, &html_path, in_vault)?;
             storage.write(&stamp_path, stamp.as_bytes())?;
         }
@@ -1057,6 +1060,82 @@ mod tests {
             texts,
             ["Notes", "A first paragraph.", "Part", "•\u{a0}item"]
         );
+    }
+
+    /// A storage whose appends can be made to fail.
+    struct FailingAppend(MemoryStorage, core::cell::Cell<bool>);
+
+    impl Storage for FailingAppend {
+        fn read_at(
+            &self,
+            p: &str,
+            at: u64,
+            b: &mut [u8],
+        ) -> Result<usize, paperpaw_sdk::StorageError> {
+            self.0.read_at(p, at, b)
+        }
+        fn size(&self, p: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+            self.0.size(p)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.write(p, d)
+        }
+        fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+            if self.1.get() {
+                return Err(paperpaw_sdk::StorageError::Io);
+            }
+            self.0.append(p, d)
+        }
+        fn list(
+            &self,
+            dir: &str,
+            visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+        ) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, p: &str) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.remove(p)
+        }
+        fn exists(&self, p: &str) -> bool {
+            self.0.exists(p)
+        }
+        fn rename(&self, a: &str, b: &str) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.rename(a, b)
+        }
+        fn create_dir(&self, p: &str) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.create_dir(p)
+        }
+    }
+
+    #[test]
+    fn a_stopped_conversion_leaves_no_stamp_to_vouch_for_its_html() {
+        let long = "word ".repeat(1200);
+        let storage = FailingAppend(
+            MemoryStorage::new().with("v/a.md", long.into_bytes()),
+            false.into(),
+        );
+        MarkdownDocument::open(&storage, "v/a.md", true).unwrap();
+        let dir = fallible::kept_path(
+            &fallible::plugin_dir(PLUGIN.as_str()).unwrap(),
+            "md-",
+            "v/a.md",
+        )
+        .unwrap();
+        let (html, stamp) = (format!("{dir}/book.html"), format!("{dir}/source"));
+        assert!(storage.exists(&stamp));
+        // The HTML is gone, the stamp still matches the note: the next
+        // conversion stops half way.
+        storage.remove(&html).unwrap();
+        storage.1.set(true);
+        assert!(MarkdownDocument::open(&storage, "v/a.md", true).is_err());
+        assert!(
+            !storage.exists(&stamp),
+            "a stamp stayed for a partial book.html"
+        );
+        // Opened again, it is converted whole.
+        storage.1.set(false);
+        MarkdownDocument::open(&storage, "v/a.md", true).unwrap();
+        assert!(storage.exists(&stamp));
     }
 
     #[test]
