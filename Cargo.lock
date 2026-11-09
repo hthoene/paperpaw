@@ -1624,6 +1624,7 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-graphics",
  "paperpaw-hid",
+ "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
@@ -2643,6 +2644,7 @@ dependencies = [
  "paperpaw-plugin-sleep",
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2771,6 +2773,7 @@ name = "paperpaw-scripted-host"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
 ]

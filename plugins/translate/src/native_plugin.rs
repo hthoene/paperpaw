@@ -34,10 +34,6 @@ use paperpaw_ui_kit::{
     read_event, uitext,
 };
 
-#[expect(
-    dead_code,
-    reason = "the slot offer and the language setting are in the image, submitted once the host admits them"
-)]
 mod image {
     include!(concat!(env!("OUT_DIR"), "/translate_declarations.rs"));
 }
@@ -63,10 +59,14 @@ pub struct NativeTranslate {
 
 impl Plugin for NativeTranslate {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        // `image::OFFER` (the slot `core.translate`) is submitted when the host
-        // admits slot offers (#522), `image::SETTINGS` when a choice may have 33
-        // values (draft 29); `PORTING-7.md` says what that costs until then.
-        for batch in image::SCREEN.iter().chain(image::EVENTS) {
+        // `image::SETTINGS` is submitted when a choice may have 33 values
+        // (draft 29); `PORTING-7.md` says what that costs until then. The
+        // offer comes after the screen it names.
+        for batch in image::SCREEN
+            .iter()
+            .chain(image::OFFER)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())

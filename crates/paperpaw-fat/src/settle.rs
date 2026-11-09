@@ -20,7 +20,7 @@ pub(super) fn move_record(from: &str, to: &str) -> Result<Vec<u8>, StorageError>
     let mut record = Vec::new();
     record
         .try_reserve_exact(MOVE_HEAD + len)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     record.extend_from_slice(MOVE);
     record.extend_from_slice(
         &u32::try_from(len)
@@ -134,7 +134,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 let mut whole = Vec::new();
                 whole
                     .try_reserve_exact(len)
-                    .map_err(|_| StorageError::TooLarge)?;
+                    .map_err(|_| StorageError::OutOfMemory)?;
                 whole.extend_from_slice(record);
                 whole.resize(len, 0);
                 self.write_whole(JOURNAL, &whole)
@@ -164,7 +164,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         let mut record = Vec::new();
         record
             .try_reserve_exact(MOVE_HEAD + paths)
-            .map_err(|_| StorageError::TooLarge)?;
+            .map_err(|_| StorageError::OutOfMemory)?;
         record.extend_from_slice(&head);
         record.resize(MOVE_HEAD + paths, 0);
         file.read_exact(&mut record[MOVE_HEAD..]).map_err(error)?;
@@ -404,3 +404,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "settle_tests.rs"]
+mod tests;
