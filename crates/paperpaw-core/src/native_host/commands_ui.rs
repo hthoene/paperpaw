@@ -9,6 +9,12 @@ pub(super) struct UiContext<'a> {
     screen: Option<ScreenKey>,
     hop: u8,
     open_budget: u32,
+    /// The labels of `command.set_hint` and whether the device has a row of
+    /// hints (without one the command is checked and does nothing).
+    labels: Option<(
+        &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
+        bool,
+    )>,
 }
 
 /// Deferred redraw retains the original screen instance, never a later top one.
@@ -30,8 +36,91 @@ impl<'a> CommandStage<'a> {
             screen,
             hop,
             open_budget,
+            labels: None,
         });
         self
+    }
+
+    /// Admits `command.set_hint`: `labels` keeps what instances relabel,
+    /// `row` says the device has a row of button hints. Without it the
+    /// command is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub(crate) fn with_hint_labels(
+        mut self,
+        labels: &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
+        row: bool,
+    ) -> Self {
+        if let Some(ui) = &mut self.ui {
+            ui.labels = Some((labels, row));
+        }
+        self
+    }
+
+    /// The checked `command.set_hint` copies, in order, for the host to apply
+    /// after the callback ([`HintLabels::apply`](crate::native_host::hint_labels::HintLabels::apply));
+    /// call it before [`Self::into_commands`].
+    #[must_use]
+    pub(crate) fn take_hint_sets(&mut self) -> Vec<crate::native_host::hint_labels::HintSet> {
+        core::mem::take(&mut self.staged_hints)
+    }
+
+    /// Copies the `set_hint` commands of a validated batch, checks that they
+    /// fit (at most 8 actions per instance, counting what is staged) and takes
+    /// the room for them ahead; nothing is listed on a refusal. On a device
+    /// without a row of hints they do nothing.
+    pub(super) fn reserve_hints(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let Some((labels, true)) = self.ui.as_ref().and_then(|ui| ui.labels) else {
+            return Ok(());
+        };
+        let count = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::SetHint { .. }))
+            .count();
+        if count == 0 {
+            return Ok(());
+        }
+        let instance = self.own_top()?.serial();
+        let start = self.staged_hints.len();
+        self.staged_hints
+            .try_reserve(count)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        for command in batch.iter() {
+            let WireCommand::SetHint {
+                action,
+                kind,
+                label,
+            } = command
+            else {
+                continue;
+            };
+            let checked = (|| {
+                labels.try_borrow().map_err(|_| ERR_BUSY)?.admits(
+                    instance,
+                    &self.staged_hints,
+                    action,
+                    kind == 0,
+                )?;
+                crate::native_host::hint_labels::make(instance, action, kind, label)
+            })();
+            match checked {
+                // Capacity was reserved above.
+                Ok(set) => self.staged_hints.push(set),
+                Err(error) => {
+                    self.staged_hints.truncate(start);
+                    return Err(error);
+                }
+            }
+        }
+        let made = &self.staged_hints[start..];
+        let reserved = labels
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)
+            .and_then(|mut labels| labels.reserve(made));
+        if let Err(error) = reserved {
+            self.staged_hints.truncate(start);
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
@@ -101,6 +190,18 @@ impl<'a> CommandStage<'a> {
                 Ok(action.len())
             }
             WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::SetHint {
+                action,
+                kind,
+                label,
+            } => {
+                if ui.labels.is_none() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                crate::native_host::hint_labels::check(action, kind, label)?;
+                self.own_top()?;
+                Ok(action.len() + label.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }

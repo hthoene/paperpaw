@@ -100,6 +100,8 @@ pub struct CommandStage<'a> {
     images: Option<ImageAdmit>,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
+    /// The checked `command.set_hint` copies, applied after the callback.
+    staged_hints: Vec<super::hint_labels::HintSet>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -131,6 +133,7 @@ impl<'a> CommandStage<'a> {
             accepted: 0,
             images: None,
             staged_images: Vec::new(),
+            staged_hints: Vec::new(),
         }
     }
 
@@ -264,17 +267,15 @@ impl<'a> CommandStage<'a> {
             }
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = batch
-            .iter()
-            .filter(|command| {
-                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
-            })
-            .count()
-            - image_commands;
+        let stored = Self::stored_count(batch) - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
         {
             return ERR_NO_MEMORY;
+        }
+        let start_hints = self.staged_hints.len();
+        if let Err(error) = self.reserve_hints(batch) {
+            return error;
         }
         if let Err(error) = self.dev_reserve(batch) {
             return error;
@@ -284,6 +285,7 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
+            self.staged_hints.truncate(start_hints);
             self.dev_rollback(dev_start);
             return error;
         }
@@ -296,6 +298,19 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// How many of `batch` go to the staged `Command`s (before the images).
+    fn stored_count(batch: &CommandBatch<'_>) -> usize {
+        batch
+            .iter()
+            .filter(|command| {
+                !matches!(
+                    command,
+                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                ) && !dev::is_dev(command)
+            })
+            .count()
     }
 
     /// How many of `batch` are image commands the host admitted.
@@ -319,6 +334,10 @@ impl<'a> CommandStage<'a> {
     ) -> Result<(), i32> {
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
+            // Copied and listed ahead (`reserve_hints`).
+            if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
             if dev::is_dev(&command) {
@@ -485,6 +504,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_hint_tests.rs"]
+mod hint_tests;
 
 #[cfg(test)]
 mod tests {

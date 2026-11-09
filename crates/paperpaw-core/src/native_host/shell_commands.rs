@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop)) = {
+        let (status, owner, (commands, redraw, _hop), hints) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -68,6 +68,10 @@ impl Kernel {
                     target.screen,
                     target.hop,
                     self.screen_keys_remaining(),
+                )
+                .with_hint_labels(
+                    self.shared.stack_rows.labels(),
+                    !self.hint.buttons.is_empty(),
                 );
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
@@ -77,11 +81,18 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
+                let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output))
+                Ok::<_, Error>((status, owner, output, hints))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
+        // The labels the callback set; room was taken when they were checked.
+        if !hints.is_empty()
+            && let Ok(mut labels) = self.shared.stack_rows.labels().try_borrow_mut()
+        {
+            labels.apply(hints);
+        }
         Ok(status)
     }
 }
