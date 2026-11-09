@@ -63,6 +63,11 @@ fn the_host_admits_the_setting_and_names_what_it_refuses() {
         let records = records_decode(&batch).unwrap();
         let mut refused = 0;
         for record in records.iter() {
+            // The work event is admitted; only the provider is refused.
+            if format!("{record:?}").starts_with("Registration(Event") {
+                validate_record("dictionary", &record).unwrap();
+                continue;
+            }
             assert_eq!(
                 validate_record("dictionary", &record),
                 Err(ERR_UNSUPPORTED),
