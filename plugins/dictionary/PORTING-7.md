@@ -91,3 +91,8 @@ no further bump).
   dictionaries (`forget_others`) and the `failed` marker of an index that could not be made (a restart
   tries again).
 - Goldens: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
+- Not in the app's `NATIVE_PLUGINS`: like the other native-only plugins it joins the program at activation
+  (Core #944); until then no dictionary runs in the desktop or Android program.
+- A dictionary that cannot be read is skipped at every lookup, and an index that cannot be made is tried
+  again at every start (interface 6 kept a `failed` marker with the files' sizes).
+
