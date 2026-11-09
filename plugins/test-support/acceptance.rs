@@ -98,7 +98,11 @@ fn read_png(path: &Path) -> Result<(usize, usize, Vec<u8>), String> {
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let data = &data[..info.buffer_size()];
     if info.bit_depth != png::BitDepth::Eight {
-        return Err(format!("{}: {:?} after widening", path.display(), info.bit_depth));
+        return Err(format!(
+            "{}: {:?} after widening",
+            path.display(),
+            info.bit_depth
+        ));
     }
     let gray = match info.color_type {
         png::ColorType::Grayscale => data.to_vec(),

@@ -45,7 +45,13 @@ fn scratch(test: &str) -> PathBuf {
     folder
 }
 
-fn write_png(path: &Path, size: (u32, u32), color: png::ColorType, depth: png::BitDepth, data: &[u8]) {
+fn write_png(
+    path: &Path,
+    size: (u32, u32),
+    color: png::ColorType,
+    depth: png::BitDepth,
+    data: &[u8],
+) {
     let file = std::fs::File::create(path).unwrap();
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), size.0, size.1);
     encoder.set_color(color);
@@ -108,7 +114,13 @@ fn the_comparison_is_exact_and_leaves_evidence() {
     let mut gray = vec![255_u8; 8 * 4];
     gray[9] = 0;
     let png = folder.join("tiny.png");
-    write_png(&png, (8, 4), png::ColorType::Grayscale, png::BitDepth::Eight, &gray);
+    write_png(
+        &png,
+        (8, 4),
+        png::ColorType::Grayscale,
+        png::BitDepth::Eight,
+        &gray,
+    );
     let frame = Frame {
         width: 8,
         height: 4,
@@ -125,12 +137,17 @@ fn the_comparison_is_exact_and_leaves_evidence() {
         height: 8,
         gray,
     };
-    assert!(wrong_size
+    assert!(
+        wrong_size
             .matches_golden_in(&png, &folder)
-            .unwrap_err().contains("8x4"));
-    assert!(frame
-        .matches_golden_in(&folder.join("missing.png"), &folder)
-        .is_err());
+            .unwrap_err()
+            .contains("8x4")
+    );
+    assert!(
+        frame
+            .matches_golden_in(&folder.join("missing.png"), &folder)
+            .is_err()
+    );
     let _ = std::fs::remove_dir_all(&folder);
 }
 
@@ -146,7 +163,13 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
     };
     // Two bits a pixel: 0, 1, 2, 3 widen to 0, 85, 170, 255.
     let two = folder.join("two.png");
-    write_png(&two, (4, 1), png::ColorType::Grayscale, png::BitDepth::Two, &[0b0001_1011]);
+    write_png(
+        &two,
+        (4, 1),
+        png::ColorType::Grayscale,
+        png::BitDepth::Two,
+        &[0b0001_1011],
+    );
     assert_eq!(frame.matches_golden_in(&two, &folder), Ok(()));
     let mut off = frame.clone();
     off.gray[1] = 84;
@@ -185,6 +208,11 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
         png::BitDepth::Eight,
         &[1, 255, 255, 255],
     );
-    assert!(two_px.matches_golden_in(&alpha, &folder).unwrap_err().contains("unexpected"));
+    assert!(
+        two_px
+            .matches_golden_in(&alpha, &folder)
+            .unwrap_err()
+            .contains("unexpected")
+    );
     let _ = std::fs::remove_dir_all(&folder);
 }
