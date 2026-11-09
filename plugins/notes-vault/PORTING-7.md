@@ -1,8 +1,8 @@
-# Notes vault on interface 7 (slices 1 and 2, partly ported)
+# Notes vault on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the Markdown format, the vault's page, lists and
 tags screens, the index, the home widgets, the registration) is still in place beside the native
-one; the screens are native since slice 2, the format and the widgets are not. It is removed in the PR that finishes the port.
+one; the screens are native since slice 2, the Markdown format since slice 3 (up to what the host takes), the widgets are not. It is removed in the PR that finishes the port.
 
 ## Ported in slice 1 (`declarations.rs`, `src/native_model/`, `src/native_plugin.rs`)
 
@@ -93,12 +93,49 @@ one; the screens are native since slice 2, the format and the widgets are not. I
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The **Markdown format** (`MarkdownDocument`, front matter, wiki links, tables): a format
-  declaration (`sdk: format declaration through the typed codec`, #493) and the `core.format`
-  provider with the document host (Host #417); the parser is not touched in this slice (it has
-  about 60 infallible allocations to make fallible, then a provider as `format-txt`'s).
-  `add_book_cache` (what is converted of each note) needs the book-cache declaration.
 - The **home widgets** (recent notes, pinned note, note of the day, random note, tags, search): the
   widget host call (Core todo 76) and the ui-kit widget toolkit.
 - The vault's folder editor is the slot `core.choose-folder`; interface 6 named the screen
   `core.folder-editor`. Same chooser; the registry-through-loader case checks it.
+
+## Ported in slice 3: the Markdown format (`src/markdown*`, `src/fallible.rs`, `src/native_format.rs`)
+
+- The parser is the interface-6 one, made fallible: every growth on the way of opening and reading a
+  note (`markdown.rs`, `front`, `table`, `wiki`) goes through `src/fallible.rs` (a small copy of
+  format-epub's: that crate's is private) or `try_reserve`; a refusal is `DocumentError::OutOfMemory`,
+  never an abort. The vault walk (pictures an embed names, below the `.obsidian` folder) keeps what the
+  listing's callback cannot answer in a `Walk` and ends the open. `tests/markdown_allocation.rs`
+  refuses each allocation of opening and reading a vault note in turn (front matter, wikilinks,
+  embeds, a table, a callout, a code block) and checks the output is a clean run's, and that a retry
+  reads. The same code serves interface 6 (the registration stays until the host activates native
+  plugins).
+- Differences, on purpose: file names of the picture walk and of the callout kind are lower-cased
+  character by character (as the names of the index are, slice 1), so a Greek name that ends in a
+  capital sigma differs from `str::to_lowercase`; a picture that is on the card and cannot be decoded
+  is the format plugin's (`image_error` words the decoder's error without asking for room): the sweep
+  leaves such a file out.
+- `native_format::markdown_provider()` is the shared `FormatProvider` of format-epub over
+  `MarkdownDocument`; the call's storage is `VaultIo`: the note is root 3 (`path ""`), the
+  conversion root 6, and every other path is the card (root 1, read only, `core.files` through
+  `native_card::with_card_or_none`: a card the plugin may not read is one with nothing on it, the
+  note then reads without a vault). The card path of the note is the call's `text` (Kernel: the host
+  puts it there for a format that declares `uses.storage`, where the book came from the card; todo
+  336); with none the note is read without a vault, and its title is empty (root 3 has no name: the
+  library names an untitled book by its file, as for format-txt). `tests/provider.rs` compares the
+  provider with the interface-6 reader on the same vault note block by block (texts, runs, maps, spans,
+  metadata), with and without a card path, and checks `VaultIo`'s routing and refusals and hostile
+  paths.
+- `declarations::formats` declares `notes-vault.markdown` for `md` and `markdown`, priority 10 (the
+  format plugins' own Markdown is priority 0; the user's choice of format for an extension wins over
+  both). `make` submits it after the settings and the screens and goes on where the host answers
+  `ERR_UNSUPPORTED` (it takes no `format.spec` yet, `declarations.rs` admits it and answers
+  unsupported). The `core.format` calls arrive as `Event::StageCall` (`stage "core.format"`), need
+  no screen, and are answered by `native_plugin::format_call` (reply of at most 3,840 bytes); the
+  provider keeps its documents between calls.
+- Gaps (ignored cases): the host takes the declaration (`BLOCKED DOC-format-declaration`, Host #417 /
+  Core #944), puts the card path in `fmt.call.text` (`BLOCKED DOC-format-card-path`, Kernel todo 336,
+  Host todos 329/109); so a note cannot be opened through the real document service yet. The
+  `add_book_cache` registration has no interface-7 form: the host owns each document's cache (root 6).
+  Each `core.format` call opens `core.files` and gives it back (two buffers of about 4 KiB); not
+  measured on the X4. No scripted-host test of `Event::StageCall` (the scripted host has none).
+  The shared provider's own allocation sweep is format-epub's (ignored there until Core todo 208).

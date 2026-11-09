@@ -10,16 +10,16 @@
 //! [`front`]), callouts (`> [!note] Title`), `#tags` as they are, tables
 //! (see [`table`]) and the anchors of headings, for links to them.
 
-use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{Block, Document, DocumentError, Link, Locator, Metadata, TocEntry};
-use paperpaw_sdk::{Env, Storage};
 
 use paperpaw_plugin_format_epub::HtmlDocument;
 
 use crate::PLUGIN;
+use crate::fallible::{self, TryExtend, TryPush, TryPushStr};
 
 mod front;
 mod table;
@@ -39,35 +39,55 @@ pub struct MarkdownDocument {
 }
 
 impl MarkdownDocument {
+    /// Opens the note at `path` of the card, which is in a vault.
+    ///
+    /// # Errors
+    /// What reading and converting the note says; a refused allocation is
+    /// [`DocumentError::OutOfMemory`].
     pub fn open(storage: &dyn Storage, path: &str, styles: bool) -> Result<Self, DocumentError> {
-        let dir = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "md-", path);
-        let html_path = format!("{dir}/book.html");
-        let stamp = format!(
-            "{MD_VERSION} {}\n",
-            paperpaw_plugin_format_epub::fingerprint(storage, path)?
-        );
-        let stamp_path = format!("{dir}/source");
-        if paperpaw_sdk::read_file(storage, &stamp_path, 128).ok()
-            != Some(stamp.clone().into_bytes())
+        Self::open_in(storage, path, styles, true)
+    }
+
+    /// As [`open`](Self::open); `in_vault` is false for a note that is not on
+    /// the card (its pictures and links are not looked for there).
+    ///
+    /// # Errors
+    /// As [`open`](Self::open).
+    pub fn open_in(
+        storage: &dyn Storage,
+        path: &str,
+        styles: bool,
+        in_vault: bool,
+    ) -> Result<Self, DocumentError> {
+        let dir = fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "md-", path)?;
+        let html_path = fallible::try_format!("{dir}/book.html")?;
+        let stamp =
+            fallible::try_format!("{MD_VERSION} {}\n", fallible::fingerprint(storage, path)?)?;
+        let stamp_path = fallible::try_format!("{dir}/source")?;
+        if !fallible::file_is(storage, &stamp_path, stamp.as_bytes())
             || storage.size(&html_path).is_err()
         {
             let _ = storage.create_dir(&dir);
-            convert(storage, path, &html_path)?;
+            convert(storage, path, &html_path, in_vault)?;
             storage.write(&stamp_path, stamp.as_bytes())?;
         }
         // Converted in the Markdown file's cache, so it goes with it.
-        let html =
-            HtmlDocument::open_with_pictures(storage, &html_path, styles, format!("{dir}/html"))?;
-        let mut metadata = html.metadata().clone();
+        let html = HtmlDocument::open_with_pictures(
+            storage,
+            &html_path,
+            styles,
+            fallible::try_format!("{dir}/html")?,
+        )?;
+        let mut metadata = fallible::metadata(html.metadata())?;
         if metadata.title.as_deref().is_none_or(|t| t == "book") {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
+            metadata.title = Some(fallible::string(
+                name.rsplit_once('.').map_or(name, |(s, _)| s),
+            )?);
         }
         Ok(Self { html, metadata })
     }
 }
-
-use paperpaw_sdk::xml::escape;
 
 /// A line's inline markup as HTML: `**bold**`, `*italic*`, `_italic_`,
 /// `` `code` ``, `[text](url)`, `![alt](src)` (a picture on the storage:
@@ -75,13 +95,24 @@ use paperpaw_sdk::xml::escape;
 /// web, its alternative text). `pictures` leads from the HTML to the
 /// Markdown file's folder (see [`pictures_path`]). Each character is
 /// looked at a few times at most, however the line is made.
-fn inline(text: &str, pictures: &str, vault: Option<&Vault<'_>>, out: &mut String) {
-    inline_in(text, pictures, vault, false, out);
+fn inline(
+    text: &str,
+    pictures: &str,
+    vault: Option<&Vault<'_>>,
+    out: &mut String,
+) -> Result<(), DocumentError> {
+    inline_in(text, pictures, vault, false, out)
 }
 
 /// As [`inline`]; in a link's label (`label`) no other link is read, so a
 /// label is read once more at most.
-fn inline_in(text: &str, pictures: &str, vault: Option<&Vault<'_>>, label: bool, out: &mut String) {
+fn inline_in(
+    text: &str,
+    pictures: &str,
+    vault: Option<&Vault<'_>>,
+    label: bool,
+    out: &mut String,
+) -> Result<(), DocumentError> {
     let (mut bold, mut italic) = (false, false);
     // Where the next `](` and the `)` after one are, from where each was
     // looked for: brackets before them all find them there.
@@ -94,30 +125,30 @@ fn inline_in(text: &str, pictures: &str, vault: Option<&Vault<'_>>, label: bool,
         // `[[note|label]]`, `![[picture.png]]` and `![[note]]`.
         if !label
             && matches!(c, '[' | '!')
-            && let Some(used) = wikilink(&text[i..], pictures, vault, out)
+            && let Some(used) = wikilink(&text[i..], pictures, vault, out)?
         {
             i += used;
             continue;
         }
         match c {
             '\\' if next.is_some_and(|n| n.is_ascii_punctuation()) => {
-                escape(&text[i + 1..i + 2], out);
+                fallible::escape(&text[i + 1..i + 2], out)?;
                 i += 2;
             }
             '`' => match text[i + 1..].find('`') {
                 Some(end) => {
-                    out.push_str("<code>");
-                    escape(&text[i + 1..i + 1 + end], out);
-                    out.push_str("</code>");
+                    out.try_push_str("<code>")?;
+                    fallible::escape(&text[i + 1..i + 1 + end], out)?;
+                    out.try_push_str("</code>")?;
                     i += end + 2;
                 }
                 None => {
-                    out.push('`');
+                    out.try_push('`')?;
                     i += 1;
                 }
             },
             '*' | '_' if next == Some(c) => {
-                out.push_str(if bold { "</b>" } else { "<b>" });
+                out.try_push_str(if bold { "</b>" } else { "<b>" })?;
                 bold = !bold;
                 i += 2;
             }
@@ -126,7 +157,7 @@ fn inline_in(text: &str, pictures: &str, vault: Option<&Vault<'_>>, label: bool,
                     || next.is_some_and(|n| !n.is_whitespace())
                         && (c == '*' || before.is_none_or(|b| !b.is_alphanumeric())) =>
             {
-                out.push_str(if italic { "</i>" } else { "<i>" });
+                out.try_push_str(if italic { "</i>" } else { "<i>" })?;
                 italic = !italic;
                 i += 1;
             }
@@ -143,76 +174,89 @@ fn inline_in(text: &str, pictures: &str, vault: Option<&Vault<'_>>, label: bool,
                     .flatten();
                 match link {
                     Some((alt, src, end)) if image => {
-                        picture(alt, src, pictures, out);
+                        picture(alt, src, pictures, out)?;
                         i = end;
                     }
                     Some((words, url, end)) => {
-                        html_link(words, url, pictures, vault, out);
+                        html_link(words, url, pictures, vault, out)?;
                         i = end;
                     }
                     None => {
-                        escape(&text[i..i + 1], out);
+                        fallible::escape(&text[i..i + 1], out)?;
                         i += 1;
                     }
                 }
             }
             c => {
-                escape(&text[i..i + c.len_utf8()], out);
+                fallible::escape(&text[i..i + c.len_utf8()], out)?;
                 i += c.len_utf8();
             }
         }
     }
     if italic {
-        out.push_str("</i>");
+        out.try_push_str("</i>")?;
     }
     if bold {
-        out.push_str("</b>");
+        out.try_push_str("</b>")?;
     }
+    Ok(())
 }
 
 /// A picture `![alt](src)` as HTML: one on the storage, else (from the
 /// web) its alternative text.
-fn picture(alt: &str, src: &str, pictures: &str, out: &mut String) {
+fn picture(alt: &str, src: &str, pictures: &str, out: &mut String) -> Result<(), DocumentError> {
     let src = src.split_whitespace().next().unwrap_or_default();
     if src.contains("://") || src.is_empty() {
-        escape(alt, out);
-        return;
+        return fallible::escape(alt, out);
     }
-    out.push_str("<img src=\"");
+    out.try_push_str("<img src=\"")?;
     match src.strip_prefix('/') {
         // From the root: up to it, then down.
         Some(root) => {
-            let up = pictures.matches("../").count();
-            escape(&"../".repeat(up), out);
-            escape(root, out);
+            up_to_root(pictures, out)?;
+            fallible::escape(root, out)?;
         }
         None => {
-            escape(pictures, out);
-            escape(src, out);
+            fallible::escape(pictures, out)?;
+            fallible::escape(src, out)?;
         }
     }
-    out.push_str("\" alt=\"");
-    escape(alt, out);
-    out.push_str("\"/>");
+    out.try_push_str("\" alt=\"")?;
+    fallible::escape(alt, out)?;
+    out.try_push_str("\"/>")
+}
+
+/// As many `../` as `pictures` has: from the HTML's folder up to the root.
+fn up_to_root(pictures: &str, out: &mut String) -> Result<(), DocumentError> {
+    for _ in 0..pictures.matches("../").count() {
+        fallible::escape("../", out)?;
+    }
+    Ok(())
 }
 
 /// A link `[words](url)` as HTML; a note's own file is led to from the
 /// root, where the reader finds it.
-fn html_link(words: &str, url: &str, pictures: &str, vault: Option<&Vault<'_>>, out: &mut String) {
+fn html_link(
+    words: &str,
+    url: &str,
+    pictures: &str,
+    vault: Option<&Vault<'_>>,
+    out: &mut String,
+) -> Result<(), DocumentError> {
     let url = url.split_whitespace().next().unwrap_or_default();
-    out.push_str("<a href=\"");
+    out.try_push_str("<a href=\"")?;
     if url.is_empty() || url.starts_with('#') || paperpaw_sdk::document::is_external(url) {
-        escape(url, out);
+        fallible::escape(url, out)?;
     } else if let Some(root) = url.strip_prefix('/') {
-        escape(&"../".repeat(pictures.matches("../").count()), out);
-        escape(root, out);
+        up_to_root(pictures, out)?;
+        fallible::escape(root, out)?;
     } else {
-        escape(pictures, out);
-        escape(url, out);
+        fallible::escape(pictures, out)?;
+        fallible::escape(url, out)?;
     }
-    out.push_str("\">");
-    inline_in(words, pictures, vault, true, out);
-    out.push_str("</a>");
+    out.try_push_str("\">")?;
+    inline_in(words, pictures, vault, true, out)?;
+    out.try_push_str("</a>")
 }
 
 /// The wikilink or embed at the start of `text` as HTML, and how many
@@ -222,9 +266,11 @@ fn wikilink(
     pictures: &str,
     vault: Option<&Vault<'_>>,
     out: &mut String,
-) -> Option<usize> {
+) -> Result<Option<usize>, DocumentError> {
     let embed = text.starts_with("![[");
-    let (link, used) = wiki::parse(&text[usize::from(embed)..])?;
+    let Some((link, used)) = wiki::parse(&text[usize::from(embed)..]) else {
+        return Ok(None);
+    };
     let used = used + usize::from(embed);
     if embed && wiki::is_picture(link.target) {
         // The words shown where the picture is not: its name, not a size
@@ -233,29 +279,32 @@ fn wikilink(
             .label
             .is_some_and(|l| l.chars().all(|c| c.is_ascii_digit() || c == 'x'));
         let alt = link.label.filter(|_| !sized).unwrap_or(link.target);
-        match vault.and_then(|v| v.find(link.target)) {
+        let found = match vault {
+            Some(vault) => vault.find(link.target)?,
+            None => None,
+        };
+        match found {
             Some(path) => {
                 // From the HTML's folder up to the root, then down.
-                let up = pictures.matches("../").count();
-                out.push_str("<img src=\"");
-                escape(&"../".repeat(up), out);
-                escape(&path, out);
-                out.push_str("\" alt=\"");
-                escape(alt, out);
-                out.push_str("\"/>");
+                out.try_push_str("<img src=\"")?;
+                up_to_root(pictures, out)?;
+                fallible::escape(&path, out)?;
+                out.try_push_str("\" alt=\"")?;
+                fallible::escape(alt, out)?;
+                out.try_push_str("\"/>")?;
             }
-            None => escape(alt, out),
+            None => fallible::escape(alt, out)?,
         }
-        return Some(used);
+        return Ok(Some(used));
     }
     let mut shown = String::new();
-    link.shown(&mut shown);
-    out.push_str("<a href=\"");
-    link.href(pictures, out);
-    out.push_str("\">");
-    inline_in(&shown, pictures, vault, true, out);
-    out.push_str("</a>");
-    Some(used)
+    link.shown(&mut shown)?;
+    out.try_push_str("<a href=\"")?;
+    link.href(pictures, out)?;
+    out.try_push_str("\">")?;
+    inline_in(&shown, pictures, vault, true, out)?;
+    out.try_push_str("</a>")?;
+    Ok(Some(used))
 }
 
 /// Where `what` is next in a text, at or after where it was asked for:
@@ -315,30 +364,32 @@ struct State<'a> {
 }
 
 impl State<'_> {
-    fn close_paragraph(&mut self, out: &mut String) {
+    fn close_paragraph(&mut self, out: &mut String) -> Result<(), DocumentError> {
         if self.paragraph {
-            out.push_str("</p>\n");
+            out.try_push_str("</p>\n")?;
             self.paragraph = false;
         }
         if self.item {
-            out.push_str("</li>\n");
+            out.try_push_str("</li>\n")?;
             self.item = false;
         }
+        Ok(())
     }
 
-    fn close_blocks(&mut self, out: &mut String) {
-        self.close_paragraph(out);
+    fn close_blocks(&mut self, out: &mut String) -> Result<(), DocumentError> {
+        self.close_paragraph(out)?;
         if core::mem::take(&mut self.table) {
-            out.push_str("</table>\n");
+            out.try_push_str("</table>\n")?;
         }
         if let Some(list) = self.list.take() {
-            out.push_str(&format!("</{list}>\n"));
+            out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
         }
         if self.quote {
-            out.push_str("</blockquote>\n");
+            out.try_push_str("</blockquote>\n")?;
             self.quote = false;
             self.callout = false;
         }
+        Ok(())
     }
 }
 
@@ -348,48 +399,53 @@ impl State<'_> {
     clippy::too_many_lines,
     reason = "longer than the limit from before it was set; split it when it is next changed"
 )]
-fn line(raw: &str, state: &mut State<'_>, out: &mut String, cut: bool) {
+fn line(
+    raw: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+    cut: bool,
+) -> Result<(), DocumentError> {
     let br = core::mem::replace(&mut state.br, !cut && raw.ends_with("  "));
     if core::mem::replace(&mut state.cut, cut) {
         // The rest of a line cut short: more of the block it began, as
         // written (its white space was not trimmed at the cut).
         if state.code {
-            escape(raw, out);
+            fallible::escape(raw, out)?;
             if !cut {
-                out.push('\n');
+                out.try_push('\n')?;
             }
-            return;
+            return Ok(());
         }
         if !state.paragraph && !state.item {
-            out.push_str("<p>");
+            out.try_push_str("<p>")?;
             state.paragraph = true;
         }
-        inline(raw, &state.pictures, state.vault.as_ref(), out);
-        return;
+        inline(raw, &state.pictures, state.vault.as_ref(), out)?;
+        return Ok(());
     }
     let line = if cut { raw } else { raw.trim_end() };
     let trimmed = line.trim_start();
     if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
         if state.code {
-            out.push_str("</pre>\n");
+            out.try_push_str("</pre>\n")?;
             state.code = false;
         } else {
-            state.close_blocks(out);
-            out.push_str("<pre>");
+            state.close_blocks(out)?;
+            out.try_push_str("<pre>")?;
             state.code = true;
         }
-        return;
+        return Ok(());
     }
     if state.code {
-        escape(line, out);
+        fallible::escape(line, out)?;
         if !cut {
-            out.push('\n');
+            out.try_push('\n')?;
         }
-        return;
+        return Ok(());
     }
     if trimmed.is_empty() {
-        state.close_paragraph(out);
-        return;
+        state.close_paragraph(out)?;
+        return Ok(());
     }
     // A block quote: the rest of the line read on.
     let (quoted, text) = match trimmed.strip_prefix('>') {
@@ -399,52 +455,56 @@ fn line(raw: &str, state: &mut State<'_>, out: &mut String, cut: bool) {
     // A line cut short goes on: what ends it is not the line's end.
     let text = if cut { text } else { without_block_id(text) };
     let opened = quoted && !state.quote;
+    let title = if opened { callout(text)? } else { None };
     if quoted != state.quote {
-        state.close_blocks(out);
+        state.close_blocks(out)?;
         if quoted {
-            state.callout = opened && callout(text).is_some();
-            out.push_str(if state.callout {
+            state.callout = title.is_some();
+            out.try_push_str(if state.callout {
                 "<blockquote style=\"text-align:left\">\n"
             } else {
                 "<blockquote>\n"
-            });
+            })?;
             state.quote = true;
         }
     }
     // A callout (`> [!note] Title`) is a quote that begins with its title.
-    if opened && let Some(title) = callout(text) {
-        out.push_str(FLUSH_P);
-        out.push_str("<b>");
-        inline(&title, &state.pictures, state.vault.as_ref(), out);
-        out.push_str("</b></p>\n");
-        return;
+    if let Some(title) = title {
+        out.try_push_str(FLUSH_P)?;
+        out.try_push_str("<b>")?;
+        inline(&title, &state.pictures, state.vault.as_ref(), out)?;
+        out.try_push_str("</b></p>\n")?;
+        return Ok(());
     }
     let heading = text.chars().take_while(|&c| c == '#').count();
     if (1..=6).contains(&heading) && text[heading..].starts_with(' ') {
-        state.close_blocks(out);
+        state.close_blocks(out)?;
         let title = text[heading..].trim().trim_end_matches('#').trim();
-        let id = wiki::slug(title);
+        let id = wiki::slug(title)?;
         if id.is_empty() {
-            out.push_str(&format!("<h{heading}>"));
+            out.try_push_str(&fallible::try_format!("<h{heading}>")?)?;
         } else {
-            out.push_str(&format!("<h{heading} id=\"{id}\">"));
+            out.try_push_str(&fallible::try_format!("<h{heading} id=\"{id}\">")?)?;
         }
-        inline(title, &state.pictures, state.vault.as_ref(), out);
-        out.push_str(&format!("</h{heading}>\n"));
-        return;
+        inline(title, &state.pictures, state.vault.as_ref(), out)?;
+        out.try_push_str(&fallible::try_format!("</h{heading}>\n")?)?;
+        return Ok(());
     }
-    let rule = text
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>();
-    if rule.len() >= 3
-        && ["-", "*", "_"]
-            .iter()
-            .any(|r| rule.chars().all(|c| r.starts_with(c)))
+    // Three or more of one of `-`, `*`, `_`, white space between them aside.
+    let mut marks = text.chars().filter(|c| !c.is_whitespace());
+    let first = marks.next();
+    if first.is_some_and(|f| matches!(f, '-' | '*' | '_'))
+        && text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>()
+            >= 3
+        && marks.all(|c| Some(c) == first)
     {
-        state.close_blocks(out);
-        out.push_str("<hr/>\n");
-        return;
+        state.close_blocks(out)?;
+        out.try_push_str("<hr/>\n")?;
+        return Ok(());
     }
     let bullet = ["- ", "* ", "+ "].iter().find_map(|b| text.strip_prefix(b));
     let number = text
@@ -452,40 +512,40 @@ fn line(raw: &str, state: &mut State<'_>, out: &mut String, cut: bool) {
         .filter(|(n, _)| !n.is_empty() && n.len() <= 9 && n.chars().all(|c| c.is_ascii_digit()))
         .map(|(_, rest)| rest);
     if let Some((kind, rest)) = bullet.map(|r| ("ul", r)).or(number.map(|r| ("ol", r))) {
-        state.close_paragraph(out);
+        state.close_paragraph(out)?;
         if state.list != Some(kind) {
             if let Some(list) = state.list.take() {
-                out.push_str(&format!("</{list}>\n"));
+                out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
             }
-            out.push_str(&format!("<{kind}>\n"));
+            out.try_push_str(&fallible::try_format!("<{kind}>\n")?)?;
             state.list = Some(kind);
         }
-        out.push_str("<li>");
-        inline(rest.trim(), &state.pictures, state.vault.as_ref(), out);
+        out.try_push_str("<li>")?;
+        inline(rest.trim(), &state.pictures, state.vault.as_ref(), out)?;
         state.item = true;
-        return;
+        return Ok(());
     }
     if state.item {
         // A list item going on.
-        out.push(' ');
-        inline(text, &state.pictures, state.vault.as_ref(), out);
-        return;
+        out.try_push(' ')?;
+        inline(text, &state.pictures, state.vault.as_ref(), out)?;
+        return Ok(());
     }
     if state.list.is_some() && !state.item {
-        state.close_blocks(out);
+        state.close_blocks(out)?;
         if quoted {
-            out.push_str("<blockquote>\n");
+            out.try_push_str("<blockquote>\n")?;
             state.quote = true;
         }
     }
     if state.paragraph {
         // Two spaces at the end of the line before break the line.
-        out.push_str(if br { "<br/>" } else { " " });
+        out.try_push_str(if br { "<br/>" } else { " " })?;
     } else {
-        out.push_str(if state.callout { FLUSH_P } else { "<p>" });
+        out.try_push_str(if state.callout { FLUSH_P } else { "<p>" })?;
         state.paragraph = true;
     }
-    inline(text, &state.pictures, state.vault.as_ref(), out);
+    inline(text, &state.pictures, state.vault.as_ref(), out)
 }
 
 /// A paragraph of a callout: no indent of the first line.
@@ -494,31 +554,53 @@ const FLUSH_P: &str = "<p style=\"text-indent:0\">";
 /// The title of the callout that `text`, the first line of a quote,
 /// begins: what follows `[!kind]` (and a `+` or `-` that folds it), else
 /// the kind, in capitals as a name. `None` where it is no callout.
-fn callout(text: &str) -> Option<String> {
-    let rest = text.strip_prefix("[!")?;
-    let (kind, rest) = rest.split_once(']')?;
+fn callout(text: &str) -> Result<Option<String>, DocumentError> {
+    let Some(rest) = text.strip_prefix("[!") else {
+        return Ok(None);
+    };
+    let Some((kind, rest)) = rest.split_once(']') else {
+        return Ok(None);
+    };
     if kind.is_empty()
         || kind.len() > 24
         || !kind
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
-        return None;
+        return Ok(None);
     }
     let title = rest.trim_start_matches(['+', '-']).trim();
     let mut chars = kind.chars();
-    let first: String = chars
-        .next()
-        .into_iter()
-        .flat_map(char::to_uppercase)
-        .collect();
-    let kind = first + &chars.as_str().to_lowercase();
-    // The kind, then the title it is given.
-    Some(if title.is_empty() {
-        kind
-    } else {
-        format!("{kind} · {title}")
-    })
+    let mut name = String::new();
+    // The kind in capitals as a name, then the title it is given.
+    for c in chars.next().into_iter().flat_map(char::to_uppercase) {
+        name.try_push(c)?;
+    }
+    let rest: Vec<char> = {
+        let mut kept = Vec::new();
+        fallible::reserve_exact(&mut kept, 24)?;
+        kept.extend(chars);
+        kept
+    };
+    for (at, &c) in rest.iter().enumerate() {
+        // A capital sigma ends a word as `ς`, as `str::to_lowercase` writes it.
+        let last = c == 'Σ'
+            && at > 0
+            && rest[at - 1].is_alphabetic()
+            && !rest.get(at + 1).is_some_and(|n| n.is_alphabetic());
+        if last {
+            name.try_push('ς')?;
+        } else {
+            for lower in c.to_lowercase() {
+                name.try_push(lower)?;
+            }
+        }
+    }
+    if !title.is_empty() {
+        name.try_push_str(" · ")?;
+        name.try_push_str(title)?;
+    }
+    Ok(Some(name))
 }
 
 /// `text` without the block id some notes end a line with (` ^a1b2`),
@@ -539,70 +621,81 @@ fn without_block_id(text: &str) -> &str {
 
 /// Reads one line of the file: front matter and tables, which take lines
 /// together, then [`line`].
-fn feed(raw: &str, state: &mut State<'_>, out: &mut String, cut: bool) {
-    match state.front.feed(raw) {
+fn feed(
+    raw: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+    cut: bool,
+) -> Result<(), DocumentError> {
+    match state.front.feed(raw)? {
         Step::Past => rows(raw, state, out, cut),
-        Step::Taken => {}
+        Step::Taken => Ok(()),
         Step::Closed(tags) => {
             // The tags the properties named, as the tags of a note read.
             if !tags.is_empty() {
-                out.push_str("<p>");
+                out.try_push_str("<p>")?;
                 for (n, tag) in tags.iter().enumerate() {
-                    out.push_str(if n == 0 { "#" } else { " #" });
-                    out.push_str(tag);
+                    out.try_push_str(if n == 0 { "#" } else { " #" })?;
+                    out.try_push_str(tag)?;
                 }
-                out.push_str("</p>\n");
+                out.try_push_str("</p>\n")?;
             }
+            Ok(())
         }
         Step::Text(lines) => {
             for text in lines {
-                rows(&text, state, out, false);
+                rows(&text, state, out, false)?;
             }
+            Ok(())
         }
     }
 }
 
 /// The file ended: what was held is text after all.
-fn finish(state: &mut State<'_>, out: &mut String) {
-    if let Step::Text(lines) = state.front.end() {
+fn finish(state: &mut State<'_>, out: &mut String) -> Result<(), DocumentError> {
+    if let Step::Text(lines) = state.front.end()? {
         for text in lines {
-            rows(&text, state, out, false);
+            rows(&text, state, out, false)?;
         }
     }
     if let Some(head) = state.held.take() {
-        line(&head, state, out, false);
+        line(&head, state, out, false)?;
     }
+    Ok(())
 }
 
 /// Reads a line with the rows of tables: a line with pipes is held until
 /// the next says whether it is a table's first.
-fn rows(raw: &str, state: &mut State<'_>, out: &mut String, cut: bool) {
+fn rows(
+    raw: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+    cut: bool,
+) -> Result<(), DocumentError> {
     let cell = |state: &State<'_>, text: &str, out: &mut String| {
-        inline(text, &state.pictures, state.vault.as_ref(), out);
+        inline(text, &state.pictures, state.vault.as_ref(), out)
     };
     if state.table {
         if !cut && table::is_candidate(raw) {
-            table::row(raw, "td", &mut |t, o| cell(state, t, o), out);
-            return;
+            return table::row(raw, "td", &mut |t, o| cell(state, t, o), out);
         }
         state.table = false;
-        out.push_str("</table>\n");
+        out.try_push_str("</table>\n")?;
     }
     if let Some(head) = state.held.take() {
         if !cut && table::is_separator(raw) {
-            state.close_blocks(out);
-            out.push_str("<table>\n");
+            state.close_blocks(out)?;
+            out.try_push_str("<table>\n")?;
             state.table = true;
-            table::row(&head, "th", &mut |t, o| cell(state, t, o), out);
-            return;
+            return table::row(&head, "th", &mut |t, o| cell(state, t, o), out);
         }
-        line(&head, state, out, false);
+        line(&head, state, out, false)?;
     }
     if !cut && !state.code && !state.cut && table::is_candidate(raw) {
-        state.held = Some(raw.to_string());
-        return;
+        state.held = Some(fallible::string(raw)?);
+        return Ok(());
     }
-    line(raw, state, out, cut);
+    line(raw, state, out, cut)
 }
 
 /// Longer lines are read in pieces of at most this length, cut after a
@@ -612,16 +705,25 @@ const MAX_LINE: usize = 8 * 1024;
 
 /// Writes the HTML for the Markdown file at `path` to `to`, a few lines
 /// at a time.
-fn convert(storage: &dyn Storage, path: &str, to: &str) -> Result<(), DocumentError> {
+fn convert(
+    storage: &dyn Storage,
+    path: &str,
+    to: &str,
+    in_vault: bool,
+) -> Result<(), DocumentError> {
     storage.write(to, b"<html><body>\n")?;
     let mut state = State {
-        pictures: pictures_path(path, to),
-        vault: Some(Vault::new(storage, path)),
+        pictures: pictures_path(path, to)?,
+        vault: if in_vault {
+            Some(Vault::new(storage, path)?)
+        } else {
+            None
+        },
         ..State::default()
     };
     // The pictures it embeds, looked for in one walk of the vault.
     if let Some(vault) = &state.vault {
-        vault.prefetch(path);
+        vault.prefetch(path)?;
     }
     let mut out = String::new();
     let mut pending: Vec<u8> = Vec::new();
@@ -637,7 +739,7 @@ fn convert(storage: &dyn Storage, path: &str, to: &str) -> Result<(), DocumentEr
     loop {
         let n = storage.read_at(path, at, &mut chunk)?;
         at += n as u64;
-        pending.extend_from_slice(&chunk[..n]);
+        pending.try_extend_from_slice(&chunk[..n])?;
         loop {
             let (end, next, cut) = match pending[searched..].iter().position(|&b| b == b'\n') {
                 Some(end) => (searched + end, searched + end + 1, false),
@@ -664,13 +766,13 @@ fn convert(storage: &dyn Storage, path: &str, to: &str) -> Result<(), DocumentEr
                     break;
                 }
             };
-            let text = String::from_utf8_lossy(&pending[..end]);
+            let text = fallible::lossy(&pending[..end])?;
             let text = if cut {
                 &text
             } else {
                 text.trim_end_matches('\r')
             };
-            feed(text, &mut state, &mut out, cut);
+            feed(text, &mut state, &mut out, cut)?;
             pending.drain(..next);
             searched = 0;
             if out.len() > 2048 {
@@ -679,35 +781,38 @@ fn convert(storage: &dyn Storage, path: &str, to: &str) -> Result<(), DocumentEr
         }
         if n == 0 {
             if !pending.is_empty() {
-                let text = String::from_utf8_lossy(&pending).to_string();
-                feed(&text, &mut state, &mut out, false);
+                let text = fallible::lossy(&pending)?;
+                feed(&text, &mut state, &mut out, false)?;
             }
             break;
         }
     }
-    finish(&mut state, &mut out);
+    finish(&mut state, &mut out)?;
     if state.code {
-        out.push_str("</pre>\n");
+        out.try_push_str("</pre>\n")?;
     }
-    state.close_blocks(&mut out);
-    out.push_str("</body></html>\n");
+    state.close_blocks(&mut out)?;
+    out.try_push_str("</body></html>\n")?;
     flush(&mut out)
 }
 
 /// The way from the folder of the HTML `to` to that of the Markdown file
 /// `from`, both on the storage: up to the root, then down
 /// (`../../notes/`).
-fn pictures_path(from: &str, to: &str) -> String {
+fn pictures_path(from: &str, to: &str) -> Result<String, DocumentError> {
     let up = to
         .rsplit_once('/')
         .map_or(0, |(dir, _)| dir.split('/').count());
     let down = from.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let mut path = "../".repeat(up);
-    if !down.is_empty() {
-        path.push_str(down);
-        path.push('/');
+    let mut path = String::new();
+    for _ in 0..up {
+        path.try_push_str("../")?;
     }
-    path
+    if !down.is_empty() {
+        path.try_push_str(down)?;
+        path.try_push('/')?;
+    }
+    Ok(path)
 }
 
 impl Document for MarkdownDocument {
@@ -747,6 +852,7 @@ impl Document for MarkdownDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
     use paperpaw_sdk::MemoryStorage;
     use paperpaw_sdk::document::BlockKind;
 
@@ -754,10 +860,10 @@ mod tests {
         let mut state = State::default();
         let mut out = String::new();
         for l in md.lines() {
-            feed(l, &mut state, &mut out, false);
+            feed(l, &mut state, &mut out, false).unwrap();
         }
-        finish(&mut state, &mut out);
-        state.close_blocks(&mut out);
+        finish(&mut state, &mut out).unwrap();
+        state.close_blocks(&mut out).unwrap();
         out
     }
 
@@ -768,16 +874,16 @@ mod tests {
             storage = storage.with(f, b"x".to_vec());
         }
         let mut state = State {
-            pictures: pictures_path("v/a.md", ".paperpaw/plugins/x/md-1/book.html"),
-            vault: Some(Vault::new(&storage, "v/a.md")),
+            pictures: pictures_path("v/a.md", ".paperpaw/plugins/x/md-1/book.html").unwrap(),
+            vault: Some(Vault::new(&storage, "v/a.md").unwrap()),
             ..State::default()
         };
         let mut out = String::new();
         for l in md.lines() {
-            feed(l, &mut state, &mut out, false);
+            feed(l, &mut state, &mut out, false).unwrap();
         }
-        finish(&mut state, &mut out);
-        state.close_blocks(&mut out);
+        finish(&mut state, &mut out).unwrap();
+        state.close_blocks(&mut out).unwrap();
         out
     }
 
@@ -991,7 +1097,7 @@ mod tests {
 
     #[test]
     fn pictures_beside_the_file_are_shown() {
-        let way = pictures_path("notes/day.md", ".paperpaw/plugins/x/md-1/book.html");
+        let way = pictures_path("notes/day.md", ".paperpaw/plugins/x/md-1/book.html").unwrap();
         assert_eq!(way, "../../../../notes/");
         let mut state = State {
             pictures: way,
@@ -1003,7 +1109,8 @@ mod tests {
             &mut state,
             &mut out,
             false,
-        );
+        )
+        .unwrap();
         assert_eq!(
             out,
             "<p><img src=\"../../../../notes/cat.png\" alt=\"A cat\"/> \
