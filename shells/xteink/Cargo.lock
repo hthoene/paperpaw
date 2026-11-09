@@ -2713,6 +2713,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "embedded-hal 1.0.0",
  "paperpaw-config",
+ "paperpaw-core",
  "paperpaw-platform",
  "paperpaw-sdk",
 ]

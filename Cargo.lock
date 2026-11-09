@@ -2909,6 +2909,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-graphics",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-update",
