@@ -2897,7 +2897,7 @@ source knows better than the book's file, as calibre does for a book it sent:
 `Provided::new().title(..)?.author(..)?.series(..)?.number(..)?.tags("a\nb")?` (title and author
 at most 512 bytes, series 256, number 32, up to 32 tags of 1 to 128 bytes one per line, 2,048 in
 all). Only the fields set are provided, the rest are left alone: a value is never empty or blank
-(nothing clears a field: leave it out), and tags replace the provider's whole tag list. Provided
+(only Unicode whitespace; nothing clears a field: leave it out), and tags replace the provider's whole tag list. Provided
 values win over the file's, the user's own edits win over provided ones, and the last provider
 wins. They are kept with the book's data and follow it when the book moves. `input` is 4,096 bytes and `out` 64.
 

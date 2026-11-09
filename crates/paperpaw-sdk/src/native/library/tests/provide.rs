@@ -144,3 +144,42 @@ fn the_hosts_refusals_and_a_reply_that_is_not_empty_come_back() {
         Err(Error::Invalid)
     );
 }
+
+#[test]
+fn every_field_at_its_cap_with_the_longest_path_fits_the_input() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let (mut input, mut out) = ([0; 4096], [0; 64]);
+    let path = format!("/{}", "p".repeat(wire::SERVICE_LIB_REF_PATH_MAX_BYTES - 1));
+    let book = BookRef::path(&path).unwrap();
+    let (title, author, series, number) = (
+        "t".repeat(512),
+        "a".repeat(512),
+        "s".repeat(256),
+        "1".repeat(32),
+    );
+    // 16 tags of 127 bytes: 2,031 bytes, as close to the 2,048 as whole tags go.
+    let tags = vec!["g".repeat(127); 16].join("\n");
+    let provided = Provided::new()
+        .title(&title)
+        .unwrap()
+        .author(&author)
+        .unwrap()
+        .series(&series)
+        .unwrap()
+        .number(&number)
+        .unwrap()
+        .tags(&tags)
+        .unwrap();
+    reply(&state, &[]);
+    lib.provide(&host, book, &provided, &mut input, &mut out)
+        .unwrap();
+    let bytes = state.input.borrow();
+    assert!(bytes.len() <= 4096, "{} bytes", bytes.len());
+    let rows = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(
+        rows.iter().nth(1),
+        Some(Record::ServiceLibProvided(p)) if p.flags == 0b11111 && p.tags.len() == 2_031
+    ));
+}
