@@ -292,6 +292,10 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
+    /// The firmware install and check requests, queue and pump; none where
+    /// the shell gave no firmware host (`KernelBuilder::firmware_host`), where
+    /// every firmware command is unsupported.
+    firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.

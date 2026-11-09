@@ -50,6 +50,9 @@ pub(crate) struct HostServices {
     /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
     /// and the kernel's pump drives. One per device.
     firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
+    /// The firmware request table (op 13 reads the state of a request and the
+    /// outcome kept for it). One per device.
+    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
@@ -122,6 +125,7 @@ impl HostServices {
             ui: OnceCell::new(),
             device: OnceCell::new(),
             firmware: OnceCell::new(),
+            firmware_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
@@ -296,6 +300,19 @@ impl HostServices {
         self.device
             .set(super::device_service::DeviceServices(host))
             .map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the firmware request table once (op 13).
+    pub(crate) fn wire_firmware_requests(
+        &self,
+        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+    ) -> Result<(), i32> {
+        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
+    }
+
+    /// The firmware request table, where wired.
+    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
+        self.firmware_requests.get()
     }
 
     /// Wire the firmware install machine once.

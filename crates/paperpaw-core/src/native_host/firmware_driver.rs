@@ -39,6 +39,17 @@ pub(crate) const KEPT_MAX: usize = 8;
 /// Reason 20 (`ERR_CANCELLED`): the host stopped the job.
 const STOPPED: u8 = 20;
 
+/// What op 13 reads of one request (`dev_install.state`: 0 waiting in the
+/// queue, 1 running, 2 ended, its outcome in `outcome`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Lookup {
+    pub(crate) kind: u32,
+    pub(crate) state: u32,
+    pub(crate) outcome: Option<Outcome>,
+    pub(crate) done: u64,
+    pub(crate) total: u64,
+}
+
 /// One accepted request that has not ended.
 #[derive(Clone, Copy)]
 struct Entry {
@@ -81,6 +92,11 @@ impl Driver {
             kept: Vec::new(),
             ask: None,
         }
+    }
+
+    /// The machine the device ops read (`HostServices::wire_firmware_install`).
+    pub(crate) fn machine(&self) -> Rc<RefCell<FirmwareInstall>> {
+        Rc::clone(&self.machine)
     }
 
     /// How many requests wait (the running one included).
@@ -309,6 +325,67 @@ impl Driver {
         if self.ready.len() < self.ready.capacity() {
             self.ready.push(outcome);
         }
+    }
+
+    /// What op 13 says of `owner`'s request `request`: waiting, running or
+    /// ended (the outcome kept for it), `None` for one it has not got.
+    pub(crate) fn lookup(&self, owner: u64, request: u32) -> Option<Lookup> {
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|entry| (entry.owner, entry.request) == (owner, request))
+        {
+            let waiting = self
+                .queue
+                .iter()
+                .any(|job| (job.owner, job.request) == (owner, request));
+            let (done, total) = self
+                .machine
+                .try_borrow()
+                .map_or((0, 0), |machine| machine.progress());
+            return Some(Lookup {
+                kind: entry.kind,
+                state: if waiting { 0 } else { 1 },
+                outcome: None,
+                done: if waiting { 0 } else { done },
+                total: if waiting { 0 } else { total },
+            });
+        }
+        // Ended: its edge may not have reached the plugin yet.
+        self.ready
+            .iter()
+            .copied()
+            .find(|outcome| (outcome.owner, outcome.request) == (owner, request))
+            .or_else(|| {
+                self.kept
+                    .iter()
+                    .filter(|kept| kept.owner == owner)
+                    .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
+            })
+            .map(|outcome| Lookup {
+                kind: outcome.kind,
+                state: 2,
+                outcome: Some(outcome),
+                done: 0,
+                total: 0,
+            })
+    }
+
+    /// `dev_firmware.state` now (0 while the machine is in use).
+    pub(crate) fn state(&self) -> u32 {
+        self.machine
+            .try_borrow()
+            .map_or(0, |machine| machine.state().number())
+    }
+
+    /// Whether anything waits, runs or is not yet told (the pump asks again).
+    pub(crate) fn has_work(&self) -> bool {
+        !self.entries.is_empty() || !self.ready.is_empty() || self.ask.is_some()
+    }
+
+    /// The oldest ended request's outcome, left in place.
+    pub(crate) fn peek_ready(&self) -> Option<Outcome> {
+        self.ready.first().copied()
     }
 
     /// The oldest ended request's outcome, for its `install_done` edge.

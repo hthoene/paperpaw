@@ -27,6 +27,8 @@ struct BuilderParts {
     /// of buttons come from their own settings at the end.
     caps: Capabilities,
     firmware: Option<Firmware>,
+    /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
+    firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
     code: Option<crate::code_plugin::CodePlugins>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
@@ -81,6 +83,20 @@ impl KernelBuilder {
     pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
         self.0.off.push(String::from(plugin.manifest().id.as_str()));
         self.plugin(plugin)
+    }
+
+    /// The device's firmware: what installs and checks a firmware image
+    /// (`device.md` 5.1, 5.3). Without it every firmware command of a plugin
+    /// is `ERR_UNSUPPORTED`; with it a firmware request is accepted whole at
+    /// submit, queued and driven one bounded step at a time from the main
+    /// loop ([`Kernel::native_firmware_pump`]).
+    #[must_use]
+    pub fn firmware_host(
+        mut self,
+        host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
+    ) -> Self {
+        self.0.firmware_host = Some(host);
+        self
     }
 
     /// Key bindings specific to the device (e.g. its physical buttons).
@@ -771,6 +787,16 @@ impl BuilderParts {
             native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
+            firmware: self.firmware_host.take().map(|host| {
+                alloc::rc::Rc::new(core::cell::RefCell::new(
+                    crate::native_host::firmware_driver::Driver::new(
+                        host,
+                        alloc::rc::Rc::new(core::cell::RefCell::new(
+                            crate::native_host::firmware_install::FirmwareInstall::new(),
+                        )),
+                    ),
+                ))
+            }),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,
@@ -1066,6 +1092,7 @@ impl Kernel {
             glyph_cache: DEFAULT_GLYPH_CACHE,
             caps: Capabilities::default(),
             firmware: None,
+            firmware_host: None,
             code: None,
             after_trial: None,
             safe_mode: None,

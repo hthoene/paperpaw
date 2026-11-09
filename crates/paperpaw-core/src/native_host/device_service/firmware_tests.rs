@@ -287,3 +287,70 @@ fn op_3_tells_the_caller_only_its_own_request_and_op_16_pages_past_a_zero_reques
         "8 rows and the end"
     );
 }
+
+#[test]
+fn op_13_tells_a_request_waiting_running_and_ended_and_only_the_askers() {
+    let ids = ["a"];
+    let fake_host = host(&ids);
+    let machine = Rc::new(RefCell::new(FirmwareInstall::new()));
+    let driver = Rc::new(RefCell::new(
+        crate::native_host::firmware_driver::Driver::new(
+            alloc::boxed::Box::new(image(&["a"])),
+            Rc::clone(&machine),
+        ),
+    ));
+    driver
+        .borrow_mut()
+        .submit_check(OWNER, 7, "update.ppu")
+        .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let view = |owner| {
+        let hosts = crate::native_host::host_services::HostServices::new();
+        hosts.wire_device(Rc::new(host(&ids))).unwrap();
+        hosts.wire_firmware_install(Rc::clone(&machine)).unwrap();
+        hosts.wire_firmware_requests(Rc::clone(&driver)).unwrap();
+        View {
+            env: &env,
+            hosts,
+            owner,
+        }
+    };
+    let state = |reply: &[u8]| {
+        let Record::ServiceDevInstall(install) = records(reply)[0] else {
+            panic!("not an install");
+        };
+        (install.kind, install.state, install.status, install.reason)
+    };
+    // Waiting in the queue; another plugin and another number know nothing.
+    assert_eq!(
+        state(&run(&view(OWNER), 13, &request(7)).unwrap()),
+        (3, 0, 0, 0)
+    );
+    assert_eq!(
+        run(&view(OWNER), 13, &request(8)).unwrap_err(),
+        ERR_NOT_FOUND
+    );
+    assert_eq!(run(&view(9), 13, &request(7)).unwrap_err(), ERR_NOT_FOUND);
+    // It runs, then ends: kept once its edge was delivered.
+    let rows = DeviceBuiltIns(&fake_host);
+    let ended = loop {
+        match driver.borrow_mut().pump(&NoStorage, &rows, 100) {
+            Event::Ended(outcome) => break outcome,
+            _ => {}
+        }
+    };
+    // Ended: told as such before and after its edge is delivered.
+    assert_eq!(
+        state(&run(&view(OWNER), 13, &request(7)).unwrap()),
+        (3, 2, 0, 0)
+    );
+    let _ = driver.borrow_mut().take_ready();
+    driver.borrow_mut().delivered(ended);
+    assert_eq!(
+        state(&run(&view(OWNER), 13, &request(7)).unwrap()),
+        (3, 2, 0, 0)
+    );
+}
