@@ -1230,8 +1230,10 @@ fn turning_a_plugins_network_off_ends_each_socket_it_has_open_at_the_next_pass()
 }
 
 /// Every socket of work run 7 that was stored told the run it opened, and
-/// told it exactly once that it ended.
+/// told it exactly once that it ended: after the plugin was told of the end
+/// (the events are delivered here), or at once when no event is left to tell.
 fn balanced(f: &Fake, opened: usize) {
+    drain(f, OWNER);
     assert_eq!(*f.run_opened.borrow(), std::vec![7; opened], "opened");
     assert_eq!(
         *f.run_closed.borrow(),
@@ -1249,6 +1251,12 @@ fn a_socket_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
     assert!(f.run_closed.borrow().is_empty(), "alive: the run goes on");
     close(&f, OWNER, id).unwrap();
     close(&f, OWNER, id).unwrap();
+    // The run counts the socket until the plugin has been told of its end.
+    assert!(f.run_closed.borrow().is_empty(), "ended, not yet told");
+    assert!(next(&f, OWNER).is_some());
+    assert!(f.run_closed.borrow().is_empty(), "told, callback running");
+    event_delivered(&f, OWNER).unwrap();
+    assert_eq!(*f.run_closed.borrow(), [7], "the callback returned");
     balanced(&f, 1);
     // The transport lost it.
     let f = Fake::x4();

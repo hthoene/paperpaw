@@ -473,6 +473,7 @@ fn turning_a_plugins_network_off_ends_a_broadcast_that_waits_for_answers() {
 #[test]
 fn a_broadcast_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
     let balanced = |f: &Fake, opened: usize| {
+        let _ = drain_cast(f, OWNER);
         assert_eq!(*f.run_opened.borrow(), std::vec![7; opened]);
         assert_eq!(*f.run_closed.borrow(), std::vec![7; opened], "exactly once");
     };
@@ -483,6 +484,7 @@ fn a_broadcast_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends()
     assert!(f.run_closed.borrow().is_empty(), "alive: the run goes on");
     f.advance(60_000);
     tick(&f).unwrap();
+    assert!(f.run_closed.borrow().is_empty(), "ended, not yet told");
     tick(&f).unwrap();
     balanced(&f, 1);
     // The run reached its longest time.

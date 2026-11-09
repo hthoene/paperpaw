@@ -65,7 +65,7 @@ struct Service {
     deadline: Cell<Option<u64>>,
 }
 impl ServiceEvents for Service {
-    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         if self.busy_next.replace(false) {
             return Err(ERR_BUSY);
         }
@@ -80,7 +80,7 @@ impl ServiceEvents for Service {
         to.copy_from_slice(bytes);
         let len = bytes.len();
         queue.remove(at);
-        Ok(Some(len))
+        Ok(Some((len, None)))
     }
     fn event_delivered(&self, owner: u64) -> Result<(), i32> {
         self.log.borrow_mut().push("delivered");

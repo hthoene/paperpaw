@@ -85,7 +85,7 @@ fn drain(
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
-            Ok(Some(len)) => {
+            Ok(Some((len, _run))) => {
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
                 let _ = lease.service_event(&buffer[..len], env);
