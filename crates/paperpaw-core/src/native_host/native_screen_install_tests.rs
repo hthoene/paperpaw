@@ -1390,6 +1390,8 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
 
 #[path = "native_resources_tests.rs"]
 mod resources;
+#[path = "native_slot_offers_tests.rs"]
+mod slot_offers;
 
 #[test]
 fn a_native_plugins_stage_and_subscription_are_admitted_and_go_with_it() {

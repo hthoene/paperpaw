@@ -38,6 +38,30 @@ fn image_events() -> Vec<u8> {
     out
 }
 
+/// The batch the offer's builder makes.
+fn image_offer() -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut d = Declarations::new(|batch: &[u8]| -> Result<(), i32> {
+        out.extend_from_slice(batch);
+        Ok(())
+    });
+    declarations::offer(&mut d).unwrap();
+    drop(d);
+    out
+}
+
+/// The batch the screen's builder makes.
+fn image_screen() -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut d = Declarations::new(|batch: &[u8]| -> Result<(), i32> {
+        out.extend_from_slice(batch);
+        Ok(())
+    });
+    declarations::screen(&mut d).unwrap();
+    drop(d);
+    out
+}
+
 fn run(host: &ScriptedHost, batch: &[u8]) -> i32 {
     let plugin = match host.load(NATIVE_ENTRY.entry()) {
         Ok(plugin) => plugin,
@@ -48,11 +72,11 @@ fn run(host: &ScriptedHost, batch: &[u8]) -> i32 {
         .map_or_else(|status| status, |done| done.status)
 }
 
-/// The panel's screen and the subscription to the end of a request are
-/// submitted (as Battery's and Wi-Fi's declarations are); the slot offer is not
-/// (#522, `tests/native_declarations.rs`).
+/// The panel's screen, the offer for the slot `core.translate` (#522) and the
+/// subscription to the end of a request are submitted (as Battery's and
+/// Wi-Fi's declarations are), the offer after the screen it names.
 #[test]
-fn the_screen_and_the_end_of_a_request_are_submitted() {
+fn the_screen_the_offer_and_the_end_of_a_request_are_submitted() {
     let host = ScriptedHost::new();
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
     drop(plugin);
@@ -62,7 +86,10 @@ fn the_screen_and_the_end_of_a_request_are_submitted() {
             .iter()
             .any(|batch| batch.as_slice() == image_events())
     );
-    assert!(batches.len() >= 2, "the screen too");
+    let at = |wanted: Vec<u8>| batches.iter().position(|batch| batch.as_slice() == wanted);
+    let screen = at(image_screen()).expect("the screen");
+    let offer = at(image_offer()).expect("the slot offer");
+    assert!(screen < offer, "the offer comes after the screen it names");
 }
 
 #[test]

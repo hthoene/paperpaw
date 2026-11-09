@@ -133,6 +133,10 @@
     {
       "kind": "host",
       "name": "storage.sync"
+    },
+    {
+      "kind": "host",
+      "name": "stage.run"
     }
   ],
   "services": [
