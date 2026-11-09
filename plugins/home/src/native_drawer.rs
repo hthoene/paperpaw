@@ -171,8 +171,11 @@ pub struct Drawer {
 }
 
 impl Drawer {
-    /// A drawer of the tools the menu lists, the focus first drawn only
-    /// where the reader used buttons last.
+    /// A drawer of the tools the menu lists. The focus is drawn at once only
+    /// where the reader used buttons last (`last_input`); with `None` (not
+    /// known: the screen is opened before it is shown) it is not, so the first
+    /// button press only shows where it is, and the show that follows
+    /// (`shown`) decides anew.
     ///
     /// # Errors
     /// [`Error::NoMemory`] and the host's refusals.
