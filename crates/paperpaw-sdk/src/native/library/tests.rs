@@ -441,6 +441,8 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
     );
 }
 
+#[path = "tests/anchors.rs"]
+mod anchors;
 mod annotations;
 #[path = "tests/facets.rs"]
 mod facets;

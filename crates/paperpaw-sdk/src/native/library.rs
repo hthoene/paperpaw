@@ -8,6 +8,8 @@ use super::{
 
 mod facets;
 pub use facets::{Facet, FacetPage, FacetRow};
+mod anchors;
+pub use anchors::{Anchor, AnchorPage};
 mod annotations;
 pub use annotations::{
     Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,

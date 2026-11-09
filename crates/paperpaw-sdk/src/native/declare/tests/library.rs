@@ -45,3 +45,30 @@ fn book_declarations_refuse_bad_names_caps_and_latch_badge_refusals() {
     drop(d);
     assert_eq!(batches, vec![vec![]]);
 }
+
+#[test]
+fn book_data_declarations_carry_their_kind_and_refuse_bad_names() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.book_data("highlights", BookDataKind::UserData).unwrap();
+    d.book_data("thumbs", BookDataKind::Cache).unwrap();
+    assert!(d.book_data("Upper", BookDataKind::Cache).is_err());
+    assert!(d.book_data("", BookDataKind::Cache).is_err());
+    assert!(d.book_data(&"a".repeat(97), BookDataKind::Cache).is_err());
+    // A refusal latches the declaration, so nothing is submitted after it.
+    assert!(d.submit().is_err());
+    drop(d);
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.book_data("highlights", BookDataKind::UserData).unwrap();
+    d.book_data(&"a".repeat(96), BookDataKind::Cache).unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let mut rows = batch.iter();
+    assert!(
+        matches!(rows.next(), Some(Record::BookDataSpec(row)) if (row.name, row.kind) == ("highlights", 0))
+    );
+    assert!(matches!(rows.next(), Some(Record::BookDataSpec(row)) if row.kind == 1));
+    assert!(rows.next().is_none());
+}
