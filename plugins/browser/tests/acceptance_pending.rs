@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 4] = [
+const CASES: [Case; 5] = [
     // The start screen: Search or enter address, the bookmarks and the pages
     // read lately; holding an entry offers open / bookmark / delete; the
     // offer to go online in Offline mode; messages at the bottom.
@@ -23,13 +23,21 @@ const CASES: [Case; 4] = [
         golden: None,
         blocked_by: &["core-net-host", "DOC-open-page"],
     },
-    // Books to the library (`library.import`), fonts to the fonts folder,
-    // other files to Downloads, a book named after its author and title,
-    // and the offer to read it.
+    // Books to the library (`library.import`, free name), fonts to the fonts
+    // folder, other files to Downloads (`core.files` move), and the offer to
+    // read a book now.
     Case {
         name: "browser-downloads",
         golden: None,
-        blocked_by: &["LIB-import", "FS-core-files", "DOC-metadata", "H2"],
+        blocked_by: &["LIB-import", "FS-core-files", "H2"],
+    },
+    // A saved book renamed after its author and title (interface 6
+    // `named_book`): the document service's metadata (`doc_meta`, op 3), which
+    // the SDK has no call for yet.
+    Case {
+        name: "browser-book-named-by-metadata",
+        golden: None,
+        blocked_by: &["DOC-metadata"],
     },
     // The slot `core.browser`: the reader opens links out of books in the
     // browser's screen, with the address as a screen parameter.
@@ -63,13 +71,19 @@ fn loading_and_reading() {
 }
 
 #[test]
-#[ignore = "BLOCKED LIB-import, FS-core-files, DOC-metadata, H2: downloads cannot be placed"]
+#[ignore = "BLOCKED LIB-import, FS-core-files, H2: downloads cannot be placed"]
 fn downloads() {
     CASES[2].refuse().unwrap();
 }
 
 #[test]
+#[ignore = "BLOCKED DOC-metadata: no call for a document's title and author"]
+fn a_book_named_by_its_metadata() {
+    CASES[3].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1, slot-core-browser-params: the screen cannot take a parameter"]
 fn a_link_from_a_book() {
-    CASES[3].refuse().unwrap();
+    CASES[4].refuse().unwrap();
 }

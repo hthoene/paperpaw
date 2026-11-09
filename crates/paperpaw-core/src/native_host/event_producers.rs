@@ -179,7 +179,7 @@ mod tests;
 impl crate::Kernel {
     /// Capture before a fallible setting write, then publish only after success.
     pub(crate) fn native_setting_before(&self, key: &str) -> Option<OldValue> {
-        self.native_event_sink().map(|_| {
+        (self.native_event_sink().is_some() || self.native_setting_wanted()).then(|| {
             let settings = &self.shared.settings;
             let old = if settings.goes_to_scope(key) {
                 settings.scope().and_then(|scope| scope.get(key))
@@ -190,15 +190,21 @@ impl crate::Kernel {
         })
     }
     pub(crate) fn native_setting_after(&self, key: &str, old: Option<&OldValue>) {
-        if let (Some(sink), Some(old)) = (self.native_event_sink(), old) {
-            sink.setting(self.now.millis(), key, old.bytes());
+        if let Some(old) = old {
+            if let Some(sink) = self.native_event_sink() {
+                sink.setting(self.now.millis(), key, old.bytes());
+            }
+            self.native_setting_publish(key, old.bytes());
         }
     }
     /// Scope transitions already own typed before-values until they are announced.
     pub(crate) fn native_setting_typed(&self, key: &str, old: Option<&SettingValue>) {
-        if let Some(sink) = self.native_event_sink() {
+        if self.native_event_sink().is_some() || self.native_setting_wanted() {
             let old = OldValue::capture(old);
-            sink.setting(self.now.millis(), key, old.bytes());
+            if let Some(sink) = self.native_event_sink() {
+                sink.setting(self.now.millis(), key, old.bytes());
+            }
+            self.native_setting_publish(key, old.bytes());
         }
     }
     /// Ends the cached status values of `core.ui` op 14 (event 73). A refusal
@@ -223,5 +229,6 @@ impl crate::Kernel {
         if let Some(sink) = self.native_event_sink() {
             sink.hint(tag);
         }
+        self.native_hint_publish(tag);
     }
 }

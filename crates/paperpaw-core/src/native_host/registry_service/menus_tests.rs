@@ -16,7 +16,7 @@ use crate::native_host::{
 };
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
     MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
@@ -946,6 +946,44 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     assert!(rows[0].starts_with("widget nat.quote "));
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 0);
     assert!(rows.is_empty());
+}
+
+#[test]
+fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        widget("quote", "core.widgets.words", 0, 0, ""),
+        widget("sample", "core.widgets.words", 0, 0, "demo.top"),
+        widget("other", "core.widgets.words", 0, 0, "demo.else"),
+        widget("later", "core.widgets.words", 0, 0, "demo.top"),
+    ]);
+    // In op 19's order (the store's for declarations); a page shows the last.
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
+    assert_eq!(
+        rows,
+        [
+            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+        ]
+    );
+    // Without the bit the group is a kind nobody has; previews never show.
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 0).is_empty());
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
+    assert!(rows.iter().all(|row| !row.contains("previews=")));
+    assert!(rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "nobody", 1).is_empty());
+    // A group is needed.
+    assert_eq!(
+        call_in(
+            &kernel,
+            Some(&directory),
+            schema::OP_WIDGETS,
+            &query_flags("", 0, 0, 1),
+            4096
+        ),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]

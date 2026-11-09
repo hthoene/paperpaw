@@ -23,6 +23,9 @@ pub const NETWORK_WANTED: u32 = 13;
 pub const NETWORK_IDLE: u32 = 14;
 /// The timers (idle off, retry) come due as work.
 pub const WORK: u32 = 15;
+/// The events of the page the setup with a phone serves.
+pub const SERVER_EVENT: u32 = 16;
+pub const SERVED_REQUEST: u32 = 17;
 
 /// The idle choices, in the order the page lists them.
 pub const IDLE_OFF: [&str; 5] = [
@@ -139,5 +142,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::NetworkWanted, NETWORK_WANTED)?;
     d.subscribe_event(EventKind::NetworkIdle, NETWORK_IDLE)?;
     d.subscribe_event(EventKind::WorkDue, WORK)?;
+    d.subscribe_event(EventKind::Server, SERVER_EVENT)?;
+    d.subscribe_event(EventKind::ServedRequest, SERVED_REQUEST)?;
     d.submit()
 }
