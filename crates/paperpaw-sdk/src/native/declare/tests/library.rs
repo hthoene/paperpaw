@@ -54,6 +54,9 @@ fn book_data_declarations_carry_their_kind_and_refuse_bad_names() {
     d.book_data("thumbs", BookDataKind::Cache).unwrap();
     assert!(d.book_data("Upper", BookDataKind::Cache).is_err());
     assert!(d.book_data("", BookDataKind::Cache).is_err());
+    assert!(d.book_data("a.b", BookDataKind::Cache).is_err());
+    assert!(d.book_data("a/b", BookDataKind::Cache).is_err());
+    assert!(d.book_data("..", BookDataKind::Cache).is_err());
     assert!(d.book_data(&"a".repeat(97), BookDataKind::Cache).is_err());
     // A refusal latches the declaration, so nothing is submitted after it.
     assert!(d.submit().is_err());

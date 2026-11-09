@@ -113,3 +113,23 @@ fn malformed_anchor_pages_and_stale_generations_are_refused() {
         Error::State
     );
 }
+
+#[test]
+fn a_full_page_of_anchors_and_a_present_zero_conversion_read_back() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let (mut input, mut out) = ([0; 1024], [0; 4096]);
+    let book = BookRef::path("/books/a.epub").unwrap();
+    let mut rows: Vec<Record<'static>> = (1..=32).map(|id| anchor(id, 0b01, 0, "")).collect();
+    rows.push(end(0, 40, 2, 32));
+    reply(&state, &rows);
+    let page = lib
+        .anchors(&host, book, AnnotationCursor::start(), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(page.len(), 32);
+    assert_eq!(page.end().next().map(|c| c.offset), Some(32));
+    // Every row's conversion is present and 0, and differs from none.
+    assert!(page.rows().all(|row| row.conversion() == Some(0)));
+    assert_eq!(page.rows().last().map(|row| row.id()), Some(32));
+}

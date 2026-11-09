@@ -119,7 +119,7 @@ impl<'a> AnchorPage<'a> {
 impl Library {
     /// Page through the anchors of one book's annotations (op 16): the
     /// conversion and the start and end XPointers of every annotation that has
-    /// them, in the order of the annotations. The page's end carries the same
+    /// them, in the host's order. The page's end carries the same
     /// annotation generation as [`annotations`](Self::annotations); continue with
     /// its cursor. `input` is 1,024 bytes and `out` 4,096.
     ///

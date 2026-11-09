@@ -2783,7 +2783,8 @@ conversion differs relocates an annotation through its XPointers (`Documents::xp
 keeps per book at `books/<name>/<book key>/` in its data (the key from `Library::book_key`): user
 data moves and goes with the book, a cache is made again from the book and also goes when the
 book is no longer found. The host moves and removes the folders; the plugin only writes inside
-them. At most 4 per plugin.
+them. The name is one folder name (lowercase letters, digits and `-`, at most 96 bytes; no dot, no
+separator), and the host allows at most 4 per plugin.
 
 ### Staging annotation edits
 
