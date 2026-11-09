@@ -1,10 +1,10 @@
 # Translation on interface 7 (slices 1 to 3, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`Translate`, the panel, the request and the
-answer in `lib.rs`) is still in place beside the native one: it is what registers the language
-setting and the slot `core.translate` until the native plugin can (draft 29 and #522, see "What is
-still missing"). Everything else of the plugin is ported; the interface-6 code goes in the PR that
-registers those two, and `PORTING-7.md` then says *complete*.
+answer in `lib.rs`) is still in place beside the native one, as the reference of the differential
+tests (`src/native_parity_tests.rs`, `src/answer_tests.rs`, `tests/panel.rs`). The native plugin now
+registers the language setting and the slot offer itself; the interface-6 code goes in the next PR
+(the differential tests become pinned ones), and `PORTING-7.md` then says *complete*.
 
 Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeTranslate`), declarations in
 `declarations.rs` built into the image by `build.rs`, the host-free parts in
@@ -19,7 +19,7 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 2. **Slice 2 (done):** the request and the key (see below). Asking DeepL and keeping the key are
    written and run against scripted `core.net` and `core.secrets` services.
 3. **Slice 3 (this one):** the panel on `core.ui` (see below). What is left (the language setting,
-   the slot offer) waits for the hosts and the contract, then the interface-6 code goes.
+   the reader's side of the slot offer) waits for the hosts and the contract, then the interface-6 code goes.
 
 ## Ported in slice 1
 
@@ -112,8 +112,9 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 - **Offline power mode**: a request that ends with reason `offline` (`Outcome::Offline`) shows the
   offer once per panel (*Offline mode. This needs the network. Go online for it?* with the shared
   `core.offline.*` texts: two buttons, *Go online* first, keys move the focus, a tap chooses).
-  *Go online* asks the host for the network for 10 minutes (`go_online`, the most; interface 6 held
-  it until the screen closed) and sends the text again; *Not now* says `no-network`. A second
+  *Go online* asks the host for the network for 10 minutes (`go_online`, the most the ABI allows;
+  interface 6 held it until the screen closed, so the reader presses *Translate* again after the 10
+  minutes) and sends the text again; *Not now* says `no-network`. A second
   `offline` on the same panel says `no-network` (not offered again).
 - A refused redraw, close or `go_online` is not an error of the event or input that asked (the
   panel may not be on top any more); a failed ask or request shows `translate.failed` or
@@ -139,19 +140,19 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 
 ## What is still missing (each returns with its host piece)
 
-- **The language setting `translate.to`** is built (`declarations::settings`: a choice of the reader's
-  own language and the 32 DeepL ones, default PaperPaw's, advanced, in the reading group, under
-  the section `translate.section`) but **not in the image**: a `setting.spec` takes at most 32 choice
-  values and this one has 33. Draft 29 (Kernel, to be blessed 2026-11-09, not on integration
-  yet) raises the limit to 64; a follow-up emits it, submits it and compares it with the
-  interface-6 setting. Until then the plugin reads `translate.to` if some plugin has registered it
-  (interface 6 does, while it stays) and translates into PaperPaw's language otherwise.
-  `tests/native_declarations.rs` pins the refusal and fails when the limit is raised.
-- **The slot offer** for `core.translate` is built and in the image but **not submitted**: the host
-  checks a slot offer and refuses it (`ERR_UNSUPPORTED`) until it admits registry declarations
-  (#522, open), and a `make` that fails would keep the whole plugin from being admitted. The test
-  pins the refusal. Until then the reader's *Translate* does not find the native panel (the
-  interface-6 plugin still binds the slot).
+- **The language setting `translate.to`** is in the image and **submitted** in `make` (the first
+  batch, before the screen): a choice of the reader's own language and the 32 DeepL ones (33
+  values, within the 64 a `setting.spec` takes since draft 29), default PaperPaw's, advanced, in
+  the reading group, under the section `translate.section`. `tests/native_declarations.rs` compares
+  it with what the interface-6 plugin registers (the spec with its choices, help and `advanced`,
+  the extra with the section, the group), pins the image to the builders, and checks that the host
+  admits it. The plugin reads the setting as before (`translate.to`); where it is not registered
+  it translates into PaperPaw's language.
+- **The slot offer** for `core.translate` is in the image and **submitted** in `make`, after the screen it
+  names (the host admits slot offers since #522; `tests/native_declarations.rs` validates it,
+  `tests/native_asking.rs` pins the order). What is still open is the reader's side: its *Translate*
+  finds the native panel only when the reader's slot host reads native offers (an ignored case in
+  `tests/acceptance_pending.rs`); the interface-6 plugin still binds the slot until it goes.
 - **Not run against the real hosts:** the panel's drawing (it needs the font and the style: a
   pixel harness backed by the kernel, as Battery's), the staging of a form over 2,048 bytes (the
   scripted host has no storage), allocation refusal inside the linked plugin (it allocates from the

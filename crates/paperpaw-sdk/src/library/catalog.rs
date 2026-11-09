@@ -381,7 +381,7 @@ fn read_changes(storage: &dyn Storage) -> Result<Changes, StorageError> {
     changes
         .entries
         .try_reserve_exact(count)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     lines(storage, &log_path(), &mut |_, line| {
         if let Some((hash, change)) = parse_change(line) {
             changes.note(hash, change);
@@ -962,6 +962,10 @@ pub fn write(storage: &dyn Storage, records: &[Record]) -> Result<(), crate::dat
         Err(e) => Err(e.into()),
     }
 }
+
+mod fallible;
+pub(crate) use fallible::each_head;
+pub use fallible::{try_changes, try_count, try_path_at};
 
 #[cfg(any(test, feature = "kernel"))]
 mod making;

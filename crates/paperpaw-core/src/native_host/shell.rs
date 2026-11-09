@@ -17,11 +17,7 @@
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
-use core::cell::Cell;
-use core::ffi::c_void;
-use core::pin::Pin;
-use core::ptr;
+use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
 
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
@@ -258,6 +254,7 @@ pub const fn host_table<S: Services>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
+    doc_slots::install::<S>(&mut table);
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
     {
@@ -879,6 +876,8 @@ fn invoke_registration<S>(
     }
 }
 
+#[path = "shell_doc_slots.rs"]
+mod doc_slots;
 #[path = "shell_tokens.rs"]
 mod tokens;
 #[allow(

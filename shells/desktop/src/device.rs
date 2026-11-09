@@ -1058,7 +1058,7 @@ fn build_kernel(
         if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
             builder = builder.code_plugins(
                 crate::native::native(),
-                Box::new(crate::native::HostLoader::default()),
+                Box::new(crate::native::HostLoader::for_device(profile.device.id)),
             );
         }
         if let Some(add) = add {

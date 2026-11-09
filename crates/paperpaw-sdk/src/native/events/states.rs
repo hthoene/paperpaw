@@ -1,5 +1,11 @@
 //! Small event state views carry no owned strings or callback host bindings.
-use crate::power::PowerLevel;
+use crate::{
+    native::{
+        Error,
+        device::{DeviceOutcome, DeviceRequest, InstallKind},
+    },
+    power::PowerLevel,
+};
 
 /// A reading-session edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,7 +35,7 @@ pub enum WifiLinkState {
     AccessPoint,
 }
 impl WifiLinkState {
-    pub(super) fn decode(state: u32) -> Self {
+    pub(super) const fn decode(state: u32) -> Self {
         match state {
             0 => Self::Off,
             2 => Self::Connecting,
@@ -37,6 +43,171 @@ impl WifiLinkState {
             4 => Self::AccessPoint,
             _ => Self::On,
         }
+    }
+}
+
+/// Why a `join` or `host` request ended without the network (`docs/abi/device.md`
+/// section 4). Values this SDK does not know are [`Self::Other`], as the contract
+/// requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WifiFailure {
+    /// The network was not found.
+    NotFound,
+    /// The password was refused.
+    Password,
+    /// The attempt timed out.
+    Timeout,
+    /// A newer `join` or `host` replaced this request.
+    Superseded,
+    /// The device cannot do this here.
+    Unsupported,
+    /// The user has to act first: the request came without a recent input.
+    NeedsUser,
+    /// Another failure, or a reason this SDK does not know.
+    Other,
+}
+impl WifiFailure {
+    const fn decode(reason: u32) -> Self {
+        match reason {
+            1 => Self::NotFound,
+            2 => Self::Password,
+            3 => Self::Timeout,
+            4 => Self::Superseded,
+            5 => Self::Unsupported,
+            6 => Self::NeedsUser,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// How one `join` or `host` request ended (`event.wifi_done`): exactly once,
+/// success or failure, to the plugin that sent it. It says what happened to
+/// this request; the current radio state is what `event.wifi_changed` and the
+/// device state read say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WifiDone<'a> {
+    pub(super) now_ms: u64,
+    pub(super) request: u32,
+    pub(super) ssid: &'a str,
+    pub(super) status: i32,
+    pub(super) reason: u32,
+    pub(super) state: u32,
+}
+impl<'a> WifiDone<'a> {
+    /// Emission time in monotonic milliseconds.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// The sender's own non-zero request number. `None` (wire value 0) only for a
+    /// join the host started itself (a remembered network at wake): its failure
+    /// goes to the network manager, and no plugin sent it.
+    #[must_use]
+    pub const fn request(&self) -> Option<crate::native::device::DeviceRequest> {
+        crate::native::device::DeviceRequest::new(self.request)
+    }
+    /// The network's name.
+    #[must_use]
+    pub const fn ssid(&self) -> &'a str {
+        self.ssid
+    }
+    /// `Ok` when the network is up; else the error the request ended with.
+    ///
+    /// # Errors
+    /// The host's status for a request that did not end with the network.
+    pub const fn status(&self) -> Result<(), crate::native::Error> {
+        if self.status == 0 {
+            Ok(())
+        } else {
+            Err(crate::native::Error::from_status(self.status))
+        }
+    }
+    /// The reason of a failed request; `None` when it succeeded.
+    #[must_use]
+    pub const fn failure(&self) -> Option<WifiFailure> {
+        if self.status == 0 {
+            None
+        } else {
+            Some(WifiFailure::decode(self.reason))
+        }
+    }
+    /// The radio state the request reached when it succeeded (connected or
+    /// hosting); [`WifiLinkState::Off`] for a failure.
+    #[must_use]
+    pub const fn state(&self) -> WifiLinkState {
+        if self.status == 0 {
+            WifiLinkState::decode(self.state)
+        } else {
+            WifiLinkState::Off
+        }
+    }
+}
+
+/// How one install, removal, firmware or file-check request ended
+/// (`event.install_done`): exactly once, to the plugin that sent it, only once
+/// done (`docs/abi/device.md` sections 4 and 5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct InstallDone<'a> {
+    pub(super) now_ms: u64,
+    pub(super) request: u32,
+    pub(super) kind: u32,
+    pub(super) status: i32,
+    pub(super) reason: u32,
+    pub(super) flags: u32,
+    pub(super) id: &'a str,
+}
+impl<'a> InstallDone<'a> {
+    /// Emission time in monotonic milliseconds.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    /// The sender's own non-zero request number, the one this event answers. The
+    /// host never sends 0 here, since every install, removal, firmware or check
+    /// request has a sender; `None` would mean a host defect, so ignore such an
+    /// event.
+    #[must_use]
+    pub const fn request(&self) -> Option<DeviceRequest> {
+        DeviceRequest::new(self.request)
+    }
+    /// Which kind of request ended; a future kind is `Unknown`.
+    #[must_use]
+    pub const fn kind(&self) -> InstallKind {
+        InstallKind::decode(self.kind)
+    }
+    /// `Ok` when it was done; else the host's status.
+    ///
+    /// # Errors
+    /// The host's status for a request that did not complete.
+    pub const fn status(&self) -> Result<(), Error> {
+        if self.status == 0 {
+            Ok(())
+        } else {
+            Err(Error::from_status(self.status))
+        }
+    }
+    /// The verdict; a reason this SDK does not know is `Other`.
+    #[must_use]
+    pub const fn outcome(&self) -> DeviceOutcome {
+        DeviceOutcome::decode(self.reason)
+    }
+    /// A removal that kept the plugin's data.
+    #[must_use]
+    pub const fn data_kept(&self) -> bool {
+        self.flags & 1 != 0
+    }
+    /// The change takes effect at the next start.
+    #[must_use]
+    pub const fn at_next_start(&self) -> bool {
+        self.flags & 2 != 0
+    }
+    /// The plugin concerned.
+    #[must_use]
+    pub const fn id(&self) -> &'a str {
+        self.id
     }
 }
 
@@ -100,6 +271,58 @@ impl ChargeFlags {
     #[must_use]
     pub fn battery_low(&self) -> bool {
         self.0 & 4 != 0
+    }
+}
+
+/// What `event.library_changed` says changed. Unknown future bits stay available
+/// through [`Self::bits`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LibraryChanges(u32);
+impl LibraryChanges {
+    /// Keep every host-stamped bit.
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+    /// The complete host-stamped mask.
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+    /// Books were added, removed or moved: the catalog has a new generation.
+    #[must_use]
+    pub const fn books(self) -> bool {
+        self.0 & 1 != 0
+    }
+    /// Finished, favourite or opened status changed.
+    #[must_use]
+    pub const fn status(self) -> bool {
+        self.0 & (1 << 1) != 0
+    }
+    /// Reading positions changed.
+    #[must_use]
+    pub const fn positions(self) -> bool {
+        self.0 & (1 << 2) != 0
+    }
+    /// Annotations changed.
+    #[must_use]
+    pub const fn annotations(self) -> bool {
+        self.0 & (1 << 3) != 0
+    }
+    /// Fields or badges changed.
+    #[must_use]
+    pub const fn fields(self) -> bool {
+        self.0 & (1 << 4) != 0
+    }
+    /// The catalog walk progressed or ended.
+    #[must_use]
+    pub const fn walk(self) -> bool {
+        self.0 & (1 << 5) != 0
+    }
+    /// A cover the plugin asked for is ready.
+    #[must_use]
+    pub const fn cover(self) -> bool {
+        self.0 & (1 << 6) != 0
     }
 }
 

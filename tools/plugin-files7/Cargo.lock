@@ -194,8 +194,10 @@ dependencies = [
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
+ "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-txt",
+ "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
@@ -205,6 +207,7 @@ dependencies = [
  "paperpaw-plugin-menu",
  "paperpaw-plugin-menu-editor",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
@@ -219,6 +222,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-fonts-browser"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
@@ -227,6 +238,13 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-xtc"
 version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
@@ -305,6 +323,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-picture-home"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-plugin-manager"
 version = "1.0.6"
 dependencies = [
@@ -332,6 +358,7 @@ name = "paperpaw-plugin-reading-goal"
 version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

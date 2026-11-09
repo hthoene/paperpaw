@@ -66,6 +66,8 @@ fn numbers() -> Numbers {
             todo: 2,
             failed: 0,
         },
+        phone: true,
+        files: true,
     }
 }
 
@@ -116,6 +118,8 @@ fn the_same_rows_come_in_german() {
 fn the_phone_row_helps_to_make_the_first_deck() {
     let empty = Numbers {
         folder: "Cards".to_string(),
+        phone: true,
+        files: true,
         ..Numbers::default()
     };
     let (items, targets) = rows(&mut words("en"), &empty).unwrap();
@@ -239,4 +243,19 @@ fn when_the_heap_refuses_the_numbers_come_back_as_an_error() {
             );
         }
     }
+}
+
+#[test]
+fn the_phone_and_the_card_rows_are_left_out_until_their_screens_exist() {
+    let waiting = Numbers {
+        phone: false,
+        files: false,
+        ..numbers()
+    };
+    let (items, targets) = rows(&mut words("en"), &waiting).unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(
+        targets,
+        [Target::Review, Target::Deck(1), Target::Deck(4)].to_vec()
+    );
 }

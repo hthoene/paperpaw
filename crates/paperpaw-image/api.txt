@@ -7,6 +7,7 @@ impl paperpaw_image::Decoded
 pub fn paperpaw_image::Decoded::open(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_image::Decoded>
 pub fn paperpaw_image::Decoded::peek(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_image::Decoded>
 pub fn paperpaw_image::Decoded::size(&self) -> (u32, u32)
+pub fn paperpaw_image::Decoded::try_open(&dyn paperpaw_platform::storage::Storage, &str) -> core::result::Result<core::option::Option<paperpaw_image::Decoded>, paperpaw_image::ImageError>
 #[non_exhaustive] pub enum paperpaw_image::Format
 pub paperpaw_image::Format::Gif
 pub paperpaw_image::Format::Jpeg
@@ -21,6 +22,7 @@ pub paperpaw_image::ImageError::Other(u16)
 pub paperpaw_image::ImageError::OutOfMemory
 pub paperpaw_image::ImageError::Stopped
 pub paperpaw_image::ImageError::Storage(paperpaw_platform::storage::StorageError)
+pub paperpaw_image::ImageError::TooLarge
 pub paperpaw_image::ImageError::Unsupported(&'static str)
 impl core::fmt::Display for paperpaw_image::ImageError
 pub fn paperpaw_image::ImageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -111,6 +113,7 @@ pub paperpaw_image::ImageFile::width: u32
 impl paperpaw_image::ImageFile
 pub fn paperpaw_image::ImageFile::new(&str, u32, u32, bool, bool) -> Self
 pub fn paperpaw_image::ImageFile::open(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_image::ImageFile>
+pub fn paperpaw_image::ImageFile::try_open(&dyn paperpaw_platform::storage::Storage, &str) -> core::result::Result<core::option::Option<paperpaw_image::ImageFile>, paperpaw_image::ImageError>
 pub struct paperpaw_image::PngWriter
 impl paperpaw_image::PngWriter
 pub fn paperpaw_image::PngWriter::is_complete(&self) -> bool

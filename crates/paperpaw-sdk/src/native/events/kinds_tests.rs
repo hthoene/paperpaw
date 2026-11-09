@@ -65,6 +65,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 insert: Some(3),
             }),
             Record::EventScreenShown(EventScreenShown {
+                last_input: 0,
                 now_ms: 42,
                 screen: "fixture.screen",
                 width: 480,
@@ -133,6 +134,40 @@ fn fixtures() -> Vec<Vec<u8>> {
                 now_ms: 42,
                 path: "old.epub",
             }),
+            Record::EventLibraryChanged(EventLibraryChanged {
+                now_ms: 42,
+                what: 3,
+                generation: 9,
+                path: "books/a.epub",
+            }),
+            Record::EventWifiScanned(EventWifiScanned {
+                now_ms: 42,
+                networks: 5,
+            }),
+            Record::EventWifiDone(EventWifiDone {
+                now_ms: 42,
+                request: 3,
+                ssid: "home",
+                status: 0,
+                reason: 0,
+                state: 2,
+            }),
+            Record::EventNetworkWanted(EventNetworkWanted { now_ms: 42 }),
+            Record::EventNetworkIdle(EventNetworkIdle { now_ms: 42 }),
+            Record::EventFirmwareChanged(EventFirmwareChanged {
+                now_ms: 42,
+                request: 4,
+                state: 1,
+            }),
+            Record::EventInstallDone(EventInstallDone {
+                now_ms: 42,
+                request: 6,
+                kind: 0,
+                status: 0,
+                reason: 0,
+                flags: 0,
+                id: "fixture.plugin",
+            }),
             Record::EventPluginsChanged(EventPluginsChanged { now_ms: 42 }),
             Record::EventWifiChanged(EventWifiChanged {
                 now_ms: 42,
@@ -175,6 +210,45 @@ fn fixtures() -> Vec<Vec<u8>> {
                 received: 5,
                 total: 10,
                 flags: 0,
+            }),
+            Record::EventSocket(EventSocket {
+                now_ms: 42,
+                socket: 3,
+                token: 9,
+                kind: 3,
+                reason: 0,
+                len: 12,
+            }),
+            Record::EventBroadcast(EventBroadcast {
+                now_ms: 42,
+                socket: 4,
+                token: 9,
+                kind: 0,
+                reason: 0,
+                len: 20,
+                from: "192.168.0.7:9090",
+            }),
+            Record::EventWorkDue(EventWorkDue {
+                now_ms: 42,
+                token: 7,
+                why: 3,
+                key: "mail.sync",
+            }),
+            Record::EventWorkRefused(EventWorkRefused {
+                now_ms: 42,
+                token: 7,
+                reason: 13,
+                key: "mail.sync",
+            }),
+            Record::EventWorkAllowed(EventWorkAllowed { now_ms: 42 }),
+            Record::EventLookupReady(EventLookupReady {
+                now_ms: 42,
+                provider: "wikipedia.lookup",
+            }),
+            Record::EventTextTyped(EventTextTyped {
+                now_ms: 42,
+                text: "héllo",
+                flags: 1,
             }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
@@ -266,6 +340,7 @@ fn decode_as_agrees_with_decode_for_every_kind() {
 fn another_kind_is_none_without_reading_the_body() {
     // The screen's text is not UTF-8: reading it fails, asking for another kind does not.
     let mut bytes = encode(Record::EventScreenShown(wire::EventScreenShown {
+        last_input: 0,
         now_ms: 42,
         screen: "zz",
         width: 1,

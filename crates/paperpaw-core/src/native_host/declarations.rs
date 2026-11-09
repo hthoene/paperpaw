@@ -106,13 +106,10 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SettingDefault(_)
         | Record::SettingChoice(_)
         | Record::PresetValue(_) => super::declaration_reg_checks::validate(plugin_id, record),
-        // The one registry declaration not admitted yet: checked, then
-        // refused until the host admits it together with its own cross-checks
-        // (a step's name against the plugin's actions, screens, settings and
-        // menu items, `registry.md` section 6).
-        Record::SetupStep(_) => {
-            super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
-        }
+        // A setup step (`registry.md` section 6): checked here, its name
+        // against the plugin's actions, screens, settings and menu sections at
+        // commit (`declaration_checks.rs`).
+        Record::SetupStep(_) => super::declaration_reg_checks::validate(plugin_id, record),
         // Input and help declarations (`docs/abi/ui.md`): refused until the
         // host admits them (UIX hand-off).
         Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
@@ -458,8 +455,8 @@ fn spec_check(plugin_id: &str, spec: &SettingSpec<'_>) -> Check {
     }
 }
 
-/// 1 to 32 distinct, non-empty values of at most 96 bytes; `default` is one.
-/// Refused as soon as a 33rd value starts, so at most 32 values are compared.
+/// 1 to 64 distinct, non-empty values of at most 96 bytes; `default` is one.
+/// Refused as soon as a 65th value starts, so at most 64 values are compared.
 fn choices_check(choices: &str, default: &str) -> Check {
     let mut count = 0;
     let mut found = false;

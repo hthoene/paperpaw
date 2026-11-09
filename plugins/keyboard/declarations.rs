@@ -3,7 +3,7 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, ExtraDecl, GroupDecl, Instances,
-    KeyBindingDecl, Kind, ScreenDecl, SetupPage, SetupStepDecl, SlotOfferDecl, SpecDecl,
+    KeyBindingDecl, Kind, ScreenDecl, SetupPage, SetupStepDecl, SlotOfferDecl, SpecDecl, StageDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -12,6 +12,29 @@ pub const SCREEN: u32 = 10;
 pub const CHOOSE: u32 = 11;
 /// The action that finishes typing.
 pub const DONE: u32 = 1;
+
+/// The `keyboard.layouts` bounds, as `stages/keyboard.layouts@1.def` says (a
+/// test holds them to the generated codec).
+pub const LAYOUTS_SCHEMA: u32 = 1;
+pub const LAYOUTS_MAX_INPUT: u32 = 64;
+pub const LAYOUTS_MAX_REPLY: u32 = 3200;
+pub const LAYOUTS_MAX_RECORDS: u32 = 3;
+
+/// The stage other plugins add keyboard layouts through: a plugin that brings
+/// a layout subscribes to `keyboard.layouts` (`registration.stage`) and
+/// answers each run with `layouts.layout` records.
+pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.stage(StageDecl::new(
+        "layouts",
+        LAYOUTS_SCHEMA,
+        LAYOUTS_MAX_INPUT,
+        LAYOUTS_MAX_REPLY,
+        LAYOUTS_MAX_RECORDS,
+    ))?;
+    d.submit()
+}
 
 /// The keyboard's settings, on a page of their own (Settings, Device).
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(

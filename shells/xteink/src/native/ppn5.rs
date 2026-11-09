@@ -338,6 +338,19 @@ mod x4 {
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
 
+    /// The host table of this firmware's services as a named, read-only
+    /// static, for `paperpaw-sign frames-s3`: the scan reads a table's function
+    /// pointers from the ELF by the symbol's name (the table the loader hands a
+    /// plugin is a promoted constant with no symbol of its own). Built by the
+    /// same `host_table::<X4Services>()` that makes that constant, so the
+    /// roots it gives are the ones a plugin reaches; it is never read at run
+    /// time (`#[used]` keeps it, about 150 bytes of flash on the S3 only).
+    #[cfg(feature = "esp32s3")]
+    #[used]
+    #[unsafe(no_mangle)]
+    pub static PAPERPAW_HOST_TABLE_ANCHOR: paperpaw_native::host_glue::PpHost =
+        shell::host_table::<X4Services>();
+
     impl Services for X4Services {
         fn alloc(&self, size: usize, align: usize) -> *mut u8 {
             match Layout::from_size_align(size, align) {
@@ -413,7 +426,10 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        let (Ok(depth), Ok(resources)) = (FlatDepth::try_new(), HostResources::try_new()) else {
+        // NOTE: this probe builds its own pool (and `core.ui` store). Real linked-
+        // plugin registration must share the loader's pool (`try_clone`, one
+        // `UiStore` per device, ui.md 1.1) so the device keeps one UI store; that comes with the stack gate being lifted (todo 150).
+        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), super::new_resources()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
@@ -486,13 +502,8 @@ mod x4 {
 
         fn table(&mut self) -> Result<(), PluginProblem> {
             if self.resources.is_none() {
-                *self.resources = Some(HostResources::try_new().map_err(|_| {
-                    warn!(
-                        "native: {}: no room for the host's table of handles",
-                        self.id
-                    );
-                    PluginProblem::NoRoom
-                })?);
+                *self.resources =
+                    Some(crate::native::new_resources().ok_or(PluginProblem::NoRoom)?);
             }
             Ok(())
         }
