@@ -213,6 +213,7 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-stats",
+ "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wikipedia",
@@ -367,6 +368,14 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-update"
+version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
 
