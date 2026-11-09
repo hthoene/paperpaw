@@ -1,5 +1,6 @@
 //! Lossless annotation text uses bounded LIB text chunks rather than previews.
 use super::*;
+use crate::native::text_part;
 
 /// Which complete annotation string to read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,25 +91,31 @@ impl Library {
             offset,
         };
         let n = self.annotation_call(host, schema::OP_TEXT, &[&book.0, &request], input, out)?;
-        let row = wire::RawRecord::one(&out[..n])
-            .and_then(|raw| raw.decode::<wire::ServiceLibText<'a>>())
-            .map_err(|_| Error::Invalid)?;
-        let remaining = row.total.checked_sub(offset).ok_or(Error::Invalid)?;
-        let len = u32::try_from(row.text.len()).map_err(|_| Error::Invalid)?;
-        let want = remaining.min(1024);
-        let next = offset.checked_add(len).ok_or(Error::Invalid)?;
-        if row.kind != kind.wire()
-            || row.index != id
-            || len > want
-            || len + 3 < want
-            || remaining <= 1024 && len != remaining
-        {
-            return Err(Error::Invalid);
-        }
-        Ok(AnnotationTextPart {
-            text: row.text,
-            total: row.total,
-            next: (next < row.total).then_some(next),
-        })
+        let (text, total, next) =
+            text_reply(out.get(..n).ok_or(Error::Invalid)?, kind.wire(), id, offset)?;
+        Ok(AnnotationTextPart { text, total, next })
     }
+}
+
+/// Validate one `lib_text` reply for the string asked (`kind`, `index`) from `offset`: the
+/// text, its whole length and where the next part starts (`text_part::next_offset`).
+pub(super) fn text_reply<'a>(
+    bytes: &'a [u8],
+    kind: u32,
+    index: u32,
+    offset: u32,
+) -> Result<(&'a str, u32, Option<u32>), Error> {
+    let row = wire::RawRecord::one(bytes)
+        .and_then(|raw| raw.decode::<wire::ServiceLibText<'a>>())
+        .map_err(|_| Error::Invalid)?;
+    let next = text_part::next_offset(
+        (kind, index, offset),
+        text_part::Answer {
+            kind: row.kind,
+            index: row.index,
+            total: row.total,
+        },
+        row.text.len(),
+    )?;
+    Ok((row.text, row.total, next))
 }

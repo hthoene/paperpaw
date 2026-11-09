@@ -573,6 +573,8 @@ fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
 pub(crate) struct DeclarationStore {
     owners: Vec<Option<PendingDeclarations>>,
     incarnation: u32,
+    /// Owners taken out so far.
+    removed: u32,
 }
 
 /// Exclusive preparation prevents a second transaction invalidating reservations.
@@ -641,8 +643,18 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.id == *id && owner.generation == generation)
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
+    }
+
+    /// A number that differs after every change to what the store declares:
+    /// an owner added or replaced, or taken out. What was read from the store
+    /// is good while it stays the same (an owner that stops without being
+    /// taken out is not seen here: the reader drops what it kept when a call
+    /// to it fails).
+    pub(crate) fn revision(&self) -> u64 {
+        u64::from(self.incarnation) << 32 | u64::from(self.removed)
     }
 
     pub(crate) fn prune_stopped_native(&mut self) {
@@ -651,6 +663,7 @@ impl DeclarationStore {
                 owner.source.owner_id().is_ok() && owner.source.generation() != owner.generation
             }) {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }
@@ -662,6 +675,7 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.source.owner_id() == Ok(key))
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }

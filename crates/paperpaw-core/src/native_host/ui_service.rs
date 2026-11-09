@@ -19,7 +19,7 @@ use super::{
     ui_hints,
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
-    ui_widget_ops,
+    ui_widget_layout, ui_widget_ops,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
@@ -82,6 +82,7 @@ pub(crate) fn backend(
 ) -> Result<usize, i32> {
     let ui = who.hosts.ui().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
+        1 => super::ui_stack_op::stack(frame, who, input, out),
         8 => ask(frame, ui, who, input, out),
         2 => question(frame, ui, input, out),
         3 => ui_hints::hints(frame, who, op, input, out),
@@ -90,6 +91,10 @@ pub(crate) fn backend(
         17 => params(frame, ui, input, out),
         4 => ui_widget_ops::widget_make(frame, ui, who, input, out),
         5 => ui_widget_ops::widget_drop(ui, who, input).map(|()| 0),
+        6 => ui_widget_layout::widget_input(frame, ui, who, input).map(|()| 0),
+        7 => ui_widget_layout::widget_targets(frame, ui, who, input, out),
+        12 => ui_widget_layout::widget_measure(frame, ui, who, input, out),
+        13 => ui_widget_layout::widget_place(frame, ui, who, input).map(|()| 0),
         14 => ui_widget_ops::status_values(frame, ui, who, input, out),
         15 => ui_widget_ops::status_line(frame, ui, who, input, out),
         9 => text_write(frame, ui, who, input).map(|()| 0),

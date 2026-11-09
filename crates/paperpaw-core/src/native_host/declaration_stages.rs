@@ -1,10 +1,6 @@
 //! Stages and their subscribers, read from the declaration store: what the
 //! broker (`stage_broker.rs`) is fed by. A stage and a subscription live and
 //! die with their plugin's declarations; there is no second registry.
-#![allow(
-    dead_code,
-    reason = "the broker's adapter (slot 32, Core's N4 hand-off) reads these when it is wired"
-)]
 use super::{DeclarationStore, Kind};
 use crate::native_host::registrations::Record;
 use alloc::vec::Vec;

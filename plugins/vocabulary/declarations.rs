@@ -9,7 +9,7 @@
 //! screen or an entry that cannot work is not declared.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Kind, MenuEntryDecl, ScreenDecl,
-    SpecDecl,
+    SpecDecl, SubscribeDecl,
 };
 
 /// Callback tokens are stable within this plugin image.
@@ -29,6 +29,9 @@ pub const SD_MENU_TOKEN: u32 = 13;
 pub const SD_CARD_TOKEN: u32 = 14;
 /// The work that does the next step of an update or a save.
 pub const WORK_TOKEN: u32 = 5;
+/// The stage of the words looked up, and its token.
+pub const WORD_TOKEN: u32 = 6;
+pub const WORD_STAGE: &str = "reader.word-looked-up";
 
 /// The reading settings' group, where the settings are.
 pub const GROUP: &str = "core.group.reading";
@@ -137,6 +140,15 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     // The next step of an update from the card, or of a save to it.
     declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    declarations.submit()
+}
+
+/// The stage the reader runs when a word is looked up
+/// (`reader.word-looked-up`, schema 1: `stages/subscribed/`): this plugin keeps
+/// the word, as the interface-6 event `core.word-looked-up` did.
+pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut declarations = Declarations::new(sink);
+    declarations.subscribe(SubscribeDecl::new(WORD_STAGE, WORD_TOKEN))?;
     declarations.submit()
 }
 

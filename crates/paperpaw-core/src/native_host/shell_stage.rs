@@ -3,6 +3,12 @@ use super::{Batch, DispatchDepth, Error, Registration, borrowed};
 use crate::abi7::core_frame::CoreFrame;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
 
+/// The one nested dispatch path: a plugin's callback reached from inside another
+/// plugin's (a stage subscriber, a compose child). The callee is entered on the
+/// frame's usage meter for the call, so time, storage and network are charged to
+/// the plugin that runs and the secrets and Bluetooth views of the `Env` name it.
+/// Access decisions never read that tracker: they use the caller's identity.
+///
 /// Dispatch only a token resolved from a committed stage registration. The
 /// retained batch keeps the pinned host, plugin state and module live. Membership,
 /// lazy start, framing and publication belong to the stage broker.
@@ -20,6 +26,7 @@ pub(crate) fn dispatch_stage<S, M>(
     output: &mut [u8],
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
+        let _running = frame.meter.enter(&context.id);
         let instance = context.instance.get().ok_or(Error::Attempt)?;
         let callback = instance.event.ok_or(Error::Status(ERR_UNSUPPORTED))?;
         // SAFETY: the retained owner structurally pins this field and keeps it

@@ -1,14 +1,8 @@
-//! The plugin is constructed in the real registered scope of the kernel's
-//! native host. `make` there has no live frame, so it must not open services
-//! (it registers its declarations; `core.ui` opens in the first callback).
-//!
-//! The host admits an event registration only for the tags `events::is_event_tag`
-//! names. This plugin registers event.book_opened (65), event.book_closed (66), event.book_finished (67), event.status_changed (73), event.setting_changed (64), which it does not,
-//! so the host refuses the batch with `Unsupported` (-1) when `make` submits it.
-//! The positive case stays ignored until the host encodes the other events; the
-//! second test pins that it is that refusal, not a service-state error from
-//! `make` itself. Every other family the plugin declares (screens, actions,
-//! settings, navigation, menus, slots) is admitted through `Kernel::register_linked`.
+//! The plugin is constructed in the real registered scope of the kernel's native host,
+//! installed through `Kernel::register_linked`. `make` has no live frame, so it opens no
+//! service. The host admits the event tags it registers (64, 65, 66, 67, 73) but refuses the
+//! batch with `NoSpace` (-3) when `make` submits it; the second test pins that refusal, not a
+//! service-state error from `make` itself. The positive case stays ignored until it passes.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -27,16 +21,16 @@ fn construct() -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "BLOCKED: the host does not admit the event registrations event.book_opened (65), event.book_closed (66), event.book_finished (67), event.status_changed (73), event.setting_changed (64)"]
+#[ignore = "BLOCKED: the host admits the event tags now, but refuses this plugin's batch with ERR_NO_SPACE (-3) when `make` submits it"]
 fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
 }
 
 #[test]
-fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
+fn until_the_host_takes_the_whole_batch_make_is_refused_as_no_space() {
     let refused = construct().unwrap_err();
     assert_eq!(
-        refused, "Factory(-1)",
+        refused, "Factory(-3)",
         "not a service-state refusal from make"
     );
 }
