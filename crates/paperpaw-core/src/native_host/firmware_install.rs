@@ -289,12 +289,8 @@ enum Phase {
     RestartAsking,
 }
 
-/// One plugin's last firmware check.
-#[derive(Clone, Copy)]
-enum Slot {
-    Running,
-    Done(CheckResult),
-}
+/// One plugin's last firmware check: `None` while it runs.
+type Slot = Option<CheckResult>;
 
 #[derive(Clone, Copy)]
 struct CheckResult {
@@ -454,14 +450,14 @@ impl FirmwareInstall {
     /// `ERR_NO_MEMORY`.
     pub(crate) fn reserve_check(&mut self, owner: u64) -> Result<(), i32> {
         if let Some((_, slot)) = self.results.iter_mut().find(|(key, _)| *key == owner) {
-            *slot = Slot::Running;
+            *slot = None;
             return Ok(());
         }
         if self.results.len() >= RESULTS_MAX {
             return Err(ERR_FULL);
         }
         self.results.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        self.results.push((owner, Slot::Running));
+        self.results.push((owner, None));
         Ok(())
     }
 
@@ -472,8 +468,8 @@ impl FirmwareInstall {
     pub(crate) fn checked(&self, owner: u64) -> Result<Checked, i32> {
         match self.results.iter().find(|(key, _)| *key == owner) {
             None => Err(ERR_NOT_FOUND),
-            Some((_, Slot::Running)) => Err(ERR_BUSY),
-            Some((_, Slot::Done(result))) => Ok(Checked {
+            Some((_, None)) => Err(ERR_BUSY),
+            Some((_, Some(result))) => Ok(Checked {
                 request: result.request,
                 reason: result.reason,
                 facts: result.facts,
@@ -507,13 +503,13 @@ impl FirmwareInstall {
 
     fn keep(&mut self, owner: u64, result: CheckResult) {
         if let Some((_, slot)) = self.results.iter_mut().find(|(key, _)| *key == owner) {
-            *slot = Slot::Done(result);
+            *slot = Some(result);
         }
     }
 
     fn mark_running(&mut self, owner: u64) {
         if let Some((_, slot)) = self.results.iter_mut().find(|(key, _)| *key == owner) {
-            *slot = Slot::Running;
+            *slot = None;
         }
     }
 
