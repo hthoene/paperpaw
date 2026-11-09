@@ -7,10 +7,11 @@
 //! leaves nothing half wired.
 //!
 //! Which families a shell can name grows with the adapters: `text.hyphenate`
-//! (the card's tables), `core.device` (a host that already is public) and
-//! `core.ui` (the store; the stack's view comes from each call's frame) today;
-//! the other families' hosts are core's adapters over kernel objects and join
-//! as their adapters land, one method each.
+//! (the card's tables), `core.device` (a host that already is public),
+//! `core.ui` (the store; the stack's view comes from each call's frame) and
+//! `core.net` (the card and the shell's network) today; the other families'
+//! hosts are core's adapters over kernel objects and join as their adapters
+//! land, one method each.
 use super::{
     device_service::DeviceHost,
     hyphen_card::CardTables,
@@ -19,9 +20,19 @@ use super::{
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
+#[path = "shell_wiring/net.rs"]
+mod net;
+#[path = "shell_wiring/sockets.rs"]
+mod sockets;
+pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
+pub use net::{
+    HttpDone, HttpHeaders, HttpJob, HttpReason, NetInputs, NetLimits, NetReports, ServedDecision,
+    ServedReply, ServerReason, ShellHttp, ShellNetwork,
+};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
+pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
 /// family the shell does not name.
@@ -30,6 +41,8 @@ use paperpaw_platform::Storage;
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
+    net: Option<NetInputs>,
+    sockets: Option<SockInputs>,
     /// `core.ui`: `Some(x4)`.
     ui: Option<bool>,
 }
@@ -39,6 +52,8 @@ impl core::fmt::Debug for HostWiring {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
             .field("device", &self.device.is_some())
+            .field("net", &self.net.is_some())
+            .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
             .finish()
     }
@@ -64,6 +79,39 @@ impl HostWiring {
     #[must_use]
     pub fn device(mut self, host: Rc<dyn DeviceHost>) -> Self {
         self.device = Some(host);
+        self
+    }
+
+    /// `core.net`: HTTP requests and serving, over the card and the shell's
+    /// network ([`NetInputs`]). The transport's reports come back through
+    /// [`WiredHosts::net`].
+    ///
+    /// Wire before `Kernel::start`. The kernel fills the user's network policy
+    /// (the power mode and each plugin's network setting) at its first pass and
+    /// at every change after; until then the policy is closed, and a plugin that
+    /// asks first is answered `network_off`. Wired after the kernel has started,
+    /// the services answer `network_off` to a plugin's first requests until the
+    /// kernel's next event or call end.
+    #[must_use]
+    pub fn net(mut self, inputs: NetInputs) -> Self {
+        self.net = Some(inputs);
+        self
+    }
+
+    /// `core.sockets`: TCP sockets (and TLS, if the inputs have it) and UDP
+    /// broadcast, over the card and the shell's network ([`SockInputs`]). The
+    /// transport's reports come back through [`WiredHosts::sockets`]. The
+    /// network pool is the one `core.net` uses: name the same size in both.
+    ///
+    /// Wire before `Kernel::start`. The kernel fills the user's network policy
+    /// (the power mode and each plugin's network setting) at its first pass and
+    /// at every change after; until then the policy is closed, and a plugin that
+    /// asks first is answered `network_off`. Wired after the kernel has started,
+    /// the services answer `network_off` to a plugin's first requests until the
+    /// kernel's next event or call end.
+    #[must_use]
+    pub fn sockets(mut self, inputs: SockInputs) -> Self {
+        self.sockets = Some(inputs);
         self
     }
 
@@ -164,6 +212,8 @@ impl HyphenTables {
 #[non_exhaustive]
 pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
+    net: Option<NetReports>,
+    sockets: Option<SockReports>,
     ui_skipped: bool,
 }
 
@@ -172,6 +222,18 @@ impl WiredHosts {
     #[must_use]
     pub fn hyphen(&self) -> Option<&HyphenTables> {
         self.hyphen.as_ref()
+    }
+
+    /// The transport's reports, if `core.net` was wired.
+    #[must_use]
+    pub fn net(&self) -> Option<&NetReports> {
+        self.net.as_ref()
+    }
+
+    /// The transport's reports, if `core.sockets` was wired.
+    #[must_use]
+    pub fn sockets(&self) -> Option<&SockReports> {
+        self.sockets.as_ref()
     }
 
     /// Whether `core.ui` was asked for and not wired because its store could
@@ -186,14 +248,31 @@ impl HostResources {
     /// Wires the families `wiring` names, once for the device.
     ///
     /// # Errors
-    /// `ERR_STATE` when one of them is wired already (nothing is wired then).
+    /// `ERR_STATE` when one of them is wired already, `ERR_INVALID` when
+    /// `core.net` and `core.sockets` name different network pools (nothing is
+    /// wired then).
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
+            || (wiring.net.is_some() && hosts.net().is_some())
+            || (wiring.sockets.is_some() && hosts.sockets().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
         {
             return Err(ERR_STATE);
+        }
+        // `core.net` and `core.sockets` share the device's one network pool: a
+        // wiring that names two shapes is refused before anything is wired.
+        if let (Some(net), Some(sockets)) = (&wiring.net, &wiring.sockets)
+            && (
+                net.pool_shape().0,
+                super::net_pool::NetPool::clamp_sessions(net.pool_shape().1),
+            ) != (
+                sockets.pool_shape().0,
+                super::net_pool::NetPool::clamp_sessions(sockets.pool_shape().1),
+            )
+        {
+            return Err(ERR_INVALID);
         }
         let mut wired = WiredHosts::default();
         if let Some(storage) = wiring.hyphenation {
@@ -203,6 +282,32 @@ impl HostResources {
         }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;
+        }
+        if let Some(inputs) = wiring.net {
+            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let (bytes, sessions) = inputs.pool_shape();
+            let pool = hosts.net_pool(bytes, sessions)?.clone();
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
+            hosts.wire_net(device.clone())?;
+            wired.net = Some(NetReports(device));
+        }
+        if let Some(inputs) = wiring.sockets {
+            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let (bytes, sessions) = inputs.pool_shape();
+            let pool = hosts.net_pool(bytes, sessions)?.clone();
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
+            hosts.wire_sockets(device.clone())?;
+            wired.sockets = Some(SockReports(device));
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
@@ -221,3 +326,11 @@ impl HostResources {
 #[cfg(test)]
 #[path = "shell_wiring_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_wiring/net_tests.rs"]
+mod net_tests;
+
+#[cfg(test)]
+#[path = "shell_wiring/sockets_tests.rs"]
+mod sockets_tests;
