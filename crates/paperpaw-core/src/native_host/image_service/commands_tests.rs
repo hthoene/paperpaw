@@ -3,6 +3,7 @@
 extern crate std;
 use super::*;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_platform::Storage;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::image::PngWriter;
 
@@ -30,10 +31,13 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     assert_eq!(a.admit(&prepare_cmd(0, "b.png", 0)), Some(Err(ERR_FULL)));
     let mut a = admit(false, 9);
     assert_eq!(a.admit(&prepare_cmd(1, "a.png", 0)), Some(Err(ERR_DENIED)));
+    // Root 2, the plugin's install folder: read only, no feature.
+    assert_eq!(a.admit(&prepare_cmd(2, "a.png", 0)), Some(Ok(())));
     assert_eq!(
-        a.admit(&prepare_cmd(2, "a.png", 0)),
+        a.admit(&prepare_cmd(3, "a.png", 0)),
         Some(Err(ERR_UNSUPPORTED))
     );
+    assert_eq!(a.room, 8, "root 2 took one room");
     assert_eq!(
         a.admit(&prepare_cmd(0, "a.png", 2)),
         Some(Err(ERR_UNSUPPORTED))
@@ -45,7 +49,32 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
             "{bad:?}"
         );
     }
-    assert_eq!(a.room, 9, "a refused command took no room");
+    // As `core.files` checks a path: its grammar, its sizes, and root 1 never
+    // reaches the install folders or the kernel's.
+    for bad in ["a:b", "x.", "CON", "a\u{1}b"] {
+        assert_eq!(
+            a.admit(&prepare_cmd(0, bad, 0)),
+            Some(Err(ERR_INVALID)),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        a.admit(&prepare_cmd(0, &"p".repeat(600), 0)),
+        Some(Err(paperpaw_native::host_glue::ERR_NO_SPACE))
+    );
+    assert_eq!(a.room, 8, "a refused command took no room");
+    let mut with_card = admit(true, 4);
+    for bad in ["plugins/x/a.png", "Plugins/a.png", ".paperpaw/cache/a.png"] {
+        assert_eq!(
+            with_card.admit(&prepare_cmd(1, bad, 0)),
+            Some(Err(ERR_INVALID)),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        with_card.admit(&prepare_cmd(1, "Pics/a.png", 0)),
+        Some(Ok(()))
+    );
     assert_eq!(
         admit(true, 1).admit(&prepare_cmd(1, "a.png", 0)),
         Some(Ok(()))
@@ -72,6 +101,8 @@ impl ImageRoots for Roots {
                 source.push_str(path);
                 Ok(source)
             }
+            // The install folder of the plugin "demo", as `core.files` has it.
+            2 => bundle_source("demo", false, path),
             _ => Err(ERR_NOT_FOUND),
         }
     }
@@ -142,7 +173,7 @@ fn a_source_that_does_not_resolve_is_answered_not_lost() {
     let ready = told(&t).unwrap();
     assert_eq!(
         (ready.status, ready.image, ready.cookie),
-        (prepare::CARD, 0, 5)
+        (prepare::NOT_FOUND, 0, 5)
     );
     // A request over the room is the caller's ERR_FULL.
     for _ in 0..4 {
@@ -287,7 +318,7 @@ fn an_apply_that_cannot_allocate_keeps_its_command_and_never_loses_its_answer() 
     let storage = MemoryStorage::new();
     png(&storage, "data/a.png", 8, 8);
     for resolves in [true, false] {
-        // The source resolves (root 0) or not (root 1: answered with status 4).
+        // The source resolves (root 0) or not (root 1: answered with status 6, not found).
         let root = if resolves { 0 } else { 1 };
         for nth in 1..=12 {
             let t = ImageTable::new();
@@ -313,8 +344,88 @@ fn an_apply_that_cannot_allocate_keeps_its_command_and_never_loses_its_answer() 
             match inner.ready.first() {
                 None => assert!(resolves, "nth {nth}"),
                 Some(r) if resolves => assert_eq!(r.status, prepare::NO_MEMORY, "nth {nth}"),
-                Some(r) => assert_eq!(r.status, prepare::CARD, "nth {nth}"),
+                Some(r) => assert_eq!(r.status, prepare::NOT_FOUND, "nth {nth}"),
             }
         }
     }
+}
+
+#[test]
+fn root_2_reads_the_plugins_install_folder_and_a_missing_file_is_status_6_on_every_root() {
+    let storage = MemoryStorage::new();
+    // A plugin's bundle holds a picture; a built-in plugin's folder is empty.
+    png(&storage, "plugins/demo/art/cat.png", 8, 8);
+    png(&storage, "data/here.png", 8, 8);
+    let count = |storage: &MemoryStorage| {
+        let mut n = 0;
+        storage.list("plugins/demo/art", &mut |_| n += 1).unwrap();
+        n
+    };
+    let before = count(&storage);
+    let t = ImageTable::new();
+    let mut cookie = 0;
+    let mut answer = |root: u32, path: &str| {
+        cookie += 1;
+        let cmd = owned(&WireCommand::ImagePrepare {
+            root,
+            path,
+            side: 8,
+            cookie,
+            flags: 0,
+        })
+        .unwrap()
+        .unwrap();
+        t.apply(A, &cmd, &Roots).unwrap();
+        while t.prepare_step(&storage, prepare::Env::x4(8, false)) == Ok(true) {}
+        let ready = told(&t).unwrap();
+        // The ids are released at once: room for the next.
+        if ready.image != 0 {
+            t.release(A, ready.image).unwrap();
+        }
+        (ready.status, ready.image != 0)
+    };
+    // A bundle hit.
+    assert_eq!(answer(2, "art/cat.png"), (prepare::READY, true));
+    // Missing: in a folder that has other files, one that does not exist at
+    // all (a built-in plugin's), and on the other roots.
+    assert_eq!(answer(2, "art/dog.png"), (prepare::NOT_FOUND, false));
+    assert_eq!(answer(2, "builtin.png"), (prepare::NOT_FOUND, false));
+    assert_eq!(answer(0, "gone.png"), (prepare::NOT_FOUND, false));
+    assert_eq!(answer(1, "gone.png"), (prepare::NOT_FOUND, false));
+    assert_eq!(answer(0, "here.png"), (prepare::READY, true));
+    // No write: the install folder is as it was; the decoded copies are in
+    // the image cache only.
+    assert_eq!(count(&storage), before);
+    assert!(!storage.exists("plugins/demo/art/dog.png"));
+}
+
+#[test]
+fn the_bundle_path_is_the_one_core_files_resolves() {
+    assert_eq!(
+        bundle_source("demo", false, "art/cat.png").as_deref(),
+        Ok("plugins/demo/art/cat.png")
+    );
+    for bad in ["", "../x", "a/../b", "/a", "a//b", "a\\b", "a:b", "x.png."] {
+        assert_eq!(
+            bundle_source("demo", false, bad),
+            Err(ERR_INVALID),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        bundle_source("demo", false, &"p".repeat(600)),
+        Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+    );
+    // An id that is more than one folder name, or leaves no room.
+    assert_eq!(bundle_source("a/b", false, "x.png"), Err(ERR_INVALID));
+    assert_eq!(
+        bundle_source(&"p".repeat(400), false, "x.png"),
+        Err(ERR_INVALID)
+    );
+    // A built-in plugin's folder is empty, whatever a leftover holds.
+    assert_eq!(
+        bundle_source("demo", true, "art/cat.png"),
+        Err(ERR_NOT_FOUND)
+    );
+    assert_eq!(bundle_source("demo", true, "../x"), Err(ERR_INVALID));
 }

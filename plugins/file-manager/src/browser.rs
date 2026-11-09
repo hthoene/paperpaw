@@ -44,9 +44,6 @@ pub(crate) enum Note {
     OwnData,
     /// The name asked for does not work on the card.
     BadName,
-    /// Done; the library was not told, so a book's reading place and notes
-    /// stay with its old name (see `PORTING-7.md`).
-    NotTold,
 }
 
 /// The folder on show.
@@ -390,7 +387,6 @@ impl Browser {
         };
         let result = (|| {
             let target = path::free_path(storage, &self.dir, path::name(&picked.path))?;
-            let mut told = false;
             if picked.copy {
                 ops::copy(storage, &picked.path, &target)?;
             } else if path::same_path(storage, path::parent(&picked.path), &self.dir) {
@@ -399,14 +395,13 @@ impl Browser {
                 return Err(None);
             } else {
                 ops::move_to(storage, &picked.path, &target)?;
-                told = true;
             }
-            Ok((target, told))
+            Ok(target)
         })();
         self.bar = None;
         match result {
-            Ok((target, told)) => {
-                self.note = told.then_some(Note::NotTold);
+            Ok(target) => {
+                self.note = None;
                 self.reload_at(storage, &target);
             }
             Err(None) => self.note = Some(Note::OwnData),
@@ -438,6 +433,19 @@ impl Browser {
         }
         let at = Entry::new(path::name(path), is_dir(storage, path), 0);
         let deleted = ops::delete(storage, path);
+        self.deleted(storage, path, at.ok(), deleted);
+    }
+
+    /// What follows a deletion of `path` (by the card, or by the library with
+    /// everything kept for a book): the line, the picked entry gone with it,
+    /// the focus where it was.
+    pub(crate) fn deleted(
+        &mut self,
+        storage: &dyn Storage,
+        path: &str,
+        at: Option<Entry>,
+        deleted: Result<(), Error>,
+    ) {
         self.note = deleted.err().map(Note::Failed);
         // Picked to be moved or copied, and gone with it.
         if self
@@ -448,7 +456,7 @@ impl Browser {
             self.picked = None;
         }
         // The focus where it was.
-        self.reload(storage, at.ok());
+        self.reload(storage, at);
     }
 
     /// Renames `path` to `name` as typed.
@@ -466,7 +474,7 @@ impl Browser {
         }
         match ops::rename(storage, path, name) {
             Ok(target) => {
-                self.note = Some(Note::NotTold);
+                self.note = None;
                 self.reload_at(storage, &target);
             }
             Err(error) => {

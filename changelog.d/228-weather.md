@@ -1,0 +1,3 @@
+### Changed
+
+- **Weather runs on interface 7** (#228). The weather plugin is now a native plugin only: the two widgets (*Weather now* and *Forecast*), the place screen (search by name, the places found, *No place*, the offer to go online in the offline mode), fetching from Open-Meteo over the network service, and the timer that looks again (the work service: only while the radio is on anyway, after the interval set, at the wake and once online) behave as before, with the same texts in English and German. Out-of-memory ends a step instead of aborting, an answer is read in pieces so it is never held whole, and the plugin no longer keeps interface-6 code beside the native one.

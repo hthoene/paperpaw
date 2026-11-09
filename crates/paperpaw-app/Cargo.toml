@@ -22,16 +22,12 @@ panes = ["paperpaw-core/panes"]
 # shell takes them (Android, the emulator, tests), left out of the X4's
 # and the X4 Pro's firmware (see `StorePlugins`).
 store-plugins = [
-    "dep:paperpaw-plugin-stats",
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-calibre",
-    "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
-    "dep:paperpaw-plugin-translate",
-    "dep:paperpaw-plugin-reading-goal",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
@@ -40,21 +36,8 @@ store-plugins = [
     "dep:paperpaw-plugin-browser",
     "dep:paperpaw-plugin-readwise",
     "dep:paperpaw-plugin-read-later-cloud",
-    "dep:paperpaw-plugin-joplin",
     "dep:paperpaw-plugin-mail",
     "dep:paperpaw-plugin-wallabag",
-    "dep:paperpaw-plugin-hyphenation-da",
-    "dep:paperpaw-plugin-hyphenation-de",
-    "dep:paperpaw-plugin-hyphenation-es",
-    "dep:paperpaw-plugin-hyphenation-fr",
-    "dep:paperpaw-plugin-hyphenation-it",
-    "dep:paperpaw-plugin-hyphenation-nb",
-    "dep:paperpaw-plugin-hyphenation-nl",
-    "dep:paperpaw-plugin-hyphenation-pl",
-    "dep:paperpaw-plugin-hyphenation-pt",
-    "dep:paperpaw-plugin-hyphenation-ru",
-    "dep:paperpaw-plugin-hyphenation-sv",
-    "dep:paperpaw-plugin-hyphenation-uk",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
 # Kept so builds that name it still work: the diagnostics plugin is a native
@@ -71,6 +54,7 @@ packs = ["paperpaw-plugin-fonts-default/packs"]
 native-linked = [
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
+    "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-plugin-manager",
@@ -81,6 +65,7 @@ native-linked = [
     "paperpaw-plugin-help/linked",
     "paperpaw-plugin-plugin-manager/linked",
     "paperpaw-plugin-power/linked",
+    "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
     "paperpaw-plugin-keyboard/linked",
     "paperpaw-plugin-lock/linked",
@@ -105,24 +90,9 @@ paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
-paperpaw-plugin-hyphenation.workspace = true
-paperpaw-plugin-hyphenation-da = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-es = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-de = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-fr = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-it = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-nb = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-nl = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-pl = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-pt = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-ru = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-sv = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-uk = { workspace = true, optional = true }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
 paperpaw-plugin-calibre = { workspace = true, optional = true }
-paperpaw-plugin-stats = { workspace = true, optional = true }
-paperpaw-plugin-reading-goal = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
@@ -130,12 +100,11 @@ paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }
 paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
-paperpaw-plugin-file-manager.workspace = true
+paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
 paperpaw-plugin-lock = { workspace = true, optional = true }
-paperpaw-plugin-wikipedia.workspace = true
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
 paperpaw-plugin-sleep.workspace = true
@@ -145,15 +114,12 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-translate = { workspace = true, optional = true }
 paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
-paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
-paperpaw-plugin-weather = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
