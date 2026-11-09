@@ -570,3 +570,86 @@ fn the_kernel_applies_a_policy_to_the_real_screen() {
     kernel.native_screen_policies(&probe, OWN, vec![change(0)]);
     assert!(kernel.guard().is_none());
 }
+
+/// The lock's keyboard (another plugin's screen above the lock) cannot take
+/// the guard over: guards on is `ERR_STATE` while another plugin's screen
+/// guards, at submit and at apply, and the lock stays.
+#[test]
+fn a_screen_above_anothers_guard_cannot_turn_guards_on() {
+    let above = kernel(&[
+        BASE,
+        ("lock.screen", 2, OTHER, GUARDS),
+        ("kbd.screen", 3, OWN, 0),
+    ]);
+    for instance in [0, 3] {
+        assert_eq!(
+            submit_policy(&above, 3, &[policy(instance, 0x02)]).0,
+            ERR_STATE
+        );
+    }
+    // The whole batch is refused, whatever else it holds.
+    let (status, staged, policies) =
+        submit_policy(&above, 3, &[WireCommand::ShowHints {}, policy(3, 0x02)]);
+    assert_eq!(status, ERR_STATE);
+    assert!(staged.is_empty() && policies.is_empty());
+    // Not the guard's own business: secret and edges still work.
+    assert_eq!(submit_policy(&above, 3, &[policy(3, 0x30)]).0, OK);
+    // The guard's plugin itself may (it is the guard already).
+    let own = kernel(&[
+        BASE,
+        ("lock.screen", 2, OWN, GUARDS),
+        ("kbd.screen", 3, OWN, 0),
+    ]);
+    assert_eq!(submit_policy(&own, 3, &[policy(3, 0x02)]).0, OK);
+}
+
+#[test]
+fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
+    let probe = Id::new_static("probe");
+    let lock = Id::new_static("lock");
+    let mut kernel = guarded_kernel();
+    open(&mut kernel, "probe.base");
+    open(&mut kernel, "lock.screen");
+    // The lock opens the keyboard (another plugin's screen) above itself.
+    kernel.drain_native_command(
+        &lock,
+        Command::OpenScreen(Id::new_static("probe.more"), Params::new()),
+    );
+    assert_eq!(
+        stack_of(&kernel),
+        ["probe.base", "lock.screen", "probe.more"]
+    );
+    let keyboard = kernel.stack.last().unwrap().serial;
+    // The kernel's rows name the owners: lock 12, the keyboard (probe) OWN.
+    let rows: Vec<StackRow> = kernel
+        .stack
+        .iter()
+        .map(|active| StackRow {
+            instance: active.serial,
+            owner: if active.serial == keyboard {
+                OWN
+            } else {
+                OTHER
+            },
+            flags: if active.guards() { GUARDS } else { 0 },
+        })
+        .collect();
+    kernel.shared.stack_rows.update(rows);
+    kernel.take_warnings();
+    kernel.native_screen_policies(
+        &probe,
+        OWN,
+        vec![PolicyChange {
+            instance: keyboard,
+            flags: 0x02,
+        }],
+    );
+    // The lock is still the guard, nothing else guards, one warning.
+    assert_eq!(kernel.guard(), Some(1));
+    assert!(!kernel.stack[2].guards());
+    assert_eq!(kernel.take_warnings().len(), 1);
+    // The lock closes itself still (it was never displaced).
+    let lock_key = kernel.shared.stack[1].key;
+    kernel.drain_native_command(&lock, Command::Close(lock_key));
+    assert_eq!(stack_of(&kernel), ["probe.base", "probe.more"]);
+}

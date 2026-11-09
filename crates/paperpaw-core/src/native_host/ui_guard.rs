@@ -226,7 +226,8 @@ pub(crate) fn raise_allowed(view: &dyn UiStackView, submitter: u64) -> Result<()
 
 /// `command.screen_policy` turning `guards` on for `instance` (section 1.2):
 /// only the submitter's own instance that is the top of the whole stack, not
-/// counting the host's own screen for a device state. Anywhere else
+/// counting the host's own screen for a device state, and not while another
+/// plugin's screen guards. Anywhere else
 /// `ERR_STATE` (the whole batch is refused); another plugin's instance is
 /// `ERR_DENIED`; an instance not on the stack `ERR_NOT_FOUND`.
 pub(crate) fn guard_on_allowed(
@@ -245,11 +246,16 @@ pub(crate) fn guard_on_allowed(
         .rev()
         .find(|&i| view.row(i).is_some_and(|r| !r.host))
         .ok_or(ERR_STATE)?;
-    if index == top_index {
-        Ok(())
-    } else {
-        Err(ERR_STATE)
+    if index != top_index {
+        return Err(ERR_STATE);
     }
+    // While another plugin's screen guards, no plugin may become the guard:
+    // the lock's keyboard or a dialog above it would otherwise take the guard
+    // over, close the lock and let go (section 1.2).
+    if guard_owner(view).is_some_and(|guard| guard != submitter) {
+        return Err(ERR_STATE);
+    }
+    Ok(())
 }
 
 /// `command.screen_policy` for a non-zero `instance` (section 1.2): the
