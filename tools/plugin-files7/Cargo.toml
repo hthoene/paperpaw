@@ -207,6 +207,8 @@ name = "update"
 path = "src/bin/update.rs"
 name = "transfer"
 path = "src/bin/transfer.rs"
+name = "sleep"
+path = "src/bin/sleep.rs"
 test = false
 bench = false
 
@@ -245,6 +247,7 @@ paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["nat
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
 paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
 paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
+paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

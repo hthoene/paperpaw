@@ -47,6 +47,45 @@ fn another_plugins_screen_takes_the_place_of_a_mode() {
     assert_eq!(decide(CAT, with(|f| f.other_screen = true)), Content::Cat);
 }
 
+/// A stored `sleep.show` that no plugin offers (another plugin's mode after it
+/// was removed, a word from a newer version, an empty or a very long text) falls
+/// back as interface 6 did: the cover where there is one, else the cat. Never
+/// another plugin's screen (there is none), the overlay, a blank page or a
+/// panic, whatever the other facts say.
+#[test]
+fn a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat() {
+    let long = "x".repeat(300);
+    let modes = [
+        "reading-goal.sleep",
+        "gone.mode",
+        "",
+        " ",
+        "Cat",
+        "ünï.cödé",
+        long.as_str(),
+    ];
+    for mode in modes {
+        for bits in 0..64u32 {
+            let facts = Facts {
+                off: bits & 1 != 0,
+                over_page: bits & 2 != 0,
+                other_screen: false,
+                picture: bits & 8 != 0,
+                cover: bits & 16 != 0,
+                widgets_empty: bits & 32 != 0,
+            };
+            let want = if facts.cover {
+                Content::Cover
+            } else {
+                Content::Cat
+            };
+            assert_eq!(decide(mode, facts), want, "{mode:?} {facts:?}");
+            // The mode is kept as it is: the stored word is not rewritten.
+            assert_eq!(effective(mode, facts), mode);
+        }
+    }
+}
+
 #[test]
 fn widgets_message_and_page() {
     assert_eq!(decide(WIDGETS, NONE), Content::Widgets);
@@ -261,4 +300,75 @@ fn a_folder_of_thousands_keeps_the_first_by_name() {
         .take(&format!("{}.png", "x".repeat(MAX_NAME_BYTES)), false)
         .unwrap();
     assert_eq!(pictures.names.len(), kept);
+}
+
+const GOAL: &str = "reading-goal.sleep";
+
+#[test]
+fn the_slot_is_bound_to_a_foreign_mode_that_is_a_candidate() {
+    let offered = [OWN_SCREEN, GOAL, "other.sleep"];
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding("other.sleep", &offered), Some("other.sleep"));
+    // Also from owned strings, and with the candidate alone.
+    let owned = [GOAL.to_string()];
+    assert_eq!(binding(GOAL, &owned), Some(GOAL));
+}
+
+#[test]
+fn the_slot_returns_to_the_default_for_the_plugins_own_modes_and_an_empty_value() {
+    let offered = [OWN_SCREEN, GOAL];
+    for mode in BUILT_IN {
+        assert_eq!(binding(mode, &offered), None, "{mode}");
+        // Even if a plugin offered a screen of that very name.
+        assert_eq!(binding(mode, &[mode]), None, "{mode}");
+    }
+    assert_eq!(binding("", &offered), None);
+    assert_eq!(binding("", &[""]), None);
+}
+
+#[test]
+fn a_stale_foreign_value_binds_nothing() {
+    // The plugin that offered the mode is gone, or never was.
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+    assert_eq!(binding(GOAL, &["other.sleep"]), None);
+    assert_eq!(binding(GOAL, &[] as &[&str]), None);
+    // A prefix or a longer word of a candidate is not the candidate.
+    assert_eq!(binding("reading-goal", &[GOAL]), None);
+    assert_eq!(binding("reading-goal.sleep2", &[GOAL]), None);
+    assert_eq!(binding("Reading-Goal.Sleep", &[GOAL]), None);
+}
+
+#[test]
+fn the_plugins_own_screen_among_the_candidates_is_never_a_foreign_mode() {
+    let offered = [OWN_SCREEN, GOAL];
+    // Its id as the stored value is the default, not a pinned binding.
+    assert_eq!(binding(OWN_SCREEN, &offered), None);
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+}
+
+#[test]
+fn odd_and_long_values_bind_nothing_and_do_not_panic() {
+    let long = "x".repeat(4096);
+    let offered = [OWN_SCREEN, GOAL];
+    for value in [
+        " ",
+        " reading-goal.sleep",
+        "reading-goal.sleep ",
+        "reading-goal.sleep\n",
+        "\0",
+        "é.sleep",
+        "😀",
+        long.as_str(),
+    ] {
+        assert_eq!(binding(value, &offered), None, "{value:?}");
+    }
+    // A long candidate matches itself only; the caller's refusal of a screen
+    // id too long for the command is a refusal like any other.
+    let list = [long.clone()];
+    assert_eq!(binding(&long, &list), Some(long.as_str()));
+    assert_eq!(binding(&long[1..], &list), None);
+    assert!(is_foreign(&long));
+    assert!(!is_foreign(""));
+    assert!(!is_foreign(CAT));
 }
