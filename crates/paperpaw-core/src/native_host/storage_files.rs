@@ -129,7 +129,7 @@ impl FilesHost for StorageFiles {
     }
 
     fn moving(&self) -> bool {
-        self.sources.any(BusySource::moving)
+        self.sources.any(|source| source.moving())
     }
 }
 
