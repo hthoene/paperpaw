@@ -51,7 +51,7 @@ fn sort_key(menu: &str, record: &Record<'_>) -> Option<i64> {
     let (group, order, entry) = match record {
         Record::MenuEntry(row) if row.menu == menu => match row.place {
             4 => (0, row.order, 1),
-            0..=3 => (1, row.order, 1),
+            0 | 1 | 2 | 3 => (1, row.order, 1),
             5 => (2, row.order, 1),
             _ => return None,
         },
