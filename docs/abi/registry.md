@@ -302,15 +302,17 @@ These change the user's configuration of the whole device, so they need the D1 f
   `action` binds nothing (interface 6 `NOTHING`); `flags` bit 0 (`reset`) returns the input to the
   declared and preset bindings. Saved in the user's `paperpaw.ini`, in effect after the callback.
 - [D] **The escape is a host-fixed chord, not a table check.** Holding Power (8 s, the chord no
-  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset
-  keys" on top, on every device (Android: the system back long-press or its equivalent). No
-  binding, layer, condition, declaration or filter can take it: `bind_key` or `key.bind` naming it
-  is `ERR_DENIED`. As a second line, the host refuses (`ERR_DENIED`) a `bind_key` batch, and drops
-  at admission a `key.bind`, that would leave the **global** layer without an input to the main
-  menu. Screen layers, conditions and declarations can still shadow it; the chord is the guarantee.
-  **Device gate (owner):** on the X4 and X4 Pro, holding Power for 8 s must not end in a hardware
-  power-off or reset before the host sees it; if it does, the escape takes another chord before the
-  freeze.
+  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset keys"
+  on top, on every device (Android: the system back long-press or its equivalent). No binding,
+  layer, condition, declaration or filter can take it: it has no input name, and the host checks the
+  hold before the key map and every filter (`long.power` is the ordinary long press and stays
+  bindable, as do chords with Power). As a second line, the host refuses (`ERR_DENIED`) a `bind_key`
+  batch that would leave the **global** layer without an input to the main menu, and drops from the
+  key map, as it builds it, a global `key.bind` row that would replace or unbind the last such input
+  (the row stays its plugin's; nothing is refused, #815). Screen layers, conditions and declarations
+  can still shadow it; the chord is the guarantee. **Device gate (owner):** on the X4 and X4 Pro,
+  holding Power for 8 s must not end in a hardware power-off or reset before the host sees it; if it
+  does, the escape takes another chord before the freeze.
 - [D] `bind_slot`: binds `slot` to `screen`; empty `screen` returns to the default. The screen must
   be declared and offered for that slot, else `ERR_INVALID`.
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
