@@ -1494,7 +1494,6 @@ pub(crate) use stage::dispatch_stage;
 
 #[path = "shell/native_commit.rs"]
 mod native_commit;
-
 #[path = "shell/shared_table.rs"]
 mod shared_table;
 use shared_table::SharedTable;

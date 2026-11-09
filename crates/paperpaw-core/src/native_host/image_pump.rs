@@ -34,7 +34,7 @@ use super::{
     native_instances::InstanceState,
     registrations::{self as wire},
 };
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
@@ -99,6 +99,12 @@ struct Roots<'a> {
 impl ImageRoots for Roots<'_> {
     fn resolve(&self, _owner: u64, root: u32, path: &str) -> Result<String, i32> {
         let first = path.split('/').next().unwrap_or_default();
+        // The storage folder `first` is in, as the files service names it.
+        let parent = if root == 0 {
+            format!("{}/plugins/{}", paperpaw_sdk::data::DIR, self.plugin)
+        } else {
+            String::new()
+        };
         let excluded = match root {
             // The host's own folder of received files.
             0 => first.eq_ignore_ascii_case(".received"),
@@ -108,7 +114,7 @@ impl ImageRoots for Roots<'_> {
         } || self
             .hosts
             .files()
-            .is_some_and(|files| files.0.excluded(root, first));
+            .is_some_and(|files| files.0.excluded(root, &parent, first));
         if excluded {
             return Err(ERR_DENIED);
         }
