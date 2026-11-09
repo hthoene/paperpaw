@@ -4,19 +4,25 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::document::DocumentError;
+
+use crate::fallible::{self, TryPush, TryPushStr};
+
 /// Cells of a row read at most; the rest are left out.
 const MAX_CELLS: usize = 16;
 
 /// The cells of a row of a table, outer pipes taken off. A pipe inside
 /// `[[…]]`, backticks, or written `\|` does not part cells.
-pub(super) fn cells(row: &str) -> Vec<&str> {
+pub(super) fn cells(row: &str) -> Result<Vec<&str>, DocumentError> {
     let row = row.trim();
     let row = row.strip_prefix('|').unwrap_or(row);
     let row = row
         .strip_suffix('|')
         .filter(|_| !row.ends_with("\\|"))
         .unwrap_or(row);
-    let (mut cells, mut from) = (Vec::new(), 0);
+    let mut cells = Vec::new();
+    fallible::reserve_exact(&mut cells, MAX_CELLS)?;
+    let mut from = 0;
     let (mut brackets, mut code) = (false, false);
     let bytes = row.as_bytes();
     let mut i = 0;
@@ -33,16 +39,19 @@ pub(super) fn cells(row: &str) -> Vec<&str> {
                 i += 1;
             }
             b'|' if !brackets && !code => {
-                cells.push(row[from..i].trim());
+                if cells.len() < MAX_CELLS {
+                    cells.push(row[from..i].trim());
+                }
                 from = i + 1;
             }
             _ => {}
         }
         i += 1;
     }
-    cells.push(row[from.min(row.len())..].trim());
-    cells.truncate(MAX_CELLS);
-    cells
+    if cells.len() < MAX_CELLS {
+        cells.push(row[from.min(row.len())..].trim());
+    }
+    Ok(cells)
 }
 
 /// Whether `line` can be the first line of a table.
@@ -66,20 +75,20 @@ pub(super) fn is_separator(line: &str) -> bool {
 pub(super) fn row(
     line: &str,
     tag: &str,
-    inline: &mut dyn FnMut(&str, &mut String),
+    inline: &mut dyn FnMut(&str, &mut String) -> Result<(), DocumentError>,
     out: &mut String,
-) {
-    out.push_str("<tr>");
-    for cell in cells(line) {
-        out.push('<');
-        out.push_str(tag);
-        out.push('>');
-        inline(cell, out);
-        out.push_str("</");
-        out.push_str(tag);
-        out.push('>');
+) -> Result<(), DocumentError> {
+    out.try_push_str("<tr>")?;
+    for cell in cells(line)? {
+        out.try_push('<')?;
+        out.try_push_str(tag)?;
+        out.try_push('>')?;
+        inline(cell, out)?;
+        out.try_push_str("</")?;
+        out.try_push_str(tag)?;
+        out.try_push('>')?;
     }
-    out.push_str("</tr>\n");
+    out.try_push_str("</tr>\n")
 }
 
 #[cfg(test)]
@@ -88,15 +97,15 @@ mod tests {
 
     #[test]
     fn cells_are_parted_by_pipes_outside_links_and_code() {
-        assert_eq!(cells("| a | b |"), ["a", "b"]);
-        assert_eq!(cells("a | b | c"), ["a", "b", "c"]);
+        assert_eq!(cells("| a | b |").unwrap(), ["a", "b"]);
+        assert_eq!(cells("a | b | c").unwrap(), ["a", "b", "c"]);
         assert_eq!(
-            cells("| [[n|label]] | `x|y` | a\\|b |"),
+            cells("| [[n|label]] | `x|y` | a\\|b |").unwrap(),
             ["[[n|label]]", "`x|y`", "a\\|b"]
         );
-        assert_eq!(cells("|a||"), ["a", ""]);
-        assert_eq!(cells("|").len(), 1);
-        assert_eq!(cells(&"x|".repeat(100)).len(), MAX_CELLS);
+        assert_eq!(cells("|a||").unwrap(), ["a", ""]);
+        assert_eq!(cells("|").unwrap().len(), 1);
+        assert_eq!(cells(&"x|".repeat(100)).unwrap().len(), MAX_CELLS);
     }
 
     #[test]

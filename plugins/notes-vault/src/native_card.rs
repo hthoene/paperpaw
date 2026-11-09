@@ -201,7 +201,15 @@ pub fn with_card<T>(
     host: &Host<'_>,
     work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let card = Card::open(host)?;
+    run(host, Card::open(host)?, work)
+}
+
+/// Does `work` on `card`, then gives the service back.
+fn run<T>(
+    host: &Host<'_>,
+    card: Card<'_, '_>,
+    work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
+) -> Result<T, Error> {
     let done = work(&card);
     let memory = card.out_of_memory.get();
     let Card { files, .. } = card;
@@ -212,4 +220,45 @@ pub fn with_card<T>(
     let value = done?;
     closed?;
     Ok(value)
+}
+
+/// A card that is not there for this plugin (`uses.storage` denied, or no
+/// card service): nothing is found on it.
+struct NoCard;
+
+impl Storage for NoCard {
+    fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+        Err(StorageError::NotFound)
+    }
+    fn size(&self, _: &str) -> Result<u64, StorageError> {
+        Err(StorageError::NotFound)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        Err(StorageError::NotFound)
+    }
+    fn remove(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+}
+
+/// As [`with_card`], where a card the plugin may not read (denied, or no
+/// service) is one with nothing on it: the work goes on without a vault.
+///
+/// # Errors
+/// As [`with_card`], but for the card being refused.
+pub fn with_card_or_none<T>(
+    host: &Host<'_>,
+    work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
+) -> Result<T, Error> {
+    match Card::open(host) {
+        Ok(card) => run(host, card, work),
+        Err(Error::Unsupported | Error::NotFound | Error::Denied) => work(&NoCard),
+        Err(error) => Err(error),
+    }
 }

@@ -439,6 +439,45 @@ fn trees_are_removed_in_bounded_pieces_to_the_depth_limit() {
     assert_eq!(s.size("Keep/k.txt"), Ok(4));
 }
 
+/// The file id: kept by a rename and a move, another for another entry, an
+/// error for nothing; a link answers its own, never its target's.
+#[cfg(unix)]
+#[test]
+fn entry_identity_is_the_file_id_kept_by_a_move() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/a.epub", b"a book").unwrap();
+    s.write("Books/b.epub", b"another").unwrap();
+    s.write("empty.txt", b"").unwrap();
+    let book = s.entry_identity("Books/a.epub").unwrap().unwrap();
+    assert_ne!(Some(book), s.entry_identity("Books/b.epub").unwrap());
+    // Unlike FAT, an empty file has one here.
+    assert!(s.entry_identity("empty.txt").unwrap().is_some());
+    s.rename("Books/a.epub", "Inbox/a.epub").unwrap();
+    assert_eq!(s.entry_identity("Inbox/a.epub"), Ok(Some(book)));
+    assert_eq!(
+        s.entry_identity("Books/a.epub"),
+        Err(StorageError::NotFound)
+    );
+    std::os::unix::fs::symlink(
+        place.base.join("root/Inbox/a.epub"),
+        place.base.join("root/link.epub"),
+    )
+    .unwrap();
+    assert_ne!(s.entry_identity("link.epub"), Ok(Some(book)));
+    // Two hard links share the id: neither has one to tell a move by.
+    std::fs::hard_link(
+        place.base.join("root/Inbox/a.epub"),
+        place.base.join("root/twin.epub"),
+    )
+    .unwrap();
+    assert_eq!(s.entry_identity("twin.epub"), Ok(None));
+    assert_eq!(s.entry_identity("Inbox/a.epub"), Ok(None));
+    // A folder keeps its own whatever subfolders it holds.
+    s.write("Inbox/Sub/c.epub", b"c").unwrap();
+    assert!(s.entry_identity("Inbox").unwrap().is_some());
+}
+
 /// The same name in the same folder is one entry; two entries are two;
 /// what names nothing, or is refused, is none of them (`Some(false)`).
 #[cfg(unix)]

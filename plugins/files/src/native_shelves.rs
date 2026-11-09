@@ -3,7 +3,10 @@
 //! next book of each series begun. The host lists the names (`facets`, LIB
 //! op 5) and the books; this holds the rules about them.
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::{Error, library::Facet};
+use paperpaw_sdk::native::{
+    Error,
+    library::{CatalogCursor, Facet, Query, Show},
+};
 use paperpaw_ui_kit::{
     mem::push,
     text::{concat, copy},
@@ -18,11 +21,20 @@ pub enum Shelf {
     Series,
     Tags,
     Folders,
+    /// The first letters of the titles: finds a book (the list of all books
+    /// by title, from the letter's first book).
+    Letters,
 }
 
 impl Shelf {
     /// The lists in the order the shelves show them.
-    pub const ALL: [Self; 4] = [Self::Authors, Self::Series, Self::Tags, Self::Folders];
+    pub const ALL: [Self; 5] = [
+        Self::Authors,
+        Self::Series,
+        Self::Tags,
+        Self::Folders,
+        Self::Letters,
+    ];
 
     /// The host's list of these names.
     #[must_use]
@@ -32,6 +44,20 @@ impl Shelf {
             Self::Series => Facet::Series,
             Self::Tags => Facet::Tags,
             Self::Folders => Facet::Folders,
+            Self::Letters => Facet::Letters,
+        }
+    }
+
+    /// The host's query for this list from `cursor`. The letters ask for what
+    /// the library's own list holds (all books, the archive left out), so a
+    /// letter's `first` is an index of that list sorted by title.
+    #[must_use]
+    pub fn query(self, cursor: CatalogCursor) -> Query<'static> {
+        let query = Query::new().cursor(cursor);
+        if self == Self::Letters {
+            query.show(Show::All).exclude_archive(true)
+        } else {
+            query
         }
     }
 
@@ -43,6 +69,7 @@ impl Shelf {
             Self::Series => "series",
             Self::Tags => "tags",
             Self::Folders => "folders",
+            Self::Letters => "letters",
         }
     }
 
@@ -60,6 +87,19 @@ impl Shelf {
             Self::Series => "files.by-series",
             Self::Tags => "files.by-tag",
             Self::Folders => "files.by-folder",
+            Self::Letters => "files.list.show.find",
+        }
+    }
+
+    /// The key of how many names the list has, said at the end of its row.
+    #[must_use]
+    pub const fn count_key(self) -> &'static str {
+        match self {
+            Self::Authors => "files.list.authors.count",
+            Self::Series => "files.count.series",
+            Self::Tags => "files.count.tags",
+            Self::Folders => "files.count.folders",
+            Self::Letters => "files.count.letters",
         }
     }
 
@@ -69,21 +109,26 @@ impl Shelf {
         match self {
             Self::Series => "files.no-series",
             Self::Tags => "files.no-tags",
-            Self::Authors | Self::Folders => "files.no-books",
+            Self::Authors | Self::Folders | Self::Letters => "files.no-books",
         }
     }
 
-    /// The books of one of its names.
+    /// The books of one of its names. A letter is no scope of its own: its
+    /// books are the library's, which are listed from the letter's first.
     ///
     /// # Errors
     /// `NoMemory` when the name cannot be kept.
     pub fn scope(self, name: &str) -> Result<Scope, Error> {
+        if self == Self::Letters {
+            return Ok(Scope::Library);
+        }
         let name = copy(name)?;
         Ok(match self {
             Self::Authors => Scope::Author(name),
             Self::Series => Scope::Series(name),
             Self::Tags => Scope::Tag(name),
             Self::Folders => Scope::Folder(name),
+            Self::Letters => Scope::Library,
         })
     }
 }
@@ -126,7 +171,18 @@ pub fn name_row(
     shelf: Shelf,
     name: &NameLine,
 ) -> Result<(String, String), Error> {
-    let title = if name.text.is_empty() {
+    let title = if shelf == Shelf::Letters {
+        // The letter says what its row opens: the books under it.
+        say.with(
+            "files.list.letter",
+            "letter",
+            if name.text.is_empty() {
+                "#"
+            } else {
+                &name.text
+            },
+        )?
+    } else if name.text.is_empty() {
         say.say("files.unknown-author")?
     } else if shelf == Shelf::Folders {
         copy(
@@ -248,6 +304,9 @@ mod tests {
         fn count(&mut self, key: &str, count: i64) -> Result<String, Error> {
             Ok(alloc::format!("{key}:{count}"))
         }
+        fn with(&mut self, key: &str, _: &str, value: &str) -> Result<String, Error> {
+            concat(&[key, value])
+        }
     }
 
     fn name(text: &str, count: u32) -> NameLine {
@@ -280,7 +339,8 @@ mod tests {
         for shelf in Shelf::ALL {
             assert_eq!(Shelf::from_kind(shelf.kind()), Some(shelf));
         }
-        assert_eq!(Shelf::from_kind("letters"), None);
+        assert_eq!(Shelf::from_kind("nothing"), None);
+        assert_eq!(Shelf::Letters.facet(), Facet::Letters);
         assert_eq!(Shelf::Series.facet(), Facet::Series);
     }
 
@@ -312,6 +372,13 @@ mod tests {
         assert_eq!(row.0, "Crime");
         let row = name_row(&mut Words, Shelf::Tags, &name("a/b", 3)).unwrap();
         assert_eq!(row.0, "a/b");
+        // A letter says it holds the books under it; a letter of no name is #.
+        let row = name_row(&mut Words, Shelf::Letters, &name("B", 4)).unwrap();
+        assert_eq!(row, ("files.list.letterB".into(), "files.books:4".into()));
+        let row = name_row(&mut Words, Shelf::Letters, &name("", 1)).unwrap();
+        assert_eq!(row.0, "files.list.letter#");
+        // A letter is no scope: the library is listed from it.
+        assert_eq!(Shelf::Letters.scope("B").unwrap(), Scope::Library);
     }
 
     fn line(title: &str, progress: Option<u8>, finished: bool) -> BookLine {

@@ -15,10 +15,22 @@ interface-6 one, shared, so the blocks are the same; `tests/provider.rs` compare
 same files (UTF-8, Windows-1252, UTF-16 both orders, Gutenberg header), fragments, refusals and
 random bytes.
 
+## Native entry (slice 2)
+
+`declarations.rs` (`formats`: `format-txt.txt`, extensions `txt` and `text`, flag `prepared`, no
+sniffing), `build.rs` (batches built into the image), `src/native_plugin.rs` (`NativeTxt`: `make`
+submits the declaration; `event` answers a `core.format` stage call of its token with
+`TxtProvider::call` over `HostIo`, encoding straight into the host's reply through
+`Reply::write_with`, no copy), `src/native_entry.rs` (`NATIVE_ENTRY`, features `linked` and
+`native-entry`), `native/metadata*` (heap, registrations, storage size/read/write/append; no
+service, no feature; regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise
+`metadata.host.*`). Tests: `tests/native_declarations.rs`, `native_linked_entry.rs`,
+`hosted_construction.rs` (the host checks the declaration and refuses it as `Unsupported` until
+Core #944 admits formats; the positive case is ignored with that name).
+
 ## Not wired yet (`tests/provider_pending.rs`, ignored, each names its owner)
 
-- `format.spec` declaration builder in the SDK (`Declarations` has none): no `NATIVE_ENTRY`,
-  no metadata, no `.ppn`.
 - Host adapter `fmt.call` (Host #417) is unwired; activation is Core #944.
 - `fmt.option` input rows (`input_rows` of `core.format`, Kernel #385). format-txt takes no
   options, so one input record is enough for it; the other formats are blocked on it.
@@ -35,6 +47,18 @@ A refused allocation is `NoMemory` end to end: `HostIo` carries it through `Stor
 ## Open gates
 
 - X4: a UTF-16 conversion takes 1 KiB per `prepare` call (about 50 ms budget per call is not measured); stack and time on the device are not measured. Gate stays open until the device test (owner OK).
+
+## Removal step (one sweep, with the reader port and Core #944)
+
+Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both
+in a shipped build: `NativeTxt` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
+1. `TxtFormat` and its `Plugin` impl, `FORMAT`, the `add_book_cache` and `add_format` registration,
+   the `HOW` table kept for the manifest (the texts move to the native how-to when the host shows it);
+2. `TxtDocument::open`/`utf8_copy` and the plugin-folder UTF-8 cache (`document.rs`): the document is
+   opened by the provider from roots 3 and 6 only;
+3. the app's `install_with` line and the dev-dependencies of reader, files, file-manager and kosync
+   on `TxtFormat` (their tests move to the native host path), `fuzz/fuzz_targets/txt.rs` to the provider;
+4. list `NativeTxt` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
 
 ## Left in place (intermediate)
 
