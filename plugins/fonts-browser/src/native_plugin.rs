@@ -405,7 +405,8 @@ impl NativeFontsBrowser {
         let Some(View::List(view)) = self.screens.top(LIST) else {
             return Ok(());
         };
-        if view.asked {
+        // One request at a time: two would share `catalog.json.part`.
+        if view.asked || self.fetching.is_some() {
             return Ok(());
         }
         view.asked = true;
@@ -594,7 +595,12 @@ impl NativeFontsBrowser {
         let here = font.plugin().ok().and_then(|id| installed.version(&id));
         for row in rows(&font, here, false)? {
             let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
-            push(&mut items, Item::row(&title, &value)?)?;
+            let mut item = Item::row(&title, &value)?;
+            // Not native yet (`choose_row`): shown faint, not chosen.
+            if let Item::Row(shown) = &mut item {
+                shown.disabled = !matches!(row, Row::Read | Row::Status);
+            }
+            push(&mut items, item)?;
             push(&mut kinds, Some(row))?;
         }
         Ok(FontView {

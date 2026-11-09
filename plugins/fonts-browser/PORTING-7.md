@@ -47,6 +47,9 @@ activates native plugins (then it goes together, no shim; see the removal step).
   `save_to`, each checked with its SHA-1 read in pieces, then `install_plugin` for the folder with the update flag).
   The host asks the user (decision 132) and its dialog is not wired yet (Kernel todo 145): the plugin must take
   `Unsupported`/`Denied` as an answer. The job state (which file is next) is kept in the data folder.
+- **The restart's cancel:** interface 6 subscribed `started` to cancel a download cut off by a restart; the native
+  entry has no download yet, so it does not subscribe: it comes back with the download.
+- The *Download*/*Update*/*Stop*/*Remove* rows are shown faint (disabled) until then.
 - **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
   "handed"; as About's licences): `Unsupported` until that merges.
 - **The font's own face** in the list and on the page: needs a font loaded at run time (`FONT-runtime`).
