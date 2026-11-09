@@ -87,6 +87,30 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -103,6 +127,11 @@
       "name": "input"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.files",
+    "core.work"
+  ],
+  "features": [
+    "uses.storage"
+  ]
 }
