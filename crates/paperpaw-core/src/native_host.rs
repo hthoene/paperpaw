@@ -121,6 +121,7 @@ mod admitted_features;
 pub(crate) mod secret_bytes;
 
 pub(crate) mod busy_adapters;
+mod cable_pump;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
