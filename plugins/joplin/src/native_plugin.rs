@@ -4,8 +4,8 @@
 //! as declared work (`core.work`). The decisions are in `native_send`; the
 //! screen's rows in `native_setup`; this file is the host's side of them.
 //!
-//! The export itself arrives through [`NativeJoplin::exported`], which the
-//! reader's export stage calls once that stage is defined (`PORTING-7.md`).
+//! The export itself arrives as the reader's stage `reader.notes-exported@1`
+//! ([`crate::native_export`]), which calls [`NativeJoplin::exported`].
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -34,7 +34,10 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::declarations::{HTTP_TOKEN, OPEN_TOKEN, SCREEN, SEND_TOKEN, STARTED_TOKEN, WORK_TOKEN};
+use crate::declarations::{
+    EXPORT_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, SEND_TOKEN, STARTED_TOKEN, WORK_TOKEN,
+};
+use crate::native_export;
 use crate::native_joplin::{CLOUD, Service};
 use crate::native_keep::{self as keep, PASSWORD, Secret};
 use crate::native_kept as kept;
@@ -349,10 +352,11 @@ impl Plugin for NativeJoplin {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
+            kinds::StageCall,
             kinds::ActionRun,
             kinds::Answered,
             kinds::ScreenOpened,
@@ -366,6 +370,14 @@ impl Plugin for NativeJoplin {
             return Ok(());
         };
         match event {
+            Event::StageCall { stage, payload, .. } if token == EXPORT_TOKEN => {
+                let Some(path) = native_export::read(stage, payload)? else {
+                    return Ok(());
+                };
+                // The reader ignores what is answered: the run is done either way.
+                let sent = self.exported(host, path);
+                native_export::done(reply, sent.is_ok())
+            }
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("joplin.setup")?)
