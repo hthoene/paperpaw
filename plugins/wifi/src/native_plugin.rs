@@ -19,6 +19,7 @@ use paperpaw_sdk::native::{
     secrets::Secrets,
     settings::{self, SettingValue},
     ui::{Instance, Notify, Open, Question, RequestId, Ui},
+    work::Work,
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
@@ -27,8 +28,9 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN, PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN,
-    SCREEN_SHOWN, STARTED, WIFI_CHANGED,
+    NETWORK_IDLE, NETWORK_WANTED, NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN,
+    PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SCREEN_SHOWN, STARTED, STATUS_CHANGED,
+    WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
 };
 use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
@@ -37,6 +39,8 @@ use crate::native_model::{
 };
 use crate::native_own::Own;
 use crate::native_policy::{Password, Policy, Radio, Step};
+
+mod events;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/wifi_declarations.rs"));
@@ -60,6 +64,10 @@ struct Info {
     ssid: String,
     address: String,
     scanning: bool,
+    /// The radio is busy (joining, scanning).
+    busy: bool,
+    /// Work waits for the network.
+    wanted: bool,
 }
 
 #[derive(Debug)]
@@ -93,6 +101,11 @@ pub struct NativeWifi {
     asked: Option<(RequestId, String)>,
     /// The number of the last join asked for.
     request: u32,
+    /// The work service, for the idle-off and retry timers, and the generation
+    /// of the policy each was set at.
+    work: Option<Work>,
+    idle_generation: Option<u32>,
+    retry_generation: Option<u32>,
 }
 
 impl Plugin for NativeWifi {
@@ -122,8 +135,30 @@ impl Plugin for NativeWifi {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
             }
-            Event::Started { .. } if token == STARTED => self.keep_file(host),
-            Event::WifiChanged { .. } if token == WIFI_CHANGED => self.radio_changed(host),
+            Event::Started { now_ms } if token == STARTED => {
+                self.keep_file(host)?;
+                self.charging(host, now_ms, true)
+            }
+            Event::WifiChanged { now_ms, .. } if token == WIFI_CHANGED => {
+                self.radio_changed(host, now_ms)
+            }
+            Event::NetworkWanted { now_ms } if token == NETWORK_WANTED => {
+                self.network_wanted(host, now_ms)
+            }
+            Event::NetworkIdle { now_ms } if token == NETWORK_IDLE => {
+                self.network_idle(host, now_ms)
+            }
+            Event::WifiScanned { now_ms, .. } if token == WIFI_SCANNED => {
+                self.wifi_scanned(host, now_ms)
+            }
+            Event::WifiDone(done) if token == WIFI_DONE => self.wifi_done(host, &done),
+            Event::PowerChanged(change) if token == POWER_CHANGED => {
+                self.power_changed(host, change.now_ms())
+            }
+            Event::StatusChanged { now_ms } if token == STATUS_CHANGED => {
+                self.charging(host, now_ms, false)
+            }
+            Event::WorkDue(due) if token == WORK => self.work_due(host, &due),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. }
                 if token == PAGE_TOKEN || token == NETWORKS_TOKEN || token == PHONE_TOKEN =>
@@ -137,7 +172,9 @@ impl Plugin for NativeWifi {
                 self.screens.shown(token, instance)?;
                 self.reread(host)
             }
-            Event::ScreenShown { .. } if token == SCREEN_SHOWN => Ok(()),
+            Event::ScreenShown { now_ms, .. } if token == SCREEN_SHOWN => {
+                self.screen_shown(host, now_ms)
+            }
             Event::ScreenClosed { instance, .. } => {
                 // The setup screen showed a password: wiped, not just dropped.
                 if let Some(View::Phone(list)) = self.screens.get(instance) {
@@ -234,6 +271,8 @@ impl NativeWifi {
             ssid: copy(info.ssid())?,
             address: copy(info.address())?,
             scanning: info.scanning(),
+            busy: info.busy(),
+            wanted: info.wanted(),
         })
     }
 
@@ -578,36 +617,16 @@ impl NativeWifi {
         redraw(host)
     }
 
-    /// The radio changed: the network just joined keeps its password, then the
-    /// policy says what next.
-    fn radio_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        self.ensure(host)?;
-        let info = self.read_info(host)?;
-        if info.radio == Radio::Online {
-            self.keep_joined(host, &info.ssid)?;
-        }
-        let steps = self.policy.changed(info.radio)?;
-        self.run(host, steps)?;
-        self.reread(host)
-    }
-
     /// Keeps the password typed for the network `ssid` the device is in now.
     /// Where the device cannot keep it (no secrets service, or `Unsupported`
     /// from the one that is there: owner decision 141, the X4 Classic's
     /// table has no room for passwords), the user is told with
     /// the shared `core.secrets-unsupported` and asked again next time.
-    fn keep_joined(&mut self, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
-        let Some((pending, password)) = self.policy.pending.take() else {
-            return Ok(());
-        };
-        if pending != ssid {
-            self.policy.pending = Some((pending, password));
-            return Ok(());
-        }
+    fn keep_secret(&mut self, host: &Host<'_>, ssid: &str, password: &str) -> Result<(), Error> {
         if password.is_empty() {
             return Ok(());
         }
-        let remember = Remember::new(ssid, password.as_str())?;
+        let remember = Remember::new(ssid, password)?;
         let saved = match self.secrets(host)? {
             Some(secrets) => native_known::remember(secrets, host, &remember),
             None => Err(Error::Unsupported),
