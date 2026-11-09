@@ -42,9 +42,10 @@ Assignment #1638 (#228). Branch based on #385 (draft 28, `5067fc377`); move to i
 
 ## Reading on a full heap (Core, todo 208)
 
-Status: **partly done.** Opening and reading HTML and Markdown (and the conversion, CSS and cache
-code they share with EPUB) answers a refused allocation, it never aborts. The refusal sweeps cover
-Markdown and HTML only; EPUB open (package, ZIP), FB2 and CBZ have no sweep yet (follow-up). A
+Status: Opening and reading Markdown, HTML, EPUB, FictionBook and comic books answers a refused
+allocation, it never aborts. The refusal sweeps (`tests/allocation.rs`) cover all five (an EPUB of
+two chapters, opened and read whole), and a book that converts a chapter again and finds no room part
+of the way reads on as a clean run does. A
 picture that finds no room to be decoded shows its alternative text for now, but its chapter is
 **not marked complete** in the cache (`<n>.end` is not written), so the next opening converts it
 again; one that cannot be decoded for other reasons is cached as its alternative text, as before.
@@ -65,6 +66,10 @@ on each opening.
   factory in `src/lib.rs` (`Box::new(d) as Box<dyn Document>`). The host's factory type is
   `Result<Box<dyn Document>, DocumentError>`, the SDK has no safe fallible box and a plugin crate
   holds no `unsafe`. A sweep skips that site.
+- **Documented residual (SDK):** `Document::links` builds `paperpaw_document::Link`s with `Link::new`, which
+  allocates its strings infallibly (Kernel's type); the sweeps do not call `links`. Where the trait
+  returns an `Option` or a `Vec` (`toc_entry`, `xpointer`, `locate_xpointer`, `page_label`, `fonts`) a
+  refused allocation answers none/empty; the sweeps call all of these.
 - **Documented residual (SDK):** `paperpaw_sdk::ImageFile::open` / `Decoded::open` (crate
   `paperpaw-image`) copy a path with no way to refuse; the picture lookups of this crate call them.
   The sweep leaves allocations made inside `paperpaw_image` be (`in_sdk_image` in

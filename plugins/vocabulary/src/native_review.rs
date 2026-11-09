@@ -17,10 +17,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::formatting::Arg;
-use paperpaw_ui_kit::mem::push;
+use paperpaw_sdk::{Storage, StorageError};
 use paperpaw_ui_kit::text::copy;
 
 use crate::cards::{self, Card, Day, Due};
@@ -56,6 +55,17 @@ pub(crate) trait Time {
 
 fn day(time: &impl Time, at: i64) -> Day {
     Day::of(at, time.local(at))
+}
+
+/// What reading the cards says, as the error of a call to the host: a
+/// refused allocation (also a file too large to read whole) is `NoMemory`, a
+/// full card `Full`, anything else `Io`.
+pub(crate) fn storage_error(error: StorageError) -> Error {
+    match error {
+        StorageError::TooLarge | StorageError::OutOfMemory => Error::NoMemory,
+        StorageError::Full => Error::Full,
+        _ => Error::Io,
+    }
 }
 
 /// The cards due now, and new ones to show today, as the screens count them.
@@ -112,8 +122,8 @@ impl Review {
     /// one shown asleep) at the front if it is among those due.
     ///
     /// # Errors
-    /// [`Error::NoMemory`] and what reading the cards says as [`Error::NoMemory`]
-    /// (nothing is shown half chosen).
+    /// [`Error::NoMemory`] and what reading the cards says, by
+    /// [`storage_error`] (nothing is shown half chosen).
     pub(crate) fn new(
         storage: &dyn Storage,
         time: &impl Time,
@@ -125,8 +135,7 @@ impl Review {
         let now = time.now();
         let today = day(time, now);
         let new = cards::new_left(storage, today, settings.new_per_day);
-        let mut queue =
-            cards::due(storage, today.end, new, MOST, deck).map_err(|_| Error::NoMemory)?;
+        let mut queue = cards::due(storage, today.end, new, MOST, deck).map_err(storage_error)?;
         if let Some((deck, id)) = first
             && let Some(at) = queue
                 .iter()
@@ -311,6 +320,14 @@ impl Review {
         words: &mut impl Words,
         grade: Grade,
     ) -> Result<Answered, Error> {
+        if self.current.is_none() {
+            return Ok(Answered { kept: true });
+        }
+        // Room for the card to come again is made before anything changes: a
+        // refusal leaves the card shown, and the answer can be given again.
+        if grade == Grade::Again {
+            self.waiting.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        }
         let Some((due, _)) = self.current.take() else {
             return Ok(Answered { kept: true });
         };
@@ -324,13 +341,11 @@ impl Review {
         }
         self.answered += 1;
         if grade == Grade::Again {
-            push(
-                &mut self.waiting,
-                Due {
-                    state: after,
-                    ..due
-                },
-            )?;
+            // Reserved above.
+            self.waiting.push(Due {
+                state: after,
+                ..due
+            });
         }
         self.next(storage, time, words)?;
         Ok(Answered { kept })

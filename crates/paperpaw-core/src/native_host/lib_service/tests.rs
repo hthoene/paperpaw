@@ -11,6 +11,8 @@ use paperpaw_native::host_glue::ERR_DENIED;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Settings};
 
+#[path = "tests/catalog_reads.rs"]
+mod catalog_reads;
 #[path = "tests/query.rs"]
 mod query;
 #[path = "tests/write.rs"]
