@@ -175,7 +175,11 @@ fn a_plugin_gets_a_capped_number_of_events_and_another_pass_is_asked_for() {
     queue(&service, f.keys[1], &[7]);
     assert!(run(&f, &service), "events remain");
     assert_eq!(f.seen[0].borrow().len(), PER_OWNER);
-    assert_eq!(f.seen[1].borrow().len(), 1, "the other plugin is not starved");
+    assert_eq!(
+        f.seen[1].borrow().len(),
+        1,
+        "the other plugin is not starved"
+    );
     assert!(!run(&f, &service), "the second pass empties the queue");
     assert_eq!(f.seen[0].borrow().len(), PER_OWNER + 3);
 }
@@ -204,7 +208,10 @@ fn a_failing_callback_still_frees_the_event_and_does_not_get_it_again() {
     })
     .unwrap();
     // Replace the plugin by one that fails.
-    let key = f.instances.test_insert(Id::try_parse("d").unwrap(), Some(failing), true).unwrap();
+    let key = f
+        .instances
+        .test_insert(Id::try_parse("d").unwrap(), Some(failing), true)
+        .unwrap();
     queue(&service, key, &[3]);
     assert!(!run(&f, &service));
     assert_eq!(f.seen[0].borrow().len(), 1, "called once");

@@ -412,8 +412,8 @@ pub(crate) fn backend(
 )]
 pub(crate) use table::{
     answered, connected, event_delivered, failed, network_lost, next_deadline, next_event,
-    peer_closed, received,
-    screen_closed, secured, tick, tls_failed, untrusted, work_ended, writable,
+    peer_closed, received, screen_closed, secured, tick, tls_failed, untrusted, work_ended,
+    writable,
 };
 
 /// `connect` as a plugin calls it (a test's way in from the wiring).

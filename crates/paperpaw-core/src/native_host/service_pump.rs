@@ -11,7 +11,10 @@
 //! when events remain it asks for another pass at once. The services' clocks
 //! (`timeout_ms`, `idle_ms`, `wait_ms`) are driven from the same tick, which
 //! the kernel asks for at the first deadline of any of them (`service_due`).
-use super::{native_instances::NativeInstances, service_events::{EVENT_BUFFER, ServiceEvents}};
+use super::{
+    native_instances::NativeInstances,
+    service_events::{EVENT_BUFFER, ServiceEvents},
+};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_platform::Instant;
@@ -114,7 +117,9 @@ impl crate::Kernel {
     /// # Errors
     /// The first service's refusal, after the others were told.
     pub(crate) fn native_services_screen_closed(&self, instance: u32) -> Result<(), i32> {
-        self.native_services_each(|service, owner| service.screen_closed(owner, u64::from(instance)))
+        self.native_services_each(|service, owner| {
+            service.screen_closed(owner, u64::from(instance))
+        })
     }
 
     /// A work run reached its longest time: what each service started in it
@@ -125,10 +130,9 @@ impl crate::Kernel {
     #[allow(dead_code, reason = "the work scheduler has no pump on the kernel yet")]
     pub(crate) fn native_services_work_ended(&self, owner: u64, run: u64) -> Result<(), i32> {
         let services = self.shared.native_instances.event_services();
-        services
-            .iter()
-            .flatten()
-            .fold(Ok(()), |result, service| result.and(service.work_ended(owner, run)))
+        services.iter().flatten().fold(Ok(()), |result, service| {
+            result.and(service.work_ended(owner, run))
+        })
     }
 
     /// `each` for every running plugin and every wired service.

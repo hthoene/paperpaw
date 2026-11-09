@@ -330,8 +330,12 @@ impl HostServices {
     /// event pump: `core.net` then `core.sockets`.
     pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
         [
-            self.net.get().map(|s| s as &dyn super::service_events::ServiceEvents),
-            self.sockets.get().map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.net
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.sockets
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
         ]
     }
 

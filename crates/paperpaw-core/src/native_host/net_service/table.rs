@@ -788,7 +788,10 @@ pub(crate) fn next_deadline(host: &dyn NetHost) -> Option<u64> {
             .map(|w| w.saturating_add(NO_NETWORK_MS));
         [Some(over), no_net]
     });
-    requests.flatten().chain(inner.serving.next_deadline()).min()
+    requests
+        .flatten()
+        .chain(inner.serving.next_deadline())
+        .min()
 }
 
 /// The network went away: running requests end with `no_network`.
