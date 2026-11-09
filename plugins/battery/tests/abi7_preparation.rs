@@ -43,11 +43,11 @@ fn lifecycle_fixtures_keep_all_five_edges_distinct() {
         assert_eq!(fixtures.len(), 5);
         for fixture in fixtures {
             let (name, now) = match Event::decode(&fixture.bytes).unwrap() {
-                Event::Started { now_ms } => ("started", now_ms),
-                Event::Resume { now_ms } => ("resume", now_ms),
-                Event::Suspend { now_ms } => ("suspend", now_ms),
-                Event::Stopping { now_ms } => ("stopping", now_ms),
-                Event::BatteryMeasured { now_ms } => ("battery-measured", now_ms),
+                Event::Started { now_ms, .. } => ("started", now_ms),
+                Event::Resume { now_ms, .. } => ("resume", now_ms),
+                Event::Suspend { now_ms, .. } => ("suspend", now_ms),
+                Event::Stopping { now_ms, .. } => ("stopping", now_ms),
+                Event::BatteryMeasured { now_ms, .. } => ("battery-measured", now_ms),
                 other => panic!("unexpected event: {other:?}"),
             };
             assert_eq!((name, now), (fixture.name, now_ms));

@@ -1,5 +1,7 @@
 //! The host's own events: lifecycle, pages, screens, actions, registry and plugin requests.
-use super::{Error, Event, PluginRequestId, ReadingView, RegistryChanges, RequestedPlugins, wire};
+use super::{
+    Error, Event, PluginRequestId, ReadingView, RegistryChanges, RequestedPlugins, TypedText, wire,
+};
 
 pub(super) mod tick {
     use super::{Error, Event, wire};
@@ -69,11 +71,29 @@ event_fn!(screen_shown, wire::EventScreenShown<'_>, |r| {
             .instance
             .map(|value| crate::native::ui::Instance::new(value).ok_or(Error::Invalid))
             .transpose()?,
+        last_input: match r.last_input {
+            0 => None,
+            1 => Some(crate::keys::InputMode::Buttons),
+            2 => Some(crate::keys::InputMode::Touch),
+            3 => Some(crate::keys::InputMode::Pen),
+            _ => return Err(Error::Invalid),
+        },
     }
 });
 event_fn!(action_run, wire::EventActionRun<'_>, |r| Event::ActionRun {
     now_ms: r.now_ms,
     action: r.action,
+});
+event_fn!(text_typed, wire::EventTextTyped<'_>, |r| {
+    // Only bit 0 (`done`) is defined; a decoder refuses the others.
+    if r.flags & !1 != 0 {
+        return Err(Error::Invalid);
+    }
+    Event::TextTyped {
+        now_ms: r.now_ms,
+        text: TypedText::new(r.text),
+        done: r.flags & 1 != 0,
+    }
 });
 event_fn!(registry_changed, wire::EventRegistryChanged, |r| {
     Event::RegistryChanged {

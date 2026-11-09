@@ -226,10 +226,46 @@ events) is still in place. It is removed in the PR that finishes the port.
   the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
   slice 2); days are UTC days until draft 25.
 
+## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal)
+
+- `src/native_widgets.rs`: the widgets on the `core.widget` stage and the draw callback, as the widget
+  pack does it (`plugins/widgets`): the host makes an instance (`event.widget_made`) for a screen,
+  asks for its height (`WidgetCall::Measure`), keeps its place and asks for its targets, and calls
+  the plugin to draw it (`DrawPurpose::Widget`, `frame.id` the instance). An instance is only the widget's id
+  with its placement; what it shows is read from the statistics' files when it is measured or drawn, and
+  nothing of a callback is kept. A tap anywhere on a widget opens the overview (as the action
+  `stats.open` does, on the book being read). The widgets are `native_widget_today.rs` and
+  `native_widget_week.rs`, laid out into the kit's `Paint` operations (fallible, no `Canvas`).
+- The minute tick (`TICK_TOKEN`, subscribed in `events`) compares a stamp of the day and the sizes of the
+  log and the books for every instance and tells the maker with `command.widget_changed` only when it
+  changed (the same rule interface 6 had with its `Stamp`); one that fails is left for the next tick.
+- `declarations::widgets`: the setting `stats.goal` (the 12 choices, in the group `stats.group`) and per
+  widget a group, the widget (category `core.widgets.reading`, live, its group as the preview) and its
+  settings from the kit's `Opt` rows. `tests/widgets_parity.rs` compares every setting of both
+  widgets (id, kind, default, choices, title, help, order) and the goal with what the interface-6
+  plugin registered; the host admits every record (`tests/declarations.rs`).
+- When the goal is set for the first time, *Read today* is put on the first home page after the book being
+  read (`offer_today`, once, a file `goal-widget-offered` in the data folder, as in interface 6); the
+  event `setting_changed` is subscribed for it.
+- `native/metadata*.json` name the service `core.registry` (the kit's widget settings ask the registry
+  whether the reader chose a value for the widget).
+- **Differences from interface 6, on purpose:** the days are UTC days until the system time zone comes with
+  the snapshot (draft 25), as in the rest of the plugin; the shades are solid grays (the canvas has no
+  dithered fill: the snapshot does not say how many grays the panel has, so a panel with few grays shows
+  a gray where interface 6 dithered it); rounded ends are the kit's `Paint::Focus` rounded rectangles;
+  the wrapped notes and captions are the kit's (`Wrapped`, `layout::caption`). The widgets read all the
+  kept days (at most 4,096, 48 KiB) when they are measured and when they are drawn.
+- **Not tested end to end:** the drawing and the height (`Cx` needs the host's fonts and snapshot; the
+  scripted host has neither): the layout code is the interface-6 one over the kit and is covered by
+  the pixel acceptance case below, and by the settings and the declarations. Tested here: the
+  declarations and settings parity, the host's admission, that instances come and go and a widget that
+  is not the plugin's is left alone, that a goal with no home screen to offer on does nothing, the
+  shades and the dashed line, the goal's minutes.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- Widgets (today, week, ring, streak, calendar, year) and the status item (`left.rs`) on the
-  widget and status stages (host call, Core todo 76).
+- The widgets *Daily goal* (ring), *Reading streak*, *Reading calendar* and *Books this year*, and the
+  status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
