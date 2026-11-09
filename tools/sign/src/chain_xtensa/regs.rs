@@ -89,19 +89,20 @@ impl Insn {
     }
 
     /// The places a branch of this instruction goes to (up to two: a `loop`
-    /// has its body and its end).
-    pub fn targets(self) -> [Option<u32>; 2] {
+    /// has its body and its end); `None` for a branch form this reader does
+    /// not model (the caller fails closed).
+    pub fn targets(self) -> Option<[Option<u32>; 2]> {
         let (pc, w) = (self.pc, self.word);
         let at = |offset: i64| Some((i64::from(pc) + offset) as u32);
         if !self.wide {
             // `beqz.n`, `bnez.n`: ST2 with bit 7 of `t` set.
             if w & 0xF == 0xC && (w >> 4) & 8 != 0 {
                 let imm = (((w >> 4) & 3) << 4) | ((w >> 12) & 0xF);
-                return [at(4 + i64::from(imm)), None];
+                return Some([at(4 + i64::from(imm)), None]);
             }
-            return [None, None];
+            return Some([None, None]);
         }
-        match w & 0xF {
+        Some(match w & 0xF {
             // B: `beq`, `bltu`, `bbci`, ... : an 8-bit offset.
             7 => [at(4 + sext(w >> 16, 8)), None],
             6 => match (w >> 4) & 3 {
@@ -112,20 +113,36 @@ impl Insn {
                 // `beqi`, `bnei`, `blti`, `bgei`: 8 bits.
                 2 => [at(4 + sext(w >> 16, 8)), None],
                 _ => match (w >> 6) & 3 {
-                    // `loop`: the body, and the end by an unsigned offset.
-                    1 => [at(3), at(4 + i64::from((w >> 16) & 0xFF))],
+                    // B1 (`r` picks the form): `bf` (0) and `bt` (1) branch by
+                    // a signed 8-bit offset; `loop`, `loopnez`, `loopgtz`
+                    // (8 to 10) have their body and their end (an unsigned
+                    // offset); any other `r` is not modelled.
+                    1 => match (w >> 12) & 0xF {
+                        0 | 1 => [at(4 + sext(w >> 16, 8)), None],
+                        8..=10 => [at(3), at(4 + i64::from((w >> 16) & 0xFF))],
+                        _ => return None,
+                    },
                     // `bltui`, `bgeui`.
                     2 | 3 => [at(4 + sext(w >> 16, 8)), None],
+                    // `entry`.
                     _ => [None, None],
                 },
             },
             _ => [None, None],
-        }
+        })
     }
 
     pub fn next(self) -> u32 {
         self.pc.wrapping_add(self.len())
     }
+}
+
+/// Whether the special register `sr` (`r << 4 | s` of a `wsr` or `xsr`) names
+/// the register window: `WINDOWBASE` (72), `WINDOWSTART` (73) and `PS` (230,
+/// which holds the window's own increment and offset). A write to one moves
+/// what the `a` registers are.
+fn moves_window(sr: u32) -> bool {
+    matches!(sr, 72 | 73 | 230)
 }
 
 /// The 24-bit forms, as `frames_xtensa::wide_class` names them.
@@ -161,8 +178,9 @@ fn wide(w: u32) -> Writes {
             },
             (0, 6) if s <= 1 => Reg(r),
             (0, 8..=15) => Reg(r),
-            // RST1: shifts, `mul16`: `ar`; `xsr` swaps `at`.
+            // RST1: shifts, `mul16`: `ar`; `xsr` swaps `at` (or moves the window).
             (1, 0..=4 | 8..=13) => Reg(r),
+            (1, 6) if moves_window(r << 4 | s) => Window,
             (1, 6) => Reg(t),
             // RST2: the boolean forms write a boolean register; the rest `ar`.
             (2, 0..=4) => Nothing,
@@ -170,6 +188,7 @@ fn wide(w: u32) -> Writes {
             // RST3: `rsr` writes `at`; `wsr` a special register; the rest `ar`;
             // `wur` a user register.
             (3, 0) => Reg(t),
+            (3, 1) if moves_window(r << 4 | s) => Window,
             (3, 1) => Nothing,
             (3, 2..=14) => Reg(r),
             (3, 15) => Nothing,
