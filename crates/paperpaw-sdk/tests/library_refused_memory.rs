@@ -401,6 +401,65 @@ fn a_catalog_line_is_seen_counted_and_cut_without_holding_it() {
 }
 
 #[test]
+fn one_scan_reads_the_numbers_and_the_three_texts_as_the_separate_reads_do() {
+    let (storage, first, _second, third) = rich();
+    let changes = catalog::try_changes(&storage).unwrap();
+    for offset in [first, third] {
+        // Buffers of 5 bytes cut the longer texts; the whole lengths stay.
+        let (mut title, mut author, mut series) = ([0_u8; 5], [0_u8; 5], [0_u8; 5]);
+        let mut got = None;
+        let seen = catalog::try_book_at_with(
+            &storage,
+            &changes,
+            offset,
+            catalog::BookTexts::new(&mut title, &mut author, &mut series),
+            &mut |view, filled| got = Some((view.title_bytes, view.author_bytes, filled)),
+        )
+        .unwrap();
+        assert!(seen);
+        let (title_bytes, author_bytes, filled) = got.unwrap();
+        for (column, whole, bytes, kept) in [
+            (catalog::TextColumn::Title, title_bytes, &title, filled.title),
+            (
+                catalog::TextColumn::Author,
+                author_bytes,
+                &author,
+                filled.author,
+            ),
+        ] {
+            let mut alone = [0_u8; 5];
+            let text = catalog::try_text_at_with(&storage, &changes, offset, column, 0, 0, &mut alone)
+                .unwrap()
+                .unwrap();
+            assert_eq!((text.total, text.filled), (whole, kept), "{column:?}");
+            assert_eq!(&alone[..kept], &bytes[..kept], "{column:?}");
+        }
+        // The view with the caller's log is the one that reads its own.
+        let mut with = None;
+        catalog::try_view_at_with(&storage, &changes, offset, &mut |v| {
+            with = Some(v.path.to_owned())
+        })
+        .unwrap();
+        assert_eq!(with, view_of(&storage, offset).unwrap().map(|s| s.path));
+    }
+    // A removed book and a place that is no line are not seen.
+    assert_eq!(
+        catalog::try_offset_of_with(&storage, &changes, "books/none.epub"),
+        Ok(None)
+    );
+    assert_eq!(
+        catalog::try_book_at_with(
+            &storage,
+            &changes,
+            1_000_000,
+            catalog::BookTexts::new(&mut [], &mut [], &mut []),
+            &mut |_, _| panic!("no book there"),
+        ),
+        Ok(false)
+    );
+}
+
+#[test]
 fn a_path_that_is_not_text_or_a_line_that_is_too_long_is_no_book() {
     let mut bad = b"\tcatalog\t2\t7\nbooks/\xff.epub\tAda\tT\t\t\t\t\t\t\t\t1\n".to_vec();
     let head = 14;

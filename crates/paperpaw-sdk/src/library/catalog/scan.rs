@@ -161,9 +161,9 @@ impl Line {
             self.bytes.clear();
             return Ok(());
         }
-        self.bytes
-            .try_reserve_exact(piece.len())
-            .map_err(out_of_memory)?;
+        // Geometric growth (`try_reserve` doubles), not a step a piece: a
+        // line of 8 KiB is a few reallocations, not sixteen.
+        self.bytes.try_reserve(piece.len()).map_err(out_of_memory)?;
         self.bytes.extend_from_slice(piece);
         Ok(())
     }

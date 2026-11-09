@@ -976,8 +976,9 @@ mod scan;
 pub use scan::{TryBooks, try_each_at, try_query, try_query_in};
 mod view;
 pub use view::{
-    LINE_MAX, Text, TextColumn, VIEW_NUMBER, VIEW_PATH, View, try_generation, try_offset_of,
-    try_state, try_text_at, try_view_at,
+    BookTexts, Filled, LINE_MAX, Text, TextColumn, VIEW_NUMBER, VIEW_PATH, View, try_book_at_with,
+    try_generation, try_offset_of, try_offset_of_with, try_state, try_text_at, try_text_at_with,
+    try_view_at, try_view_at_with,
 };
 
 #[cfg(any(test, feature = "kernel"))]

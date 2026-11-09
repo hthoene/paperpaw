@@ -85,13 +85,69 @@ impl<const N: usize> Column<N> {
     }
 }
 
+/// A long text being read into the caller's buffer: its bytes up to the
+/// buffer's size, and its whole length.
+struct Sink<'a> {
+    out: &'a mut [u8],
+    filled: usize,
+    whole: u32,
+}
+
+impl<'a> Sink<'a> {
+    fn new(out: &'a mut [u8]) -> Self {
+        Self {
+            out,
+            filled: 0,
+            whole: 0,
+        }
+    }
+
+    fn push(&mut self, byte: u8) {
+        if let Some(slot) = self.out.get_mut(self.filled) {
+            *slot = byte;
+            self.filled += 1;
+        }
+        self.whole = self.whole.saturating_add(1);
+    }
+}
+
+/// Buffers for the three long texts of a book's line, read in the same scan
+/// as the line's numbers ([`try_book_at_with`]); a text longer than its
+/// buffer is cut (its whole length is in [`View`]).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct BookTexts<'a> {
+    pub title: &'a mut [u8],
+    pub author: &'a mut [u8],
+    pub series: &'a mut [u8],
+}
+
+impl<'a> BookTexts<'a> {
+    /// The buffers of the title, the author and the series.
+    pub fn new(title: &'a mut [u8], author: &'a mut [u8], series: &'a mut [u8]) -> Self {
+        Self {
+            title,
+            author,
+            series,
+        }
+    }
+}
+
+/// How many bytes of each text are in its buffer after [`try_book_at_with`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct Filled {
+    pub title: usize,
+    pub author: usize,
+    pub series: usize,
+}
+
 /// The columns of a line, in the order the catalog writes them.
-struct Columns {
+struct Columns<'a> {
     path: Column<VIEW_PATH>,
-    // Only their lengths are kept.
-    author: Column<0>,
-    title: Column<0>,
-    series: Column<0>,
+    author: Sink<'a>,
+    title: Sink<'a>,
+    series: Sink<'a>,
     number: Column<VIEW_NUMBER>,
     progress: Column<4>,
     flags: Column<4>,
@@ -104,7 +160,7 @@ struct Columns {
     field_open: bool,
 }
 
-impl Columns {
+impl Columns<'_> {
     /// Takes the byte of column `index` (a tab ends one).
     fn take(&mut self, index: usize, byte: u8) {
         const SEPARATOR: u8 = 0x1f;
@@ -191,13 +247,51 @@ pub fn try_view_at(
     offset: u64,
     visit: &mut dyn FnMut(&View<'_>),
 ) -> Result<bool, Error> {
-    let changes = try_changes(storage)?;
+    try_view_at_with(storage, &try_changes(storage)?, offset, visit)
+}
+
+/// [`try_view_at`] with the log of changes the caller already read
+/// ([`try_changes`]), so that a call that looks at one book several times
+/// reads the log once.
+///
+/// # Errors
+/// As [`try_view_at`], less the log.
+pub fn try_view_at_with(
+    storage: &dyn Storage,
+    changes: &Changes,
+    offset: u64,
+    visit: &mut dyn FnMut(&View<'_>),
+) -> Result<bool, Error> {
+    try_book_at_with(
+        storage,
+        changes,
+        offset,
+        BookTexts::new(&mut [], &mut [], &mut []),
+        &mut |view, _| visit(view),
+    )
+}
+
+/// [`try_view_at_with`] that also reads the title, the author and the series
+/// into `texts` in the same scan of the line (a line is read from the card
+/// once, not once for the numbers and once for each text). `visit` also gets
+/// how much of each text is in its buffer; the bytes may end inside a
+/// character, which the caller cuts.
+///
+/// # Errors
+/// As [`try_view_at_with`].
+pub fn try_book_at_with(
+    storage: &dyn Storage,
+    changes: &Changes,
+    offset: u64,
+    texts: BookTexts<'_>,
+    visit: &mut dyn FnMut(&View<'_>, Filled),
+) -> Result<bool, Error> {
     let file = in_library("catalog.txt")?;
     let mut columns = Columns {
         path: Column::new(),
-        author: Column::new(),
-        title: Column::new(),
-        series: Column::new(),
+        author: Sink::new(texts.author),
+        title: Sink::new(texts.title),
+        series: Sink::new(texts.series),
         number: Column::new(),
         progress: Column::new(),
         flags: Column::new(),
@@ -227,18 +321,26 @@ pub fn try_view_at(
     if let Some(noted) = changes.status(hash) {
         status = noted;
     }
-    visit(&View {
-        path,
-        number: columns.number.text(),
-        author_bytes: columns.author.whole,
-        title_bytes: columns.title.whole,
-        series_bytes: columns.series.whole,
-        tags: columns.tags,
-        fields: columns.fields,
-        status,
-        added: columns.added.number(),
-        size: columns.size.number(),
-    });
+    let filled = Filled {
+        title: columns.title.filled,
+        author: columns.author.filled,
+        series: columns.series.filled,
+    };
+    visit(
+        &View {
+            path,
+            number: columns.number.text(),
+            author_bytes: columns.author.whole,
+            title_bytes: columns.title.whole,
+            series_bytes: columns.series.whole,
+            tags: columns.tags,
+            fields: columns.fields,
+            status,
+            added: columns.added.number(),
+            size: columns.size.number(),
+        },
+        filled,
+    );
     Ok(true)
 }
 
@@ -248,7 +350,18 @@ pub fn try_view_at(
 /// # Errors
 /// As [`try_view_at`].
 pub fn try_offset_of(storage: &dyn Storage, path: &str) -> Result<Option<u64>, Error> {
-    let changes: Changes = try_changes(storage)?;
+    try_offset_of_with(storage, &try_changes(storage)?, path)
+}
+
+/// [`try_offset_of`] with the log of changes the caller already read.
+///
+/// # Errors
+/// As [`try_offset_of`], less the log.
+pub fn try_offset_of_with(
+    storage: &dyn Storage,
+    changes: &Changes,
+    path: &str,
+) -> Result<Option<u64>, Error> {
     if changes.removed(fnv1a64(path)) {
         return Ok(None);
     }
@@ -348,8 +461,31 @@ pub fn try_text_at(
     from: u32,
     out: &mut [u8],
 ) -> Result<Option<Text>, Error> {
+    try_text_at_with(
+        storage,
+        &try_changes(storage)?,
+        offset,
+        column,
+        part,
+        from,
+        out,
+    )
+}
+
+/// [`try_text_at`] with the log of changes the caller already read.
+///
+/// # Errors
+/// As [`try_text_at`], less the log.
+pub fn try_text_at_with(
+    storage: &dyn Storage,
+    changes: &Changes,
+    offset: u64,
+    column: TextColumn,
+    part: u32,
+    from: u32,
+    out: &mut [u8],
+) -> Result<Option<Text>, Error> {
     const SEPARATOR: u8 = 0x1f;
-    let changes = try_changes(storage)?;
     let file = in_library("catalog.txt")?;
     let wanted = match column {
         TextColumn::Author => 1,

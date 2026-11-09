@@ -48,33 +48,61 @@ struct Line {
     size: Option<u64>,
 }
 
-/// The line of the book, its path and number in `path` and `number`.
+/// The buffers a book's line is read into, in one scan: the path and the
+/// number, and the three long texts.
+struct Buffers<'a> {
+    path: &'a mut [u8],
+    number: &'a mut [u8],
+    title: &'a mut [u8],
+    author: &'a mut [u8],
+    series: &'a mut [u8],
+}
+
+/// The line of the book at `offset`: its path and number in the buffers, and
+/// how much of the title, author and series is in theirs. One scan of the
+/// line, under the log of changes the caller read.
 fn line_of(
     reads: &CatalogReads,
+    changes: &catalog::Changes,
     offset: u64,
-    path: &mut [u8],
-    number: &mut [u8],
-) -> Result<Line, i32> {
+    buffers: Buffers<'_>,
+) -> Result<(Line, catalog::Filled), i32> {
+    let Buffers {
+        path,
+        number,
+        title,
+        author,
+        series,
+    } = buffers;
     let mut line = None;
-    let seen = catalog::try_view_at(&*reads.storage, offset, &mut |view| {
-        let (p, n) = (view.path.as_bytes(), view.number.as_bytes());
-        if p.len() <= path.len() && n.len() <= number.len() {
-            path[..p.len()].copy_from_slice(p);
-            number[..n.len()].copy_from_slice(n);
-            line = Some(Line {
-                path: p.len(),
-                number: n.len(),
-                author_bytes: view.author_bytes,
-                title_bytes: view.title_bytes,
-                series_bytes: view.series_bytes,
-                tags: view.tags,
-                fields: view.fields,
-                status: view.status,
-                added: view.added,
-                size: view.size,
-            });
-        }
-    })
+    let seen = catalog::try_book_at_with(
+        &*reads.storage,
+        changes,
+        offset,
+        catalog::BookTexts::new(title, author, series),
+        &mut |view, filled| {
+            let (p, n) = (view.path.as_bytes(), view.number.as_bytes());
+            if p.len() <= path.len() && n.len() <= number.len() {
+                path[..p.len()].copy_from_slice(p);
+                number[..n.len()].copy_from_slice(n);
+                line = Some((
+                    Line {
+                        path: p.len(),
+                        number: n.len(),
+                        author_bytes: view.author_bytes,
+                        title_bytes: view.title_bytes,
+                        series_bytes: view.series_bytes,
+                        tags: view.tags,
+                        fields: view.fields,
+                        status: view.status,
+                        added: view.added,
+                        size: view.size,
+                    },
+                    filled,
+                ));
+            }
+        },
+    )
     .map_err(fail)?;
     if seen {
         line.ok_or(ERR_NO_SPACE)
@@ -83,26 +111,15 @@ fn line_of(
     }
 }
 
-/// A text of the line read into `out`: its valid prefix and whole length.
-fn text_of<'o>(
-    reads: &CatalogReads,
-    offset: u64,
-    column: catalog::TextColumn,
-    out: &'o mut [u8],
-) -> Result<&'o str, i32> {
-    let read = catalog::try_text_at(&*reads.storage, offset, column, 0, 0, out)
-        .map_err(fail)?
-        .ok_or(ERR_NOT_FOUND)?;
-    Ok(valid_prefix(&out[..read.filled]))
-}
-
 /// The length of `text` as the wire counts.
 fn bytes(text: &str) -> u32 {
     u32::try_from(text.len()).unwrap_or(u32::MAX)
 }
 
 pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-    let offset = reads.locate(book)?;
+    // The log of changes is read once for the whole call.
+    let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
+    let offset = reads.locate_with(book, &changes)?;
     let key = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
     let generation = reads.generation()?;
     let mut buffer = zeroed(PATH + TITLE + AUTHOR + SERIES + NUMBER + FORMAT)?;
@@ -111,12 +128,23 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
     let (author_b, rest) = rest.split_at_mut(AUTHOR);
     let (series_b, rest) = rest.split_at_mut(SERIES);
     let (number_b, format_b) = rest.split_at_mut(NUMBER);
-    let line = line_of(reads, offset, path_b, number_b)?;
+    let (line, filled) = line_of(
+        reads,
+        &changes,
+        offset,
+        Buffers {
+            path: path_b,
+            number: number_b,
+            title: title_b,
+            author: author_b,
+            series: series_b,
+        },
+    )?;
     let path = core::str::from_utf8(&path_b[..line.path]).map_err(|_| ERR_INVALID)?;
     let number = core::str::from_utf8(&number_b[..line.number]).map_err(|_| ERR_INVALID)?;
-    let title = text_of(reads, offset, catalog::TextColumn::Title, title_b)?;
-    let author = text_of(reads, offset, catalog::TextColumn::Author, author_b)?;
-    let series = text_of(reads, offset, catalog::TextColumn::Series, series_b)?;
+    let title = valid_prefix(&title_b[..filled.title]);
+    let author = valid_prefix(&author_b[..filled.author]);
+    let series = valid_prefix(&series_b[..filled.series]);
     let mut format_len = None;
     reads.env.format_id(path, &mut |id| {
         if id.len() <= format_b.len() {
@@ -266,10 +294,12 @@ pub(super) fn text(
         }
         _ => return Err(ERR_UNSUPPORTED),
     };
-    let offset = reads.locate(book)?;
+    let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
+    let offset = reads.locate_with(book, &changes)?;
     let mut buffer = zeroed(TEXT).map_err(|_| ERR_NO_MEMORY)?;
-    let read = catalog::try_text_at(
+    let read = catalog::try_text_at_with(
         &*reads.storage,
+        &changes,
         offset,
         column,
         at.index,

@@ -48,6 +48,8 @@ mod book;
 mod position;
 
 const PPM: u32 = 1_000_000;
+/// Counts of the books `state` takes while the catalog changes under it.
+const STATE_TRIES: usize = 3;
 
 /// What the card cannot tell the adapter.
 pub(crate) trait CatalogEnv {
@@ -78,10 +80,16 @@ impl CatalogReads {
     /// catalog's own generation or its log of changes does (a book added,
     /// removed, its status changed); never 0.
     fn generation(&self) -> Result<u32, i32> {
+        Ok(self.snapshot()?.0)
+    }
+
+    /// The generation and whether the catalog is ready, from one read of its
+    /// generation and one of its state.
+    fn snapshot(&self) -> Result<(u32, bool), i32> {
         let catalog_generation = catalog::try_generation(&*self.storage).map_err(fail)?;
-        let stamp = match catalog::try_state(&*self.storage).map_err(fail)? {
-            catalog::State::Ready { stamp } => stamp,
-            _ => 0,
+        let (stamp, ready) = match catalog::try_state(&*self.storage).map_err(fail)? {
+            catalog::State::Ready { stamp } => (stamp, true),
+            _ => (0, false),
         };
         let mut bytes = [0_u8; 17];
         bytes[0] = u8::from(catalog_generation.is_some());
@@ -89,9 +97,10 @@ impl CatalogReads {
         bytes[9..].copy_from_slice(&stamp.to_le_bytes());
         let hash = fnv1a64(bytes);
         // Folded to 32 bits; 0 is no generation.
-        Ok(u32::try_from((hash ^ (hash >> 32)) & 0xffff_ffff)
+        let generation = u32::try_from((hash ^ (hash >> 32)) & 0xffff_ffff)
             .unwrap_or(1)
-            .max(1))
+            .max(1);
+        Ok((generation, ready))
     }
 
     /// Where the line of the book starts in the catalog (a handle): a
@@ -99,7 +108,19 @@ impl CatalogReads {
     /// a line is no book.
     fn locate(&self, book: BookRef<'_>) -> Result<u64, i32> {
         match book {
-            BookRef::Path(path) => catalog::try_offset_of(&*self.storage, path)
+            BookRef::Path(_) => {
+                let changes = catalog::try_changes(&*self.storage).map_err(fail)?;
+                self.locate_with(book, &changes)
+            }
+            BookRef::Key { .. } => self.locate_with(book, &catalog::Changes::default()),
+        }
+    }
+
+    /// [`locate`](Self::locate) under the log of changes the caller read
+    /// (a handle needs none: the line's own read checks the log).
+    fn locate_with(&self, book: BookRef<'_>, changes: &catalog::Changes) -> Result<u64, i32> {
+        match book {
+            BookRef::Path(path) => catalog::try_offset_of_with(&*self.storage, changes, path)
                 .map_err(fail)?
                 .ok_or(ERR_NOT_FOUND),
             BookRef::Key { key, generation } => {
@@ -133,16 +154,27 @@ impl CatalogReads {
 
 impl LibQuery for CatalogReads {
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
-        let generation = self.generation()?;
-        let ready = matches!(
-            catalog::try_state(&*self.storage).map_err(fail)?,
-            catalog::State::Ready { .. }
-        );
-        let books = if ready {
-            catalog::try_count(&*self.storage).map_err(fail)?
-        } else {
-            0
-        };
+        // The books and the generation are one snapshot: the count is taken
+        // between two reads of the generation and kept when they agree. A
+        // catalog that changes under three tries in a row answers the
+        // generation read before its count, which is never newer than the
+        // books: a handle made of it is stale and the plugin asks again.
+        let mut before = self.snapshot()?;
+        let mut answer = None;
+        for _ in 0..STATE_TRIES {
+            let books = if before.1 {
+                catalog::try_count(&*self.storage).map_err(fail)?
+            } else {
+                0
+            };
+            let after = self.snapshot()?;
+            answer = Some((before, books));
+            if after == before {
+                break;
+            }
+            before = after;
+        }
+        let ((generation, ready), books) = answer.unwrap_or((before, 0));
         let (state, walk_ppm) = match self.env.walking() {
             // Never 100 % while walking: that is state 2.
             Some(ppm) => (1, ppm.min(PPM - 1)),

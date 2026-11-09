@@ -694,6 +694,92 @@ impl paperpaw_platform::Storage for Stats {
     }
 }
 
+/// A storage that notes each `read_at` it is asked for.
+struct Counting(Rc<MemoryStorage>, std::cell::RefCell<Vec<(String, u64)>>);
+impl paperpaw_platform::Storage for Counting {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.1.borrow_mut().push((path.to_string(), offset));
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        self.0.list_from(dir, from, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_book_and_its_text_read_the_log_once_and_the_line_in_one_scan() {
+    const LOG: &str = ".paperpaw/library/status.log";
+    const CATALOG: &str = ".paperpaw/library/catalog.txt";
+    let card = card();
+    let counting = Rc::new(Counting(card.storage.clone(), Default::default()));
+    let reads = CatalogReads::new(counting.clone(), card.env.clone());
+    let log_reads = || counting.1.borrow().iter().filter(|(p, _)| p == LOG).count();
+    let line_scans = |offset: u64| {
+        counting
+            .1
+            .borrow()
+            .iter()
+            .filter(|(p, at)| p == CATALOG && *at == offset)
+            .count()
+    };
+    // What one read of the log costs (the log is read in two passes).
+    catalog::try_changes(&*counting).unwrap();
+    let once = log_reads();
+    assert!(once > 0, "the card's log is read");
+    assert_ne!(
+        card.b % 512,
+        0,
+        "the heads' chunks do not start at the line"
+    );
+    counting.1.borrow_mut().clear();
+    // Op 3: the log once, and the line (title, author, series, numbers) in
+    // one scan from its start.
+    book(&reads, BookRef::Path("books/b.epub")).unwrap();
+    assert_eq!(log_reads(), once, "op 3 reads the log once");
+    assert_eq!(line_scans(card.b), 1, "op 3 scans the line once");
+    // Op 4: the same for a text.
+    counting.1.borrow_mut().clear();
+    let at = wire::ServiceLibTextAt {
+        kind: 0,
+        index: 0,
+        offset: 0,
+    };
+    reads
+        .text(BookRef::Path("books/b.epub"), &at, &mut |_| {})
+        .unwrap();
+    assert_eq!(log_reads(), once, "op 4 reads the log once");
+    assert_eq!(line_scans(card.b), 1);
+}
+
 /// The catalog on one storage, the books on another that is `NoStorage`:
 /// everything under `.paperpaw` answers, the rest is empty.
 struct Split(Rc<MemoryStorage>);
