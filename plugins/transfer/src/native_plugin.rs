@@ -40,7 +40,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     Footer, ItemList, Messages, Screens,
-    mem::{SERVICE_BUFFER, buffer},
+    mem::{SERVICE_BUFFER, buffer, wipe_text},
     read_event,
     text::format,
 };
@@ -255,7 +255,7 @@ impl NativeTransfer {
                 return self.show(host, View::Failed(no_random(host)?));
             }
             Err(error) => return Err(error),
-            Ok(_) => {}
+            Ok(key) => key.map_or((), wipe_text),
         }
         native_page::write(host)?;
         let server = Server::new(SERVER, PORT)?.max_body(MAX_SERVED_BODY)?;
