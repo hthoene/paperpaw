@@ -45,18 +45,6 @@ store-plugins = [
     "dep:paperpaw-plugin-joplin",
     "dep:paperpaw-plugin-mail",
     "dep:paperpaw-plugin-wallabag",
-    "dep:paperpaw-plugin-hyphenation-da",
-    "dep:paperpaw-plugin-hyphenation-de",
-    "dep:paperpaw-plugin-hyphenation-es",
-    "dep:paperpaw-plugin-hyphenation-fr",
-    "dep:paperpaw-plugin-hyphenation-it",
-    "dep:paperpaw-plugin-hyphenation-nb",
-    "dep:paperpaw-plugin-hyphenation-nl",
-    "dep:paperpaw-plugin-hyphenation-pl",
-    "dep:paperpaw-plugin-hyphenation-pt",
-    "dep:paperpaw-plugin-hyphenation-ru",
-    "dep:paperpaw-plugin-hyphenation-sv",
-    "dep:paperpaw-plugin-hyphenation-uk",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
 # Kept so builds that name it still work: the diagnostics plugin is a native
@@ -107,19 +95,6 @@ paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
-paperpaw-plugin-hyphenation.workspace = true
-paperpaw-plugin-hyphenation-da = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-es = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-de = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-fr = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-it = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-nb = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-nl = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-pl = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-pt = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-ru = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-sv = { workspace = true, optional = true }
-paperpaw-plugin-hyphenation-uk = { workspace = true, optional = true }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
 paperpaw-plugin-kosync = { workspace = true, optional = true }

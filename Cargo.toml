@@ -95,19 +95,6 @@ members = [
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
-    "plugins/hyphenation",
-    "plugins/hyphenation-da",
-    "plugins/hyphenation-es",
-    "plugins/hyphenation-de",
-    "plugins/hyphenation-fr",
-    "plugins/hyphenation-it",
-    "plugins/hyphenation-nb",
-    "plugins/hyphenation-nl",
-    "plugins/hyphenation-pl",
-    "plugins/hyphenation-pt",
-    "plugins/hyphenation-ru",
-    "plugins/hyphenation-sv",
-    "plugins/hyphenation-uk",
     "plugins/keyboard",
     "shells/desktop",
     "shells/web",
@@ -212,19 +199,6 @@ paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }
-paperpaw-plugin-hyphenation = { path = "plugins/hyphenation", version = "1.1.1" }
-paperpaw-plugin-hyphenation-da = { path = "plugins/hyphenation-da", version = "1.0.3" }
-paperpaw-plugin-hyphenation-es = { path = "plugins/hyphenation-es", version = "1.0.3" }
-paperpaw-plugin-hyphenation-de = { path = "plugins/hyphenation-de", version = "1.0.3" }
-paperpaw-plugin-hyphenation-fr = { path = "plugins/hyphenation-fr", version = "1.0.3" }
-paperpaw-plugin-hyphenation-it = { path = "plugins/hyphenation-it", version = "1.0.3" }
-paperpaw-plugin-hyphenation-nb = { path = "plugins/hyphenation-nb", version = "1.0.3" }
-paperpaw-plugin-hyphenation-nl = { path = "plugins/hyphenation-nl", version = "1.0.3" }
-paperpaw-plugin-hyphenation-pl = { path = "plugins/hyphenation-pl", version = "1.0.3" }
-paperpaw-plugin-hyphenation-pt = { path = "plugins/hyphenation-pt", version = "1.0.3" }
-paperpaw-plugin-hyphenation-ru = { path = "plugins/hyphenation-ru", version = "1.0.3" }
-paperpaw-plugin-hyphenation-sv = { path = "plugins/hyphenation-sv", version = "1.0.3" }
-paperpaw-plugin-hyphenation-uk = { path = "plugins/hyphenation-uk", version = "1.0.3" }
 paperpaw-plugin-home = { path = "plugins/home", version = "1.0.2" }
 paperpaw-plugin-settings = { path = "plugins/settings", version = "1.0.2" }
 paperpaw-plugin-files = { path = "plugins/files", version = "1.0.3" }

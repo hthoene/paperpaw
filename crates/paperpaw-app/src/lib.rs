@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 35] = [
+pub const STORE_PLUGINS: [&str; 23] = [
     "aids",
     "browser",
     "calibre",
@@ -86,18 +86,6 @@ pub const STORE_PLUGINS: [&str; 35] = [
     "format-docx",
     "format-images",
     "format-mobi",
-    "hyphenation-da",
-    "hyphenation-de",
-    "hyphenation-es",
-    "hyphenation-fr",
-    "hyphenation-it",
-    "hyphenation-nb",
-    "hyphenation-nl",
-    "hyphenation-pl",
-    "hyphenation-pt",
-    "hyphenation-ru",
-    "hyphenation-sv",
-    "hyphenation-uk",
     "joplin",
     "koreader",
     "kosync",
@@ -235,7 +223,6 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
-        .plugin(paperpaw_plugin_hyphenation::Hyphenation)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
     // Files, Home and Menu keep their order; Files and Menu are native
@@ -261,7 +248,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-        b = offer_hyphenation(b, store);
     }
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
@@ -318,25 +304,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
     b = offered(b, shipped_off, paperpaw_plugin_joplin::Joplin);
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b = offered(b, shipped_off, paperpaw_plugin_wallabag::Wallabag);
-    b
-}
-
-/// Adds the hyphenation plugins of the languages the store offers, one
-/// each, as `store` says.
-#[cfg(feature = "store-plugins")]
-fn offer_hyphenation(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBuilder {
-    b = offered(b, store, paperpaw_plugin_hyphenation_da::Danish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_de::German);
-    b = offered(b, store, paperpaw_plugin_hyphenation_es::Spanish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_fr::French);
-    b = offered(b, store, paperpaw_plugin_hyphenation_it::Italian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_nb::Norwegian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_nl::Dutch);
-    b = offered(b, store, paperpaw_plugin_hyphenation_pl::Polish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_pt::Portuguese);
-    b = offered(b, store, paperpaw_plugin_hyphenation_ru::Russian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_sv::Swedish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_uk::Ukrainian);
     b
 }
 

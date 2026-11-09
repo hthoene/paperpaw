@@ -1552,19 +1552,6 @@ dependencies = [
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
- "paperpaw-plugin-hyphenation",
- "paperpaw-plugin-hyphenation-da",
- "paperpaw-plugin-hyphenation-de",
- "paperpaw-plugin-hyphenation-es",
- "paperpaw-plugin-hyphenation-fr",
- "paperpaw-plugin-hyphenation-it",
- "paperpaw-plugin-hyphenation-nb",
- "paperpaw-plugin-hyphenation-nl",
- "paperpaw-plugin-hyphenation-pl",
- "paperpaw-plugin-hyphenation-pt",
- "paperpaw-plugin-hyphenation-ru",
- "paperpaw-plugin-hyphenation-sv",
- "paperpaw-plugin-hyphenation-uk",
  "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-koreader",
@@ -1761,6 +1748,7 @@ name = "paperpaw-hyphenation-packs"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-hyphen",
+ "proptest",
 ]
 
 [[package]]
@@ -2101,112 +2089,6 @@ dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation"
-version = "1.1.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-i18n",
- "paperpaw-sdk",
- "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-da"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-de"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-es"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-fr"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-it"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nb"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pt"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-ru"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-sv"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-uk"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
 ]
 
 [[package]]
