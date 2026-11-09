@@ -30,7 +30,10 @@ fn both(data: &[u8], base: &str) -> (String, String) {
     let storage = MemoryStorage::new();
     storage.write("f.xml", data).unwrap();
     let old = format!("{:?}", crate::feed::read(&storage, "f.xml", base));
-    let new = format!("{:?}", native::read(&mut Bytes(data), base).unwrap());
+    let new = format!(
+        "{:?}",
+        native::read(&mut Bytes(data), base, native::Limits::default()).unwrap()
+    );
     (old, new)
 }
 
@@ -68,7 +71,7 @@ fn feeds_are_read_as_before() {
     let (old, new) = both(many.as_bytes(), BASE);
     assert_eq!(new, old);
     assert_eq!(
-        native::read(&mut Bytes(many.as_bytes()), BASE)
+        native::read(&mut Bytes(many.as_bytes()), BASE, native::Limits::default())
             .unwrap()
             .entries
             .len(),
@@ -340,7 +343,7 @@ fn a_long_address_or_type_is_not_kept() {
         acquisition("/c.epub", "application/epub+zip"),
         format_args!("<link rel=\"next\" href=\"{long_url}\"/>"),
     );
-    let read = native::read(&mut Bytes(feed.as_bytes()), BASE).unwrap();
+    let read = native::read(&mut Bytes(feed.as_bytes()), BASE, native::Limits::default()).unwrap();
     let urls: Vec<&str> = read.entries[0]
         .books
         .iter()
@@ -364,7 +367,7 @@ fn a_page_of_full_entries_is_cut_at_the_page_budget() {
         feed.push_str("</entry>");
     }
     feed.push_str("</feed>");
-    let read = native::read(&mut Bytes(feed.as_bytes()), BASE).unwrap();
+    let read = native::read(&mut Bytes(feed.as_bytes()), BASE, native::Limits::default()).unwrap();
     assert!(read.memory, "the cut is said");
     assert!(!read.entries.is_empty() && read.entries.len() < native::MAX_ENTRIES);
     let held: usize = read
@@ -408,7 +411,7 @@ fn a_failed_read_is_an_error_not_a_short_feed() {
         };
         // Past `good` bytes the source fails; it does not give 0 (the end).
         assert_eq!(
-            native::read(&mut source, BASE),
+            native::read(&mut source, BASE, native::Limits::default()),
             Err(Error::Io),
             "failing after {good}"
         );

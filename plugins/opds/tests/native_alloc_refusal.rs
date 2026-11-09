@@ -37,7 +37,11 @@ impl Source for Bytes {
 #[test]
 fn reading_a_feed_survives_refused_allocations() {
     fail_alloc::sweep(|| {
-        let feed = model::read(&mut Bytes, "https://cat.example/opds/root.xml")?;
+        let feed = model::read(
+            &mut Bytes,
+            "https://cat.example/opds/root.xml",
+            model::Limits::default(),
+        )?;
         // A refused allocation ends the reading short and says so.
         if feed.memory {
             return Err(Error::NoMemory);
