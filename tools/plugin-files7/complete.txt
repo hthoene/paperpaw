@@ -9,4 +9,5 @@ end-of-book
 keys
 menu-editor
 profiles
+readwise
 rules

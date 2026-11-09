@@ -1582,7 +1582,6 @@ dependencies = [
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-reading-goal",
- "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
@@ -2497,9 +2496,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
