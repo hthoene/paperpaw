@@ -101,10 +101,11 @@ pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
 }
 
 /// Whether `id` can be a data plugin's id and its folder's name: lower-case
-/// letters, digits and `-`.
+/// letters, digits and `-`, and not the host's own id `core` (reserved).
 pub fn is_plugin_name(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 40
+        && id != "core"
         && !id.starts_with('-')
         && id
             .bytes()
@@ -665,8 +666,8 @@ mod tests {
         ] {
             assert!(!is_safe_path(bad), "{bad}");
         }
-        assert!(is_plugin_name("airy-theme"));
-        for bad in ["", "Airy", "a_b", "../x", "-x", "a.b"] {
+        assert!(is_plugin_name("airy-theme") && is_plugin_name("core-fonts"));
+        for bad in ["", "Airy", "a_b", "../x", "-x", "a.b", "core", "core.evil"] {
             assert!(!is_plugin_name(bad), "{bad}");
         }
     }

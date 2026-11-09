@@ -1427,3 +1427,7 @@ fn paperpaw_text_outlines() -> bool {
 
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 mod native_battery_pixel_tests;
+
+/// The host's own plugin id: no installed, linked or native plugin may take
+/// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
+pub(crate) const RESERVED_PLUGIN_ID: &str = "core";
