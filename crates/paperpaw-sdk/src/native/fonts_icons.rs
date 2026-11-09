@@ -73,7 +73,10 @@ impl IconGlyph {
     #[must_use]
     pub fn as_str(&self) -> &str {
         // The constructor checked these bytes as one UTF-8 character.
-        core::str::from_utf8(&self.bytes[..usize::from(self.len)]).unwrap_or("")
+        self.bytes
+            .get(..usize::from(self.len))
+            .and_then(|written| core::str::from_utf8(written).ok())
+            .unwrap_or("")
     }
 }
 
