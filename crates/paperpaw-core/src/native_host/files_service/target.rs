@@ -3,7 +3,7 @@
 //! lists them, then the path joined for the storage in a stack buffer.
 use super::View;
 use crate::native_host::storage::{MAX_FOLDER, MAX_JOINED, PREFIX, relative_path};
-use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
 /// Root 0: the plugin's data folder.
 pub(super) const DATA: u32 = 0;
@@ -39,6 +39,8 @@ pub(super) struct Target {
     pub(super) root: u32,
     /// Whether the path is `.received` or below it (root 0).
     received: bool,
+    /// Root 2 of a built-in plugin: an install folder that counts as empty.
+    pub(super) empty_bundle: bool,
 }
 
 impl Target {
@@ -50,6 +52,7 @@ impl Target {
         base: 0,
         root: 0,
         received: false,
+        empty_bundle: false,
     };
 
     /// The path for the storage, from the card's root.
@@ -154,6 +157,7 @@ pub(super) fn resolve(
     target.base = 0;
     target.root = root;
     target.received = received;
+    target.empty_bundle = false;
     let (kind, folder) = match root {
         DATA => (PREFIX, Some(view.who.plugin)),
         BUNDLE => ("plugins/", Some(view.who.plugin)),
@@ -177,6 +181,14 @@ pub(super) fn resolve(
     }
     target.start = target.len;
     push(target, path.as_bytes())?;
+    // A built-in plugin has no install folder: what the card holds there (a
+    // leftover of an older install) is never read.
+    if root == BUNDLE && view.host.built_in(view.who.plugin) {
+        if !path.is_empty() {
+            return Err(ERR_NOT_FOUND);
+        }
+        target.empty_bundle = true;
+    }
     Ok(())
 }
 
