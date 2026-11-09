@@ -827,14 +827,14 @@ fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
         widget("other", "core.widgets.words", 0, 0, "demo.else"),
         widget("later", "core.widgets.words", 0, 0, "demo.top"),
     ]);
-    // In the order added: the last is the one interface 6 picks.
+    // In op 19's order (the store's for declarations); a page shows the last.
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
     assert_eq!(
         rows,
         [
-            "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
-             nat.widget",
             "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
              nat.widget",
         ]
     );

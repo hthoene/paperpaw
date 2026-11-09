@@ -91,7 +91,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 16 | `presets` | `reg_query` (`scope`: preset kind, e.g. `core.power-mode`, or empty) | `reg_item`*, `end` | |
 | 17 | `preset` | `reg_key` | `reg_item`, `reg_text`? | name and description |
 | 18 | `values` | `reg_query` (`scope`: a preset id, or with `flags` bit 0 a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values a preset or a placement sets, whole |
-| 19 | `widgets` | `reg_query` (`scope`: widget kind or empty) | `reg_widget`*, `end` | widget discovery, section 6 |
+| 19 | `widgets` | `reg_query` (`scope`: widget kind or empty; with `flags` bit 0 a settings group: the widgets that preview it; a page shows the last) | `reg_widget`*, `end` | widget discovery, section 6 |
 | 20 | `needs` | `reg_query` (`scope`: plugin id) | `reg_need`*, `end` | features, services and required plugins, paged (up to 32 + 32 + more do not fit one reply) |
 | 21 | `status` | `reg_query` (`scope`: empty, or `item` / `line` for one kind) | `reg_status`*, `end` | status items and lines (`ui.md` section 5.3); one row type per op, op 19 stays widgets only |
 | 22 | `setup_step` | `reg_key` | `reg_setup_step`, `reg_text`? | one step in full: its help text (Port A on #354) |

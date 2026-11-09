@@ -5,8 +5,9 @@
 //! them (`Widgets::shown`: a `widget.place` whose `shown_if` holds names the
 //! widget, or a placement of it, in one of its `list_keys`). Widgets that
 //! preview a group of settings are no widgets to add: only `reg_query.flags`
-//! bit 0 lists them, those that preview the group `scope`, the one interface 6
-//! (`Widgets::preview`) picks last.
+//! bit 0 lists them, those that preview the group `scope`, in this op's order
+//! (the environment's first, then the declarations in the store's order); a
+//! settings page shows the last, as interface 6's `Widgets::preview` did.
 use super::{
     Row,
     fixed::{Fixed, caps, translated},

@@ -188,7 +188,7 @@ fn put_line(line: &Line<'_>, put: &mut dyn FnMut(&str)) {
 /// the order of its first line, a blank line before every one but the
 /// section of the very first line (as `set` appended them one by one to an
 /// empty file).
-fn emit(lines: &[Line<'_>], put: &mut dyn FnMut(&str)) {
+fn emit_lines(lines: &[Line<'_>], put: &mut dyn FnMut(&str)) {
     for line in lines.iter().filter(|line| line.section.is_empty()) {
         put_line(line, put);
     }
@@ -227,13 +227,13 @@ fn emit(lines: &[Line<'_>], put: &mut dyn FnMut(&str)) {
 pub(super) fn try_details_text(book: &Book, before: &str) -> Result<String, Error> {
     let lines = collect(book, before)?;
     let mut size = 0_usize;
-    emit(&lines, &mut |piece| size = size.saturating_add(piece.len()));
+    emit_lines(&lines, &mut |piece| size = size.saturating_add(piece.len()));
     if size > MAX_DETAILS {
         return Err(StorageError::TooLarge.into());
     }
     let mut text = String::new();
     memory(text.try_reserve_exact(size))?;
-    emit(&lines, &mut |piece| text.push_str(piece));
+    emit_lines(&lines, &mut |piece| text.push_str(piece));
     Ok(text)
 }
 
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn no_line_is_no_text() {
         let mut text = String::new();
-        emit(&[], &mut |piece| text.push_str(piece));
+        emit_lines(&[], &mut |piece| text.push_str(piece));
         assert_eq!(text, "");
     }
 
