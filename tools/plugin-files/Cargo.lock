@@ -145,7 +145,6 @@ dependencies = [
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-joplin",
  "paperpaw-plugin-koreader",
- "paperpaw-plugin-kosync",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-vault",
@@ -210,14 +209,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-koreader"
 version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-kosync"
-version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

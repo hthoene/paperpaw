@@ -235,16 +235,25 @@ pub struct Loader {
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The network's side of `core.sockets`: this loader wires core with it,
+    /// the network runs it.
+    #[cfg(feature = "ppn5")]
+    host_net: alloc::rc::Rc<crate::host_net::Bridge>,
 }
 
 impl Loader {
-    pub fn new(place: Place) -> Self {
+    pub fn new(
+        place: Place,
+        #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+    ) -> Self {
         Self {
             place,
             #[cfg(feature = "ppn5")]
             depth: None,
             #[cfg(feature = "ppn5")]
             resources: None,
+            #[cfg(feature = "ppn5")]
+            host_net,
         }
     }
 
@@ -439,6 +448,45 @@ fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
     Some(resources)
 }
 
+#[cfg(feature = "ppn5")]
+impl Loader {
+    /// Wires `core.net` and `core.sockets` over the network's bridge, once
+    /// the card is known. The TLS is the bridge's over the device's TLS
+    /// session (`tls_slots`); a session that cannot be had at its handshake
+    /// ends the socket or request `no_memory`.
+    fn wire_network(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::{
+            HostWiring,
+            shell_wiring::{
+                NetInputs, NetLimits, ShellHttp, ShellNetwork, SockInputs, SockLimits, SockTls,
+                SockTransport,
+            },
+        };
+        let Some(resources) = self.resources.as_ref() else {
+            return;
+        };
+        let bridge = &self.host_net;
+        let mut limits = SockLimits::small(crate::host_net::POOL_BYTES);
+        limits.tls_sessions = crate::tls_slots::SESSIONS;
+        let transport: Rc<dyn SockTransport> = bridge.clone();
+        let network: Rc<dyn ShellNetwork> = bridge.clone();
+        let tls: Rc<dyn SockTls> = bridge.clone();
+        let sockets = SockInputs::new(storage.clone(), transport, network.clone(), limits).tls(tls);
+        // Two requests at a time, as in interface 6; bodies in memory are
+        // small (the pool is 48 KiB, and the sockets' two buffers take 16).
+        let http: Rc<dyn ShellHttp> = bridge.clone();
+        let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
+            .tls_sessions(crate::tls_slots::SESSIONS)
+            .max_body(16 * 1024);
+        let net = NetInputs::new(storage.clone(), http, network, net_limits);
+        match resources.wire(HostWiring::new().net(net).sockets(sockets)) {
+            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
+            Err(status) => warn!("native: core.net and core.sockets not wired ({status})"),
+        }
+    }
+}
+
 impl CodeLoader for Loader {
     fn load(
         &mut self,
@@ -469,17 +517,19 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        let wired = match self
-            .resources
-            .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
-        {
+        let resources = self.resources.as_ref()?;
+        let wired = match resources.wire(HostWiring::new().hyphenation(storage.clone())) {
             Ok(wired) => wired,
             Err(status) => {
                 warn!("native: text.hyphenate not wired ({status})");
                 return None;
             }
         };
+        // This hook runs at the end of the kernel's build, before `Kernel::start`:
+        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
+        // filled (a later wiring would show plugins a false `network_off`).
+        // It needs the card too (files read to, the staged file).
+        self.wire_network(storage);
         wired.hyphen().cloned()
     }
 

@@ -1,8 +1,11 @@
 //! Format provider scalar replies borrow their model without allocating.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_sdk::{
-    document::Metadata,
-    native::{format::FormatCall, stage_schemas::core_format_v1 as schema},
+    document::{Block, BlockKind, Metadata, Run, TextStyle},
+    native::{
+        format::{BlockReply, FormatCall, LinkKind, PageEnd},
+        stage_schemas::core_format_v1 as schema,
+    },
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -71,5 +74,43 @@ fn metadata_and_text_decode_encode_allocate_nothing() {
             }
         });
         assert_eq!(schema::reply_decode(&out[..n]).unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn block_and_page_replies_allocate_nothing() {
+    let block = Block::new(BlockKind::Paragraph, 0, 9000, "界".repeat(3000)).runs(vec![Run::new(
+        0,
+        10,
+        TextStyle::default(),
+    )]);
+    let mut input = [0; 1024];
+    let mut out = [0; 3840];
+    let n = schema::FmtCall::new(8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 99, "", &[])
+        .encode(&mut input)
+        .unwrap();
+    let n = no_alloc(|| {
+        FormatCall::decode(&input[..n])
+            .unwrap()
+            .reply_block(&BlockReply::new(&block), &mut out)
+            .unwrap()
+    });
+    assert!(schema::reply_decode(&out[..n]).unwrap().len() >= 3);
+    for op in [7, 9, 14, 16] {
+        let n = schema::FmtCall::new(op, 1, 0, 0, 0, 0, 0, 0, 0, 0, 99, "", &[])
+            .encode(&mut input)
+            .unwrap();
+        let n = no_alloc(|| {
+            let call = FormatCall::decode(&input[..n]).unwrap();
+            let mut rows = call.rows(&mut out).unwrap();
+            match op {
+                7 => rows.section(0, 10, false).unwrap(),
+                9 => rows.toc(0, 0, 0, 0, false, "Chapter").unwrap(),
+                14 => assert!(rows.link(0, 1, LinkKind::Internal, "#a").unwrap()),
+                _ => rows.font(0, 1, false, false, 100).unwrap(),
+            }
+            rows.finish(PageEnd::last(1, 1)).unwrap()
+        });
+        assert_eq!(schema::reply_decode(&out[..n]).unwrap().len(), 2);
     }
 }

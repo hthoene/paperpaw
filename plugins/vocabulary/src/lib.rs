@@ -59,6 +59,7 @@ mod marks;
 )]
 mod native_decks;
 mod native_entry;
+mod native_list;
 #[allow(
     dead_code,
     reason = "the review's decisions and the screen's drawing: the tests use what the shell does not"
