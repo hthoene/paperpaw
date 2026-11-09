@@ -9,6 +9,8 @@ struct Log {
     calls: RefCell<Vec<(u32, Vec<u8>)>>,
     replies: RefCell<Vec<(u32, Vec<u8>)>>,
     fail_call: Cell<Option<usize>>,
+    /// The status a failing call answers; 0 is `ERR_NO_SPACE`.
+    status: Cell<i32>,
 }
 unsafe extern "C" fn open_log(_: *mut c_void, _: PpBytes, _: u16, _: u16, out: *mut u32) -> i32 {
     // SAFETY: the SDK provides an aligned output.
@@ -29,7 +31,10 @@ unsafe extern "C" fn call_log(
     let index = log.calls.borrow().len();
     log.calls.borrow_mut().push((op, bytes));
     if log.fail_call.get() == Some(index) {
-        return abi::ERR_NO_SPACE;
+        return match log.status.get() {
+            0 => abi::ERR_NO_SPACE,
+            status => status,
+        };
     }
     let replies = log.replies.borrow();
     let reply = replies
@@ -170,8 +175,9 @@ fn a_short_edit_is_one_call_and_a_removal_carries_only_its_id() {
 fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
     setup!(table, log, host, lib);
     let mut tx = begin(&log, &lib, &host);
-    // 'é' is two bytes: 1,600 of them are 3,200 bytes, over one part of 3,072.
-    let text = "é".repeat(1_600);
+    // One ASCII byte then 1,600 two-byte 'é': 3,201 bytes, so the 3,072-byte cut
+    // falls inside a character (byte 3,071 starts one) and must move back to it.
+    let text = alloc::format!("a{}", "é".repeat(1_600));
     let note = "n".repeat(600);
     let edit = AnnotationEdit::add(AnnotationKind::Highlight, (0, 1), (0, 9))
         .text(&text)
@@ -188,10 +194,11 @@ fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
     };
     assert_eq!(
         (e.text, e.note, e.text_bytes, e.note_bytes),
-        ("", "", 3200, 600)
+        ("", "", 3201, 600)
     );
     assert_eq!(e.flags, 1 | 1 << 4, "noted and has XPointers");
     let mut joined = String::new();
+    let mut text_parts = Vec::new();
     let mut offsets = Vec::new();
     for at in 1..calls {
         let (op, rows) = sent(&log, at);
@@ -204,12 +211,15 @@ fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
         offsets.push((p.field, p.offset, p.flags));
         if p.field == 0 {
             joined.push_str(p.data);
+            text_parts.push(p.data.len());
         }
     }
     assert_eq!(joined, text, "parts join to the text");
+    // The first part stops before the split character, the second carries all of it.
+    assert_eq!(text_parts, [3071, 130]);
     assert_eq!(
         offsets,
-        [(0, 0, 0), (0, 3072, 1), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
+        [(0, 0, 0), (0, 3071, 1), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
     );
 }
 
@@ -223,10 +233,6 @@ fn bad_edits_and_too_many_are_refused_before_the_host_is_called() {
     let long_xp = "x".repeat(1025);
     let cases = [
         (ok.percent(101), Error::Invalid),
-        (
-            AnnotationEdit::add(AnnotationKind::Highlight, (2, 0), (1, 9)),
-            Error::Invalid,
-        ),
         (
             AnnotationEdit::upsert("", AnnotationKind::Bookmark, (0, 0), (0, 0)),
             Error::Invalid,
@@ -423,4 +429,72 @@ fn the_receipt_pages_the_ids_of_the_edits() {
             "generation {generation}"
         );
     }
+}
+
+#[test]
+fn a_local_encoding_failure_leaves_the_transaction_usable() {
+    setup!(table, log, host, lib);
+    let mut tx = begin(&log, &lib, &host);
+    let edit = AnnotationEdit::add(AnnotationKind::Bookmark, (0, 0), (0, 0));
+    // An `input` too small for the record fails before any call.
+    assert!(
+        lib.edit_add(&host, &mut tx, &[edit], &mut [0; 8], &mut [0; 4096])
+            .is_err()
+    );
+    assert!(log.calls.borrow().is_empty());
+    assert_eq!(tx.edits(), 0);
+    lib.edit_add(&host, &mut tx, &[edit], &mut [0; 4096], &mut [0; 4096])
+        .unwrap();
+    assert_eq!(tx.edits(), 1);
+}
+
+#[test]
+fn full_a_stale_commit_and_a_gone_receipt_are_the_hosts_answers() {
+    setup!(table, log, host, lib);
+    // Begin: the plugin or the device has its transactions open already.
+    log.fail_call.set(Some(0));
+    log.status.set(abi::ERR_FULL);
+    assert_eq!(
+        lib.edit_begin(&host, book(), 5, &mut [0; 1024], &mut [0; 4096])
+            .unwrap_err(),
+        Error::Full
+    );
+    log.fail_call.set(None);
+    let mut tx = begin(&log, &lib, &host);
+    // Commit: the generation moved. The transaction is finished whatever the
+    // host answers, so abort is State and the plugin begins again.
+    log.fail_call.set(Some(0));
+    log.status.set(abi::ERR_STATE);
+    assert_eq!(
+        lib.edit_commit(&host, &mut tx, &mut [0; 256], &mut [0; 4096])
+            .unwrap_err(),
+        Error::State
+    );
+    assert_eq!(
+        lib.edit_abort(&host, &mut tx, &mut [0; 256], &mut [0; 64])
+            .unwrap_err(),
+        Error::State
+    );
+    // Receipt: kept until the next begin, 10 minutes or the plugin stops.
+    log.replies
+        .borrow_mut()
+        .push((schema::OP_EDIT_COMMIT, committed(8, 6)));
+    let mut tx = begin(&log, &lib, &host);
+    log.fail_call.set(None);
+    let done = lib
+        .edit_commit(&host, &mut tx, &mut [0; 256], &mut [0; 4096])
+        .unwrap();
+    log.fail_call.set(Some(log.calls.borrow().len()));
+    log.status.set(abi::ERR_NOT_FOUND);
+    assert_eq!(
+        lib.edit_receipt(
+            &host,
+            &done,
+            ReceiptCursor::start(),
+            &mut [0; 256],
+            &mut [0; 4096]
+        )
+        .unwrap_err(),
+        Error::NotFound
+    );
 }

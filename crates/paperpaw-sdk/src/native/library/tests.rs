@@ -444,11 +444,15 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
 #[path = "tests/anchors.rs"]
 mod anchors;
 mod annotations;
+#[path = "tests/cover.rs"]
+mod cover;
 #[path = "tests/edits.rs"]
 mod edits;
 #[path = "tests/facets.rs"]
 mod facets;
 #[path = "tests/fields.rs"]
 mod fields;
+#[path = "tests/files.rs"]
+mod files;
 #[path = "tests/position.rs"]
 mod position;

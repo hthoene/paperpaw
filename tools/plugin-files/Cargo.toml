@@ -47,8 +47,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "kosync"
-path = "src/bin/kosync.rs"
 test = false
 bench = false
 
@@ -67,12 +65,6 @@ bench = false
 [[bin]]
 name = "read-later-cloud"
 path = "src/bin/read-later-cloud.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "notes-overview"
-path = "src/bin/notes-overview.rs"
 test = false
 bench = false
 
@@ -224,7 +216,6 @@ bench = false
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
-paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
@@ -234,7 +225,6 @@ paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
-paperpaw-plugin-kosync = { path = "../../plugins/kosync" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }

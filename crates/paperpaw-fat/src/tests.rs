@@ -1338,6 +1338,7 @@ mod free_follow;
 mod free_space;
 mod listed;
 mod noted;
+mod same_entry;
 mod tree_cuts;
 
 /// The time a file was changed is the same listed and asked for, and

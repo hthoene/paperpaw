@@ -6,6 +6,8 @@ use super::{
     services::Service,
 };
 
+mod cover;
+pub use cover::Cover;
 mod edits;
 pub use edits::{
     AnnotationEdit, Committed, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Receipt, ReceiptAction,
@@ -23,6 +25,8 @@ mod annotation_text;
 pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
+mod files;
+pub use files::{DeleteReport, DeleteRow, Existing, Import, MAX_DELETE_PATHS};
 mod position;
 pub use position::{BookKey, Position, PositionWrite};
 mod query;
