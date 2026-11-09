@@ -1,8 +1,67 @@
-# Interface-7 port (slices 1 and 2: the declarations and the decisions)
+# Interface-7 port (slices 1 to 3: the declarations, the decisions, the native entry)
 
-Version 1.0.2. Partial: what the plugin declares, without the host. No native screen and no
-`NATIVE_ENTRY` yet; the interface-6 `PictureHome` and everything of it stays until the host
-activates native plugins (then it goes together, no shim).
+Version 1.0.2. Partial. The plugin has a native entry (`NATIVE_ENTRY`, features `linked` and
+`native-entry`) with the picture chooser and the bar items' editor; the dashboard and *Add* are
+declared and answer `Unsupported` when opened. The interface-6 `PictureHome` and everything of it
+stays until the host activates native plugins (then it goes together, no shim): see *Removal step*.
+
+## Slice 3: the native entry
+
+`build.rs` (the declarations of `declarations.rs` built into the image: settings, screens,
+navigation), `native/metadata*.json|bin` (services `core.files`, `core.registry`, `core.ui`, the
+consent `uses.storage`; regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input
+native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise
+`metadata.host.*`), `src/native_entry.rs`, `src/native_plugin.rs` (`NativePictureHome`),
+`tools/plugin-files7` (the bin `picture-home`).
+
+- The screen `pick` (the picture chooser, `native_pick.rs` for the rows and what a choice sets,
+  the same rules as the interface-6 `pick.rs`): the folder of `picture-home.folder` listed through
+  `core.files` (`Root::Files`, page by page into `native_picture::Pictures`, which keeps the
+  alphabetically first 300 names that fit 24 KiB whatever the card's order), *No picture* at the
+  head, the chosen row marked, the focus starting on it, a choice sets `picture-home.picture` and
+  closes the screen in one callback (an error drops both), an empty folder says so with its words
+  (`picture-home.no-pictures`, `{folder}`). A folder that is missing, a file, or not readable by
+  the plugin has no pictures, as on interface 6. The listing stops after 1,024 pages (32,768
+  entries at most): interface 6 read all, which would be a long callback; a folder that big keeps
+  what the first pages hold.
+- The screen `status-items` (the editor of `bar.left-items`, `bar.center-items` and
+  `bar.right-items`, opened by the settings editor with `id`): the kit's `StatusItemsView` over the
+  items `core.registry` lists, the setting read with `settings.read`, each change `set_setting`.
+  Any other `id` is refused (`Invalid`).
+- `dashboard` and `add` answer `Unsupported` when opened: they are declared (the declaration
+  parity test pins that) and nothing opens them while the app has the interface-6 screens.
+- `core.ui` opens in the first callback that needs it, not in `make` (construction has no frame).
+  `tests/hosted_construction.rs`: `make` runs to its end in the kernel's registered scope; the host
+  then refuses the commit (`DeclarationViewsUnavailable`, #944), pinned by the second test; the
+  positive case is ignored.
+- Memory: the chooser holds at most 300 names (24 KiB) and the rows made of them; the listing's two
+  4 KiB buffers are released with the files handle before drawing. Not measured on the device.
+
+### Named steps still BLOCKED or not yet ported (ignored cases in `tests/acceptance_pending.rs`)
+
+- `dashboard` (view, H1/H3/H4): the page grid of widgets and tools on the picture, the status bar,
+  dots and pencil. The host contracts it needs exist (`ui.widget_make`/`widget_place`/`compose`,
+  `core.registry`); the model (`native_grid`, `native_pages`, `native_dash`) is to be ported as
+  `plugins/home` did in its slices 3b to 3d, over `picture-home.page-1` to `-4` and
+  `picture-home.pages`. Next slice. Case `picture-home-dashboard`.
+- *Add*, moving and sizing (H2/H4; the drag of an item or its corner waits for the pointer input):
+  `picture-home-edit`.
+- `IMG-slots-36-37`: the picture's decode and scale (image slots 36 and 37, `core.document` ops
+  15 and 16) are not on integration, so the gray file `picture` cannot be made natively; what the
+  screen decides from the picture is ported (`native_picture.rs`). `picture-home-picture`.
+- `H1`: the bars drawn through the host's status frame and the hints row (`picture-home-bars`).
+  The hints row is the kernel's: no contract lets a native screen ask for it to show (always,
+  never, after a press) yet.
+- `H1/H4`: the chooser and the editor through the production loader (`picture-home-pick`,
+  `picture-home-bar-items-editor`), and `KIT-grip-drag` for the grip's finger drag.
+
+### Removal step (one later sweep)
+
+When the host activates native plugins, delete together: `PictureHome` (`lib.rs`), `add.rs`,
+`bar.rs`, `dashboard.rs`, `orient.rs`, `pages.rs`, `pick.rs`, `picture.rs`, `settings.rs` and the
+interface-6 suites (`tests/home.rs`, `tests/common`), the app's wiring of `PictureHome`
+(`crates/paperpaw-app`, `shells/*`), and the `paperpaw-app` dev-dependency; the plugin's
+`tools/plugin-files` entry, if any. `native_picture.rs` and its tests stay.
 
 ## Ported
 
