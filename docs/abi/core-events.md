@@ -131,6 +131,10 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   the stack, nested ones included. The one synchronous step is a drain: right after raising
   `suspend` or `stopping` the host drains the pump from its top level before it sleeps or tears
   down, so earlier edges (`book_closed` reason 1) come first; a refused edge is logged, not retried.
+  Tick and resume keep one coalesced pending bit each; suspend and stopping keep a bit too, so a
+  full store never loses them; every bit and held edge shares one order per plugin, so nothing
+  overtakes what was queued before it (#849). The reading session raises 65-67 through the same
+  queue (the kernel's `emit_to`), with `reason` from the event's `reason` parameter (0 if absent).
 - [D] Per reading session:
   - `book_opened` comes before the session's first `page_turned`;
   - `book_finished` comes at most once per open, after the last page turn and before `book_closed`;
