@@ -387,18 +387,12 @@ fn parts_complete_a_group_and_a_commit_needs_them_all() {
         },
     ];
     add(&fake, t, &edits).unwrap();
-    assert_eq!(commit(&fake, t), Err(ERR_INVALID));
+    // Parts may arrive in any order between the fields: both XPointers of
+    // edit 2 in parts, the others whole.
     part(&fake, t, 1, 1, 0, "abc", true).unwrap();
-    assert_eq!(commit(&fake, t), Err(ERR_INVALID));
     part(&fake, t, 0, 0, 0, "hello", true).unwrap();
-    // Both XPointers of edit 2, in parts, in any order between the fields.
     part(&fake, t, 2, 3, 0, "/p[2]", false).unwrap();
     part(&fake, t, 2, 2, 0, "/p[1]", true).unwrap();
-    assert_eq!(
-        commit(&fake, t),
-        Err(ERR_INVALID),
-        "the end XPointer is not done"
-    );
     part(&fake, t, 2, 3, 5, "/text()", true).unwrap();
     let reply = commit(&fake, t).unwrap();
     assert!(!reply.is_empty());
@@ -530,9 +524,37 @@ fn a_reply_that_cannot_be_written_stops_before_anything_is_applied() {
         Err(ERR_NO_SPACE)
     );
     assert!(!applied(&fake), "nothing was applied");
-    assert_eq!(fake.transactions.open_count(), 1, "the transaction stays");
-    assert!(commit(&fake, t).is_ok());
-    assert!(applied(&fake));
+    // The commit ended the transaction, as every commit on one's own does.
+    assert_eq!(fake.transactions.open_count(), 0);
+    assert_eq!(fake.last(), std::format!("abort {t}"));
+    assert_eq!(commit(&fake, t), Err(ERR_NOT_FOUND));
+    assert_eq!(go(&fake, 21, &[tref(t)]), Err(ERR_NOT_FOUND));
+    assert!(!applied(&fake));
+}
+
+#[test]
+fn a_commit_with_a_part_missing_ends_the_transaction() {
+    let fake = Fake::new();
+    let t = begin(&fake).unwrap();
+    let long = Edit {
+        text: "",
+        text_bytes: 5,
+        ..edit()
+    };
+    add(&fake, t, &[long]).unwrap();
+    assert_eq!(commit(&fake, t), Err(ERR_INVALID));
+    assert_eq!(fake.transactions.open_count(), 0);
+    assert_eq!(
+        fake.last(),
+        std::format!("abort {t}"),
+        "the staged file goes"
+    );
+    // Nothing more to finish: the id is gone, for commit, abort and parts.
+    assert_eq!(commit(&fake, t), Err(ERR_NOT_FOUND));
+    assert_eq!(go(&fake, 21, &[tref(t)]), Err(ERR_NOT_FOUND));
+    assert_eq!(part(&fake, t, 0, 0, 0, "hello", true), Err(ERR_NOT_FOUND));
+    // Another transaction begins at once.
+    assert!(begin(&fake).is_ok());
 }
 
 #[test]
