@@ -590,11 +590,7 @@ fn a_reply_buffer_too_small_for_the_end_is_no_space_and_other_ops_are_not_here_y
         call(&kernel, schema::OP_PLUGINS, &query("", 0, 0), 8),
         Err(ERR_NO_SPACE)
     );
-    // Menu and the other families are later slices.
-    assert_eq!(
-        call(&kernel, schema::OP_MENUS, &query("", 0, 0), 4096),
-        Err(ERR_UNSUPPORTED)
-    );
+    // Needs (op 20) follows once the host keeps what plugins require.
     assert_eq!(
         call(&kernel, schema::OP_NEEDS, &query("demo", 0, 0), 4096),
         Err(ERR_UNSUPPORTED)
