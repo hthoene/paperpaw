@@ -2776,8 +2776,10 @@ not a book, `NotFound` for gone already, `Io`) and `has_annotations()`,
 `has_position()` and `has_book_data()`, so a view can ask the user first.
 `Library::delete(host, paths, with_notes, input, out)` removes the books and everything
 kept for them; a book with annotations answers `State` in its row unless `with_notes`,
-which a plugin passes only for books it downloaded itself or after asking. Both answer
-one row per path in the order asked; a reply that does not is `Invalid`. `input` is
+which a plugin passes only for books it downloaded itself or after asking. All three need `uses.library`; `delete`
+also needs `uses.storage`, `import` does not. The host refuses
+paths whose first segment is `plugins` or `.paperpaw`. Both answer one row per path, with
+that path, in the order asked; a reply that does not is `Invalid`. `input` is
 4,096 bytes; `out` is 4,096 bytes and also holds the joined paths until the call.
 
 `Library::import(host, &Import, input, out)` puts a downloaded file from the plugin's

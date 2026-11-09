@@ -198,7 +198,8 @@ impl Library {
     /// # Errors
     /// Invalid for no path, more than 7, an empty path or one with a control
     /// character (nothing is sent); NoSpace for a path over 512 bytes or a short
-    /// `out`; Invalid for a reply that does not answer each path once; otherwise
+    /// `out`; Invalid for a reply that does not answer each path, by its path, once
+    /// and in order; otherwise
     /// the host's refusals. Each book's own answer is in its row.
     pub fn can_delete<'a>(
         &self,
@@ -209,8 +210,9 @@ impl Library {
     ) -> Result<DeleteReport<'a>, Error> {
         self.paths_call(host, schema::OP_CAN_DELETE, paths, 0, input, out)
     }
-    /// Delete books and everything kept for them (op 10). Only books are
-    /// removed. A book with annotations is `State` in its row unless
+    /// Delete books and everything kept for them (op 10; the plugin needs
+    /// `uses.storage` besides `uses.library`). Only books are removed. A path whose first
+    /// segment is `plugins` or `.paperpaw` is refused by the host. A book with annotations is `State` in its row unless
     /// `with_notes`, which a plugin passes only for the books it downloaded itself
     /// or after asking the user. Buffers and refusals as for
     /// [`can_delete`](Self::can_delete).
@@ -282,7 +284,12 @@ impl Library {
             MAX_DELETE_PATHS,
             DeleteRow::decode,
         )?;
-        if page.len() != paths.len() {
+        if page.len() != paths.len()
+            || !page
+                .rows()
+                .zip(paths)
+                .all(|(row, asked)| row.is_ok_and(|row| row.path() == *asked))
+        {
             return Err(Error::Invalid);
         }
         Ok(DeleteReport(page))
