@@ -23,7 +23,7 @@ use super::{
     storage::status,
 };
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The storage's identity of an entry, handed over by the shell (a host-only
@@ -40,35 +40,36 @@ pub(crate) trait EntryIdentity {
     fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError>;
 }
 
-/// What follows a move in the catalog. Every step is idempotent.
+/// What follows a move in the catalog: needs the kernel's view of the
+/// catalog (the `Env`), so it is bound to one step of the main loop, never
+/// kept. Every step is idempotent.
 pub(crate) trait MoveCarry {
-    /// A replacing move, before the rename: the data kept for the file at
-    /// `to` is dropped (see [`MoveHost::discard_replaced`]).
-    fn discard_replaced(&self, to: &str) -> Result<(), i32>;
+    /// The data kept for the file at `to` (catalog row, position,
+    /// annotations, plugins' book data) is dropped, so that the moved book
+    /// never inherits it; run once per replacing move, before the first book
+    /// is carried (see [`StepHost`]).
+    fn discard(&self, to: &str) -> Result<(), i32>;
     /// One bounded step of `phase` (see [`MoveHost::carry`]).
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32>;
     /// One book now (see [`MoveHost::carry_book`]).
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32>;
 }
 
-/// [`MoveHost`] over a storage.
+/// The card's side of the moves, over a storage: the journal, the card
+/// rules, the busy rules. Its catalog methods answer `ERR_BUSY` ("not now"):
+/// the catalog is bound to a step of the main loop ([`StepHost`]), and a call
+/// from a plugin's service call has none. So a plugin's call that starts a
+/// move (`begin`) works on the card alone, and a reader that opens a book
+/// below the new name while the job runs is told to retry (`carry_book`)
+/// until the step has carried it.
 pub(crate) struct CardMoves {
     storage: Rc<dyn Storage>,
     identity: Option<Rc<dyn EntryIdentity>>,
-    carry: Rc<dyn MoveCarry>,
 }
 
 impl CardMoves {
-    pub(crate) fn new(
-        storage: Rc<dyn Storage>,
-        identity: Option<Rc<dyn EntryIdentity>>,
-        carry: Rc<dyn MoveCarry>,
-    ) -> Self {
-        Self {
-            storage,
-            identity,
-            carry,
-        }
+    pub(crate) fn new(storage: Rc<dyn Storage>, identity: Option<Rc<dyn EntryIdentity>>) -> Self {
+        Self { storage, identity }
     }
 
     fn journal(&self) -> Journal<'_> {
@@ -145,15 +146,94 @@ impl MoveHost for CardMoves {
         folder.is_empty() || super::files_service::within(self.storage.ignores_case(), path, folder)
     }
 
-    fn discard_replaced(&self, to: &str) -> Result<(), i32> {
-        self.carry.discard_replaced(to)
+    /// Deferred: the catalog is not here. The first step that has it does it
+    /// ([`StepHost`]), recorded in the journal so that a replay never
+    /// discards what the carry has put there since.
+    fn discard_replaced(&self, _to: &str) -> Result<(), i32> {
+        Ok(())
+    }
+
+    fn carry(&self, _from: &str, _to: &str, _phase: Phase) -> Result<Phase, i32> {
+        Err(ERR_BUSY)
+    }
+
+    fn carry_book(&self, _from: &str, _to: &str, _book: &str) -> Result<(), i32> {
+        Err(ERR_BUSY)
+    }
+}
+
+/// [`CardMoves`] with the catalog of one step: the host `Moves::step` is
+/// called with from the main loop.
+///
+/// A replacing move discards the replaced file's data on the first step, not
+/// before the rename (a plugin's call has no catalog): [`Phase::Books`] first
+/// asks the journal whether that is still to do, discards, and records it
+/// durably, before any book is carried. A reader opening a book meanwhile is
+/// told to retry, so it never writes at the key the discard is about to
+/// clear; and a replay after a cut sees the record, so it never clears what
+/// the carry has put there since.
+pub(crate) struct StepHost<'a> {
+    card: &'a CardMoves,
+    carry: &'a dyn MoveCarry,
+}
+
+impl<'a> StepHost<'a> {
+    pub(crate) fn new(card: &'a CardMoves, carry: &'a dyn MoveCarry) -> Self {
+        Self { card, carry }
+    }
+}
+
+impl MoveHost for StepHost<'_> {
+    fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32> {
+        self.card.open_entry(visit)
+    }
+    fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32> {
+        self.card.write_entry(entry)
+    }
+    fn clear_entry(&self) -> Result<(), i32> {
+        self.card.clear_entry()
+    }
+    fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
+        self.card.identity(path)
+    }
+    fn is_folder(&self, path: &str) -> Result<bool, i32> {
+        self.card.is_folder(path)
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Result<bool, i32> {
+        self.card.same_entry(a, b)
+    }
+    fn spelled_as(&self, path: &str) -> Result<bool, i32> {
+        self.card.spelled_as(path)
+    }
+    fn rename(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
+        self.card.rename(from, to, replace)
+    }
+    fn settle(&self) -> Result<(), i32> {
+        self.card.settle()
+    }
+    fn within(&self, path: &str, folder: &str) -> bool {
+        self.card.within(path, folder)
+    }
+    fn discard_replaced(&self, _to: &str) -> Result<(), i32> {
+        Ok(())
     }
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
+        if matches!(phase, Phase::Books(_)) {
+            let journal = self.card.journal();
+            if journal.needs_discard()? {
+                self.carry.discard(to)?;
+                journal.mark_discarded()?;
+            }
+        }
         self.carry.carry(from, to, phase)
     }
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
+        // Not before the replaced file's data is discarded.
+        if self.card.journal().needs_discard()? {
+            return Err(ERR_BUSY);
+        }
         self.carry.carry_book(from, to, book)
     }
 }

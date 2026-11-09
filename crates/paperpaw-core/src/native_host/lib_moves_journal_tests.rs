@@ -64,7 +64,7 @@ fn an_entry_round_trips_and_a_missing_journal_is_no_entry() {
 
 #[test]
 fn a_record_that_is_not_whole_is_an_error_and_never_overwritten_blind() {
-    let good = encode(&entry("Books/old", "Books/new")).unwrap();
+    let good = encode(&entry("Books/old", "Books/new"), false).unwrap();
     let mut torn = vec![];
     // Every truncation, and every single flipped byte, is refused.
     for cut in 0..good.len() {
@@ -130,7 +130,7 @@ fn a_stale_temp_file_is_replaced_and_never_read_as_the_journal() {
 
 #[test]
 fn a_kind_other_than_a_move_is_an_error_even_with_a_good_check() {
-    let mut record = encode(&entry("a", "b")).unwrap();
+    let mut record = encode(&entry("a", "b"), false).unwrap();
     assert_eq!(record[5], 0, "a move");
     for kind in [1, 2, 3, 255] {
         record[5] = kind;
@@ -139,4 +139,35 @@ fn a_kind_other_than_a_move_is_an_error_even_with_a_good_check() {
         record[end..].copy_from_slice(&sum);
         assert_eq!(decode(&record).err(), Some(ERR_IO), "kind {kind}");
     }
+}
+
+#[test]
+fn the_discarded_mark_is_written_whole_and_kept_with_the_entry() {
+    let card = MemoryStorage::new();
+    let journal = Journal(&card);
+    assert_eq!(journal.needs_discard(), Ok(false), "no entry");
+    assert_eq!(journal.mark_discarded(), Err(ERR_NOT_FOUND));
+    journal.write_entry(&entry("Books/old", "Books/new")).unwrap();
+    assert_eq!(journal.needs_discard(), Ok(true), "a replacing move");
+    journal.mark_discarded().unwrap();
+    journal.mark_discarded().unwrap();
+    assert_eq!(journal.needs_discard(), Ok(false));
+    // The rest of the entry is what it was.
+    let mut seen = None;
+    journal
+        .open_entry(&mut |e| seen = Some((String::from(e.from), String::from(e.to), e.replace, e.identity)))
+        .unwrap();
+    assert_eq!(
+        seen,
+        Some(("Books/old".into(), "Books/new".into(), true, 0x0123_4567_89ab_cdef))
+    );
+    assert!(!card.exists(TEMP));
+    // A new entry starts again undiscarded.
+    journal.write_entry(&entry("a", "b")).unwrap();
+    assert_eq!(journal.needs_discard(), Ok(true), "a new entry starts undiscarded");
+    // A move that replaces nothing never needs it.
+    journal
+        .write_entry(&Entry { replace: false, ..entry("a", "b") })
+        .unwrap();
+    assert_eq!(journal.needs_discard(), Ok(false));
 }
