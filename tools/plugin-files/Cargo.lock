@@ -424,6 +424,7 @@ name = "paperpaw-plugin-wallabag"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
