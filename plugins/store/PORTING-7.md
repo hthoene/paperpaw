@@ -48,7 +48,7 @@ finishes the port; until then nothing is dropped.
   (`File`, `Digest`: SHA-256 wins over SHA-1, lower case), the build for this
   device and PaperPaw (`build_done`: device, fingerprint, firmware fit with
   `Needs`/`Provides`, families, `image_len`), the author's keys and the key
-  rotations (`rotation_done`, at most 8 steps), the screenshots (`shot_done`: png
+  rotations (`rotation_done`, at most 6 steps: the install's batch of 8 records; a longer chain ends with reason 6), the screenshots (`shot_done`: png
   or jpeg only, at most 4, none past 2,560 px), the plugin page's extras (`More`)
   and the fit of a plugin to this device (`Item::fits`, with what the device has
   as `Have`: a built-in or a plugin of the other kind is not replaced) and
@@ -63,7 +63,7 @@ finishes the port; until then nothing is dropped.
   and hostile input (`tests/native_list.rs`).
 - Caps in code: texts cut at 80 bytes (the summary 300, the description 4,000,
   an address 200, a picture's address 300); 64 files (one more kept, so that it
-  shows), 8 rotation steps, 4 screenshots, 20 plugins a section, 8 + 1 families,
+  shows), 6 rotation steps, 4 screenshots, 20 plugins a section, 8 + 1 families,
   4,096 revocation entries read, 256 kept. Values over 4,096 bytes are cut by the
   parser. Cut values stay (see slice 2).
 - **The other keys interface 6 also reads**, each cut as it did: `author_key` and
