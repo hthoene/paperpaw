@@ -71,27 +71,51 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
+/// The records of the batches, one text line each: what the interface-6
+/// registration declared (Beta 3), pinned exactly, so that a changed default,
+/// order, key, icon, need or flag fails here.
+fn lines(batches: &[Vec<u8>]) -> Vec<String> {
+    text(batches).lines().map(String::from).collect()
+}
+
+/// A setting record as its text: `default` is the encoded value.
+fn setting(name: &str, kind: u8, default: &str, choices: &str) -> String {
+    format!(
+        "SettingSpec(SettingSpec {{ name: \"{name}\", kind: {kind}, flags: 0, group: \"wifi.group\", \
+         title: \"wifi.setting.{name}\", help: \"wifi.setting.{name}.help\", default: [{default}], \
+         min: 0, max: 0, choices: \"{choices}\" }})"
+    )
+}
+
 #[test]
 fn the_group_and_the_settings_are_declared() {
     let settings = batches(|d| declarations::settings(d).unwrap());
     assert_eq!(settings.len(), 1);
-    let text = text(&settings);
-    // The group (order 85, its page) and the four settings with their
-    // defaults and choices.
-    for needle in [
-        "name: \"group\", title: \"wifi.title\", order: 85, page: \"page\"",
-        "name: \"on-demand\"",
-        "name: \"idle-off\"",
-        "wifi.idle-off.1m",
-        "name: \"while-charging\"",
-        "name: \"join-first\"",
-        "wifi.join-first.picked",
-        "wifi.join-first.strongest",
-    ] {
-        assert!(text.contains(needle), "{needle} in {text}");
-    }
+    // The group (order 85, its page) and the four settings: on demand on,
+    // idle off after a minute, while charging off, join the picked network
+    // first; the choices in order; every one with its help text.
+    assert_eq!(
+        lines(&settings),
+        [
+            "SettingGroup(SettingGroup { name: \"group\", title: \"wifi.title\", order: 85, page: \"page\", parent: \"\" })".to_string(),
+            setting("on-demand", 0, "1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1", ""),
+            setting(
+                "idle-off",
+                2,
+                "1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 119, 105, 102, 105, 46, 105, 100, 108, 101, 45, 111, 102, 102, 46, 49, 109",
+                "wifi.idle-off.30s\\nwifi.idle-off.1m\\nwifi.idle-off.2m\\nwifi.idle-off.5m\\nwifi.idle-off.10m",
+            ),
+            setting("while-charging", 0, "1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0", ""),
+            setting(
+                "join-first",
+                2,
+                "1, 0, 0, 0, 3, 0, 0, 0, 22, 0, 0, 0, 119, 105, 102, 105, 46, 106, 111, 105, 110, 45, 102, 105, 114, 115, 116, 46, 112, 105, 99, 107, 101, 100",
+                "wifi.join-first.picked\\nwifi.join-first.strongest",
+            ),
+        ]
+    );
     for id in declarations::IDLE_OFF {
-        assert!(text.contains(id), "{id}");
+        assert!(text(&settings).contains(id), "{id}");
     }
     for batch in &settings {
         // The host admits the group and the settings as far as it wires them
@@ -102,36 +126,38 @@ fn the_group_and_the_settings_are_declared() {
 
 #[test]
 fn the_screens_action_status_item_icons_needs_and_step_are_declared() {
+    // Three screens, one instance each (flag 64), tokens 10 to 12.
     let screens = batches(|d| declarations::screens(d).unwrap());
     assert_eq!(screens.len(), 1);
-    let text_of_screens = text(&screens);
-    for needle in [
-        "name: \"page\"",
-        "name: \"networks\"",
-        "wifi.networks.title",
-        "name: \"phone\"",
-        "wifi.phone.title",
-    ] {
-        assert!(text_of_screens.contains(needle), "{needle}");
-    }
+    assert_eq!(
+        lines(&screens),
+        [
+            "ScreenSpec(ScreenSpec { name: \"page\", title: \"wifi.title\", token: 10, flags: 64 })",
+            "ScreenSpec(ScreenSpec { name: \"networks\", title: \"wifi.networks.title\", token: 11, flags: 64 })",
+            "ScreenSpec(ScreenSpec { name: \"phone\", title: \"wifi.phone.title\", token: 12, flags: 64 })",
+        ]
+    );
     for batch in &screens {
         validate_batch("wifi", &records_decode(batch).unwrap()).unwrap();
     }
+    // The action, the icons (the group's and the action's, both `wifi`), the
+    // status item (its tap opens the page), the `Wifi` need (7) of the four
+    // settings and the first-run step (order 50, the page).
     let navigation = batches(|d| declarations::navigation(d).unwrap());
-    assert!(!navigation.is_empty());
-    let text_of_navigation = text(&navigation);
-    for needle in [
-        "wifi.open",
-        "wifi.status",
-        "wifi.status.item",
-        "wifi.setup",
-        "wifi.setup.help",
-    ] {
-        assert!(
-            text_of_navigation.contains(needle),
-            "{needle} in {text_of_navigation}"
-        );
-    }
+    assert_eq!(
+        lines(&navigation),
+        [
+            "ActionSpec(ActionSpec { name: \"open\", title: \"wifi.title\", token: 1, flags: 0 })",
+            "IconSpec(IconSpec { item: \"wifi.group\", icon: \"wifi\" })",
+            "IconSpec(IconSpec { item: \"wifi.open\", icon: \"wifi\" })",
+            "StatusItem(StatusItem { name: \"status\", title: \"wifi.status.item\", tap: \"open\", priority: 0, min_width: 0, token: 2, flags: 0 })",
+            "MenuNeed(MenuNeed { item: \"wifi.on-demand\", need: 7, capability: 0 })",
+            "MenuNeed(MenuNeed { item: \"wifi.idle-off\", need: 7, capability: 0 })",
+            "MenuNeed(MenuNeed { item: \"wifi.while-charging\", need: 7, capability: 0 })",
+            "MenuNeed(MenuNeed { item: \"wifi.join-first\", need: 7, capability: 0 })",
+            "SetupStep(SetupStep { name: \"setup\", title: \"wifi.title\", help: \"wifi.setup.help\", order: 50, page_kind: 1, page: \"wifi.page\", applies_key: \"\", applies_value: \"\", need: 7, capability: 0, flags: 3 })",
+        ]
+    );
     // Ten subscriptions (the radio's four and the timers' work among them) in two batches.
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 2);
 }
