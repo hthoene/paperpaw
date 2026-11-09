@@ -1,8 +1,10 @@
-# Interface-7 port (slice 1: the model and the declarations)
+# Interface-7 port (slices 1 to 3: the model, the declarations, the native entry and screens)
 
-Version 1.0.7. Partial: what the plugin declares, the catalog and the install plan without the host.
-No native screen and no `NATIVE_ENTRY` yet; the interface-6 `FontsBrowser` and everything of it
-stays until the host activates native plugins (then it goes together, no shim).
+Version 1.0.8 (already above its Beta 3 version; no further bump). Status: **not complete**: the native
+entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the list and a
+font's page, but downloading, installing and removing a font are named blocked steps below, so the plugin is not
+in `tools/plugin-files7/complete.txt`. The interface-6 `FontsBrowser` and everything of it stays until the host
+activates native plugins (then it goes together, no shim; see the removal step).
 
 ## Ported
 
@@ -22,7 +24,35 @@ stays until the host activates native plugins (then it goes together, no shim).
   `docs/abi/network.md` §8) and checked (path inside the folder, SHA-1, size, `plugin.ini` among them),
   and the folder that `install_plugin` is told to install.
 
+## Native entry and screens (slice 3)
+
+- `src/native_plugin.rs`: `make` submits the screens, the catalog setting, the actions with their menu places and
+  icons, and the `http_done` subscription. *More fonts* opens the list; the list shows the catalog kept in the data
+  folder (`catalog.json`, read by `Catalog::read_file` in 2 KiB pieces, never whole: it may be 512 KiB) at once and
+  asks `core.net` for a fresh one once each time it is opened (`catalog.json.part`, `max_file` 512 KiB, kept only if
+  it reads as a catalog, the answer's final address resolving the files' addresses), with the interface-6 troubles
+  (loading, no connection, not reachable; tapping the empty list tries again). A row is the name, what it is
+  (category, styles, author) and where it stands (reading, update, installed, else its size). Choosing a font hands
+  its page the font as the one screen parameter (`Font::to_param`) and opens it; the page shows the sentence, what it
+  is, the licence, and the rows of `native_view::rows` (*Read with*, *Use for the status lines*: `set_setting`).
+  Installed fonts are the plugins `font-*` of the registry (`core.registry`, op plugins), the device's font kind
+  (files or packs) comes from `core.device` (memory class, `outlines`).
+- `src/native_view.rs`: the rows of a page and the installed versions, tested without a host.
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
+
+- **Download, update, remove (named blocked step):** *Download*/*Update*/*Stop*/*Remove* answer `Unsupported`.
+  Needs `CommandSender::install_plugin`/`remove_plugin` (PR 621, waiting for its bless) and event 97
+  `install_done` (#589). The plan is `native_plan` (files to the data folder's `staging/<plugin>/` with `core.net`
+  `save_to`, each checked with its SHA-1 read in pieces, then `install_plugin` for the folder with the update flag).
+  The host asks the user (decision 132) and its dialog is not wired yet (Kernel todo 145): the plugin must take
+  `Unsupported`/`Denied` as an answer. The job state (which file is next) is kept in the data folder.
+- **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
+  "handed"; as About's licences): `Unsupported` until that merges.
+- **The font's own face** in the list and on the page: needs a font loaded at run time (`FONT-runtime`).
+
+## Old list of what was missing before slice 3 (kept for the record)
+
 
 - The screens and the download job (H1, H4): the list fetches the catalog with `core.net` into the
   data folder (`uses.network`), the font page downloads file by file (up to 4 requests per plugin),
@@ -46,3 +76,11 @@ stays until the host activates native plugins (then it goes together, no shim).
 - A font the plan cannot install (a file over 512 KiB for packs or 1 MiB for font files, a size of
   0, a path that leaves the folder, a plugin id over 40 bytes) is not offered
   (`native_plan::fits`, used by `Catalog::finish`).
+
+## Removal step (one sweep, with the reader port and Core #944)
+
+1. `FontsBrowser` and its `Plugin` impl, `list.rs`, `font.rs`, `install.rs`, `samples.rs`, `catalog.rs` (the interface-6
+   catalog; `native_catalog` is the same rules), the `HOW` table kept for the manifest;
+2. the app's store-offer line and the other plugins' tests that register `FontsBrowser`;
+3. list `NativeFontsBrowser` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` once download, update and
+   removal are native.

@@ -1,0 +1,685 @@
+//! The interface-7 fonts browser: the list of the library's fonts (the
+//! catalog fetched with `core.net` into the data folder and kept there) and a
+//! font's page, on `core.ui` list screens (`PORTING-7.md` says what is not
+//! native yet: downloading and installing a font, removing it, the font's own
+//! face in the list, *Your own fonts*).
+//!
+//! The font a page shows is handed over as the screen's one parameter
+//! (`Font::to_param`), so that the page does not read the catalog again.
+use crate::{
+    declarations::{DOWNLOADED, FONT, LIST, OPEN, OWN},
+    native_catalog::{Catalog, Font},
+    native_view::{Installed, Row, Trouble, rows},
+};
+use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::{
+    Handled,
+    native::{
+        Error, Host, Plugin,
+        callbacks::{DrawFrame, Input},
+        commands::CommandSender,
+        device::{Device, DeviceCapability},
+        events::{Event, Incoming, kinds},
+        formatting::Arg,
+        net::{FileRoot, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
+        registrations,
+        registry::{PageCursor, Registry},
+        reply::Reply,
+        settings::{self, SettingValue},
+        storage::DataStorage,
+        ui::{HandoverId, Instance, Open, Param, Ui},
+    },
+};
+use paperpaw_ui_kit::{
+    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    mem::{SERVICE_BUFFER, buffer, push},
+    read_event,
+    text::{concat, copy},
+};
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/fonts_browser_declarations.rs"));
+}
+
+/// The setting the library's address is in.
+const CATALOG_SETTING: &str = "fonts-browser.catalog";
+/// The settings the reading font and the status lines' font are chosen in.
+const READING_FONT: &str = "core.reading-font";
+const STATUS_FONT: &str = "core.status-font";
+/// The plugin's number of the catalog's request, in its `http_done` event.
+const CATALOG_REQUEST: u32 = 1;
+/// The catalog kept from the last visit, and the one coming in.
+const KEPT: &str = "catalog.json";
+const PART: &str = "catalog.json.part";
+/// The largest list of fonts taken from a library.
+const MAX_LIST_FILE: u64 = 512 * 1024;
+/// The screen's parameter that carries the font.
+const FONT_PARAM: &str = "font";
+/// Pages of the plugins read for the fonts installed (about seventy plugins).
+const MOST_PLUGIN_PAGES: usize = 16;
+
+/// The list of fonts.
+#[derive(Debug)]
+struct ListView {
+    fonts: Vec<Font>,
+    list: ItemList,
+    trouble: Trouble,
+    asked: bool,
+}
+
+/// A font's page.
+#[derive(Debug)]
+struct FontView {
+    font: Option<Font>,
+    /// What each item of `list` does (`None` for the lines of text).
+    rows: Vec<Option<Row>>,
+    list: ItemList,
+}
+
+#[derive(Debug)]
+enum View {
+    List(ListView),
+    Font(FontView),
+}
+
+/// The interface-7 fonts browser.
+#[derive(Debug, Default)]
+pub struct NativeFontsBrowser {
+    ui: Option<Ui>,
+    net: Option<Net>,
+    registry: Option<Registry>,
+    device: Option<Device>,
+    screens: Screens<View>,
+    /// The catalog's request in flight.
+    fetching: Option<RequestId>,
+}
+
+impl Plugin for NativeFontsBrowser {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::SCREENS
+            .iter()
+            .chain(image::SETTINGS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
+            registrations::submit(host, batch)?;
+        }
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        _: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let Some(event) = read_event!(
+            incoming;
+            kinds::ActionRun,
+            kinds::HttpDone,
+            kinds::ScreenOpened,
+            kinds::ScreenShown,
+            kinds::ScreenClosed
+        ) else {
+            return Ok(());
+        };
+        match event {
+            Event::ActionRun {
+                action: "fonts-browser.open",
+                ..
+            } if token == OPEN => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("fonts-browser.list")?)
+            }
+            // BLOCKED (#228): *Your own fonts* shows a page of the help in the
+            // reader (`command.open` into `core.reader`, root 5 "handed").
+            Event::ActionRun {
+                action: "fonts-browser.own",
+                ..
+            } if token == OWN => Err(Error::Unsupported),
+            Event::HttpDone(done) if token == DOWNLOADED => {
+                if done.token() == CATALOG_REQUEST && self.fetching == Some(done.id()) {
+                    self.fetching = None;
+                    self.catalog_done(host, &done)?;
+                }
+                Ok(())
+            }
+            Event::ScreenOpened { instance, .. } if token == LIST => self.open_list(host, instance),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == FONT => self.open_font(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == LIST || token == FONT => {
+                self.screens.shown(token, instance)?;
+                if token == LIST {
+                    self.fetch_once(host)?;
+                }
+                Ok(())
+            }
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let mut messages = Messages::new()?;
+        match self.screens.top(token).ok_or(Error::State)? {
+            View::List(view) => {
+                let title = messages.copy(host, "fonts-browser.title")?;
+                if view.fonts.is_empty() {
+                    let (head, text) = match view.trouble {
+                        Trouble::Offline => ("fonts-browser.offline", "fonts-browser.offline.help"),
+                        Trouble::Failed => (
+                            "fonts-browser.unreachable",
+                            "fonts-browser.unreachable.help",
+                        ),
+                        _ => ("fonts-browser.loading", ""),
+                    };
+                    let (head, text) = (
+                        messages.copy(host, head)?,
+                        messages_or_empty(&mut messages, host, text)?,
+                    );
+                    return view.list.draw_with(
+                        host,
+                        &mut frame,
+                        &title,
+                        true,
+                        Footer::Empty {
+                            title: &head,
+                            text: &text,
+                        },
+                    );
+                }
+                let hint = messages.copy(host, "fonts-browser.hint")?;
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::Note(&hint))
+            }
+            View::Font(view) => {
+                let title = match &view.font {
+                    Some(font) => copy(&font.name)?,
+                    None => messages.copy(host, "fonts-browser.title")?,
+                };
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        match view {
+            View::List(view) => {
+                let step = view.list.input(host, &input)?;
+                if let ItemStep::Chosen(index) = step {
+                    return Self::choose_font(host, &mut self.ui, view, index);
+                }
+                Ok(ItemList::handled(step))
+            }
+            View::Font(view) => {
+                let step = view.list.input(host, &input)?;
+                if let ItemStep::Chosen(index) = step {
+                    return Self::choose_row(host, view, index);
+                }
+                Ok(ItemList::handled(step))
+            }
+        }
+    }
+}
+
+/// The catalog's address, trimmed.
+fn catalog_url(host: &Host<'_>) -> Result<String, Error> {
+    let mut scratch = [0; 512];
+    match settings::read_setting(host, CATALOG_SETTING, &mut scratch)? {
+        SettingValue::Text(text) => copy(text.trim()),
+        _ => Err(Error::Invalid),
+    }
+}
+
+/// `key`'s text, or nothing for no key.
+fn messages_or_empty(messages: &mut Messages, host: &Host<'_>, key: &str) -> Result<String, Error> {
+    if key.is_empty() {
+        Ok(String::new())
+    } else {
+        messages.copy(host, key)
+    }
+}
+
+impl NativeFontsBrowser {
+    fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        self.ui.as_ref().ok_or(Error::State)
+    }
+
+    fn net(&mut self, host: &Host<'_>) -> Result<&Net, Error> {
+        if self.net.is_none() {
+            self.net = Some(Net::open(host)?);
+        }
+        self.net.as_ref().ok_or(Error::State)
+    }
+
+    /// Whether this device takes font files rather than packs.
+    fn outlines(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+        if self.device.is_none() {
+            self.device = Some(Device::open(host)?);
+        }
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let identity = device.device(host, &mut input, &mut out)?;
+        Ok(paperpaw_sdk::text::OUTLINES
+            && identity.class() == paperpaw_sdk::native::device::DeviceClass::Large)
+    }
+
+    /// Whether the device has a network at all.
+    fn has_network(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+        if self.device.is_none() {
+            self.device = Some(Device::open(host)?);
+        }
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let identity = device.device(host, &mut input, &mut out)?;
+        Ok(identity.supports(DeviceCapability::Network))
+    }
+
+    /// The fonts installed: every plugin whose id starts `font-`.
+    fn installed(&mut self, host: &Host<'_>) -> Result<Installed, Error> {
+        if self.registry.is_none() {
+            self.registry = Some(Registry::open(host)?);
+        }
+        let registry = self.registry.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut installed = Installed::default();
+        let mut cursor = PageCursor::start();
+        for _ in 0..MOST_PLUGIN_PAGES {
+            let page = registry.plugins(host, cursor, &mut input, &mut out)?;
+            for plugin in page.rows() {
+                installed.note(plugin.id(), plugin.version())?;
+            }
+            match page.end().next_cursor() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        Ok(installed)
+    }
+
+    /// The catalog kept from the last visit (none if there is none).
+    fn kept(&mut self, host: &Host<'_>) -> Result<Vec<Font>, Error> {
+        let base = catalog_url(host)?;
+        let outlines = self.outlines(host)?;
+        let storage = DataStorage::new(host);
+        Ok(Catalog::read_file(&base, outlines, &storage, KEPT)?.unwrap_or_default())
+    }
+
+    fn open_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let fonts = self.kept(host)?;
+        let installed = self.installed(host)?;
+        let list = Self::font_items(host, &fonts, &installed)?;
+        self.screens.open(
+            instance,
+            View::List(ListView {
+                fonts,
+                list,
+                trouble: Trouble::None,
+                asked: false,
+            }),
+        )
+    }
+
+    /// The rows of the list: the name, what it is, and where it stands.
+    fn font_items(
+        host: &Host<'_>,
+        fonts: &[Font],
+        installed: &Installed,
+    ) -> Result<ItemList, Error> {
+        let mut messages = Messages::new()?;
+        let mut items = Vec::new();
+        for font in fonts {
+            let state = Self::state(host, &mut messages, font, installed)?;
+            let note = Self::describe(host, &mut messages, font)?;
+            push(&mut items, Item::noted(&font.name, &state, &note)?)?;
+        }
+        Ok(ItemList::new(items))
+    }
+
+    /// What the row of `font` says at its end.
+    fn state(
+        host: &Host<'_>,
+        messages: &mut Messages,
+        font: &Font,
+        installed: &Installed,
+    ) -> Result<String, Error> {
+        let here = font.plugin().ok().and_then(|id| installed.version(&id));
+        let key = if here.is_some() && Self::chosen(host, READING_FONT, font) {
+            "fonts-browser.state.reading"
+        } else if font.newer(here) {
+            "fonts-browser.state.update"
+        } else if here.is_some() {
+            "fonts-browser.state.installed"
+        } else {
+            return size_text(font.size());
+        };
+        messages.copy(host, key)
+    }
+
+    /// Whether `font` is the one chosen in `setting`.
+    fn chosen(host: &Host<'_>, setting: &str, font: &Font) -> bool {
+        let mut scratch = [0; 256];
+        matches!(
+            settings::read_setting(host, setting, &mut scratch),
+            Ok(SettingValue::Text(name)) if name == font.name
+        )
+    }
+
+    /// What a font is: its kind and how many styles, by whom.
+    fn describe(host: &Host<'_>, messages: &mut Messages, font: &Font) -> Result<String, Error> {
+        let key = concat(&["fonts-browser.category.", &font.category])?;
+        let kind = match messages.copy(host, &key) {
+            Ok(kind) => kind,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => messages.copy(host, "fonts-browser.category.other")?,
+        };
+        let styles = messages.format(
+            host,
+            "fonts-browser.styles",
+            &[Arg::Count(i64::from(font.styles.max(1)))],
+        )?;
+        if font.author.is_empty() {
+            concat(&[&kind, " · ", &styles])
+        } else {
+            concat(&[&kind, " · ", &styles, " · ", &font.author])
+        }
+    }
+
+    /// Asks for the catalog once each time the list is opened.
+    fn fetch_once(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(View::List(view)) = self.screens.top(LIST) else {
+            return Ok(());
+        };
+        if view.asked {
+            return Ok(());
+        }
+        view.asked = true;
+        let empty = view.fonts.is_empty();
+        if !self.has_network(host)? {
+            return self.trouble(Trouble::Offline);
+        }
+        let url = catalog_url(host)?;
+        let (mut input, mut reply) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+        let request = Request::get(CATALOG_REQUEST, &url)?
+            .save_to(FileRoot::Data, PART)?
+            .max_file(MAX_LIST_FILE)?;
+        let id = self
+            .net(host)?
+            .request(host, &request, &mut input, &mut reply)?;
+        self.fetching = Some(id);
+        if empty {
+            self.trouble(Trouble::Loading)?;
+        }
+        Ok(())
+    }
+
+    /// Notes why the list on top is empty.
+    fn trouble(&mut self, trouble: Trouble) -> Result<(), Error> {
+        if let Some(View::List(view)) = self.screens.top(LIST)
+            && view.fonts.is_empty()
+        {
+            view.trouble = trouble;
+        }
+        Ok(())
+    }
+
+    /// The catalog arrived (or did not): kept if it is one.
+    fn catalog_done(
+        &mut self,
+        host: &Host<'_>,
+        done: &paperpaw_sdk::native::net::HttpDone,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let ok = done.reason() == Reason::Ok && (200..300).contains(&done.status());
+        let fonts = if ok {
+            let (mut input, mut reply) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+            let answer = self
+                .net(host)?
+                .answer(host, done.id(), &mut input, &mut reply)?;
+            let configured = catalog_url(host)?;
+            let base = if answer.final_url().is_empty() {
+                configured
+            } else {
+                copy(answer.final_url())?
+            };
+            let outlines = self.outlines(host)?;
+            Catalog::read_file(&base, outlines, &storage, PART)?
+        } else {
+            None
+        };
+        match fonts {
+            Some(fonts) => {
+                paperpaw_sdk::Storage::rename(&storage, PART, KEPT).map_err(|_| Error::Io)?;
+                let installed = self.installed(host)?;
+                let list = Self::font_items(host, &fonts, &installed)?;
+                if let Some(View::List(view)) = self.screens.top(LIST) {
+                    view.fonts = fonts;
+                    view.list = list;
+                    view.trouble = Trouble::None;
+                }
+            }
+            None => {
+                paperpaw_sdk::Storage::remove(&storage, PART).ok();
+                // The catalog kept still serves; no answer at all is no connection.
+                let trouble = if done.reason() == Reason::Ok && done.status() != 0 {
+                    Trouble::Failed
+                } else {
+                    Trouble::Offline
+                };
+                self.trouble(trouble)?;
+            }
+        }
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch)
+            .queue_redraw(paperpaw_sdk::native::commands::RedrawMode::Partial)
+    }
+
+    /// Opens the page of the font in row `index`.
+    fn choose_font(
+        host: &Host<'_>,
+        ui: &mut Option<Ui>,
+        view: &mut ListView,
+        index: usize,
+    ) -> Result<Handled, Error> {
+        match view.fonts.get(index) {
+            Some(font) => {
+                if ui.is_none() {
+                    *ui = Some(Ui::open(host)?);
+                }
+                let param = font.to_param()?;
+                let params = [Param::new(FONT_PARAM, &param)?];
+                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+                let handover = ui
+                    .as_ref()
+                    .ok_or(Error::State)?
+                    .handover(host, &params, &mut input, &mut out)?;
+                let mut scratch = [0; 256];
+                CommandSender::new(host, &mut scratch)
+                    .open(Open::screen("fonts-browser.font")?.handover(handover))?;
+            }
+            // An empty list that says why: tapping it tries again.
+            None => view.asked = false,
+        }
+        Ok(Handled::Yes)
+    }
+
+    fn open_font(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        handover: Option<HandoverId>,
+    ) -> Result<(), Error> {
+        let mut text = String::new();
+        if let Some(handover) = handover {
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            for param in self
+                .ui(host)?
+                .params(host, handover, &mut input, &mut out)?
+            {
+                let param = param?;
+                if param.key() == FONT_PARAM {
+                    text = copy(param.value())?;
+                }
+            }
+        }
+        let font = Font::from_param(&text)?;
+        let installed = self.installed(host)?;
+        let view = Self::font_view(host, font, &installed)?;
+        self.screens.open(instance, View::Font(view))
+    }
+
+    /// The page of `font`: what it is, and what can be done with it.
+    fn font_view(
+        host: &Host<'_>,
+        font: Option<Font>,
+        installed: &Installed,
+    ) -> Result<FontView, Error> {
+        let mut messages = Messages::new()?;
+        let mut items = Vec::new();
+        let mut kinds: Vec<Option<Row>> = Vec::new();
+        let Some(font) = font else {
+            push(
+                &mut items,
+                Item::heading(&messages.copy(host, "fonts-browser.gone")?)?,
+            )?;
+            push(&mut kinds, None)?;
+            push(
+                &mut items,
+                Item::heading(&messages.copy(host, "fonts-browser.gone.help")?)?,
+            )?;
+            push(&mut kinds, None)?;
+            return Ok(FontView {
+                font: None,
+                rows: kinds,
+                list: ItemList::new(items),
+            });
+        };
+        // The sentence in the menus' font (BLOCKED #228: the font's own face
+        // needs a font loaded at run time), what it is, and the licence.
+        push(
+            &mut items,
+            Item::heading(&messages.copy(host, "fonts-browser.sample")?)?,
+        )?;
+        push(&mut kinds, None)?;
+        push(
+            &mut items,
+            Item::heading(&Self::describe(host, &mut messages, &font)?)?,
+        )?;
+        push(&mut kinds, None)?;
+        let licence = messages.format(
+            host,
+            "fonts-browser.licence",
+            &[Arg::Text {
+                name: "licence",
+                value: &font.licence,
+            }],
+        )?;
+        push(&mut items, Item::heading(&licence)?)?;
+        push(&mut kinds, None)?;
+        let here = font.plugin().ok().and_then(|id| installed.version(&id));
+        for row in rows(&font, here, false)? {
+            let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
+            push(&mut items, Item::row(&title, &value)?)?;
+            push(&mut kinds, Some(row))?;
+        }
+        Ok(FontView {
+            font: Some(font),
+            rows: kinds,
+            list: ItemList::new(items),
+        })
+    }
+
+    fn row_text(
+        host: &Host<'_>,
+        messages: &mut Messages,
+        font: &Font,
+        row: Row,
+    ) -> Result<(String, String), Error> {
+        let chosen = |setting: &str| {
+            if Self::chosen(host, setting, font) {
+                copy("•")
+            } else {
+                Ok(String::new())
+            }
+        };
+        Ok(match row {
+            Row::Download => (
+                messages.copy(host, "fonts-browser.download")?,
+                size_text(font.size())?,
+            ),
+            Row::Stop => (messages.copy(host, "fonts-browser.stop")?, String::new()),
+            Row::Read => (
+                messages.format(
+                    host,
+                    "fonts-browser.read-with",
+                    &[Arg::Text {
+                        name: "name",
+                        value: &font.name,
+                    }],
+                )?,
+                chosen(READING_FONT)?,
+            ),
+            Row::Status => (
+                messages.copy(host, "fonts-browser.status-lines")?,
+                chosen(STATUS_FONT)?,
+            ),
+            Row::Update => (
+                messages.copy(host, "fonts-browser.update")?,
+                copy(&font.version)?,
+            ),
+            Row::Remove => (messages.copy(host, "fonts-browser.remove")?, String::new()),
+        })
+    }
+
+    /// What choosing a row of a font's page does.
+    fn choose_row(host: &Host<'_>, view: &mut FontView, index: usize) -> Result<Handled, Error> {
+        let (Some(font), Some(Some(row))) = (&view.font, view.rows.get(index)) else {
+            return Ok(Handled::Yes);
+        };
+        let setting = match row {
+            Row::Read => READING_FONT,
+            Row::Status => STATUS_FONT,
+            // BLOCKED (#228): downloading with `core.net`, checking each file's SHA-1
+            // and having the host install it (`CommandSender::install_plugin`, PR 621),
+            // removing it (`remove_plugin`): `PORTING-7.md`.
+            _ => return Err(Error::Unsupported),
+        };
+        let mut scratch = [0; 384];
+        CommandSender::new(host, &mut scratch)
+            .set_setting(setting, SettingValue::Text(&font.name))?;
+        Ok(Handled::Yes)
+    }
+}
+
+/// A size as the list shows it: kilobytes, or megabytes from 1,000.
+fn size_text(bytes: u64) -> Result<String, Error> {
+    let (mut a, mut b) = ([0u8; 20], [0u8; 20]);
+    if bytes >= 1_000_000 {
+        let tenths = bytes / 100_000;
+        let whole = paperpaw_ui_kit::text::decimal_u64(tenths / 10, &mut a);
+        concat(&[
+            whole,
+            ".",
+            paperpaw_ui_kit::text::decimal_u64(tenths % 10, &mut b),
+            " MB",
+        ])
+    } else {
+        let kilo = paperpaw_ui_kit::text::decimal_u64(bytes.div_ceil(1000).max(1), &mut a);
+        concat(&[kilo, " KB"])
+    }
+}
