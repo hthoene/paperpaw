@@ -114,6 +114,8 @@ pub struct CommandStage<'a> {
     /// and the admitted states, applied by the host after the callback.
     items: Option<ItemAdmit<'a>>,
     staged_items: Vec<super::item_state::ItemPush>,
+    /// Entries of room this callback holds in the item-state table.
+    held_room: core::cell::Cell<usize>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -149,6 +151,7 @@ impl<'a> CommandStage<'a> {
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
+            held_room: core::cell::Cell::new(0),
         }
     }
 

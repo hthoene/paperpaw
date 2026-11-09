@@ -55,6 +55,16 @@ pub(crate) struct ItemAdmit<'a> {
 }
 
 impl ItemAdmit<'_> {
+    /// A callback of `plugin` ends holding `held` entries of room: the room
+    /// is given back and the plugin's slot goes if it has no state.
+    pub(crate) fn finish(&self, plugin: &str, held: usize) {
+        let room = &self.directory.item_room;
+        room.set(room.get().saturating_sub(held));
+        if let Ok(mut states) = self.directory.items.try_borrow_mut() {
+            states.settle(plugin);
+        }
+    }
+
     fn states(&self) -> Result<core::cell::Ref<'_, ItemStates>, i32> {
         self.directory
             .items
@@ -90,10 +100,21 @@ impl<'a> CommandStage<'a> {
     }
 
     /// The admitted states, in order, for the host to apply after the
-    /// callback (call it before the stage is consumed).
+    /// callback (call it before the stage is consumed), and the room this
+    /// callback holds in the table until [`ItemAdmit::finish`].
     #[must_use]
-    pub(crate) fn take_item_states(&mut self) -> Vec<ItemPush> {
-        core::mem::take(&mut self.staged_items)
+    pub(crate) fn take_item_states(&mut self) -> (Vec<ItemPush>, usize) {
+        (
+            core::mem::take(&mut self.staged_items),
+            self.held_room.take(),
+        )
+    }
+
+    /// The callback failed: its room and its plugin's slot are given back.
+    pub(crate) fn drop_item_states(&mut self) {
+        if let Some(items) = self.items {
+            items.finish(self.owner.as_str(), self.held_room.take());
+        }
     }
 
     /// Whether `command` is an item state.
@@ -158,14 +179,19 @@ impl<'a> CommandStage<'a> {
         all.extend(self.staged_items.iter());
         all.extend(pushes.iter());
         admit.states()?.fits(self.owner.as_str(), &all)?;
-        // Room for every state this callback can add, and the plugin's slot.
+        // Room for every state this callback can add, on top of what the
+        // callbacks it runs inside of hold, and the plugin's slot.
         let adding = all.iter().filter(|p| !p.is_default()).count();
+        let room = &admit.directory.item_room;
+        let others = room.get().saturating_sub(self.held_room.get());
         admit
             .directory
             .items
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
-            .reserve(self.owner.as_str(), adding)?;
+            .reserve(self.owner.as_str(), others + adding)?;
+        room.set(others + adding);
+        self.held_room.set(adding);
         let bytes = pushes.iter().map(ItemPush::bytes).sum();
         Ok((pushes, bytes))
     }

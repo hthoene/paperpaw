@@ -175,3 +175,53 @@ fn reserve_makes_room_so_that_apply_allocates_nothing() {
         (0, 0)
     );
 }
+
+#[test]
+fn a_nested_callbacks_room_cannot_eat_the_callbacks_it_runs_inside_of() {
+    let mut states = ItemStates::default();
+    // Plugin A's callback reserves for 2 states; B's, nested in it, reserves
+    // on top of A's (2 + 2), applies its 2, and ends.
+    states.reserve("a", 2).unwrap();
+    states.reserve("b", 2 + 2).unwrap();
+    for item in ["x", "y"] {
+        states.apply("b", push(item, HIDDEN, "")).unwrap();
+    }
+    states.settle("b");
+    // A's two still fit in what was reserved: nothing grows.
+    let cap = states.entries.capacity();
+    for item in ["x", "y"] {
+        states.apply("a", push(item, HIDDEN, "")).unwrap();
+    }
+    assert_eq!(states.entries.capacity(), cap);
+    assert_eq!(states.len(), 4);
+}
+
+#[test]
+fn a_plugins_slot_goes_with_its_last_state_or_a_failed_callback() {
+    let mut states = ItemStates::default();
+    // A callback that failed after its submit: nothing was applied.
+    states.reserve("demo", 1).unwrap();
+    assert_eq!(states.slots(), 1);
+    states.settle("demo");
+    assert_eq!(states.slots(), 0);
+    assert_eq!(
+        (states.entries.capacity(), states.plugins.capacity()),
+        (0, 0)
+    );
+    // A plugin with a state keeps it; clearing the last one frees the slot
+    // when the callback ends, not before (a batch may clear and add).
+    put(&mut states, "demo", push("a", HIDDEN, ""));
+    states.settle("demo");
+    assert_eq!(states.slots(), 1);
+    states.reserve("demo", 1).unwrap();
+    states.apply("demo", push("a", 0, "")).unwrap();
+    assert_eq!(
+        states.slots(),
+        1,
+        "still there for a push later in the batch"
+    );
+    states.apply("demo", push("b", HIDDEN, "")).unwrap();
+    states.apply("demo", push("b", 0, "")).unwrap();
+    states.settle("demo");
+    assert_eq!(states.slots(), 0);
+}

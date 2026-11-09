@@ -121,6 +121,26 @@ fn a_callback_that_fails_stores_nothing() {
     assert_eq!(submitted, OK, "accepted at submit");
     assert!(result.is_err());
     assert_eq!(pushed(&kernel, "s0"), None);
+    // The room and the plugin's slot reserved at submit went back.
+    let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    assert_eq!(directory.item_room.get(), 0);
+    assert_eq!(directory.items.borrow().slots(), 0);
+}
+
+#[test]
+fn a_callback_that_succeeds_gives_its_room_back_and_keeps_the_slot_of_a_state() {
+    let mut kernel = kernel(1, true);
+    let (submitted, _) = run(&mut kernel, &[state("s0", HIDDEN)], OK);
+    assert_eq!(submitted, OK);
+    let slots = |kernel: &crate::Kernel| {
+        let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+        assert_eq!(directory.item_room.get(), 0);
+        directory.items.borrow().slots()
+    };
+    assert_eq!(slots(&kernel), 1);
+    let (submitted, _) = run(&mut kernel, &[state("s0", 0)], OK);
+    assert_eq!(submitted, OK);
+    assert_eq!(slots(&kernel), 0, "the last state went");
 }
 
 #[test]

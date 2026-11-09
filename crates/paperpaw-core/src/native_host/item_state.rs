@@ -19,9 +19,15 @@
 //! size. The table is a small vector searched linearly (128 entries at
 //! most) and grows by exactly what is needed.
 //!
-//! Memory is reserved at submit ([`ItemStates::reserve`]): the entries a
-//! batch can add and the plugin's slot. Applying the batch after the
-//! callback then allocates nothing, so a batch is never half applied.
+//! Memory is reserved at submit ([`ItemStates::reserve`]): the entries every
+//! callback in flight can add (a nested callback of another plugin counts
+//! too, so it cannot take what another reserved) and the plugin's slot.
+//! Applying the batch after the callback then allocates nothing, so a batch
+//! is never half applied. The room is counted when the callback ends and the
+//! plugin's slot goes with its last state ([`ItemStates::settle`]). What is
+//! reserved and not yet used is at most 16 entries of 24 bytes for each of
+//! the two callbacks a nesting allows (about 0.8 KiB), plus a slot (up to 80
+//! bytes) each: the X4 budget for item states is the 6 KiB above and that.
 //!
 //! Not here yet: the kept file (`keep` states surviving a stop or a restart,
 //! written at most once a minute and restored at boot) and
@@ -261,19 +267,19 @@ impl ItemStates {
         Ok(())
     }
 
-    /// Reserves, for `plugin`, room for `new_entries` more states and the
-    /// plugin's slot, so that [`apply`](Self::apply) allocates nothing. Call
-    /// it with the entries every batch of the callback can add (the ones
-    /// staged earlier included); reserving again for the same is free.
+    /// Reserves room for `outstanding` more states (every callback in flight
+    /// counts, see [`NativeDeclarations::item_room`](super::native_declarations::NativeDeclarations))
+    /// and, for `plugin`, its slot, so that [`apply`](Self::apply) allocates
+    /// nothing. Reserving again for the same is free.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` (nothing the caller sees changes).
-    pub(crate) fn reserve(&mut self, plugin: &str, new_entries: usize) -> Result<(), i32> {
-        if new_entries == 0 {
+    pub(crate) fn reserve(&mut self, plugin: &str, outstanding: usize) -> Result<(), i32> {
+        if outstanding == 0 {
             return Ok(());
         }
         self.entries
-            .try_reserve_exact(new_entries)
+            .try_reserve_exact(outstanding)
             .map_err(|_| ERR_NO_MEMORY)?;
         if self.slot_of(plugin).is_some() {
             return Ok(());
@@ -292,6 +298,28 @@ impl ItemStates {
             }
         }
         Ok(())
+    }
+
+    /// A callback of `plugin` is over (its states applied, or it failed): the
+    /// plugin's slot goes if it holds no state, and nothing stays allocated
+    /// for an empty table.
+    pub(crate) fn settle(&mut self, plugin: &str) {
+        let Some(slot) = self.slot_of(plugin) else {
+            return;
+        };
+        if self.entries.iter().any(|e| e.plugin == slot) {
+            return;
+        }
+        self.plugins[usize::from(slot)] = None;
+        while matches!(self.plugins.last(), Some(None)) {
+            self.plugins.pop();
+        }
+        if self.plugins.is_empty() {
+            self.plugins = Vec::new();
+        }
+        if self.entries.is_empty() {
+            self.entries = Vec::new();
+        }
     }
 
     /// Replaces `plugin`'s state of the item (the default state removes it).
@@ -347,6 +375,12 @@ impl ItemStates {
         if self.plugins.is_empty() {
             self.plugins = Vec::new();
         }
+    }
+
+    /// Plugins holding a slot.
+    #[cfg(test)]
+    pub(crate) fn slots(&self) -> usize {
+        self.plugins.iter().flatten().count()
     }
 
     #[cfg(test)]
