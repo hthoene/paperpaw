@@ -2,7 +2,7 @@
 //! screens, slots and setting groups, the plugin list, the language) and the
 //! declaration store. Each family of ops lives in its own file and reads
 //! through [`Sources`]; this file only routes and keeps the generation.
-use super::{Asker, RegistryView, Row, items, plugins, schema};
+use super::{Asker, RegistryView, Row, items, plugins, presets, schema, settings};
 use crate::native_host::{
     native_declarations::NativeDeclarations, registry_generation::RegistryGeneration,
 };
@@ -29,11 +29,15 @@ impl RegistryView for Sources<'_> {
         &self,
         op: u32,
         scope: &str,
-        _asker: &Asker<'_>,
+        asker: &Asker<'_>,
         visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
     ) -> Result<(), i32> {
         match op {
             schema::OP_PLUGINS => plugins::rows(self, visit),
+            schema::OP_SETTINGS | schema::OP_CHOICES => {
+                settings::rows(self, op, scope, asker, visit)
+            }
+            schema::OP_PRESETS | schema::OP_VALUES => presets::rows(self, op, scope, asker, visit),
             schema::OP_GROUPS
             | schema::OP_ACTIONS
             | schema::OP_SCREENS
@@ -48,11 +52,13 @@ impl RegistryView for Sources<'_> {
         &self,
         op: u32,
         key: &str,
-        _asker: &Asker<'_>,
+        asker: &Asker<'_>,
         visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
     ) -> Result<(), i32> {
         match op {
             schema::OP_PLUGIN => plugins::detail(self, key, visit),
+            schema::OP_SETTING => settings::detail(self, key, asker, visit),
+            schema::OP_PRESET => presets::detail(self, key, visit),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
