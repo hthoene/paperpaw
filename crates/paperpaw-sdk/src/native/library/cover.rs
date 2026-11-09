@@ -31,14 +31,18 @@ impl Library {
     /// The catalog's cover of a book (op 7): an image id of the caller, made from
     /// the book's format on first use and kept in the host's cover cache. `side` 0
     /// is the list's size (the larger of 300 and 3/8 of the screen's long side),
-    /// else the longest side, at most the screen's long side. `input` is 1,024
-    /// bytes; `out` 4,096.
+    /// else the longest side, at most the screen's long side: a larger `side` is
+    /// refused with `Invalid`, never clamped. `input` is 1,024
+    /// bytes; `out` 4,096. The image id counts towards the plugin's 8 image ids
+    /// and the host may end it to make room: a list draws with `NotFound` handled
+    /// and asks again.
     ///
     /// # Errors
     /// `NotFound` for a book without a cover or an unknown book; `Busy` while the
     /// cover is being made (ask again when `library_changed` bit 6 says it is
-    /// ready); `State` for a stale catalog handle; `Invalid` for an answer that is
-    /// not one `doc_image` record with an image id; otherwise the host's refusals.
+    /// ready); `State` for a stale catalog handle; `Invalid` for a `side` above the
+    /// screen's long side or an answer that is not one `doc_image` record with an
+    /// image id; otherwise the host's refusals.
     pub fn cover(
         &self,
         host: &Host<'_>,

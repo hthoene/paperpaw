@@ -87,3 +87,33 @@ fn cover_refusals_and_bad_answers() {
         Err(Error::Invalid)
     );
 }
+
+#[test]
+fn cover_needs_its_buffers_and_ignores_flag_bits_it_does_not_know() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let book = BookRef::path("/books/a.epub").unwrap();
+    let mut out = [0; 4096];
+    // An input buffer that cannot hold the request is refused before the host.
+    assert!(
+        lib.cover(&host, book, 0, &mut [0; 8], &mut out).is_err(),
+        "a short input"
+    );
+    assert_eq!(state.calls.get(), 0);
+    // A reply the output cannot carry is the host's refusal, passed through.
+    reply(&state, &[image(5, 0)]);
+    state.error.set(abi::ERR_NO_SPACE);
+    assert_eq!(
+        lib.cover(&host, book, 0, &mut [0; 1024], &mut [0; 4]),
+        Err(Error::NoSpace)
+    );
+    state.error.set(0);
+    // Bits other than colour (0) and not decoded (1) are dropped.
+    reply(&state, &[image(5, 0b1100)]);
+    let cover = lib.cover(&host, book, 0, &mut [0; 1024], &mut out).unwrap();
+    assert_eq!(
+        (cover.info().colour(), cover.info().not_decoded()),
+        (false, false)
+    );
+}
