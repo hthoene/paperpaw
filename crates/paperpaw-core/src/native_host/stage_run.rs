@@ -10,8 +10,14 @@
 //! no record batch only costs its own reply a status, and the caller's `out`
 //! is written once, whole, at the end.
 use super::{
-    codec, declaration_store::StageSubscriber, native_declarations::NativeDeclarations,
-    native_screen::Dispatch, registrations as wire, registrations::Record, stage_wire,
+    codec,
+    declaration_store::DeclarationStore,
+    native_declarations::NativeDeclarations,
+    native_screen::Dispatch,
+    registrations as wire,
+    registrations::Record,
+    stage_members::{self, Member},
+    stage_wire,
 };
 use crate::abi7::{context::Frame, core_frame::CoreFrame};
 use alloc::vec::Vec;
@@ -79,7 +85,8 @@ fn largest_reply(max_reply: usize) -> Result<usize, i32> {
 ///
 /// # Errors
 /// `ERR_STATE` outside a callback or from a nested one (a subscriber cannot
-/// run a stage), `ERR_UNSUPPORTED` without a declaration directory,
+/// run a stage), `ERR_UNSUPPORTED` on a small-memory device (the X4, until its
+/// stack gate passes) or without a declaration directory,
 /// `ERR_NOT_FOUND` for a stage nobody declared or a cursor past the last
 /// subscriber, `ERR_DENIED` for a stage that is not the caller's,
 /// `ERR_NO_SPACE` for an input over the stage's bound or an `out` too small
@@ -91,31 +98,44 @@ pub(crate) fn run(
     input: &[u8],
     out: &mut [MaybeUninit<u8>],
 ) -> Result<usize, i32> {
-    frame.callback_epoch()?;
+    let epoch = frame.callback_epoch()?;
     let caller = frame.caller()?;
     // A subscriber is itself in a callback, at depth 2: it cannot run a stage.
     if frame.callback_depth()? != 1 {
         return Err(ERR_STATE);
     }
-    let directory = frame.directory.ok_or(ERR_UNSUPPORTED)?;
-    let (limits, chosen) = choose(directory, stage, caller, cursor, input.len(), out.len())?;
-    let reply = ask(frame, directory, stage, &limits, &chosen, cursor, input)?;
-    // Published whole, with writes only, once nothing can refuse any more.
-    let space = out.get_mut(..reply.len()).ok_or(ERR_NO_SPACE)?;
-    for (slot, byte) in space.iter_mut().zip(&reply) {
-        slot.write(*byte);
+    // The subscriber is a nested callback, one level deeper than any frame the
+    // X4 has measured: closed until its stack gate passes (as `ui.compose`).
+    if super::ui_store::is_x4(frame.env.device().memory) {
+        return Err(ERR_UNSUPPORTED);
     }
-    Ok(reply.len())
+    let directory = frame.directory.ok_or(ERR_UNSUPPORTED)?;
+    let (limits, chosen) = choose(
+        directory,
+        (stage, epoch),
+        caller,
+        cursor,
+        (input.len(), out.len()),
+    )?;
+    ask(
+        frame,
+        directory,
+        stage,
+        &limits,
+        &chosen,
+        (cursor, input),
+        out,
+    )
 }
 
-/// The checks before any subscriber runs, and the subscriber at `cursor`.
+/// The checks before any subscriber runs, and the subscriber at `cursor` of
+/// the list this callback froze.
 fn choose(
     directory: &NativeDeclarations,
-    stage: &str,
+    (stage, epoch): (&str, u64),
     caller: u64,
     cursor: u32,
-    input: usize,
-    out: usize,
+    (input, out): (usize, usize),
 ) -> Result<(super::declaration_store::StageLimits, Chosen), i32> {
     let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
     let limits = store.stage(stage).ok_or(ERR_NOT_FOUND)?;
@@ -129,40 +149,66 @@ fn choose(
     if out < largest_reply(max_reply)? {
         return Err(ERR_NO_SPACE);
     }
-    let mut subscribers = store.stage_subscribers(stage)?;
-    subscribers
-        .sort_unstable_by(|a, b| (a.order, a.plugin, a.index).cmp(&(b.order, b.plugin, b.index)));
     // Only the first 32 are active; the rest stay inert.
     let cursor = usize::try_from(cursor).map_err(|_| ERR_NOT_FOUND)?;
-    let picked: &StageSubscriber<'_> = subscribers
-        .get(cursor)
-        .filter(|_| cursor < SUBSCRIBERS)
+    if cursor >= SUBSCRIBERS {
+        return Err(ERR_NOT_FOUND);
+    }
+    let mut members = directory.members.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+    let picked = members
+        .member(epoch, stage, cursor, || freeze(&store, stage))?
         .ok_or(ERR_NOT_FOUND)?;
-    if picked.plugin.len() > ID_BYTES {
+    if picked.id.len() > ID_BYTES {
         return Err(ERR_INVALID);
     }
     let mut id = [0; ID_BYTES];
-    id[..picked.plugin.len()].copy_from_slice(picked.plugin.as_bytes());
+    id[..picked.id.len()].copy_from_slice(picked.id.as_bytes());
     let chosen = Chosen {
         owner: picked.owner,
         token: picked.token,
         signature: picked.signature,
         id,
-        id_len: picked.plugin.len(),
+        id_len: picked.id.len(),
     };
     Ok((limits, chosen))
 }
 
-/// Calls the chosen subscriber and frames its reply as one `stage.reply`.
+/// The live subscribers of `stage` in stage order, at most 32, as one list.
+fn freeze(store: &DeclarationStore, stage: &str) -> Result<Vec<Member>, i32> {
+    let mut subscribers = store.stage_subscribers(stage)?;
+    subscribers
+        .sort_unstable_by(|a, b| (a.order, a.plugin, a.index).cmp(&(b.order, b.plugin, b.index)));
+    subscribers.truncate(SUBSCRIBERS);
+    let mut members = Vec::new();
+    members
+        .try_reserve_exact(subscribers.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for subscriber in &subscribers {
+        if subscriber.plugin.len() > ID_BYTES {
+            return Err(ERR_INVALID);
+        }
+        members.push(Member {
+            owner: subscriber.owner,
+            token: subscriber.token,
+            signature: subscriber.signature,
+            id: stage_members::boxed(subscriber.plugin)?,
+        });
+    }
+    Ok(members)
+}
+
+/// Calls the chosen subscriber and frames its reply as one `stage.reply`
+/// straight into `out`, once nothing can refuse any more (the reply buffer
+/// lent to the subscriber is the only other one).
 fn ask(
     frame: &CoreFrame<'_>,
     directory: &NativeDeclarations,
     stage: &str,
     limits: &super::declaration_store::StageLimits,
     subscriber: &Chosen,
-    cursor: u32,
-    input: &[u8],
-) -> Result<Vec<u8>, i32> {
+    (cursor, input): (u32, &[u8]),
+    out: &mut [MaybeUninit<u8>],
+) -> Result<usize, i32> {
     let max_reply = usize::try_from(limits.max_reply).map_err(|_| ERR_INVALID)?;
     let max_records = limits.max_records;
     let (status, flags, payload) = call(
@@ -184,11 +230,17 @@ fn ask(
         payload: &payload,
     });
     let length = codec::framed_len(&record)?;
-    let mut framed = scratch(length)?;
-    if codec::encode_one(&record, &mut framed)? != length {
+    let space = out.get_mut(..length).ok_or(ERR_NO_SPACE)?;
+    for slot in space.iter_mut() {
+        slot.write(0);
+    }
+    // SAFETY: every byte of `space` was written just above, and `u8` and
+    // `MaybeUninit<u8>` have the same layout.
+    let bytes = unsafe { &mut *(core::ptr::from_mut(space) as *mut [u8]) };
+    if codec::encode_one(&record, bytes)? != length {
         return Err(ERR_INVALID);
     }
-    Ok(framed)
+    Ok(length)
 }
 
 /// The subscriber's call: its status and payload, a refusal or a reply that

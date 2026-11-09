@@ -1169,6 +1169,7 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+pub(crate) mod stage_members;
 pub(crate) mod stage_run;
 
 mod registry_page;

@@ -20,8 +20,10 @@ use core::{
     mem::MaybeUninit,
 };
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
+    ERR_STATE, ERR_UNSUPPORTED,
 };
+use paperpaw_platform::MemoryClass;
 use paperpaw_sdk::{Env, Id};
 
 const READER: u64 = 100;
@@ -115,8 +117,9 @@ struct Fixture {
     depth: FlatDepth,
     mode: Rc<Cell<Mode>>,
     live: Rc<Cell<bool>>,
-    /// `first` has its own: it stops alone.
+    /// `first` and `alpha` have their own: they stop alone.
     first_live: Rc<Cell<bool>>,
+    alpha_live: Rc<Cell<bool>>,
     calls: Rc<RefCell<Vec<(&'static str, u32)>>>,
     dropped: Rc<RefCell<Vec<i32>>>,
 }
@@ -135,6 +138,7 @@ impl Fixture {
             mode: Rc::new(Cell::new(Mode::Good)),
             live: Rc::new(Cell::new(true)),
             first_live: Rc::new(Cell::new(true)),
+            alpha_live: Rc::new(Cell::new(true)),
             // Room for every call up front: the sweep must refuse only the host's
             // allocations.
             calls: Rc::new(RefCell::new(Vec::with_capacity(8))),
@@ -174,10 +178,10 @@ impl Fixture {
             id,
             depth: self.depth.try_clone().unwrap(),
             mode: Rc::clone(&self.mode),
-            live: Rc::clone(if id == "first" {
-                &self.first_live
-            } else {
-                &self.live
+            live: Rc::clone(match id {
+                "first" => &self.first_live,
+                "alpha" => &self.alpha_live,
+                _ => &self.live,
             }),
             calls: Rc::clone(&self.calls),
             dropped: Rc::clone(&self.dropped),
@@ -214,12 +218,43 @@ fn with_frame<R>(
     levels: usize,
     body: impl FnOnce(&CoreFrame<'_>) -> R,
 ) -> R {
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+    with_frame_at(fixture, caller, levels, (1, &[], MemoryClass::Large), body)
+}
+
+/// [`with_frame`] in the callback `epoch`, with the style grants of the
+/// plugins named in `granted` set to yes.
+fn with_frame_at<R>(
+    fixture: &Fixture,
+    caller: Option<u64>,
+    levels: usize,
+    (epoch, granted, memory): (u64, &[&str], MemoryClass),
+    body: impl FnOnce(&CoreFrame<'_>) -> R,
+) -> R {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE.with_memory(memory))
         .build()
         .unwrap();
+    for plugin in granted {
+        let key = alloc::format!("core.grant.style.{plugin}");
+        let key: &'static str = alloc::boxed::Box::leak(key.into_boxed_str());
+        kernel
+            .shared
+            .settings
+            .define(paperpaw_sdk::SettingSpec::switch(
+                key,
+                "grant",
+                false,
+                paperpaw_sdk::builtin::groups::OTHER,
+            ))
+            .unwrap();
+        kernel
+            .shared
+            .settings
+            .set(key, paperpaw_sdk::SettingValue::Bool(true))
+            .unwrap();
+    }
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     let frame = CoreFrame {
-        callback: caller.map(|owner| CallbackStamp::new(owner, 1).unwrap()),
+        callback: caller.map(|owner| CallbackStamp::new(owner, epoch).unwrap()),
         instance: None,
         depth: Some(fixture.depth.as_depth()),
         directory: Some(&fixture.directory),
@@ -379,8 +414,8 @@ fn a_subscriber_that_fails_or_is_too_big_costs_only_its_reply() {
 }
 
 #[test]
-fn a_stopped_subscriber_is_no_longer_in_the_list_and_nothing_runs_for_it() {
-    // Its declarations died with it: the loop goes on with those left.
+fn a_plugin_stopped_before_the_callback_is_not_a_member() {
+    // Its declarations died with it before the callback froze the list.
     let fixture = Fixture::new();
     fixture.first_live.set(false);
     with_frame(&fixture, Some(READER), 1, |frame| {
@@ -395,30 +430,127 @@ fn a_stopped_subscriber_is_no_longer_in_the_list_and_nothing_runs_for_it() {
 }
 
 #[test]
+fn the_list_is_frozen_for_the_callback_and_a_member_that_stops_answers_cancelled() {
+    let fixture = Fixture::new();
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (2, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 0, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "first");
+            // `alpha` stops between two cursors: it keeps its place.
+            fixture.alpha_live.set(false);
+            let count = ask(frame, STAGE, 1, b"", &mut out).unwrap();
+            let alpha = reply(&out, count);
+            assert_eq!(
+                (
+                    alpha.subscriber,
+                    alpha.index,
+                    alpha.status,
+                    alpha.payload.len()
+                ),
+                ("alpha", 1, ERR_CANCELLED, 0)
+            );
+            // Nobody is skipped: `zeta` is at 2, as the caller's loop expects.
+            let count = ask(frame, STAGE, 2, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "zeta");
+            assert_eq!(ask(frame, STAGE, 3, b"", &mut out), Err(ERR_NOT_FOUND));
+        },
+    );
+    assert_eq!(&*fixture.calls.borrow(), &[("first", 7), ("zeta", 5)]);
+    // The next callback takes a fresh list, without the stopped plugin.
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (3, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 1, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "zeta");
+        },
+    );
+}
+
+#[test]
+fn the_style_grant_of_the_subscriber_is_stamped_into_the_reply() {
+    let fixture = Fixture::new();
+    // Only `alpha` was granted; `first` and the unrelated `zeta` were not.
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (2, &["alpha"], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let mut flags = Vec::new();
+            for cursor in 0..3 {
+                let count = ask(frame, STAGE, cursor, b"", &mut out).unwrap();
+                let reply = reply(&out, count);
+                flags.push((reply.subscriber, reply.flags));
+            }
+            assert_eq!(flags, [("first", 0), ("alpha", 1), ("zeta", 0)]);
+        },
+    );
+}
+
+#[test]
 fn a_refused_allocation_is_no_memory_and_calls_and_writes_nothing() {
     reset(NORMAL);
     let fixture = Fixture::new();
-    with_frame(&fixture, Some(READER), 1, |frame| {
-        let mut ran = false;
-        for nth in 1..=32 {
-            let mut out = buffer();
-            fixture.calls.borrow_mut().clear();
-            arm_failure(nth);
-            let result = ask(frame, STAGE, 0, b"in", &mut out);
-            arm_failure(0);
-            match result {
-                Ok(count) => {
-                    ran = true;
-                    assert_eq!(reply(&out, count).status, 0);
+    let mut ran = false;
+    for nth in 1..=48_u32 {
+        // A callback of its own each time, so that every freeze is asked.
+        with_frame_at(
+            &fixture,
+            Some(READER),
+            1,
+            (u64::from(nth), &[], MemoryClass::Large),
+            |frame| {
+                let mut out = buffer();
+                fixture.calls.borrow_mut().clear();
+                arm_failure(nth);
+                let result = ask(frame, STAGE, 0, b"in", &mut out);
+                arm_failure(0);
+                match result {
+                    Ok(count) => {
+                        ran = true;
+                        assert_eq!(reply(&out, count).status, 0);
+                    }
+                    Err(status) => {
+                        assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
+                        assert!(untouched(&out), "allocation {nth}");
+                        assert!(fixture.calls.borrow().is_empty(), "allocation {nth}");
+                    }
                 }
-                Err(status) => {
-                    assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
-                    assert!(untouched(&out), "allocation {nth}");
-                }
-            }
-        }
-        // Past the last allocation the run succeeds.
-        assert!(ran);
-    });
+            },
+        );
+    }
+    // Past the last allocation the run succeeds.
+    assert!(ran);
     assert_eq!(fixture.depth.as_depth().0.current(), 0);
+}
+
+#[test]
+fn a_small_device_blocks_stage_runs_until_its_stack_gate_passes() {
+    // Every class but `Large` is the small one (`ui_store::is_x4`).
+    let fixture = Fixture::new();
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (2, &[], MemoryClass::Small),
+        |frame| {
+            let mut out = buffer();
+            assert_eq!(ask(frame, STAGE, 0, b"in", &mut out), Err(ERR_UNSUPPORTED));
+            assert!(untouched(&out));
+        },
+    );
+    assert!(
+        fixture.calls.borrow().is_empty(),
+        "no subscriber was called"
+    );
 }
