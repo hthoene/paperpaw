@@ -859,6 +859,10 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
         assert!(files.busy("Books", access), "{access:?} the folder");
     }
     assert!(!files.busy("Books/b.epub", Access::Remove));
+    // Counted per path: two documents of one book hold it until both end.
+    hosts.reader_book_opened("Books/a.epub").unwrap();
+    hosts.reader_book_closed("Books/a.epub");
+    assert!(files.busy("Books/a.epub", Access::Remove));
     hosts.reader_book_closed("Books/a.epub");
     assert!(!files.busy("Books/a.epub", Access::Remove));
     // A plugin owner's claim and the reader's are told apart.
