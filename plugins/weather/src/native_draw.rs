@@ -220,21 +220,6 @@ const fn short_key(waiting: Waiting) -> &'static str {
     }
 }
 
-/// The message of a widget that has no weather to show, centred in `area`
-/// (the widget's whole place: the frame is painted already). Without the
-/// place's name; see [`draw_waiting_for`].
-///
-/// # Errors
-/// `NoMemory`, or what the host says.
-pub fn draw_waiting(
-    cx: &mut Cx<'_>,
-    out: &mut Vec<Paint>,
-    area: Rect,
-    waiting: Waiting,
-) -> Result<(), Error> {
-    draw_waiting_for(cx, out, area, waiting, "")
-}
-
 /// What a widget says while it has no weather: why, under a faint symbol
 /// where there is room, in `place`'s area (the widget's whole place, its
 /// frame painted already). Where there is no network and the place is set

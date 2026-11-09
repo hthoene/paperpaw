@@ -16,7 +16,7 @@ use paperpaw_core::native_host::registrations::{
 use paperpaw_plugin_weather::{
     NATIVE_ENTRY,
     declarations::{
-        CHOOSE_PLACE_TOKEN, FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN, REFRESH_TOKEN,
+        FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN, REFRESH_TOKEN,
         WORK_TOKEN,
     },
 };
@@ -206,10 +206,6 @@ fn requests(world: &World) -> Vec<String> {
         .filter(|l| l.starts_with("request"))
         .cloned()
         .collect()
-}
-
-fn debug(callback: &Callback) -> String {
-    format!("{:?}", callback.commands)
 }
 
 fn started(p: &Plug<'_>) -> Callback {

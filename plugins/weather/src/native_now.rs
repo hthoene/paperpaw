@@ -31,9 +31,9 @@ use crate::native_draw::{
 };
 use crate::native_shown::Shown;
 use crate::native_symbol;
-use crate::native_weather::{Current, Day, condition, degrees_text};
+use crate::native_weather::{Current, Day, Temperature, condition, degrees_text};
 
-mod layout;
+pub(crate) mod layout;
 #[cfg(test)]
 mod tests;
 
@@ -156,6 +156,20 @@ fn lines(
         )?;
         put(&mut out, Line::new(&words, small, false, 4)?)?;
     }
+    details(cx, &mut out, current, today, (unit, with_unit))?;
+    Ok(out)
+}
+
+/// The lines of the details the reader chose (how warm it feels, wind, rain,
+/// humidity, sunrise and sunset), after `out`'s others.
+fn details(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Line>,
+    current: Current,
+    today: Option<&Day>,
+    (unit, with_unit): (Temperature, bool),
+) -> Result<(), Error> {
+    let small = cx.style().small;
     if cx.settings.shows("feels")?
         && let Some(feels) = current.feels
     {
@@ -167,7 +181,7 @@ fn lines(
                 value: &degrees,
             }],
         )?;
-        put(&mut out, Line::new(&words, small, true, 2)?)?;
+        put(out, Line::new(&words, small, true, 2)?)?;
     }
     if cx.settings.shows("wind")?
         && let Some(wind) = current.wind
@@ -187,7 +201,7 @@ fn lines(
                 value: &speed,
             }],
         )?;
-        put(&mut out, Line::new(&words, small, true, 2)?)?;
+        put(out, Line::new(&words, small, true, 2)?)?;
     }
     if cx.settings.shows("rain")?
         && let Some(rain) = today.and_then(|d| d.rain)
@@ -199,7 +213,7 @@ fn lines(
                 value: i64::from(rain),
             }],
         )?;
-        put(&mut out, Line::new(&words, small, true, 2)?)?;
+        put(out, Line::new(&words, small, true, 2)?)?;
     }
     if cx.settings.shows("humidity")?
         && let Some(humidity) = current.humidity
@@ -211,7 +225,7 @@ fn lines(
                 value: i64::from(humidity),
             }],
         )?;
-        put(&mut out, Line::new(&words, small, true, 1)?)?;
+        put(out, Line::new(&words, small, true, 1)?)?;
     }
     if cx.settings.shows("sun")?
         && let Some((rise, set)) = today.and_then(|d| d.sunrise.zip(d.sunset))
@@ -230,9 +244,9 @@ fn lines(
                 },
             ],
         )?;
-        put(&mut out, Line::new(&words, small, true, 1)?)?;
+        put(out, Line::new(&words, small, true, 1)?)?;
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Lays the widget out in `area` as drawing operations: the frame, then the
@@ -261,13 +275,17 @@ pub fn draw(
     draw_now(cx, out, &look, current, (&temperature, &plan, &set))
 }
 
+/// A row of the text: its height, its width and its line (none for the
+/// temperature).
+type RowOf<'a> = (u16, f32, Option<&'a Line>);
+
 /// The rows of the text, from the top: the height, the width and the line
 /// (none for the temperature).
 fn rows<'a>(
     font: &Font<'_>,
     plan: &'a Plan,
     temperature_width: f32,
-) -> Result<Vec<(u16, f32, Option<&'a Line>)>, Error> {
+) -> Result<Vec<RowOf<'a>>, Error> {
     let (head, rest) = plan
         .lines
         .split_at(usize::from(plan.caption).min(plan.lines.len()));

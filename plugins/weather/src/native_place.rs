@@ -159,6 +159,7 @@ impl PlaceView {
     ///
     /// # Errors
     /// `NoMemory`.
+    #[cfg(test)]
     pub fn set_place(&mut self, place: &str, has_place: bool) -> Result<(), Error> {
         if self.place != place {
             self.place = text::copy(place)?;
@@ -237,6 +238,7 @@ impl PlaceView {
     }
 
     /// Whether the offer to go online is shown instead of the list.
+    #[cfg(test)]
     #[must_use]
     pub const fn offering(&self) -> bool {
         self.offer.is_some()

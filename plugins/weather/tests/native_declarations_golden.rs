@@ -4,6 +4,10 @@
 //! and the menus show, so it is reviewed: set `PAPERPAW_BLESS=1` to write the
 //! file anew, and read the diff.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
+#![allow(
+    clippy::redundant_closure,
+    reason = "the declaring functions are generic over the sink: a closure fixes it"
+)]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "the build script and the plugin read the same file")]
 mod declarations;

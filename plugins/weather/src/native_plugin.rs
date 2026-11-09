@@ -538,7 +538,7 @@ fn notice(host: &Host<'_>, key: &str) {
         let mut scratch = [0; 512];
         CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     })();
-    drop(shown);
+    let _ = shown;
 }
 
 /// Asks for the screen to be drawn again. A refusal (it is not on top any more)
