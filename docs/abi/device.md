@@ -380,18 +380,20 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **Trust evidence** (store `trust.rs` `Named`, `expected`, `follow`, `revoked.rs`): the
   catalog's word for a code plugin travels in the same batch as `install_author` (the author key the
   catalog names, the recovery key it names for a first install, empty for none, and the code's
-  expected `sha256`, empty for none) and up to 8 `install_rotation` (the catalog's rotation
-  statements, in the author's order). The host applies the store's rules itself: an id pinned to the
-  signing key installs; an id pinned to another key installs only if the rotations lead from the
-  pinned key to the signing key, each checked against the pinned recovery key (steps before the
-  pinned key are skipped, as `follow`), else reason 6 key changed; a new id installs only if
-  `install_author.author` is the signing key (reason 5 not the author), pinning it and `recovery`; a
-  signing key revoked for that id never installs (reason 7). A code digest other than `sha256` is
-  reason 18. Without evidence (a plugin the user sideloads through plugin manager) a new id is
-  pinned to its signing key once the user confirms the key's fingerprint, shown by the host as "not
-  from a catalog"; a pinned id still needs its rotations. Pins and rotations change **only when the
-  install commits** (the journal of 5.4), never at a check, a declined prompt or a failure, so a
-  declined update leaves the installed plugin loading as before.
+  expected `sha256`, empty for none) and up to 6 `install_rotation` (the catalog's rotation
+  statements, in the author's order). `author` is exactly 32 bytes; `recovery` and `sha256` are 0 or
+  exactly 32 (the decoder takes 0-32, so the host refuses 1-31 bytes with `ERR_INVALID`). The host
+  applies the store's rules itself: an id pinned to the signing key installs; an id pinned to
+  another key installs only if the rotations lead from the pinned key to the signing key, each
+  checked against the pinned recovery key (steps before the pinned key are skipped, as `follow`),
+  else reason 6 key changed; a new id installs only if `install_author.author` is the signing key
+  (reason 5 not the author), pinning it and `recovery`; a signing key revoked for that id never
+  installs (reason 7). A code digest other than `sha256` is reason 18. Without evidence (a plugin
+  the user sideloads through plugin manager) a new id is pinned to its signing key once the user
+  confirms the key's fingerprint, shown by the host as "not from a catalog"; a pinned id still needs
+  its rotations. Pins and rotations change **only when the install commits** (the journal of 5.4),
+  never at a check, a declined prompt or a failure, so a declined update leaves the installed plugin
+  loading as before.
 - [D] `trust_revoked` (store `revoked.rs`, `keys::keep_revoked`): a revocation the store's library
   lists, checked by the host against the revoked key itself or the plugin's pinned recovery key, and
   kept only if it holds (never taken off); one that does not hold is dropped with a log line, the
@@ -559,10 +561,10 @@ unknown values read as 1.
 | `dev_network` × 32 + `end` | 32 × (1 + 34 + 8 + 5) + 30 = 1,566 | 4,096 |
 | `dev_bonded` × 16 + `end` | 16 × (1 + 4 + 66 + 8 + 66 + 5) + 30 = 2,430 | 4,096 |
 | `command.install_plugin` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
-| install with full evidence | 532 + `install_author` (1 + 4 + 34×3 + 5 = 112) + 8 × `install_rotation` (1 + 4 + 34 + 66 + 5 = 110) = 1,524 | the 4,096-byte batch |
+| install with full evidence | 532 + `install_author` (1 + 4 + 34×3 + 5 = 112) + 6 × `install_rotation` (1 + 4 + 34 + 66 + 5 = 110) = 1,304 | the 4,096-byte batch |
 | `command.install_firmware` | 1 + 4 + 4 + 514 + 34 + 4 + 5 = 566 | 4,096 |
 | `command.check_file` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
-| `trust_revoked` × 16 | 16 × (1 + 66 + 34 + 66 + 5) = 2,752 | the 4,096-byte batch |
+| `trust_revoked` × 8 | 8 × (1 + 66 + 34 + 66 + 5) = 1,376 | the 4,096-byte batch |
 | `event.install_done` | 1 + 8 + 4×5 + 66 + 5 = 100 | the 1.1 KB event buffer |
 | `event.bluetooth` | 1 + 8 + 4×2 + 66 + 4×3 + 4 = 99 | the 1.1 KB event buffer |
 

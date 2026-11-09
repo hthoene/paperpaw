@@ -141,7 +141,9 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] `event.action_run.flags` bit 0 `background` (draft 35, interface 6 `!Env::reader`): the
   run is not the reader's own doing but a rule's or another plugin's (`run_action`), so the
   plugin may defer it (declared work) and says nothing over reading; 0 (also when absent): the
-  reader pressed, chose or mapped it, act at once. Other bits are 0 (decoders refuse them).
+  reader pressed, chose or mapped it, act at once. Other bits are 0 (decoders refuse them): a
+  bit a later revision defines is set only for a plugin whose declared revision knows it, so an
+  older plugin's decoder never drops the event and the action still runs.
 - [D] `event.screen_shown` (38) and `event.action_run` (39) cannot be registered for with
   `registration.event`: they go to the token of the screen or action declaration they name. A
   registration naming 38 or 39 refuses the batch (`ERR_UNSUPPORTED`, like every event tag the
