@@ -76,6 +76,9 @@ pub(crate) struct HostServices {
     /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
     radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
+    /// `core.net`'s device where it serves the cable (port 0): the kernel
+    /// passes it the cable's lines (`cable_pump`).
+    cable_net: OnceCell<Rc<net_service::NetDevice>>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     /// What makes `core.work` at its first call (#248).
@@ -168,6 +171,7 @@ impl HostServices {
             firmware_parts: (OnceCell::new(), OnceCell::new()),
             radio_requests: OnceCell::new(),
             net: OnceCell::new(),
+            cable_net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             work_later: Cell::new(None),
@@ -703,6 +707,16 @@ impl HostServices {
 
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
+    }
+
+    /// Wire the cable's server once (`core.net` with the cable).
+    pub(crate) fn wire_cable(&self, device: Rc<net_service::NetDevice>) -> Result<(), i32> {
+        self.cable_net.set(device).map_err(|_| ERR_STATE)
+    }
+
+    /// `core.net`'s device, where it serves the cable.
+    pub(crate) fn cable_net(&self) -> Option<&Rc<net_service::NetDevice>> {
+        self.cable_net.get()
     }
 
     /// The wired services that raise events to plugins, for the kernel's

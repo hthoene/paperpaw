@@ -200,6 +200,7 @@ fn make_room(
     inner: &mut Inner,
     owner: u64,
     token: u32,
+    port: u32,
     device_servers: u32,
 ) -> Result<Option<usize>, i32> {
     let old = inner
@@ -223,7 +224,10 @@ fn make_room(
         .count();
     // A server of the same token is replaced and keeps its place; a new one
     // needs a place in the plugin's two and in the device's `SERVERS`.
-    let device_full = inner.serving.servers.len() >= device_servers as usize;
+    // The cable's server (port 0) uses no socket and no pool buffer: it
+    // neither counts against `SERVERS` nor is refused by it.
+    let network = inner.serving.servers.iter().filter(|s| s.port != 0).count();
+    let device_full = port != 0 && network >= device_servers as usize;
     if (old.is_none() && (others >= PLUGIN_SERVERS || device_full)) || waiting >= EVENTS_WAITING {
         return Err(ERR_BUSY);
     }
@@ -284,7 +288,13 @@ pub(super) fn serve(
         return Err(ERR_STATE);
     }
     let mut inner = host.table().lock()?;
-    let old = make_room(&mut inner, who.owner, serve.token, profile.servers)?;
+    let old = make_room(
+        &mut inner,
+        who.owner,
+        serve.token,
+        serve.port,
+        profile.servers,
+    )?;
     let key = inner.serving.next_server.checked_add(1).ok_or(ERR_FULL)?;
     if let Some(index) = old {
         stop(&mut inner, host, index, reason::OK, true);

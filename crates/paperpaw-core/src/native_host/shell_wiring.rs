@@ -559,6 +559,9 @@ fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
     let device =
         Rc::new(inputs.device(pool, hosts.in_use().clone(), owners, hosts.policy().clone()));
     hosts.wire_net(device.clone())?;
+    if device.cable().is_some() {
+        hosts.wire_cable(device.clone())?;
+    }
     Ok(NetReports(device))
 }
 

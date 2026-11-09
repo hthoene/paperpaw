@@ -311,6 +311,16 @@ file's size, 2.1).
   server's sockets and buffers cost up to about 48 KiB): past either, `ERR_BUSY` at once and
   nothing opens. A server counts from `serve` until it is stopped, has failed or has ended.
   Serving again with a token in use stops the old server first (interface 6).
+- [D] **The cable's server** (port 0, ruling of todo 384 on #228) is the kernel's, not the
+  shell's: the shell passes the cable's lines to `Kernel::cable_line` (`docs/usb-transfer.md`) and
+  the host serves them to the one plugin that serves port 0, under the rules of this section
+  (`max_body`, `.received/`, 507, the answer time). It uses no socket and no pool buffer, so it
+  does not count against `SERVERS` (only against the plugin's 2). `started` comes at the host's
+  next pass, address `""`. A request while no cable server has started opens `core.cable`; one
+  without a body waits up to 5 s for the server's `started` (else 503), one with a body is
+  answered 503 at once (its data lines are not kept). After the plugin stopped the server, a
+  request before the protocol's 10 s pause is answered 403. A `respond` with a file is refused on
+  the cable (`ERR_UNSUPPORTED`, the computer gets 500), as in interface 6.
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.

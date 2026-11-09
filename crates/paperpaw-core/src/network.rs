@@ -246,6 +246,15 @@ impl Kernel {
             .last
             .is_none_or(|last| now.0.saturating_sub(last) >= io::cable::PAUSE_MS);
         cable.last = Some(now.0);
+        // The native server on the cable takes the lines, unless an
+        // interface-6 server runs on it (`native_host::cable_pump`).
+        let line = match self.native_cable() {
+            Some(device) => match self.native_cable_line(&device, line, paused) {
+                Some(line) => line,
+                None => return self.finish(),
+            },
+            None => line,
+        };
         match line {
             Line::Request {
                 n,
@@ -350,13 +359,24 @@ impl Kernel {
     /// after every kernel call, as [`Kernel::take_io`] is taken. Answers
     /// go a line at a time, so a long one is never written out whole.
     pub fn next_cable_line(&mut self) -> Option<String> {
-        self.io.servers.cable.next_line()
+        self.io
+            .servers
+            .cable
+            .next_line()
+            .or_else(|| self.native_cable_next_line())
     }
 
     /// All the lines to send to the computer at the cable, in order (see
     /// [`Kernel::next_cable_line`]).
     pub fn take_cable_lines(&mut self) -> Vec<String> {
-        core::iter::from_fn(|| self.io.servers.cable.next_line()).collect()
+        core::iter::from_fn(|| {
+            self.io
+                .servers
+                .cable
+                .next_line()
+                .or_else(|| self.native_cable_next_line())
+        })
+        .collect()
     }
 
     /// Delivers the answer to a request ([`Io::Http`]).

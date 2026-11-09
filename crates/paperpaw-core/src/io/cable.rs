@@ -195,6 +195,14 @@ impl Cable {
         );
     }
 
+    /// Answers the request the kernel numbered `request` with `status` and
+    /// `why`, without its plugin; nothing where it is not open.
+    pub(crate) fn refuse_request(&mut self, request: u32, status: u16, why: &str) {
+        if let Some(&(n, _)) = self.open.iter().find(|(_, r)| *r == request) {
+            self.refuse(n, status, why);
+        }
+    }
+
     /// The plugin's answer to the kernel's request `request`, if it is
     /// the cable's; a file to send is refused.
     pub(crate) fn answer(
