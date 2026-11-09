@@ -38,7 +38,7 @@ const WIDGETS: Case = Case {
 const MARKS: Case = Case {
     name: "vocabulary-marks",
     golden: None,
-    blocked_by: &["decoration stage"],
+    blocked_by: &["reader decorations (reader.decorations@1)"],
 };
 /// The phone page that edits decks and cards.
 const PHONE: Case = Case {
@@ -118,7 +118,7 @@ fn the_widgets_show_a_word_and_the_cards_due() {
 }
 
 #[test]
-#[ignore = "BLOCKED decorations: the decoration stage of interface 7 (marks.rs)"]
+#[ignore = "BLOCKED reader decorations: the reader's stage reader.decorations@1 (marks.rs keeps the logic ready)"]
 fn the_words_are_marked_in_books_of_their_language() {
     MARKS.refuse().unwrap();
 }

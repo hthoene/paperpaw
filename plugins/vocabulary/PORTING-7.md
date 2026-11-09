@@ -145,7 +145,7 @@ native screens replace these callers.
 - The widgets on the widget stage, as Stats' (`native_widgets.rs`): the host call and the stage exist
   (Core todo 76 is done), so this is Vocabulary's own work, not a blocker.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (decorations): the decoration stage of interface 7 is not defined (Kernel).
+- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: done, see *Ported: the card files* below.
 
