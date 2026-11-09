@@ -941,19 +941,21 @@ fn native_presets_are_listed_with_their_values_and_resets() {
         .build()
         .unwrap();
     let mut specs = kernel.settings().specs();
-    let on = specs
-        .find(|spec| matches!(spec.kind, SettingKind::Bool))
-        .unwrap()
-        .id
-        .as_str()
-        .to_owned();
-    let other = specs
-        .find(|spec| matches!(spec.kind, SettingKind::Bool))
-        .unwrap()
-        .id
-        .as_str()
-        .to_owned();
-    let mut encoded = [core::mem::MaybeUninit::<u8>::uninit(); 8];
+    let on = String::from(
+        specs
+            .find(|spec| matches!(spec.kind, SettingKind::Bool))
+            .unwrap()
+            .id
+            .as_str(),
+    );
+    let other = String::from(
+        specs
+            .find(|spec| matches!(spec.kind, SettingKind::Bool))
+            .unwrap()
+            .id
+            .as_str(),
+    );
+    let mut encoded = [core::mem::MaybeUninit::<u8>::uninit(); 32];
     let used = settings_encode(SettingValueRef::Bool(true), &mut encoded).unwrap();
     // SAFETY: the encoder initialised the first `used` bytes.
     let bytes: Vec<u8> = encoded[..used]
@@ -963,7 +965,7 @@ fn native_presets_are_listed_with_their_values_and_resets() {
     let directory = declarations(&[
         Record::PresetSpec(wire::PresetSpec {
             name: "night",
-            kind: "core.power-mode",
+            kind: "nat.mode",
             title: "Night",
             help: "Dark and quiet.",
         }),
@@ -990,7 +992,7 @@ fn native_presets_are_listed_with_their_values_and_resets() {
         &kernel,
         Some(&directory),
         schema::OP_PRESETS,
-        "core.power-mode",
+        "nat.mode",
         0,
     );
     assert_eq!(rows, vec!["item nat.night nat 0 Night"]);
