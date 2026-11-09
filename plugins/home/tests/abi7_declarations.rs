@@ -274,8 +274,19 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 2);
-    assert_eq!(native.events.len(), 1);
-    assert!(native.events[0].ends_with(&format!(":{}", declarations::SETTING_CHANGED)));
+    // The setting changes (the grid) and the minute tick (the time shown), in
+    // either order.
+    assert_eq!(native.events.len(), 2, "{:?}", native.events);
+    for token in [declarations::SETTING_CHANGED, declarations::TICK] {
+        assert!(
+            native
+                .events
+                .iter()
+                .any(|e| e.ends_with(&format!(":{token}"))),
+            "{token} in {:?}",
+            native.events
+        );
+    }
     // Nothing else was declared.
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

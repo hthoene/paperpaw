@@ -16,6 +16,7 @@ pub const STATUS_ITEMS: u32 = 13;
 pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
+pub const TICK: u32 = 4;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 8;
@@ -207,10 +208,13 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The grid's columns or rows changed: the pages are fitted to it.
+/// The grid's columns or rows changed (the pages are fitted to it), and the
+/// minute tick (the status line, the clock and what else shows the time are
+/// drawn anew).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::Tick, TICK)?;
     d.submit()
 }

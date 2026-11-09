@@ -18,7 +18,7 @@ use paperpaw_sdk::{
         registry::StatusScope,
         reply::Reply,
         settings::{self, SettingValue},
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Open, Param, Ui, UiCursor},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -33,9 +33,9 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS};
+use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS, TICK};
 use crate::native_add_screen::{self as add_screen, AddScreen};
-use crate::native_dashboard::Dashboard;
+use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
 
 /// The setting the footer's editor changes.
@@ -95,7 +95,7 @@ impl Plugin for NativeHome {
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged)
         else {
             return Ok(());
         };
@@ -145,8 +145,12 @@ impl Plugin for NativeHome {
                 self.screens.close(instance);
                 Ok(())
             }
-            // The pages are fitted to a new grid by the dashboard's slice, which
-            // measures widgets (`PORTING-7.md`).
+            // The minute tick, and a widget that says it shows something new
+            // (`event.widget_changed`, which the host does not deliver yet:
+            // `PORTING-7.md`): what shows is laid out and drawn anew.
+            Event::Tick { .. } if token == TICK => self.refresh(host),
+            Event::WidgetChanged { .. } => self.refresh(host),
+            // The pages are fitted to a new grid by a later slice (`PORTING-7.md`).
             _ => Ok(()),
         }
     }
@@ -188,6 +192,36 @@ impl NativeHome {
 
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// The dashboard shows something new (the minute passed, a widget
+    /// changed): laid out and drawn anew, as interface 6 did, where it is on
+    /// top; under another screen nothing is drawn (it is laid out when shown).
+    fn refresh(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(instance) = self.screens.top_instance(DASHBOARD) else {
+            return Ok(());
+        };
+        if self.stack_top(host)? != Some(instance) {
+            return Ok(());
+        }
+        if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
+            dashboard.mark_stale();
+        }
+        redraw(host)
+    }
+
+    /// The instance on top of the screen stack, if there is one.
+    fn stack_top(&self, host: &Host<'_>) -> Result<Option<Instance>, Error> {
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let page = self
+            .ui()?
+            .stack(host, UiCursor::start(), &mut input, &mut output)?;
+        Ok(page
+            .into_iter()
+            .next()
+            .transpose()?
+            .map(|row| row.instance()))
     }
 
     /// *Edit home screen*: the home slot opens (or the dashboard turns to
