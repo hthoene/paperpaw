@@ -166,12 +166,12 @@ fn more_malformed_pages_are_refused() {
         })]),
         Err(Error::Invalid)
     );
-    // 33 rows are more than a page holds; 32 are fine.
-    let rows: Vec<Record<'static>> = (0..33).map(|_| reader("a.r", "")).collect();
-    let mut thirty_three = rows.clone();
-    thirty_three.push(end(1, 33, 3, 33));
-    assert_eq!(ask(&thirty_three), Err(Error::Invalid));
-    let mut thirty_two = rows[..32].to_vec();
-    thirty_two.push(end(1, 32, 3, 32));
-    assert_eq!(ask(&thirty_two), Ok(32));
+    // 65 rows are more than a page holds (64); 64 are fine.
+    let rows: Vec<Record<'static>> = (0..65).map(|_| reader("a.r", "")).collect();
+    let mut sixty_five = rows.clone();
+    sixty_five.push(end(1, 65, 3, 65));
+    assert_eq!(ask(&sixty_five), Err(Error::Invalid));
+    let mut sixty_four = rows[..64].to_vec();
+    sixty_four.push(end(1, 64, 3, 64));
+    assert_eq!(ask(&sixty_four), Ok(64));
 }

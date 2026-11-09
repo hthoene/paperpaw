@@ -2783,7 +2783,7 @@ table of contents are not in this client yet. The host answers `Busy` while a
 document is preparing.
 
 `Documents::readers(host, scope, cursor, input, out)` lists the reading apps for "Open with" and
-the default reader, in pages of at most 32: `scope` keeps the readers that show the format
+the default reader, in pages of at most 64 rows: `scope` keeps the readers that show the format
 with that id (empty for all), `ReaderPage::rows()` gives each `Reader` (`id()`, `screen()`,
 `title()` and `formats()`, an empty list meaning every format: `reads_every_format()`), and
 `ReaderPage::end().next()` is the cursor of the next page, `None` after the last. A cursor whose
