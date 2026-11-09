@@ -164,6 +164,7 @@ pub enum Step<T> {
 
 /// Who signed an image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Signer {
     /// A key PaperPaw's firmware has built in.
     PaperPaw {

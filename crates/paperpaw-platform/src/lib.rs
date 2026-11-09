@@ -14,6 +14,8 @@
 
 pub mod display;
 pub mod firmware;
+/// A scripted [`FirmwareHost`] for tests; device builds do not carry it.
+#[cfg(any(test, feature = "fake"))]
 pub mod firmware_fake;
 pub mod geometry;
 pub mod input;
