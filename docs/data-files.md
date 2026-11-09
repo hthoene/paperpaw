@@ -134,6 +134,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/opds/covers/<md5 of the address>.gray` | opds | a catalog's cover decoded, by its address |
 | `.paperpaw/plugins/store/index.txt`, `index.head`, `index.bin`, `search.bin`, `plugin-<id>.part`, `shot.gray` | store | the plugin library's list for this device, fetched again; a plugin's page and a screenshot as they are shown |
 | `.paperpaw/plugins/store/list.part`, `sort.bin`, `shot-<n>.part` | store | the list and a screenshot while they are downloaded, the list's sort while it is sorted |
+| `.paperpaw/plugins/transfer/page.html`, `phone.html`, `plugins.json`, `staging/<id>/…` | transfer | the web page and the phone's page with their texts, the list of the installed plugins, and the files of a plugin sent from the computer until the device has installed it; all written when the screen opens or a request comes, removed when the screen closes (what is left goes at the next time it opens) |
 | `.paperpaw/plugins/joplin/info.json`, `locks.txt`, `found.md`, `note.md` | joplin | fetched or written again with each sending, removed after it |
 | `.paperpaw/plugins/readwise/body.json` | readwise | a request's body, written again with each request (Readwise's answer is not kept) |
 | `.paperpaw/plugins/update/offer.txt`; `updates/.download` and `updates/<firmware>-<version>.bin` at the top of the card | update | the update server's last answer, a download until it is whole, and the update downloaded; fetched again, and let go once the version is no longer newer |
