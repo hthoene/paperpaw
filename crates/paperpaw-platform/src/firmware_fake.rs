@@ -30,7 +30,6 @@ pub enum Stage {
 pub enum Call {
     BeginCheck {
         path: String,
-        foreign: bool,
     },
     CheckStep,
     BeginWrite {
@@ -148,10 +147,9 @@ impl FirmwareHost for FakeFirmware {
         )
     }
 
-    fn begin_check(&mut self, path: &str, foreign: bool) -> Result<(), Reason> {
+    fn begin_check(&mut self, path: &str) -> Result<(), Reason> {
         self.log.push(Call::BeginCheck {
             path: String::from(path),
-            foreign,
         });
         if let Some(reason) = self.strike(Stage::BeginCheck) {
             return Err(reason);
@@ -327,7 +325,7 @@ mod tests {
     fn a_whole_install_goes_through_every_stage() {
         let mut fake = fake();
         let storage = NoStorage;
-        fake.begin_check("update.ppu", false).unwrap();
+        fake.begin_check("update.ppu").unwrap();
         let mut seen: Vec<String> = Vec::new();
         let facts = loop {
             match fake.check_step(&storage, &mut |id| seen.push(String::from(id))) {
@@ -374,21 +372,21 @@ mod tests {
 
         let mut fake = self::fake();
         fake.fail = Some((Stage::BeginCheck, 0, Reason::OTHER));
-        assert_eq!(fake.begin_check("u.ppu", false), Err(Reason::OTHER));
+        assert_eq!(fake.begin_check("u.ppu"), Err(Reason::OTHER));
     }
 
     /// One job at a time; nothing is installed where there is no room.
     #[test]
     fn a_second_begin_is_a_failure_and_no_room_is_not_here() {
         let mut fake = fake();
-        fake.begin_check("a", false).unwrap();
-        assert_eq!(fake.begin_check("b", false), Err(Reason::OTHER));
+        fake.begin_check("a").unwrap();
+        assert_eq!(fake.begin_check("b"), Err(Reason::OTHER));
         assert_eq!(
             fake.begin_write("b", [0; 32], None, false),
             Err(Reason::OTHER)
         );
         fake.abandon();
-        fake.begin_check("b", false).unwrap();
+        fake.begin_check("b").unwrap();
         fake.abandon();
         fake.room = 0;
         assert_eq!(
@@ -396,7 +394,7 @@ mod tests {
             Err(Reason::NOT_HERE)
         );
         // A check still works.
-        fake.begin_check("c", true).unwrap();
+        fake.begin_check("c").unwrap();
         assert_eq!(fake.restart(), Err(Reason::NOT_HERE));
     }
 
@@ -407,7 +405,7 @@ mod tests {
         let mut facts = paperpaw_facts("1.0", "crosspoint", 100);
         facts.foreign = true;
         fake.facts = facts;
-        fake.begin_check("x.bin", true).unwrap();
+        fake.begin_check("x.bin").unwrap();
         let mut seen = 0;
         while !matches!(
             fake.check_step(&NoStorage, &mut |_| seen += 1),

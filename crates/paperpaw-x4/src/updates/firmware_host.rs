@@ -104,7 +104,6 @@ struct Meta {
 /// A check going on.
 pub(super) struct CheckJob {
     path: String,
-    foreign: bool,
     /// The one I/O buffer (`PIECE` bytes), taken in `begin_check`.
     buf: Box<[u8]>,
     phase: Phase,
@@ -188,13 +187,25 @@ impl<F: Flash> Updates<F> {
     }
 
     /// What the image at `path` says about itself and how to verify it.
+    /// `foreign` is what the write was confirmed for; `None` finds out from
+    /// the image (a check): an app image whose project is not PaperPaw's is
+    /// another firmware's. Anything else is looked at as PaperPaw's, so a
+    /// damaged update is said to be damaged.
     fn open_image(
         &self,
         storage: &dyn Storage,
         path: &str,
-        foreign: bool,
+        foreign: Option<bool>,
     ) -> Result<(Meta, Verify, u64), Reason> {
         let this = &self.this;
+        let foreign = match foreign {
+            Some(foreign) => foreign,
+            None => {
+                let mut head = [0; APP_HEAD_LEN];
+                read_exact(storage, path, 0, &mut head).is_ok()
+                    && AppInfo::read(&head).is_ok_and(|info| !info.project.starts_with("paperpaw-"))
+            }
+        };
         if foreign {
             let image = ForeignImage::read(storage, path).map_err(reason_of)?;
             let chip_ok = !matches!(image.fits(this), Err(InstallFailure::OtherDevice));
@@ -258,7 +269,7 @@ impl<F: Flash> Updates<F> {
         let phase = core::mem::replace(&mut job.phase, Phase::Head);
         match phase {
             Phase::Head => {
-                let (meta, verify, len) = self.open_image(storage, &job.path, job.foreign)?;
+                let (meta, verify, len) = self.open_image(storage, &job.path, None)?;
                 // The list, where the image has one (an older one does not).
                 let mut head = [0; PLUGINS_HEAD_LEN];
                 let listed = !meta.foreign
@@ -356,7 +367,7 @@ impl<F: Flash> Updates<F> {
         let stage = core::mem::replace(&mut job.stage, Stage::Start);
         match stage {
             Stage::Start => {
-                let (meta, verify, len) = self.open_image(storage, &job.path, job.foreign)?;
+                let (meta, verify, len) = self.open_image(storage, &job.path, Some(job.foreign))?;
                 if !meta.chip_ok {
                     return Err(Reason::OTHER_CHIP);
                 }
@@ -515,7 +526,7 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         )
     }
 
-    fn begin_check(&mut self, path: &str, foreign: bool) -> Result<(), Reason> {
+    fn begin_check(&mut self, path: &str) -> Result<(), Reason> {
         if !self.free_for_a_job() {
             return Err(Reason::OTHER);
         }
@@ -523,7 +534,6 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         let path = owned(path).map_err(|_| Reason::OTHER)?;
         self.job = Some(Job::Check(CheckJob {
             path,
-            foreign,
             buf,
             phase: Phase::Head,
         }));

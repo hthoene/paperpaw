@@ -254,7 +254,6 @@ fn check(
     host: &mut impl FirmwareHost,
     card: &Card,
     path: &str,
-    foreign: bool,
 ) -> (
     Vec<String>,
     Result<paperpaw_platform::CheckFacts, Reason>,
@@ -262,7 +261,7 @@ fn check(
 ) {
     let mut seen = Vec::new();
     let mut steps = 0;
-    if let Err(reason) = host.begin_check(path, foreign) {
+    if let Err(reason) = host.begin_check(path) {
         return (seen, Err(reason), steps);
     }
     loop {
@@ -313,7 +312,7 @@ fn a_check_streams_the_built_ins_and_reports_what_it_found() {
     let mut device = Device::started(vec![key]);
     let image = image_0_6(&["paperpaw-plugin-stats", "paperpaw-plugin-weather"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (seen, facts, steps) = check(&mut device.updates, &card, UPDATE, false);
+    let (seen, facts, steps) = check(&mut device.updates, &card, UPDATE);
     assert_eq!(seen, ["stats", "weather"]);
     let facts = facts.unwrap();
     assert!(facts.chip_ok && !facts.foreign);
@@ -340,7 +339,7 @@ fn an_older_image_without_a_list_streams_nothing() {
     let mut device = Device::started(vec![key]);
     let image = app_image(CHIP_ESP32_C3, PROJECT, "0.4.0", None, b"", 100_000);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE);
     assert!(seen.is_empty());
     assert!(facts.is_ok());
 }
@@ -354,7 +353,7 @@ fn a_whole_install_writes_the_slot_and_chooses_it() {
     let mut device = Device::started(vec![key]);
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let digest = facts.unwrap().sha256;
 
     device
@@ -413,7 +412,7 @@ fn an_unknown_key_installs_only_when_accepted() {
     let mut device = Device::started(Vec::new());
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let facts = facts.unwrap();
     let key = paperpaw_update::public_key(&SEED);
     assert_eq!(facts.signer, Signer::Other { key });
@@ -457,7 +456,7 @@ fn a_changed_image_is_reason_18_and_nothing_is_chosen() {
     let mut device = Device::started(vec![key]);
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let digest = facts.unwrap().sha256;
     // The same image, changed after the check, signed again (a valid file).
     let mut other = image.clone();
@@ -485,7 +484,7 @@ fn a_damaged_signature_fails_the_check() {
     let mut file = signed(&image, &SEED);
     file[1000] ^= 1;
     let card = Card::with(UPDATE, &file);
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     assert_eq!(facts.unwrap_err(), Reason::DAMAGED);
 }
 
@@ -495,10 +494,10 @@ fn a_damaged_signature_fails_the_check() {
 fn an_unsigned_app_image_is_reason_8() {
     let mut device = Device::started(Vec::new());
     let card = Card::with(UPDATE, &image_0_6(&[]));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     assert_eq!(facts.unwrap_err(), Reason::UNSIGNED);
     let card = Card::with(UPDATE, &[1, 2, 3]);
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     assert_eq!(facts.unwrap_err(), Reason::DAMAGED);
 }
 
@@ -510,7 +509,7 @@ fn an_image_for_another_chip_is_said_so_and_not_installed() {
     let mut device = Device::started(vec![key]);
     let image = app_image(CHIP_ESP32_S3, PROJECT, "0.6.0", Some(&[]), b"", 100_000);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let facts = facts.unwrap();
     assert!(!facts.chip_ok);
     let ended = write(
@@ -531,11 +530,11 @@ fn a_failing_card_is_reason_16() {
     let mut device = Device::started(vec![key]);
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let digest = facts.unwrap().sha256;
     for reads in [0, 3, 12, 40] {
         card.reads_left.set(reads);
-        let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+        let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
         assert_eq!(
             facts.unwrap_err(),
             Reason::CARD,
@@ -606,7 +605,7 @@ fn another_firmwares_image_installs_final() {
         300_000,
     );
     let card = Card::with(UPDATE, &image);
-    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE, true);
+    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE);
     let facts = facts.unwrap();
     assert!(seen.is_empty() && facts.foreign && facts.chip_ok);
     assert_eq!(facts.signer, Signer::Unsigned);
@@ -631,7 +630,7 @@ fn a_shared_device_checks_but_does_not_install() {
     assert_eq!(FirmwareHost::running(&device.updates).room, 0);
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    let (_, facts, _) = check(&mut device.updates, &card, UPDATE, false);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
     let facts = facts.unwrap();
     let ended = write(
         &mut device.updates,
@@ -652,11 +651,8 @@ fn a_second_job_waits_for_the_first_to_end() {
     let mut device = Device::started(vec![key]);
     let image = image_0_6(&["paperpaw-plugin-stats"]);
     let card = Card::with(UPDATE, &signed(&image, &SEED));
-    device.updates.begin_check(UPDATE, false).unwrap();
-    assert_eq!(
-        device.updates.begin_check(UPDATE, false),
-        Err(Reason::OTHER)
-    );
+    device.updates.begin_check(UPDATE).unwrap();
+    assert_eq!(device.updates.begin_check(UPDATE), Err(Reason::OTHER));
     assert_eq!(
         device.updates.begin_write(UPDATE, [0; 32], None, false),
         Err(Reason::OTHER)
@@ -670,10 +666,7 @@ fn a_second_job_waits_for_the_first_to_end() {
         .updates
         .begin_write(UPDATE, [0; 32], None, false)
         .unwrap();
-    assert_eq!(
-        device.updates.begin_check(UPDATE, false),
-        Err(Reason::OTHER)
-    );
+    assert_eq!(device.updates.begin_check(UPDATE), Err(Reason::OTHER));
 }
 
 /// The version and room the kernel is told are the running firmware's.

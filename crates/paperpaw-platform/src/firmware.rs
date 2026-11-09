@@ -190,8 +190,8 @@ pub struct CheckFacts {
     pub version: Text<VERSION_MAX>,
     pub project: Text<PROJECT_MAX>,
     pub signer: Signer,
-    /// Another firmware than PaperPaw: unsigned, checked as the boot loader
-    /// would start it.
+    /// Another firmware than PaperPaw (found from the image, not asked):
+    /// unsigned, checked as the boot loader would start it.
     pub foreign: bool,
     /// SHA-256 of the image's bytes: what the user's yes is bound to.
     pub sha256: [u8; 32],
@@ -224,12 +224,14 @@ pub trait FirmwareHost {
     /// The running firmware.
     fn running(&self) -> Running<'_>;
 
-    /// Begins pass 1 on the image at `path` on the card; `foreign` says it is
-    /// another firmware's (its checks are the boot loader's, there is no
-    /// signature). The step's buffer is taken here: no room is
+    /// Begins pass 1 on the image at `path` on the card. The check finds out
+    /// for itself whether the image is another firmware's (its project is
+    /// not PaperPaw's: its checks are the boot loader's, there is no
+    /// signature) and says so in [`CheckFacts::foreign`]. The step's buffer
+    /// is taken here: no room is
     /// `Err(Reason::OTHER)` and nothing is touched. Where the device shares
     /// its flash with another firmware a check still works.
-    fn begin_check(&mut self, path: &str, foreign: bool) -> Result<(), Reason>;
+    fn begin_check(&mut self, path: &str) -> Result<(), Reason>;
 
     /// One bounded step of the check. For a signed update it reads the
     /// plugins the image has built in first and calls `built_in` with each

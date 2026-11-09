@@ -181,16 +181,22 @@ mod tests {
 
     #[test]
     fn a_plugin_crate_names_its_plugin_id() {
-        let id = |name| PluginCrate { name, version: "1" }.plugin_id();
-        assert_eq!(id("paperpaw-plugin-stats"), Some("stats"));
-        assert_eq!(id("paperpaw-plugin-hyphenation-de"), Some("hyphenation-de"));
+        let id = |name| {
+            let c = PluginCrate { name, version: "1" };
+            c.plugin_id().map(std::string::ToString::to_string)
+        };
+        assert_eq!(id("paperpaw-plugin-stats").as_deref(), Some("stats"));
+        assert_eq!(
+            id("paperpaw-plugin-hyphenation-de").as_deref(),
+            Some("hyphenation-de")
+        );
         assert_eq!(id("paperpaw-plugin-"), None);
         assert_eq!(id("paperpaw-stats"), None);
         assert_eq!(id("other-plugin-stats"), None);
         assert_eq!(id("paperpaw-plugin-Stats"), None);
         assert_eq!(id("paperpaw-plugin-a.b"), None);
         let long = std::format!("paperpaw-plugin-{}", "x".repeat(64));
-        assert_eq!(id(&long).map(str::len), Some(64));
+        assert_eq!(id(&long).map(|i| i.len()), Some(64));
         let longer = std::format!("paperpaw-plugin-{}", "x".repeat(65));
         assert_eq!(id(&longer), None);
     }
