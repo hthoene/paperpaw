@@ -196,6 +196,10 @@ minute at most, in memory only); the count now starts at zero with each plugin i
 - Where the numbers come from (`native_numbers::read`): `core.library` op 1 (`books` of the catalog)
   and two queries (`Show::Finished`, `Show::Reading`) of which only `end.total` is used, three calls
   with two 4,096-byte buffers, the service released in every case (`native_books::with_library`).
+  The counts are kept in the plugin (`native_numbers::Cache`) for the catalog's generation, so a redraw
+  asks the library for its state only (one call). Where a query is refused the widget shows the books
+  of the catalog alone (tried again at the next draw), and where the library is not there at all it
+  shows nothing counted; only a refused allocation fails the draw.
   `shows` (the minute tick) reads the catalog's generation and book count only: the generation moves
   when books come or go and when one is first opened or finished (`library.md` 2), so the widget
   follows within a minute.

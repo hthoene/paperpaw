@@ -24,6 +24,8 @@ use paperpaw_ui_kit::{
     },
 };
 
+/// The callback token of the widget as declared.
+pub const TOKEN: u32 = 114;
 /// The numbers that can show, in order: each a part and the key of its name.
 const PARTS: [(&str, &str); 4] = [
     ("books", "widgets.library.books"),
@@ -71,18 +73,57 @@ impl Numbers {
     }
 }
 
+/// What was counted, and the catalog generation it was counted for.
+#[derive(Debug, Default)]
+pub struct Cache {
+    kept: Option<(u32, Numbers)>,
+}
+
 /// The books the library has found: those it lists, those finished and
-/// those being read, each by one query of which only the total is used.
+/// those being read, each by one query of which only the total is used. Kept
+/// for the catalog's generation (it moves when books come or go and when one
+/// is first opened or finished), so a redraw asks the library for its state
+/// only.
+///
+/// Where the library refuses a call the widget shows what it has: the books
+/// of the catalog where only a query was refused, nothing counted where
+/// the library is not there at all. Only a refused allocation is an error.
 ///
 /// # Errors
-/// The host's refusals and [`Error::NoMemory`].
-pub fn read(host: &Host<'_>) -> Result<Numbers, Error> {
+/// [`Error::NoMemory`].
+pub fn read_with(host: &Host<'_>, cache: &mut Cache) -> Result<Numbers, Error> {
+    match count_with(host, cache) {
+        Ok(numbers) => Ok(numbers),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(Numbers::default()),
+    }
+}
+
+fn count_with(host: &Host<'_>, cache: &mut Cache) -> Result<Numbers, Error> {
     with_library(host, |library| {
         let (mut input, mut out) = buffers()?;
         let state = library.state(host, &mut input, &mut out)?;
-        let read = total(host, library, Show::Finished, (&mut input, &mut out))?;
-        let reading = total(host, library, Show::Reading, (&mut input, &mut out))?;
-        Ok(Numbers::count(state.books(), read, reading))
+        let generation = state.generation();
+        if let Some((kept, numbers)) = cache.kept
+            && kept == generation
+        {
+            return Ok(numbers);
+        }
+        let sides = (&mut input[..], &mut out[..]);
+        let read = total(host, library, Show::Finished, sides);
+        let sides = (&mut input[..], &mut out[..]);
+        let reading = total(host, library, Show::Reading, sides);
+        match (read, reading) {
+            (Ok(read), Ok(reading)) => {
+                let numbers = Numbers::count(state.books(), read, reading);
+                cache.kept = Some((generation, numbers));
+                Ok(numbers)
+            }
+            (Err(Error::NoMemory), _) | (_, Err(Error::NoMemory)) => Err(Error::NoMemory),
+            // A query refused: the books of the catalog alone, tried again
+            // at the next draw.
+            _ => Ok(Numbers::count(state.books(), 0, 0)),
+        }
     })
 }
 
@@ -232,7 +273,7 @@ fn lay_out(
     };
     let inks = inks(font, (place.text, small), &labels)?;
     let names_h = inks.names.1;
-    let bar_room = (place.line * 3).max(4) + gap;
+    let bar_room = place.line.saturating_mul(3).max(4).saturating_add(gap);
     let wanted_bar = place.bar && numbers.books > 0;
     let mut widest_label = 0.0_f32;
     let mut widest = String::new();
@@ -263,7 +304,8 @@ fn lay_out(
         };
         let rows = u16::try_from(shown).unwrap_or(u16::MAX).div_ceil(columns);
         for bar in [wanted_bar, false] {
-            let fixed = if bar { bar_room } else { 0 } + gap * (rows - 1);
+            let fixed = (if bar { bar_room } else { 0 })
+                .saturating_add(gap.saturating_mul(rows.saturating_sub(1)));
             let row = area.height.saturating_sub(fixed) / rows;
             let size = largest_size(place.max, small, |s| {
                 // A pixel or two to spare: the ink is measured from the
@@ -327,8 +369,21 @@ fn lay_out(
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+    draw_with(cx, out, area, &mut Cache::default())
+}
+
+/// Draws the widget in `area`, the numbers kept in `cache`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw_with(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    cache: &mut Cache,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let numbers = read(cx.host)?;
+    let numbers = read_with(cx.host, cache)?;
     let rest = caption(cx, out, &look, CAPTION)?;
     let parts = parts(cx)?;
     let style = cx.style();
@@ -366,10 +421,10 @@ fn draw_beside(
 ) -> Result<(), Error> {
     let (font, small, area) = (place.font, place.small, place.area);
     let column = area.width / laid.columns.max(1);
-    let left = align.x(area, f32::from(column * laid.columns)) as u16;
+    let left = align.x(area, f32::from(column.saturating_mul(laid.columns))) as u16;
     for (i, (part, name)) in parts.iter().take(laid.shown).enumerate() {
         let cell = Rect::new(
-            left.saturating_add((i as u16).saturating_mul(column)),
+            left.saturating_add(u16::try_from(i).unwrap_or(u16::MAX).saturating_mul(column)),
             area.y,
             column,
             area.height,
@@ -437,7 +492,7 @@ fn draw_laid(
     let (font, small, area, gap) = (place.font, place.small, place.area, place.gap);
     let shown = parts.get(..laid.shown.min(parts.len())).unwrap_or(&[]);
     let column = area.width / laid.columns.max(1);
-    let used = column * laid.columns;
+    let used = column.saturating_mul(laid.columns);
     let left = align.x(area, f32::from(used)) as u16;
     let labels = {
         let mut all = String::new();
@@ -472,37 +527,56 @@ fn draw_laid(
         Some(ink) => geometry::check_ink(ink.top, ink.bottom)?,
         None => (-(size as i32), 0),
     };
-    let digits_h = (ink.1 - ink.0) as u16;
-    let row_h = digits_h + if named { gap / 2 + names_h } else { 0 };
+    let digits_h = u16::try_from(ink.1.saturating_sub(ink.0)).unwrap_or(0);
+    let row_h = digits_h.saturating_add(if named { gap / 2 + names_h } else { 0 });
     let rows = u16::try_from(laid.shown)
         .unwrap_or(u16::MAX)
         .div_ceil(laid.columns.max(1));
-    let bar_h = (place.line * 3).max(4);
-    let total = row_h * rows + gap * (rows - 1) + if laid.bar { gap + bar_h } else { 0 };
-    let top = area.y + area.height.saturating_sub(total) / 2;
+    let bar_h = place.line.saturating_mul(3).max(4);
+    let between_rows = gap.saturating_mul(rows.saturating_sub(1));
+    let bar_room = if laid.bar {
+        gap.saturating_add(bar_h)
+    } else {
+        0
+    };
+    let total = row_h
+        .saturating_mul(rows)
+        .saturating_add(between_rows)
+        .saturating_add(bar_room);
+    let top = area.y.saturating_add(area.height.saturating_sub(total) / 2);
     for (i, ((part, _), name)) in shown.iter().zip(&names).enumerate() {
-        let (col, row) = (i as u16 % laid.columns, i as u16 / laid.columns);
-        let y = top + row * (row_h + gap);
+        let at = u16::try_from(i).unwrap_or(u16::MAX);
+        let columns = laid.columns.max(1);
+        let (col, row) = (at % columns, at / columns);
+        let y = top.saturating_add(row.saturating_mul(row_h.saturating_add(gap)));
         // A last row with fewer in the middle under the others.
-        let in_row = (shown.len() as u16 - row * laid.columns).min(laid.columns);
-        let shift = (laid.columns - in_row) * column / 2;
-        let cell = Rect::new(left + shift + col * column, y, column, row_h);
+        let count = u16::try_from(shown.len()).unwrap_or(u16::MAX);
+        let in_row = count
+            .saturating_sub(row.saturating_mul(columns))
+            .min(columns);
+        let shift = columns.saturating_sub(in_row).saturating_mul(column) / 2;
+        let x_cell = left
+            .saturating_add(shift)
+            .saturating_add(col.saturating_mul(column));
+        let cell = Rect::new(x_cell, y, column, row_h);
         let number = digits(numbers.of(part))?;
         let x = Align::Center.x(cell, font.measure_text(size, &number)?);
         push_text(out, number, (size, x, i32::from(y) - ink.0), look.ink)?;
         let label_w = font.measure_text(small, name)?;
         if named && label_w <= f32::from(column) {
             let x = Align::Center.x(cell, label_w);
-            let baseline = i32::from(y + digits_h + gap / 2) - names_top;
+            let baseline =
+                i32::from(y.saturating_add(digits_h).saturating_add(gap / 2)) - names_top;
             push_text(out, text::copy(name)?, (small, x, baseline), look.faint)?;
         }
     }
     if laid.bar {
         let inset = column / 6;
+        let below = row_h.saturating_mul(rows).saturating_add(between_rows);
         let line = Rect::new(
-            left + inset,
-            top + row_h * rows + gap * (rows - 1) + gap,
-            used.saturating_sub(2 * inset),
+            left.saturating_add(inset),
+            top.saturating_add(below).saturating_add(gap),
+            used.saturating_sub(inset.saturating_mul(2)),
             bar_h,
         );
         draw_share(out, look, line, numbers)?;
@@ -521,7 +595,12 @@ fn draw_share(
     let fine = 1u16.clamp(1, area.height.max(1));
     shape::fill(
         out,
-        Rect::new(area.x, area.y + (area.height - fine) / 2, area.width, fine),
+        Rect::new(
+            area.x,
+            area.y.saturating_add(area.height.saturating_sub(fine) / 2),
+            area.width,
+            fine,
+        ),
         look.ink,
     )?;
     let share =
@@ -530,9 +609,9 @@ fn draw_share(
     let reading = share(numbers.reading);
     if reading > 0 {
         let at = Rect::new(
-            area.x + read,
+            area.x.saturating_add(read),
             area.y,
-            reading.min(area.width - read),
+            reading.min(area.width.saturating_sub(read)),
             area.height,
         );
         // Shaded in interface 6 (a dither); a plain gray here, as the

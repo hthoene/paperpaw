@@ -73,6 +73,8 @@ pub struct NativeWidgets {
     pub(crate) todo: crate::native_todo::Cache,
     /// How often a quote was shown.
     showings: crate::native_quote::Showings,
+    /// The library's numbers as last counted.
+    numbers: crate::native_numbers::Cache,
 }
 
 impl NativeWidgets {
@@ -288,7 +290,11 @@ impl Plugin for NativeWidgets {
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
-        let item = self.find(frame.id).ok_or(Error::NotFound)?;
+        let item = self
+            .items
+            .iter()
+            .find(|item| item.instance.get() == frame.id)
+            .ok_or(Error::NotFound)?;
         let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
         let mut cx = Cx::open(host, &item.widget)?;
         let area = Rect::new(
@@ -302,6 +308,8 @@ impl Plugin for NativeWidgets {
             crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
         } else if item.token == crate::native_quote::TOKEN {
             crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
+        } else if item.token == crate::native_numbers::TOKEN {
+            crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
         } else {
             (behaviour.draw)(&mut cx, &mut out, area)?;
         }
