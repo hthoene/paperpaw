@@ -78,6 +78,7 @@ mod native_review_screen;
 )]
 mod native_sd;
 mod native_sd_shell;
+mod native_sleep_card;
 #[allow(
     dead_code,
     reason = "used by the native screens, which wait (PORTING-7.md)"

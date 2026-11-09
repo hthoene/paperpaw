@@ -23,11 +23,12 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN,
-    TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
+    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN,
+    SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
+    WORK_TOKEN,
 };
 use crate::files::DataFolder;
-use crate::native_decks::{DecksView, Numbers};
+use crate::native_decks::{self, DecksView, Numbers};
 use crate::native_list::{self, WordRows, WordsView};
 use crate::native_review::{self, due_now};
 use crate::native_review_screen::{HostTime, ReviewScreen, settings};
@@ -47,6 +48,8 @@ pub struct NativeVocabulary {
     decks: Screens<DecksView>,
     reviews: Screens<ReviewScreen>,
     words: Screens<WordsView>,
+    /// The sleep card's screen (one at a time).
+    asleep: Screens<crate::native_sleep_card::Asleep>,
     /// The widgets screens show.
     widgets: crate::native_widgets::Widgets,
     /// The card files' menu, and the screens that update from them or save.
@@ -63,6 +66,7 @@ impl Plugin for NativeVocabulary {
             .chain(image::EVENTS)
             .chain(image::STAGES)
             .chain(image::WIDGETS)
+            .chain(image::NAVIGATION)
             .chain(image::UI)
         {
             registrations::submit(host, batch)?;
@@ -78,7 +82,7 @@ impl Plugin for NativeVocabulary {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::Resume, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -99,6 +103,10 @@ impl Plugin for NativeVocabulary {
                 payload,
                 ..
             } => self.widgets.stage(host, payload, reply),
+            Event::Resume { .. } if token == RESUME_TOKEN => self.woke(host),
+            Event::ScreenOpened { instance, .. } if token == SLEEP_TOKEN => self
+                .asleep
+                .open(instance, crate::native_sleep_card::read(host)?),
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
             Event::StageCall {
@@ -152,6 +160,7 @@ impl Plugin for NativeVocabulary {
                 self.decks.close(instance);
                 self.reviews.close(instance);
                 self.words.close(instance);
+                self.asleep.close(instance);
                 self.closed_sd(host, instance);
                 Ok(())
             }
@@ -164,6 +173,11 @@ impl Plugin for NativeVocabulary {
             return self.widgets.draw(host, frame);
         }
         match token {
+            SLEEP_TOKEN => crate::native_sleep_card::draw(
+                host,
+                &mut frame,
+                self.asleep.top(token).ok_or(Error::State)?,
+            ),
             DECKS_TOKEN => self
                 .decks
                 .top(token)
@@ -437,6 +451,38 @@ impl NativeVocabulary {
         // The widgets show the words: ask them again.
         self.widgets.changed(host);
         Ok(())
+    }
+
+    /// Waking: the review opens with the card the sleep screen showed, where
+    /// *A flash card due* was the sleep screen, or where wanted
+    /// (`vocabulary.review-on-wake`) and cards are due.
+    fn woke(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        use paperpaw_sdk::native::settings::{SettingValue, read_setting};
+        let data = DataStorage::new(host);
+        let folder = DataFolder(&data);
+        let mut scratch = [0u8; 64];
+        let asleep = matches!(
+            read_setting(host, "sleep.show", &mut scratch)?,
+            SettingValue::Text(chosen) if chosen == SLEEP_CARD
+        );
+        let shown = if asleep {
+            crate::native_sleep_card::shown(&folder)
+        } else {
+            None
+        };
+        if shown.is_none() {
+            let wanted = matches!(
+                read_setting(host, "vocabulary.review-on-wake", &mut scratch)?,
+                SettingValue::Bool(true)
+            );
+            let time = HostTime::read(host, &folder)?;
+            if !wanted || due_now(&folder, &time, settings(host)?.new_per_day) == 0 {
+                return Ok(());
+            }
+        }
+        self.ensure(host)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        native_decks::open_review(host, ui, shown)
     }
 
     /// The minute tick: a card answered *Again* may be due in the review.
