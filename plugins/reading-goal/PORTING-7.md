@@ -62,11 +62,56 @@ are not there. It is removed in the PR that finishes the port.
 - Today is not compared with the clock here: that is the widget's, with the day from the
   snapshot (UTC until draft 25, as in stats).
 
+## Ported (the widget): `src/native_widget.rs`, `declarations::widgets`
+
+- *Reading cat* (`reading-goal.widget`, category *reading*, 2 x 2 cells, live) is declared with its
+  group and the eight settings of interface 6 (frame without a default frame, padding, paper, ink,
+  corners, frame line, shadow, and the part *minutes*); `tests/widget_declarations.rs` compares the
+  widget and every setting with the interface-6 registration. The toolkit's `Cx` reads them and
+  draws the frame (`paperpaw_ui_kit::widget`, as the widgets plugin does).
+- The host asks the height (the frame, half the width for the picture, the line of minutes), where it
+  sits and its one target (the whole widget) through `core.widget`; it draws (`DrawPurpose::Widget`)
+  and sends the tap to the same token.
+- It shows what interface 6 showed except the picture: the **mood in words in the picture's place**
+  (what interface 6 did where the file was missing) and below it `12 / 20 min`, `12 min` without a
+  goal, or *Statistics off* where they do not count (the part *minutes* switches the line off).
+  The cat's pictures need images (draft 22); the ignored case
+  `the_widget_shows_the_cat_of_todays_mood_and_the_minutes` names that.
+- The figure the widget shows is the one kept (what the statistics told, else `today.txt`) with
+  today by the local time; the plugin asks the statistics' stage each minute (the tick, only while a
+  widget is made), keeps and writes it as at a book closed, reads whether the statistics count
+  (`core.registry`, the `stats` plugin running, off or not installed), and tells the host
+  (`widget_changed`) only when what shows changed (a number of minutes, goal, mood and state, never
+  drawn or measured for it).
+- A tap: where the statistics count, the settings open on `stats.goal` (hand-over `focus`, slot
+  `core.settings`); where they are off, a question offers *switch them on (PaperPaw starts anew)* or
+  *not now*, where they are missing *get them from the store* or *not now*. The first answer is
+  done (`set_plugin_enabled stats` and a restart, which the shell may refuse, `uses.power` is not
+  required; or `store.open`); a second tap while the question is open asks nothing. Run over the
+  scripted host in `tests/scripted_offer.rs` (the staged command is checked); the settings opening is
+  a screen command the scripted host does not stage (BLOCKED H1: acceptance case
+  `the_widget_is_drawn_and_a_tap_opens_the_goal`).
+- Differences from interface 6, on purpose: the picture's description for screen readers (Role::Image)
+  is not given while there is no picture; the picture setting `pictures` and the folder stay as
+  declared. The widget reads the goal setting at each draw (no cache), as the widgets plugin does.
+- The interface-6 `widget.rs`, `sleep.rs`, `pictures.rs` and the registration in `lib.rs` stay with
+  the sleep screen's port; they go in the PR that finishes it (no shim).
+
 ## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
 
 - The statistics subscribing to `reading-goal.read-today` and answering (stats side, see above).
-- Images (draft 22) and the widget host call (Core todo 76) for the widget and the
-  sleep screen; the sleep plugin on interface 7.
-- The plugin list and restart for the offer to switch the statistics on.
+- Images (draft 22) for the cat's picture in the widget and the sleep screen; the sleep plugin on
+  interface 7 (its choice `sleep.show = reading-goal.sleep` is added at run time on interface 6).
+- The widget composed and drawn by the host (H1, H3) and the tap's screen command.
 - The sleep screen's declaration (`declarations::screens`, token 10; `tests/abi7_declarations.rs`
   keeps its identity parity) joins the image when it can draw.
+
+## Heap gate and the first tick
+
+- A widget drawn notes what it showed (`Item.shown`); the next tick that finds another figure tells
+  the maker (`widget_changed`). Before, only a tick after a first tick could, so a widget drawn at
+  12 minutes with 13 found at the first tick stayed stale. Tests: `native_plugin/tests.rs`
+  (`settle`: told once, a refused notice tried again, a widget never drawn tells nothing).
+- Each minute with a widget, `read_statistics` pages the registry for the statistics plugin (at most 16
+  pages, each a 4 KiB request and a 4 KiB reply buffer, made once per call and reused, so 8 KiB at a time).
+  This belongs in the heap gate's measurement of the plugin; it is not measured yet.

@@ -647,3 +647,39 @@ fn what_is_kept_does_not_depend_on_the_order_of_the_card() {
     assert_eq!(a, expected);
     assert!(a.len() < MOST, "the budget cut it: {}", a.len());
 }
+
+#[test]
+fn a_folder_read_page_by_page_keeps_what_one_listing_keeps() {
+    let names: Vec<String> = (0..700)
+        .map(|n| alloc::format!("p{:03}.{}", (n * 7919) % 700, ["jpg", "PNG", "txt"][n % 3]))
+        .collect();
+    let all = pictures(names.iter().map(|name| (name.as_str(), false))).unwrap();
+    for size in [1, 5, 32, 699] {
+        let mut kept = Pictures::default();
+        for page in names.chunks(size) {
+            for name in page {
+                kept.add(name, false).unwrap();
+            }
+        }
+        assert_eq!(kept.finish(), all, "pages of {size}");
+    }
+    let mut kept = Pictures::default();
+    kept.add("folder.jpg", true).unwrap();
+    kept.add(".hidden.jpg", false).unwrap();
+    kept.add("a.jpg", false).unwrap();
+    kept.add("a.jpg", false).unwrap();
+    assert_eq!(kept.finish(), ["a.jpg"]);
+}
+
+#[test]
+fn refused_allocations_while_adding_page_by_page() {
+    let names = ["b.jpg", "a.png", "c.gif", "a.png", "d.txt"];
+    sweep(|| {
+        let mut kept = Pictures::default();
+        for name in names {
+            kept.add(name, false)?;
+        }
+        assert_eq!(kept.finish(), ["a.png", "b.jpg", "c.gif"]);
+        Ok(())
+    });
+}

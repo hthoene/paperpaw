@@ -1,6 +1,6 @@
-# Interface 7 family DOC: formats, documents, images, lookup (draft)
+# Interface 7 family DOC: formats, documents, images, lookup
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, DOC section and coverage ledger), the C-family proposals
 (#890, `c-families-228.md` 2.6 DOC and the IMG wave), the reader extensibility notes (#241, N2,
@@ -8,8 +8,7 @@ N4-N7),
 `stages-services.md` (stages, services, depth), `ui.md` (host texts, depth and stack rules, the X4
 nested-callback gate), `screens-input.md` (N5 pages and progress, tag blocks), `core-events.md`
 (book events 65-69) and the storage contract (`proposals/interface-7-events-storage-services.md` D2,
-owner decision 125). Doc-only: records, schemas and generator follow once this is approved, as for
-EVT, REG and UIX. Tags below are proposed; the records step numbers them without gaps after UIX.
+owner decision 125). Records: `abi/services/core.document@1.def`.
 
 ## 0. Scope and principles
 
@@ -82,9 +81,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
-- [D] **Opening a book at a place** (interface 6: open, then the reader's `goto`; notes-overview,
-  vocabulary, stats, search, todo 167): the hand-over may also carry `section` and `offset` (decimal
-  `u32`, the format's text coordinates as in `lib_position` and `lib_annotation`'s start) and
+- [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
+  annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
+  and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
+  text coordinates as in `lib_position` and `lib_annotation`'s start) and
   optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
   opens the book there instead of at its last position, as if the user had jumped there (the place
   is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
@@ -301,6 +301,12 @@ host passes them on after checking them.
   of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
   conversion key is made, so an open with 0 and one with the same sides spelled out share one
   cache; ops 2, 17 and 18 always carry both sides, set by the host.
+- [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
+  `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
+  `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for
+  this document (never 0; a call whose `generation` is not it is `ERR_STATE`, start again at 0).
+  The host forwards `cursor` and `generation` as the caller gave them. Op 8's blocks end as
+  section 4 says (bit 1 `more`).
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -448,7 +454,7 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
