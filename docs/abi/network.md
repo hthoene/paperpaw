@@ -301,8 +301,11 @@ file's size, 2.1).
   (served over USB to a computer, without a network, `CABLE_PORT` of interface 6; the X4 only),
   `max_body` the largest request body the server takes (0 for 4 MiB, vocabulary's import cap; at
   most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
-  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
-  with a token in use stops the old server first (interface 6).
+  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers, and the device at most the profile's
+  `SERVERS` of all plugins together (**1 on the X4**, 2 on the X4 Pro and Classic, 8 on others: a
+  server's sockets and buffers cost up to about 48 KiB): past either, `ERR_BUSY` at once and
+  nothing opens. A server counts from `serve` until it is stopped, has failed or has ended.
+  Serving again with a token in use stops the old server first (interface 6).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.
