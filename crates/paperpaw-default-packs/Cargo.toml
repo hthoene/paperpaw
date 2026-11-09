@@ -12,6 +12,7 @@ categories = ["no-std", "embedded"]
 publish = false
 
 [dependencies]
+paperpaw-config.workspace = true
 paperpaw-platform.workspace = true
 
 [build-dependencies]

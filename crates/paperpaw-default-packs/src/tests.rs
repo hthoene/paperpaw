@@ -155,14 +155,73 @@ fn a_pack_already_there_is_kept_as_it_is_and_marked() {
     // The flasher's (or a newer one): not overwritten.
     let card = Card::new();
     card.files
-        .write(INI, b"[plugin]\nid = hyphenation\nversion = 9.0.0\n")
+        .write(
+            INI,
+            b"[plugin]\nid = hyphenation\nversion = 9.0.0\nformats = 5\n\n[hyphenation]\nen = hyphenation/newer.pphp\n",
+        )
+        .unwrap();
+    card.files
+        .write("plugins/hyphenation/hyphenation/newer.pphp", b"table")
         .unwrap();
     assert_eq!(seed_hyphenation(&card), Seeded::Kept);
     assert!(card.exists(MARK));
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 128];
     let n = card.read_at(INI, 0, &mut buf).unwrap();
     assert!(core::str::from_utf8(&buf[..n]).unwrap().contains("9.0.0"));
     assert!(!card.exists(TABLE));
+}
+
+/// A `plugin.ini` that is no hyphenation plugin must not keep the device
+/// without English: the pack is written over it, and only then is the mark.
+#[test]
+fn a_plugin_ini_that_is_no_plugin_does_not_stop_the_pack() {
+    let broken: [&[u8]; 5] = [
+        b"",
+        b"\xff\xfe not text",
+        // Another id.
+        b"[plugin]\nid = stats\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
+        // Made for formats before the section.
+        b"[plugin]\nid = hyphenation\nformats = 4\n\n[hyphenation]\nen = hyphenation/en.pphp\n",
+        // Names a table that is not there.
+        b"[plugin]\nid = hyphenation\nformats = 5\n\n[hyphenation]\nen = hyphenation/gone.pphp\n",
+    ];
+    for ini in broken {
+        let card = Card::new();
+        card.files.write(INI, ini).unwrap();
+        assert!(!card.exists(MARK));
+        assert_eq!(seed_hyphenation(&card), Seeded::Installed, "{ini:?}");
+        assert!(card.exists(MARK));
+        assert!(card.exists(TABLE));
+        let mut package = alloc::vec![0u8; card.size(INI).unwrap() as usize];
+        card.read_at(INI, 0, &mut package).unwrap();
+        assert!(core::str::from_utf8(&package).unwrap().contains("id = hyphenation"));
+    }
+}
+
+/// What the package puts on a card is a plugin by the same rule: with the mark
+/// gone it is kept, not written again.
+#[test]
+fn the_package_itself_is_a_usable_plugin() {
+    let card = Card::new();
+    assert_eq!(seed_hyphenation(&card), Seeded::Installed);
+    let syncs = card.syncs.get();
+    card.files.remove(MARK).unwrap();
+    assert_eq!(seed_hyphenation(&card), Seeded::Kept);
+    assert!(card.exists(MARK));
+    assert_eq!(card.syncs.get(), syncs, "nothing was written again");
+}
+
+/// A file that cannot be judged (too big to read here) is left alone and not
+/// marked: looked at again at the next start.
+#[test]
+fn a_plugin_ini_that_cannot_be_judged_is_kept_without_a_mark() {
+    let card = Card::new();
+    let big = alloc::vec![b'#'; INI_MAX as usize + 1];
+    card.files.write(INI, &big).unwrap();
+    assert_eq!(seed_hyphenation(&card), Seeded::Kept);
+    assert!(!card.exists(MARK));
+    assert!(!card.exists(TABLE));
+    assert_eq!(card.size(INI).unwrap(), INI_MAX + 1);
 }
 
 #[test]

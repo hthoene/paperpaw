@@ -21,8 +21,15 @@
 //!    it keeps it removed (the mark is the firmware's own, outside the plugin's
 //!    folder, which removing the plugin deletes).
 //! 2. The plugin's `plugin.ini` is there (the flasher's, the store's, a
-//!    newer one, one a reader copied): it is **kept** as it is, and the mark
-//!    written.
+//!    newer one, one a reader copied) **and the plugin is one the reader can
+//!    use** (it names itself `hyphenation`, says it is made for formats 5 or
+//!    later, and `[hyphenation]` names a table that is in its folder): it is
+//!    **kept** as it is, and the mark written. A `plugin.ini` that is no such
+//!    plugin (empty, damaged, another id, no table) does not stop the pack and
+//!    is written over by step 3, with no mark until it is: a broken file must
+//!    not keep a device without English for good. A file this cannot judge (too
+//!    big, not readable, no room to read it) is left as it is, with no mark:
+//!    judged again at the next start.
 //! 3. Otherwise the files are written to `plugins/hyphenation/`, `plugin.ini`
 //!    **last**: a folder without it is no plugin, so a power cut while
 //!    copying leaves nothing half installed, and the next start writes it all
@@ -35,14 +42,16 @@
 //! (`.paperpaw/seeded/hyphenation.tried`) and is tried again at the next
 //! start, [`TRIES`] times at most, then given up. Each file is on the card
 //! (`sync`) before `plugin.ini` is written. Nothing here allocates more than a
-//! path, and the files are written straight from the program's image. Nothing
-//! panics.
+//! path and, to judge a `plugin.ini` that is there, a copy of it (4 KB at
+//! most, a refused allocation is "not judged"); the files are written
+//! straight from the program's image. Nothing panics.
 
 #![no_std]
 
 extern crate alloc;
 
 use alloc::format;
+use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
 
@@ -94,6 +103,78 @@ pub const TRIES: usize = 3;
 /// Where the failed starts are counted (one byte each).
 const TRIED: &str = ".paperpaw/seeded/hyphenation.tried";
 
+/// The longest `plugin.ini` that is read to judge it (the package's own is
+/// about 0.5 KB).
+const INI_MAX: u64 = 4096;
+
+/// What the plugin found in the folder is.
+enum Found {
+    /// A plugin the reader can use.
+    Usable,
+    /// Not one: written over.
+    Broken,
+    /// Could not be told (too big, a read failed, no room to read it).
+    Unknown,
+}
+
+/// A file of the plugin's folder as `[hyphenation]` may name it: relative,
+/// no empty, `.`, `..` or dot-leading segment.
+fn plain_path(path: &str) -> bool {
+    !path.is_empty()
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && !segment.starts_with('.'))
+}
+
+/// Whether the plugin in `folder` is one the loader takes as hyphenation: it
+/// names itself `hyphenation`, is made for formats 5 or later (the ones with
+/// the `[hyphenation]` section), and names at least one table that is a file
+/// of its folder. (Whether a table's content holds is checked when its
+/// language is first needed, as the loader does.)
+fn judge(storage: &dyn Storage, folder: &str) -> Found {
+    let ini = format!("{folder}/plugin.ini");
+    let size = match storage.size(&ini) {
+        Ok(0) => return Found::Broken,
+        Ok(size) if size <= INI_MAX => size as usize,
+        _ => return Found::Unknown,
+    };
+    let mut bytes = Vec::new();
+    if bytes.try_reserve_exact(size).is_err() {
+        return Found::Unknown;
+    }
+    bytes.resize(size, 0);
+    match storage.read_at(&ini, 0, &mut bytes) {
+        Ok(read) if read == size => {}
+        _ => return Found::Unknown,
+    }
+    let Ok(text) = core::str::from_utf8(&bytes) else {
+        return Found::Broken;
+    };
+    let (mut named, mut formats, mut table) = (false, 0, false);
+    for entry in paperpaw_config::parse(text).filter_map(Result::ok) {
+        match (entry.section, entry.key) {
+            ("plugin", "id") => match entry.value.try_as_str() {
+                Ok(id) => named = id == HYPHENATION,
+                Err(_) => return Found::Unknown,
+            },
+            ("plugin", "formats") => formats = entry.value.as_u32().unwrap_or(0),
+            ("hyphenation", _) => match entry.value.try_as_str() {
+                Ok(path) => {
+                    let path = path.trim();
+                    table |= plain_path(path) && storage.exists(&format!("{folder}/{path}"));
+                }
+                Err(_) => return Found::Unknown,
+            },
+            _ => {}
+        }
+    }
+    if named && formats >= 5 && table {
+        Found::Usable
+    } else {
+        Found::Broken
+    }
+}
+
 /// Removes what a failed start wrote, as far as the card lets it.
 fn take_back(storage: &dyn Storage, folder: &str) {
     for &(path, _) in ENGLISH {
@@ -110,9 +191,17 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     }
     let folder = format!("plugins/{HYPHENATION}");
     if storage.exists(&format!("{folder}/plugin.ini")) {
-        // Found, not made: only note it.
-        let _ = storage.write(MARK, b"");
-        return Seeded::Kept;
+        match judge(storage, &folder) {
+            // Found, not made: only note it.
+            Found::Usable => {
+                let _ = storage.write(MARK, b"");
+                return Seeded::Kept;
+            }
+            // Not judged: left as it is, looked at again at the next start.
+            Found::Unknown => return Seeded::Kept,
+            // No plugin: the pack goes on over it, `plugin.ini` last.
+            Found::Broken => {}
+        }
     }
     let tried = storage.size(TRIED).unwrap_or(0) as usize;
     if tried >= TRIES {
