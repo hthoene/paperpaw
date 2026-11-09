@@ -6,9 +6,7 @@
 //! `paperpaw_x4::device_facts`, tested on a computer; this is the calls.
 
 use alloc::rc::Rc;
-use paperpaw_core::native_host::device_service::{
-    DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts, check_caps_agree,
-};
+use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts};
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_native::metadata::Service;
 use paperpaw_platform::firmware::Running;
@@ -141,13 +139,8 @@ pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
 /// this shell's: [`sync_networks`].
 #[inline(never)]
 pub fn present(device: &X4Device, kernel: &paperpaw_core::Kernel) {
-    if let Some(wifi) = kernel.wifi_model() {
-        device.set_wifi(paperpaw_x4::device_facts::wifi_facts(wifi));
-    }
-    #[cfg(feature = "bluetooth")]
-    if let Some(bluetooth) = kernel.bluetooth_model() {
-        device.set_bluetooth(paperpaw_x4::device_facts::bluetooth_facts(bluetooth));
-    }
+    let bluetooth = cfg!(feature = "bluetooth") && kernel.bluetooth_model().is_some();
+    device.set_radios(kernel.wifi_model().is_some(), bluetooth);
 }
 
 /// Tells the device the networks the last scan found (the kernel's list: the
@@ -183,10 +176,11 @@ pub fn tell_usb(device: &X4Device, pin_high: Option<bool>, frames: Option<bool>)
     device.set_value("usb-frames", frames.map(i64::from));
 }
 
-/// The caps say what is answered: said in the log where they do not (called
-/// once, after [`present`]).
-pub fn check(device: &X4Device) {
-    if let Err(why) = check_caps_agree(device) {
+/// The caps say what is answered, checked the way `core.device` answers (the
+/// kernel's models over this device): said in the log where they do not
+/// (called once, after [`present`]).
+pub fn check(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    if let Err(why) = kernel.check_device_host(device) {
         log::error!("device: its caps and its parts disagree: {why}");
     }
 }

@@ -399,7 +399,7 @@ fn start() -> Firmware {
     #[cfg(feature = "ppn5")]
     {
         device_host::present(&firmware.device, &firmware.kernel);
-        device_host::check(&firmware.device);
+        device_host::check(&firmware.device, &firmware.kernel);
     }
     power::mark(power::at::START_KERNEL);
     info!(
