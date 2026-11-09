@@ -124,6 +124,17 @@ impl Frame for CoreFrame<'_> {
         .ask(owner, token, items, context, out)
     }
 
+    fn call_native(
+        &self,
+        owner: u64,
+        token: u32,
+        input: &[u8],
+        reply: &mut [u8],
+        accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        crate::native_host::native_call::call(self, owner, token, input, reply, accept)
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
     }
