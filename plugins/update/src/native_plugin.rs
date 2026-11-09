@@ -5,11 +5,9 @@
 //! look, the badge and the states that need what the device knows of a file
 //! (its version and signer) are named in `PORTING-7.md`.
 use crate::{
-    declarations::{
-        CHECK_TOKEN, FIRMWARE_CHANGED, INSTALL_DONE, OPEN_TOKEN, PAGE, STARTED,
-    },
+    declarations::{CHECK_TOKEN, FIRMWARE_CHANGED, INSTALL_DONE, OPEN_TOKEN, PAGE, STARTED},
     native_card::{
-        self, Ended, MAX_PAIR, REQUEST, UPDATE_DIR, Offered, ended, percent, read_pair, reason,
+        self, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, ended, percent, read_pair, reason,
     },
 };
 use alloc::{string::String, vec::Vec};
@@ -478,11 +476,7 @@ fn read_folder(host: &Host<'_>, files: &Files) -> Result<Vec<String>, Error> {
 
 /// `version` as the update's texts show it: a beta as `0.5.0 Beta 1`, every
 /// other version as it is.
-fn shown_version(
-    host: &Host<'_>,
-    messages: &mut Messages,
-    version: &str,
-) -> Result<String, Error> {
+fn shown_version(host: &Host<'_>, messages: &mut Messages, version: &str) -> Result<String, Error> {
     match paperpaw_sdk::firmware::beta(version) {
         Some((release, number)) => messages.format(
             host,
@@ -534,7 +528,14 @@ fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
         ),
         View::Files(names) => {
             for (index, name) in names.iter().enumerate() {
-                row(host, &mut messages, &mut rows, "update.install", name, Button::Install(index))?;
+                row(
+                    host,
+                    &mut messages,
+                    &mut rows,
+                    "update.install",
+                    name,
+                    Button::Install(index),
+                )?;
             }
             (
                 messages.copy(host, "update.card.found.title")?,
@@ -542,7 +543,14 @@ fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
             )
         }
         View::NotNewer(_) => {
-            row(host, &mut messages, &mut rows, "update.install-older", "", Button::InstallOlder)?;
+            row(
+                host,
+                &mut messages,
+                &mut rows,
+                "update.install-older",
+                "",
+                Button::InstallOlder,
+            )?;
             (
                 messages.copy(host, "update.not-newer.title")?,
                 messages.format(host, "update.not-newer.help", &with_current)?,
@@ -564,7 +572,14 @@ fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
         ),
         View::Installed(restart) => {
             if *restart {
-                row(host, &mut messages, &mut rows, "update.restart", "", Button::Restart)?;
+                row(
+                    host,
+                    &mut messages,
+                    &mut rows,
+                    "update.restart",
+                    "",
+                    Button::Restart,
+                )?;
             }
             (
                 messages.copy(host, "update.installed.title")?,
@@ -578,26 +593,23 @@ fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
                 )?,
             )
         }
-        View::Failed(outcome) => (
-            messages.copy(host, "update.failed.title")?,
-            {
-                let why = messages.copy(host, reason(*outcome))?;
-                messages.format(
-                    host,
-                    "update.failed.help",
-                    &[
-                        Arg::Text {
-                            name: "reason",
-                            value: &why,
-                        },
-                        Arg::Text {
-                            name: "current",
-                            value: current,
-                        },
-                    ],
-                )?
-            },
-        ),
+        View::Failed(outcome) => (messages.copy(host, "update.failed.title")?, {
+            let why = messages.copy(host, reason(*outcome))?;
+            messages.format(
+                host,
+                "update.failed.help",
+                &[
+                    Arg::Text {
+                        name: "reason",
+                        value: &why,
+                    },
+                    Arg::Text {
+                        name: "current",
+                        value: current,
+                    },
+                ],
+            )?
+        }),
     };
     // The way on first where an update waits for the reader's word; *Not now*
     // or *OK* last.

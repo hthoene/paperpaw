@@ -6,10 +6,7 @@
 //! 134), so this knows nothing of versions or signers.
 use alloc::{string::String, vec::Vec};
 use core::cmp::Ordering;
-use paperpaw_sdk::native::{
-    Error,
-    device::DeviceOutcome,
-};
+use paperpaw_sdk::native::{Error, device::DeviceOutcome};
 use paperpaw_ui_kit::{mem::push, text::concat};
 
 /// The folder of the card the update files are in.
@@ -90,9 +87,15 @@ fn natural(a: &str, b: &str) -> Ordering {
 
 /// The digits at the start of `text` without their leading zeros, and the rest.
 fn number(text: &[u8]) -> (&[u8], &[u8]) {
-    let end = text.iter().position(|b| !b.is_ascii_digit()).unwrap_or(text.len());
+    let end = text
+        .iter()
+        .position(|b| !b.is_ascii_digit())
+        .unwrap_or(text.len());
     let (digits, rest) = text.split_at(end);
-    let start = digits.iter().position(|b| *b != b'0').unwrap_or(digits.len());
+    let start = digits
+        .iter()
+        .position(|b| *b != b'0')
+        .unwrap_or(digits.len());
     (digits.get(start..).unwrap_or_default(), rest)
 }
 
@@ -239,7 +242,11 @@ mod tests {
             offered.add(&name, false, false).unwrap();
         }
         assert_eq!(offered.finish().len(), MOST_FILES);
-        assert!(!is_update_file(&alloc::format!("{}.bin", "x".repeat(70)), false, false));
+        assert!(!is_update_file(
+            &alloc::format!("{}.bin", "x".repeat(70)),
+            false,
+            false
+        ));
     }
 
     #[test]
