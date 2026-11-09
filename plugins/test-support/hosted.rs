@@ -147,21 +147,67 @@ impl Drop for Installed {
     }
 }
 
-/// A device for the kernel the plugin registers in: the X4's memory class.
-fn device() -> DeviceInfo {
-    DeviceInfo::new(
-        "test",
-        "Test device",
-        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
-        InputCaps::new(true, true, false, &[]),
-        MemoryClass::Small,
-    )
+/// What the kernel a plugin is installed in is like: its device, and the user's
+/// configuration text (`language = de`, `help.show = false`, ...).
+#[derive(Clone)]
+pub struct Setup {
+    device: DeviceInfo,
+    config: String,
+}
+
+impl Default for Setup {
+    /// A small device (the X4's memory class) and no configuration.
+    fn default() -> Self {
+        Self {
+            device: DeviceInfo::new(
+                "test",
+                "Test device",
+                DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
+                InputCaps::new(true, true, false, &[]),
+                MemoryClass::Small,
+            ),
+            config: String::new(),
+        }
+    }
+}
+
+impl Setup {
+    /// The X4's screen (480 by 800, four grays, 220 dpi) with its buttons, as the interface-6
+    /// goldens were drawn.
+    pub fn x4() -> Self {
+        Self {
+            device: DeviceInfo::new(
+                "xteink-x4",
+                "Xteink X4",
+                DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
+                InputCaps::new(true, false, false, &["page-forward", "page-back", "back"]),
+                MemoryClass::Small,
+            ),
+            config: String::new(),
+        }
+    }
+
+    /// The user's configuration, as the file `config.ini` writes it.
+    pub fn config(mut self, text: &str) -> Self {
+        self.config = text.to_string();
+        self
+    }
 }
 
 /// Installs `entry` as plugin `name` in a new kernel with the services its
 /// metadata declares, and returns it (drop it to tear the plugin down); the
 /// host's refusal comes back as its debug text.
 pub fn install(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+) -> Result<Installed, String> {
+    install_in(&Setup::default(), entry, name, services)
+}
+
+/// [`install`] in a kernel made as `setup` says.
+pub fn install_in(
+    setup: &Setup,
     entry: &'static PpEntry,
     name: &str,
     services: &[&'static str],
@@ -195,7 +241,8 @@ pub fn install(
     // Held from here on, so a refused install is checked for leaks as well.
     let mut installed = Installed {
         kernel: Some(
-            Kernel::builder(device())
+            Kernel::builder(setup.device)
+                .user_config(setup.config.clone())
                 .build()
                 .map_err(|e| format!("{e:?}"))?,
         ),
