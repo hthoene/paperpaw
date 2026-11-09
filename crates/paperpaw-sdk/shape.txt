@@ -2418,8 +2418,8 @@ enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
 enum paperpaw_sdk::native::format::lists::LinkKind #{"repr": {"align": null, "int": "u32", "kind": "rust", "packed": null}} { Internal = 0, External = 1, Footnote = 2 }
 enum paperpaw_sdk::native::format::request::FormatOp { Sniff, Open, Prepare, Close, Meta, MetaText, Sections, Block, Toc, TocTarget, PageLabel, Xpointer, Locate, Links, LinkTarget, Fonts, Cover, Image, Progress }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
-enum paperpaw_sdk::native::image::ImageStatus { Ready, Unsupported, Damaged, TooLarge, CardFailure, NoMemory }
-enum paperpaw_sdk::native::image::PrepareRoot { Data, Library }
+enum paperpaw_sdk::native::image::ImageStatus { Ready, Unsupported, Damaged, TooLarge, CardFailure, NoMemory, NotFound }
+enum paperpaw_sdk::native::image::PrepareRoot { Data, Library, Bundle }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }

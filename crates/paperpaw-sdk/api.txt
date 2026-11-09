@@ -4869,10 +4869,12 @@ pub mod paperpaw_sdk::native::image
 pub paperpaw_sdk::native::image::ImageStatus::CardFailure
 pub paperpaw_sdk::native::image::ImageStatus::Damaged
 pub paperpaw_sdk::native::image::ImageStatus::NoMemory
+pub paperpaw_sdk::native::image::ImageStatus::NotFound
 pub paperpaw_sdk::native::image::ImageStatus::Ready
 pub paperpaw_sdk::native::image::ImageStatus::TooLarge
 pub paperpaw_sdk::native::image::ImageStatus::Unsupported
 #[non_exhaustive] pub enum paperpaw_sdk::native::image::PrepareRoot
+pub paperpaw_sdk::native::image::PrepareRoot::Bundle
 pub paperpaw_sdk::native::image::PrepareRoot::Data
 pub paperpaw_sdk::native::image::PrepareRoot::Library
 pub struct paperpaw_sdk::native::image::ImageId(_)
