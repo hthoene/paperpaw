@@ -21,12 +21,12 @@ use paperpaw_sdk::Settings;
 pub(crate) mod usage_views;
 pub(crate) use usage_views::{DeviceUsageView, PluginRow};
 
+#[path = "registry_views.rs"]
+pub(crate) mod registry_views;
 #[path = "../native_host/ui_guard.rs"]
 pub(crate) mod ui_guard;
 #[path = "ui_views.rs"]
 pub(crate) mod ui_views;
-#[path = "registry_views.rs"]
-pub(crate) mod registry_views;
 
 /// Table position after a scoped visitor stops; counters are not snapshotted.
 #[allow(dead_code, reason = "row offsets are read by the service encoder")]

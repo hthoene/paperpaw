@@ -163,7 +163,9 @@ fn slot_row(
     // Where the user chose, the default is the highest offer; else it is the
     // screen the slot shows.
     let default = if choice.is_some() {
-        env.slot_screens(id).first().map_or("", |screen| screen.as_str())
+        env.slot_screens(id)
+            .first()
+            .map_or("", |screen| screen.as_str())
     } else {
         bound
     };
@@ -229,7 +231,12 @@ fn slots(
             let Some(id) = Fixed::<ID>::of(&[plugin, ".", spec.name]) else {
                 return;
             };
-            if sources.env.slots().iter().any(|slot| slot.as_str() == id.as_str()) {
+            if sources
+                .env
+                .slots()
+                .iter()
+                .any(|slot| slot.as_str() == id.as_str())
+            {
                 return;
             }
             stopped = slot_row(sources, id.as_str(), Some(spec.title), visit).is_break();

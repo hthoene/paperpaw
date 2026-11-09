@@ -65,11 +65,7 @@ fn flags(info: &PluginInfo) -> u32 {
 }
 
 /// The row of `info` handed to `visit` (its strings live on this stack).
-fn with_row<R>(
-    sources: &Sources<'_>,
-    info: &PluginInfo,
-    visit: impl FnOnce(&dyn Row) -> R,
-) -> R {
+fn with_row<R>(sources: &Sources<'_>, info: &PluginInfo, visit: impl FnOnce(&dyn Row) -> R) -> R {
     let id = info.manifest.id.as_str();
     let name = Key::of(&[id, ".plugin.name"])
         .and_then(|key| sources.env.i18n().get(key.as_str()))
@@ -112,10 +108,10 @@ pub(super) fn rows(
 ) -> Result<(), i32> {
     let plugins = sources.env.plugins();
     let core = plugins.kernel();
-    if let Some(info) = core {
-        if with_row(sources, info, &mut *visit).is_break() {
-            return Ok(());
-        }
+    if let Some(info) = core
+        && with_row(sources, info, &mut *visit).is_break()
+    {
+        return Ok(());
     }
     for info in plugins.iter() {
         if core.is_some_and(|core| core.manifest.id == info.manifest.id) {
@@ -145,8 +141,8 @@ pub(super) fn detail(
         return Err(error);
     }
     let id = info.manifest.id.as_str();
-    let translated = Key::of(&[id, ".plugin.description"])
-        .and_then(|key| sources.env.i18n().get(key.as_str()));
+    let translated =
+        Key::of(&[id, ".plugin.description"]).and_then(|key| sources.env.i18n().get(key.as_str()));
     let description = translated.unwrap_or(&*info.manifest.description);
     if description.is_empty() {
         return Ok(());

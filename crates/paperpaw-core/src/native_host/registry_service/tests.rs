@@ -11,9 +11,8 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError,
-    Registrar, Screen, ScreenSpec, Settings, SettingGroupSpec, SlotSpec, Version,
-    keys::InputSpec,
+    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
+    Screen, ScreenSpec, SettingGroupSpec, Settings, SlotSpec, Version, keys::InputSpec,
 };
 
 struct Quiet;
@@ -172,7 +171,9 @@ fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
                 end = Some(e);
                 continue;
             }
-            Record::ServiceRegItem(r) => format!("item {} {} {} {}", r.id, r.plugin, r.flags, r.title),
+            Record::ServiceRegItem(r) => {
+                format!("item {} {} {} {}", r.id, r.plugin, r.flags, r.title)
+            }
             Record::ServiceRegGroup(r) => format!(
                 "group {} parent={} page={} order={} {}",
                 r.id, r.parent, r.page, r.order, r.title
@@ -183,7 +184,15 @@ fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
             ),
             Record::ServiceRegPlugin(r) => format!(
                 "plugin {} {} {} kind={} state={} flags={} problem={}/{} update={}",
-                r.id, r.name, r.version, r.kind, r.state, r.flags, r.problem, r.problem_arg, r.update
+                r.id,
+                r.name,
+                r.version,
+                r.kind,
+                r.state,
+                r.flags,
+                r.problem,
+                r.problem_arg,
+                r.update
             ),
             Record::ServiceRegText(r) => format!("text {}", r.text),
             other => panic!("unexpected {other:?}"),
@@ -251,10 +260,19 @@ fn plugins_start_with_the_host_and_list_every_plugin_once() {
         .collect();
     assert_eq!(ids.iter().filter(|id| **id == "core").count(), 1);
     assert!(ids.contains(&"demo") && ids.contains(&"bare"));
-    assert_eq!((end.flags, end.total, end.next), (1, rows.len() as u32, rows.len() as u32));
-    let demo = rows.iter().find(|row| row.starts_with("plugin demo ")).unwrap();
+    assert_eq!(
+        (end.flags, end.total, end.next),
+        (1, rows.len() as u32, rows.len() as u32)
+    );
+    let demo = rows
+        .iter()
+        .find(|row| row.starts_with("plugin demo "))
+        .unwrap();
     // Name, version, built in, running, enabled, no problem, no update.
-    assert_eq!(demo, "plugin demo Demo name 1.2.3 kind=0 state=0 flags=9 problem=0/0 update=");
+    assert_eq!(
+        demo,
+        "plugin demo Demo name 1.2.3 kind=0 state=0 flags=9 problem=0/0 update="
+    );
 }
 
 #[test]
@@ -289,7 +307,10 @@ fn names_and_descriptions_follow_the_ui_language() {
     kernel.shared.translator.set_language("de");
     let reply = call(&kernel, schema::OP_PLUGIN, &key("demo"), 4096).unwrap();
     let (rows, _) = read(&reply);
-    assert!(rows[0].starts_with("plugin demo Vorfuehrung 1.2.3 "), "{rows:?}");
+    assert!(
+        rows[0].starts_with("plugin demo Vorfuehrung 1.2.3 "),
+        "{rows:?}"
+    );
     assert_eq!(rows[1], "text Zeigt Dinge.");
     let (rows, _) = page(&kernel, schema::OP_ACTIONS, "demo");
     assert_eq!(rows[0], "item demo.sealed demo 2 Versiegelt");
@@ -335,7 +356,9 @@ fn a_slot_shows_its_bound_screen_and_its_offers() {
     let kernel = kernel(0);
     let (rows, _) = page(&kernel, schema::OP_SLOTS, "");
     assert!(
-        rows.contains(&"slot demo.stage screen=demo.main default=demo.main flags=0 demo.slot.stage".into()),
+        rows.contains(
+            &"slot demo.stage screen=demo.main default=demo.main flags=0 demo.slot.stage".into()
+        ),
         "{rows:?}"
     );
     let (rows, _) = page(&kernel, schema::OP_SLOT_OFFERS, "demo.stage");
@@ -349,7 +372,10 @@ fn inputs_list_the_device_then_the_plugins_own() {
     let kernel = kernel(0);
     let rows = pages(&kernel, schema::OP_INPUTS, "");
     // The test device has a touch screen and no named buttons.
-    assert!(rows.contains(&"item tap.center  0 tap.center".into()), "{rows:?}");
+    assert!(
+        rows.contains(&"item tap.center  0 tap.center".into()),
+        "{rows:?}"
+    );
     assert!(rows.contains(&"item swipe.left  4 swipe.left".into()));
     assert_eq!(
         rows.last().unwrap(),
@@ -376,7 +402,10 @@ fn pages_continue_by_cursor_under_one_generation() {
     let (more, last) = read(&second);
     let last = last.unwrap();
     assert_eq!(more.len(), 9);
-    assert_eq!((last.flags, last.next, last.generation), (1, 41, end.generation));
+    assert_eq!(
+        (last.flags, last.next, last.generation),
+        (1, 41, end.generation)
+    );
     // The rows of the two pages are all of the list, once.
     let mut all: Vec<String> = rows.into_iter().chain(more).collect();
     all.sort();
@@ -393,7 +422,10 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
         directory: None,
     }
     .generation();
-    for input in [query("demo", 1, 0), query("demo", 0, current.wrapping_add(1))] {
+    for input in [
+        query("demo", 1, 0),
+        query("demo", 0, current.wrapping_add(1)),
+    ] {
         let env = kernel.shared.env(Instant(0));
         let view = View {
             env: &env,
@@ -419,10 +451,21 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
     }
     // A cursor past the end is invalid, the cursor at the end an empty page.
     assert_eq!(
-        call(&kernel, schema::OP_ACTIONS, &query("demo", 4, current), 4096),
+        call(
+            &kernel,
+            schema::OP_ACTIONS,
+            &query("demo", 4, current),
+            4096
+        ),
         Err(ERR_INVALID)
     );
-    let reply = call(&kernel, schema::OP_ACTIONS, &query("demo", 3, current), 4096).unwrap();
+    let reply = call(
+        &kernel,
+        schema::OP_ACTIONS,
+        &query("demo", 3, current),
+        4096,
+    )
+    .unwrap();
     let (rows, end) = read(&reply);
     assert!(rows.is_empty());
     assert_eq!((end.unwrap().flags, rows.len()), (1, 0));

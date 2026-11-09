@@ -1,6 +1,6 @@
 //! Core field borrows for usage service callbacks, separate from fixture frames.
-use super::context::{DeviceUsageView, Frame, PluginRow, RowsEnd, usage_views};
 use super::context::registry_views::{Asker, RegistryView, Row};
+use super::context::{DeviceUsageView, Frame, PluginRow, RowsEnd, usage_views};
 use super::snapshot_wire::Snapshot;
 use core::ops::ControlFlow;
 use paperpaw_i18n::Translator;

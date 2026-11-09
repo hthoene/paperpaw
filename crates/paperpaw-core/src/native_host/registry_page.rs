@@ -2,8 +2,8 @@
 //! The caller visits ordered rows starting at the requested cursor. A stopped
 //! row stays unconsumed for the next page. Nothing is retained between calls.
 use super::registrations::{self as wire, Record};
-use crate::abi7::services_wire::core_registry_v1;
 use crate::abi7::context::registry_views::Row;
+use crate::abi7::services_wire::core_registry_v1;
 use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE};

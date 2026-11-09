@@ -47,8 +47,8 @@ impl ServiceRegistry {
         // presence alone is not implementation, and test schemas stay refused.
         use crate::abi7::services_wire::{
             core_device_v1, core_document_v1, core_files_v1, core_library_v1, core_lookup_v1,
-            core_net_v1, core_registry_v1, core_secrets_v1, core_sockets_v1, core_ui_v1, core_work_v1,
-            service_schema,
+            core_net_v1, core_registry_v1, core_secrets_v1, core_sockets_v1, core_ui_v1,
+            core_work_v1, service_schema,
         };
         use crate::native_host::{
             device_service, doc_service, files_service, lib_service, lookup_service, net_service,

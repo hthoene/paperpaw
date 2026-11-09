@@ -112,7 +112,11 @@ fn list(
     })?;
     if let Some(error) = failure {
         // A row past `total` means the tables changed between the two walks.
-        return Err(if error == ERR_INVALID { ERR_STATE } else { error });
+        return Err(if error == ERR_INVALID {
+            ERR_STATE
+        } else {
+            error
+        });
     }
     page.finish()
 }
@@ -133,5 +137,9 @@ fn detail(
         used += row.encode(rest)?;
         Ok(())
     })?;
-    if used == 0 { Err(ERR_NOT_FOUND) } else { Ok(used) }
+    if used == 0 {
+        Err(ERR_NOT_FOUND)
+    } else {
+        Ok(used)
+    }
 }
