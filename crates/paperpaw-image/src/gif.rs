@@ -225,7 +225,7 @@ pub(crate) fn decode(
         return Err(ImageError::Invalid("GIF size"));
     }
     if u64::from(width) * u64::from(height) > MAX_PIXELS {
-        return Err(ImageError::Unsupported("GIF this large"));
+        return Err(ImageError::TooLarge);
     }
     let global = if packed & 0x80 != 0 {
         Some(palette(reader, 2 << (packed & 7))?)

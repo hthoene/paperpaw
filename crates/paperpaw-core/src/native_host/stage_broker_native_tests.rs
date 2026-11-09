@@ -115,6 +115,7 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
             directory: None,
             stack_rows: Rc::clone(&kernel.shared.stack_rows),
             font_removals: Rc::clone(&kernel.shared.font_removals),
+            registry_generation: Rc::clone(&kernel.shared.registry_generation),
         },
         |_, _, _| {},
         crate::native_host::native_instances::test_identity("probe"),

@@ -6,7 +6,8 @@ use super::{
 use crate::{
     native::{
         declare::settings_value as settings,
-        net::{HttpDone, HttpProgress},
+        image::ImageReady,
+        net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
         settings::SettingValue,
         sockets::{BroadcastEvent, SocketEvent},
         work::{WorkDue, WorkRefused},
@@ -179,6 +180,18 @@ event_fn!(http_progress, wire::EventHttpProgress, |r| {
     Event::HttpProgress(HttpProgress::decode(r)?)
 });
 
+event_fn!(server, wire::EventServer<'_>, |r| Event::Server(
+    ServerEvent::decode(r)?
+));
+
+event_fn!(served_request, wire::EventServedRequest<'_>, |r| {
+    Event::ServedRequest(ServedRequest::decode(r)?)
+});
+
+event_fn!(image_ready, wire::EventImageReady, |r| Event::ImageReady(
+    ImageReady::decode(r)?
+));
+
 event_fn!(socket, wire::EventSocket, |r| Event::Socket(
     SocketEvent::decode(r)?
 ));
@@ -186,6 +199,7 @@ event_fn!(socket, wire::EventSocket, |r| Event::Socket(
 event_fn!(broadcast, wire::EventBroadcast<'_>, |r| Event::Broadcast(
     BroadcastEvent::decode(r)?
 ));
+
 event_fn!(work_due, wire::EventWorkDue<'_>, |r| Event::WorkDue(
     WorkDue::decode(r)
 ));
@@ -197,6 +211,14 @@ event_fn!(work_refused, wire::EventWorkRefused<'_>, |r| {
 event_fn!(work_allowed, wire::EventWorkAllowed, |r| {
     Event::WorkAllowed { now_ms: r.now_ms }
 });
+
+event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
+    Event::LookupReady {
+        now_ms: r.now_ms,
+        provider: r.provider,
+    }
+});
+
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);

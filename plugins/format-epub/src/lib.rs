@@ -340,18 +340,6 @@ fn read_full(
     Ok(filled)
 }
 
-/// The first bytes of `path`, at most 4 KB: to know a file again, or what
-/// it is. On the heap: books are opened deep in the stack.
-pub(crate) fn head(
-    storage: &dyn paperpaw_sdk::Storage,
-    path: &str,
-) -> Result<alloc::vec::Vec<u8>, paperpaw_sdk::StorageError> {
-    let mut head = vec![0u8; 4096];
-    let n = storage.read_at(path, 0, &mut head)?;
-    head.truncate(n);
-    Ok(head)
-}
-
 /// Whether a file's first bytes are an EPUB's: a ZIP whose first entry
 /// is `mimetype`, stored, saying `application/epub+zip` (as the format
 /// asks), not any ZIP.

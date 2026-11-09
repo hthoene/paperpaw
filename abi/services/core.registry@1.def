@@ -257,6 +257,18 @@
       "max_input": 256,
       "max_reply": 4096,
       "bound": "none"
+    },
+    {
+      "id": 22,
+      "name": "setup_step",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": ["service.reg_key"],
+      "reply": ["service.reg_setup_step", "service.reg_text"],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
     }
   ]
 }

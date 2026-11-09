@@ -3,6 +3,7 @@
 //! the order between plugins.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use super::super::event_pending::Visibility;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -99,24 +100,37 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
-/// Declares `b.token`, a secret of plugin `b`.
-struct Secrets;
-impl Plugin for Secrets {
+/// Declares settings: its own `id.plain` (readable by all), and one secret
+/// and one secret with a placement (`id.widget.token`, placed as
+/// `id.widget@2.token`).
+struct Declares(&'static str, [&'static str; 3]);
+impl Plugin for Declares {
     fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("b"), "Secrets", Version::new(1, 0, 0))
+        Manifest::new(Id::new_static(self.0), "Declares", Version::new(1, 0, 0))
     }
     fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
         static SECRET: SettingExtra = SettingExtra::new().secret();
-        registrar.add_setting(
-            SettingSpec::new(
-                Id::new_static("b.token"),
-                "token",
-                SettingKind::Text,
-                SettingValue::Text("".into()),
-                paperpaw_sdk::builtin::groups::OTHER,
-            )
-            .with_extra(&SECRET),
-        )
+        let [plain, token, widget] = self.1;
+        registrar.add_setting(SettingSpec::new(
+            Id::new_static(plain),
+            "plain",
+            SettingKind::Int { min: 0, max: 100 },
+            SettingValue::Int(1),
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))?;
+        for id in [token, widget] {
+            registrar.add_setting(
+                SettingSpec::new(
+                    Id::new_static(id),
+                    "token",
+                    SettingKind::Text,
+                    SettingValue::Text("".into()),
+                    paperpaw_sdk::builtin::groups::OTHER,
+                )
+                .with_extra(&SECRET),
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -137,7 +151,9 @@ fn world(b_subscribes: bool) -> World {
 /// Plugins `a` (event 64) and `b` (the tags `b_tags`).
 fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Secrets)
+        .plugin(Declares("a", ["a.plain", "a.token", "a.widget.token"]))
+        .plugin(Declares("b", ["b.plain", "b.token", "b.widget.token"]))
+        .plugin(Declares("c", ["c.size", "c.token", "c.widget.token"]))
         .build()
         .unwrap();
     let order = Rc::new(RefCell::new(Vec::new()));
@@ -276,8 +292,7 @@ fn more_edges_than_a_queue_holds_end_in_the_empty_key() {
     let mut w = world(false);
     for n in 0..30 {
         w.kernel.native_setting_publish("c.size", Ok(&int(n)));
-        w.kernel
-            .native_setting_publish(&std::format!("c.k{n}"), Ok(&int(n)));
+        w.kernel.native_setting_publish("c.size", Ok(&int(n)));
     }
     run(&mut w);
     let told = w.a.1.borrow();
@@ -289,8 +304,7 @@ fn more_edges_than_a_queue_holds_end_in_the_empty_key() {
 fn plugins_are_told_in_turn_not_one_after_the_other() {
     let mut w = world(true);
     for n in 0..8 {
-        w.kernel
-            .native_setting_publish(&std::format!("c.k{n}"), Ok(&[]));
+        w.kernel.native_setting_publish("c.size", Ok(&int(n)));
     }
     // One pass: at most four each, so both are told before either is done.
     w.kernel.native_setting_pump();
@@ -401,4 +415,89 @@ fn a_hint_for_a_plugin_that_stopped_is_dropped() {
             .waiting()
             .is_empty()
     );
+}
+
+#[test]
+fn a_placed_secret_of_another_plugin_is_not_announced() {
+    let mut w = world(true);
+    // `b.widget@2.token` is the placement of `b.widget.token`, a secret.
+    w.kernel
+        .native_setting_publish("b.widget@2.token", Ok(&int(1)));
+    run(&mut w);
+    assert!(w.a.1.borrow().is_empty(), "not announced to another plugin");
+    // Its own plugin is told, without the old value.
+    assert_eq!(*w.b.1.borrow(), [("b.widget@2.token".into(), Vec::new())]);
+}
+
+#[test]
+fn a_placed_secret_of_the_plugin_itself_comes_without_its_old_value() {
+    let mut w = world(true);
+    w.kernel
+        .native_setting_publish("a.widget@3.token", Ok(&int(1)));
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("a.widget@3.token".into(), Vec::new())]);
+    assert!(w.b.1.borrow().is_empty());
+}
+
+#[test]
+fn a_placed_setting_that_is_no_secret_keeps_its_old_value() {
+    let mut w = world(false);
+    // `c.size` has no placement; a placed plain one is read as its definition.
+    w.kernel.native_setting_publish("c.size", Ok(&int(5)));
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("c.size".into(), int(5))]);
+}
+
+#[test]
+fn a_key_nothing_defines_is_hidden_from_other_plugins() {
+    let mut w = world(true);
+    // The plugin that defined `c.gone` is being uninstalled: fail closed.
+    w.kernel.native_setting_publish("c.gone", Ok(&int(1)));
+    w.kernel
+        .native_setting_publish("c.widget@2.gone", Ok(&int(1)));
+    run(&mut w);
+    assert!(w.a.1.borrow().is_empty() && w.b.1.borrow().is_empty());
+}
+
+#[test]
+fn an_own_key_nothing_defines_comes_without_its_old_value() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("a.gone", Ok(&int(1)));
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("a.gone".into(), Vec::new())]);
+}
+
+#[test]
+fn a_key_that_turned_secret_before_delivery_is_not_told() {
+    let mut w = world(false);
+    // An edge of `c.late`, queued with its old value while nothing was secret
+    // (the queue is filled by hand: a definition cannot change in place).
+    let owner = w.a.0;
+    {
+        let events = &w.kernel.shared.native_instances.setting_events;
+        let mut queues = events.queues.borrow_mut();
+        events
+            .queue_of(&mut queues, owner)
+            .unwrap()
+            .setting(1, "c.late", Ok(&int(9)), Visibility::Readable)
+            .unwrap();
+    }
+    // Before it is told, the key is defined as a secret.
+    static SECRET: SettingExtra = SettingExtra::new().secret();
+    w.kernel
+        .shared
+        .settings
+        .define(
+            SettingSpec::new(
+                Id::new_static("c.late"),
+                "late",
+                SettingKind::Text,
+                SettingValue::Text("".into()),
+                paperpaw_sdk::builtin::groups::OTHER,
+            )
+            .with_extra(&SECRET),
+        )
+        .unwrap();
+    run(&mut w);
+    assert!(w.a.1.borrow().is_empty(), "checked again at delivery");
 }

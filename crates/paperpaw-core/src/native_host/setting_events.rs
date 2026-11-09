@@ -20,6 +20,12 @@
 //! * An edge that finds no room (16 held, 4,096 bytes a plugin, 8,192 the
 //!   device, or no memory) is dropped and replaced by the **empty key**:
 //!   "several settings changed, read again what you keep".
+//! * Memory: a queue holds at most 16 edges and 4,096 bytes of them per
+//!   plugin, and all queues together at most 8,192 bytes (the device-wide
+//!   budget of [`EventBudget`]), besides each queue's small fixed part and one
+//!   record built at delivery (at most 1 KiB, freed after the callback). That
+//!   is the heap these events take on the device; a plugin that does not
+//!   subscribe has no queue and costs nothing.
 //! * The pump tells at most [`PER_OWNER`] events to one plugin a pass and
 //!   starts one plugin further each pass, so no plugin starves another; it
 //!   asks for another pass while events wait.
@@ -29,7 +35,7 @@ use super::{
     native_instances::{InstanceState, NativeInstances},
     registrations as wire,
 };
-use crate::abi7::settings_visibility::visibility;
+use crate::abi7::settings_visibility::{SettingIdentity, visibility};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
@@ -203,20 +209,27 @@ impl SettingEvents {
 }
 
 /// What `plugin` may be told of a change of `key`, by the rule of slot 5
-/// (`registry.md`): a grant and the secret of another plugin are not
-/// announced; an own secret comes without its old value.
+/// (`registry.md`), with the same key matching (a placed key such as
+/// `plugin.widget@2.token` is the setting `plugin.widget.token`): a grant and
+/// the secret of another plugin are not announced; an own secret comes without
+/// its old value. A key nothing defines (the plugin that defined it is being
+/// uninstalled) fails closed: hidden from every other plugin, and told to its
+/// own without the old value.
 fn readable(settings: &Settings, plugin: &Id, key: &str) -> Visibility {
     if key.is_empty() {
         return Visibility::Readable;
     }
-    let secret = settings
-        .specs()
-        .find(|spec| spec.id.as_str() == key)
-        .is_some_and(|spec| spec.extra().secret);
+    let own = key.split(['.', '@']).next() == Some(plugin.as_str());
+    let secret = match SettingIdentity::new(key)
+        .ok()
+        .and_then(|identity| identity.definition(settings))
+    {
+        Some(spec) => spec.extra().secret,
+        None if own => return Visibility::Redacted,
+        None => return Visibility::Hidden,
+    };
     match visibility(plugin, key, secret, None) {
-        Visibility::Redacted if key.split(['.', '@']).next() != Some(plugin.as_str()) => {
-            Visibility::Hidden
-        }
+        Visibility::Redacted if !own => Visibility::Hidden,
         other => other,
     }
 }

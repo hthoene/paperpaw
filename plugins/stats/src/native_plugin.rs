@@ -1,6 +1,6 @@
 //! The interface-7 Stats plugin: what the host tells it about reading goes to
 //! the `Recorder`, over the plugin's data folder and the user's files.
-use paperpaw_sdk::native::callbacks::{DrawFrame, Input};
+use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, Input};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
@@ -20,6 +20,7 @@ use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
+use crate::native_widgets::Widgets;
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
 /// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
@@ -64,6 +65,8 @@ pub struct NativeStats {
     /// `core.ui`, opened by the first callback (opening needs a live frame).
     ui: Option<Ui>,
     screens: Screens<View>,
+    /// The widgets screens show.
+    widgets: Widgets,
 }
 
 impl core::fmt::Debug for NativeStats {
@@ -74,7 +77,12 @@ impl core::fmt::Debug for NativeStats {
 
 impl Plugin for NativeStats {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SETTINGS.iter().chain(image::UI).chain(image::EVENTS) {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::WIDGETS)
+            .chain(image::UI)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
         }
         // A host that does not admit stages yet leaves the plugin without
@@ -95,10 +103,13 @@ impl Plugin for NativeStats {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
         else {
             return Ok(());
         };
+        if let Some(done) = self.widget_event(host, token, &event, reply) {
+            return done;
+        }
         if let Event::StageCall {
             stage: READ_TODAY, ..
         } = event
@@ -137,12 +148,12 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         let told = match event {
-            Event::Started { now_ms } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
-            Event::Resume { now_ms } => {
+            Event::Started { now_ms, .. } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
+            Event::Resume { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
                 return Ok(());
             }
-            Event::Suspend { now_ms } | Event::Stopping { now_ms } => {
+            Event::Suspend { now_ms, .. } | Event::Stopping { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
                 return Ok(());
             }
@@ -173,10 +184,10 @@ impl Plugin for NativeStats {
                 });
                 return Ok(());
             }
-            Event::BookMoved { now_ms, from, path } => {
-                with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path))
-            }
-            Event::StatusChanged { now_ms } => {
+            Event::BookMoved {
+                now_ms, from, path, ..
+            } => with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path)),
+            Event::StatusChanged { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.clock_changed(cx))
             }
             _ => return Ok(()),
@@ -185,6 +196,9 @@ impl Plugin for NativeStats {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         match self.screens.top(token).ok_or(Error::State)? {
             View::Overview(view) => view.draw(host, &mut frame),
             View::Books(view) => view.draw(host, &mut frame),
@@ -194,6 +208,11 @@ impl Plugin for NativeStats {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a widget opens the statistics.
+        if self.widgets.tapped(&input) {
+            self.open_overview(host)?;
+            return Ok(Handled::Yes);
+        }
         self.ui(host)?;
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
@@ -210,6 +229,46 @@ impl Plugin for NativeStats {
             View::Book(view) => view.input(host, &input),
             View::Calendar(view) => view.input(host, &input),
         }
+    }
+}
+
+impl NativeStats {
+    /// What the widgets make of an event: `None` where it is none of theirs.
+    fn widget_event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        event: &Event<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Option<Result<(), Error>> {
+        Some(match *event {
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            Event::Tick { .. } => {
+                if token == crate::declarations::TICK_TOKEN {
+                    self.widgets.tick(host);
+                }
+                Ok(())
+            }
+            Event::SettingChanged { key, .. } => {
+                if key == "stats.goal" && token == EVENTS {
+                    crate::native_widgets::offer_today(host)
+                } else {
+                    Ok(())
+                }
+            }
+            _ => return None,
+        })
     }
 }
 

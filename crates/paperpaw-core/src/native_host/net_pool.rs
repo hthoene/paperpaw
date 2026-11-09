@@ -23,8 +23,12 @@ pub(crate) struct NetPool {
     capacity: u32,
     used: Cell<u32>,
     /// One bit per service that wants the network ([`DEMAND_NET`],
-    /// [`DEMAND_SOCK`]).
+    /// [`DEMAND_SOCK`], [`DEMAND_WORK`]).
     wanted: Cell<u8>,
+    /// When the work scheduler's wish for a network lapses, if nothing has
+    /// taken the demand over (`DEMAND_WORK`; its own bit, in the shell's
+    /// clock).
+    work_until: Cell<u64>,
     /// The TLS sessions' leases (outside the pool: the blocks are the
     /// shell's).
     tls: Cell<Lease>,
@@ -70,6 +74,11 @@ struct Lease {
 pub(crate) const DEMAND_NET: u8 = 1;
 /// `core.sockets` wants the network (a socket is live).
 pub(crate) const DEMAND_SOCK: u8 = 2;
+/// The work scheduler wishes for a network (one shot, see [`WORK_WISH_MS`]).
+pub(crate) const DEMAND_WORK: u8 = 4;
+/// How long a wish of the work scheduler stands without a request or socket
+/// of its own taking the network over.
+pub(crate) const WORK_WISH_MS: u64 = paperpaw_sdk::wifi::NETWORK_WAIT_MS;
 
 impl NetPool {
     /// A pool of `capacity` bytes (0: the device has none).
@@ -92,6 +101,7 @@ impl NetPool {
             capacity,
             used: Cell::new(0),
             wanted: Cell::new(0),
+            work_until: Cell::new(0),
             tls: Cell::new(Lease {
                 holders: [None; TLS_SESSIONS_MAX],
                 waiting: [None; TLS_WAITERS],
@@ -108,6 +118,40 @@ impl NetPool {
         let after = if wanted { before | bit } else { before & !bit };
         self.wanted.set(after);
         ((before != 0) != (after != 0)).then_some(after != 0)
+    }
+
+    /// Whether any service wants the network now.
+    pub(crate) fn wants(&self) -> bool {
+        self.wanted.get() != 0
+    }
+
+    /// Whether a request, server or socket is live (the radio is in use, not
+    /// only wished for).
+    pub(crate) fn live(&self) -> bool {
+        self.wanted.get() & (DEMAND_NET | DEMAND_SOCK) != 0
+    }
+
+    #[allow(dead_code, reason = "the work pump calls it (todo 265)")]
+    /// The work scheduler wishes for a network at `now_ms`: the demand of
+    /// work stands for [`WORK_WISH_MS`]. The edge as [`Self::demand`].
+    pub(crate) fn work_wish(&self, now_ms: u64) -> Option<bool> {
+        self.work_until.set(now_ms.saturating_add(WORK_WISH_MS));
+        self.demand(DEMAND_WORK, true)
+    }
+
+    /// The wish of work lapses when its time is out or a network is up
+    /// (the work that waited then asks for it itself). The edge as
+    /// [`Self::demand`].
+    pub(crate) fn work_lapse(&self, now_ms: u64, online: bool) -> Option<bool> {
+        if self.wanted.get() & DEMAND_WORK != 0 && (online || now_ms >= self.work_until.get()) {
+            return self.demand(DEMAND_WORK, false);
+        }
+        None
+    }
+
+    /// When the wish of work lapses, in the shell's clock; `None` without one.
+    pub(crate) fn work_deadline(&self) -> Option<u64> {
+        (self.wanted.get() & DEMAND_WORK != 0).then(|| self.work_until.get())
     }
 
     /// Asks for a TLS session for `who`: the first to ask is served first,

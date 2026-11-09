@@ -113,6 +113,15 @@ impl NetPolicy {
         }
     }
 
+    /// Whether the device may use the network for anyone now: the policy was
+    /// filled and the offline mode is not on. (A plugin's own *off* or hold
+    /// is per plugin: [`NetPolicy::end_for`].) A policy being rebuilt says no.
+    pub(crate) fn allows_use(&self) -> bool {
+        self.snapshot
+            .try_borrow()
+            .is_ok_and(|s| !s.closed && !s.offline)
+    }
+
     /// Whether `plugin`'s network use ends now, and how (`network.md` 3.2),
     /// without any allocation. `background`: for a run of the plugin's work,
     /// the only use a hold in saving refuses (the reader asking is the reader

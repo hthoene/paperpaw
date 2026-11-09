@@ -86,6 +86,168 @@ fn a_call_chain_is_followed_from_the_roots_and_its_frames_are_read() {
 }
 
 #[test]
+fn root_impl_names_the_trait_impl_methods_of_a_type_and_only_those() {
+    // `<a::Type as T>::m` and `<a::Gen<X> as T>::m`: the symbols a path cannot name.
+    let plain = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let generic = "_ZN45_$LT$a..Gen$LT$X$GT$$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let other = "_ZN40_$LT$a..TypeTwo$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    assert!(impl_of(plain, "a::Type") && !impl_of(plain, "a::Gen"));
+    assert!(impl_of(generic, "a::Gen") && !impl_of(generic, "a::Type"));
+    assert!(
+        !impl_of(other, "a::Type"),
+        "a longer type name is not the type"
+    );
+    assert!(!impl_of("a_plain_name", "a::Type"));
+    // A frame of 2,048 in the impl method is found, through the root alone.
+    let big = f(&[&entry(2032), &RETW_N]);
+    let fine = f(&[&entry(32), &RETW_N]);
+    let report = run(&[(plain, big), (other, fine)], &[], "root impl a::Type\n");
+    assert_eq!(report.checked, 1);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    // A type with no impl in the image fails, so a rename cannot go unseen.
+    let report = run(
+        &[("root", f(&[&entry(32), &RETW_N]))],
+        &["root"],
+        "root impl a::Gone\n",
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("`impl a::Gone` matches no function"))
+    );
+}
+
+#[test]
+fn root_trait_names_the_methods_of_every_impl_of_a_trait_and_its_default_methods() {
+    let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let two = "_ZN45_$LT$a..Gen$LT$X$GT$$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let longer = "_ZN40_$LT$a..Type$u20$as$u20$a..TT$GT$1m17h0123456789abcdefE";
+    // A default method of the trait, which the vtable of an impl that does not
+    // override it points at: the trait's path, then the method.
+    let default = "_ZN1a1T3dft17h0123456789abcdefE";
+    let nested = "_ZN1a1T3dft28_$u7b$$u7b$closure$u7d$$u7d$17h0123456789abcdefE";
+    let other = "_ZN1a2TT3dft17h0123456789abcdefE";
+    let p = |s: &str| crate::frames::path(s);
+    assert!(trait_of(one, &p(one), "a::T") && trait_of(two, &p(two), "a::T"));
+    assert!(trait_of(default, &p(default), "a::T") && trait_of(nested, &p(nested), "a::T"));
+    assert!(
+        !trait_of(longer, &p(longer), "a::T"),
+        "a longer trait name is not the trait"
+    );
+    assert!(
+        !trait_of(other, &p(other), "a::T"),
+        "another trait's default method is not"
+    );
+    assert!(!trait_of("plain", "plain", "a::T"));
+    let big = f(&[&entry(2032), &RETW_N]);
+    let fine = f(&[&entry(32), &RETW_N]);
+    let report = run(
+        &[
+            (one, big),
+            (two, fine.clone()),
+            (default, fine.clone()),
+            (longer, fine),
+        ],
+        &[],
+        "root trait a::T\n",
+    );
+    assert_eq!(report.checked, 3);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    let report = run(
+        &[("root", f(&[&entry(32), &RETW_N]))],
+        &["root"],
+        "root trait a::None\n",
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("`trait a::None` matches no function"))
+    );
+}
+
+#[test]
+fn an_absent_trait_fails_once_the_image_has_code_of_it() {
+    let fine = f(&[&entry(32), &RETW_N]);
+    let root = ("root", fine.clone());
+    // Nothing implements it: the line holds, and `absent` is no root.
+    let report = run(
+        std::slice::from_ref(&root),
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    // An impl method appears: it fails, by its path, with the reason.
+    let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let report = run(
+        &[root.clone(), (one, fine.clone())],
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("has code in the image now"));
+    assert!(report.problems[0].contains("no impl until the linked path lands"));
+    // A default method of the trait counts as code of it.
+    let default = "_ZN1a1T3dft17h0123456789abcdefE";
+    let report = run(
+        &[root, (default, fine)],
+        &["root"],
+        "absent trait a::T why\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    // A line with no reason is not a line of the budget.
+    assert!(Budget::parse("root x\nabsent trait a::T\n").is_err());
+}
+
+/// A firmware whose functions are `(name, bytes)`, and `also` more names for
+/// the code of the function at that index (folded or aliased code).
+fn firmware_aliased(funcs: &[(&str, Vec<u8>)], also: &[(usize, &str)]) -> Vec<u8> {
+    let mut code = Vec::new();
+    let mut at = Vec::new();
+    for (_, bytes) in funcs {
+        while code.len() % 16 != 0 {
+            code.push(0);
+        }
+        at.push((BASE + code.len() as u32, bytes.len() as u32));
+        code.extend_from_slice(bytes);
+    }
+    let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+    let text = b.section(".text", 0x6, BASE, &code, 16);
+    for ((name, _), (start, size)) in funcs.iter().zip(&at) {
+        b.function(name, *start, *size, text as u16, false);
+    }
+    for (index, name) in also {
+        let (start, size) = at[*index];
+        b.function(name, start, size, text as u16, false);
+    }
+    b.build()
+}
+
+#[test]
+fn a_root_or_trait_is_found_by_any_name_at_an_address_not_only_the_first() {
+    let fine = f(&[&entry(32), &RETW_N]);
+    let plain = "_ZN1a5plain17h0123456789abcdefE";
+    let method = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    // The code of `plain` also has the name of an impl method of `a::T` (the
+    // linker folded two identical functions): the first name is `plain`.
+    let bytes = firmware_aliased(&[("root", fine.clone()), (plain, fine)], &[(1, method)]);
+    let elf = Elf::parse(&bytes).unwrap();
+    let check_with = |text: &str| check(&elf, &Budget::parse(text).unwrap()).unwrap();
+    // `absent` sees the trait's code under the second name.
+    let report = check_with("root root\nabsent trait a::T folded\n");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("has code in the image now"));
+    // `root trait` roots it, `root impl` too, and the family by the first name.
+    let report = check_with("root root\nroot trait a::T\n");
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.checked, 2);
+    let report = check_with("root root\nroot impl a::Type\n");
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.checked, 2);
+}
+
+#[test]
 fn a_frame_of_the_limit_in_a_function_reached_is_refused_and_one_not_reached_is_not() {
     let a = BASE;
     let root = f(&[&entry(32), &call(12, a + 3, a + 16), &RETW_N]);
@@ -341,17 +503,17 @@ fn a_form_the_scan_does_not_classify_fails_wide_or_narrow() {
     let report = run(&[("root", narrow)], &["root"], "");
     assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
     assert!(report.problems[0].contains("does not classify"));
-    // `rotw`, `l32e` (RST0, op1 = 0, op2 = 4 `rotw`; RST0 `l32e` is op1 = 9).
+    // `rotw` rotates the window: a change of what `a1` names (`allow sp`).
     let rotw = f(&[&entry(32), &[0x20, 0x80, 0x40], &RETW_N]);
-    let report = run(&[("root", rotw)], &["root"], "");
-    assert!(
-        report
-            .problems
-            .iter()
-            .any(|p| p.contains("does not classify")),
-        "{:?}",
-        report.problems
+    let report = run(&[("root", rotw.clone())], &["root"], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("stack pointer"));
+    let listed = run(
+        &[("root", rotw)],
+        &["root"],
+        "allow sp root spills the windows\n",
     );
+    assert!(listed.problems.is_empty(), "{:?}", listed.problems);
     // The ordinary forms still pass: `nop.n`, `mov.n a2, a3`, `l32i.n`.
     let plain = f(&[
         &entry(32),
@@ -490,7 +652,7 @@ fn a_privileged_form_fails_unless_its_function_and_form_are_named() {
 }
 
 #[test]
-fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
+fn the_window_registers_are_a_stack_pointer_change_and_a_form_names_its_register() {
     // wsr/xsr of WINDOWBASE (72) and WINDOWSTART (73): the stack-pointer rule,
     // whatever `allow form` says; only `allow sp` passes them.
     for (name, word) in [
@@ -504,7 +666,7 @@ fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
         assert_eq!(bare.problems.len(), 1, "{name}: {:?}", bare.problems);
         assert!(bare.problems[0].contains("stack pointer"), "{name}");
         let kind = &name[..3];
-        let line = format!("allow form root {kind} not enough\n");
+        let line = format!("allow form root {kind}.scompare1 not enough\n");
         let listed = run(&[("root", root.clone())], &["root"], &line);
         assert!(
             listed.problems.iter().any(|p| p.contains("stack pointer")),
@@ -514,27 +676,57 @@ fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
         let sp = run(&[("root", root)], &["root"], "allow sp root window moved\n");
         assert!(sp.problems.is_empty(), "{name}: {:?}", sp.problems);
     }
-    // PS (230): `wsr.ps` and `xsr.ps` are forms of their own; the generic
-    // `wsr` or `xsr` line does not cover them (and is then unused).
-    for (kind, word) in [("wsr", [0x20, 0xe6, 0x13]), ("xsr", [0x20, 0xe6, 0x61])] {
+    // The form names its register: a line for one register does not cover
+    // another (and is then unused), and a bare `wsr` or `xsr` is no form.
+    for (kind, word, other) in [
+        ("wsr", [0x20, 0xe6, 0x13], "scompare1"),
+        ("xsr", [0x20, 0xe6, 0x61], "vecbase"),
+    ] {
         let root = f(&[&entry(32), &word, &RETW_N]);
-        let generic = run(
+        let wrong = run(
             &[("root", root.clone())],
             &["root"],
-            &format!("allow form root {kind} wrong register\n"),
+            &format!("allow form root {kind}.{other} wrong register\n"),
         );
-        assert_eq!(generic.problems.len(), 2, "{kind}: {:?}", generic.problems);
+        assert_eq!(wrong.problems.len(), 2, "{kind}: {:?}", wrong.problems);
         let exact = run(
             &[("root", root)],
             &["root"],
             &format!("allow form root {kind}.ps restores the interrupt level\n"),
         );
         assert!(exact.problems.is_empty(), "{kind}.ps: {:?}", exact.problems);
+        assert!(Budget::parse(&format!("root a\nallow form a {kind} bare\n")).is_err());
     }
-    // Another special register (VECBASE, 231) is the generic form.
+    // VECBASE (231) and SCOMPARE1 (12) have their names; one not in the table is `sr<n>`.
     let vec = f(&[&entry(32), &[0x30, 0xe7, 0x13], &RETW_N]);
-    let ok = run(&[("root", vec)], &["root"], "allow form root wsr vecbase\n");
+    let ok = run(
+        &[("root", vec)],
+        &["root"],
+        "allow form root wsr.vecbase set\n",
+    );
     assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+    let scompare = f(&[&entry(32), &[0x20, 0x0c, 0x13], &RETW_N]);
+    let ok = run(
+        &[("root", scompare)],
+        &["root"],
+        "allow form root wsr.scompare1 compare value\n",
+    );
+    assert!(ok.problems.is_empty(), "{:?}", ok.problems);
+    // LITBASE (5) is no form: the literal resolver assumes it off, so a write is
+    // refused and no line allows it; neither is the number of a named register.
+    let litbase = f(&[&entry(32), &[0x20, 0x05, 0x13], &RETW_N]);
+    let refused = run(&[("root", litbase)], &["root"], "");
+    assert!(
+        refused
+            .problems
+            .iter()
+            .any(|p| p.contains("does not classify")),
+        "{:?}",
+        refused.problems
+    );
+    assert!(Budget::parse("root a\nallow form a wsr.litbase no\n").is_err());
+    assert!(Budget::parse("root a\nallow form a wsr.sr12 no\n").is_err());
+    assert!(Budget::parse("root a\nallow form a wsr.sr200 an unnamed register\n").is_ok());
 }
 
 #[test]
@@ -571,13 +763,8 @@ fn an_allow_form_line_that_matches_nothing_or_names_the_wrong_form_fails() {
 
 #[test]
 fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
-    // `rotw 2`, `rfe`, `rfi 3` and `rfwo` have no line.
-    for word in [
-        [0x20u8, 0x80, 0x40],
-        [0x00, 0x30, 0x00],
-        [0x10, 0x33, 0x00],
-        [0x00, 0x34, 0x00],
-    ] {
+    // `rfe`, `rfi 3` and `rfwo` have no line.
+    for word in [[0x00u8, 0x30, 0x00], [0x10, 0x33, 0x00], [0x00, 0x34, 0x00]] {
         let root = f(&[&entry(32), &word, &RETW_N]);
         let report = run(&[("root", root)], &["root"], "");
         assert!(
@@ -719,16 +906,11 @@ fn a_literal_out_of_the_image_is_a_call_out_of_the_image() {
 }
 
 #[test]
-fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
+fn a_callx_whose_register_holds_no_literal_on_every_path_stays_indirect() {
     // Each is a call through a register the scan must not follow: the budget
     // lists it (`allow indirect`) or the scan fails.
     type Middle = Box<dyn Fn(u32) -> Vec<u8>>;
     let cases: Vec<(&str, Middle)> = vec![
-        // Another path enters at the call: `beqz a3` to the `callx8`.
-        (
-            "a branch target",
-            Box::new(|pc: u32| f(&[&beqz(3, pc, pc + 5), &[0x3d, 0xf0]])),
-        ),
         // The register is written again.
         ("a write of the register", Box::new(|_| vec![0x8d, 0x03])),
         // A call moves the window.
@@ -736,10 +918,10 @@ fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
             "a call in between",
             Box::new(|pc: u32| call(8, pc, BASE + 0x40).to_vec()),
         ),
-        // A `j` before the call: what follows it starts a run of its own.
+        // A window register moves the registers.
         (
-            "after a jump",
-            Box::new(|pc: u32| jump(pc, pc + 3).to_vec()),
+            "a write of WINDOWBASE",
+            Box::new(|_| vec![0x20, 0x48, 0x13]),
         ),
     ];
     for (what, middle) in &cases {
@@ -767,70 +949,127 @@ fn a_callx_whose_register_the_walk_cannot_prove_stays_indirect() {
     assert_eq!((other.resolved, other.indirect), (0, 1));
 }
 
-#[test]
-fn an_address_a_word_of_the_image_points_at_is_a_place_another_path_enters() {
-    // A word of data holding the address of the `callx8` (a jump table's
-    // entry): the walk does not step back over it.
+/// A function `root` of the instructions `parts` at `BASE + 0x40` (the first
+/// literal is the helper's address, the second the same address again), and
+/// the helper after it.
+fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
-    let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
-    let callx_at = root_at + 3 + 3 + 2;
-    let report = run_lit(&lits, &funcs, &[callx_at], "");
-    assert_eq!(
-        (report.resolved, report.indirect),
-        (0, 1),
-        "{:?}",
-        report.problems
-    );
-    // An entry at the `l32r` itself is no other path into the walk.
-    let report = run_lit(&lits, &funcs, &[root_at + 3], "");
-    assert_eq!((report.resolved, report.indirect), (1, 0));
-    let report = run_lit(&lits, &funcs, &[0x1234_5678], "");
-    assert_eq!((report.resolved, report.indirect), (1, 0));
+    let root = f(parts);
+    let helper_at = (root_at + root.len() as u32 + 15) & !15;
+    let helper = f(&[&entry(64), &RETW_N]);
+    (
+        vec![helper_at, helper_at],
+        vec![("root", root), ("helper", helper)],
+    )
+}
+
+fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
+    let report = run_lit(lits, funcs, data, "");
+    (report.resolved, report.indirect)
 }
 
 #[test]
-fn the_branch_targets_are_read_as_the_assembler_makes_them() {
-    use super::regs::Insn;
-    // `xtensa-esp32s3-elf-as`: each of these at `pc` branches to 0x22.
-    let wide = |pc, word| Insn {
-        pc,
-        word,
-        wide: true,
-    };
-    for (pc, word) in [
-        (0x00, 0x1e1237), // beq a2, a3
-        (0x03, 0x01b216), // beqz a2
-        (0x06, 0x184226), // beqi a2, 4
-        (0x09, 0x1582b6), // bltui a2, 8
-        (0x0c, 0x126237), // bbci a2, 3
-        (0x0f, 0x00f2d6), // bgez a2
-        (0x19, 0x000146), // j
-    ] {
+fn the_literal_must_be_the_same_on_every_path_to_the_call() {
+    let at = BASE + 0x40;
+    // A register loaded before a loop and called inside it: a5 is kept by a
+    // `call8` (the registers below its rotation are), a8 is not (it holds
+    // what the callee left on the second time round).
+    for (reg, want) in [(5, (1, 0)), (8, (0, 1))] {
+        let (lits, funcs) = root_of(&[
+            &entry(32),
+            &l32r(reg, at + 3, BASE),
+            &callx_reg(8, reg),
+            &beqz(3, at + 9, at + 6),
+            &RETW_N,
+        ]);
+        assert_eq!(outcome(&lits, &funcs, &[]), want, "a{reg} in a loop");
+    }
+    // A path that skips the `l32r`.
+    let (lits, funcs) = root_of(&[
+        &entry(32),
+        &beqz(3, at + 3, at + 9),
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ]);
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 1), "a path without it");
+    // The same literal on both arms of a branch resolves; two literals (even
+    // of the same value) do not.
+    for (second, want) in [(BASE, (1, 0)), (BASE + 4, (0, 1))] {
+        let (lits, funcs) = root_of(&[
+            &entry(32),
+            &beqz(3, at + 3, at + 12),
+            &l32r(8, at + 6, BASE),
+            &jump(at + 9, at + 15),
+            &l32r(8, at + 12, second),
+            &callx_reg(8, 8),
+            &RETW_N,
+        ]);
         assert_eq!(
-            wide(pc, word).targets(),
-            Some([Some(0x22), None]),
-            "{word:#x}"
+            outcome(&lits, &funcs, &[]),
+            want,
+            "second literal {second:#x}"
         );
     }
-    for (pc, word) in [(0x12, 0xc28c), (0x14, 0xa3cc)] {
-        // beqz.n, bnez.n
-        let insn = Insn {
-            pc,
-            word,
-            wide: false,
-        };
-        assert_eq!(insn.targets(), Some([Some(0x22), None]), "{word:#x}");
-    }
-    // `loop a2`: the body and the end.
-    assert_eq!(
-        wide(0x16, 0x088276).targets(),
-        Some([Some(0x19), Some(0x22)])
-    );
-    // `ret` and `j` end the flow; `nop` does not.
-    assert!(wide(0x22, 0x000080).ends_flow() && wide(0x19, 0x000146).ends_flow());
-    assert!(!wide(0x1c, 0x0020f0).ends_flow());
-    // `l32r a8, <literal>` of a real image: 0x42239829 reads 0x4221e66c.
-    assert_eq!(wide(0x4223_9829, 0x939081).l32r(), Some((8, 0x4221_e66c)));
+}
+
+#[test]
+fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
+    let at = BASE + 0x40;
+    // entry; l32r a8; mov.n; callx8 a8; retw.n: resolved on its own.
+    let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
+    assert_eq!(outcome(&lits, &funcs, &[]), (1, 0));
+    // A word of data holding the address of the `callx8` (a jump table of
+    // another function, or of this one): the call can be entered with nothing
+    // loaded, so it is not resolved.
+    let callx_at = at + 3 + 3 + 2;
+    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (0, 1));
+    // At the `l32r` itself (it loads before the call on every path): resolved.
+    assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
+    // A word that is no address of this function changes nothing.
+    assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
+    // An address inside an instruction: no jump target (the compiler's are
+    // instruction starts), a number in the data that happens to be one: left
+    // out, so where the build puts things does not decide whether the call
+    // resolves. The same with a `jx` table that has a real entry too.
+    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, at + 3]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (0, 1));
+}
+
+#[test]
+fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
+    let at = BASE + 0x40;
+    // entry; jx a3; l32r a8; callx8 a8; retw.n. Only a table gets to the
+    // `l32r` or to the `callx8`.
+    let code = [
+        &entry(32)[..],
+        &[0xa0, 0x03, 0x00],
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    // No table: the `jx` cannot be placed, nothing is resolved (the `jx` is
+    // counted as one indirect call too).
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
+    // The table holds the `l32r`: reached, the literal loaded.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
+    // The table holds the `callx8`: reached with nothing loaded.
+    assert_eq!(outcome(&lits, &funcs, &[at + 9]), (0, 2));
+    // A `jx` after a resolvable call: with no table the whole function gives up.
+    let code = [
+        &entry(32)[..],
+        &l32r(8, at + 3, BASE),
+        &callx_reg(8, 8),
+        &[0xa0, 0x03, 0x00],
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
+    // A word that holds the function's own start (a vtable or a function
+    // pointer) is no table: the function still gives up.
+    assert_eq!(outcome(&lits, &funcs, &[at]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -840,18 +1079,18 @@ fn bf_bt(r: u32, pc: u32, target: u32) -> [u8; 3] {
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
-/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, `retw.n`, then
-/// `tail` (at `BASE + 0x40 + 13`), and the helper the literal gives.
+/// `root`: `entry`, `l32r a8`, `mov.n a10, a3`, `callx8 a8`, then `tail` (at
+/// `BASE + 0x40 + 11`), `retw.n`, and the helper the literal gives.
 fn root_with_tail(tail: &dyn Fn(u32) -> Vec<u8>) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
-    let tail = tail(root_at + 13);
+    let tail = tail(root_at + 11);
     let root = f(&[
         &entry(32),
         &l32r(8, root_at + 3, BASE),
         &[0xad, 0x03],
         &callx_reg(8, 8),
-        &RETW_N,
         &tail,
+        &RETW_N,
     ]);
     let helper_at = (root_at + root.len() as u32 + 15) & !15;
     let helper = f(&[&entry(64), &RETW_N]);
@@ -871,7 +1110,7 @@ fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
         plain.problems
     );
     // A `bf`/`bt` after the call back to the `mov.n` between the `l32r` and the
-    // call: another path enters there, the call is not proven.
+    // call: the path round again has a8 from the callee, the call is not proven.
     for r in [0, 1] {
         let (lits, funcs) = root_with_tail(&|pc| bf_bt(r, pc, root_at + 6).to_vec());
         let report = run_lit(&lits, &funcs, &[], "");
@@ -887,6 +1126,11 @@ fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
         .targets(),
         Some([Some(3), None])
     );
+    // A hardware loop (`loopnez a2` to the `retw.n`, 0x039276 as the assembler
+    // makes it): its back edge is no instruction's, so no call is resolved.
+    let (lits, funcs) =
+        root_with_tail(&|_| f(&[&[0x76, 0x92, 0x03], &[0x3d, 0xf0], &[0x3d, 0xf0]]));
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 1), "a loop");
     // B1 with an `r` that is no `bf`, `bt` or `loop*`: not modelled, so the
     // function's calls are not resolved at all, wherever the form is.
     let (lits, funcs) = root_with_tail(&|_| vec![0x76, 0x30, 0x00]);
@@ -922,4 +1166,122 @@ fn a_literal_in_a_writable_section_is_not_read() {
     let elf = Elf::parse(&bytes).unwrap();
     let report = check(&elf, &Budget::parse("root root\n").unwrap()).unwrap();
     assert_eq!((report.resolved, report.indirect), (0, 1));
+}
+
+#[test]
+fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
+    // Two instantiations of one generic: the same path, two symbols (legacy
+    // mangling drops the generics from the path, keeps the hash in the symbol).
+    let (s1, s2) = (
+        "_ZN4core3ptr13drop_in_place17h0000000000000001E",
+        "_ZN4core3ptr13drop_in_place17h0000000000000002E",
+    );
+    let a = BASE;
+    let root = f(&[
+        &entry(32),
+        &call(8, a + 3, a + 16),
+        &call(8, a + 6, a + 32),
+        &RETW_N,
+    ]);
+    let one = f(&[&entry(32), &callx_reg(8, 2), &RETW_N]);
+    let funcs = [("root", root), (s1, one.clone()), (s2, one)];
+    // Bare: both are reported by the symbol without its hash (the path alone
+    // would not tell them from every other `core::ptr` function), one line.
+    let stable_name = "_ZN4core3ptr13drop_in_place";
+    let bare = run(&funcs, &["root"], "");
+    assert_eq!(bare.problems.len(), 1, "{:?}", bare.problems);
+    assert!(bare.problems[0].contains(stable_name) && !bare.problems[0].contains("17h"));
+    // A line by the path names two functions: an error.
+    let by_path = run(
+        &funcs,
+        &["root"],
+        "allow indirect core::ptr::drop_in_place 1 both\n",
+    );
+    assert!(
+        by_path
+            .problems
+            .iter()
+            .any(|p| p.contains("names 2 functions") && p.contains(stable_name)),
+        "{:?}",
+        by_path.problems
+    );
+    // By the symbol without the hash: one line covers the instances that make
+    // that many calls, and survives a rebuild that changes every hash.
+    let by_stable = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    let rebuilt = [
+        ("root", funcs[0].1.clone()),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000aaE.1322",
+            funcs[1].1.clone(),
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h00000000000000bbE.77",
+            funcs[2].1.clone(),
+        ),
+    ];
+    let by_stable = run(
+        &rebuilt,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 every instance\n"),
+    );
+    assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
+    // An instance with another count is not covered.
+    let two = f(&[&entry(32), &callx_reg(8, 2), &callx_reg(8, 3), &RETW_N]);
+    let uneven = [
+        ("root", funcs[0].1.clone()),
+        (s1, funcs[1].1.clone()),
+        (s2, two),
+    ];
+    let uneven = run(
+        &uneven,
+        &["root"],
+        &format!("allow indirect {stable_name} 1 one call\n"),
+    );
+    assert!(!uneven.problems.is_empty(), "{:?}", uneven.problems);
+    // By raw symbol, one line each: passes too.
+    let by_symbol = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect {s2} 1 second\n"),
+    );
+    assert!(by_symbol.problems.is_empty(), "{:?}", by_symbol.problems);
+    // One of them named by symbol and the other by the path is still an error
+    // (the path names both).
+    let mixed = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect {s1} 1 first\nallow indirect core::ptr::drop_in_place 1 second\n"),
+    );
+    assert!(!mixed.problems.is_empty());
+}
+
+#[test]
+fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
+    for (symbol, name) in [
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.1322",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN4core3ptr13drop_in_place17h0123456789abcdefE.llvm.99",
+            "_ZN4core3ptr13drop_in_place",
+        ),
+        (
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+            "_ZN3a..4m17hZZZZZZZZZZZZZZZZE",
+        ),
+        ("memcpy", "memcpy"),
+        ("a.b", "a.b"),
+    ] {
+        assert_eq!(stable(symbol), name, "{symbol}");
+    }
 }

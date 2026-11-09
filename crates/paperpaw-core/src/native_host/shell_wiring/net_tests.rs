@@ -76,3 +76,23 @@ fn reports_reach_the_service_and_unknown_ids_are_ignored() {
         Err(ERR_NOT_FOUND)
     );
 }
+
+#[test]
+fn every_shell_reason_has_its_wire_value() {
+    // `network.md` 4.1: 0 ok, 1 no_network, 2 dns, 3 tls, 4 timeout, 5 refused,
+    // 6 too_large, 9 io, 10 full.
+    for (reason, wire) in [
+        (HttpReason::Ok, 0),
+        (HttpReason::NoNetwork, 1),
+        (HttpReason::Dns, 2),
+        (HttpReason::Tls, 3),
+        (HttpReason::Timeout, 4),
+        (HttpReason::Refused, 5),
+        (HttpReason::TooLarge, 6),
+        (HttpReason::Io, 9),
+        (HttpReason::Full, 10),
+    ] {
+        let finished = HttpDone::new(0, reason).into_finished();
+        assert_eq!(finished.reason, wire, "{reason:?}");
+    }
+}
