@@ -118,6 +118,16 @@ impl Job {
         Ok(())
     }
 
+    /// Lets go of the connection: its socket is closed, what waited to be
+    /// sent is wiped, and the job is idle again.
+    pub fn cancel<N: Net>(&mut self, net: N) {
+        let mut link = Link::new(&mut self.state, net);
+        Io::close(&mut link);
+        self.state = LinkState::default();
+        self.session = Session::None;
+        self.run = Run::Idle;
+    }
+
     /// A notice of the socket: the session takes what it means. A notice when
     /// no session runs is not for the job.
     ///

@@ -4,7 +4,7 @@
 //! from `core.secrets` when a connection is made. The screens, the lists and the
 //! widgets follow (see `PORTING-7.md`); the interface-6 plugin is still in place
 //! beside this one.
-use crate::declarations::SOCKET_TOKEN;
+use crate::declarations::{OPEN_TOKEN, SOCKET_TOKEN};
 use crate::native_model::{
     account::Account,
     job::{Job, Run},
@@ -12,19 +12,26 @@ use crate::native_model::{
     mem::Error as MailError,
     session::{Outgoing, Task},
 };
+use crate::native_screens::{Asked, BOXES_TOKEN, Check, LIST_TOKEN, View};
 use crate::native_socket::HostNet;
 use crate::native_values::HostValues;
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::{
-    Error, Host, Plugin,
-    events::{Event, Incoming, kinds},
-    registrations,
-    reply::Reply,
-    secrets::Secrets,
-    sockets::{SocketId, Sockets},
-    storage::DataStorage,
+use paperpaw_sdk::{
+    Handled,
+    native::{
+        Error, Host, Plugin,
+        callbacks::{DrawFrame, Input},
+        commands::CommandSender,
+        events::{Event, Incoming, kinds},
+        registrations,
+        reply::Reply,
+        secrets::Secrets,
+        sockets::{SocketId, Sockets},
+        storage::DataStorage,
+        ui::{Instance, Open, Ui},
+    },
 };
-use paperpaw_ui_kit::read_event;
+use paperpaw_ui_kit::{Screens, read_event};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/mail_declarations.rs"));
@@ -33,18 +40,33 @@ mod image {
 /// Mail's interface-7 state: the services, and the one connection there is.
 #[derive(Debug, Default)]
 pub struct NativeMail {
-    job: Job,
+    pub(crate) job: Job,
     /// The socket of the connection, while there is one.
-    socket: Option<SocketId>,
+    pub(crate) socket: Option<SocketId>,
     /// The name of the server connected to (for the secure switch).
-    server: String,
-    sockets: Option<Sockets>,
-    secrets: Option<Secrets>,
+    pub(crate) server: String,
+    pub(crate) sockets: Option<Sockets>,
+    pub(crate) secrets: Option<Secrets>,
+    pub(crate) ui: Option<Ui>,
+    /// The open list screens.
+    pub(crate) screens: Screens<View>,
+    /// The check that is going, if one is.
+    pub(crate) check: Option<Check>,
+    /// The question *Trust this server?* that is open.
+    pub(crate) asked: Option<Asked>,
+    /// The account whose server the reader trusted, and the screen to check
+    /// again from when it shows.
+    pub(crate) pending: Option<(u8, Instance)>,
 }
 
 impl Plugin for NativeMail {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SETTINGS.iter().chain(image::EVENTS) {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::UI)
+            .chain(image::SCREENS)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -57,7 +79,8 @@ impl Plugin for NativeMail {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Socket) else {
+        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        else {
             return Ok(());
         };
         match event {
@@ -73,8 +96,42 @@ impl Plugin for NativeMail {
                 };
                 self.notice(host, notice)
             }
+            Event::ActionRun {
+                action: "mail.open",
+                ..
+            } if token == OPEN_TOKEN => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("mail.boxes")?)
+            }
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == BOXES_TOKEN || token == LIST_TOKEN => {
+                self.screen_opened(host, token, instance, handover)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == BOXES_TOKEN || token == LIST_TOKEN => {
+                self.screen_shown(host, token, instance)
+            }
+            Event::ScreenClosed { instance, .. } => {
+                self.screen_closed(host, instance);
+                Ok(())
+            }
+            Event::Answered { answer, .. } => self.answered(host, answer),
             _ => Ok(()),
         }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        self.draw_list(host, token, frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token != BOXES_TOKEN && token != LIST_TOKEN {
+            return Ok(Handled::No);
+        }
+        self.input_list(host, token, &input)
     }
 }
 
@@ -92,7 +149,7 @@ impl NativeMail {
     }
 
     /// The services, opened when first needed (a refusal is tried again).
-    fn services(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    pub(crate) fn services(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.sockets.is_none() {
             self.sockets = Some(Sockets::open(host)?);
         }
@@ -175,6 +232,20 @@ impl NativeMail {
             // The connection is over; its socket is closed or ended.
             self.socket = None;
         }
-        result
+        result?;
+        self.progressed(host)
+    }
+
+    /// Lets go of the connection: its socket is closed.
+    pub(crate) fn cancel(&mut self, host: &Host<'_>) {
+        if let Some(sockets) = self.sockets.as_ref()
+            && let Ok(net) =
+                HostNet::new(host, sockets, &mut self.socket, SOCKET_TOKEN, &self.server)
+        {
+            self.job.cancel(net);
+        } else {
+            self.job.run = Run::Idle;
+        }
+        self.socket = None;
     }
 }

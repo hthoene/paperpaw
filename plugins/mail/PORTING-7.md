@@ -171,6 +171,28 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
 - Differences from interface 6, on purpose: the password is read when a connection is made and not kept in the
   account; the silence timer is the host's.
 
+## Ported in slice 7 (the list screens)
+
+- `src/native_model/browser.rs` (`tests/native_browser.rs`): the lines of *Mail* (the folders of every account with their
+  unseen mails, the check, writing, the settings; the one line that says to set up an account) and of a folder (its mails
+  newest first, with the unseen and flagged marks), the tasks of a check (folders and inbox for *Mail*, the one folder for
+  a folder), the names of folders by purpose, the title of a folder, `when_of` (the time of day today, else the date, in the
+  reader's zone), and the fingerprint in two lines. Everything allocated is asked for; the words come through `Words`.
+- `src/native_model/texts.rs` (`tests/native_texts.rs`): which catalog message says where a connection is and why it failed.
+- `src/native_screens.rs`, `src/native_words.rs`: the screens `mail.boxes` and `mail.list` on `ItemList`, one `View` for each
+  open instance (the handover carries `account` and `folder`). Choosing the first row checks for mail: one account after
+  the other for *Mail*, the folder's account for a folder, one connection at a time, and the status line under the rows says
+  where it is and how it went. A screen opened above (a folder, the settings) lets go of the connection, and the one below
+  checks again when it shows; a screen that closes closes its socket. An untrusted server is asked about once with
+  `Question::confirm` (Trust, Don't trust) and the key is kept as the account's pin setting (`set_setting`) when the reader
+  trusts it; a provider's server or a changed key is only said, as in interface 6. The Tools entry opens *Mail*.
+- Not in this slice: choosing a mail or *Write a mail* does nothing yet (the reader and the compose window are the next
+  slice; the actions and screens are declared). No host with `core.ui`, storage and sockets runs a native plugin end to end
+  yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks, the words and the times are
+  tested without one.
+- Differences from interface 6, on purpose: the hash is grouped by a fallible function; the date is the reader's zone from
+  the host's snapshot.
+
 ## The interface-6 files on the card
 
 Interface-6 Mail keeps its files under `.paperpaw/plugins/mail/` (`aN/…`), and that is the plugin's data
@@ -189,11 +211,11 @@ draft and outbox paths equal to interface 6's `store::draft_file` and `store::ou
 
 | Piece | Waits for |
 | --- | --- |
-| A connection started by a screen and ending with it | the screens (next slices); the work service (`docs/abi/work.md`) for background fetching |
+| A connection started by a screen and ending with it (the list screens do it) | a scripted host with `core.ui`, sockets and storage (#944) |
 | Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
-| Folders, list, reader, compose (`browser.rs`, `reader.rs`, `writer.rs`, `compose.rs`) | `core.ui` compose; the card through `core.files` |
+| Reader and compose window (`reader.rs`, `writer.rs`, `compose.rs`); the folders and the list are native (slice 7) | the next slice |
 | The store of what was fetched, called by the sessions (`store.rs`, `render.rs` are native since slice 4) | the sessions and the screens that call them |
 | The five home widgets and their settings | the widget host call (Core todo 76) |
-| The question *Trust this server?* | `Question::confirm` (labels "Trust" and "Don't trust") and the sockets certificate event |
+| The question *Trust this server?* (asked by the list screens) | a scripted host with `core.ui` (#944) |
 
 Every interface-6 module that is not listed above as made fallible stays as it is.

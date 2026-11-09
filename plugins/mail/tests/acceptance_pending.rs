@@ -14,7 +14,7 @@ fn a_mail_is_sent_over_smtp_with_the_accounts_password() {
 }
 
 #[test]
-#[ignore = "needs the screens (the next slices): the connection is one socket at a time and ends with the screen that opened it; the work service (docs/abi/work.md) is for background fetching"]
+#[ignore = "needs a scripted host with core.ui, core.sockets and storage (#944): the list screens (native_screens.rs) hold the one connection and close it when they close or another screen opens above; the job closing its socket on a host error is tested in tests/native_job.rs"]
 fn a_connection_ends_with_the_screen_that_opened_it() {
     unreachable!("one socket per kind of screen, closed when the screen closes");
 }
@@ -38,7 +38,7 @@ fn the_home_widgets_show_the_mail_checked_last() {
 }
 
 #[test]
-#[ignore = "needs the screens to ask Trust this server? (Question::confirm with the labels Trust and Don't trust): the offer itself (account::offer: Ask, Changed, Attack) and the Untrusted run are native and tested"]
+#[ignore = "needs a scripted host with core.ui (#944): the list screens ask Trust this server? (Question::confirm, Trust and Don't trust) and keep the key with set_setting; the offer itself (account::offer: Ask, Changed, Attack) and the Untrusted run are native and tested"]
 fn an_unknown_servers_key_is_offered_once_and_a_changed_one_never() {
     unreachable!("account::offer: Ask, Changed, Attack");
 }

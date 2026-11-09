@@ -6,8 +6,8 @@
 //! `mail.group` (interface 6: `mail`), as every ported plugin names its group.
 //! The home widgets' settings come with the widgets (host call: Core todo 76).
 //! The actions, the Tools entry, the icons and the screens are declared by
-//! [`ui`] and [`screens`] and are not part of the image yet: the screens wait for
-//! the sockets, the secrets and the work services (see `PORTING-7.md`).
+//! [`ui`] and [`screens`], and are in the image. The lists work (slice 7); the
+//! reader and the compose window follow (see `PORTING-7.md`).
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
