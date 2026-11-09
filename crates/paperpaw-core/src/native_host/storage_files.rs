@@ -120,6 +120,7 @@ const JOINED: usize = 384;
 pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
+    #[allow(dead_code, reason = "FilesHost::built_in (#757) reads it")]
     linked: Rc<LinkedPlugins>,
 }
 

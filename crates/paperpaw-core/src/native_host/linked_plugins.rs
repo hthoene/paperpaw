@@ -49,6 +49,7 @@ impl LinkedPlugins {
     }
 
     /// Whether `id` is a linked plugin. A set in use says yes.
+    #[allow(dead_code, reason = "FilesHost::built_in (#757) asks it")]
     pub(crate) fn contains(&self, id: &str) -> bool {
         self.0
             .try_borrow()
