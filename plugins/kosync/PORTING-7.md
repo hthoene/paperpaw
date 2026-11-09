@@ -1,64 +1,75 @@
-# Progress sync (kosync) on interface 7 (slice 1, partly ported)
+# Progress sync (kosync) on interface 7
 
-Status: **not complete.** The interface-6 plugin (events, state, account and confirmation screens,
-HTTP commands) is still in place beside the native one. It is removed in the PR that finishes the
-port.
+Version 1.0.9. Native only: the interface-6 plugin (events, state, account and confirmation screens,
+HTTP commands, tests that drove a kernel) is gone, with its store file (`tools/plugin-files`) and its
+registration in `paperpaw-app`. Behaviour is the same where the host allows; what it cannot do yet is
+named below and in `tests/acceptance_pending.rs`.
 
-## Ported in slice 1 (`declarations.rs`, `src/native_model.rs`, `src/native_plugin.rs`)
+## What is native
 
-- Declarations: the settings group and the three settings (user, *sync by themselves*, server).
-  `build.rs` and `native/metadata*` are generated with `tools/abi-metadata.py`. En/de texts are
-  the existing ones.
-- Model (host-free, each part the interface-6 code made fallible and tested to give the same
-  answers): the server address as a base URL, the password key (MD5), JSON strings, the body of a
-  progress update (four decimals, ties to even, out of range cut), the server's answer read, the
-  decision on a fetched position (`judge`: offer, hold quietly, up to date, with the declined and
-  put-off memories and the manual sync) and the rule for a book left behind
-  (`send_left_behind`). `tests/native_alloc_refusal.rs` refuses each allocation of the writers.
-- The server's JSON is read with `paperpaw_sdk::json` until Kernel's fallible reader (#414) is on
-  integration; it has no refusal path, so an answer is bounded first: `MAX_ANSWER` = 4,096 bytes
-  (the request's `max_body`; the network host's default would be 45,056 on the X4 and 1,048,576
-  elsewhere, `network.md`). `read_answer` and `remote_progress` refuse a longer text with `NoSpace`
-  (tested); the reader itself is not in the sweep (marked in `native_model.rs`).
-- The settings test (`src/native_parity_tests.rs`) compares each native setting with interface 6's
-  field by field (name, title, group, help, kind, default, advanced, kept on reset) and the group.
-  The one difference is the editor that opens the account screen: the native plugin declares none.
-- `password_key` zeroes its hex array with `mem::wipe` (tested); the MD5 state wipes itself when
-  dropped (#451). The 16 raw digest bytes are a temporary inside the digest
-  crate's `hex_into` (it consumes the digest): the plugin has no array of them to wipe; wiping that
-  temporary is for the digest crate (Kernel). The returned key is the credential, so the sync slice that sends it must
-  `wipe_text` it afterwards.
+- `declarations.rs` (built into the image by `build.rs`; `native/metadata*` by `tools/abi-metadata.py`):
+  the settings group and its three settings (user, *sync by themselves*, server), the account screen
+  (`kosync.account`, one instance), the action *Sync progress* and its entry in the reading menu's
+  *More* (order 25), the two icons, and the events heard (started, setting changed, book opened and
+  closed, page turned, suspend, resume, work due and allowed, a request ended, screen shown).
+  Metadata: services `core.device`, `core.net`, `core.secrets`, `core.ui`, `core.work`; features
+  `uses.network` and `uses.wifi`, neither required (without a network the plugin loads and says so).
+- `src/native_sync.rs`: the sync as a host-free state machine (`Engine`): holds, offers, *declined* and
+  *not now*, books left, the offline queue, the once-a-minute rules. After `NoMemory` the caller drops the
+  actions and the next event starts again; a `Fetch` or `Send` it cannot make is reported with
+  `not_fetched` and `not_sent`. Limits (interface 6 had none): 4 dismissed, 4 unsent, 5 left.
+  `tests/native_sync.rs` runs the scenarios of interface 6's `tests/sync.rs`;
+  `tests/native_sync_alloc.rs` refuses every allocation in turn.
+- `src/native_model.rs`: the server address, the key (MD5, wiped), the body, the answer read (4,096 bytes
+  at most), the decision on a fetched position, the percentage text.
+- `src/native_flow.rs`: the requests (`Call`: address, headers, body as interface 6 sent them; the key and
+  the body are wiped on drop) and the table of requests out (4 at most, the service's limit).
+- `src/native_account.rs`: the account screen's rows and decisions (fields, *Sign in*, *Create account*,
+  *Sign out*, a changed server signs out, the status of each answer, 402 means *taken* only for a new account).
+- `src/native_store.rs`: the key among the secrets (`key`, not changeable; every buffer that held it is
+  wiped), the device id in `device.ini`, the move of a key kept in `account.ini` by earlier versions.
+- `src/native_plugin.rs`: the services (opened at the first callback; no network or no secrets is no
+  error), the events, the account screen, the offer as a confirmation dialog (*Go there* / *Stay here*;
+  closing it is *not now*), notices, the work *push* (network, within 30 minutes, moment online, declared
+  once), the answers of the server.
+- The shared text `core.secrets-unsupported` is shown when the key cannot be kept (the account is then
+  not signed in).
 
-## Slice 2: the sync engine (`src/native_sync.rs`, host-free)
+## What waits (each an ignored case in `tests/acceptance_pending.rs`)
 
-Interface 6's `State` (`lib.rs`) as a state machine with every allocation fallible: which book is
-open and where, what was sent and when (at most once a minute, again after a failure), the hold on
-sending until the server's progress is read, the offer, *declined* and *not now* (`dismissed`, at
-most 4 kept), the books left while their fetch was out (at most 5), the books switched from while
-Offline (at most 4), the fetch at most once a minute per book, *Sync progress*. The caller gives
-the host's facts (`Ctx`: clock, network, *auto*, signed in, online, radio on anyway) and carries out
-the `Action`s: `Fetch`, `Send`, `Offer`, `Notice`, `PushLater` (declare the work). The decision on
-an answer is `native_model::judge`/`send_left_behind`. `tests/native_sync.rs` runs the scenarios of
-interface 6's `tests/sync.rs` (offline, failed fetch, offer, stay, not now, book left, once a minute,
-closing, manual sync, signed out); `tests/native_sync_alloc.rs` refuses every allocation in turn.
-Kept for the caller: the book's fingerprint and XPointer, the request and the account, the work
-declaration, the device id. `progress_text` is the key of an offered position (`{progress}`; a very
-small number in scientific form so it stays short).
+- **The book's fingerprint, a place's XPointer and the place of an XPointer** are asked through
+  `src/native_backing.rs`: `Library::book_key` (op 25) for the KOReader fingerprint, and
+  `Documents::open_book`, `xpointer` / `locate` and `close` (`core.document`, root 1 with `uses.storage`) for
+  the XPointers. A service the device does not offer, a book the library does not know, a book still being
+  prepared (`Busy`: tried again at the next chance) and a format without XPointers (the progress is sent
+  alone, as interface 6 did) all answer "unavailable"; nothing aborts. The host's side of these calls is
+  not wired (Host #417, #944): until it is, they answer `Unsupported` and the sync is a **silent no-op**:
+  no fetch, no send, and the 30-minute push work (`Action::PushLater`) is not declared
+  (`Backing::can_send` needs the library). Signing in, signing out, the key and the account screen work.
+- **Go there** opens the book through `core.reader` with `path`, `section` and `offset` (the reader reads them
+  since #629). Where `locate` cannot place the XPointer, interface 6 went by the percentage
+  (`at_progress`, the section sizes); the document service gives no section sizes yet, so the offer is then
+  treated as closed (*not now*). Ask Kernel/Services for a size read if it is wanted.
+- **No library position is written.** Interface 6 did not write one either: *Go there* hands the place to the
+  reader, which keeps its own. `Library::position` and `set_position` (`sync`, `confirmed`) are not used.
+- The book is opened for its XPointer with the host's defaults, not with the reader's options
+  (publisher styles, picture size): a place is a section and an offset in the source, which do not depend on them.
+- **Not linked into the app yet** (`NATIVE_PLUGINS`; waits for device activation, #944/#417): the app's
+  interface-6 install and its `NETWORK_SETTINGS` entry are gone, so the *Progress sync* row is missing from
+  the settings snapshot until then (`tests/snapshots/settings.txt` updated, as for notes-overview).
+- Acceptance of the account screen on the scripted host and of the frames against the interface-6
+  snapshots waits for the UI host (H1-H4) and the network host.
 
-The engine reports `NoMemory` and may have pushed some actions already: after an `Err` the caller
-drops `out` and carries out none of it (the next event starts again). A `Fetch` or `Send` it cannot
-make (the book does not read) is reported back with `not_fetched` and `not_sent`.
+## Differences from interface 6
 
-Differences from interface 6, all to make it bounded: the books left are capped at 5 (`MOST_LEFT`, the
-4 switched from offline and the open one; interface 6 kept any number); the position's place is `(section, offset)` instead of a `Locator`.
-
-## What the slice loses (each returns in a later slice or with its host piece)
-
-- **Every sync**: fetching, sending, the 30-minute and one-minute timers, the offline queue, the
-  hold on sending. They need the network host (`core.net`), secrets (the key), the book events and
-  the document's position (XPointer): none is on integration for plugins yet.
-- The account screen (sign in, create account, sign out, *More about this*) and the setting's
-  editor that opens it; the confirmation overlay; the menu entry *Sync progress*; the icons.
-- The device id (random seed), the key kept as a secret, moving an old key (`move_key`).
-
-Each loss is an ignored case in `tests/acceptance_pending.rs`.
+- The offer is a confirmation dialog of the user-interface service (the buttons *Go there* and *Stay
+  here*), not a screen of the plugin's own; a message (*up to date*, a failure) is a notice, not an overlay
+  with an OK button. The account screen is a list of rows with the line below the rows as its footer
+  (the row *More about this* is gone: the footer shows the whole line).
+- The progress is `progress_ppm` of the event (millionths) instead of a percentage with one decimal.
+- Offline: the host holds the request (`later` on the answer) instead of the plugin queuing positions
+  itself; the plugin keeps no list of books switched from while Offline except that the engine keeps the
+  four last ones for the moment the power mode allows sending again (`work_allowed`).
+- The server's JSON is read with `paperpaw_sdk::json` until Kernel's fallible reader (#414) is in; the
+  answer is bounded to 4,096 bytes first (the request's `max_body`), and the reader itself is not in the
+  refusal sweep.
