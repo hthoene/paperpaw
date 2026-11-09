@@ -202,17 +202,19 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         self.base.ignores_case()
     }
 
-    /// Each in the storage its path is in; a path in one and a path in the
-    /// other are never the same entry.
+    /// The secrets' file is in the private storage, everything else in the
+    /// base: one in each is never the same entry; two in the base are as the
+    /// base says.
     fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
-        let ((x, a), (y, b)) = (self.route(a), self.route(b));
-        if core::ptr::addr_eq(x, y) {
-            x.same_entry(a, b)
-        } else {
-            Some(false)
+        match (a == FILE, b == FILE) {
+            (true, true) => Some(true),
+            (false, false) => self.base.same_entry(a, b),
+            _ => Some(false),
         }
     }
 
+    /// The secrets' file's in the private storage, every other's in the
+    /// base.
     fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
         let (storage, path) = self.route(path);
         storage.entry_identity(path)
@@ -262,6 +264,48 @@ mod tests {
         fn ignores_case(&self) -> bool {
             true
         }
+    }
+
+    /// A base storage that tells whether two spellings are one entry.
+    struct Twin(MemoryStorage);
+
+    impl Storage for Twin {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+            Some(a.eq_ignore_ascii_case(b))
+        }
+    }
+
+    /// The secrets' file is its own entry, in the private storage: never the
+    /// same as anything in the base, itself the same as itself; two paths in
+    /// the base are as the base says (and "cannot tell" stays that).
+    #[test]
+    fn same_entry_keeps_the_private_file_apart_from_the_base() {
+        let storage = Private::new(Twin(MemoryStorage::new()), MemoryStorage::new());
+        assert_eq!(storage.same_entry(FILE, FILE), Some(true));
+        assert_eq!(storage.same_entry(FILE, "Books"), Some(false));
+        assert_eq!(storage.same_entry("books", FILE), Some(false));
+        assert_eq!(storage.same_entry("Books", "books"), Some(true));
+        assert_eq!(storage.same_entry("Books", "books2"), Some(false));
+        let blind = Private::new(MemoryStorage::new(), MemoryStorage::new());
+        assert_eq!(blind.same_entry("Books", "books"), None);
     }
 
     /// Whether names in another case are the same file is the shared

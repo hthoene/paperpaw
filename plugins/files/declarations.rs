@@ -1,7 +1,7 @@
-//! The library plugin's native declarations (slice 1): the settings, the
-//! screens (the library, a list of books, the shelves), the actions that
-//! open the shelves, their icons and menu entries, and the slots the
-//! library fills.
+//! The library plugin's native declarations: the settings, the screens
+//! (the library, a list of books, the shelves, a list of names, book
+//! information), the actions that open the shelves and search, their icons
+//! and menu entries, and the slots the library fills.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
@@ -15,10 +15,20 @@ pub const BROWSER_TOKEN: u32 = 10;
 pub const SHELF_TOKEN: u32 = 11;
 /// The shelves: where else the books are listed.
 pub const SHELVES_TOKEN: u32 = 12;
+/// A list of the names of one shelf (authors, series, tags, folders).
+pub const NAMES_TOKEN: u32 = 13;
+/// Book information.
+pub const INFO_TOKEN: u32 = 14;
 /// Opens the shelves.
 pub const SHELVES_OPEN_TOKEN: u32 = 20;
 /// Opens the favourites.
 pub const FAVOURITES_TOKEN: u32 = 21;
+/// Opens the authors, the series, the tags.
+pub const BY_AUTHOR_TOKEN: u32 = 22;
+pub const BY_SERIES_TOKEN: u32 = 23;
+pub const BY_TAG_TOKEN: u32 = 24;
+/// Asks for words and lists the books that have them.
+pub const SEARCH_TOKEN: u32 = 25;
 
 /// The library's setting values, each its name's key.
 pub const SORT_RECENT: &str = "files.sort.recent";
@@ -103,6 +113,9 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.screen(
         ScreenDecl::new("shelves", "files.shelves", SHELVES_TOKEN).instances(Instances::Single),
     )?;
+    // One instance per shelf: a list of authors above a list of series.
+    d.screen(ScreenDecl::new("names", "files.title", NAMES_TOKEN))?;
+    d.screen(ScreenDecl::new("info", "files.info", INFO_TOKEN))?;
     d.submit()?;
     Ok(())
 }
@@ -123,8 +136,24 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         "files.favourites",
         FAVOURITES_TOKEN,
     ))?;
+    d.action(ActionDecl::new(
+        "by-author",
+        "files.by-author",
+        BY_AUTHOR_TOKEN,
+    ))?;
+    d.action(ActionDecl::new(
+        "by-series",
+        "files.by-series",
+        BY_SERIES_TOKEN,
+    ))?;
+    d.action(ActionDecl::new("by-tag", "files.by-tag", BY_TAG_TOKEN))?;
+    d.action(ActionDecl::new("search", "files.search", SEARCH_TOKEN))?;
     d.icon("files.shelves", "books")?;
     d.icon("files.favourites", "star")?;
+    d.icon("files.by-author", "user")?;
+    d.icon("files.by-series", "list-details")?;
+    d.icon("files.by-tag", "tag")?;
+    d.icon("files.search", "search")?;
     d.icon(SORT, "sort-ascending")?;
     d.icon(VIEW, "layout-grid")?;
     // Gray covers or black and white only where the panel is black and
@@ -133,7 +162,21 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut favourites = MenuEntryDecl::new("files.shelves", "files.favourites");
     favourites.order = 5;
     d.menu_entry(favourites)?;
+    for (order, item) in [
+        (10, "files.by-author"),
+        (20, "files.by-series"),
+        (30, "files.by-tag"),
+    ] {
+        let mut entry = MenuEntryDecl::new("files.shelves", item);
+        entry.order = order;
+        d.menu_entry(entry)?;
+    }
+    // The library's own menu: where interface 6 offered the search.
+    let mut search = MenuEntryDecl::new("files.menu", "files.search");
+    search.order = 21;
+    d.menu_entry(search)?;
     d.slot_offer(SlotOfferDecl::new("core.library", "files.browser"))?;
+    d.slot_offer(SlotOfferDecl::new("core.book-info", "files.info"))?;
     let mut home = SlotOfferDecl::new("core.home", "files.browser");
     home.priority = -100;
     d.slot_offer(home)?;

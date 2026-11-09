@@ -114,10 +114,71 @@ fn own(value: &config::Value<'_>) -> Result<String, TryReserveError> {
     }
 }
 
-fn push<T>(list: &mut Vec<T>, item: T) -> Result<(), TryReserveError> {
+pub(super) fn push<T>(list: &mut Vec<T>, item: T) -> Result<(), TryReserveError> {
     list.try_reserve(1)?;
     list.push(item);
     Ok(())
+}
+
+/// `text` copied, where there is one.
+fn copy_some(text: Option<&String>) -> Result<Option<String>, TryReserveError> {
+    text.map(|text| copy(text)).transpose()
+}
+
+/// What the book names of itself (`metadata`) into `book`, which keeps what
+/// it had where the book names nothing: everything is copied with
+/// `try_reserve` before anything is changed, so a memory error leaves `book`
+/// as it was.
+pub(super) fn try_merge_metadata(
+    book: &mut Book,
+    metadata: &crate::document::Metadata,
+) -> Result<(), TryReserveError> {
+    let title = copy_some(metadata.title.as_ref())?;
+    let author = copy_some(metadata.authors.first())?;
+    let series = copy_some(metadata.series.as_ref())?;
+    let series_index = copy_some(metadata.series_index.as_ref())?;
+    let mut tags: Vec<String> = Vec::new();
+    tags.try_reserve_exact(metadata.subjects.len())?;
+    for subject in &metadata.subjects {
+        tags.push(copy(subject)?);
+    }
+    book.title = title.or(book.title.take());
+    book.author = author.or(book.author.take());
+    book.series = series.or(book.series.take());
+    book.series_index = series_index.or(book.series_index.take());
+    if !tags.is_empty() {
+        book.tags = tags;
+    }
+    Ok(())
+}
+
+/// [`set_field`](super::set_field) with the error left in: the field `id`
+/// of the book at `path`, an empty `value` removing it. The id and the value
+/// are copied with `try_reserve`, and the details are written as `save`
+/// writes them.
+pub(super) fn try_set_field(
+    storage: &dyn Storage,
+    path: &str,
+    id: &str,
+    value: &str,
+) -> Result<(), Error> {
+    let mut book = super::book_for_update(storage, path)?;
+    let field = if value.is_empty() {
+        None
+    } else {
+        let pair = (
+            copy(id).map_err(|_| Error::OutOfMemory)?,
+            copy(value).map_err(|_| Error::OutOfMemory)?,
+        );
+        book.fields.try_reserve(1).map_err(|_| Error::OutOfMemory)?;
+        Some(pair)
+    };
+    book.fields.retain(|(key, _)| key != id);
+    if let Some(pair) = field {
+        // The room was reserved above (`retain` only gives some back).
+        book.fields.push(pair);
+    }
+    super::write_details(storage, path, &book)
 }
 
 /// What a source provides for one book ([`try_provide`]), borrowed: `None` for

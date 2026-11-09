@@ -69,6 +69,71 @@ pub const fn paperpaw_platform::display::FrameView<'a>::with_width(self, u16) ->
 pub trait paperpaw_platform::display::Display
 pub fn paperpaw_platform::display::Display::info(&self) -> paperpaw_platform::display::DisplayInfo
 pub fn paperpaw_platform::display::Display::refresh(&mut self, paperpaw_platform::display::FrameView<'_>, paperpaw_platform::geometry::Rect, paperpaw_platform::display::RefreshMode)
+pub mod paperpaw_platform::firmware
+#[non_exhaustive] pub enum paperpaw_platform::firmware::Signer
+pub paperpaw_platform::firmware::Signer::Other
+pub paperpaw_platform::firmware::Signer::Other::key: [u8; 32]
+pub paperpaw_platform::firmware::Signer::PaperPaw
+pub paperpaw_platform::firmware::Signer::PaperPaw::key: [u8; 32]
+pub paperpaw_platform::firmware::Signer::PaperPaw::name: paperpaw_platform::firmware::Text<KEY_NAME_MAX>
+pub paperpaw_platform::firmware::Signer::Unsigned
+pub enum paperpaw_platform::firmware::Step<T>
+pub paperpaw_platform::firmware::Step::Done(T)
+pub paperpaw_platform::firmware::Step::Failed(paperpaw_platform::firmware::Reason)
+pub paperpaw_platform::firmware::Step::Progress
+pub paperpaw_platform::firmware::Step::Progress::done: u32
+pub paperpaw_platform::firmware::Step::Progress::total: u32
+#[non_exhaustive] pub struct paperpaw_platform::firmware::CheckFacts
+pub paperpaw_platform::firmware::CheckFacts::chip_ok: bool
+pub paperpaw_platform::firmware::CheckFacts::foreign: bool
+pub paperpaw_platform::firmware::CheckFacts::project: paperpaw_platform::firmware::Text<PROJECT_MAX>
+pub paperpaw_platform::firmware::CheckFacts::sha256: [u8; 32]
+pub paperpaw_platform::firmware::CheckFacts::signer: paperpaw_platform::firmware::Signer
+pub paperpaw_platform::firmware::CheckFacts::size: u32
+pub paperpaw_platform::firmware::CheckFacts::version: paperpaw_platform::firmware::Text<VERSION_MAX>
+impl paperpaw_platform::firmware::CheckFacts
+pub const fn paperpaw_platform::firmware::CheckFacts::new(bool, u32, paperpaw_platform::firmware::Text<VERSION_MAX>, paperpaw_platform::firmware::Text<PROJECT_MAX>, paperpaw_platform::firmware::Signer, bool, [u8; 32]) -> Self
+pub struct paperpaw_platform::firmware::Reason(pub u8)
+impl paperpaw_platform::firmware::Reason
+pub const paperpaw_platform::firmware::Reason::CARD: Self
+pub const paperpaw_platform::firmware::Reason::CHANGED: Self
+pub const paperpaw_platform::firmware::Reason::DAMAGED: Self
+pub const paperpaw_platform::firmware::Reason::NOT_HERE: Self
+pub const paperpaw_platform::firmware::Reason::NO_ROOM: Self
+pub const paperpaw_platform::firmware::Reason::OTHER: Self
+pub const paperpaw_platform::firmware::Reason::OTHER_CHIP: Self
+pub const paperpaw_platform::firmware::Reason::STOPPED: Self
+pub const paperpaw_platform::firmware::Reason::UNKNOWN_KEY: Self
+pub const paperpaw_platform::firmware::Reason::UNSIGNED: Self
+#[non_exhaustive] pub struct paperpaw_platform::firmware::Running<'a>
+pub paperpaw_platform::firmware::Running::chip: u16
+pub paperpaw_platform::firmware::Running::project: &'a str
+pub paperpaw_platform::firmware::Running::room: u64
+pub paperpaw_platform::firmware::Running::undone: bool
+pub paperpaw_platform::firmware::Running::version: &'a str
+impl<'a> paperpaw_platform::firmware::Running<'a>
+pub const fn paperpaw_platform::firmware::Running<'a>::new(&'a str, &'a str, u16, u64, bool) -> Self
+pub struct paperpaw_platform::firmware::Text<const N: usize>
+impl<const N: usize> paperpaw_platform::firmware::Text<N>
+pub fn paperpaw_platform::firmware::Text<N>::as_str(&self) -> &str
+pub fn paperpaw_platform::firmware::Text<N>::new(&str) -> Self
+impl<const N: usize> core::fmt::Debug for paperpaw_platform::firmware::Text<N>
+pub fn paperpaw_platform::firmware::Text<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const paperpaw_platform::firmware::BUILT_IN_MAX: usize
+pub const paperpaw_platform::firmware::KEY_NAME_MAX: usize
+pub const paperpaw_platform::firmware::PROJECT_MAX: usize
+pub const paperpaw_platform::firmware::VERSION_MAX: usize
+pub const paperpaw_platform::firmware::WRITE_BLOCK: u32
+pub trait paperpaw_platform::firmware::FirmwareHost
+pub fn paperpaw_platform::firmware::FirmwareHost::abandon(&mut self)
+pub fn paperpaw_platform::firmware::FirmwareHost::begin_check(&mut self, &str) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::begin_write(&mut self, &str, [u8; 32], core::option::Option<[u8; 32]>, bool) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::check_step(&mut self, &dyn paperpaw_platform::storage::Storage, &mut dyn core::ops::function::FnMut(&str)) -> paperpaw_platform::firmware::Step<paperpaw_platform::firmware::CheckFacts>
+pub fn paperpaw_platform::firmware::FirmwareHost::commit(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::readback_step(&mut self) -> paperpaw_platform::firmware::Step<()>
+pub fn paperpaw_platform::firmware::FirmwareHost::restart(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::running(&self) -> paperpaw_platform::firmware::Running<'_>
+pub fn paperpaw_platform::firmware::FirmwareHost::write_step(&mut self, &dyn paperpaw_platform::storage::Storage) -> paperpaw_platform::firmware::Step<()>
 pub mod paperpaw_platform::geometry
 pub struct paperpaw_platform::geometry::Point
 pub paperpaw_platform::geometry::Point::x: i32
@@ -449,6 +514,19 @@ pub paperpaw_platform::Rotation::Deg0
 pub paperpaw_platform::Rotation::Deg180
 pub paperpaw_platform::Rotation::Deg270
 pub paperpaw_platform::Rotation::Deg90
+#[non_exhaustive] pub enum paperpaw_platform::Signer
+pub paperpaw_platform::Signer::Other
+pub paperpaw_platform::Signer::Other::key: [u8; 32]
+pub paperpaw_platform::Signer::PaperPaw
+pub paperpaw_platform::Signer::PaperPaw::key: [u8; 32]
+pub paperpaw_platform::Signer::PaperPaw::name: paperpaw_platform::firmware::Text<KEY_NAME_MAX>
+pub paperpaw_platform::Signer::Unsigned
+pub enum paperpaw_platform::Step<T>
+pub paperpaw_platform::Step::Done(T)
+pub paperpaw_platform::Step::Failed(paperpaw_platform::firmware::Reason)
+pub paperpaw_platform::Step::Progress
+pub paperpaw_platform::Step::Progress::done: u32
+pub paperpaw_platform::Step::Progress::total: u32
 #[non_exhaustive] pub enum paperpaw_platform::StorageError
 pub paperpaw_platform::StorageError::Full
 pub paperpaw_platform::StorageError::InvalidData
@@ -477,6 +555,16 @@ pub const fn paperpaw_platform::status::Battery::with_charging(self, bool) -> Se
 pub const fn paperpaw_platform::status::Battery::with_millivolts(self, core::option::Option<u16>) -> Self
 pub const fn paperpaw_platform::status::Battery::with_percent(self, u8) -> Self
 pub const fn paperpaw_platform::status::Battery::with_saver(self, bool) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::CheckFacts
+pub paperpaw_platform::CheckFacts::chip_ok: bool
+pub paperpaw_platform::CheckFacts::foreign: bool
+pub paperpaw_platform::CheckFacts::project: paperpaw_platform::firmware::Text<PROJECT_MAX>
+pub paperpaw_platform::CheckFacts::sha256: [u8; 32]
+pub paperpaw_platform::CheckFacts::signer: paperpaw_platform::firmware::Signer
+pub paperpaw_platform::CheckFacts::size: u32
+pub paperpaw_platform::CheckFacts::version: paperpaw_platform::firmware::Text<VERSION_MAX>
+impl paperpaw_platform::firmware::CheckFacts
+pub const fn paperpaw_platform::firmware::CheckFacts::new(bool, u32, paperpaw_platform::firmware::Text<VERSION_MAX>, paperpaw_platform::firmware::Text<PROJECT_MAX>, paperpaw_platform::firmware::Signer, bool, [u8; 32]) -> Self
 pub struct paperpaw_platform::Color
 pub paperpaw_platform::Color::b: u8
 pub paperpaw_platform::Color::g: u8
@@ -639,6 +727,18 @@ pub const fn paperpaw_platform::input::PointerEvent::with_point(self, paperpaw_p
 pub const fn paperpaw_platform::input::PointerEvent::with_pressure(self, u16) -> Self
 pub const fn paperpaw_platform::input::PointerEvent::with_tilt(self, i8, i8) -> Self
 pub const fn paperpaw_platform::input::PointerEvent::with_tool(self, paperpaw_platform::input::PointerTool) -> Self
+pub struct paperpaw_platform::Reason(pub u8)
+impl paperpaw_platform::firmware::Reason
+pub const paperpaw_platform::firmware::Reason::CARD: Self
+pub const paperpaw_platform::firmware::Reason::CHANGED: Self
+pub const paperpaw_platform::firmware::Reason::DAMAGED: Self
+pub const paperpaw_platform::firmware::Reason::NOT_HERE: Self
+pub const paperpaw_platform::firmware::Reason::NO_ROOM: Self
+pub const paperpaw_platform::firmware::Reason::OTHER: Self
+pub const paperpaw_platform::firmware::Reason::OTHER_CHIP: Self
+pub const paperpaw_platform::firmware::Reason::STOPPED: Self
+pub const paperpaw_platform::firmware::Reason::UNKNOWN_KEY: Self
+pub const paperpaw_platform::firmware::Reason::UNSIGNED: Self
 pub struct paperpaw_platform::Rect
 pub paperpaw_platform::Rect::height: u16
 pub paperpaw_platform::Rect::width: u16
@@ -656,6 +756,14 @@ pub const fn paperpaw_platform::geometry::Rect::is_empty(&self) -> bool
 pub const fn paperpaw_platform::geometry::Rect::new(u16, u16, u16, u16) -> Self
 pub const fn paperpaw_platform::geometry::Rect::right(&self) -> u32
 pub fn paperpaw_platform::geometry::Rect::union(&self, &paperpaw_platform::geometry::Rect) -> paperpaw_platform::geometry::Rect
+#[non_exhaustive] pub struct paperpaw_platform::Running<'a>
+pub paperpaw_platform::Running::chip: u16
+pub paperpaw_platform::Running::project: &'a str
+pub paperpaw_platform::Running::room: u64
+pub paperpaw_platform::Running::undone: bool
+pub paperpaw_platform::Running::version: &'a str
+impl<'a> paperpaw_platform::firmware::Running<'a>
+pub const fn paperpaw_platform::firmware::Running<'a>::new(&'a str, &'a str, u16, u64, bool) -> Self
 #[non_exhaustive] pub struct paperpaw_platform::SystemStatus
 pub paperpaw_platform::SystemStatus::battery: core::option::Option<paperpaw_platform::status::Battery>
 pub paperpaw_platform::SystemStatus::clock: core::option::Option<paperpaw_platform::status::WallClock>
@@ -665,6 +773,12 @@ pub fn paperpaw_platform::status::SystemStatus::value(&self, &str) -> core::opti
 pub const fn paperpaw_platform::status::SystemStatus::with_battery(self, core::option::Option<paperpaw_platform::status::Battery>) -> Self
 pub const fn paperpaw_platform::status::SystemStatus::with_clock(self, core::option::Option<paperpaw_platform::status::WallClock>) -> Self
 pub fn paperpaw_platform::status::SystemStatus::with_value(self, &'static str, i64) -> Self
+pub struct paperpaw_platform::Text<const N: usize>
+impl<const N: usize> paperpaw_platform::firmware::Text<N>
+pub fn paperpaw_platform::firmware::Text<N>::as_str(&self) -> &str
+pub fn paperpaw_platform::firmware::Text<N>::new(&str) -> Self
+impl<const N: usize> core::fmt::Debug for paperpaw_platform::firmware::Text<N>
+pub fn paperpaw_platform::firmware::Text<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_platform::WallClock
 pub paperpaw_platform::WallClock::at: paperpaw_platform::input::Instant
 pub paperpaw_platform::WallClock::unix_millis: i64
@@ -679,6 +793,16 @@ pub fn paperpaw_platform::status::WallClock::unix_millis_at(&self, paperpaw_plat
 pub trait paperpaw_platform::Display
 pub fn paperpaw_platform::Display::info(&self) -> paperpaw_platform::display::DisplayInfo
 pub fn paperpaw_platform::Display::refresh(&mut self, paperpaw_platform::display::FrameView<'_>, paperpaw_platform::geometry::Rect, paperpaw_platform::display::RefreshMode)
+pub trait paperpaw_platform::FirmwareHost
+pub fn paperpaw_platform::FirmwareHost::abandon(&mut self)
+pub fn paperpaw_platform::FirmwareHost::begin_check(&mut self, &str) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::begin_write(&mut self, &str, [u8; 32], core::option::Option<[u8; 32]>, bool) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::check_step(&mut self, &dyn paperpaw_platform::storage::Storage, &mut dyn core::ops::function::FnMut(&str)) -> paperpaw_platform::firmware::Step<paperpaw_platform::firmware::CheckFacts>
+pub fn paperpaw_platform::FirmwareHost::commit(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::readback_step(&mut self) -> paperpaw_platform::firmware::Step<()>
+pub fn paperpaw_platform::FirmwareHost::restart(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::running(&self) -> paperpaw_platform::firmware::Running<'_>
+pub fn paperpaw_platform::FirmwareHost::write_step(&mut self, &dyn paperpaw_platform::storage::Storage) -> paperpaw_platform::firmware::Step<()>
 pub trait paperpaw_platform::Storage
 pub fn paperpaw_platform::Storage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>

@@ -34,6 +34,26 @@ pub(crate) fn dispatch_token<S, M>(
     })?
 }
 
+/// As [`dispatch_token`], with the command stage of the callback lent to
+/// the plugin's `commands.submit` for its duration (every callback but
+/// `draw` gets one). The stage is the caller's: it reads what was accepted
+/// after the callback returned.
+pub(crate) fn dispatch_token_staged<S, M>(
+    batch: &Batch<'_, S, M, Registration>,
+    token: u32,
+    depth: &DispatchDepth,
+    frame: &crate::abi7::core_frame::CoreFrame<'_>,
+    invocation: TokenInvocation<'_>,
+    stage: &mut super::super::commands::CommandStage<'_>,
+) -> Result<i32, Error> {
+    batch.dispatch_owner(depth, |context| {
+        stage.admit_images(context.image_admit());
+        // SAFETY: the admitted owner structurally pins the command scope.
+        let scope = unsafe { context.map_unchecked(|value| &value.commands) };
+        scope.scope(stage, || invoke_token(context, token, frame, invocation))?
+    })?
+}
+
 pub(super) fn invoke_token<S>(
     context: core::pin::Pin<&super::Context<S>>,
     token: u32,
@@ -108,4 +128,38 @@ pub(crate) fn dispatch_token_draw<S, M>(
             })?
             .map_err(Into::into)
     })?
+}
+
+// The accessors the command stage reads (`shell.rs` is at its line limit).
+impl<S> super::Context<S> {
+    /// The host owner key of the plugin (the key of its native instance).
+    #[allow(
+        dead_code,
+        reason = "read by the staged command path (with_native_commands), which the shell wires"
+    )]
+    pub(crate) fn owner_key(&self) -> u64 {
+        self.resources.owner_id()
+    }
+
+    /// What a command stage checks the plugin's image commands against:
+    /// whether root 1 is open to it (`uses.storage`) and how many more
+    /// requests it may queue now.
+    #[allow(
+        dead_code,
+        reason = "read by the staged command path (with_native_commands), which the shell wires"
+    )]
+    pub(crate) fn image_admit(&self) -> super::super::image_service::commands::ImageAdmit {
+        super::super::image_service::commands::ImageAdmit {
+            storage_root: self
+                .declared_services
+                .features()
+                .feature("uses.storage")
+                .is_ok(),
+            room: self
+                .resources
+                .hosts()
+                .images()
+                .prepare_room(self.resources.owner_id()),
+        }
+    }
 }

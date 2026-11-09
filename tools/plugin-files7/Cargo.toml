@@ -89,6 +89,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "notes-overview"
+path = "src/bin/notes-overview.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "opds"
 path = "src/bin/opds.rs"
 test = false
@@ -119,6 +125,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "readwise"
+path = "src/bin/readwise.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rules"
 path = "src/bin/rules.rs"
 test = false
@@ -139,6 +151,12 @@ bench = false
 [[bin]]
 name = "vocabulary"
 path = "src/bin/vocabulary.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wallabag"
+path = "src/bin/wallabag.rs"
 test = false
 bench = false
 
@@ -240,15 +258,18 @@ paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
 paperpaw-plugin-menu-editor = { path = "../../plugins/menu-editor", features = ["native-entry"] }
+paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
+paperpaw-plugin-readwise = { path = "../../plugins/readwise", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-wallabag = { path = "../../plugins/wallabag", features = ["native-entry"] }
 paperpaw-plugin-weather = { path = "../../plugins/weather", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-bluetooth = { path = "../../plugins/bluetooth", features = ["native-entry"] }

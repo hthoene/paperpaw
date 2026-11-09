@@ -15,7 +15,7 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
 
 - Declarations: the overlay screen `wikipedia.lookup` (title `wikipedia.title`), offered for the slot
   `core.lookup-online` (`slot_offer`; another plugin can take its place), and the subscription to
-  `event.http_done` (token 3). The metadata has `uses.network` and the services `core.net`, `core.ui`.
+  `event.http_done` (token 3). The metadata has `uses.network` and the services `core.net`, `core.ui`; the feature `uses.wifi` is for *Go online*.
 - The screen takes `word` and `language` from its hand-over (a word over 256 bytes and a language over
   35 are cut or dropped; a hand-over that cannot be read is a screen for no word, "no article"). The
   language is the interface's where none is given. It asks `core.net` for the summary of the article
@@ -37,9 +37,10 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
 
 ## Not ported (each is an ignored case in `tests/acceptance_pending.rs` or a named gap)
 
-- **The offer to go online** in the offline mode: interface 6 asked first. The host lets a request that
-  the user's input started through in the offline mode (`network.md` 3.2, 2,000 ms), so the screen
-  just asks; when the host refuses it anyway the text says a network connection is needed.
+- **The offer to go online** (done): a request the user's input started goes through in the offline mode
+  (`network.md` 3.2, 2,000 ms). When it ends with the reason `offline` (the window was missed), the screen
+  says so and offers it: confirm or a tap sends `command.go_online` (120 s, `uses.wifi`) and asks again,
+  back closes. A plugin hold or *network off* still says "needs a network connection".
 - **The provider** (declared, not submitted): the host answers a lookup provider with `ERR_UNSUPPORTED`
   until the stage `core.lookup` is live, and a provider that must fetch needs the asynchronous stage
   reply (todo 98). Until then the dictionary panel has no *Online ›* source; the summary is reached
@@ -47,6 +48,11 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   test fails and `make` submits `image::PROVIDER`.
 - **The summary given by the dictionary's panel** (`text`): the panel does not offer one without the
   provider; the screen always fetches.
-- **The line in *About*** naming the source and the licence (the stage `about.lines`).
+- **The line in *About*** (done): the plugin subscribes to `about.lines` (token 4) and answers one
+  `lines.line` with `wikipedia.about` (en/de, at most 512 bytes: the source and CC BY-SA 4.0). The codec
+  is generated (`tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs`,
+  checked in CI) from a copy of the owner's `about.lines@1.def`; a test holds the copy to the owner's file
+  (a published `@1` never changes; Kernel's convention for subscribers). Host acceptance (About listing
+  it) stays with the About page's own cases.
 - **Goldens**: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
 - The screen shows the page the same way the dictionary's panel does but has no "page n of m" note.

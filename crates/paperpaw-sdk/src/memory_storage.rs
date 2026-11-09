@@ -1,7 +1,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -11,6 +11,12 @@ use paperpaw_platform::{DirEntry, Storage, StorageError};
 #[derive(Debug, Default)]
 pub struct MemoryStorage {
     files: RefCell<BTreeMap<String, Vec<u8>>>,
+    /// Each entry's identity (`Storage::entry_identity`): a file's from
+    /// when it was made, a folder's from when it was first asked for; kept
+    /// by renames, dropped with the entry.
+    ids: RefCell<BTreeMap<String, u64>>,
+    /// The last identity given.
+    last: Cell<u64>,
 }
 
 impl MemoryStorage {
@@ -23,12 +29,42 @@ impl MemoryStorage {
         self.files
             .borrow_mut()
             .insert(String::from(path), data.into());
+        self.made(path);
         self
     }
 
     /// The content of a file, for assertions.
     pub fn get(&self, path: &str) -> Option<Vec<u8>> {
         self.files.borrow().get(path).cloned()
+    }
+
+    /// Gives `path` an identity unless it has one.
+    fn made(&self, path: &str) -> u64 {
+        *self
+            .ids
+            .borrow_mut()
+            .entry(String::from(path))
+            .or_insert_with(|| {
+                let id = self.last.get().wrapping_add(1);
+                self.last.set(id);
+                id
+            })
+    }
+
+    /// Drops the identities of the folders above `path` that no longer
+    /// hold a file (folders exist through their files here).
+    fn forget_empty_above(&self, path: &str) {
+        let files = self.files.borrow();
+        let mut ids = self.ids.borrow_mut();
+        let mut at = path;
+        while let Some((parent, _)) = at.rsplit_once('/') {
+            let prefix = alloc::format!("{parent}/");
+            if files.keys().any(|k| k.starts_with(&prefix)) {
+                break;
+            }
+            ids.remove(parent);
+            at = parent;
+        }
     }
 
     fn check(path: &str) -> Result<(), StorageError> {
@@ -67,6 +103,7 @@ impl Storage for MemoryStorage {
         self.files
             .borrow_mut()
             .insert(String::from(path), data.to_vec());
+        self.made(path);
         Ok(())
     }
 
@@ -77,6 +114,7 @@ impl Storage for MemoryStorage {
             .entry(String::from(path))
             .or_default()
             .extend_from_slice(data);
+        self.made(path);
         Ok(())
     }
 
@@ -139,6 +177,8 @@ impl Storage for MemoryStorage {
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         Self::check(path)?;
         self.files.borrow_mut().remove(path);
+        self.ids.borrow_mut().remove(path);
+        self.forget_empty_above(path);
         Ok(())
     }
 
@@ -146,8 +186,15 @@ impl Storage for MemoryStorage {
         Self::check(from)?;
         Self::check(to)?;
         let mut files = self.files.borrow_mut();
+        let mut ids = self.ids.borrow_mut();
         if let Some(data) = files.remove(from) {
             files.insert(String::from(to), data);
+            match ids.remove(from) {
+                Some(id) => ids.insert(String::from(to), id),
+                None => ids.remove(to),
+            };
+            drop((files, ids));
+            self.forget_empty_above(from);
             return Ok(());
         }
         // A directory: everything below it.
@@ -165,6 +212,19 @@ impl Storage for MemoryStorage {
                 files.insert(alloc::format!("{to}/{}", &key[prefix.len()..]), data);
             }
         }
+        // The folder's identity and those of everything below it go along.
+        let named: Vec<String> = ids
+            .keys()
+            .filter(|k| k.as_str() == from || k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in named {
+            if let Some(id) = ids.remove(&key) {
+                ids.insert(alloc::format!("{to}{}", &key[from.len()..]), id);
+            }
+        }
+        drop((files, ids));
+        self.forget_empty_above(from);
         Ok(())
     }
 
@@ -179,7 +239,30 @@ impl Storage for MemoryStorage {
         self.files
             .borrow_mut()
             .retain(|k, _| !k.starts_with(&prefix));
+        self.ids
+            .borrow_mut()
+            .retain(|k, _| k.as_str() != path && !k.starts_with(&prefix));
+        self.forget_empty_above(path);
         Ok(())
+    }
+
+    /// A file's identity is given when it is made, a folder's when it is
+    /// first asked for; renames keep them. The root has none.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        if path.is_empty() {
+            return Ok(None);
+        }
+        Self::check(path)?;
+        let prefix = alloc::format!("{path}/");
+        let exists = {
+            let files = self.files.borrow();
+            files.contains_key(path) || files.keys().any(|k| k.starts_with(&prefix))
+        };
+        if exists {
+            Ok(Some(self.made(path)))
+        } else {
+            Err(StorageError::NotFound)
+        }
     }
 }
 
@@ -264,6 +347,49 @@ mod tests {
             storage.write_at("none", 0, b"x"),
             Err(StorageError::NotFound)
         );
+    }
+
+    #[test]
+    fn identities_are_kept_by_renames_and_differ_between_entries() {
+        let storage = MemoryStorage::new()
+            .with("books/a.epub", b"a".as_slice())
+            .with("books/b.epub", b"b".as_slice());
+        let a = storage.entry_identity("books/a.epub").unwrap().unwrap();
+        let b = storage.entry_identity("books/b.epub").unwrap().unwrap();
+        let books = storage.entry_identity("books").unwrap().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a, books);
+        assert_ne!(b, books);
+        assert_eq!(storage.entry_identity(""), Ok(None));
+        assert_eq!(
+            storage.entry_identity("books/c.epub"),
+            Err(StorageError::NotFound)
+        );
+
+        // A file's rename, over another file too.
+        storage.rename("books/a.epub", "books/c.epub").unwrap();
+        assert_eq!(storage.entry_identity("books/c.epub"), Ok(Some(a)));
+        storage.rename("books/c.epub", "books/b.epub").unwrap();
+        assert_eq!(storage.entry_identity("books/b.epub"), Ok(Some(a)));
+        assert_eq!(
+            storage.entry_identity("books/a.epub"),
+            Err(StorageError::NotFound)
+        );
+
+        // A folder's rename takes its own and everything's below.
+        storage.rename("books", "shelf/books").unwrap();
+        assert_eq!(storage.entry_identity("shelf/books"), Ok(Some(books)));
+        assert_eq!(storage.entry_identity("shelf/books/b.epub"), Ok(Some(a)));
+        assert_eq!(storage.entry_identity("books"), Err(StorageError::NotFound));
+
+        // A removed entry's identity is not given to what comes after it.
+        storage.remove("shelf/books/b.epub").unwrap();
+        storage.write("shelf/books/b.epub", b"new").unwrap();
+        let new = storage.entry_identity("shelf/books/b.epub").unwrap();
+        assert_ne!(new, Some(a));
+        storage.remove_dir_all("shelf").unwrap();
+        storage.write("shelf/books/x", b"x").unwrap();
+        assert_ne!(storage.entry_identity("shelf/books").unwrap(), Some(books));
     }
 
     #[test]
