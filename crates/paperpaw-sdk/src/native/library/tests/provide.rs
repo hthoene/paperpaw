@@ -97,8 +97,20 @@ fn provided_fields_are_checked_before_the_host_and_an_empty_one_sends_nothing() 
         Err(Error::NoSpace),
         "2,100 bytes in all"
     );
-    // An empty tag text provides no tags, but it is provided (the bit is set).
-    assert!(!Provided::new().tags("").unwrap().is_empty());
+    // Empty or blank never clears: it is refused, field by field.
+    for blank in ["", " ", "\t\n"] {
+        assert_eq!(
+            Provided::new().title(blank),
+            Err(Error::Invalid),
+            "{blank:?}"
+        );
+        assert_eq!(Provided::new().author(blank), Err(Error::Invalid));
+        assert_eq!(Provided::new().series(blank), Err(Error::Invalid));
+        assert_eq!(Provided::new().number(blank), Err(Error::Invalid));
+    }
+    assert_eq!(Provided::new().tags(""), Err(Error::Invalid));
+    assert_eq!(Provided::new().tags("a\n \nb"), Err(Error::Invalid));
+    assert!(Provided::new().title(" Dune ").is_ok());
 }
 
 #[test]

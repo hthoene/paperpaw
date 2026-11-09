@@ -5195,6 +5195,8 @@ impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::facets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, paperpaw_sdk::native::library::Facet, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FacetPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::fields<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::FieldCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FieldPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::provide(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &paperpaw_sdk::native::library::Provided<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::library::LibraryPage<'a, T>
 impl<'a, T: 'a> paperpaw_sdk::native::library::LibraryPage<'a, T>
 pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::end(&self) -> paperpaw_sdk::native::library::LibraryPageEnd
@@ -5227,6 +5229,15 @@ pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::progress_ppm(self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::sync(self) -> Self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::updated(self, u64) -> Self
 pub const fn paperpaw_sdk::native::library::PositionWrite<'a>::xpointer(self, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::Provided<'a>
+impl<'a> paperpaw_sdk::native::library::Provided<'a>
+pub const fn paperpaw_sdk::native::library::Provided<'a>::author(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::Provided<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::Provided<'a>::new() -> Self
+pub const fn paperpaw_sdk::native::library::Provided<'a>::number(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::Provided<'a>::series(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Provided<'a>::tags(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::library::Provided<'a>::title(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::library::Query<'a>
 impl<'a> paperpaw_sdk::native::library::Query<'a>
 pub const fn paperpaw_sdk::native::library::Query<'a>::added_since(self, u32) -> Self

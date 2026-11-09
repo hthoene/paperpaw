@@ -3218,6 +3218,7 @@ struct paperpaw_sdk::native::library::files::Import<'a> { from: &'a str, folder:
 struct paperpaw_sdk::native::library::position::BookKey<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibKey<'a>)
 struct paperpaw_sdk::native::library::position::Position<'a> { section: u32, offset: u32, insert: u32, progress_ppm: u32, conversion: core::option::Option<u64>, updated: u64, xpointer: core::option::Option<&'a str>, from_sync: bool }
 struct paperpaw_sdk::native::library::position::PositionWrite<'a> { position: paperpaw_sdk::native::library::position::Position<'a>, sync: bool, confirmed: bool }
+struct paperpaw_sdk::native::library::provide::Provided<'a> { title: &'a str, author: &'a str, series: &'a str, number: &'a str, tags: &'a str, flags: u32 }
 struct paperpaw_sdk::native::library::query::CatalogCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceLibQuery<'a>, cursor: paperpaw_sdk::native::library::query::CatalogCursor }
 struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)
