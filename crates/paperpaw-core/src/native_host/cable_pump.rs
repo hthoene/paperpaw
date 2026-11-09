@@ -133,9 +133,16 @@ impl Kernel {
         let Some(link) = device.cable() else {
             return;
         };
-        let Ok((number, cut)) = link.proto(|c| c.begin(n, len)) else {
+        let Ok((number, cut, replaced)) = link.proto(|c| c.begin(n, len)) else {
             return;
         };
+        // An earlier request by this number, given up by the computer: it
+        // ends on the service (an answer numbered `n` is the new one's).
+        if let Some(replaced) = replaced
+            && let Some(request) = link.forget(replaced)
+        {
+            let _ = net_service::served_gone(device, request);
+        }
         // A body still coming, cut short by this request: let go, and told,
         // unless the computer gave this request its number (it gave the
         // other up).

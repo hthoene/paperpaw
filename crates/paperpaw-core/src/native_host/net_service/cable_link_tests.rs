@@ -12,7 +12,7 @@ fn lines(link: &CableLink) -> Vec<String> {
 /// A request the service accepted as `request`, open on the cable as the
 /// computer's `n`.
 fn opened(link: &CableLink, n: u32, request: u32) -> u32 {
-    let (number, _) = link.proto(|c| c.begin(n, 0)).unwrap();
+    let (number, _, _) = link.proto(|c| c.begin(n, 0)).unwrap();
     link.keep(Open {
         link: number,
         request,
@@ -148,4 +148,29 @@ fn a_held_request_waits_for_the_start_or_its_time() {
     assert!(link.take_held(5_000).is_none());
     assert_eq!(lines(&link)[0], "PPT/1 3 503 text/plain;charset=utf-8");
     assert_eq!(link.held_until(), None);
+}
+
+/// While the answers waiting for the computer leave no room, `respond` is
+/// `ERR_BUSY` and the request stays open: the plugin answers again once the
+/// computer read.
+#[test]
+fn a_full_queue_is_busy_and_the_request_stays_open() {
+    use crate::io::cable::OUT_MAX;
+    let link = CableLink::new();
+    link.listen(1);
+    for n in 0..OUT_MAX as u32 {
+        link.proto(|c| c.refuse(100 + n, 400, "bad")).unwrap();
+    }
+    opened(&link, 5, 40);
+    assert_eq!(
+        link.answer(40, 200, "text/plain", Some(b"ok"), false),
+        Err(ERR_BUSY)
+    );
+    assert!(link.carries(40), "still open");
+    assert_eq!(link.pop_gone(), None);
+    assert_eq!(lines(&link).len(), OUT_MAX * 3);
+    link.answer(40, 200, "text/plain", Some(b"ok"), false)
+        .unwrap();
+    assert_eq!(lines(&link)[1], "PPT/1 5 data 6f6b");
+    assert_eq!(link.pop_gone(), Some(40));
 }

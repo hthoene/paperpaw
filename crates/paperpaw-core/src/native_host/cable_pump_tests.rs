@@ -297,3 +297,31 @@ fn the_cable_does_not_take_the_devices_one_network_server() {
     })
     .unwrap();
 }
+
+/// A request number the computer uses again ends its earlier request on
+/// the service: that one's answer is refused, the new one's goes out.
+#[test]
+fn a_number_used_again_ends_the_earlier_request() {
+    let mut w = world();
+    w.serve(0).unwrap();
+    w.kernel.native_cable_pump();
+    let served = |w: &mut World, at, line, target: &str| {
+        w.line(at, line);
+        w.kernel.native_cable_pump();
+        let events = w.events();
+        let found = events.iter().find(|e| e.1 == target).map(|e| e.0);
+        found.unwrap_or_else(|| panic!("{events:?}"))
+    };
+    let first = served(&mut w, 1_000, "PPT/1 1 GET /a 0", "/a");
+    let second = served(&mut w, 1_001, "PPT/1 1 GET /b 0", "/b");
+    assert!(w.respond(first, 200, b"old", false).is_err());
+    w.respond(second, 200, b"new", false).unwrap();
+    assert_eq!(
+        w.sent(),
+        [
+            "PPT/1 1 200 text/plain",
+            "PPT/1 1 data 6e6577",
+            "PPT/1 1 end"
+        ]
+    );
+}

@@ -324,8 +324,12 @@ file's size, 2.1).
   server: the first plugin that serves port 0 from its showing screen holds it until it stops
   (normally the screen that fills `core.cable`); another's `serve` port 0 ends `failed`,
   `refused`. The computer is an outside party: the rest of a refused body is passed over without
-  an answer per line, and at most 8 answers (16 KiB of bodies) wait to be sent; what does not
-  fit is not answered (a plugin's `respond` then fails with `ERR_NO_MEMORY`).
+  an answer per line, and at most 8 answers (16 KiB of bodies; one alone at any size) wait to be
+  sent. While they leave no room, a plugin's `respond` is `ERR_BUSY` and its request stays open
+  (answer again later; the 120 s answer time still runs); a host refusal that does not fit is
+  not sent. A request number the computer uses again while its earlier request is open ends
+  that request (its plugin's later `respond` is `ERR_NOT_FOUND`; no answer of its own, since an
+  answer by that number is the new request's).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.
