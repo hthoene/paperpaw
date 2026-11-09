@@ -5,7 +5,7 @@
 use super::wire::services_wire::core_document_v1 as schema;
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, RawRecord, WireEncode},
+    declare::records_wire::{self as wire, RawRecord, WireEncode, WireRecord},
     services::Service,
 };
 
@@ -445,6 +445,10 @@ impl Documents {
         })
     }
 }
+
+#[path = "document_readers.rs"]
+mod readers;
+pub use readers::{Reader, ReaderCursor, ReaderPage, ReaderPageEnd};
 
 fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
     RawRecord::one(bytes).map_err(|_| Error::Invalid)

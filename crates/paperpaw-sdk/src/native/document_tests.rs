@@ -392,3 +392,6 @@ fn xpointer_and_locate_refuse_bad_input_and_foreign_answers() {
         Err(Error::Invalid)
     );
 }
+
+#[path = "document_readers_tests.rs"]
+mod readers;
