@@ -131,9 +131,12 @@ fn progress_is_told_at_most_every_250_ms() {
     assert_eq!(told, [(WRITE_BLOCK, 3 * WRITE_BLOCK)]);
 }
 
+/// A name, the change to the device, the install flags, the reason.
+type Case = (&'static str, fn(&mut FakeFirmware), u32, u8);
+
 #[test]
 fn what_the_check_refuses_is_the_reason_an_install_would_end_with() {
-    let cases: [(&str, fn(&mut FakeFirmware), u32, u8); 6] = [
+    let cases: [Case; 6] = [
         ("other chip", |f| f.facts.chip_ok = false, 0, 12),
         ("no room", |f| f.room = WRITE_BLOCK as u64, 0, 13),
         ("not here", |f| f.room = 0, 0, 19),
