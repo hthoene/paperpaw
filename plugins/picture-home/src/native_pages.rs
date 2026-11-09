@@ -239,5 +239,22 @@ pub fn holds(src: &impl Source, id: &str) -> Result<bool, Error> {
         .any(|i| matches!(&i.what, What::Widget(w) if w == id)))
 }
 
+/// The most the keys and texts staged in one callback may be: the host's budget
+/// for the stage (`docs/abi/commands.md`).
+pub const STAGE_BUDGET: usize = 4096;
+
+/// Whether what a change stages (the settings written and the placements reset)
+/// is within [`STAGE_BUDGET`]; where it is not the change is not made and the
+/// screen says so (four full pages that shift on a removal are the case).
+#[must_use]
+pub fn fits(writes: &[Write], resets: &[String]) -> bool {
+    let bytes = writes
+        .iter()
+        .map(|write| write.setting.len().saturating_add(write.text.len()))
+        .chain(resets.iter().map(String::len))
+        .fold(0usize, usize::saturating_add);
+    bytes <= STAGE_BUDGET
+}
+
 #[cfg(test)]
 mod tests;

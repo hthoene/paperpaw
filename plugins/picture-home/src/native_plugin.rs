@@ -3,13 +3,15 @@
 //! Here: the picture chooser (the screen `pick`: the pictures of the folder
 //! on the card, read through `core.files`, and what a choice sets), the
 //! editor of the bar's three item settings (the screen `status-items`, the
-//! kit's status items view), and the declarations the image carries. The
-//! dashboard and *Add* are declared and answer `Unsupported` when opened until
-//! their slices (`PORTING-7.md`); nothing opens them while the interface-6
-//! home screen of this plugin is the one the app has.
+//! kit's status items view), the dashboard (`native_dashboard`: the pages on a
+//! plain background, arranged while editing) and the declarations the image
+//! carries. *Add* is declared and answers `Unsupported` when opened until its
+//! slice (`PORTING-7.md`); nothing opens it while the interface-6 home screen of
+//! this plugin is the one the app has.
 use crate::{
-    declarations::{PICK, STATUS_ITEMS},
-    native_pick,
+    declarations::{DASHBOARD, PICK, STATUS_ITEMS},
+    native_dashboard::Dashboard,
+    native_pages, native_pick,
     native_picture::Pictures,
 };
 use alloc::{string::String, vec::Vec};
@@ -49,8 +51,9 @@ const PICTURE: &str = "picture-home.picture";
 /// The screens, by the ids the host gives them.
 const PICK_SCREEN: &str = "picture-home.pick";
 const ITEMS_SCREEN: &str = "picture-home.status-items";
+const DASHBOARD_SCREEN: &str = "picture-home.dashboard";
 /// The screens whose slices come later.
-const LATER_SCREENS: [&str; 2] = ["picture-home.dashboard", "picture-home.add"];
+const LATER_SCREENS: [&str; 1] = ["picture-home.add"];
 /// The settings of the bar's items, each with the key of its title: the only
 /// ones the screen `status-items` is declared as the editor of.
 const BAR_ITEMS: [(&str, &str); 3] = [
@@ -95,6 +98,7 @@ pub struct NativePictureHome {
     ui: Option<Ui>,
     editors: Screens<Editor>,
     choosers: Screens<Chooser>,
+    dashboards: Screens<Dashboard>,
 }
 
 impl Plugin for NativePictureHome {
@@ -139,9 +143,21 @@ impl Plugin for NativePictureHome {
                 instance: Some(instance),
                 ..
             } => self.choosers.shown(PICK, instance),
+            Event::ScreenShown {
+                screen: DASHBOARD_SCREEN,
+                instance: Some(instance),
+                ..
+            } => {
+                self.dashboards.shown(DASHBOARD, instance)?;
+                if let Some(dashboard) = self.dashboards.get(instance) {
+                    dashboard.shown();
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.editors.close(instance);
                 self.choosers.close(instance);
+                self.dashboards.close(instance);
                 Ok(())
             }
             _ => Ok(()),
@@ -161,11 +177,24 @@ impl Plugin for NativePictureHome {
                 let chooser = self.choosers.top(token).ok_or(Error::State)?;
                 chooser.draw(host, &mut frame)
             }
+            DASHBOARD => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                let dashboard = self.dashboards.top(token).ok_or(Error::State)?;
+                dashboard.draw(host, ui, &mut frame)
+            }
             _ => Err(Error::State),
         }
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == DASHBOARD {
+            self.ensure_ui(host)?;
+            let ui = self.ui.as_ref().ok_or(Error::State)?;
+            return match self.dashboards.top(token) {
+                Some(dashboard) => dashboard.input(host, ui, &input),
+                None => Ok(Handled::No),
+            };
+        }
         match token {
             STATUS_ITEMS => match self.editors.top(token) {
                 Some(editor) => editor.view.input(host, &editor.setting, &input),
@@ -200,6 +229,11 @@ impl NativePictureHome {
             return Err(Error::Unsupported);
         }
         match screen {
+            DASHBOARD_SCREEN => {
+                self.ensure_ui(host)?;
+                let (edit, page) = self.dashboard_params(host, handover)?;
+                open_dashboard(&mut self.dashboards, instance, edit, page)
+            }
             ITEMS_SCREEN => {
                 self.ensure_ui(host)?;
                 let editor = self.items_editor(host, handover)?;
@@ -211,6 +245,26 @@ impl NativePictureHome {
             }
             _ => Err(Error::Invalid),
         }
+    }
+
+    /// What opens the dashboard asks: to edit (`mode` = `edit`, *Edit home
+    /// screen*) and the page (`id`: the setting that keeps it, from the settings
+    /// editor, which also edits).
+    fn dashboard_params(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<(bool, Option<usize>), Error> {
+        let Some(handover) = handover else {
+            return Ok((false, None));
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        dashboard_asks(
+            ui.params(host, handover, &mut input, &mut output)?
+                .map(|param| param.map(|param| (param.key(), param.value()))),
+        )
     }
 
     /// The editor for the setting the handover names (`id`): the items there
@@ -353,4 +407,69 @@ fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Vec<Strin
         }
     }
     Ok(kept.finish())
+}
+
+/// Opens the dashboard of `instance`, editing where `edit` (or a page's setting
+/// named it). One opened again keeps its view (its page, its widgets): replacing
+/// it would drop the widgets it made without letting them go.
+fn open_dashboard(
+    dashboards: &mut Screens<Dashboard>,
+    instance: Instance,
+    edit: bool,
+    page: Option<usize>,
+) -> Result<(), Error> {
+    if let Some(dashboard) = dashboards.get(instance) {
+        dashboard.reopened(edit || page.is_some(), page);
+        return Ok(());
+    }
+    let mut dashboard = Dashboard::new();
+    if edit || page.is_some() {
+        dashboard.start_editing(page);
+    }
+    dashboards.open(instance, dashboard)
+}
+
+/// Whether the params ask to edit (`mode` = `edit`) and the page the setting
+/// `id` keeps, if it keeps one.
+fn dashboard_asks<'a>(
+    params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
+) -> Result<(bool, Option<usize>), Error> {
+    let (mut edits, mut page) = (false, None);
+    for param in params {
+        let (key, value) = param?;
+        match key {
+            "mode" => edits = value == "edit",
+            "id" => page = native_pages::slot_of(value),
+            _ => {}
+        }
+    }
+    Ok((edits, page))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pairs<'a>(
+        list: &'a [(&'a str, &'a str)],
+    ) -> impl Iterator<Item = Result<(&'a str, &'a str), Error>> {
+        list.iter().map(|pair| Ok(*pair))
+    }
+
+    #[test]
+    fn the_dashboard_edits_when_asked_to_or_named_by_a_page_setting() {
+        assert_eq!(dashboard_asks(pairs(&[("mode", "edit")])), Ok((true, None)));
+        assert_eq!(
+            dashboard_asks(pairs(&[("id", "picture-home.page-3")])),
+            Ok((false, Some(2)))
+        );
+        assert_eq!(dashboard_asks(pairs(&[("mode", "view")])), Ok((false, None)));
+        // A setting that is no page's is not a page.
+        assert_eq!(
+            dashboard_asks(pairs(&[("id", "picture-home.columns")])),
+            Ok((false, None))
+        );
+        assert_eq!(dashboard_asks(pairs(&[])), Ok((false, None)));
+        assert_eq!(dashboard_asks([Err(Error::Busy)].into_iter()), Err(Error::Busy));
+    }
 }

@@ -212,3 +212,21 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     let all = pages(&src).unwrap();
     sweep(|| store_all(&src, &all).map(|w| w.len()));
 }
+
+#[test]
+fn a_change_within_the_stage_budget_fits_and_one_over_it_does_not() {
+    let small = [Write {
+        setting: "picture-home.page-1".into(),
+        text: "a.b".into(),
+    }];
+    assert!(fits(&small, &[]));
+    let big = [Write {
+        setting: "picture-home.page-1".into(),
+        text: "x".repeat(STAGE_BUDGET),
+    }];
+    assert!(!fits(&big, &[]));
+    // The reset placements count too.
+    let resets = ["y".repeat(STAGE_BUDGET + 1)];
+    assert!(!fits(&[], &resets));
+    assert!(fits(&[], &[]));
+}
