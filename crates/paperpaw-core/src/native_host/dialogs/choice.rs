@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::{self, ListChange, ListView, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Rect, RefreshMode, Screen,
+    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Rect, RefreshMode, Screen,
 };
 
 /// Lines of the title, at most.
@@ -189,7 +189,9 @@ impl Screen for Choice {
         let options = &self.options;
         self.list
             .draw(&mut ui, options.len(), |ui, index, rect, focused| {
-                ui::Row::plain(&options[index]).focused(focused).draw(ui, rect);
+                ui::Row::plain(&options[index])
+                    .focused(focused)
+                    .draw(ui, rect);
             });
         if let Some(pager) = &self.pager {
             let page = ui::Paging::new(self.list.page(), self.list.pages(options.len()));

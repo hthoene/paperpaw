@@ -17,7 +17,7 @@
 use super::registrations::{self as wire};
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
-    Command, Id,
+    Command, Id, Params,
     builtin::slots::{CHOICE, CHOOSE_FOLDER, CONFIRM, KEYBOARD, REMOTE_KEYBOARD},
 };
 
@@ -74,6 +74,10 @@ impl crate::Kernel {
         else {
             return false;
         };
+        // Answers a host dialog could not give are told of in the log.
+        for _ in 0..store.take_refused() {
+            self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
+        }
         if store.callbacks_over().is_err() {
             return true;
         }
@@ -151,8 +155,8 @@ impl crate::Kernel {
             return;
         };
         // The host's own choice and confirm dialogs answer the store directly
-        // (`dialogs`): the slot resolves to their screen, and the question is
-        // handed to it as the params it reads. Any other screen reads the
+        // (`dialogs`): the slot resolves to their screen, and the dialog is made
+        // from the question as the store holds it. Any other screen reads the
         // question from the store with op 2. Kinds 0 and 3 have no host
         // dialog: with no dialog plugin they end as cancelled.
         let host = matches!(start.kind, 1 | 2)
@@ -164,25 +168,24 @@ impl crate::Kernel {
                     *id == paperpaw_sdk::builtin::screens::CHOICE
                         || *id == paperpaw_sdk::builtin::screens::CONFIRM
                 });
-        let question = if host {
+        let asked = if host {
             store
-                .starting_question(start.request, |shown| {
-                    super::dialogs::params_of(
-                        shown.kind,
-                        shown.flags,
-                        shown.title,
-                        shown.text,
-                        shown.choices,
-                    )
+                .starting_question(start.request, |shown| super::dialogs::Asked {
+                    kind: shown.kind,
+                    flags: shown.flags,
+                    title: shown.title.into(),
+                    text: shown.text.into(),
+                    lines: if shown.choices.is_empty() {
+                        alloc::vec::Vec::new()
+                    } else {
+                        shown.choices.split('\n').map(Into::into).collect()
+                    },
                 })
                 .ok()
-                .flatten()
         } else {
             None
         };
-        let params = question
-            .clone()
-            .unwrap_or_default()
+        let params = Params::new()
             .with("core.request", request)
             .with("core.kind", kind);
         let own = self.guard().is_some_and(|guard| {
@@ -198,41 +201,60 @@ impl crate::Kernel {
         self.apply(Command::OpenSlot(slot.clone(), params));
         self.from_guard = false;
         self.from_guard_own = false;
-        self.run_commands();
+        // Looked up at once, before the commands the open led to run: one of
+        // them may open the same slot again (another plugin's, which waits
+        // below a guard), and the question must not be bound to that instance.
         let opened = self
             .stack
             .iter_mut()
-            .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot));
-        match opened {
-            Some(dialog) => {
+            .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot))
+            .map(|dialog| {
                 dialog.guard_dialog = own;
-                if let Some(params) = &question
+                if let Some(asked) = &asked
                     && let Some(ui) = self.shared.native_instances.ui_services()
                     && let Some(shared) = ui.store.try_clone()
                 {
+                    // At once too: the dialog is the host's from its first draw.
                     let answer =
                         super::dialogs::Answerer::new(shared, dialog.serial, start.request);
                     let env = self.shared.env(self.now);
-                    dialog.screen = if start.kind == 1 {
+                    dialog.screen = if asked.kind == 1 {
                         alloc::boxed::Box::new(super::dialogs::Choice::new(
                             &env,
-                            params,
-                            Some(answer),
+                            &asked.title,
+                            asked.lines.clone(),
+                            answer,
                         ))
                     } else {
+                        let word = |at: usize| {
+                            asked
+                                .lines
+                                .get(at)
+                                .map_or("", alloc::string::String::as_str)
+                        };
                         alloc::boxed::Box::new(super::dialogs::Confirm::new(
                             &env,
-                            params,
-                            Some(answer),
+                            &asked.title,
+                            &asked.text,
+                            (word(0), word(1)),
+                            asked.flags,
+                            answer,
                         ))
                     };
                 }
-                let _ = store.dialog_opened(start.request, dialog.serial);
+                dialog.serial
+            });
+        match opened {
+            Some(serial) => {
+                // Told before the follow-ups run: one that closes the dialog
+                // cancels the request as any close does.
+                let _ = store.dialog_opened(start.request, serial);
             }
             None => {
                 let _ = store.dialog_failed(start.request);
             }
         }
+        self.run_commands();
     }
 }
 
