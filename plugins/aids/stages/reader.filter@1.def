@@ -1,18 +1,64 @@
 {
-  "stage": "reader.filter",
-  "schema": 1,
-  "max_bytes": 3840,
-  "max_records": 33,
+  "key": "reader.filter",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 4,
+  "max_input": 160,
+  "max_reply": 3840,
+  "input": [
+    "filter.ask"
+  ],
+  "reply": [
+    "filter.rules",
+    "filter.pair"
+  ],
+  "reply_rows": 33,
   "records": [
     {
       "id": 1,
+      "name": "filter.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "language",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        },
+        {
+          "name": "format",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 32
+        },
+        {
+          "name": "image_only",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
       "name": "filter.rules",
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "signature",
           "type": "u64",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -21,7 +67,7 @@
         {
           "name": "bold",
           "type": "u32",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -30,7 +76,7 @@
         {
           "name": "pictures",
           "type": "u32",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -39,7 +85,7 @@
         {
           "name": "caption_word",
           "type": "str",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -48,14 +94,14 @@
       ]
     },
     {
-      "id": 2,
+      "id": 3,
       "name": "filter.pair",
-      "since": 1,
+      "since": 0,
       "fields": [
         {
           "name": "from",
           "type": "str",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -64,7 +110,7 @@
         {
           "name": "to",
           "type": "str",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
@@ -73,7 +119,7 @@
         {
           "name": "whole_word",
           "type": "u32",
-          "since": 1,
+          "since": 0,
           "optional": false,
           "ordinal": null,
           "default": null,
