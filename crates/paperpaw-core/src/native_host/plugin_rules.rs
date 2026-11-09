@@ -135,6 +135,12 @@ impl Pins {
 }
 
 /// What the rules decide.
+// One short-lived value per request, passed once: boxing the pins would only
+// add an allocation that can fail.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "passed once and consumed at once; boxing would add an allocation that can fail"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Decision {
     Install {

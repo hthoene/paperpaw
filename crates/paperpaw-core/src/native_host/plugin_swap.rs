@@ -239,6 +239,12 @@ pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
 }
 
 /// What the start found of a journal.
+// Read once at start and consumed at once: boxing the entry would only add an
+// allocation that can fail.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "passed once and consumed at once; boxing would add an allocation that can fail"
+)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Found {
     None,

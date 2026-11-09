@@ -180,15 +180,16 @@ fn text(card: &MemoryStorage, path: &str) -> Option<String> {
     String::from_utf8(data).ok()
 }
 
+/// The plugin folder's two files, its pinned key and its code.
+type State = (
+    Option<String>,
+    Option<String>,
+    Option<[u8; 32]>,
+    Option<[u8; 32]>,
+);
+
 /// What the card says the plugin is: its folder, its pinned key, its code.
-fn state(
-    card: &MemoryStorage,
-) -> (
-    Option<String>,
-    Option<String>,
-    Option<[u8; 32]>,
-    Option<[u8; 32]>,
-) {
+fn state(card: &MemoryStorage) -> State {
     (
         text(card, "plugins/dials/plugin.ini"),
         text(card, "plugins/dials/sub/file.txt"),
@@ -197,12 +198,7 @@ fn state(
     )
 }
 
-fn old_state() -> (
-    Option<String>,
-    Option<String>,
-    Option<[u8; 32]>,
-    Option<[u8; 32]>,
-) {
+fn old_state() -> State {
     (
         Some("old".into()),
         Some("old file".into()),
@@ -211,12 +207,7 @@ fn old_state() -> (
     )
 }
 
-fn new_state() -> (
-    Option<String>,
-    Option<String>,
-    Option<[u8; 32]>,
-    Option<[u8; 32]>,
-) {
+fn new_state() -> State {
     (
         Some("new".into()),
         Some("new file".into()),

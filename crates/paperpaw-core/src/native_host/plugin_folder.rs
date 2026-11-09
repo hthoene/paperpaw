@@ -119,6 +119,34 @@ impl Walk {
         core::mem::take(&mut self.files)
     }
 
+    /// Takes over what one listed piece found and moves on.
+    fn settle(
+        &mut self,
+        next: Option<u64>,
+        found: Found,
+        kept: Vec<(String, u64)>,
+        subdirs: Vec<String>,
+    ) -> Walked {
+        if self.files.try_reserve(kept.len()).is_err() {
+            return Walked::Refused(reason::OTHER);
+        }
+        self.files.extend(kept);
+        self.found = found;
+        self.dirs.extend(subdirs);
+        match next {
+            Some(place) => self.place = place,
+            None => {
+                self.at += 1;
+                self.place = 0;
+            }
+        }
+        if self.at >= self.dirs.len() {
+            Walked::Done(self.found)
+        } else {
+            Walked::More
+        }
+    }
+
     /// One piece of the folder being listed.
     #[inline(never)]
     pub(crate) fn step(&mut self, storage: &dyn Storage) -> Walked {
@@ -204,26 +232,7 @@ impl Walk {
             return Walked::Refused(reason);
         }
         match listed {
-            Ok(next) => {
-                if self.files.try_reserve(kept.len()).is_err() {
-                    return Walked::Refused(reason::OTHER);
-                }
-                self.files.extend(kept);
-                self.found = found;
-                self.dirs.extend(subdirs);
-                match next {
-                    Some(place) => self.place = place,
-                    None => {
-                        self.at += 1;
-                        self.place = 0;
-                    }
-                }
-                if self.at >= self.dirs.len() {
-                    Walked::Done(self.found)
-                } else {
-                    Walked::More
-                }
-            }
+            Ok(next) => self.settle(next, found, kept, subdirs),
             // A path that names nothing, or a file: not a plugin folder.
             Err(StorageError::NotFound | StorageError::InvalidPath) => {
                 Walked::Refused(reason::DAMAGED)

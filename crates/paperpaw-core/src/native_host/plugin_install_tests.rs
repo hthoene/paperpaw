@@ -475,12 +475,11 @@ fn what_the_stage_check_refuses_ends_the_install() {
 
 #[test]
 fn the_grant_skips_only_the_prompt() {
-    let digest;
     // An update of a pinned plugin whose features did not grow: no prompt.
     let card = MemoryStorage::new();
     let old = code_file(&good_record(), Some(&AUTHOR_SEED), 4096);
     installed(&card, "1.0.0", Some(&old), Some(author()));
-    digest = code_source(&card, "1.1.0", &AUTHOR_SEED);
+    let digest = code_source(&card, "1.1.0", &AUTHOR_SEED);
     let ran = drive(
         &card,
         job(REPLACE, catalog(author(), digest)),
