@@ -120,6 +120,10 @@ pub type Outcome = (Answer, Option<(Done, String)>);
 const NOT_FOUND: Fail = Fail(404, "not found");
 const BAD_PATH: Fail = Fail(400, "bad path");
 const READ_ONLY: Fail = Fail(403, "PaperPaw's settings cannot be changed from here.");
+/// Fetching the settings is refused too: defence in depth (interface 7 keeps
+/// secrets in `core.secrets`, but a card from Beta 3 can still hold plain ones
+/// until its first load moves them out).
+const NO_FETCH: Fail = Fail(403, "PaperPaw's settings cannot be fetched from here.");
 const NOT_YET: Fail = Fail(
     501,
     "Not available from here yet: use the device (see PORTING-7).",
@@ -231,6 +235,9 @@ fn route(
             let file = locate(card, &wanted, false)?;
             if file.is_dir != Some(false) {
                 return Err(NOT_FOUND);
+            }
+            if read_only(&file.path) {
+                return Err(NO_FETCH);
             }
             let name = copy(files::name(&file.path))?;
             let answer = Answer {

@@ -68,6 +68,17 @@ them stay until the host activates native plugins (then they go together, no shi
   `tests/abi7_declarations.rs` (what `make` submits has no slot offer; the events), `tests/native_linked_entry.rs`,
   `tests/hosted_construction.rs` (`make` is refused as `Unsupported` until the host admits every family, Core #944).
 
+## `paperpaw.ini`: not served, not changed (defence in depth)
+
+In interface 7 `paperpaw.ini` never holds secrets (Kernel, decisions 138/140): Wi-Fi passwords, keys and tokens
+live only in the sealed secret store `core.secrets` (AES-256-GCM); a value found in the card file for a secret
+setting moves into it at load (`docs/abi/secrets.md` 4). A card that comes over from Beta 3 can still hold plain
+secrets in the file until its first load moves them out, so the plugin refuses the file anyway (this is a change
+from interface 6, which let the page fetch it): `GET /api/file` answers 403 for it, in any case, and `read_only`
+still refuses uploading over it, deleting, moving and renaming it (403). Pinned by
+`the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; the interface-6 parity test
+compares `read_only` with the interface-6 rule.
+
 ## Blocked and next steps
 
 1. **Moving and renaming files** (`POST /api/move`: 501; the page hides *Move* and *Rename*). The library keeps

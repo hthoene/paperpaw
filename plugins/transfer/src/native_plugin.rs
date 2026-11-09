@@ -299,14 +299,10 @@ impl NativeTransfer {
             ServerState::Failed { reason } => self.not_serving(host, "transfer.failed", reason),
             // Asked for by the plugin: nothing to say. Ended by the network:
             // said as it was before it served.
-            ServerState::Stopped { reason } if reason != Reason::Ok => {
-                let key = if serving {
-                    "transfer.stopped"
-                } else {
-                    "transfer.failed"
-                };
-                self.not_serving(host, key, reason)
-            }
+            ServerState::Stopped { reason } => match stopped_key(serving, reason) {
+                Some(key) => self.not_serving(host, key, reason),
+                None => Ok(()),
+            },
             _ => Ok(()),
         }
     }
@@ -507,6 +503,7 @@ const fn reason_word(reason: Reason) -> &'static str {
         Reason::Saving => "saving",
         Reason::NetworkOff => "network off",
         Reason::Refused => "refused",
+        Reason::Ok => "ended",
         _ => "failed",
     }
 }
@@ -536,4 +533,40 @@ fn said(host: &Host<'_>, done: Done, name: &str) -> Result<String, Error> {
         value: name,
     }];
     Messages::new()?.format(host, key, &arguments)
+}
+
+/// What a stop of the server says. Where the screen was serving, the address
+/// on it is dead whoever ended it (the network, or the host with `Reason::Ok`),
+/// so the *stopped* text takes its place. Before it served, a stop the plugin
+/// asked for (`Ok`) says nothing; one the network ended says *could not start*.
+fn stopped_key(serving: bool, reason: Reason) -> Option<&'static str> {
+    if serving {
+        Some("transfer.stopped")
+    } else if reason == Reason::Ok {
+        None
+    } else {
+        Some("transfer.failed")
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::{Reason, stopped_key};
+
+    /// A stop the plugin asked for before it served says nothing; one that
+    /// ends a serving screen clears the address (the *stopped* text).
+    #[test]
+    fn a_stop_with_ok_clears_a_serving_screen_only() {
+        assert_eq!(stopped_key(true, Reason::Ok), Some("transfer.stopped"));
+        assert_eq!(stopped_key(false, Reason::Ok), None);
+    }
+
+    #[test]
+    fn a_stop_by_the_network_says_so() {
+        assert_eq!(
+            stopped_key(true, Reason::NoNetwork),
+            Some("transfer.stopped")
+        );
+        assert_eq!(stopped_key(false, Reason::Offline), Some("transfer.failed"));
+    }
 }

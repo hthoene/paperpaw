@@ -258,6 +258,19 @@ fn an_upload_that_does_not_fit_or_has_no_folder_is_refused_and_told() {
     assert_eq!(run(&mut card, "PUT", "/api/file?k=key").0.status, 400);
 }
 
+/// A card from Beta 3 can hold plain secrets in the file until its first load
+/// moves them out: it is not served, in any case, whatever else is.
+#[test]
+fn the_settings_are_not_served() {
+    let mut card = Fake::with(&[("paperpaw.ini", false, 5), ("a.epub", false, 5)]);
+    for path in ["paperpaw.ini", "PaperPaw.INI"] {
+        let (refused, done) = run(&mut card, "GET", &["/api/file?k=key&path=", path].concat());
+        assert_eq!((refused.status, done), (403, None), "{path}");
+    }
+    let (ok, _) = run(&mut card, "GET", "/api/file?k=key&path=a.epub");
+    assert_eq!(ok.status, 200);
+}
+
 #[test]
 fn the_settings_cannot_be_put_made_or_deleted_over() {
     let mut card = Fake::with(&[("paperpaw.ini", false, 5)]);
