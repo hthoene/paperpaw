@@ -1225,6 +1225,7 @@ impl Kernel {
         self.shown_since = now;
         self.close_shut_out();
         self.count_free_again(now);
+        self.native_work_woke();
         self.output.commands.push(events::RESUME.emit(()));
     }
 

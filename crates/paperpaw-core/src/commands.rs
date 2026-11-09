@@ -248,6 +248,7 @@ impl Kernel {
             self.escape_due(),
             self.native_unload_due(),
             self.service_due(),
+            self.work_pump_due(),
         ]
         .into_iter()
         .flatten()

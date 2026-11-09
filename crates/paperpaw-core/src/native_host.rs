@@ -179,6 +179,7 @@ mod stage_wire;
 pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod work_pump;
 
 const REGISTRATIONS: usize = 8;
 

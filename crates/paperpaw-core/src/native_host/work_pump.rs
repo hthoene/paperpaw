@@ -1,0 +1,211 @@
+//! The kernel's pump for `core.work@1` (`docs/abi/work.md` sections 2 and 3):
+//! between callbacks it feeds the scheduler the device's moments, starts a
+//! pass, delivers `event.work_refused` (104) and `event.work_due` (103) to
+//! the plugins that can take them, tells the plugins whose work left a hold
+//! `event.work_allowed` (105), and ends the runs that reached their longest
+//! time.
+//!
+//! It runs at the end of every kernel call (`Kernel::finish`), never inside a
+//! callback, and calls no plugin more than [`PER_PASS`] times in one pass;
+//! when work remains it asks for another pass at once. The scheduler decides
+//! what is due and what holds it; this module only carries it to plugins:
+//!
+//! * the events go through the plugin's event registration for their tag
+//!   (`service_event`: the work's own token is in the record);
+//! * a `work_due` callback runs under the run's guard (`enter_run_callback`:
+//!   UI questions refused, `core.net` requests tied to the run) and the run's
+//!   callback is over when it returns, whatever it returned;
+//! * a refusal or a callback that failed is not told again: the entry ended
+//!   with the call;
+//! * a plugin that is not running, or did not subscribe to 103, is not
+//!   called (lazy start does not apply to events); its work waits for it to
+//!   run, or is dropped with it when it stops.
+use super::{
+    native_instances::InstanceState,
+    registrations::{self as wire, Record},
+    work_sched::{Event, Moment, Pass},
+};
+use paperpaw_platform::Instant;
+
+/// Plugin calls (events 103 to 105) in one pass: the most one device has
+/// works (X4: 32), so one pass is the whole table and no more.
+const PER_PASS: usize = 32;
+
+/// The room of one record of 103 to 105: a 64-byte key and the fixed fields,
+/// well under it.
+const RECORD_BYTES: usize = 128;
+
+const SEEN: u8 = 1;
+const SEEN_UP: u8 = 1 << 1;
+const SEEN_CHARGING: u8 = 1 << 2;
+
+impl crate::Kernel {
+    /// The device woke (`Kernel::resume`): work that asked for the `wake`
+    /// moment may come due in the next pass.
+    pub(crate) fn native_work_woke(&self) {
+        if let Some(work) = self.shared.native_instances.work_services() {
+            work.sched.moment(Moment::Wake, &*work.env);
+        }
+    }
+
+    /// One pass of the work scheduler (see the module). `true` when plugin
+    /// calls remain for another pass.
+    pub(crate) fn native_work_pump(&mut self) -> bool {
+        let instances = &self.shared.native_instances;
+        let Some(work) = instances.work_services() else {
+            return false;
+        };
+        // Never inside a callback: what comes due during one comes after.
+        if instances.depth() > 0 {
+            return true;
+        }
+        let env = &*work.env;
+        let now_ms = env.now_ms();
+        let charging = self
+            .shared
+            .env(self.now)
+            .status()
+            .battery
+            .is_some_and(|battery| battery.charging);
+        let seen = instances.work_seen();
+        // The first pass only looks: a network already up or a battery
+        // already charging is no moment.
+        if seen & SEEN != 0 {
+            if env.network_up() && seen & SEEN_UP == 0 {
+                work.sched.moment(Moment::Online, env);
+            }
+            if charging && seen & SEEN_CHARGING == 0 {
+                work.sched.moment(Moment::Charging, env);
+            }
+        }
+        instances.set_work_seen(
+            SEEN | if env.network_up() { SEEN_UP } else { 0 }
+                | if charging { SEEN_CHARGING } else { 0 },
+        );
+        // A table in use waits for the next pass.
+        let Ok(pass) = work.sched.begin_pass(env) else {
+            return true;
+        };
+        let mut calls = 0;
+        if pass.allowed {
+            calls += self.work_tell_allowed(&pass, now_ms);
+        }
+        let mut more = false;
+        while calls < PER_PASS {
+            let accepts = |owner: u64| {
+                instances.subscribed(owner, wire::EVENT_WORK_DUE_TAG)
+                    && matches!(instances.state(owner), Ok(InstanceState::Running(_)))
+            };
+            let Ok(Some(event)) = work.sched.next_event(env, &accepts) else {
+                break;
+            };
+            self.work_deliver(&event, now_ms);
+            calls += 1;
+            more |= calls == PER_PASS;
+        }
+        self.work_end_expired(now_ms);
+        more
+    }
+
+    /// `event.work_allowed` (105) to every running plugin that subscribed: a
+    /// hint, one per pass, so one pending at most. Returns the calls made.
+    fn work_tell_allowed(&self, _pass: &Pass, now_ms: u64) -> usize {
+        let instances = &self.shared.native_instances;
+        let mut record = [0u8; RECORD_BYTES];
+        let allowed = Record::EventWorkAllowed(wire::EventWorkAllowed { now_ms });
+        let Ok(len) = wire::records_encode(&[allowed], &mut record) else {
+            debug_assert!(
+                false,
+                "an event.work_allowed record fits {RECORD_BYTES} bytes"
+            );
+            return 0;
+        };
+        let env = self.shared.env(self.now);
+        let (mut index, mut calls) = (0, 0);
+        while let Some((owner, lease)) = instances.running_nth(index) {
+            index += 1;
+            if instances.subscribed(owner, wire::EVENT_WORK_ALLOWED_TAG) {
+                // A hint: how the plugin took it is its own.
+                let _ = lease.service_event(&record[..len], &env);
+                calls += 1;
+            }
+        }
+        calls
+    }
+
+    /// One event of the scheduler to its plugin.
+    fn work_deliver(&self, event: &Event, now_ms: u64) {
+        let instances = &self.shared.native_instances;
+        let Some(work) = instances.work_services() else {
+            return;
+        };
+        let (owner, token, run) = match event {
+            Event::Due(due) => (due.owner, due.token, Some(due.run)),
+            Event::Refused(refused) => (refused.owner, refused.token, None),
+        };
+        let mut record = [0u8; RECORD_BYTES];
+        let encoded = match event {
+            Event::Due(due) => wire::records_encode(
+                &[Record::EventWorkDue(wire::EventWorkDue {
+                    now_ms,
+                    token,
+                    why: due.why,
+                    key: due.key.as_str(),
+                })],
+                &mut record,
+            ),
+            Event::Refused(refused) => wire::records_encode(
+                &[Record::EventWorkRefused(wire::EventWorkRefused {
+                    now_ms,
+                    token,
+                    reason: refused.reason,
+                    key: refused.key.as_str(),
+                })],
+                &mut record,
+            ),
+        };
+        debug_assert!(
+            encoded.is_ok(),
+            "an event.work_due record fits {RECORD_BYTES} bytes"
+        );
+        // A refusal goes only to a plugin that subscribed to 104.
+        let told = encoded.is_ok()
+            && (run.is_some() || instances.subscribed(owner, wire::EVENT_WORK_REFUSED_TAG));
+        if let (true, Ok(len), Ok(InstanceState::Running(lease))) =
+            (told, encoded, instances.state(owner))
+        {
+            let env = self.shared.env(self.now);
+            // The outcome is the plugin's own: the entry ended with the call.
+            let _guard = run.map(|run| work.sched.enter_run_callback(owner, run));
+            let _ = lease.service_event(&record[..len], &env);
+        }
+        if let Some(run) = run {
+            work.sched.callback_returned(run, now_ms);
+        }
+    }
+
+    /// Runs that reached their longest time end with what they started.
+    fn work_end_expired(&self, now_ms: u64) {
+        let Some(work) = self.shared.native_instances.work_services() else {
+            return;
+        };
+        while let Some(run) = work.sched.take_expired(now_ms) {
+            // A service whose table is borrowed cannot be, outside a
+            // callback: nothing to retry. Its requests end at their own end.
+            let _ = self.native_services_work_ended(run.owner, u64::from(run.id));
+            work.sched.end_run(run.id, now_ms);
+        }
+    }
+
+    /// When the pump wants to run again: at once while plugin calls remain,
+    /// else at the first time work can come due or a run must end (the
+    /// shell's clock, which is the kernel's tick clock).
+    pub(crate) fn work_pump_due(&self) -> Option<Instant> {
+        let work = self.shared.native_instances.work_services()?;
+        work.sched.next_wake(&*work.env).map(Instant)
+    }
+}
+
+#[cfg(test)]
+#[path = "work_pump_tests.rs"]
+mod tests;

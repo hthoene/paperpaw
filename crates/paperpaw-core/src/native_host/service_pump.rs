@@ -110,7 +110,11 @@ impl crate::Kernel {
         let env = self.shared.env(self.now);
         let instances = &self.shared.native_instances;
         let more = pump(instances, &instances.event_services(), &env);
-        instances.set_service_more(more);
+        // Declared work comes due on the same tick (`work_pump`).
+        let work_more = self.native_work_pump();
+        self.shared
+            .native_instances
+            .set_service_more(more || work_more);
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -145,11 +149,10 @@ impl crate::Kernel {
     }
 
     /// A work run reached its longest time: what each service started in it
-    /// ends. The work scheduler's pump calls it where it takes an expired run.
+    /// ends. The work pump (`work_pump`) calls it where it takes an expired run.
     ///
     /// # Errors
     /// The first service's refusal, after the others were told.
-    #[allow(dead_code, reason = "the work scheduler has no pump on the kernel yet")]
     pub(crate) fn native_services_work_ended(&self, owner: u64, run: u64) -> Result<(), i32> {
         let services = self.shared.native_instances.event_services();
         let mut result = Ok(());
