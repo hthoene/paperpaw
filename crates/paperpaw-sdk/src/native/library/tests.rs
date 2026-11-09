@@ -446,5 +446,7 @@ mod annotations;
 mod facets;
 #[path = "tests/fields.rs"]
 mod fields;
+#[path = "tests/files.rs"]
+mod files;
 #[path = "tests/position.rs"]
 mod position;
