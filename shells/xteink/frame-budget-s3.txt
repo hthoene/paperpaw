@@ -44,6 +44,8 @@ allow call paperpaw_core::native_host::shell::commands_submit -> memcpy the chip
 allow call paperpaw_core::native_host::shell::commands_submit -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::commands_submit -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::registrations_submit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::shell::services_query -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::shell::services_query -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::blob_release -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::storage_size -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::storage_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -79,13 +81,13 @@ allow call paperpaw_core::native_host::fonts::resolve -> memcpy the chip's ROM `
 allow call paperpaw_core::abi7::commands_wire::commands_decode -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::presets::Presets::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage_slots::put -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> __umoddi3 the ROM's 64-bit unsigned modulo (libgcc): not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call core::alloc::global::GlobalAlloc::realloc -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::micros -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Settings::placed_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
@@ -174,7 +176,7 @@ allow indirect paperpaw_core::native_host::shell::font_acquire 3 vtable or fn-po
 allow indirect paperpaw_core::native_host::shell::handle_release 1 jump table of a `match` at core/native_host/resources.rs:245
 allow indirect paperpaw_core::native_host::shell::commands_submit 7 vtable or fn-pointer call at core/native_host/commands_dev.rs:356, core/native_host/radio_requests.rs:371: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/native_host/commands.rs:270
 allow indirect paperpaw_core::native_host::shell::registrations_submit 5 vtable or fn-pointer call at core/native_host/registration_scope.rs:152, core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object); jump table of a `match` at core/native_host/registrations.rs:328
-allow indirect paperpaw_core::native_host::shell::services_query 35 vtable or fn-pointer call at core/native_host/data_services.rs:120, core/native_host/data_services.rs:173: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/native_host/data_services.rs:118; literal call not proven on every path
+allow indirect paperpaw_core::native_host::shell::services_query 6 vtable or fn-pointer call at core/native_host/data_services.rs:120, core/native_host/data_services.rs:173: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/native_host/data_services.rs:118
 allow indirect paperpaw_core::native_host::shell::storage_size 2 vtable or fn-pointer call at core/native_host/storage.rs:163, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::storage_read_at 2 vtable or fn-pointer call at core/native_host/storage.rs:183, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::storage_rename 5 vtable or fn-pointer call at core/native_host/storage.rs:232, core/native_host/storage.rs:235: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink); jump table of a `match` at core/native_host/storage.rs:232
@@ -216,6 +218,9 @@ allow indirect _ZN13paperpaw_core4abi713settings_wire15settings_decode 1 jump ta
 allow indirect paperpaw_sdk::action::Actions::find 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect paperpaw_sdk::action::Actions::find_fixed 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
 allow indirect _ZN4core3ptr60drop_glue$LT$paperpaw_sdk..bluetooth..request..BtCommand$GT$ 2 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
+allow indirect paperpaw_core::native_host::registrations::subset::as_wire 1 jump table of a `match` at core/native_host/registrations/subset.rs:299
+allow indirect paperpaw_core::native_host::registrations::wire::record_framed_len_of 2 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22285, core/native_host/../abi7/records_wire.rs:22286: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect paperpaw_core::native_host::registrations::wire::record_encode_of 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22300, core/native_host/../abi7/records_wire.rs:22302: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::check_room 2 vtable or fn-pointer call at core/native_host/storage.rs:266, core/native_host/storage.rs:272: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_text::font::Font::size_for 1 vtable or fn-pointer call at text/bitmap.rs:424: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect paperpaw_core::native_host::registrations::wire::host_records_pass 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23096, core/native_host/../abi7/records_wire.rs:23097: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)

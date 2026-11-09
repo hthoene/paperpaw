@@ -836,9 +836,13 @@ fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
     assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
     // A word that is no address of this function changes nothing.
     assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
-    // An address inside an instruction: the reading is out of step, the
-    // function's calls are not resolved.
-    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (0, 1));
+    // An address inside an instruction: no jump target (the compiler's are
+    // instruction starts), a number in the data that happens to be one: left
+    // out, so where the build puts things does not decide whether the call
+    // resolves. The same with a `jx` table that has a real entry too.
+    assert_eq!(outcome(&lits, &funcs, &[at + 4]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, at + 3]), (1, 0));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (0, 1));
 }
 
 #[test]

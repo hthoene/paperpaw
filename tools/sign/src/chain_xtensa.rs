@@ -519,9 +519,10 @@ type Regs = [Held; 16];
 /// wrong. It fails closed, leaving every call of the function indirect (counted
 /// and listed in the budget): at a branch form `regs` does not model, a branch
 /// into the middle of an instruction, a hardware `loop` (its back edge is no
-/// instruction's), a `jx` in a function that has no address to jump to, an
-/// address the image points at that is no instruction's start, and for a site
-/// the flow never reaches. An instruction `regs`
+/// instruction's), a `jx` in a function that has no address to jump to, and for
+/// a site the flow never reaches. A word of the image that equals an address
+/// inside the function but is no instruction's start is not a target and is
+/// left out. An instruction `regs`
 /// does not name makes every register unknown after it.
 fn resolve(
     insns: &[Insn],
@@ -539,13 +540,19 @@ fn resolve(
     // Every address inside the function that a word of the image points at is
     // a place the flow may enter from outside this function's own
     // instructions (a jump table, here or in another function): an entry with
-    // nothing known. One that is no instruction's start leaves the reading out
-    // of step, and a `jx` with no such address to go to is a jump this reading
-    // cannot place: both give the function up.
+    // nothing known. A `jx` with no such address to go to is a jump this
+    // reading cannot place: it gives the function up.
     let mut entries: Vec<usize> = Vec::new();
     for p in around.pointed.range(start_addr..end) {
+        // A word that is no instruction's start is not a jump target (the
+        // compiler's targets are instruction starts): a number in the data, or
+        // bytes of a blob's code, that happens to equal an address here. Where
+        // such words fall depends on where the build puts everything, so giving
+        // the function up for one would make the result depend on the layout. The
+        // reading stays out of step only if a direct branch lands in the middle
+        // of an instruction, which gives the function up below.
         let Some(&to) = index.get(p) else {
-            return give_up(reads);
+            continue;
         };
         entries.push(to);
     }
