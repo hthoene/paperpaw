@@ -218,6 +218,7 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         token,
     };
     let draw = |token| wire::Registration::Draw { token };
+    let tagged = |event_tag, token| wire::Registration::Event { event_tag, token };
     let batches: &[&[wire::Registration]] = match REGS.with(Cell::get) {
         0 => return None,
         1 => &[&[event(91)]],
@@ -234,6 +235,19 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         // The same event in two batches; the same draw in two batches.
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
+        15 => &[
+            &[
+                tagged(3, 95),
+                tagged(32, 96),
+                tagged(33, 97),
+                tagged(34, 98),
+                tagged(35, 99),
+                tagged(36, 100),
+                tagged(37, 101),
+                tagged(65, 102),
+            ],
+            &[tagged(66, 103), tagged(67, 104)],
+        ],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
@@ -1442,6 +1456,8 @@ fn every_allocation_of_an_install_with_arms_and_registrations_refuses_whole() {
 
 #[path = "native_open_handover_tests.rs"]
 mod open_handover;
+#[path = "native_registration_cap_tests.rs"]
+mod registration_cap;
 #[path = "native_resources_tests.rs"]
 mod resources;
 #[path = "native_slot_offers_tests.rs"]
@@ -1480,6 +1496,5 @@ mod menu_records;
 
 #[path = "native_key_install_tests.rs"]
 mod key_records;
-
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;
