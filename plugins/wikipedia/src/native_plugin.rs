@@ -6,8 +6,9 @@
 //! (`PORTING-7.md`). What the plugin decides without a host is in
 //! `native_model` and `native_page`, tested without one.
 use crate::{
-    declarations::{FETCHED_TOKEN, SCREEN_TOKEN},
+    declarations::{ABOUT_TOKEN, FETCHED_TOKEN, SCREEN_TOKEN},
     native_view::View,
+    stages::about_lines_v1 as lines,
 };
 use paperpaw_sdk::{
     Handled,
@@ -86,9 +87,26 @@ impl NativeWikipedia {
     }
 }
 
+impl NativeWikipedia {
+    /// Answers `about.lines` with the line that names the source and the
+    /// licence (CC BY-SA asks for both).
+    fn about(host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+        // An ask that is not one of the stage's is not answered.
+        lines::input_decode(payload).map_err(|_| Error::Invalid)?;
+        let text = paperpaw_ui_kit::Messages::new()?.copy(host, "wikipedia.about")?;
+        let mut out = paperpaw_ui_kit::mem::buffer(lines::MAX_REPLY)?;
+        let length = lines::reply_encode(
+            &[lines::Record::LinesLine(lines::LinesLine::new(&text))],
+            &mut out,
+        )
+        .map_err(|_| Error::Invalid)?;
+        reply.write(&out[..length])
+    }
+}
+
 impl Plugin for NativeWikipedia {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SCREEN {
+        for batch in image::SCREEN.iter().chain(image::ABOUT) {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -99,14 +117,15 @@ impl Plugin for NativeWikipedia {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
-            kinds::HttpDone
+            kinds::HttpDone,
+            kinds::StageCall
         ) else {
             return Ok(());
         };
@@ -133,6 +152,11 @@ impl Plugin for NativeWikipedia {
                 Ok(())
             }
             Event::HttpDone(done) if token == FETCHED_TOKEN => self.fetched(host, &done),
+            Event::StageCall { stage, payload, .. }
+                if token == ABOUT_TOKEN && stage == lines::KEY =>
+            {
+                Self::about(host, payload, reply)
+            }
             _ => Ok(()),
         }
     }

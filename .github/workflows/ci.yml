@@ -520,6 +520,10 @@ jobs:
         # plugins/about/src/stages.rs from plugins/about/stages/*.def by
         # tools/stage-codec.py (needs rustfmt, which this job has).
         run: python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
+      - name: A subscriber's stage codec is its copy of the owner's schema
+        # plugins/wikipedia/src/stages.rs from the copy of about.lines@1.def (a test holds
+        # the copy to the owner's file); no --plugin: the stage is About's.
+        run: python3 tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check
       - name: The plugin store's rules are the site's
         # tools/publish/store-rules.json, which paperpaw-dev and
         # paperpaw-sign check by, against paperpaw.org's own (where it
