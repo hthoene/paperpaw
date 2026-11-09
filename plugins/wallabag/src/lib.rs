@@ -18,6 +18,8 @@
 //! storage, so this works on small devices too. Shipped switched off:
 //! switch it on in the plugins.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

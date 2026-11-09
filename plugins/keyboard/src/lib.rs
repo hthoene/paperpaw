@@ -46,6 +46,8 @@
 //! Bind another screen to `core.keyboard` for a different keyboard
 //! altogether.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

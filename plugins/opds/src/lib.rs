@@ -14,6 +14,8 @@
 //! Feeds are read in pieces and books written straight to storage, so
 //! catalogs of any size work on small devices too.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

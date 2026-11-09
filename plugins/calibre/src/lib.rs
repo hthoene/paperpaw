@@ -18,6 +18,8 @@
 //! The connection is a socket (ADR 0014); books come straight into
 //! storage, so their size does not matter.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

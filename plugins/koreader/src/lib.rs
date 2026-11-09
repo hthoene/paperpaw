@@ -37,6 +37,8 @@
 //! next time. Annotations go to KOReader with the time they were made:
 //! while neither they nor the clock tell it, they wait here.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 // What goes wrong with the user's data is told, never dropped unseen:
 // a result left unread says why (see CONTRIBUTING.md).
 #![deny(clippy::let_underscore_must_use)]
