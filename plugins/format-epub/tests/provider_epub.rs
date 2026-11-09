@@ -383,29 +383,49 @@ fn font_book() -> Vec<u8> {
 /// As [`font_book`], the font file `name` holding `data`, `encryption` the
 /// content of `META-INF/encryption.xml` (empty: none).
 fn font_book_with(name: &str, data: Vec<u8>, encryption: &str) -> Vec<u8> {
+    font_book_full("urn:test", &[(name, data)], encryption)
+}
+
+/// A book with the fonts `fonts` (file name, data) as families `F0`, `F1`, …,
+/// the unique identifier `identifier`, and `encryption` the content of
+/// `META-INF/encryption.xml` (empty: none).
+fn font_book_full(identifier: &str, fonts: &[(&str, Vec<u8>)], encryption: &str) -> Vec<u8> {
     let package = common::opf(
-        "<dc:identifier id=\"uid\">urn:test</dc:identifier><dc:language>de</dc:language>",
+        &format!(
+            "<dc:identifier id=\"uid\">{identifier}</dc:identifier><dc:language>de</dc:language>"
+        ),
         &[
             ("c", "c.xhtml", "application/xhtml+xml", ""),
             ("css", "style.css", "text/css", ""),
         ],
         &["c"],
     );
-    let css = format!(
-        "@font-face {{ font-family: F0; src: url(fonts/{name}) }} .f0 {{ font-family: F0 }}"
-    );
-    let body = "<p class=\"f0\">Font text, <span lang=\"fr\">bonjour</span> again</p>";
-    let font_path = format!("OEBPS/fonts/{name}");
+    let mut css = String::new();
+    let mut body = String::new();
+    for (i, (name, _)) in fonts.iter().enumerate() {
+        css.push_str(&format!(
+            "@font-face {{ font-family: F{i}; src: url(fonts/{name}) }} .f{i} {{ font-family: F{i} }}\n"
+        ));
+        body.push_str(&format!(
+            "<p class=\"f{i}\">Font text {i}, <span lang=\"fr\">bonjour</span> again</p>"
+        ));
+    }
+    let paths: Vec<String> = fonts
+        .iter()
+        .map(|(n, _)| format!("OEBPS/fonts/{n}"))
+        .collect();
     let mut files: Vec<(&str, Vec<u8>)> = vec![
         (
             "META-INF/container.xml",
             common::container("OEBPS/content.opf").into_bytes(),
         ),
         ("OEBPS/content.opf", package.into_bytes()),
-        ("OEBPS/c.xhtml", common::xhtml(body).into_bytes()),
+        ("OEBPS/c.xhtml", common::xhtml(&body).into_bytes()),
         ("OEBPS/style.css", css.into_bytes()),
-        (font_path.as_str(), data),
     ];
+    for (path, (_, data)) in paths.iter().zip(fonts) {
+        files.push((path.as_str(), data.clone()));
+    }
     if !encryption.is_empty() {
         files.push(("META-INF/encryption.xml", encryption.as_bytes().to_vec()));
     }
@@ -597,4 +617,142 @@ fn a_plain_font_is_copied_in_chunks_and_a_woff_is_left_to_the_whole_path() {
     let storage = MemoryStorage::new().with("f.epub", font_book());
     let doc = EpubDocument::open(&storage, "f.epub").unwrap();
     assert!(doc.extended(&storage, "other", &[]).is_none());
+}
+
+/// The faces of a book as the provider lists them: (index, bytes).
+fn faces_of(
+    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    io: &dyn Storage,
+) -> Vec<(u32, u32)> {
+    let reply = run(p, io, &call(16, |_| {})).unwrap();
+    rows(&reply)
+        .into_iter()
+        .filter_map(|r| match r {
+            stage::Record::FmtFont(f) => Some((f.index, f.bytes)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `size` bytes of filler: it deflates to almost nothing.
+fn filler(size: usize) -> Vec<u8> {
+    vec![0x41; size]
+}
+
+#[test]
+fn a_font_over_the_size_limit_is_its_own_fault_and_the_others_are_listed() {
+    let big = filler(17 * 1024 * 1024);
+    let book = font_book_full("urn:test", &[("big.ttf", big), ("a.ttf", TTF.to_vec())], "");
+    let io = Roots::new("f.epub", &book);
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    let faces = faces_of(&mut p, &io);
+    assert_eq!(faces.len(), 2, "{faces:?}");
+    assert_eq!(faces[0], (0, 0), "the large one: no bytes, no error");
+    assert_eq!(faces[1], (1, TTF.len() as u32), "the other is listed");
+    assert!(!io.exists(&format!("{}/fonts/0.tmp", Env::plugin_dir("format-epub"))));
+}
+
+#[test]
+fn the_copied_faces_of_a_book_stop_at_the_total_cap() {
+    // Three of 12 MiB: the third would make 36 MiB, over the 32 MiB cap.
+    let fonts: Vec<(&str, Vec<u8>)> = ["a.ttf", "b.ttf", "c.ttf"]
+        .iter()
+        .map(|n| (*n, filler(12 * 1024 * 1024)))
+        .collect();
+    let io = Roots::new("f.epub", &font_book_full("urn:test", &fonts, ""));
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    let faces = faces_of(&mut p, &io);
+    let size = 12 * 1024 * 1024;
+    assert_eq!(faces, [(0, size), (1, size), (2, 0)]);
+    let third = format!("{}/fonts/2", Env::plugin_dir("format-epub"));
+    assert!(!io.exists(&third), "the face over the cap is not kept");
+}
+
+/// A storage that counts reads of the book and can refuse appends.
+struct Spy {
+    inner: Roots,
+    book_reads: std::cell::Cell<u32>,
+    fail_appends: std::cell::Cell<bool>,
+}
+
+impl Storage for Spy {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if !path.starts_with(&self.inner.prefix) {
+            self.book_reads.set(self.book_reads.get() + 1);
+        }
+        self.inner.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        if self.fail_appends.get() {
+            return Err(StorageError::Io);
+        }
+        self.inner.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.remove(path)
+    }
+    fn exists(&self, path: &str) -> bool {
+        self.inner.exists(path)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.create_dir(path)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.remove_dir_all(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.inner.rename(from, to)
+    }
+}
+
+#[test]
+fn a_face_that_fails_to_copy_leaves_no_temporary_file_and_is_not_tried_again() {
+    let io = Spy {
+        inner: Roots::new("f.epub", &font_book()),
+        book_reads: std::cell::Cell::new(0),
+        fail_appends: std::cell::Cell::new(false),
+    };
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    // The book is converted; now the card refuses appends (full, failing).
+    io.fail_appends.set(true);
+    assert_eq!(faces_of(&mut p, &io), [(0, 0)], "listed with no bytes");
+    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    assert!(!io.exists(&path) && !io.exists(&format!("{path}.tmp")));
+    // Remembered for the open book: the next call does not read the book
+    // again, even where appends work now.
+    io.fail_appends.set(false);
+    let reads = io.book_reads.get();
+    assert_eq!(faces_of(&mut p, &io), [(0, 0)]);
+    assert_eq!(io.book_reads.get(), reads, "the face was inflated again");
+}
+
+#[test]
+fn an_adobe_obfuscated_font_is_revealed_as_it_is_copied() {
+    // Adobe obfuscation: the first 1,024 bytes XORed with the 16 bytes of
+    // the book's UUID identifier.
+    let uuid = "urn:uuid:0123456789abcdef0123456789abcdef";
+    let key: Vec<u8> = (0..16)
+        .map(|i| u8::from_str_radix(&uuid[9 + 2 * i..11 + 2 * i], 16).unwrap())
+        .collect();
+    let mut hidden = TTF.to_vec();
+    for (i, byte) in hidden.iter_mut().take(1024).enumerate() {
+        *byte ^= key[i % 16];
+    }
+    let encryption = "<encryption xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><EncryptedData xmlns=\"http://www.w3.org/2001/04/xmlenc#\"><EncryptionMethod Algorithm=\"http://ns.adobe.com/pdf/enc#RC\"/><CipherData><CipherReference URI=\"OEBPS/fonts/a.ttf\"/></CipherData></EncryptedData></encryption>";
+    let book = font_book_full(uuid, &[("a.ttf", hidden)], encryption);
+    let (data, bytes) = face_file(book);
+    assert_eq!(bytes as usize, TTF.len());
+    assert_eq!(data, TTF);
 }

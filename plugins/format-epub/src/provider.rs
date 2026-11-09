@@ -52,6 +52,8 @@ const PART: usize = 3072;
 const ROWS: usize = 64;
 /// The most faces a book lists (document.md section 6).
 const MAX_FACES: usize = 124;
+/// The most the copied faces of one book take together on the card.
+const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 const END_LAST: u32 = 1;
 const END_MORE: u32 = 2;
 const FLAG_WHOLE_PAGES: u32 = 1;
@@ -69,6 +71,9 @@ struct Slot {
     id: u32,
     /// `Err(status)`: the open failed, the id stays until it is closed.
     document: Result<Box<dyn Document>, i32>,
+    /// The faces found unreadable, too large or over the book's cap: not
+    /// inflated again on every `fonts` call.
+    bad_faces: Vec<u32>,
 }
 
 /// The documents of one format.
@@ -196,6 +201,21 @@ impl FormatProvider {
                     ),
                 }
             }
+            op::FONTS => {
+                let cache = &self.cache;
+                let slot = self
+                    .slots
+                    .iter_mut()
+                    .find(|s| s.id == call.document)
+                    .ok_or(Error::NotFound)?;
+                let Slot {
+                    document,
+                    bad_faces,
+                    ..
+                } = slot;
+                let document = document.as_ref().map_err(|_| Error::State)?;
+                Self::fonts(document.as_ref(), cache, io, &call, bad_faces, out)
+            }
             _ => {
                 let document = self.ready(call.document)?;
                 Self::ask(document, &self.cache, io, &call, out)
@@ -286,6 +306,7 @@ impl FormatProvider {
         self.slots.push(Slot {
             id: call.document,
             document,
+            bad_faces: Vec::new(),
         });
         Ok(written)
     }
@@ -397,7 +418,6 @@ impl FormatProvider {
                 let to = document.link_target(io, call.text).ok_or(Error::NotFound)?;
                 one(at_record(call.document, to), out)
             }
-            op::FONTS => Self::fonts(document, cache, io, call, out),
             op::COVER => {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
                 Self::picture(image, cache, u32::MAX, out)
@@ -443,6 +463,7 @@ impl FormatProvider {
         cache: &str,
         io: &dyn Storage,
         call: &stage::FmtCall<'_>,
+        bad_faces: &mut Vec<u32>,
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let faces = document.fonts(io);
@@ -461,7 +482,21 @@ impl FormatProvider {
             .take(ROWS - 1)
         {
             let index = u32::try_from(index).map_err(|_| Error::Invalid)?;
-            let bytes = Self::face_file(document, cache, io, index)?;
+            let bytes = if bad_faces.contains(&index) {
+                0
+            } else {
+                let bytes = Self::face_file(document, cache, io, index)?;
+                let kept = Self::within_cap(cache, io, index, bytes)?;
+                if kept == 0 {
+                    // Found faulty (or over the cap): not read again while
+                    // this document is open.
+                    let _ = bad_faces.try_reserve(1);
+                    if bad_faces.len() < bad_faces.capacity() {
+                        bad_faces.push(index);
+                    }
+                }
+                kept
+            };
             rows.push(Record::FmtFont(stage::FmtFont::new(
                 index,
                 u32::from(face.family),
@@ -470,6 +505,27 @@ impl FormatProvider {
             )));
         }
         page(&rows, from, total, out)
+    }
+
+    /// `bytes` of face `index`, or 0 (its file removed) where the faces
+    /// before it and it together are more than [`MAX_FONT_BYTES`].
+    fn within_cap(cache: &str, io: &dyn Storage, index: u32, bytes: u32) -> Result<u32, Error> {
+        if bytes == 0 {
+            return Ok(0);
+        }
+        let mut total = u64::from(bytes);
+        for before in 0..index {
+            let path = crate::fallible::try_format!("{cache}/fonts/{before}")
+                .map_err(|_| Error::NoMemory)?;
+            total += io.size(&path).unwrap_or(0);
+        }
+        if total <= MAX_FONT_BYTES {
+            return Ok(bytes);
+        }
+        let path =
+            crate::fallible::try_format!("{cache}/fonts/{index}").map_err(|_| Error::NoMemory)?;
+        let _ = io.remove(&path);
+        Ok(0)
     }
 
     /// The size of the root-6 file of face `index`, written first when it is

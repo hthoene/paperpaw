@@ -123,4 +123,30 @@ mod tests {
         reveal(&mut data, Method::Adobe, "not a uuid");
         assert_eq!(data, original);
     }
+
+    #[test]
+    fn a_font_revealed_in_pieces_is_the_font_revealed_whole() {
+        // The key (20 bytes of SHA-1, 16 of a UUID) and the 1,040 / 1,024
+        // bytes it covers span pieces of any size, whatever their edges.
+        let original: Vec<u8> = (0..3000).map(|i| (i % 253) as u8).collect();
+        for (method, id) in [
+            (Method::Idpf, "urn:isbn:9780000000000"),
+            (
+                Method::Adobe,
+                "urn:uuid:12345678-9abc-def0-1234-56789abcdef0",
+            ),
+        ] {
+            let mut whole = original.clone();
+            reveal(&mut whole, method, id);
+            for piece in [1, 7, 16, 19, 20, 511, 512, 513, 1023, 1024, 1025, 1041] {
+                let mut data = original.clone();
+                let mut at = 0;
+                for part in data.chunks_mut(piece) {
+                    reveal_at(part, at, method, id);
+                    at += part.len();
+                }
+                assert_eq!(data, whole, "pieces of {piece}");
+            }
+        }
+    }
 }

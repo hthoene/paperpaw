@@ -351,8 +351,9 @@ impl EpubDocument {
             .entry(storage, &font.path)
             .map_err(package::error)?
             .ok_or(DocumentError::Malformed(Cow::Borrowed("font file missing")))?;
+        // A file too large is the book's fault, not a short heap.
         if u64::from(entry.size) > MAX_FONT {
-            return Err(DocumentError::OutOfMemory);
+            return Err(bad());
         }
         let temp = crate::fallible::try_format!("{dest}.tmp")?;
         storage.write(&temp, &[])?;
