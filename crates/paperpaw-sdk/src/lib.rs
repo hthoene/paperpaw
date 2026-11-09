@@ -174,7 +174,7 @@ pub use formats::{
 pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg(feature = "kernel")]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use hyphenation::CardTable;
+pub use hyphenation::{CardTable, plugin_wins};
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};

@@ -383,6 +383,7 @@ name = "paperpaw-plugin-reading-goal"
 version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
