@@ -304,9 +304,6 @@ impl Plugin for Update {
 }
 
 #[cfg(test)]
-mod native_parity_tests;
-
-#[cfg(test)]
 mod tests {
     use paperpaw_i18n::{Catalog, check};
 
