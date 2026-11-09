@@ -168,7 +168,7 @@ fn escape_into(out: &mut String, value: &str) -> Result<(), Error> {
 }
 
 /// A title on one line, with no blank around it, appended to `out`.
-fn one_line_into(out: &mut String, title: &str) -> Result<(), Error> {
+pub(crate) fn one_line_into(out: &mut String, title: &str) -> Result<(), Error> {
     for (i, word) in title.split_whitespace().enumerate() {
         let gap = usize::from(i > 0);
         out.try_reserve(gap + word.len())
