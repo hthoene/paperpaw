@@ -125,6 +125,13 @@ impl CableLink {
 
     /// Whether the service's request `request` is the cable's.
     pub(crate) fn carries(&self, request: u32) -> bool {
+        // Link borrows are never nested and no callback runs under one, so
+        // this borrow is had: were it refused, the service would take the
+        // cable's request for a network one (`NetDevice::on_cable`).
+        debug_assert!(
+            self.0.try_borrow_mut().is_ok(),
+            "the cable link is borrowed"
+        );
         self.with(|link| link.open.iter().any(|o| o.request == request))
             .unwrap_or(false)
     }
@@ -221,12 +228,15 @@ impl CableLink {
         .flatten()
     }
 
-    /// A start the service did not take (the server stopped meanwhile).
+    /// A start the service did not take (the server stopped meanwhile, its
+    /// stop `unlisten`ed it). The reader ended nothing on the device, so the
+    /// next request opens `core.cable` again instead of answering 403.
     pub(crate) fn start_refused(&self, server: u32) {
         let _ = self.with(|link| {
-            if link.server == Some(server) {
+            if link.server.is_none_or(|s| s == server) {
                 link.server = None;
                 link.started = false;
+                link.ended = false;
             }
         });
     }
