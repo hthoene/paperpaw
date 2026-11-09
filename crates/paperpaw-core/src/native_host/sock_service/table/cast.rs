@@ -54,6 +54,7 @@ pub(super) struct Cast {
     token: u32,
     screen: Option<u64>,
     run: Option<u64>,
+    run_open: bool,
     state: State,
     deadline: u64,
     /// Pool bytes still held.
@@ -70,6 +71,10 @@ pub(super) struct Cast {
 impl Cast {
     pub(super) fn live(&self) -> bool {
         self.state != State::Ended
+    }
+
+    pub(super) fn run(&self) -> Option<u64> {
+        self.run
     }
 
     fn untold(&self) -> bool {
@@ -145,6 +150,15 @@ pub(in crate::native_host::sock_service) fn broadcast(
     if !inner.reserve(host, CHARGE) {
         return Err(ERR_NO_MEMORY);
     }
+    // The work run (if any) is kept going while the broadcast lives; the
+    // charge goes back when that is refused.
+    let run = host.current_run(who.owner);
+    if let Some(run) = run
+        && let Err(error) = host.resource_opened(run)
+    {
+        inner.release(host, CHARGE);
+        return Err(error);
+    }
     let pooled = host.table().pool.capacity() != 0;
     inner.next_id = id;
     arena.clear();
@@ -153,7 +167,8 @@ pub(in crate::native_host::sock_service) fn broadcast(
         owner: who.owner,
         token: b.token,
         screen: host.showing_screen(who.owner),
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Running,
         deadline: host.now_ms().saturating_add(u64::from(b.wait_ms)),
         charge: if pooled { CHARGE } else { 0 },
@@ -277,6 +292,13 @@ impl Inner {
             if c.owner == owner && !c.live() && !c.pending() {
                 let back = c.charge;
                 self.release(host, back);
+                // The plugin has been told of the end: the run lets go of it.
+                let c = &mut self.casts[index];
+                if let Some(run) = c.run
+                    && core::mem::take(&mut c.run_open)
+                {
+                    host.resource_closed(run);
+                }
                 self.casts.remove(index);
             } else {
                 index += 1;
@@ -293,7 +315,12 @@ impl Inner {
                 index += 1;
                 continue;
             }
-            let c = &self.casts[index];
+            let c = &mut self.casts[index];
+            if let Some(run) = c.run
+                && core::mem::take(&mut c.run_open)
+            {
+                host.resource_closed(run);
+            }
             if c.live() {
                 host.transport().close(c.id);
             }

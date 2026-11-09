@@ -661,3 +661,18 @@ fn turning_the_network_off_mid_request_aborts_it_at_the_next_tick() {
     ));
     assert_eq!(f.device.table().pool().used(), 0);
 }
+
+#[test]
+fn a_plugin_that_is_off_or_offline_creates_no_demand_for_the_network() {
+    for (offline, off) in [(false, &["mail"][..]), (true, &[][..])] {
+        let f = fixture(x4());
+        decide(&f, 1, offline, off);
+        request(&f, &fixtures::get(1)).unwrap();
+        assert!(!f.device.table().pool().wants(), "refused: no demand");
+        assert!(f.shell.demand.borrow().is_empty(), "the shell hears none");
+    }
+    let f = fixture(x4());
+    request(&f, &fixtures::get(1)).unwrap();
+    assert!(f.device.table().pool().wants());
+    assert_eq!(*f.shell.demand.borrow(), [true]);
+}

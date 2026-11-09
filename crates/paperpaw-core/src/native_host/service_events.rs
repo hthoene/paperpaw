@@ -21,13 +21,24 @@ pub(crate) const EVENT_BUFFER: usize = 1_280;
 /// on the next pass).
 pub(crate) trait ServiceEvents {
     /// The oldest event of `owner`, encoded into `out` as a one-record batch;
-    /// the length, or `None` when there is none. A failure consumes nothing.
+    /// its length and the work run it belongs to (`None`: no run), or `None`
+    /// when there is no event. A failure consumes nothing.
+    ///
+    /// **The caller must enter the callback of the returned run** (the
+    /// scheduler's `enter_run_callback`) around the plugin's callback, then
+    /// call [`Self::event_delivered`] (`work.md` 2.3): the run counts the
+    /// request, socket or broadcast until its last event was delivered, and an
+    /// event delivered outside the run would end it early and start what the
+    /// callback begins outside the run. The pump does not do this yet: see the
+    /// activation blocker in `service_pump::drain`.
     ///
     /// # Errors
     /// `ERR_BUSY` or `ERR_NO_SPACE`.
-    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32>;
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32>;
 
-    /// The callback of `owner` returned: what it could read is freed.
+    /// The callback of `owner` returned: what it could read is freed, and a
+    /// request, socket or broadcast whose last event that was ends its work
+    /// run (the run counts it until then).
     ///
     /// # Errors
     /// `ERR_BUSY`.
@@ -58,8 +69,8 @@ pub(crate) trait ServiceEvents {
 }
 
 impl ServiceEvents for net_service::NetServices {
-    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
-        net_service::next_event(&*self.0, owner, out)
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        net_service::next_event_run(&*self.0, owner, out)
     }
     fn event_delivered(&self, owner: u64) -> Result<(), i32> {
         net_service::event_delivered(&*self.0, owner)
@@ -79,8 +90,8 @@ impl ServiceEvents for net_service::NetServices {
 }
 
 impl ServiceEvents for sock_service::SockServices {
-    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
-        sock_service::next_event(&*self.0, owner, out)
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        sock_service::next_event_run(&*self.0, owner, out)
     }
     fn event_delivered(&self, owner: u64) -> Result<(), i32> {
         sock_service::event_delivered(&*self.0, owner)

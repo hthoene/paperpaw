@@ -337,6 +337,31 @@ impl HostServices {
         self.linked.get_or_init(Default::default)
     }
 
+    /// The device's network pool, if a service has made it.
+    pub(crate) fn pool_made(&self) -> Option<&Rc<super::net_pool::NetPool>> {
+        self.pool.get()
+    }
+
+    /// Tells the shell that the combined demand for the network changed
+    /// (through the service that is wired).
+    pub(crate) fn tell_demand(&self, wanted: bool) {
+        if let Some(net) = self.net() {
+            net.0.network_demand(wanted);
+        } else if let Some(sockets) = self.sockets() {
+            sockets.0.network_demand(wanted);
+        }
+    }
+
+    /// Asks the work scheduler again for the closes of runs' resources it
+    /// could not take (see `OwnerDirectory::retry_closes`).
+    pub(crate) fn retry_run_closes(&self, now_ms: u64) {
+        if let Some(owners) = self.owners.get()
+            && owners.closes_wait()
+        {
+            owners.retry_closes(now_ms);
+        }
+    }
+
     /// The paths in use by host writers (shared with `core.files`' busy check).
     pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
         self.in_use.get_or_init(Default::default)

@@ -15,6 +15,8 @@ use std::{collections::BTreeMap, string::ToString};
 mod admission;
 #[path = "tests/deadline.rs"]
 mod deadline;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/requests.rs"]
 mod requests;
 #[path = "tests/serving.rs"]
@@ -41,6 +43,10 @@ pub(crate) struct Fake {
     pub(crate) subscribed: Cell<bool>,
     pub(crate) screen: Cell<Option<u64>>,
     pub(crate) run: Cell<Option<u64>>,
+    /// The work run's resources: told open, told closed, refused to open.
+    pub(crate) run_opened: RefCell<Vec<u64>>,
+    pub(crate) run_closed: RefCell<Vec<u64>>,
+    pub(crate) run_open_fails: Cell<Option<i32>>,
     pub(crate) free: Cell<u64>,
     /// The plugins have `uses.storage` (root 1).
     pub(crate) storage: Cell<bool>,
@@ -81,6 +87,9 @@ impl Fake {
             subscribed: Cell::new(true),
             screen: Cell::new(Some(5)),
             run: Cell::new(None),
+            run_opened: RefCell::new(Vec::new()),
+            run_closed: RefCell::new(Vec::new()),
+            run_open_fails: Cell::new(None),
             free: Cell::new(u64::MAX),
             storage: Cell::new(false),
             files: RefCell::new(BTreeMap::new()),
@@ -103,6 +112,14 @@ impl Fake {
     }
     pub(crate) fn x4() -> Self {
         Self::new(NetProfile::X4)
+    }
+    /// The X4's profile with the servers of the X4 Pro (two at once), for the
+    /// tests that run several.
+    pub(crate) fn servers(count: u32) -> Self {
+        Self::new(NetProfile {
+            servers: count,
+            ..NetProfile::X4
+        })
     }
     pub(crate) fn advance(&self, ms: u64) {
         self.clock.set(self.clock.get() + ms);
@@ -228,6 +245,16 @@ impl NetHost for Fake {
     }
     fn current_run(&self, _: u64) -> Option<u64> {
         self.run.get()
+    }
+    fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        if let Some(error) = self.run_open_fails.get() {
+            return Err(error);
+        }
+        self.run_opened.borrow_mut().push(run);
+        Ok(())
+    }
+    fn resource_closed(&self, run: u64) {
+        self.run_closed.borrow_mut().push(run);
     }
     fn showing_screen(&self, _: u64) -> Option<u64> {
         self.screen.get()

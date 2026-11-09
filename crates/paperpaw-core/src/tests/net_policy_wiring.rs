@@ -59,6 +59,23 @@ impl Plugin for Asker {
         let (policy, log) = (self.policy.clone(), self.log.clone());
         // The very first thing a plugin hears: what it would meet then.
         let id = self.id;
+        // What the network manager hears of the demand.
+        for (event, what) in [
+            (
+                paperpaw_sdk::builtin::events::NETWORK_WANTED.id().clone(),
+                "wanted",
+            ),
+            (
+                paperpaw_sdk::builtin::events::NETWORK_IDLE.id().clone(),
+                "idle",
+            ),
+        ] {
+            let log = log.clone();
+            r.subscribe(
+                event,
+                Box::new(move |_, _, _| log.borrow_mut().push(alloc::format!("{id} {what}"))),
+            )?;
+        }
         let (first_policy, first_log) = (policy.clone(), log.clone());
         r.subscribe(
             paperpaw_sdk::builtin::events::STARTED.id().clone(),
@@ -97,6 +114,14 @@ impl Plugin for Asker {
 /// A kernel with the plugins `wk` and `ok` over `storage`, `core.net` wired
 /// but the kernel not yet started: what a shell has done at boot.
 fn booting(storage: impl paperpaw_platform::Storage + 'static) -> (Kernel, Rc<NetPolicy>, Log) {
+    booting_with(storage, false)
+}
+
+/// As [`booting`], with Wi-Fi managed by PaperPaw if `wifi`.
+pub(super) fn booting_with(
+    storage: impl paperpaw_platform::Storage + 'static,
+    wifi: bool,
+) -> (Kernel, Rc<NetPolicy>, Log) {
     let (log, seen) = (log(), Seen::default());
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(Asker {
@@ -111,6 +136,7 @@ fn booting(storage: impl paperpaw_platform::Storage + 'static) -> (Kernel, Rc<Ne
         })
         .storage(storage)
         .network(true)
+        .wifi(wifi)
         .build()
         .unwrap();
     // A plugin instance brings the host resources of the device; the shell

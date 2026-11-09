@@ -1,42 +1,44 @@
-//! Acceptance of the interface-7 progress sync, pending on the host, the SDK
-//! and the later slices. The interface-6 tests drive a kernel (`App`) and stay
-//! as the references (`src/tests.rs`, `tests/account.rs`, `tests/sync.rs`);
-//! none of these cases passes by itself.
+//! Acceptance of the interface-7 progress sync, pending on the SDK and the
+//! host. The interface-6 tests drove a kernel (`App`) and went with its code;
+//! their scenarios are `tests/native_sync.rs` (the engine) and the unit tests of
+//! `native_account`, `native_flow` and `native_store`. None of these cases passes
+//! by itself.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
 use pending::Case;
 
 const CASES: [Case; 4] = [
+    // A book opened is fetched by its fingerprint and, where another device is
+    // further, offered; the position is sent while reading and when the book
+    // closes, with the XPointer where the format has one.
     Case {
         name: "a-book-opened-fetches-and-offers-a-further-position",
         golden: None,
-        blocked_by: &[
-            "core-net-host",
-            "secrets-facade",
-            "book-events-host",
-            "document-position-sdk",
-        ],
+        blocked_by: &["library-book-key-facade", "document-xpointer-facade"],
     },
+    // *Go there* opens the book at the other device's place: the XPointer is
+    // located in the book (or the percentage turned into a place) and the
+    // reader is handed `path`, `section` and `offset`.
     Case {
-        name: "the-position-is-sent-while-reading-and-when-the-book-closes",
+        name: "go-there-opens-the-book-at-the-other-devices-place",
         golden: None,
-        blocked_by: &[
-            "core-net-host",
-            "secrets-facade",
-            "book-events-host",
-            "work-service-sdk",
-        ],
+        blocked_by: &["document-locate-facade", "reader-opens-at-place-host"],
     },
+    // The account screen over a scripted host: typing the fields, signing in
+    // and creating an account against the network service, the key kept among
+    // the secrets, signing out.
     Case {
         name: "the-account-screen-signs-in-creates-and-signs-out",
         golden: None,
-        blocked_by: &["core-net-host", "secrets-facade", "H1", "H3", "H4"],
+        blocked_by: &["ui-host-h1", "net-host"],
     },
+    // The position the sync wrote reads back from the library as a sync write
+    // (`set_position` with `sync`, `confirmed` after *Go there*).
     Case {
-        name: "the-confirmation-overlay-offers-and-reports",
+        name: "a-synced-position-is-stored-as-a-sync-write",
         golden: None,
-        blocked_by: &["H1", "H3", "H4", "menu-place-944"],
+        blocked_by: &["library-position-facade"],
     },
 ];
 
@@ -48,20 +50,25 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: core.net host, the secrets facade, book events and the document position"]
+#[ignore = "BLOCKED: the SDK has no facade for a book's fingerprint (core.library op 25) or a place's XPointer (core.document)"]
 fn syncing_with_the_server() {
     CASES[0].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED: no core.document locate facade, no reader that reads section and offset"]
+fn going_there() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: core.net host, the secrets facade and H1/H3/H4"]
+#[ignore = "BLOCKED: core.ui and core.net hosts on the scripted host"]
 fn the_account() {
     CASES[2].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: H1/H3/H4 and menu place (#944)"]
-fn the_overlay() {
+#[ignore = "BLOCKED: no core.library position facade (ops 13 and 14)"]
+fn stored_positions() {
     CASES[3].refuse().unwrap();
 }

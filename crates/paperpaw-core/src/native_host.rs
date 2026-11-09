@@ -23,6 +23,7 @@ pub(crate) mod owner_directory;
 
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]
 #[allow(dead_code, reason = "the shell feeds the scheduler; tests do today")]
@@ -148,6 +149,8 @@ pub(crate) mod hyphen_service;
 )]
 pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
+pub(crate) mod lib_reads;
+#[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
@@ -160,6 +163,7 @@ pub(crate) mod net_policy;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
 pub(crate) mod save_files;
@@ -181,6 +185,7 @@ pub(crate) mod staged_name;
 mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod work_pump;
 
 const REGISTRATIONS: usize = 8;
 
@@ -293,6 +298,8 @@ pub(crate) mod native_status;
     reason = "core.registry op 11 (Core) reads the declared menus through it"
 )]
 pub(crate) mod native_menus;
+#[path = "native_host/native_tick.rs"]
+pub(crate) mod native_tick;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
@@ -366,6 +373,7 @@ pub struct FlatHost {
     pub(crate) directory: Option<native_declarations::DirectoryWeak>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
+    pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
 }
 
 impl FlatHost {
@@ -396,6 +404,7 @@ impl crate::Kernel {
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
+            registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
         }
     }
 }
@@ -1156,9 +1165,8 @@ pub mod stages_wire;
 )]
 pub(crate) mod stage_broker;
 
-#[cfg(test)]
-#[path = "native_host/registry_page.rs"]
 mod registry_page;
+pub(crate) mod registry_service;
 
 #[cfg(test)]
 #[path = "native_host/declaration_reg_index_tests.rs"]

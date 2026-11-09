@@ -475,3 +475,57 @@ fn turning_a_plugins_network_off_ends_a_broadcast_that_waits_for_answers() {
         std::vec![cev(id, 1, 2, reason::NETWORK_OFF, 0, "")]
     );
 }
+
+#[test]
+fn a_broadcast_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
+    let balanced = |f: &Fake, opened: usize| {
+        let _ = drain_cast(f, OWNER);
+        assert_eq!(*f.run_opened.borrow(), std::vec![7; opened]);
+        assert_eq!(*f.run_closed.borrow(), std::vec![7; opened], "exactly once");
+    };
+    // Its time ran out.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    cast(&f, OWNER, 1).unwrap();
+    assert!(f.run_closed.borrow().is_empty(), "alive: the run goes on");
+    f.advance(60_000);
+    tick(&f).unwrap();
+    assert!(f.run_closed.borrow().is_empty(), "ended, not yet told");
+    tick(&f).unwrap();
+    balanced(&f, 1);
+    // The run reached its longest time.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    cast(&f, OWNER, 1).unwrap();
+    work_ended(&f, OWNER, 7).unwrap();
+    work_ended(&f, OWNER, 7).unwrap();
+    balanced(&f, 1);
+    // The user turned the plugin's network off.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    cast(&f, OWNER, 1).unwrap();
+    f.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&f).unwrap();
+    balanced(&f, 1);
+    // The plugin stopped.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    cast(&f, OWNER, 1).unwrap();
+    owner_stopped(&f, OWNER).unwrap();
+    balanced(&f, 1);
+    // Ended at once (no network), and refused to be kept.
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    f.network.set(false);
+    cast(&f, OWNER, 1).unwrap();
+    balanced(&f, 1);
+    let f = Fake::x4();
+    f.run.set(Some(7));
+    f.run_open_fails.set(Some(ERR_BUSY));
+    assert_eq!(cast(&f, OWNER, 1), Err(ERR_BUSY));
+    assert!(f.casts.borrow().is_empty());
+    assert_eq!(f.table.pool().used(), 0, "the charge went back");
+}

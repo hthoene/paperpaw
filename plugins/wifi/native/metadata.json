@@ -138,7 +138,8 @@
   "services": [
     "core.device",
     "core.secrets",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
     {
