@@ -116,8 +116,13 @@ impl Net for HostNet<'_> {
 
     fn send(&mut self, piece: &[u8]) -> Result<(), Error> {
         let id = self.id()?;
-        self.sockets
-            .send(self.host, id, piece, &mut self.input, &mut self.reply)
+        let sent = self
+            .sockets
+            .send(self.host, id, piece, &mut self.input, &mut self.reply);
+        // The input holds what was sent (a LOGIN line has the password): gone
+        // now, not at the end of the callback.
+        wipe(&mut self.input);
+        sent
     }
 
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {

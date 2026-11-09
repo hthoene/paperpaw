@@ -202,23 +202,35 @@ impl<'a, N: Net> Link<'a, N> {
             give(Input::Bytes(&[]), self);
             return Ok(());
         }
-        let mut piece = [0u8; PIECE];
+        // On the heap: a piece is 3,840 bytes, more than a frame may be.
+        let mut piece = paperpaw_ui_kit::mem::buffer(PIECE)?;
+        let result = self.hand_over(len, &mut piece, give);
+        // What came may have held a password (a server that echoes): gone.
+        super::mem::wipe(&mut piece);
+        result
+    }
+
+    /// The loop of [`Self::received`]: each piece to `give`, wiped after it.
+    fn hand_over(
+        &mut self,
+        len: u32,
+        piece: &mut [u8],
+        mut give: impl FnMut(Input<'_>, &mut Self) -> bool,
+    ) -> Result<(), Error> {
         let mut offset = 0u32;
         while offset < len {
-            let n = self.net.data(offset, &mut piece)?;
+            let n = self.net.data(offset, piece)?;
             if n == 0 {
                 break;
             }
             let got = piece.get(..n).unwrap_or_default();
             let more = give(Input::Bytes(got), self);
-            // What came may have held a password (a server that echoes): gone.
-            super::mem::wipe(&mut piece);
+            super::mem::wipe(piece);
             offset = offset.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
             if !more {
                 break;
             }
         }
-        super::mem::wipe(&mut piece);
         Ok(())
     }
 

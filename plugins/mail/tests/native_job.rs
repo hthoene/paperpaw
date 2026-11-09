@@ -24,6 +24,8 @@ use paperpaw_sdk::{KeyHash, Tls};
 struct Wire {
     came: Vec<u8>,
     peer: Option<Peer>,
+    /// The host refuses to give what came.
+    refuse_data: bool,
 }
 
 /// The fake server as the link's socket.
@@ -71,6 +73,9 @@ impl Net for FakeNet<'_> {
         Ok(())
     }
     fn data(&mut self, offset: u32, out: &mut [u8]) -> Result<usize, Error> {
+        if self.wire.refuse_data {
+            return Err(Error::State);
+        }
         let from = (offset as usize).min(self.wire.came.len());
         let n = (self.wire.came.len() - from).min(out.len());
         out[..n].copy_from_slice(&self.wire.came[from..from + n]);
@@ -410,5 +415,36 @@ fn a_socket_that_fails_ends_the_job_as_a_network_failure() {
         matches!(job.run, Run::Failed(Failure::Network(Reason::Timeout))),
         "{:?}",
         job.run
+    );
+}
+
+#[test]
+fn a_host_error_ends_the_job_and_closes_the_socket() {
+    let mut fake = Fake::new(Proto::Imap, Script::default());
+    let mut job = Job::new();
+    start_imap(&mut job, &mut fake, Security::Implicit, 993, "secret");
+    let mut wire = Wire {
+        refuse_data: true,
+        ..Wire::default()
+    };
+    let notice = Notice {
+        kind: SocketKind::Received,
+        reason: Reason::Io,
+        len: 12,
+    };
+    let storage = fake.storage.clone();
+    let told = job.notice(
+        FakeNet {
+            fake: &mut fake,
+            wire: &mut wire,
+        },
+        notice,
+        &*storage,
+    );
+    assert_eq!(told, Err(Error::State));
+    assert!(matches!(job.run, Run::Failed(_)), "{:?}", job.run);
+    assert!(
+        fake.closed,
+        "the socket is closed with the job, not left to idle"
     );
 }

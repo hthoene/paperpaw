@@ -6,7 +6,7 @@
 use super::fail::Fail;
 use super::link::{Link, LinkState, Net, Notice};
 use super::mem::Error;
-use super::session::{Endpoint, Event, Failure, Imap, Input, Outgoing, Smtp, Stage, Task};
+use super::session::{Endpoint, Event, Failure, Imap, Input, Io, Outgoing, Smtp, Stage, Task};
 use alloc::vec::Vec;
 use paperpaw_sdk::{Storage, native::sockets::Untrusted};
 
@@ -149,6 +149,11 @@ impl Job {
             }
             went_on
         });
+        if result.is_err() {
+            // A host error ends the job: the socket goes with it, not at the
+            // host's idle timeout, and what waited to be sent is wiped.
+            Io::close(&mut link);
+        }
         for told in events {
             self.apply(told);
         }

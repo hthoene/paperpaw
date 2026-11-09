@@ -80,7 +80,6 @@
     "core.sockets"
   ],
   "features": [
-    "uses.network",
-    "uses.storage"
+    "uses.network"
   ]
 }

@@ -15,8 +15,8 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   settings are also a golden (`testdata/declarations.bin.v1`).
 - The actions, the entry, the icons and the screens are built by `declarations::ui` and
   `declarations::screens` and are **not in the image**: they would open nothing.
-  `metadata*.json` lists no feature yet (`uses.network`, `uses.secrets` and `uses.storage` join with
-  the slices that make the calls).
+  `metadata*.json` lists the feature `uses.network` (slice 6); `uses.storage` is never needed (the data
+  folder is root 0, no feature).
 
 - `src/native_model/` (host-free, the interface-6 code made fallible and tested to give the same
   answers, `tests/native_model.rs`): `codec` (base64 whole and in pieces, quoted-printable,
@@ -164,9 +164,10 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   tested only by what they call: the SDK's own tests; no host runs native plugins with sockets yet.
 - `NativeMail` holds the job and the socket, opens `core.sockets` and `core.secrets` when first needed, takes the
   socket events (`event.socket`, subscribed in `declarations::events`) and has `start_imap` and `start_smtp` for the
-  screens of the next slices. Metadata: services `core.sockets` and `core.secrets`, features `uses.network` and
-  `uses.storage`, the storage and blob calls. Frames: nothing here keeps a buffer on the stack above 320 bytes (the
-  call buffers, 8 KiB, are on the heap and wiped).
+  screens of the next slices. Metadata: services `core.sockets` and `core.secrets`, feature `uses.network`
+  (no `uses.storage`: the cache is in the data folder), and the storage and blob calls. Frames: nothing here keeps a
+  buffer on the stack above 320 bytes (the call buffers, 8 KiB, and a piece of what came, 3,840 bytes, are on the
+  heap and wiped). A host error in a notice ends the job and closes the socket at once.
 - Differences from interface 6, on purpose: the password is read when a connection is made and not kept in the
   account; the silence timer is the host's.
 
