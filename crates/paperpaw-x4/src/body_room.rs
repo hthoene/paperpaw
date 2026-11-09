@@ -54,6 +54,34 @@ pub const fn capacity_for(
     Some(target)
 }
 
+/// Like [`capacity_for`] for a body that grows from the size of its pieces
+/// (interface 6's requests, whose limit is large and mostly not needed): the
+/// capacity is doubled, never past `limit`, and never more than `need`
+/// where the body is still small, so a 300-byte answer reserves 300 bytes.
+#[must_use]
+pub const fn capacity_grown(
+    capacity: usize,
+    len: usize,
+    piece: usize,
+    limit: usize,
+) -> Option<usize> {
+    let need = len.saturating_add(piece);
+    if need <= capacity {
+        return None;
+    }
+    let mut target = capacity.saturating_mul(2);
+    if target < need {
+        target = need;
+    }
+    if target > limit {
+        target = limit;
+    }
+    if target < need {
+        target = need;
+    }
+    Some(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +165,41 @@ mod tests {
     fn a_zero_limit_takes_nothing() {
         assert_eq!(fit(0, 10, 0), 0);
         assert_eq!(capacity_for(0, 0, 0, 0), None);
+    }
+
+    #[test]
+    fn a_small_grown_body_reserves_what_it_gets() {
+        // A 300-byte JSON under interface 6's 64 KiB limit.
+        let limit = 64 * 1024;
+        let mut cap = 0;
+        let mut len = 0;
+        for piece in [200usize, 100] {
+            let piece = fit(len, piece, limit);
+            if let Some(target) = capacity_grown(cap, len, piece, limit) {
+                cap = target;
+            }
+            len += piece;
+        }
+        assert_eq!(len, 300);
+        assert!(cap < 4096, "reserved {cap}");
+        // One piece of 300 bytes: exactly 300.
+        assert_eq!(capacity_grown(0, 0, 300, limit), Some(300));
+    }
+
+    #[test]
+    fn a_grown_body_never_passes_the_limit() {
+        for limit in [1, 300, 4096, 23 * 1024, 64 * 1024] {
+            let (mut len, mut cap) = (0usize, 0usize);
+            for _ in 0..200 {
+                let n = fit(len, 1460, limit);
+                if let Some(target) = capacity_grown(cap, len, n, limit) {
+                    assert!(target >= len + n && target <= limit);
+                    assert!(target <= cap.saturating_mul(2).max(len + n));
+                    cap = target;
+                }
+                len += n;
+            }
+            assert!(cap <= limit);
+        }
     }
 }
