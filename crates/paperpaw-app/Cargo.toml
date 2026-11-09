@@ -34,7 +34,6 @@ store-plugins = [
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-browser",
-    "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-mail",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
@@ -112,7 +111,6 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }

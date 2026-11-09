@@ -294,7 +294,7 @@ impl<'a> Asked<'a> {
         Self::with_cap(id, MAX_LIST)
     }
 
-    /// A reading that takes at most `cap` bytes of the answer: [`MAX_ANSWER`]
+    /// A reading that takes at most `cap` bytes of the answer: [`crate::native_read_later::MAX_ANSWER`]
     /// for the answer that holds the article's text, whose text the parser
     /// passes by.
     pub fn with_cap(id: &'a str, cap: usize) -> Self {

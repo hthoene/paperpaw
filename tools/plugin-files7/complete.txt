@@ -12,6 +12,7 @@ keys
 menu-editor
 profiles
 notes-overview
+read-later-cloud
 readwise
 rules
 weather

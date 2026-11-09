@@ -1563,7 +1563,6 @@ dependencies = [
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
- "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
@@ -2318,7 +2317,9 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",

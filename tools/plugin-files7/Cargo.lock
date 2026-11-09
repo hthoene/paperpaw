@@ -210,6 +210,7 @@ dependencies = [
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
+ "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-rules",
@@ -349,6 +350,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-profiles"
 version = "1.0.11"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-read-later-cloud"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

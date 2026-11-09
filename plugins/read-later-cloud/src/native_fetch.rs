@@ -101,7 +101,7 @@ pub trait Wire {
     /// Whether the network can be used at all.
     ///
     /// # Errors
-    /// `Unsupported` or `Denied` without it.
+    /// `Unsupported`, `Denied` or `NotFound` without it.
     fn network(&mut self) -> Result<(), Error>;
     /// The token kept, if there is one.
     ///
@@ -541,7 +541,10 @@ impl Fetcher {
         }
         match wire.network() {
             Ok(()) => {}
-            Err(Error::Unsupported | Error::Denied) => return Ok(Started::NoNetwork),
+            // No network service at all counts as no network.
+            Err(Error::Unsupported | Error::Denied | Error::NotFound) => {
+                return Ok(Started::NoNetwork);
+            }
             Err(error) => return Err(error),
         }
         let Some(token) = wire.token()?.filter(|t| !t.as_str().is_empty()) else {
