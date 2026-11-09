@@ -434,6 +434,9 @@ impl LibQuery for Host {
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.0.book(book, visit)
     }
+    fn book_file_present(&self, path: &str) -> Result<bool, i32> {
+        self.0.book_file_present(path)
+    }
     fn text(
         &self,
         book: BookRef<'_>,
