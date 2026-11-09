@@ -142,6 +142,11 @@ input(state: pointer, token: u32, input: bytes) -> i32
   `registration.event`: they go to the token of the screen or action declaration they name. A
   registration naming 38 or 39 refuses the batch (`ERR_UNSUPPORTED`, like every event tag the
   host has no encoder for).
+- [D] **At most 32 callback registrations per plugin** (`registration.event` and
+  `registration.draw` together, counted over the plugin's whole construction; todo 374, Core
+  #871): a batch that would pass 32 is refused whole (`ERR_NO_SPACE`) and nothing of it is staged.
+  The host keeps exactly the ones registered (no fixed table per plugin), so the cap costs the X4
+  nothing a plugin does not use. Interface 6 had no count; the widest port (wifi) needs 12.
 - [D] **Key names are logical** (Senior #1225, #241): the standard set of
   `paperpaw_platform::input::buttons`, `page-forward`, `page-back`, `up`, `down`, `left`, `right`,
   `confirm`, `back`, `menu`, `home`, `power`, which every shell maps its device's buttons onto
