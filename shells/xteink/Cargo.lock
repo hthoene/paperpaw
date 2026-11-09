@@ -2279,7 +2279,6 @@ dependencies = [
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
- "paperpaw-plugin-hyphenation",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
@@ -2294,7 +2293,6 @@ dependencies = [
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
  "paperpaw-plugin-wifi",
- "paperpaw-plugin-wikipedia",
 ]
 
 [[package]]
@@ -2318,6 +2316,14 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-sdk",
  "paperpaw-sort",
+]
+
+[[package]]
+name = "paperpaw-default-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphenation-packs",
+ "paperpaw-platform",
 ]
 
 [[package]]
@@ -2362,6 +2368,13 @@ version = "0.6.0-beta.3"
 [[package]]
 name = "paperpaw-hyphen"
 version = "0.6.0-beta.3"
+
+[[package]]
+name = "paperpaw-hyphenation-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphen",
+]
 
 [[package]]
 name = "paperpaw-i18n"
@@ -2502,14 +2515,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-hyphenation"
-version = "1.1.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-keyboard"
 version = "1.1.2"
 dependencies = [
@@ -2610,19 +2615,12 @@ name = "paperpaw-plugin-update"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-wifi"
 version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-wikipedia"
-version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2751,6 +2749,7 @@ dependencies = [
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-fat",
  "paperpaw-graphics",

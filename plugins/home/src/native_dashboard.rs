@@ -12,6 +12,7 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
+    keys::InputMode,
     native::{
         Error, Host,
         callbacks::{DrawFrame, Input, InputGestureKind},
@@ -32,13 +33,11 @@ use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
+use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
 use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
-
-/// Lines a tool's name takes at most.
-const NAME_LINES: usize = 3;
 
 /// One item of the page as it shows.
 #[derive(Debug)]
@@ -51,6 +50,8 @@ struct Cell {
     rect: Rect,
     /// A tool's name.
     name: String,
+    /// A tool's icon and state (none for a widget).
+    face: Option<Face>,
     /// A widget's instance, where the host made one.
     widget: Option<WidgetHandle>,
 }
@@ -71,6 +72,10 @@ struct Laid {
     arrows_stay: bool,
     /// Where the pencil (*Done* while editing) is, and its word.
     pencil: Option<(Rect, String)>,
+    /// The pencil's icon, where the host has one.
+    pencil_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
+    /// Where each of the footer's actions is, and its icon.
+    action_icons: Vec<(Rect, Option<paperpaw_sdk::native::fonts::IconGlyph>)>,
     /// Where *Add* is, while editing.
     plus: Option<Rect>,
     /// The items shown, each with its cells: what is kept when one is moved,
@@ -115,6 +120,8 @@ pub struct Dashboard {
     stale: bool,
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
+    /// What the reader used last before the show (`None`: not known).
+    last_input: Option<InputMode>,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
     /// tapped offers the item's options.
     editing: bool,
@@ -160,10 +167,12 @@ impl Dashboard {
         self.stale = true;
     }
 
-    /// Shown again (above another screen closed, a book left).
-    pub fn shown(&mut self) {
+    /// Shown again (above another screen closed, a book left), after the
+    /// reader used `last_input` last.
+    pub fn shown(&mut self, last_input: Option<InputMode>) {
         self.stale = true;
         self.reshow = true;
+        self.last_input = last_input;
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -192,8 +201,10 @@ impl Dashboard {
         self.focus.clamp(laid.targets.len());
         if self.reshow {
             // As on interface 6: at every show the focus is drawn only if the
-            // reader chose to see it at once.
-            self.focus.show(laid.focus_at_once);
+            // reader chose to see it at once and used buttons last; a finger,
+            // a pen or an input the host does not know of get none.
+            self.focus
+                .show(focus_at_show(laid.focus_at_once, self.last_input));
             self.reshow = false;
         }
         self.laid = Some(laid);
@@ -269,6 +280,15 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let footer_icons = icons::footer(host, &src, &footer.actions);
+        let pencil_icon = icons::pencil(host);
+        let (action_icons, pencil_icon) = match (footer_icons, pencil_icon) {
+            (Ok(actions), Ok(pencil)) => (actions, pencil),
+            (Err(error), _) | (_, Err(error)) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -280,6 +300,8 @@ impl Dashboard {
             focus_at_once: src.focus_at_once,
             arrows_stay: src.arrows_stay,
             pencil: pencil_on.then_some((footer.pencil, word)),
+            pencil_icon,
+            action_icons,
             plus: editing.then_some(footer.plus),
             items,
             slot,
@@ -347,8 +369,12 @@ impl Dashboard {
             return Ok(None);
         };
         let rect = geometry.rect(at);
+        let mut face = None;
         let (name, widget) = match &item.what {
-            What::Tool(action) => (text::copy(src.tool_name(action))?, None),
+            What::Tool(action) => {
+                face = Some(icons::face(host, src, action)?);
+                (text::copy(src.tool_name(action))?, None)
+            }
             What::Widget(id) => {
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                 match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
@@ -399,6 +425,7 @@ impl Dashboard {
             least,
             rect,
             name,
+            face,
             widget,
         }))
     }
@@ -536,6 +563,29 @@ impl Dashboard {
         released
     }
 
+    /// The lines of the name of each tool shown (with names), with the top of its
+    /// cell, in the order of the cells that are tools.
+    fn tool_lines(
+        &self,
+        font: &Font<'_>,
+        style: &Style,
+        laid: &Laid,
+    ) -> Result<Vec<(u16, Vec<String>)>, Error> {
+        let mut lines = Vec::new();
+        for cell in &laid.cells {
+            if cell.face.is_none() {
+                continue;
+            }
+            let own = if laid.tool_labels {
+                icons::name_lines(font, style, cell.rect, &cell.name)?
+            } else {
+                Vec::new()
+            };
+            push(&mut lines, (cell.rect.y, own))?;
+        }
+        Ok(lines)
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -547,6 +597,22 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
+        let icon_font = paperpaw_ui_kit::icons::font(host)?;
+        let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
+        let fonts = Fonts {
+            ui: font,
+            icons: icon_font.as_ref(),
+            circle: circle.as_ref(),
+        };
+        let wrapped = self.tool_lines(font, &style, laid)?;
+        let mut tops: Vec<(u16, usize)> = Vec::new();
+        tops.try_reserve_exact(wrapped.len())
+            .map_err(|_| Error::NoMemory)?;
+        for (top, lines) in &wrapped {
+            tops.push((*top, lines.len()));
+        }
+        let row_lines = icons::row_lines(&tops)?;
+        let mut tool = 0;
         for cell in &laid.cells {
             if self.editing {
                 // The cells show while editing.
@@ -560,12 +626,44 @@ impl Dashboard {
                     ),
                 )?;
             }
-            if matches!(cell.what, What::Tool(_)) && laid.tool_labels {
-                name(&mut below, font, &style, cell.rect, &cell.name)?;
+            if let Some(face) = cell.face {
+                let shown = Tool {
+                    lines: wrapped
+                        .get(tool)
+                        .map_or(&[][..], |(_, lines)| lines.as_slice()),
+                    face,
+                    row_lines: row_lines.get(tool).copied().unwrap_or(0),
+                };
+                icons::draw_tool(&mut below, &fonts, &style, cell.rect, &shown)?;
+                tool += 1;
             }
         }
         if let Some((rect, word)) = &laid.pencil {
-            name(&mut below, font, &style, *rect, word)?;
+            match (self.editing, fonts.icons, laid.pencil_icon.as_ref()) {
+                (false, Some(_), Some(glyph)) => paperpaw_ui_kit::icons::draw_centred(
+                    &mut below,
+                    fonts.icons.unwrap_or(font),
+                    glyph,
+                    style.title,
+                    *rect,
+                    style.note,
+                )?,
+                _ => name(&mut below, font, &style, *rect, word)?,
+            }
+        }
+        if let Some(icon_font) = fonts.icons {
+            for (rect, glyph) in &laid.action_icons {
+                if let Some(glyph) = glyph {
+                    paperpaw_ui_kit::icons::draw_centred(
+                        &mut below,
+                        icon_font,
+                        glyph,
+                        style.title,
+                        *rect,
+                        style.note,
+                    )?;
+                }
+            }
         }
         if let Some(rect) = laid.plus {
             name(&mut below, font, &style, rect, "+")?;
@@ -582,7 +680,7 @@ impl Dashboard {
         {
             ring(&mut above, target.rect, &style)?;
         }
-        paint::replay(frame, font, below.iter())?;
+        paint::replay_icons(frame, font, fonts.icons, below.iter())?;
         compose_each(
             laid.cells
                 .iter()
@@ -892,8 +990,7 @@ fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
     }
 }
 
-/// A tool's name under where its icon goes (the icons wait for the host's
-/// admission, `PORTING-7.md`): wrapped and centred in its cell.
+/// A word (the pencil's, *Add*'s plus) wrapped and centred in its cell.
 fn name(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -935,7 +1032,7 @@ fn dot(paint: &mut Vec<Paint>, dot: &dash::Dot, style: &Style) -> Result<(), Err
 }
 
 /// The focus ring round a target.
-fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error> {
+pub(crate) fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error> {
     let air = style.gap / 2;
     let rect = Rect::new(
         target.x.saturating_sub(air),
@@ -954,11 +1051,18 @@ fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error
     )
 }
 
+/// Whether the focus is drawn at a show: the reader chose to see it at once and
+/// used buttons last (a finger, a pen or an input the host does not know of
+/// get none).
+fn focus_at_show(at_once: bool, last_input: Option<InputMode>) -> bool {
+    at_once && last_input == Some(InputMode::Buttons)
+}
+
 fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
 }
 
-fn redraw(host: &Host<'_>) -> Result<(), Error> {
+pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
 }
@@ -1103,6 +1207,24 @@ mod tests {
         assert!(dashboard.editing());
         assert!(dashboard.stale);
         assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
+    }
+
+    #[test]
+    fn the_focus_shows_at_once_only_after_buttons() {
+        for (last, shown) in [
+            (Some(InputMode::Buttons), true),
+            (Some(InputMode::Touch), false),
+            (Some(InputMode::Pen), false),
+            (None, false),
+        ] {
+            assert_eq!(focus_at_show(true, last), shown, "{last:?}");
+            // The setting off: never at once.
+            assert!(!focus_at_show(false, last), "{last:?}");
+        }
+        let mut dashboard = Dashboard::new();
+        dashboard.shown(Some(InputMode::Touch));
+        assert!(dashboard.reshow && dashboard.stale);
+        assert_eq!(dashboard.last_input, Some(InputMode::Touch));
     }
 
     #[test]

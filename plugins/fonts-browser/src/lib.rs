@@ -30,6 +30,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 mod declarations;
 pub mod native_catalog;
 mod native_entry;
+pub mod native_job;
 pub mod native_plan;
 /// The interface-7 plugin.
 pub mod native_plugin;

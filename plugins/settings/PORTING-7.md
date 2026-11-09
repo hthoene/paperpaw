@@ -54,6 +54,30 @@ link them until the host activates native plugins; then they go together (no shi
 - Slots `core.settings` and `core.choose-value`; parameters (hand-over) `id`, `more`, `focus`,
   `text`, and `scope` (a root-1 book path: the screen sets the book scope while it is open).
 
+- *Placement pages:* the screen `settings.group` with `id` = `widgets.clock@2` shows the settings of
+  its widget's group as that placement has them: values read with the placement's key (slot 5
+  falls back to the widget's value, `registry.md` 10.1), a value the placement does not set itself
+  counts as default (op 18 with the placement), changes are set under the placement's key, and
+  *Reset to defaults* resets that placement only (`reset_setting` bit 3). No parts, actions, theme or
+  preview on such a page. The chooser for a placement's choice reads the options of the setting it
+  stands for. The id rules (`unplaced`, `unplaced_key`) are unit-tested and swept; the page itself
+  needs the host (ignored case `settings-placement-page`).
+
+- *Widget look:* on the appearance page a second row, *Widget look*, opens the chooser of the
+  presets of kind `core.widget-look` (`settings.themes` with `mode` = `widgets`), as the themes
+  row opens the themes': *None* first (every covered setting back to its default), the look in
+  use marked, choosing one applies it (`apply_preset`). What a look covers is each widget's
+  frame, padding, size, alignment, paper, ink, corners, frame line and shadow, and the settings of
+  all widgets and the gap (`native_model::widget_look_covers`, from the registry's widgets;
+  tested). A theme no longer resets the frame of all widgets (it never did in interface 6). The
+  row shows only where a look exists. The chooser's drawing needs the host (`settings-widget-look`).
+  **Differences and host duties:** (1) `apply_preset` takes the covered set per kind from the host
+  (`registry.md` 4.3): the host's theme set must leave out `core.widgets.frame` and its look set must
+  equal `widget_look_covers`, else the mark here and the result of choosing differ. (2) Beta 3
+  counted a widget's `.frame` as in use only where it was written down, even at its default; here
+  "in use" compares with `is_default`, so a look that names a frame at its default may be marked as
+  *None*. Not asserted by a test (the host decides what `is_default` means for a named default).
+
 ## Tests
 
 `native_model`: group membership, offered/visible levels, main-page order, sections, stepping and
@@ -65,8 +89,11 @@ search, secrets, restart).
 
 ## Not ported yet (explicit)
 
-- Placements (`widgets.clock@2`) pages and a widget look row: need the placement/widget host pieces
-  (H3); the preview of a group's settings (a widget composed above them) needs slot 35.
+- The preview of a group's settings (a widget composed above them, interface 6
+  `env.widgets().preview`): the facade (`ui.compose`, `widget_make`) exists, but the registry does
+  not say which widget previews a group (`widget.spec.previews` is not in `reg_widget`; asked of
+  Kernel). Ignored case `settings-group-preview`, blocked by `reg_widget.previews` and the host's
+  slot 35 (H3).
 - No icons in rows, switches are shown as *On*/*Off* text, no sliders (numbers use − and +); the kit
   draws none yet. Reading-font sizes that look alike are not merged when stepping.
 - A unit is the host's translated text: `{count}` is replaced, else the number comes first. Whether

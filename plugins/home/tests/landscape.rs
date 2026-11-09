@@ -31,7 +31,7 @@ fn screen(base: DeviceInfo, width: u16, height: u16) -> DeviceInfo {
 
 /// Eight tools on one page, two rows of four.
 const TOOLS: &str = "[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1, \
-    tool:core.settings 1/0 1x1, tool:battery 2/0 1x1, tool:file-manager.open 3/0 1x1, \
+    tool:core.settings 1/0 1x1, tool:battery 2/0 1x1, tool:store.open 3/0 1x1, \
     tool:news.open 0/1 1x1\npage-2 = core.space 0/0 4x1\n";
 
 fn setting(app: &App, id: &str) -> String {
