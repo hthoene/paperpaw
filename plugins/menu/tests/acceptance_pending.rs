@@ -8,12 +8,14 @@
 mod pending;
 use pending::Case;
 
+// The desktop pictures (`x4-main-menu`, `x4-reader-menu`, `x4-quick-panel`) were removed with the
+// interface-6 menu; they come back with the native menu when the host draws it (H1).
 const CASES: [Case; 7] = [
     // The main menu and the tools: every entry opens what it says, back and
     // the menu button close, taps outside close, long menus are paged.
     Case {
         name: "menu-list",
-        golden: Some("x4-main-menu"),
+        golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
     // Switches, numbers (by buttons and by touch) and choices change in place.
@@ -39,13 +41,13 @@ const CASES: [Case; 7] = [
     // no icon operation, and the bar needs the status font role.
     Case {
         name: "menu-tiles-and-bar",
-        golden: Some("x4-reader-menu"),
+        golden: None,
         blocked_by: &["ICON", "H1"],
     },
     // The quick panel (core.panel): switches, sliders and tiles in a sheet.
     Case {
         name: "menu-panel",
-        golden: Some("x4-quick-panel"),
+        golden: None,
         blocked_by: &["ICON", "SLIDER", "H1", "H4"],
     },
     // A menu follows registry changes while it is open.

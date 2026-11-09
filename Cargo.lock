@@ -2285,10 +2285,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
- "paperpaw-plugin-sleep",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2313,15 +2309,10 @@ dependencies = [
 name = "paperpaw-plugin-menu"
 version = "1.0.6"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
- "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-settings",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]
@@ -2579,7 +2570,6 @@ dependencies = [
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",

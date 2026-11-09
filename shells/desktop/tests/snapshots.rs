@@ -278,15 +278,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-notes-overview-export",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300,right,right,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-settings",
         profile: "boox-go-7",
         book: None,
@@ -389,40 +380,20 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "boox-lock-pin",
-        profile: "boox-go-7",
-        book: None,
-        // Setting up a screen lock: the keypad for a new PIN.
-        sets: &[],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:300,tap-on:Screen lock,wait:300,tap:600:200,wait:300,tap-on:PIN,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
     // The screens one passes through most, on the X4 (buttons alone,
-    // black and white) and on the Boox (touch): the main menu and the
-    // tools, the library, the reader's menus, the contents, the
-    // bookmarks, settings pages, statistics, the file manager, the
-    // sleep screen, the keyboard, a book's menu. (Not the about page: it shows the
-    // version, which would need a new picture at every release.)
-    Case {
-        name: "x4-main-menu",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.menu,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-tools",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.tools,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
+    // black and white) and on the Boox (touch): the library, the reader's
+    // contents, bookmarks, settings pages, statistics, the file manager,
+    // the sleep screen, the keyboard, a book's menu. (Not the about page:
+    // it shows the version, which would need a new picture at every release.)
+    //
+    // Gone with the interface-6 lock and menu (#228); they return when the
+    // host draws the native lock and menu screens and their notices (H1):
+    // `boox-lock-pin`, `x4-main-menu`, `boox-main-menu`, `x4-tools`,
+    // `x4-reader-menu`, `boox-reader-menu`, `boox-reader-font`,
+    // `x4-reader-panel`, `x4-quick-panel`, `x4-pro-quick-panel`,
+    // `boox-quick-panel`, and the notice of `x4-notes-overview-export` and
+    // `x4-read-later-cloud-no-token` (both removed too: the notice was the
+    // menu's toast).
     // All tools in German: names on two lines, hyphenated, and the
     // focus round the focused tool's icon and name.
     Case {
@@ -440,15 +411,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.library,wait:1000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-reader-menu",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "confirm,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -665,43 +627,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "boox-main-menu",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:core.menu,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-library",
         profile: "boox-go-7",
         book: None,
         sets: &[],
         script: "run:core.library,wait:1000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        // A tap in the middle of the page: the reader's menu bar, opened
-        // before the pages are counted (a page turns as its button goes
-        // down). The count goes on below it, and the bar shows "2 / 185"
-        // once it ends (#117).
-        name: "boox-reader-menu",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,tap:632:840,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        // The panel below the page: font, sizes, switches.
-        name: "boox-reader-font",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,run:reader.quick-settings,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -758,51 +688,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.library,wait:300,long-tap:600:200,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    // The quick panel while reading, its sliders a fingertip high and
-    // across the screen: on the X4 Pro while a finger moves the light's
-    // colour (down far from the knob, which moves as far as the finger,
-    // its value shown at once), on the Boox once it is lifted.
-    Case {
-        name: "x4-pro-quick-panel",
-        profile: "xteink-x4-pro",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-quick-panel",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "run:core.quick-panel,wait:300,down:1000:435,move:950:437,move:800:439,up:800:439,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    // The quick panel over the home screen on the X4: from the screen's
-    // top edge, over its status line (#120), no band of it above.
-    Case {
-        name: "x4-quick-panel",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.quick-panel,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    // The reader's panel on the X4, the row that opens the fonts focused:
-    // its whole name and value on the focus bar, aligned with the rows
-    // below.
-    Case {
-        name: "x4-reader-panel",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "run:reader.quick-settings,wait:300,right,wait:200",
         colour: 0,
         fixtures: false,
     },
@@ -905,15 +790,6 @@ const CASES: &[Case] = &[
         book: Some("books/locked.azw"),
         sets: &[],
         script: "wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-read-later-cloud-no-token",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on"],
-        script: "run:read-later-cloud.open,wait:500,run:read-later-cloud.fetch,wait:500",
         colour: 0,
         fixtures: false,
     },
