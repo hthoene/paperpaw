@@ -243,6 +243,7 @@ impl Kernel {
             self.bluetooth_deadline(),
             self.escape_due(),
             self.native_unload_due(),
+            self.service_due(),
         ]
         .into_iter()
         .flatten()

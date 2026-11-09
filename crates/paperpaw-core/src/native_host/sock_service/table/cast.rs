@@ -231,6 +231,15 @@ impl Inner {
         }
     }
 
+    /// When the first live broadcast runs out of its `wait_ms`.
+    pub(super) fn cast_next_deadline(&self) -> Option<u64> {
+        self.casts
+            .iter()
+            .filter(|c| c.live())
+            .map(|c| c.deadline)
+            .min()
+    }
+
     pub(super) fn cast_end_all(
         &mut self,
         host: &dyn SockHost,

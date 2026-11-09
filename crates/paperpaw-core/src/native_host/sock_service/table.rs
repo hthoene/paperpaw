@@ -838,6 +838,43 @@ pub(crate) fn tick(host: &dyn SockHost) -> Result<(), i32> {
     Ok(())
 }
 
+/// When the first socket or broadcast runs out of time, in the host's
+/// clock: what [`tick`] and the pump would end then (connect and session
+/// waits, idle time, a waiting socket's network wait, `wait_ms`). `None`
+/// when nothing is waiting on the clock. A borrowed table answers `Some(0)`.
+pub(crate) fn next_deadline(host: &dyn SockHost) -> Option<u64> {
+    let Ok(inner) = table(host) else {
+        return Some(0);
+    };
+    let up = host.network_up();
+    let session_wanted = host.table().pool.tls_waiting();
+    inner
+        .socks
+        .iter()
+        .filter_map(|s| match s.state {
+            State::Connecting => Some(s.deadline),
+            State::Securing if s.tls.lease => Some(s.deadline),
+            State::Securing => s
+                .tls
+                .asked
+                .map(|at| at.saturating_add(u64::from(s.timeout_ms))),
+            State::Waiting if !up => Some(s.waiting_since.saturating_add(NO_NETWORK_MS)),
+            State::Waiting => s
+                .tls
+                .asked
+                .map(|at| at.saturating_add(u64::from(s.timeout_ms))),
+            State::Open => {
+                let idle = s.last_move.saturating_add(u64::from(s.idle_ms));
+                let give_up = (s.tls.secure && session_wanted)
+                    .then(|| s.last_move.saturating_add(tls::SESSION_IDLE_MS));
+                Some(give_up.map_or(idle, |at| at.min(idle)))
+            }
+            _ => None,
+        })
+        .chain(inner.cast_next_deadline())
+        .min()
+}
+
 /// The network went away or the device sleeps: every socket ends
 /// `failed` `no_network`.
 ///

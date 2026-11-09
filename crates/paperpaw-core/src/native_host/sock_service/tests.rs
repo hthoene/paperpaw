@@ -619,6 +619,8 @@ fn a_pool_full_of_net_bodies_refuses_a_socket_and_holds_nothing() {
 
 #[path = "tests/cast.rs"]
 mod cast;
+#[path = "tests/deadline.rs"]
+mod deadline;
 #[path = "tests/file.rs"]
 mod file;
 #[path = "tests/tls.rs"]

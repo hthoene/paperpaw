@@ -197,7 +197,7 @@ pub trait SockTransport {
     /// report.
     fn close(&self, id: u32);
     /// Send `data` from a port of its own to the network's broadcast address
-    /// on each of `ports` and report the answers through [`answered`]. `Err`
+    /// on each of `ports` and report the answers through `answered`. `Err`
     /// means it could not begin.
     fn broadcast(&self, id: u32, data: &[u8], ports: &[u16]) -> Result<(), i32>;
 }
@@ -411,7 +411,8 @@ pub(crate) fn backend(
     reason = "the shell's hooks into the table; tests use them"
 )]
 pub(crate) use table::{
-    answered, connected, event_delivered, failed, network_lost, next_event, peer_closed, received,
+    answered, connected, event_delivered, failed, network_lost, next_deadline, next_event,
+    peer_closed, received,
     screen_closed, secured, tick, tls_failed, untrusted, work_ended, writable,
 };
 

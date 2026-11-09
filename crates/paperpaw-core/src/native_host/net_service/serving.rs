@@ -90,6 +90,23 @@ impl Tables {
     pub(super) fn any(&self) -> bool {
         !self.servers.is_empty()
     }
+
+    /// Whether an event waits for the pump.
+    pub(super) fn has_events(&self) -> bool {
+        !self.events.is_empty()
+    }
+
+    /// When the first served request runs out of time (`expire` ends it).
+    pub(super) fn next_deadline(&self) -> Option<u64> {
+        self.served
+            .iter()
+            .filter_map(|s| match s.stage {
+                Stage::Receiving => Some(s.last_move.saturating_add(STALL_MS)),
+                Stage::Open { since } => Some(since.saturating_add(ANSWER_MS)),
+                _ => None,
+            })
+            .min()
+    }
 }
 
 /// What the transport does with a request head it parsed.

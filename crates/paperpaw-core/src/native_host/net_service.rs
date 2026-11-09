@@ -355,7 +355,8 @@ pub(crate) use serving::{
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use table::{
-    Finished, event_delivered, finished, network_lost, next_event, progress, tick, work_ended,
+    Finished, event_delivered, finished, network_lost, next_deadline, next_event, progress, tick,
+    work_ended,
 };
 
 /// A request as the dispatcher admits it, for the tests of the shell's wiring.

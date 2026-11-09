@@ -772,6 +772,25 @@ pub(crate) fn tick(host: &dyn NetHost) -> Result<(), i32> {
     Ok(())
 }
 
+/// When the first request or served request runs out of time, in the
+/// host's clock: what [`tick`] would end then. `None` when nothing is
+/// waiting on the clock. A borrowed table answers `Some(0)` (look again).
+pub(crate) fn next_deadline(host: &dyn NetHost) -> Option<u64> {
+    let Ok(inner) = host_table(host) else {
+        return Some(0);
+    };
+    let requests = inner.reqs.iter().filter(|r| Inner::live(r)).flat_map(|r| {
+        let since = if r.saving { r.last_move } else { r.queued_at };
+        let over = since.saturating_add(u64::from(r.timeout_ms));
+        let no_net = r
+            .net_wait
+            .filter(|_| r.state == State::Queued)
+            .map(|w| w.saturating_add(NO_NETWORK_MS));
+        [Some(over), no_net]
+    });
+    requests.flatten().chain(inner.serving.next_deadline()).min()
+}
+
 /// The network went away: running requests end with `no_network`.
 ///
 /// # Errors

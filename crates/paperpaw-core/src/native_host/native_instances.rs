@@ -27,6 +27,15 @@ pub(crate) trait NativeInstance: Dispatch {
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(None);
     }
+    /// Deliver the one-record event `bytes` of a host service (`core.net`,
+    /// `core.sockets`) to the callback the instance registered for its tag.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` when the instance registered none for the tag, the
+    /// callback's own status when it failed.
+    fn service_event(&self, _bytes: &[u8], _env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -55,6 +64,14 @@ impl NativeLease {
     }
     pub(crate) fn stop(&self) {
         self.0.stop();
+    }
+    /// A service's event for the callback registered for its tag.
+    pub(crate) fn service_event(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.service_event(bytes, env)
     }
 }
 
@@ -129,6 +146,8 @@ pub(crate) struct NativeInstances {
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
     orphan_failure_reported: Cell<bool>,
+    /// The event pump left events for another pass (see `service_pump`).
+    service_more: Cell<bool>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -518,6 +537,41 @@ impl NativeInstances {
 
     pub(crate) fn depth(&self) -> u8 {
         self.callbacks.depth()
+    }
+
+    /// Whether the last event pass left events for another.
+    pub(crate) fn service_more(&self) -> bool {
+        self.service_more.get()
+    }
+
+    pub(crate) fn set_service_more(&self, more: bool) {
+        self.service_more.set(more);
+    }
+
+    /// The device's services that raise events (`core.net`, `core.sockets`),
+    /// those wired.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+        self.pool
+            .as_ref()
+            .map_or([None, None], |pool| pool.hosts().event_services())
+    }
+
+    /// A callback is on the stack, for the tests of what runs only between
+    /// callbacks.
+    #[cfg(test)]
+    pub(crate) fn test_enter_callback(&self) {
+        let _ = self.callbacks.enter_outer();
+    }
+
+    /// The `index`th running instance, in order of installation: its key and
+    /// its lease. `None` past the last.
+    pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled && !entry.retiring)
+            .filter_map(|entry| Some((entry.key, entry.instance.as_ref()?)))
+            .filter(|(_, lease)| lease.live().is_ok())
+            .nth(index)
     }
 }
 

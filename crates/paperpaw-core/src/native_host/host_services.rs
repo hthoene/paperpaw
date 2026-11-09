@@ -326,6 +326,15 @@ impl HostServices {
         self.net.get()
     }
 
+    /// The wired services that raise events to plugins, for the kernel's
+    /// event pump: `core.net` then `core.sockets`.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+        [
+            self.net.get().map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.sockets.get().map(|s| s as &dyn super::service_events::ServiceEvents),
+        ]
+    }
+
     #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
     /// Wire `core.sockets` once.
     pub(crate) fn wire_sockets(&self, host: Rc<dyn SockHost>) -> Result<(), i32> {

@@ -834,6 +834,7 @@ impl Kernel {
         if let Some(ui) = self.shared.native_instances.ui_services() {
             ui.minute_tick(now.millis()).ok(); // a refusal waits for the next tick
         }
+        self.native_service_pump();
         if self.sleep_due().is_some_and(|at| at <= now) {
             // Busy: reading aloud, downloading, serving, the library being
             // walked. Else asleep.

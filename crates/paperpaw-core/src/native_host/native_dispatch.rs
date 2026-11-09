@@ -238,6 +238,25 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
     }
+    fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+        let tag = super::registrations::RawRecord::single(bytes)?.tag();
+        let mut token = None;
+        self.instance
+            .registrations(self.depth.as_depth(), &mut |_, record| {
+                if let super::Registration::Event {
+                    event_tag,
+                    token: at,
+                } = record
+                    && event_tag == tag
+                    && token.is_none()
+                {
+                    token = Some(at);
+                }
+            })
+            .map_err(|error| status(error.into()))?;
+        let token = token.ok_or(host_glue::ERR_UNSUPPORTED)?;
+        self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
+    }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();
         if owner != self.identity.owner() {

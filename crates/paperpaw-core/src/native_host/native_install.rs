@@ -329,7 +329,8 @@ impl crate::Kernel {
             let widgets = ui.screen_closed(instance).map(|_| ());
             result = result.and(widgets);
         }
-        result
+        // The servers and sockets the screen started end with it.
+        result.and(self.native_services_screen_closed(instance))
     }
 
     /// An owner-directory update found the table held and was skipped: said
