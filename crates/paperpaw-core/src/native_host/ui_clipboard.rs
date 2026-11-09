@@ -32,7 +32,7 @@ use super::{
     ui_store::{PART_MAX, Stamp, UiStore},
 };
 use crate::abi7::context::Frame;
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{rc::Rc, string::String};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 
@@ -141,13 +141,15 @@ impl UiStore {
         Ok(())
     }
 
-    /// Op 19: reads the clipboard from `offset` into `out`, cut at a UTF-8
-    /// boundary: the total and the bytes written.
-    pub(crate) fn clipboard_read(
+    /// Op 19: the part of the clipboard from `offset`, at most `max` bytes, cut
+    /// at a UTF-8 boundary, handed to `with` as (total, part) straight from
+    /// the text (no copy).
+    pub(crate) fn clipboard_read<R>(
         &self,
         offset: usize,
-        out: &mut [u8],
-    ) -> Result<(usize, usize), i32> {
+        max: usize,
+        with: impl FnOnce(usize, &str) -> R,
+    ) -> Result<R, i32> {
         let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
         let board = inner.clipboard.board.as_ref().ok_or(ERR_STATE)?;
         let text = board.text.borrow();
@@ -155,15 +157,14 @@ impl UiStore {
         if offset > total {
             return Err(ERR_INVALID);
         }
-        let mut end = (offset + out.len()).min(total);
+        let mut end = offset.saturating_add(max).min(total);
         while !text.is_char_boundary(end) {
             end -= 1;
         }
         if end == offset && offset < total {
             return Err(ERR_NO_SPACE);
         }
-        out[..end - offset].copy_from_slice(&text.as_bytes()[offset..end]);
-        Ok((total, end - offset))
+        Ok(with(total, &text[offset..end]))
     }
 
     /// Between callbacks: a new text still begun is dropped (its writer's
@@ -205,20 +206,16 @@ pub(super) fn read(
     }
     frame.callback_epoch()?;
     let offset = usize::try_from(at.offset).map_err(|_| ERR_INVALID)?;
-    let mut part = Vec::new();
-    part.try_reserve_exact(PART_MAX)
-        .map_err(|_| ERR_NO_MEMORY)?;
-    part.resize(PART_MAX, 0_u8);
-    let (total, read) = ui.store.clipboard_read(offset, &mut part)?;
-    let data = core::str::from_utf8(&part[..read]).map_err(|_| ERR_INVALID)?;
-    codec::encode_one(
-        &Record::ServiceUiText(wire::ServiceUiText {
-            text: 0,
-            offset: at.offset,
-            total: u32::try_from(total).map_err(|_| ERR_INVALID)?,
-            flags: u32::from(offset + read >= total),
-            data,
-        }),
-        out,
-    )
+    ui.store.clipboard_read(offset, PART_MAX, |total, part| {
+        codec::encode_one(
+            &Record::ServiceUiText(wire::ServiceUiText {
+                text: 0,
+                offset: at.offset,
+                total: u32::try_from(total).map_err(|_| ERR_INVALID)?,
+                flags: u32::from(offset + part.len() >= total),
+                data: part,
+            }),
+            out,
+        )
+    })?
 }
