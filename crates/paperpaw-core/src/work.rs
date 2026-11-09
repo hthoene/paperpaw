@@ -221,6 +221,9 @@ pub(crate) struct Queue {
     exempt: Vec<(String, Exempt)>,
     /// What the reader set per plugin changed: read again.
     stale: bool,
+    /// How many times it was read again (the network policy of the native
+    /// services is made again when it changes).
+    policy_version: u32,
     /// The screen the reader chose *Go online* on while Offline: the
     /// network for it until it closes ([`Command::GoOnline`]).
     online_for: Option<Id>,
@@ -765,6 +768,32 @@ impl Kernel {
         }
         self.works.off = off;
         self.works.exempt = exempt;
+        self.works.policy_version = self.works.policy_version.wrapping_add(1);
+    }
+
+    /// Gives the network policy of the native services (`core.net`,
+    /// `core.sockets`) what the user decided: the mode and each plugin's own
+    /// setting, as interface 6 applies them to a plugin's network use. Cheap
+    /// when nothing changed.
+    pub(crate) fn refresh_net_policy(
+        &mut self,
+        policy: &crate::native_host::net_policy::NetPolicy,
+    ) {
+        self.read_policy();
+        let offline = self.base_power().level == PowerLevel::Offline;
+        let mode_offline = self.shared.power.level == PowerLevel::Offline;
+        let version = self.works.policy_version;
+        if !policy.needs(version, offline, mode_offline) {
+            return;
+        }
+        let off = self.works.off.iter().map(String::as_str);
+        let held = self
+            .works
+            .exempt
+            .iter()
+            .filter(|(_, e)| *e == Exempt::Manual)
+            .map(|(p, _)| p.as_str());
+        policy.update(version, offline, mode_offline, off, held);
     }
 
     /// Runs the work that is due, as background work: its events emitted

@@ -14,18 +14,19 @@
 use super::{PowerEnd, SockHost, SockProfile, SockTable, SockTls, SockTransport, reason};
 use crate::native_host::{
     host_services::Caller,
+    net_policy::NetPolicy,
     net_pool::NetPool,
     owner_directory::OwnerDirectory,
     owner_paths::{self, OwnerPaths},
     paths_in_use::PathsInUse,
     save_files::SaveFiles,
     shared::Shared,
-    shell_wiring::{NetEnd, ShellNetwork},
+    shell_wiring::ShellNetwork,
     staged_name,
     storage::{self, has_room},
 };
 use alloc::{rc::Rc, string::String};
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 
 /// The device's `core.sockets` host.
@@ -38,6 +39,8 @@ pub(crate) struct SockDevice {
     profile: SockProfile,
     saves: SaveFiles,
     paths: OwnerPaths,
+    /// What the user allows (`net_policy`).
+    policy: Rc<NetPolicy>,
 }
 
 /// The staged name of a target.
@@ -59,8 +62,10 @@ impl SockDevice {
         pool: Rc<NetPool>,
         in_use: Rc<PathsInUse>,
         owners: Shared<OwnerDirectory>,
+        policy: Rc<NetPolicy>,
     ) -> Self {
         Self {
+            policy,
             table: SockTable::new(pool),
             saves: SaveFiles::new(storage.clone(), in_use),
             storage,
@@ -102,19 +107,18 @@ impl SockHost for SockDevice {
 
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd> {
         let mut end = None;
-        self.paths
-            .plugin_of(owner, &mut |id| {
-                end = self.network.power_end(id, background);
-            })
-            .ok()?;
-        end.map(|e| PowerEnd {
-            reason: match e.end {
-                NetEnd::Offline => reason::OFFLINE,
-                NetEnd::Saving => reason::SAVING,
-                _ => reason::NETWORK_OFF,
-            },
-            later: e.later,
-        })
+        match self
+            .paths
+            .plugin_of(owner, &mut |id| end = self.policy.end_for(id, background))
+        {
+            // A table in use is asked again at the next pass.
+            Ok(()) | Err(ERR_BUSY) => end,
+            // A plugin whose id is not known is not let out.
+            Err(_) => Some(PowerEnd {
+                reason: reason::NETWORK_OFF,
+                later: false,
+            }),
+        }
     }
 
     fn network_up(&self) -> bool {

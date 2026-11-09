@@ -54,6 +54,9 @@ pub(crate) struct HostServices {
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
+    /// What the user decided about the network (`net_policy`), kept by the
+    /// kernel and read by `core.net` and `core.sockets`.
+    policy: OnceCell<Rc<super::net_policy::NetPolicy>>,
     /// The device's one network pool, shared by `core.net` and
     /// `core.sockets`.
     pool: OnceCell<Rc<super::net_pool::NetPool>>,
@@ -114,6 +117,7 @@ impl HostServices {
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             in_use: OnceCell::new(),
+            policy: OnceCell::new(),
             pool: OnceCell::new(),
             owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
@@ -313,6 +317,12 @@ impl HostServices {
         } else {
             Err(paperpaw_native::host_glue::ERR_INVALID)
         }
+    }
+
+    /// The device's network policy, made on first use.
+    pub(crate) fn policy(&self) -> &Rc<super::net_policy::NetPolicy> {
+        self.policy
+            .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
     /// The paths in use by host writers (shared with `core.files`' busy check).

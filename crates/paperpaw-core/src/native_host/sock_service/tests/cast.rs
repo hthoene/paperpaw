@@ -453,3 +453,19 @@ fn two_plugins_broadcasts_keep_their_answers_events_and_ends_apart() {
     );
     assert_eq!(f.closes.borrow().as_slice(), &[a]);
 }
+
+#[test]
+fn turning_a_plugins_network_off_ends_a_broadcast_that_waits_for_answers() {
+    let f = Fake::x4();
+    let id = cast(&f, OWNER, 1).unwrap();
+    assert_eq!(f.casts.borrow().len(), 1);
+    f.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&f).unwrap();
+    assert_eq!(
+        drain_cast(&f, OWNER),
+        std::vec![cev(id, 1, 2, reason::NETWORK_OFF, 0, "")]
+    );
+}

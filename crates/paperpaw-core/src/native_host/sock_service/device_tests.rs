@@ -11,10 +11,8 @@ use super::super::{
 };
 use super::*;
 use crate::native_host::{
-    admitted_features::AdmittedFeatures,
-    event_tags::EventTags,
-    host_services::HostServices,
-    shell_wiring::{NetPowerEnd, SockLimits},
+    admitted_features::AdmittedFeatures, event_tags::EventTags, host_services::HostServices,
+    shell_wiring::SockLimits,
 };
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
@@ -33,7 +31,6 @@ static WIRED: &[Feature<'static>] = &[Feature {
 #[derive(Default)]
 struct Shell {
     up: Cell<bool>,
-    power: Cell<Option<NetPowerEnd>>,
     connects: RefCell<Vec<u32>>,
     closes: RefCell<Vec<u32>>,
     begins: RefCell<Vec<u32>>,
@@ -77,9 +74,6 @@ impl ShellNetwork for Shell {
     }
     fn network_demand(&self, wanted: bool) {
         self.demand.borrow_mut().push(wanted);
-    }
-    fn power_end(&self, _: &str, _: bool) -> Option<NetPowerEnd> {
-        self.power.get()
     }
 }
 
@@ -149,6 +143,7 @@ fn fixture(tls: bool) -> Fixture {
             .clone(),
         hosts.in_use().clone(),
         owners.try_clone().unwrap(),
+        hosts.policy().clone(),
     );
     owners.admit(OWNER, "mail").unwrap();
     owners.subscribe(OWNER, EventTags::collect(|_| true));
@@ -402,16 +397,58 @@ fn with_tls_in_the_shell_the_handshake_runs_through_it() {
     );
 }
 
+/// The user's decisions as the kernel hands them to the policy.
+fn decide(f: &Fixture, version: u32, offline: bool, off: &[&str]) {
+    f.hosts.policy().update(
+        version,
+        offline,
+        offline,
+        off.iter().copied(),
+        [].into_iter(),
+    );
+}
+
 #[test]
-fn power_saving_ends_a_socket_with_the_shells_reason() {
+fn a_plugin_whose_network_is_off_gets_network_off_and_the_shell_hears_nothing() {
     let f = fixture(false);
-    f.shell.power.set(Some(NetPowerEnd::new(
-        crate::native_host::shell_wiring::NetEnd::Saving,
-        true,
-    )));
+    decide(&f, 1, false, &["mail"]);
     connect(&f, 0).unwrap();
     assert!(f.shell.connects.borrow().is_empty(), "nothing was started");
-    assert_eq!(drain(&f), [(kind::FAILED, reason::SAVING)]);
+    assert_eq!(drain(&f), [(kind::FAILED, reason::NETWORK_OFF)]);
+}
+
+#[test]
+fn the_offline_mode_ends_a_socket_before_the_shell_hears_of_it() {
+    let f = fixture(false);
+    decide(&f, 1, true, &[]);
+    connect(&f, 0).unwrap();
+    assert!(f.shell.connects.borrow().is_empty(), "nothing was started");
+    assert_eq!(drain(&f), [(kind::FAILED, reason::OFFLINE)]);
+}
+
+#[test]
+fn another_plugins_setting_does_not_end_this_ones_socket() {
+    let f = fixture(false);
+    decide(&f, 1, false, &["news"]);
+    let id = open(&f);
+    tick(&f.device).unwrap();
+    assert_eq!(drain(&f), []);
+    assert!(f.shell.closes.borrow().is_empty());
+    table::close(&f.device, OWNER, id).unwrap();
+}
+
+#[test]
+fn turning_the_network_off_mid_socket_ends_it_at_the_next_tick_and_closes_the_transport() {
+    let f = fixture(false);
+    let id = open(&f);
+    decide(&f, 1, false, &["mail"]);
+    tick(&f.device).unwrap();
+    assert_eq!(drain(&f), [(kind::FAILED, reason::NETWORK_OFF)]);
+    assert_eq!(*f.shell.closes.borrow(), [id]);
+    // Turned on again: a new socket goes out.
+    decide(&f, 2, false, &[]);
+    let again = connect(&f, 0).unwrap();
+    assert_eq!(*f.shell.connects.borrow().last().unwrap(), again);
 }
 
 #[test]
