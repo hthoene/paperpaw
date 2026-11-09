@@ -38,6 +38,9 @@ pub enum Step {
     Scroll(usize),
     /// The panel should close.
     Close,
+    /// A scroll key at the first or last page: taken, nothing moves (it must
+    /// not reach the page below).
+    Edge,
 }
 
 /// The text of a lookup, its lines and the page shown.
@@ -151,12 +154,12 @@ impl Panel {
             if next < self.lines.len() {
                 Step::Scroll(next)
             } else {
-                Step::Ignored
+                Step::Edge
             }
         };
         let back = || {
             if self.top == 0 {
-                Step::Ignored
+                Step::Edge
             } else {
                 Step::Scroll(self.top.saturating_sub(rows))
             }
@@ -193,7 +196,8 @@ impl Panel {
         } else {
             back()
         };
-        if step == Step::Ignored && position.x < middle {
+        // On the first page the left part has nothing to go back to: it closes.
+        if step == Step::Edge && position.x < middle {
             Step::Close
         } else {
             step

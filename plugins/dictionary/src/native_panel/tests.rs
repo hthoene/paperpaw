@@ -59,11 +59,11 @@ fn pages_and_scrolling_stay_inside_the_text() {
     );
     assert_eq!(
         panel.decide(2, region, &action("core.prev-page")),
-        Step::Ignored
+        Step::Edge
     );
     panel.set_top(4);
     assert_eq!(panel.pages(2), (3, 3));
-    assert_eq!(panel.decide(2, region, &action("core.down")), Step::Ignored);
+    assert_eq!(panel.decide(2, region, &action("core.down")), Step::Edge);
     assert_eq!(panel.decide(2, region, &action("core.up")), Step::Scroll(2));
     assert_eq!(
         panel.decide(2, region, &action("core.confirm")),
@@ -87,7 +87,7 @@ fn a_tap_scrolls_on_to_the_right_goes_back_to_the_left_and_closes_outside() {
     assert_eq!(panel.decide(2, region, &tap(50, 150)), Step::Close);
     panel.set_top(2);
     assert_eq!(panel.decide(2, region, &tap(50, 150)), Step::Scroll(0));
-    assert_eq!(panel.decide(2, region, &tap(150, 150)), Step::Ignored);
+    assert_eq!(panel.decide(2, region, &tap(150, 150)), Step::Edge);
     assert_eq!(panel.decide(2, region, &tap(150, 50)), Step::Close);
 }
 
@@ -96,4 +96,17 @@ fn a_huge_text_is_kept_to_the_line_limit() {
     let long = "word ".repeat(5_000);
     let panel = Panel::new(&[entry("A", &long)], "", ten, 100.0).unwrap();
     assert!(panel.pages(1).1 <= MAX_LINES);
+}
+
+#[test]
+fn keys_at_the_ends_are_taken_and_other_keys_are_not() {
+    let region = Rect::new(0, 100, 200, 100);
+    let panel = Panel::new(&[entry("A", "a\nb")], "", ten, 200.0).unwrap();
+    let action = |action| Input::Action { now_ms: 0, action };
+    assert_eq!(
+        panel.decide(5, region, &action("core.next-page")),
+        Step::Edge
+    );
+    assert_eq!(panel.decide(5, region, &action("core.up")), Step::Edge);
+    assert_eq!(panel.decide(5, region, &action("core.menu")), Step::Ignored);
 }
