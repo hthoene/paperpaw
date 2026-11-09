@@ -239,6 +239,7 @@ impl NativeFiles {
                 }
             }
             Some(View::Books(_)) => self.chosen_book(host, token, index),
+            Some(View::Chooser(_)) => self.chose_folder(host, token, index),
             Some(View::Info(_)) | None => Ok(()),
         }
     }

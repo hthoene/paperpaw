@@ -126,6 +126,8 @@ impl NativeFiles {
                 0,
                 0,
             )?)
+        } else if token == CHOOSE_TOKEN {
+            View::Chooser(self.open_chooser(host, handover)?)
         } else if token == INFO_TOKEN {
             let [path, _] = self.handover_params(host, handover, [PATH, VALUE])?;
             let library = self.library.as_ref().ok_or(Error::State)?;
@@ -201,6 +203,7 @@ impl NativeFiles {
             }
             Asked::Delete { path } if answer.choice() == 1 => self.delete_book(host, &path),
             Asked::Delete { .. } => Ok(()),
+            Asked::NewFolder => self.named_folder(host, request),
         }
     }
 

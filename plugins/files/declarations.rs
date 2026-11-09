@@ -20,6 +20,8 @@ pub const SHELVES_TOKEN: u32 = 12;
 pub const NAMES_TOKEN: u32 = 13;
 /// Book information.
 pub const INFO_TOKEN: u32 = 14;
+/// Chooses a folder for a setting (the slot `core.choose-folder`).
+pub const CHOOSE_TOKEN: u32 = 15;
 /// Opens the shelves.
 pub const SHELVES_OPEN_TOKEN: u32 = 20;
 /// Opens the favourites.
@@ -119,6 +121,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     // One instance per shelf: a list of authors above a list of series.
     d.screen(ScreenDecl::new("names", "files.title", NAMES_TOKEN))?;
     d.screen(ScreenDecl::new("info", "files.info", INFO_TOKEN))?;
+    d.screen(ScreenDecl::new(
+        "choose-folder",
+        "files.choose.title",
+        CHOOSE_TOKEN,
+    ))?;
     d.submit()?;
     Ok(())
 }
@@ -191,6 +198,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.icon("core.library-folder", "folder")?;
     d.slot_offer(SlotOfferDecl::new("core.library", "files.browser"))?;
     d.slot_offer(SlotOfferDecl::new("core.book-info", "files.info"))?;
+    d.slot_offer(SlotOfferDecl::new(CHOOSE_FOLDER, "files.choose-folder"))?;
     let mut home = SlotOfferDecl::new("core.home", "files.browser");
     home.priority = -100;
     d.slot_offer(home)?;

@@ -5,7 +5,7 @@
 //! `PORTING-7.md`.
 use crate::{
     declarations::{
-        BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, EVENTS_TOKEN,
+        BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, CHOOSE_TOKEN, EVENTS_TOKEN,
         FAVOURITES_TOKEN, INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN,
         SHELVES_TOKEN, SORT, VIEW, VIEW_COVERS,
     },
@@ -69,6 +69,7 @@ const ARCHIVE_SETTING: &str = "files.archive";
 const SEARCH_LIMIT: usize = 256;
 
 mod books;
+mod choose;
 mod names;
 mod open;
 mod plan;
@@ -90,6 +91,20 @@ enum Asked {
     },
     /// Whether to delete the book at this path.
     Delete { path: String },
+    /// The name of a new folder in the chooser.
+    NewFolder,
+}
+
+/// The folder chooser of a setting: the folder on show, its folders and rows.
+#[derive(Debug)]
+struct Chooser {
+    /// The setting the folder is written to; empty for none.
+    setting: String,
+    /// The folder on show; empty for the top of the card.
+    dir: String,
+    names: Vec<String>,
+    picks: Vec<crate::native_choose::Pick>,
+    list: ItemList,
 }
 
 #[derive(Debug)]
@@ -157,6 +172,7 @@ enum View {
     Shelves(Shelves),
     Names(Names),
     Info(Info),
+    Chooser(Chooser),
 }
 
 /// The interface-7 library plugin.
@@ -279,6 +295,15 @@ impl Plugin for NativeFiles {
                 };
                 view.list.draw_with(host, &mut frame, &title, true, footer)
             }
+            View::Chooser(view) => {
+                let title = if view.dir.is_empty() {
+                    messages.copy(host, "files.choose.top")?
+                } else {
+                    copy(&view.dir)?
+                };
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
             View::Info(view) => {
                 let (key, generation) = view.cover.unwrap_or((0, 0));
                 let mut asker = sources::Asker::new(
@@ -327,6 +352,22 @@ impl Plugin for NativeFiles {
                     Handled::Yes
                 });
             }
+            View::Chooser(view) => {
+                // Back goes up a folder before it leaves.
+                if matches!(
+                    input,
+                    Input::Action {
+                        action: "core.back",
+                        ..
+                    }
+                ) && !view.dir.is_empty()
+                {
+                    return self.chooser_back(host, token).map(|up| {
+                        if up { Handled::Yes } else { Handled::No }
+                    });
+                }
+                &mut view.list
+            }
             View::Shelves(view) => &mut view.list,
             View::Names(view) => &mut view.list,
         };
@@ -344,6 +385,7 @@ const fn is_screen(token: u32) -> bool {
         || token == SHELVES_TOKEN
         || token == NAMES_TOKEN
         || token == INFO_TOKEN
+        || token == CHOOSE_TOKEN
 }
 
 impl NativeFiles {
