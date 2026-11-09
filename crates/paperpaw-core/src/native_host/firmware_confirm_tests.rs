@@ -76,6 +76,13 @@ fn names_from_the_image_cannot_forge_lines_or_a_signer() {
 }
 
 #[test]
+fn bidirectional_controls_in_image_names_are_replaced() {
+    let bidi = "a\u{202E}b\u{202A}c\u{202D}d\u{2066}e\u{2069}f\u{200F}g\u{061C}h";
+    assert_eq!(clean(bidi), "a b c d e f g h");
+    assert_eq!(clean("plain 1.0"), "plain 1.0");
+}
+
+#[test]
 fn an_answer_event_is_read_only_with_its_nonce_and_a_known_word() {
     let params = Params::new().with(NONCE, "77").with(ANSWER, "yes");
     assert_eq!(read_answer(&ANSWERED, &params), Some((77, Answer::Yes)));

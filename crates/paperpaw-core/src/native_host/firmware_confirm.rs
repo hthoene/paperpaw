@@ -58,18 +58,23 @@ pub(crate) struct Texts {
 }
 
 /// `text` with what could forge a line or a sign in the dialog (control
-/// characters, line and paragraph separators) replaced by a space: the image's
-/// own names are not the host's words.
+/// characters, line and paragraph separators, bidirectional controls that
+/// reorder the text around them) replaced by a space: the image's own names
+/// are not the host's words.
 fn clean(text: &str) -> String {
     text.chars()
-        .map(|c| {
-            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' {
-                ' '
-            } else {
-                c
-            }
-        })
+        .map(|c| if forges(c) { ' ' } else { c })
         .collect()
+}
+
+/// Whether `c` could forge a line or reorder the dialog text.
+fn forges(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}' | '\u{2029}' | '\u{061C}' | '\u{200E}' | '\u{200F}'
+                | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
 }
 
 /// The first eight bytes of a key, in groups of four hex digits.
