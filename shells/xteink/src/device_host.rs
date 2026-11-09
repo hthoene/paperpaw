@@ -115,3 +115,53 @@ pub static OFFERED: [Service<'static>; DATA_SERVICES.len() + DEVICE_SERVICES.len
 pub fn tell_native(device: &X4Device, native: &Native) {
     device.set_native(native_state(native, TARGET, 0, (0, 0), "code.ppn"));
 }
+
+/// Tells the device what the kernel keeps of Wi-Fi, Bluetooth and the power,
+/// as plugins see it: what the kernel changes, the device follows. Called
+/// where the kernel was just stepped (never on a timer), so a plugin that
+/// hears of a change reads it. Copies and compares small values; allocates
+/// only where a list changed.
+#[inline(never)]
+pub fn sync(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    if let Some(wifi) = kernel.wifi_model() {
+        device.set_wifi(paperpaw_x4::device_facts::wifi_facts(wifi));
+    }
+    #[cfg(feature = "bluetooth")]
+    if let Some(bluetooth) = kernel.bluetooth_model() {
+        device.set_bluetooth(paperpaw_x4::device_facts::bluetooth_facts(bluetooth));
+        device.set_bonded_from(
+            bluetooth
+                .bonded_devices()
+                .iter()
+                .map(paperpaw_x4::device_facts::bonded_row),
+        );
+    }
+    device.sync_power(kernel.power());
+}
+
+/// Tells the device the networks the last scan found (the kernel's list: the
+/// strongest first, each name once). The rows are borrowed from the kernel;
+/// the list that is made for them is small and fallible.
+#[inline(never)]
+pub fn sync_networks(device: &X4Device, kernel: &paperpaw_core::Kernel) {
+    let Some(wifi) = kernel.wifi_model() else {
+        return;
+    };
+    let mut rows: alloc::vec::Vec<(&str, i32, bool)> = alloc::vec::Vec::new();
+    if rows.try_reserve_exact(wifi.networks.len()).is_err() {
+        log::warn!("device: the networks found could not be kept");
+        return;
+    }
+    rows.extend(
+        wifi.networks
+            .iter()
+            .map(|network| (network.ssid.as_str(), i32::from(network.signal), network.secured)),
+    );
+    device.set_networks(&rows);
+}
+
+/// The USB lines' readings, as they go to the kernel's status.
+pub fn tell_usb(device: &X4Device, pin_high: Option<bool>, frames: Option<bool>) {
+    device.set_value("usb-pin-high", pin_high.map(i64::from));
+    device.set_value("usb-frames", frames.map(i64::from));
+}

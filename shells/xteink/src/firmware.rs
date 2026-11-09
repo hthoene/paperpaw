@@ -89,6 +89,9 @@ pub struct Firmware {
     pub light: Option<crate::light::Light>,
     /// The card taken out and put back while running (#145).
     pub card_swap: Option<alloc::boxed::Box<dyn crate::volume::Swap>>,
+    /// The device behind `core.device`, told of what the kernel keeps.
+    #[cfg(feature = "ppn5")]
+    pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     pub state: State,
 }
 
@@ -313,6 +316,8 @@ impl Firmware {
         self.poll_frame();
         self.usb();
         self.tick();
+        #[cfg(feature = "ppn5")]
+        crate::device_host::sync(&self.device, &self.kernel);
         self.poll_frame();
         self.rest(battery, installing);
     }
@@ -376,6 +381,9 @@ impl Firmware {
         let after = paperpaw_x4::light_timer::delay_ms(settings.read(&device::LIGHT_OFF_AFTER));
         let lit = level > 0 && self.light.is_some();
         let dark = self.state.light_timer.dark(now().0, after, lit);
+        #[cfg(feature = "ppn5")]
+        self.device
+            .set_value("frontlight-percent", Some(if lit && !dark { level } else { 0 }));
         if let Some(light) = self.light.as_mut() {
             if dark {
                 light.off();
@@ -547,6 +555,8 @@ impl Firmware {
         if let Some(frames) = readings.frames {
             status = status.with_value("usb-frames", i64::from(frames));
         }
+        #[cfg(feature = "ppn5")]
+        crate::device_host::tell_usb(&self.device, readings.pin_high, readings.frames);
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -961,6 +971,9 @@ impl Firmware {
         // From the first work not written back: work coming again and
         // again does not put it off.
         self.state.unsynced.get_or_insert(now().0);
+        // What the kernel changed is read from `core.device` from here on.
+        #[cfg(feature = "ppn5")]
+        crate::device_host::sync(&self.device, &self.kernel);
         // The light as set (or shown while a slider moves) at once, not
         // after the frame that shows the setting.
         self.light();

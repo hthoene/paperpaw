@@ -88,6 +88,9 @@ pub struct Network {
     /// that wires core with them.
     #[cfg(feature = "ppn5")]
     host: Option<alloc::rc::Rc<crate::host_net::Bridge>>,
+    /// The device behind `core.device`, told of the networks a scan found.
+    #[cfg(feature = "ppn5")]
+    device: Option<alloc::rc::Rc<paperpaw_x4::device_host::X4Device>>,
     /// What the kernel asked for plugins' servers and sockets, for the
     /// next step.
     server_calls: Vec<ServerCall>,
@@ -113,6 +116,8 @@ impl Network {
             sockets: Sockets::default(),
             #[cfg(feature = "ppn5")]
             host: None,
+            #[cfg(feature = "ppn5")]
+            device: None,
             server_calls: Vec::new(),
             socket_calls: Vec::new(),
             #[cfg(feature = "remote")]
@@ -129,6 +134,12 @@ impl Network {
     #[cfg(feature = "ppn5")]
     pub fn attach(&mut self, host: alloc::rc::Rc<crate::host_net::Bridge>) {
         self.host = Some(host);
+    }
+
+    /// Tells `device` of the networks a scan finds, from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach_device(&mut self, device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>) {
+        self.device = Some(device);
     }
 
     /// A radio is on: its tasks need the processor (no light sleep).
@@ -182,10 +193,22 @@ impl Network {
         #[cfg(feature = "bluetooth")]
         let busy = busy && !self.bluetooth.is_on();
         self.radio.save_power(!busy);
+        #[cfg(feature = "ppn5")]
+        let mut scanned = false;
         for event in self.radio.poll() {
             #[cfg(feature = "remote")]
             self.answer_asked(kernel, &event);
+            #[cfg(feature = "ppn5")]
+            {
+                scanned |= matches!(event, WifiEvent::Scanned(_));
+            }
             effects.push(kernel.wifi_event(now, event));
+        }
+        // The networks the scan found, as the kernel keeps them (sorted, each
+        // name once), before its effects are carried out.
+        #[cfg(feature = "ppn5")]
+        if let (true, Some(device)) = (scanned, &self.device) {
+            crate::device_host::sync_networks(device, kernel);
         }
         #[cfg(feature = "bluetooth")]
         self.bluetooth

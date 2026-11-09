@@ -110,7 +110,7 @@ pub struct NativeState {
 
 /// The Wi-Fi radio as the firmware last saw it (op 8): 0 off, 1 on, 2
 /// joining, 3 online, 4 hosting.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WifiState {
     pub state: u32,
     /// The network joined or hosted, empty for none.
@@ -299,6 +299,15 @@ impl X4Device {
             return false;
         }
         for &(ssid, signal, secured) in rows.iter().filter(|row| !row.0.is_empty()) {
+            // Each name once, at its strongest (several access points may
+            // carry one network).
+            let name = Text::<32>::new(ssid);
+            if let Some(at) = kept.iter().position(|row| row.ssid == name) {
+                if kept[at].signal >= signal {
+                    continue;
+                }
+                kept.remove(at);
+            }
             // After the last network that is as strong: stable for equals.
             let at = kept.partition_point(|row| row.signal >= signal);
             if at >= cap {
@@ -337,27 +346,52 @@ impl X4Device {
     /// kept. False where they could not be kept (no room, or a visitor is
     /// reading them): the list is then as it was.
     pub fn set_bonded(&self, rows: &[Bonded<'_>]) -> bool {
-        let rows = &rows[..rows.len().min(MAX_BONDED as usize)];
-        let mut kept = Vec::new();
-        if kept.try_reserve_exact(rows.len()).is_err() {
-            return false;
-        }
-        kept.extend(rows.iter().map(|row| Kept {
+        self.set_bonded_from(rows.iter().copied())
+    }
+
+    /// [`set_bonded`](Self::set_bonded) for rows made as they are walked
+    /// (nothing is allocated where the list has not changed: the main loop
+    /// calls this after every step of the kernel).
+    pub fn set_bonded_from<'a>(
+        &self,
+        rows: impl ExactSizeIterator<Item = Bonded<'a>> + Clone,
+    ) -> bool {
+        let count = rows.len().min(MAX_BONDED as usize);
+        let as_kept = |row: Bonded<'_>| Kept {
             device: row.device,
             name: Text::new(row.name),
             kind: row.kind,
             connected: row.connected,
             remote_keys: row.remote_keys,
             given: Text::new(row.given),
-        }));
+        };
+        // A list in use by a visitor is left as it is: never a panic.
         let Ok(mut list) = self.bonded.try_borrow_mut() else {
             return false;
         };
-        if *list != kept {
-            *list = kept;
-            self.bump();
+        if list.len() == count
+            && list
+                .iter()
+                .copied()
+                .eq(rows.clone().take(count).map(as_kept))
+        {
+            return true;
         }
+        let mut kept = Vec::new();
+        if kept.try_reserve_exact(count).is_err() {
+            return false;
+        }
+        kept.extend(rows.take(count).map(as_kept));
+        *list = kept;
+        self.bump();
         true
+    }
+
+    /// [`set_power`](Self::set_power), but nothing is copied where the power is
+    /// what is held (the main loop calls this after every step of the kernel).
+    pub fn sync_power(&self, power: &Power) -> bool {
+        let same = self.power.try_borrow().is_ok_and(|held| *held == *power);
+        same || self.set_power(power.clone())
     }
 
     /// The power level and mode the kernel reports now (op 12). False where a
@@ -1349,5 +1383,57 @@ mod tests {
             .native(&mut |f| room = Some((f.room_free, f.room_largest)))
             .unwrap();
         assert_eq!(room, Some((300, 200)));
+    }
+    #[test]
+    fn a_scan_keeps_each_name_once_at_its_strongest() {
+        let device = device(&[]);
+        assert!(device.set_networks(&[
+            ("home", -80, true),
+            ("cafe", -60, false),
+            ("home", -50, true)
+        ]));
+        let mut seen = Vec::new();
+        device
+            .networks(&mut |row| {
+                seen.push((row.ssid.to_string(), row.signal));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(seen, [("home".to_string(), -50), ("cafe".to_string(), -60)]);
+    }
+
+    #[test]
+    fn the_power_is_copied_only_where_it_changed() {
+        let device = device(&[]);
+        let normal = Power::default();
+        assert!(device.sync_power(&normal));
+        let saving = Power::new(PowerLevel::Saving, paperpaw_sdk::power::NORMAL, true, 4);
+        assert!(device.sync_power(&saving));
+        let mut seen = None;
+        device
+            .power(&mut |power| seen = Some(power.clone()))
+            .unwrap();
+        assert_eq!(seen, Some(saving));
+    }
+
+    #[test]
+    fn a_bonded_list_that_has_not_changed_keeps_its_generation() {
+        let device = device(&[]);
+        let rows = [Bonded {
+            device: 1,
+            name: "Remote",
+            kind: 2,
+            connected: false,
+            remote_keys: true,
+            given: "",
+        }];
+        assert!(device.set_bonded_from(rows.iter().copied()));
+        let before = device.generation.get();
+        assert!(device.set_bonded_from(rows.iter().copied()));
+        assert_eq!(device.generation.get(), before);
+        let mut changed = rows;
+        changed[0].connected = true;
+        assert!(device.set_bonded_from(changed.iter().copied()));
+        assert_ne!(device.generation.get(), before);
     }
 }
