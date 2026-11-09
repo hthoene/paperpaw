@@ -498,7 +498,32 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // Plugins' input filters come first; while a screen guards the
+        // The native `core.input-filter` chain comes first (Power is never
+        // filtered), then the interface-6 filters on what it left.
+        let event = match self.native_input(now, &event) {
+            native_host::input_chain::Native::Pass => event,
+            native_host::input_chain::Native::Replaced(other) => other,
+            native_host::input_chain::Native::Taken => {
+                if let InputEvent::Pointer(p) = event {
+                    self.recognizers_lose(&p);
+                }
+                return self.finish();
+            }
+            native_host::input_chain::Native::Cancelled => {
+                self.cancel_input(&event);
+                self.run_commands();
+                return self.finish();
+            }
+            native_host::input_chain::Native::Run(action) => {
+                if let Ok(action) = Id::parse(&action) {
+                    self.dispatch(action);
+                    self.run_commands();
+                    return self.finish();
+                }
+                event
+            }
+        };
+        // Plugins' input filters come next; while a screen guards the
         // device, or a PIN or a password is entered, only those of its
         // plugin.
         let (verdict, delivered) = {
@@ -1178,6 +1203,8 @@ impl Kernel {
     /// [`events::SUSPEND`].
     pub fn suspend(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        // Fingers and keys held under a native filter's capture are let go.
+        self.shared.native_input.clear();
         self.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
@@ -1213,6 +1240,7 @@ impl Kernel {
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
         self.woke(now);
         self.finish()
     }
@@ -1281,6 +1309,13 @@ struct Shared {
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,
+    /// The captures of the native `core.input-filter` chain.
+    native_input: native_host::ui_input::InputFilters,
+    /// Whether the last input had a native filter refused (told once).
+    native_input_refused: bool,
+    /// The shells' device-wide callback depth, kept from the first native
+    /// plugin: the host's own stage runs enter it at depth 0.
+    native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,

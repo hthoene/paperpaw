@@ -179,6 +179,10 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        // The first plugin's depth is the shell's device-wide one.
+        if self.shared.native_depth.is_none() {
+            self.shared.native_depth = Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
+        }
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
