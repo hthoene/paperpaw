@@ -1,7 +1,6 @@
 //! Acceptance of the interface-7 dictionary, pending on the host, the SDK and
-//! the later slices. The interface-6 tests drive a kernel (`App`) and stay as
-//! the references (`tests/lookup*.rs`, `tests/providers.rs`); none of these
-//! cases passes by itself.
+//! the later slices; none of these cases passes by itself. The interface-6
+//! tests that drove a kernel went with the interface-6 code.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;

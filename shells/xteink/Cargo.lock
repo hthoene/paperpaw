@@ -2270,7 +2270,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-plugin-about",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-default",
@@ -2440,15 +2439,6 @@ name = "paperpaw-plugin-bluetooth"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-dictionary"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-stardict",
  "paperpaw-ui-kit",
 ]
 
@@ -2666,14 +2656,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-sort"
 version = "0.6.0-beta.3"
-
-[[package]]
-name = "paperpaw-stardict"
-version = "0.6.0-beta.3"
-dependencies = [
- "miniz_oxide",
- "paperpaw-platform",
-]
 
 [[package]]
 name = "paperpaw-table"
