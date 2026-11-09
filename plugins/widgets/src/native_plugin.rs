@@ -76,6 +76,8 @@ pub struct NativeWidgets {
     /// The highlight chosen, and how often a highlight was shown.
     highlight: crate::native_highlight::Cache,
     highlights: crate::native_quote::Showings,
+    /// The library's numbers as last counted.
+    numbers: crate::native_numbers::Cache,
 }
 
 impl NativeWidgets {
@@ -321,6 +323,8 @@ impl Plugin for NativeWidgets {
         } else if item.token == crate::native_highlight::TOKEN {
             let kept = (&mut self.highlight, &self.highlights);
             crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
+        } else if item.token == crate::native_numbers::TOKEN {
+            crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
         } else {
             (behaviour.draw)(&mut cx, &mut out, area)?;
         }

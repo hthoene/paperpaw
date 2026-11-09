@@ -502,8 +502,13 @@ fn lay_out(cx: &mut Cx<'_>, area: Rect, quote: &Quote) -> Result<Laid, Error> {
         }
     };
     let (lines, size, mark_h, below) = loop {
-        let below = u16::from(with_source) * small_h + u16::from(note) * small_h;
-        let below = if below > 0 { below + gap / 2 } else { 0 };
+        let below = (u16::from(with_source).saturating_mul(small_h))
+            .saturating_add(u16::from(note).saturating_mul(small_h));
+        let below = if below > 0 {
+            below.saturating_add(gap / 2)
+        } else {
+            0
+        };
         let mark_h = if marks {
             geometry::line_px(&cx.font, mark_size)? / 2
         } else {
@@ -520,7 +525,7 @@ fn lay_out(cx: &mut Cx<'_>, area: Rect, quote: &Quote) -> Result<Laid, Error> {
                 }],
             )?
         };
-        let room = area.height.saturating_sub(below + mark_h);
+        let room = area.height.saturating_sub(below.saturating_add(mark_h));
         let wrapped = Wrapped::fitting(&cx.font, &said, (max, min), (area.width, room), false)?;
         if wrapped.whole() {
             break (
@@ -543,7 +548,7 @@ fn lay_out(cx: &mut Cx<'_>, area: Rect, quote: &Quote) -> Result<Laid, Error> {
             break (mem::copy_strings(wrapped.lines())?, min, mark_h, below);
         }
     };
-    let room = area.height.saturating_sub(below + mark_h);
+    let room = area.height.saturating_sub(below.saturating_add(mark_h));
     let line = geometry::line_px(&cx.font, size)?;
     let text_h = u16::try_from(lines.len())
         .unwrap_or(u16::MAX)
@@ -554,7 +559,7 @@ fn lay_out(cx: &mut Cx<'_>, area: Rect, quote: &Quote) -> Result<Laid, Error> {
     Ok(Laid {
         block: Rect::new(
             area.x,
-            area.y + (area.height - total) / 2,
+            area.y.saturating_add(area.height.saturating_sub(total) / 2),
             area.width,
             total,
         ),
@@ -596,7 +601,13 @@ pub fn draw_with(
     (cache, showings): (&mut Cache, &Showings),
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let chosen = choose(cx.host, &cx.settings, cache, showings)?;
+    // Where the library refuses a call, the widget says there is none; only
+    // a refused allocation fails the draw.
+    let chosen = match choose(cx.host, &cx.settings, cache, showings) {
+        Ok(chosen) => chosen,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => None,
+    };
     let Some(quote) = chosen else {
         let message = cx.tr("widgets.highlight.none")?;
         return crate::native_draw::message_in(cx, out, &look, &message);
@@ -624,11 +635,18 @@ fn paint(
         let mark_size = title * 2.0;
         let x = align.x(area, font.measure_text(mark_size, mark)?);
         let ascent = geometry::line_metrics(font, mark_size)?.0;
-        let baseline = i32::from(area.y) + ascent as i32 - i32::from(laid.mark_h / 4);
+        let baseline = i32::from(area.y)
+            .saturating_add(ascent as i32)
+            .saturating_sub(i32::from(laid.mark_h / 4));
         push_text(out, mark, (mark_size, x, baseline), look.faint)?;
     }
     // The text's lines.
-    let text_area = Rect::new(area.x, area.y + laid.mark_h, area.width, laid.text_h);
+    let text_area = Rect::new(
+        area.x,
+        area.y.saturating_add(laid.mark_h),
+        area.width,
+        laid.text_h,
+    );
     let line = geometry::line_px(font, laid.size)?;
     for (n, shown) in laid.lines.iter().enumerate() {
         let y = text_area.y.saturating_add((n as u16).saturating_mul(line));
@@ -638,7 +656,10 @@ fn paint(
         let row = Rect::new(text_area.x, y, text_area.width, line);
         label(out, font, (laid.size, align), row, shown, look.ink)?;
     }
-    let mut y = text_area.y + laid.text_h + gap / 2;
+    let mut y = text_area
+        .y
+        .saturating_add(laid.text_h)
+        .saturating_add(gap / 2);
     if laid.note {
         let row = Rect::new(area.x, y, area.width, small_h);
         label(out, font, (small, align), row, &quote.note, look.ink)?;
