@@ -3147,6 +3147,7 @@ struct paperpaw_sdk::native::library::annotations::Annotation<'a>(0: paperpaw_sd
 struct paperpaw_sdk::native::library::annotations::AnnotationCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::annotations::AnnotationPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::annotations::AnnotationPageEnd }
 struct paperpaw_sdk::native::library::annotations::AnnotationPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::annotations::AnnotationCursor> }
+struct paperpaw_sdk::native::library::cover::Cover { image: paperpaw_sdk::native::image::ImageId, info: paperpaw_sdk::native::image::ImageInfo }
 struct paperpaw_sdk::native::library::facets::FacetPage<'a>(0: paperpaw_sdk::native::library::rows::LibraryPage<'a, paperpaw_sdk::native::library::facets::FacetRow<'a>>)
 struct paperpaw_sdk::native::library::facets::FacetRow<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibFacet<'a>)
 struct paperpaw_sdk::native::library::fields::Field<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibField<'a>)
