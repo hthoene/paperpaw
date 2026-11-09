@@ -73,11 +73,21 @@ impl Kernel {
             self.try_warn_runtime(&[name, ": not enough memory for its network settings"]);
             return;
         }
-        if let Err(error) = self.define_network_pair(name, true) {
-            self.warn_runtime(alloc::format!("{name}: {error:?}"));
+        // The values kept in the file are read for what this call defines
+        // only: a setting defined before (the plugin loaded again) has the
+        // value the reader gave it since.
+        let defined = |kernel: &Self, id: &str| kernel.shared.settings.get(id).is_some();
+        let (network, saving) = (network_setting(name), saving_setting(name));
+        let before = [defined(self, &network), defined(self, &saving)];
+        if self.define_network_pair(name, true).is_err() {
+            self.try_warn_runtime(&[name, ": its network settings cannot be defined"]);
             return;
         }
-        self.apply_kept_network(name);
+        for (id, was) in [(&network, before[0]), (&saving, before[1])] {
+            if !was {
+                self.apply_kept(id);
+            }
+        }
         self.works.natives.push(kept);
         self.works.stale = true;
     }
@@ -92,23 +102,29 @@ impl Kernel {
         }
     }
 
-    /// The values the reader kept for the two settings of `plugin` (the file
-    /// was read before the plugin was there to define them), set now.
-    fn apply_kept_network(&mut self, plugin: &str) {
-        let (network, saving) = (network_setting(plugin), saving_setting(plugin));
+    /// The value the reader kept for setting `id` (the file was read before
+    /// the plugin was there to define it), set now: the reader's file, then
+    /// the shell's own config over it, as at start. Allocates nothing per
+    /// entry.
+    fn apply_kept(&mut self, id: &str) {
         let settings = &mut self.shared.settings;
-        // The reader's file, then the shell's own config over it, as at start.
         for source in [&self.keys.user, &self.keys.shell] {
             for entry in paperpaw_config::parse(source).flatten() {
-                let id = alloc::format!("{}.{}", entry.section, entry.key);
-                if id == network || id == saving {
+                if is_id(id, entry.section, entry.key) {
                     // A value that does not fit stays as the default.
                     let value = entry.value.as_str();
-                    let _ = settings.set_from_text(&id, &value);
+                    let _ = settings.set_from_text(id, &value);
                 }
             }
         }
     }
+}
+
+/// Whether `id` is `section.key`.
+fn is_id(id: &str, section: &str, key: &str) -> bool {
+    id.strip_prefix(section)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .is_some_and(|rest| rest == key)
 }
 
 fn copy(text: &str) -> Option<String> {

@@ -552,3 +552,23 @@ fn a_plugin_loaded_again_keeps_its_settings_and_is_not_listed_twice() {
     assert_eq!(network_on(&kernel, "linked"), Some(false));
     assert!(kernel.take_warnings().is_empty());
 }
+
+#[test]
+fn a_kept_value_is_read_once_and_never_over_what_the_reader_set_since() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config("[core]\nnetwork.linked = off\n")
+        .build()
+        .unwrap();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(
+        network_on(&kernel, "linked"),
+        Some(false),
+        "read at the first admission"
+    );
+    // The reader switches it on; the plugin is updated (removed and admitted again):
+    // the value in the file as it was at start must not come back.
+    set_network(&mut kernel, "linked", true);
+    kernel.forget_native_network("linked");
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    assert_eq!(network_on(&kernel, "linked"), Some(true));
+}
