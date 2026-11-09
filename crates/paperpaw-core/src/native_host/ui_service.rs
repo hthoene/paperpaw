@@ -1,75 +1,32 @@
-//! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the hand-over ops
-//! 16 `handover` and 17 `params` and the text ops 9 `text_write` and 10
-//! `text_read`, over the one [`UiStore`]. The other ops answer `ERR_UNSUPPORTED`
-//! until their handlers land.
+//! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the questions and
+//! answers (ops 8 `ask`, 2 `question`, 11 `answer`), the hand-over ops 16
+//! `handover` and 17 `params` and the text ops 9 `text_write` and 10
+//! `text_read`, over the one [`UiStore`]; ops 4, 5, 14 and 15 (widgets and
+//! status, `ui_widget_ops`) over the handle table. The other ops answer
+//! `ERR_UNSUPPORTED` until their handlers land.
 //!
-//! The shell (the screen stack) wires a [`UiHost`] once: the callback epoch and
-//! the host-resolved calling instance. A family without it answers
-//! `ERR_UNSUPPORTED`; the X4 profile wires nothing yet. Texts and params may be
-//! secret: they are never in a `Debug` or a log, and the buffers that held a
-//! text are wiped.
+//! The shell wires the [`UiStore`] once; the callback epoch, the host-resolved
+//! calling instance, the stack and the X4 flag come from each call's `Frame`.
+//! A family without the store answers `ERR_UNSUPPORTED`. Texts and params may
+//! be secret: they are never in a `Debug` or a log, and the buffers that held
+//! a text are wiped.
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
-    ui_guard::{self, Ask, OpenRequests, UiStackView},
+    shared::Shared,
+    ui_guard::{self, Ask, OpenRequests},
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
+    ui_widget_ops,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
-use alloc::{rc::Rc, vec::Vec};
+use crate::native_host::codec;
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
 };
 
-/// What the screen stack tells the service about the running callback.
-pub(crate) trait UiHost {
-    /// The epoch of the callback now running (0: none), a host counter bumped at
-    /// every callback entry.
-    fn callback_epoch(&self) -> u64;
-    /// The instance whose callback runs for `owner` (the host resolves it,
-    /// never the plugin), if a screen's callback is running.
-    fn calling_instance(&self, owner: u64) -> Option<u32>;
-    /// The stack, bottom to top, for the admission rules. `f` runs at once and
-    /// the view does not outlive it.
-    fn with_stack(&self, f: &mut dyn FnMut(&dyn UiStackView));
-    /// Whether this is the X4 (one open request, not four).
-    fn x4(&self) -> bool;
-    /// Close the dialog instance of a request that was cancelled (queued: no
-    /// plugin code runs inside the call).
-    fn close_dialog(&self, instance: u32);
-}
-
-#[allow(
-    dead_code,
-    reason = "consumers are the ops 4, 14 and 15 and Core's directory"
-)]
-/// What the registry says about a widget, a status item or a status line
-/// (REG ops 19 and 21), as the owner declared it. The host (Core) answers it
-/// over the registry; it keeps no borrow past the call.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Declared {
-    /// The declaring plugin's host owner id (the one `OwnerResources` id,
-    /// full width; `ui_handles` keeps it as it is).
-    pub(crate) owner: u64,
-    /// The owner's callback token (`widget.spec`, `status.item`, `status.line`).
-    pub(crate) token: u32,
-    /// `flags` bit 1 `private` (ui.md 4.3).
-    pub(crate) private: bool,
-}
-
-/// The registry's widget and status directory, read by ops 4, 14 and 15.
-/// Every method answers `ERR_NOT_FOUND` for an id nobody declared (or whose
-/// plugin retired) and `ERR_NO_MEMORY` when it cannot answer.
-#[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
-pub(crate) trait UiDirectory {
-    /// Op 4: the widget `widget` (a base id; a placement `x@2` has been
-    /// stripped by the caller) and whether `place` lists it.
-    fn widget(&self, widget: &str) -> Result<Declared, i32>;
-    /// Op 14: the status item with the full id `item`.
-    fn status_item(&self, item: &str) -> Result<Declared, i32>;
-    /// Op 15: the status line with the full id `line`.
-    fn status_line(&self, line: &str) -> Result<Declared, i32>;
-}
+pub(crate) use crate::abi7::context::ui_views::{Declared, UiDirectory};
 
 /// Op 14's call of the host-defined stage `core.status` to ONE owning plugin
 /// (stage-local `status.ask` / `status.value`). Core implements it over its
@@ -78,14 +35,34 @@ pub(crate) trait UiDirectory {
 /// reads the owner's reply into `out` and returns the bytes used.
 #[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait StatusAsk {
-    fn ask(&self, owner: u64, items: &[&str], context: &[u8], out: &mut [u8])
-    -> Result<usize, i32>;
+    fn ask(
+        &self,
+        owner: u64,
+        token: u32,
+        items: &[&str],
+        context: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32>;
 }
 
-/// What the shell wires under `core.ui`: the store and the stack's view.
+/// What the shell wires under `core.ui`: the store. The stack's view (the
+/// callback epoch, the calling instance, the rows, the X4 flag and the
+/// queued dialog close) comes from the `Frame` of each call, which the host
+/// builds per callback from host state, never from plugin bytes.
 pub(crate) struct UiServices {
-    pub(crate) store: Rc<UiStore>,
-    pub(crate) host: Rc<dyn UiHost>,
+    pub(crate) store: Shared<UiStore>,
+    /// The widget and status-handle tables and the status cache (ops 4, 5, 14, 15).
+    pub(crate) widgets: super::ui_widget_ops::WidgetState,
+}
+
+impl UiServices {
+    /// The service for a device: `x4` sizes the tables (the X4's small caps).
+    pub(crate) fn new(store: Shared<UiStore>, x4: bool) -> Self {
+        Self {
+            store,
+            widgets: super::ui_widget_ops::WidgetState::new(x4),
+        }
+    }
 }
 
 /// `text_write` flags: bit 0 `last`.
@@ -95,7 +72,7 @@ const SECRET: u32 = 1 << 2;
 
 /// The `core.ui` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -103,28 +80,39 @@ pub(crate) fn backend(
 ) -> Result<usize, i32> {
     let ui = who.hosts.ui().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
-        8 => ask(ui, who, input, out),
-        2 => question(ui, who, input, out),
-        11 => answer(ui, who, input).map(|()| 0),
-        16 => handover(ui, who, input, out),
-        17 => params(ui, who, input, out),
-        9 => text_write(ui, who, input).map(|()| 0),
-        10 => text_read(ui, who, input, out),
+        8 => ask(frame, ui, who, input, out),
+        2 => question(frame, ui, input, out),
+        11 => answer(frame, ui, input).map(|()| 0),
+        16 => handover(frame, ui, who, input, out),
+        17 => params(frame, ui, input, out),
+        4 => ui_widget_ops::widget_make(frame, ui, who, input, out),
+        5 => ui_widget_ops::widget_drop(ui, who, input).map(|()| 0),
+        14 => ui_widget_ops::status_values(frame, ui, who, input, out),
+        15 => ui_widget_ops::status_line(frame, ui, who, input, out),
+        9 => text_write(frame, ui, who, input).map(|()| 0),
+        10 => text_read(frame, ui, who, input, out),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
 
-fn stamp(ui: &UiServices, who: &Caller<'_>) -> Result<Stamp, i32> {
-    Stamp::new(who.owner, ui.host.callback_epoch())
+fn stamp(frame: &dyn Frame, who: &Caller<'_>) -> Result<Stamp, i32> {
+    Stamp::new(who.owner, frame.callback_epoch()?)
 }
 
-/// Op 8: records a question for the caller and returns its request id; the
-/// dialog opens after the caller's callback returns.
-fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let stamp = stamp(ui, who)?;
+/// The form of an `ask` (ui.md 3.1) before any admission: the slot, then
+/// the kind, flags and choices (`Question::check`). Gives whether the
+/// question goes to the phone keyboard. The one check of the host, which
+/// hosts that stand in for it (the scripted host) call instead of copying.
+///
+/// # Errors
+/// `ERR_INVALID` for a slot, kind, flags or choices that do not fit,
+/// `ERR_NO_SPACE` for a choice or list over its limit.
+pub fn check_ask(ask: &wire::ServiceUiAsk<'_>) -> Result<bool, i32> {
+    question_of(ask).map(|question| question.remote)
+}
+
+/// The checked question `ask` brings.
+fn question_of<'a>(ask: &wire::ServiceUiAsk<'a>) -> Result<Question<'a>, i32> {
     let remote = match ask.slot {
         "" => false,
         ui_guard::REMOTE_KEYBOARD if ask.kind == 0 => true,
@@ -139,17 +127,33 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
         choices: ask.choices,
     };
     question.check()?;
-    let instance = ui.host.calling_instance(who.owner);
+    Ok(question)
+}
+
+/// Op 8: records a question for the caller and returns its request id; the
+/// dialog opens after the caller's callback returns.
+fn ask(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    who: &Caller<'_>,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
+    let stamp = stamp(frame, who)?;
+    let question = question_of(&ask)?;
+    let instance = frame.calling_instance().ok();
     // A dialog of an open request asks under it (the phone keyboard).
     let parent = instance.and_then(|dialog| ui.store.dialog_of(dialog));
     let (total, has) = ui.store.open_requests(who.owner);
     let secret = ask.kind == 0 && ask.flags & SECRET != 0;
+    let x4 = frame.ui_x4()?;
     let mut admitted = Err(ERR_STATE);
-    ui.host.with_stack(&mut |view| {
+    frame.with_stack(&mut |view| {
         admitted = ui_guard::ask_admission(
             view,
             &Ask {
-                asker: who.plugin,
+                asker: who.owner,
                 kind: ask.kind,
                 slot: ask.slot,
                 secret,
@@ -163,9 +167,9 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
                 total,
                 asker_has_one: has,
             },
-            ui.host.x4(),
+            x4,
         );
-    });
+    })?;
     let admission = admitted?;
     let (id, cancelled) = ui.store.ask(
         stamp,
@@ -176,20 +180,28 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
         admission.cancels_asker_request,
     )?;
     if let Some(dialog) = cancelled.and_then(|c| c.dialog) {
-        ui.host.close_dialog(dialog);
+        // Queued, no plugin code runs. The request is cancelled already and
+        // stays so whatever this answers: `ERR_STATE` is a stack that moved on
+        // (the dialog is gone), and the queue (16 closes) cannot fill with at
+        // most 4 requests open. A dialog left over is closed by the cleanup
+        // sweep when its request is delivered.
+        let _ = frame.close_dialog(dialog);
     }
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiRequest(wire::ServiceUiRequest { request: id }),
         out,
     )
 }
 
 /// Op 2: the question, for the request's dialog instance only.
-fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiRequest(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+fn question(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let ask: wire::ServiceUiRequest = codec::single(input)?;
+    let dialog = frame.calling_instance()?;
     ui.store.question(dialog, ask.request, |shown| {
         let record = Record::ServiceUiQuestion(wire::ServiceUiQuestion {
             kind: shown.kind,
@@ -199,24 +211,28 @@ fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
             text: shown.text,
             choices: shown.choices,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     })?
 }
 
 /// Op 11: the dialog's answer.
-fn answer(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiAnswer(answer) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+fn answer(frame: &dyn Frame, ui: &UiServices, input: &[u8]) -> Result<(), i32> {
+    let answer: wire::ServiceUiAnswer = codec::single(input)?;
+    let dialog = frame.calling_instance()?;
     ui.store
         .answer(dialog, answer.request, answer.outcome, answer.choice)
 }
 
 /// Op 16: stages the params, publishes the hand-over only after the whole
 /// batch walked `OK`; a refusal leaves nothing.
-fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let stamp = stamp(ui, who)?;
+fn handover(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    who: &Caller<'_>,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let stamp = stamp(frame, who)?;
     let mut staged: Vec<Param<'_>> = Vec::new();
     staged
         .try_reserve_exact(PARAMS_MAX)
@@ -233,18 +249,16 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
         Ok(())
     })?;
     let id = ui.store.handover_make(stamp, &staged)?;
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiHandle(wire::ServiceUiHandle { handle: id }),
         out,
     )
 }
 
 /// Op 17: the params of the calling instance's hand-over, then `end`.
-fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceUiHandle(handle) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let instance = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+fn params(frame: &dyn Frame, ui: &UiServices, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let handle: wire::ServiceUiHandle = codec::single(input)?;
+    let instance = frame.calling_instance()?;
     let info = ui.store.info(instance).ok_or(ERR_STATE)?;
     if info.handover != handle.handle {
         return Err(ERR_STATE);
@@ -256,25 +270,28 @@ fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Re
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let room = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let used = ui.store.params(instance, handle.handle, &mut out[..room])?;
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 
 /// Op 9: a part of a hand-over's text, by its maker in the callback that made it.
-fn text_write(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiText(part) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+fn text_write(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<(), i32> {
+    let part: wire::ServiceUiText<'_> = codec::single(input)?;
     if part.flags & !LAST != 0 || part.data.len() > PART_MAX {
         return Err(ERR_INVALID);
     }
     let offset = usize::try_from(part.offset).map_err(|_| ERR_INVALID)?;
-    let (stamp, last) = (stamp(ui, who)?, part.flags & LAST != 0);
+    let (stamp, last) = (stamp(frame, who)?, part.flags & LAST != 0);
     if ui.store.is_request(part.text) {
-        let instance = ui.host.calling_instance(who.owner);
+        let instance = frame.calling_instance().ok();
         return ui.store.request_text_write(
             stamp,
             instance,
@@ -290,15 +307,14 @@ fn text_write(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32
 
 /// Op 10: a part of a hand-over's text, for the owning instance only.
 fn text_read(
+    frame: &dyn Frame,
     ui: &UiServices,
     who: &Caller<'_>,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiTextAt(at) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let instance = ui.host.calling_instance(who.owner);
+    let at: wire::ServiceUiTextAt = codec::single(input)?;
+    let instance = frame.calling_instance().ok();
     let offset = usize::try_from(at.offset).map_err(|_| ERR_INVALID)?;
     let mut part = Vec::new();
     part.try_reserve_exact(PART_MAX)
@@ -322,7 +338,7 @@ fn text_read(
             flags: u32::from(last),
             data,
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     });
     part.fill(0);
     core::hint::black_box(&mut part);

@@ -404,6 +404,11 @@ impl CardTables {
             })
     }
 
+    #[cfg(feature = "kernel")]
+    pub(super) fn tables(&self) -> impl Iterator<Item = CardTable<'_>> + Clone {
+        self.entries.iter().map(|entry| CardTable { entry })
+    }
+
     pub(super) fn table(&self, tag: &str) -> Option<CardTable<'_>> {
         self.entry(tag).map(|entry| CardTable { entry })
     }
@@ -524,7 +529,7 @@ fn same_tag(tag: &str, wanted: &str) -> bool {
 
 /// Whether plugin `a` has a language over plugin `b` (D4): the greater id,
 /// compared byte-wise in lowercase.
-fn wins(a: &str, b: &str) -> bool {
+pub fn wins(a: &str, b: &str) -> bool {
     a.bytes()
         .map(|c| c.to_ascii_lowercase())
         .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))

@@ -2,12 +2,15 @@
 //! `doc_service/check.rs` does for a format's: a record of another kind, a
 //! value outside its set, rows out of order or a repeated id is `ERR_INVALID`.
 use super::super::BookRef;
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::ERR_INVALID;
 
 const PPM: u32 = 1_000_000;
 /// `lib_entry.flags` and `lib_book.flags`: bits 0-7.
 const BOOK_FLAGS: u32 = 0xff;
+/// `lib_book` also has bit 8 `missing` (the host's own lookup).
+const LIB_BOOK_FLAGS: u32 = 0x1ff;
 /// `lib_position.flags`: has xpointer, has conversion, from sync.
 const POSITION_FLAGS: u32 = 0b111;
 /// `lib_annotation.flags`: noted, text cut, note cut, conversion, XPointers.
@@ -44,7 +47,7 @@ impl<'a> Iterator for Earlier<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let (record, used) = wire::record_decode_prefix(self.0).ok()?;
+        let (record, used) = codec::decode_prefix(self.0).ok()?;
         self.0 = &self.0[used..];
         Some(record)
     }
@@ -114,7 +117,7 @@ pub(super) fn book(book: &wire::ServiceLibBook<'_>, named: BookRef<'_>) -> Resul
         book.generation != 0
             && super::super::args::path_valid(book.path)
             && progress_ok(book.progress)
-            && book.flags & !BOOK_FLAGS == 0
+            && book.flags & !LIB_BOOK_FLAGS == 0
             && cut(book.flags, 1 << 5, book.title, book.title_bytes)
             && cut(book.flags, 1 << 6, book.author, book.author_bytes)
             && cut(book.flags, 1 << 7, book.series, book.series_bytes),

@@ -7,7 +7,7 @@
 #[path = "support/native_host.rs"]
 mod host;
 use paperpaw_plugin_battery::recording::Recorder;
-use paperpaw_sdk::native::{Error, Host, Plugin, events::Event, reply::Reply};
+use paperpaw_sdk::native::{Error, Host, Plugin, events::Incoming, reply::Reply};
 #[derive(Default)]
 struct Probe(Recorder);
 impl Plugin for Probe {
@@ -18,7 +18,7 @@ impl Plugin for Probe {
         &mut self,
         host: &Host<'_>,
         _: u32,
-        event: Event<'_>,
+        event: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.0.event(host, event)

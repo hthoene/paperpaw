@@ -1,30 +1,91 @@
 //! One native declaration entry, with owned mapping before binding and publication.
 use super::{
-    FlatHost,
     flat::FlatDepth,
     native_dispatch::NativeDispatch,
     native_instances::NativeLease,
     native_screen_factory::NativeScreenSpec,
     native_values::{self, Callback, Value},
-    registrations::Record,
+    registrations::{self as wire, Record, Registration},
     retained::Retained,
     shell,
 };
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
-use paperpaw_sdk::{Id, IdError, RegisterError};
+use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 enum Owned {
     Screen(Callback),
+    Action(Callback),
+    Setting(paperpaw_sdk::SettingSpec),
+    Group(paperpaw_sdk::SettingGroupSpec),
+    Resource(super::native_resources::Resource),
+    /// A screen the plugin offers for a slot (`slot.offer`).
+    SlotOffer {
+        slot: Id,
+        screen: Id,
+        priority: paperpaw_sdk::Priority,
+    },
 }
 
-fn map_record(owner: &str, record: Record<'_>) -> Result<Owned, i32> {
+fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
     match record {
-        Record::ScreenSpec(_) => match native_values::from_record(owner, record)? {
-            Value::Screen(callback) => Ok(Owned::Screen(callback)),
-            _ => Err(ERR_INVALID),
+        Record::ScreenSpec(_)
+        | Record::ActionSpec(_)
+        | Record::SettingSpec(_)
+        | Record::SettingGroup(_) => match native_values::from_record(owner, record)? {
+            Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
+            Value::Action(callback) => Ok(Some(Owned::Action(callback))),
+            Value::Setting(spec) => Ok(Some(Owned::Setting(spec))),
+            Value::Group(group) => Ok(Some(Owned::Group(group))),
         },
+        // The extras (section, editor, check) are presentation the settings
+        // page reads from the declaration store; the store keeps the record.
+        Record::SettingExtra(_) => Ok(None),
+        // A stage and a subscription are read from the declaration store (the
+        // broker is fed by `DeclarationStore::stage` and `stage_subscribers`);
+        // they go with the owner's declarations.
+        Record::StageSpec(_) | Record::RegistrationStage(_) => Ok(None),
+        // A setup step stays in the declaration store; the registry's `setup`
+        // query evaluates it where it is read (`registry.md` section 6).
+        Record::SetupStep(_) => Ok(None),
+        Record::ResourceFontFace(_)
+        | Record::ResourceFontExtension(_)
+        | Record::ResourceHyphenation(_) => {
+            Ok(super::native_resources::map(owner, record)?.map(Owned::Resource))
+        }
+        Record::WidgetSpec(_)
+        | Record::WidgetPlace(_)
+        | Record::StatusItem(_)
+        | Record::StatusLine(_)
+        | Record::StatusPlace(_) => Ok(None),
+        // A slot the plugin names stays in the declaration store (its title is
+        // read from there); an offer also goes to the registry the kernel
+        // opens slots by (`Registry::resolve_slot`). `Staging::native_offer`
+        // refuses an offer of a screen that is not the plugin's own. The
+        // contract gives the priority no range (an i32), the kernel's is an
+        // i16: one outside it counts as the nearest end, so an offer that
+        // declared fine never fails the install.
+        Record::SlotSpec(_) => Ok(None),
+        Record::SlotOffer(offer) => Ok(Some(Owned::SlotOffer {
+            slot: native_values::checked_id(offer.slot)?,
+            screen: native_values::checked_id(offer.screen)?,
+            priority: paperpaw_sdk::Priority(i16::try_from(offer.priority).unwrap_or(
+                if offer.priority < 0 {
+                    i16::MIN
+                } else {
+                    i16::MAX
+                },
+            )),
+        })),
+        // Menus and icons stay in the declaration store (charged there, removed
+        // with their owner); `native_menus` reads them.
+        Record::MenuEntry(_)
+        | Record::IconSpec(_)
+        | Record::MenuNeed(_)
+        | Record::MenuSection(_)
+        | Record::MenuHide(_)
+        | Record::MenuDescribe(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -44,6 +105,61 @@ impl crate::Kernel {
         depth: &FlatDepth,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        self.register_native_in(host, depth, None, report)
+    }
+
+    /// [`Self::register_native`] for a plugin that lives in `folder` (the loader
+    /// of its `.ppn` knows it): the font and hyphenation files its records name
+    /// are relative to it. A plugin with such records and no folder (a linked
+    /// built-in) is refused whole with `ERR_UNSUPPORTED`; so is one with an
+    /// empty folder (a folder written with a trailing `/` is the same folder).
+    ///
+    /// When it brings fonts the choices of reading font and status font are
+    /// offered anew and the fonts chosen applied, as `plugins_changed` does.
+    /// The refresh never aborts on a short heap: where it cannot be made the
+    /// plugin stays installed, the choices and fonts in use stay and a
+    /// warning says so. It may stage a command (the font size, if the reading
+    /// font has none so large): the next round of commands runs it, so the
+    /// caller does nothing about it.
+    ///
+    /// # Errors
+    /// As [`Self::register_native`].
+    pub fn register_native_in<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
+        let fonts_before = self.shared.fonts.ids().count();
+        let offers_before = self.shared.registry.offers();
+        self.admit_native(host, depth, folder, report)?;
+        if self.shared.registry.offers() != offers_before {
+            // The slots now bound are known to plugins (`Env::has_slot`).
+            self.refresh_slots();
+        }
+        if self.shared.fonts.ids().count() != fonts_before {
+            // The families it brought are offered, and a font chosen that was
+            // waiting for it is in use. This is the kernel's own refresh, the
+            // one `plugins_changed` runs for every plugin and the builder at
+            // start-up; it is not part of the admission, whose allocation
+            // faults the tests sweep ([`Self::admit_native`]).
+            self.offer_font_choices();
+            self.apply_reading_font();
+            self.apply_status_font();
+        }
+        Ok(())
+    }
+
+    /// The admission of [`Self::register_native_in`], without the refresh of
+    /// the font choices: all or nothing, and every allocation fallible.
+    pub(crate) fn admit_native<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
         self.shared
             .native_instances
             .adopt_pool(
@@ -51,13 +167,31 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
+        if self.shared.registry.native_declarations.is_none() {
+            self.shared.registry.native_declarations = Some(
+                super::shared::Shared::try_new(
+                    super::native_declarations::NativeDeclarations::default(),
+                )
+                .map_err(|_| shell::Error::Allocation)?,
+            );
+        }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
-        let (retained, (owner, owned)) = Retained::make_native(host, map_declarations)?;
-        // Callback registrations need their own mapping arm. Never accept an
-        // owner while silently leaving any committed contribution unrouted.
-        if !retained.batch().map_err(shell::Error::from)?.is_empty() {
+        let folder = folder
+            .map(|folder| folder.trim_end_matches('/'))
+            .filter(|folder| !folder.is_empty());
+        let (retained, (owner, owned, tokens), raw) =
+            Retained::make_native_stored(host, map_declarations)?;
+        if folder.is_none()
+            && owned
+                .iter()
+                .any(|value| matches!(value, Owned::Resource(_)))
+        {
+            self.warn_runtime("a plugin with font or hyphenation files needs its folder");
             return Err(shell::Error::Status(ERR_UNSUPPORTED));
         }
+        // The callback registrations are admitted whole or the owner is not:
+        // none is dropped unrouted.
+        let events = check_registrations(&retained, &depth, &tokens)?;
         let key = self
             .shared
             .native_instances
@@ -73,7 +207,14 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(key, retained, depth, owned, &owner, report);
+        let result = self.bind_native(
+            key,
+            retained,
+            depth,
+            (owned, raw, events, folder.unwrap_or_default()),
+            &owner,
+            report,
+        );
         if result.is_err() {
             self.shared
                 .native_instances
@@ -81,6 +222,23 @@ impl crate::Kernel {
                 .map_err(shell::Error::Status)?;
         }
         result
+    }
+
+    /// The slots some screen is bound to, as plugins read them
+    /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
+    /// where the heap has no room for the list the one known stays, and a
+    /// warning says so.
+    fn refresh_slots(&mut self) {
+        match self.shared.registry.try_bound_slots() {
+            Some(slots) => self.shared.slots = slots,
+            None => {
+                // The list known stays, less the slots whose last offer went.
+                self.shared.registry.retain_bound(&mut self.shared.slots);
+                self.try_warn_runtime(&[
+                    "not enough memory to update the slots plugins offer screens for; the list stays, less slots whose last offer went",
+                ]);
+            }
+        }
     }
 
     /// Revoke first; store cleanup, screen closure and factory removal must
@@ -93,12 +251,30 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        self.native_owner_stopped(key);
+        if let Some(declarations) = &self.shared.registry.native_declarations {
+            let Ok(mut store) = declarations.store.try_borrow_mut() else {
+                return None;
+            };
+            store.remove_host_owner(key);
+            if declarations.catalog.prune(&store).is_err() {
+                return None;
+            }
+        }
+        if self.native_owner_stopped(key).is_err() {
+            return None;
+        }
         self.remove_retired_native_screens(owner);
         self.shared
             .registry
             .screens
             .remove_native_owner(owner.as_str());
+        // Its offers for slots go with its screens.
+        self.shared.registry.remove_native_offers(owner.as_str());
+        self.refresh_slots();
+        // The actions hold the plugin's lease; the settings and groups it
+        // defined go with it (the reader's values stay for its next load).
+        self.shared.actions.remove_plugin(owner.as_str());
+        self.shared.settings.remove_plugin(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
@@ -115,13 +291,44 @@ impl crate::Kernel {
         }
     }
 
-    fn native_owner_stopped(&self, _owner: u64) {
-        // TODO(#228 H2): call the one UiStore::owner_stopped before its
-        // instances close. Input owns that store; no second store lives here.
+    fn queue_native_dialog_close(&self, dialog: u32) {
+        if let Err(status) = self
+            .shared
+            .stack_rows
+            .defer_close(dialog, self.shared.stack_rows.generation())
+        {
+            self.shared.stack_rows.note_close_error(status);
+        }
     }
 
-    pub(crate) fn native_instance_closed(&self, _instance: u32) {
-        // TODO(#228 H2): call the same UiStore::instance_closed.
+    fn native_owner_stopped(&self, owner: u64) -> Result<(), i32> {
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            store.owner_dialogs(owner, &mut |dialog| self.queue_native_dialog_close(dialog))?;
+            store.owner_stopped(owner)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn native_instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut result = Ok(());
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            result = (|| {
+                store.dialog_closed(instance)?;
+                store.asker_instance_closed(instance, &mut |cancelled| {
+                    if let Some(dialog) = cancelled.dialog {
+                        self.queue_native_dialog_close(dialog);
+                    }
+                })?;
+                store.instance_closed(instance)
+            })();
+        }
+        // The widget instances the screen made go too, whatever the store
+        // steps said (a retry repeats every step; each is idempotent).
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            let widgets = ui.screen_closed(instance).map(|_| ());
+            result = result.and(widgets);
+        }
+        result
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
@@ -157,6 +364,9 @@ impl crate::Kernel {
     }
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
+        if self.shared.stack_rows.closes_pending() {
+            return Some(self.now);
+        }
         self.shared
             .native_instances
             .retirement_due(self.now.millis())
@@ -168,15 +378,25 @@ impl crate::Kernel {
         key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
-        owned: Vec<Owned>,
+        mapped: (
+            Vec<Owned>,
+            super::raw_declarations::RawDeclarations,
+            super::event_tags::EventTags,
+            &str,
+        ),
         owner: &Id,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let flat_host = FlatHost {
-            meter: Rc::clone(&self.shared.meter),
-            font_removals: Rc::clone(&self.shared.font_removals),
-        };
-        let instance = NativeLease::try_new(NativeDispatch::new(
+        let (owned, raw, events, folder) = mapped;
+        let mut flat_host = self.flat_host();
+        flat_host.directory = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+            .transpose()?;
+        let instance = NativeLease::try_new(NativeDispatch::with_events(
             retained,
             depth,
             flat_host,
@@ -185,11 +405,16 @@ impl crate::Kernel {
                 .native_instances
                 .identity(key)
                 .map_err(shell::Error::Status)?,
+            events,
         ))
         .map_err(shell::Error::Status)?;
         let mut staging = crate::registry::Staging::default();
+        let mut resources = super::native_resources::Resources::default();
         for value in owned {
             match value {
+                Owned::Resource(resource) => resources
+                    .add(resource, folder)
+                    .map_err(shell::Error::Status)?,
                 Owned::Screen(callback) => {
                     let screen = instance
                         .try_clone()
@@ -199,43 +424,252 @@ impl crate::Kernel {
                         .native_screen(owner, screen)
                         .map_err(shell::Error::Status)?;
                 }
+                Owned::SlotOffer {
+                    slot,
+                    screen,
+                    priority,
+                } => staging
+                    .native_offer(owner, slot, screen, priority)
+                    .map_err(shell::Error::Status)?,
+                Owned::Action(callback) => {
+                    let action = instance
+                        .try_clone()
+                        .and_then(|lease| super::native_action::spec(callback, lease))
+                        .map_err(shell::Error::Status)?;
+                    let action = boxed(action)?;
+                    staging
+                        .native(owner, Contribution::Action(action))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::Setting(spec) => {
+                    let spec = boxed(spec)?;
+                    staging
+                        .native(owner, Contribution::Setting(spec))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::Group(group) => {
+                    let group = paperpaw_sdk::SettingGroup::from_boxed(boxed(group)?);
+                    staging
+                        .native(owner, Contribution::SettingGroup(group))
+                        .map_err(shell::Error::Status)?;
+                }
             }
         }
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
             .map_err(shell::Error::Status)?;
-        // Only screen factories are supported here. Publish through the reserved
-        // staging transaction without the legacy merge's allocating action sweep.
-        staging
-            .merge_into(&mut self.shared.registry, &mut self.shared.actions)
-            .map_err(|error| shell::Error::Status(merge_status(&error)))
+        let declarations = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(shell::Error::Allocation)?;
+        let mut allocations = super::declaration_store::Allocations::default();
+        let pending = super::native_declarations::pending(
+            owner,
+            key,
+            instance.try_clone().map_err(shell::Error::Status)?,
+            raw,
+            &mut allocations,
+        )
+        .map_err(shell::Error::Status)?;
+        let publication = declarations
+            .stage(pending, key, &mut allocations)
+            .map_err(shell::Error::Status)?;
+        // Every contribution at once (all or nothing): the refusals come
+        // before anything is published, and the room is made first.
+        self.publish_native(staging, owner, folder, resources)
+            .map_err(|error| shell::Error::Status(merge_status(&error)))?;
+        publication.commit();
+        Ok(())
     }
 }
 
-fn map_declarations(view: &super::declaration_checks::View<'_>) -> Result<(Id, Vec<Owned>), i32> {
+impl crate::Kernel {
+    /// Publishes what a native plugin contributed: actions, screens, settings
+    /// and groups. Every refusal (a duplicate, a default that does not fit, no
+    /// room) comes before anything changes, and nothing allocates once
+    /// publication starts, so a failure leaves no trace.
+    fn publish_native(
+        &mut self,
+        staging: crate::registry::Staging,
+        owner: &Id,
+        folder: &str,
+        resources: super::native_resources::Resources,
+    ) -> Result<(), RegisterError> {
+        self.check_resources(&resources)?;
+        for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
+            if self.shared.settings.get(spec.id.as_str()).is_some() {
+                return Err(duplicate(&spec.id));
+            }
+            if !spec.kind.accepts(&spec.default) {
+                return Err(RegisterError::Invalid {
+                    message: "default value does not match the setting kind".into(),
+                });
+            }
+        }
+        for group in &staging.setting_groups {
+            if self
+                .shared
+                .settings
+                .groups()
+                .any(|other| other.id == group.id)
+            {
+                return Err(duplicate(&group.id));
+            }
+        }
+        let (actions, settings, groups) = staging.native_counts();
+        let no_room = || RegisterError::Invalid {
+            message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
+        };
+        // A made setting needs one of the limited places: none is dropped
+        // for lack of one once publication starts.
+        if !self.shared.settings.has_room_for(settings) {
+            return Err(no_room());
+        }
+        self.shared
+            .actions
+            .try_reserve(actions)
+            .map_err(|_| no_room())?;
+        self.shared
+            .settings
+            .try_reserve(settings, groups)
+            .map_err(|_| no_room())?;
+        self.reserve_resources(owner, folder, &resources)?;
+        // Whatever refuses from here on takes the hyphenation tables out
+        // again (nothing else is published before the merge).
+        let published = self.publish_rest(staging, owner, resources);
+        if published.is_err() {
+            self.undo_resources(owner);
+        }
+        published
+    }
+
+    /// The part of the publication after the room is made.
+    fn publish_rest(
+        &mut self,
+        mut staging: crate::registry::Staging,
+        owner: &Id,
+        resources: super::native_resources::Resources,
+    ) -> Result<(), RegisterError> {
+        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
+        for setting in staging.settings.drain(..) {
+            // Checked above (no duplicate, a default that fits, a place
+            // and the room); an error here would be a mistake in those.
+            match setting {
+                crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
+                crate::registry::Staged::Fixed(list, at) => {
+                    self.shared.settings.define_fixed(list, at)
+                }
+            }?;
+        }
+        for group in staging.setting_groups.drain(..) {
+            self.shared.settings.add_group(group)?;
+        }
+        self.publish_fonts(owner, resources)
+    }
+}
+
+/// `Duplicate` for `id`, or `Invalid` when the id cannot be copied.
+fn duplicate(id: &Id) -> RegisterError {
+    id.try_clone().map_or(
+        RegisterError::Invalid {
+            message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
+        },
+        |id| RegisterError::Duplicate { id },
+    )
+}
+
+/// Admits the callback registrations of a committed batch: an event needs a
+/// tag the host encodes (`ERR_UNSUPPORTED` otherwise) and one entry for each
+/// tag, a draw the token of exactly one screen, widget, status item or status line
+/// the plugin declared and one entry for each token (`ERR_INVALID` otherwise). The registrations stay in
+/// the batch, which teardown drops before the owner stops. The admitted event
+/// tags are returned, for the instance to deliver by.
+fn check_registrations<S: Services + 'static, M: 'static>(
+    retained: &Retained<S, M>,
+    depth: &FlatDepth,
+    tokens: &[u32],
+) -> Result<super::event_tags::EventTags, shell::Error> {
+    let mut events = super::event_tags::EventTags::default();
+    let mut drawn: Vec<u32> = Vec::new();
+    let mut verdict = Ok(());
+    retained
+        .registrations(depth.as_depth(), &mut |_, record| {
+            if verdict.is_err() {
+                return;
+            }
+            verdict = match record {
+                Registration::Event { event_tag, .. } => {
+                    if !super::events::is_event_tag(event_tag) {
+                        Err(ERR_UNSUPPORTED)
+                    } else if events.contains(event_tag) {
+                        Err(ERR_INVALID)
+                    } else {
+                        events.insert(event_tag)
+                    }
+                }
+                Registration::Draw { token } => {
+                    // The token of exactly one drawable declaration, named once.
+                    if tokens.iter().filter(|&&other| other == token).count() != 1
+                        || drawn.contains(&token)
+                    {
+                        Err(ERR_INVALID)
+                    } else if drawn.try_reserve(1).is_err() {
+                        Err(ERR_NO_MEMORY)
+                    } else {
+                        drawn.push(token);
+                        Ok(())
+                    }
+                }
+            };
+        })
+        .map_err(shell::Error::from)?;
+    verdict.map_err(shell::Error::Status)?;
+    Ok(events)
+}
+
+fn map_declarations(
+    view: &super::declaration_checks::View<'_>,
+) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    // The tokens of what the plugin draws itself (screens, widgets, status
+    // items and status lines), which draws may name.
+    let mut tokens = Vec::new();
+    let mut any = false;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
             return;
         }
         result = (|| {
-            let value = map_record(view.plugin, record)?;
-            owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-            owned.push(value);
+            if let Record::ScreenSpec(wire::ScreenSpec { token, .. })
+            | Record::WidgetSpec(wire::WidgetSpec { token, .. })
+            | Record::StatusItem(wire::StatusItem { token, .. })
+            | Record::StatusLine(wire::StatusLine { token, .. }) = record
+            {
+                tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                tokens.push(token);
+            }
+            if let Some(value) = map_record(view.plugin, record)? {
+                owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                owned.push(value);
+            }
+            any = true;
             Ok(())
         })();
     })?;
     result?;
-    if owned.is_empty() {
+    if !any {
         return Err(ERR_UNSUPPORTED);
     }
-    Ok((owner, owned))
+    Ok((owner, owned, tokens))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {
@@ -248,6 +682,12 @@ fn merge_status(error: &RegisterError) -> i32 {
         }
         _ => ERR_INVALID,
     }
+}
+
+/// One owned contribution in a fallible box: no room is an error, never an
+/// abort.
+fn boxed<T>(value: T) -> Result<alloc::boxed::Box<T>, shell::Error> {
+    super::shared::try_box(value).ok_or(shell::Error::Status(ERR_NO_MEMORY))
 }
 
 #[cfg(test)]

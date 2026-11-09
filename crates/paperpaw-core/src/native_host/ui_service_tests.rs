@@ -6,9 +6,9 @@ use super::*;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
-use crate::native_host::ui_guard::Row;
+use crate::native_host::ui_guard::{Row, UiStackView};
 use crate::native_host::ui_store::Limits;
-use alloc::string::String;
+use alloc::{rc::Rc, string::String};
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
@@ -18,32 +18,14 @@ use paperpaw_sdk::{Env, Settings};
 struct Stack {
     epoch: Cell<u64>,
     instance: Cell<Option<u32>>,
-    rows: core::cell::RefCell<Vec<ui_guard::Row<'static>>>,
+    rows: core::cell::RefCell<Vec<ui_guard::Row>>,
     x4: Cell<bool>,
     closed: core::cell::RefCell<Vec<u32>>,
 }
-impl UiHost for Stack {
-    fn callback_epoch(&self) -> u64 {
-        self.epoch.get()
-    }
-    fn calling_instance(&self, _: u64) -> Option<u32> {
-        self.instance.get()
-    }
-    fn with_stack(&self, f: &mut dyn FnMut(&dyn UiStackView)) {
-        f(&ui_guard::Rows(&self.rows.borrow()));
-    }
-    fn x4(&self) -> bool {
-        self.x4.get()
-    }
-    fn close_dialog(&self, instance: u32) {
-        self.closed.borrow_mut().push(instance);
-    }
-}
-
 struct View<'a> {
     env: &'a Env<'a>,
     hosts: crate::native_host::host_services::HostServices,
-    store: Rc<UiStore>,
+    store: Shared<UiStore>,
     stack: Rc<Stack>,
     fail: Cell<u32>,
 }
@@ -53,6 +35,29 @@ impl Frame for View<'_> {
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
+    }
+    // The stack's view, as Core's frame gives it from the stamped callback.
+    fn callback_epoch(&self) -> Result<u64, i32> {
+        Some(self.stack.epoch.get())
+            .filter(|epoch| *epoch != 0)
+            .ok_or(ERR_STATE)
+    }
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.callback_epoch()?;
+        self.stack.instance.get().ok_or(ERR_STATE)
+    }
+    fn with_stack(&self, visit: &mut dyn FnMut(&dyn UiStackView)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        visit(&ui_guard::Rows(&self.stack.rows.borrow()));
+        Ok(())
+    }
+    fn ui_x4(&self) -> Result<bool, i32> {
+        self.callback_epoch()?;
+        Ok(self.stack.x4.get())
+    }
+    fn close_dialog(&self, instance: u32) -> Result<(), i32> {
+        self.stack.closed.borrow_mut().push(instance);
+        Ok(())
     }
 }
 
@@ -157,7 +162,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
-    let store = Rc::new(UiStore::new(limits));
+    let store = Shared::try_new(UiStore::new(limits)).unwrap();
     let stack = Rc::new(Stack {
         epoch: Cell::new(1),
         instance: Cell::new(None),
@@ -168,10 +173,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
-            .wire_ui(UiServices {
-                store: store.clone(),
-                host: stack.clone(),
-            })
+            .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
             .unwrap();
     }
     f(&View {
@@ -194,7 +196,7 @@ fn an_unwired_family_and_the_ops_not_yet_here_are_unsupported() {
     });
     view(|v| {
         let schema = services_wire::service_schema("core.ui", 1).unwrap();
-        for op in [1, 3, 4, 5, 6, 7, 12, 13, 14, 15] {
+        for op in [1, 3, 6, 7, 12, 13] {
             let op = schema.op(op).unwrap();
             assert_eq!(
                 v.call_raw(1, op, &[0]).err(),
@@ -434,7 +436,7 @@ fn open_dialog(v: &View<'_>, owner: u64, id: u32, dialog: u32) {
     v.store.dialog_opened(id, dialog).unwrap();
 }
 
-fn row(instance: u32, owner: &'static str) -> Row<'static> {
+fn row(instance: u32, owner: u64) -> Row {
     Row {
         instance,
         owner,
@@ -584,7 +586,7 @@ fn a_guard_denies_the_nested_question_and_the_answer_goes_to_the_asker() {
         open_dialog(v, 1, parent, 40);
         v.stack.instance.set(Some(40));
         v.stack.epoch.set(6);
-        let mut guard = row(50, "lock");
+        let mut guard = row(50, 3);
         guard.guards = true;
         v.stack.rows.borrow_mut().push(guard);
         assert_eq!(

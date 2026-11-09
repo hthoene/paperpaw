@@ -1,7 +1,3 @@
 ### Changed
 
-- **Wi-Fi: what the plugin does with the radio's events on interface 7** (#228). Scans, joins, a
-  network wanted or idle, the typed password, the screen shown, charging and the two timers are
-  decided without the host (the five radio scenarios of interface 6 give the same results) and
-  refuse cleanly when memory is short; the radio's events 92-95 are subscribed. The timers and the
-  callbacks follow.
+- **Wi-Fi: the radio's events on interface 7** (#228). The Wi-Fi plugin now brings the radio on when a plugin wants the network and joins the network joined before, looks again after a scan, hears a join that failed (a wrong password stops being pending, the next network is tried or the failure told), switches the radio off after its idle time (as a timer through the device's work service) and at once when home or a book shows, and says so when no network is coming. The phone setup and the typed password's keeping once online follow with their parts.

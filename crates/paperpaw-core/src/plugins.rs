@@ -607,82 +607,6 @@ impl Kernel {
         }
     }
 
-    /// Chooses the reading font family from `core.reading-font` and loads
-    /// its files.
-    pub(crate) fn apply_reading_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::READING_FONT.as_str())
-            .to_string();
-        let family = (chosen != core_settings::DEFAULT_FONT
-            && self.shared.fonts.families().contains(&chosen.as_str()))
-        .then_some(chosen.as_str());
-        self.shared.fonts.set_family(family);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
-        }
-        self.fit_font_size();
-    }
-
-    /// The sizes of book text offered as far as the reading font has them:
-    /// a font pack's largest (built into the firmware, kept small) bounds
-    /// them, a scalable font has every size. A size chosen past it gives
-    /// way to the largest.
-    pub(crate) fn fit_font_size(&mut self) {
-        let (min, max) = FONT_SIZES;
-        let dpi = f32::from(self.shared.device.display.dpi.max(1));
-        let largest = self
-            .shared
-            .fonts
-            .role(paperpaw_sdk::builtin::fonts::READING.as_str())
-            .and_then(|font| font.largest_size());
-        // No `round` without std.
-        let most = largest.map_or(max, |px| ((px * 72.0 / dpi + 0.5) as i64).clamp(min, max));
-        let id = core_settings::FONT_SIZE;
-        self.shared.settings.set_range(id.as_str(), min, most);
-        self.font_size_changed();
-    }
-
-    /// A font size past the largest the reading font has (set before, or
-    /// a book's own) gives way to the largest; at the largest of a font
-    /// pack, the help says where larger ones are found.
-    pub(crate) fn font_size_changed(&mut self) {
-        let id = core_settings::FONT_SIZE.static_str();
-        let settings = &mut self.shared.settings;
-        let most = match settings.spec(id).map(|spec| &spec.kind) {
-            Some(paperpaw_sdk::SettingKind::Int { max, .. }) => *max,
-            _ => return,
-        };
-        let size = settings.int(id);
-        let largest = most < FONT_SIZES.1 && size >= most;
-        let key = if largest {
-            "core.setting.font-size.largest"
-        } else {
-            "core.setting.font-size.help"
-        };
-        settings.set_description(id, key);
-        if size > most {
-            let value = paperpaw_sdk::SettingValue::Int(most);
-            let id = core_settings::FONT_SIZE.id().clone();
-            self.output.commands.push(Command::SetSetting(id, value));
-        }
-    }
-
-    /// Chooses what the status lines are in from `core.status-font` and
-    /// loads its files.
-    pub(crate) fn apply_status_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::STATUS_FONT.as_str())
-            .to_string();
-        self.shared.fonts.set_status(&chosen);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
-        }
-    }
-
     /// Makes how the interface's letters are inked of `core.ui-text-curve`
     /// and the interface's language, for the UI font's handles (plugins
     /// do not parse it): also whether its lines run right to left, so that
@@ -828,9 +752,11 @@ impl Kernel {
             tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
         );
         if added.is_err() {
+            self.shared.hyphenation.remove_tables(id.as_str());
             let problem = "hyphenation tables left out, no memory for them".into();
             return self.warn(WarningSource::Plugin(id), None, problem);
         }
+        self.feed_hyphenation(Some(&id));
         let told: Vec<String> = self
             .shared
             .hyphenation
@@ -884,6 +810,7 @@ impl Kernel {
         self.shared.data_folders.retain(|(p, _)| p != id);
         self.remove_plugin_fonts(id);
         self.shared.hyphenation.remove_tables(id.as_str());
+        self.feed_hyphenation(Some(id));
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);

@@ -279,7 +279,7 @@ fn invalid_setting_kinds_are_refused() {
 #[test]
 fn choice_count_limit_is_inclusive() {
     let mut d = Declarations::new(|_| Ok(()));
-    let values: Vec<String> = (0..33).map(|i| alloc::format!("v{i}")).collect();
+    let values: Vec<String> = (0..65).map(|i| alloc::format!("v{i}")).collect();
     let choices: Vec<&str> = values.iter().map(String::as_str).collect();
     assert_eq!(
         d.spec(SpecDecl::new("n", choice(choices[0], &choices), GROUP, "t"))
@@ -290,7 +290,7 @@ fn choice_count_limit_is_inclusive() {
     let mut d = Declarations::new(|_| Ok(()));
     d.spec(SpecDecl::new(
         "n",
-        choice(choices[0], &choices[..32]),
+        choice(choices[0], &choices[..64]),
         GROUP,
         "t",
     ))
@@ -851,5 +851,7 @@ fn a_lookup_provider_is_refused_for_what_the_host_would_refuse() {
         LookupProviderDecl::new("a", "t", 1).languages(&fits)
     ));
 }
+#[path = "tests/format.rs"]
+mod format;
 #[path = "tests/library.rs"]
 mod library;

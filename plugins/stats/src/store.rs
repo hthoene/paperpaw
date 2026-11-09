@@ -34,6 +34,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
@@ -132,8 +133,12 @@ impl Day {
 // storage (root 0) is that folder, so its adapter takes the folder off again.
 const PAGES: &str = ".paperpaw/plugins/stats/pages.bin";
 const PAGES_NEW: &str = ".paperpaw/plugins/stats/pages.new";
-const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
+pub(crate) const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
 const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
+/// Present from the moment the new log and the new `books.ini` are both whole
+/// beside the old ones until both are in place: a cut between the two renames
+/// is finished at the next start (see [`finish_commit`]).
+const COMMIT: &str = ".paperpaw/plugins/stats/merge.commit";
 const DAYS: &str = ".paperpaw/plugins/stats/days.bin";
 const DAYS_NEW: &str = ".paperpaw/plugins/stats/days.new";
 /// The most days a kept `days.bin` is read for: 4,096 days (11 years) are
@@ -156,19 +161,20 @@ const LINE: usize = 16 * 1024;
 /// Calls `visit` with each line of the file at `path` (without its line
 /// break) as it streams from the storage; a missing file has none. Invalid
 /// UTF-8 and overlong lines are errors ([`StorageError::InvalidData`]),
-/// not left out, so that nothing unread is written back.
+/// not left out, so that nothing unread is written back. `visit` may stop the
+/// reading (`Break`): what follows is then not read, and not checked.
 fn each_line(
     storage: &dyn Storage,
     path: &str,
-    mut visit: impl FnMut(&str) -> Result<(), StorageError>,
+    mut visit: impl FnMut(&str) -> Result<ControlFlow<()>, StorageError>,
 ) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
-    let mut emit = |line: &mut Vec<u8>| -> Result<(), StorageError> {
+    let mut emit = |line: &mut Vec<u8>| -> Result<ControlFlow<()>, StorageError> {
         let text = core::str::from_utf8(line).map_err(|_| StorageError::InvalidData)?;
-        visit(text.strip_suffix('\r').unwrap_or(text))?;
+        let flow = visit(text.strip_suffix('\r').unwrap_or(text))?;
         line.clear();
-        Ok(())
+        Ok(flow)
     };
     let mut at = 0u64;
     loop {
@@ -192,30 +198,75 @@ fn each_line(
             line.try_reserve(text.len())
                 .map_err(|_| StorageError::TooLarge)?;
             line.extend_from_slice(text);
-            if ends {
-                emit(&mut line)?;
+            if ends && emit(&mut line)?.is_break() {
+                return Ok(());
             }
         }
     }
-    if !line.is_empty() {
-        emit(&mut line)?;
+    // The last line has nothing after it to stop.
+    if !line.is_empty() && emit(&mut line)?.is_break() {
+        return Ok(());
     }
     Ok(())
 }
 
-/// The books, by id; none while there is no `books.ini`. An error where
-/// it cannot be read whole (a read error, invalid UTF-8, a line that is
-/// no entry): then it must not be saved over.
-pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
-    // Sorted by id as they are read; the first section of an id wins.
-    let mut books: Vec<Book> = Vec::new();
+/// A set of book ids: 65,536 bits (8 KiB), whatever the number of books.
+pub(crate) struct IdSet(Vec<u64>);
+
+impl IdSet {
+    /// An empty set.
+    pub(crate) fn new() -> Result<Self, StorageError> {
+        let mut words = Vec::new();
+        words
+            .try_reserve_exact(1024)
+            .map_err(|_| StorageError::TooLarge)?;
+        words.resize(1024, 0);
+        Ok(Self(words))
+    }
+
+    pub(crate) fn has(&self, id: u16) -> bool {
+        self.0
+            .get(usize::from(id / 64))
+            .is_some_and(|w| w & (1 << (id % 64)) != 0)
+    }
+
+    pub(crate) fn insert(&mut self, id: u16) {
+        if let Some(w) = self.0.get_mut(usize::from(id / 64)) {
+            *w |= 1 << (id % 64);
+        }
+    }
+}
+
+/// Calls `visit` with each book of `books.ini` in file order, one at a time:
+/// only the book being read is held (and the [`IdSet`] of those already made),
+/// however many there are. What [`load_books`] reads, by the same rules: a
+/// section of an id read before (and not the book just made) is ignored, so the
+/// first book of an id is the book; sections of one book in a row merge. An
+/// error where the file cannot be read whole, as there; books `visit` was
+/// given before it are of a file that is then not to be trusted.
+pub(crate) fn each_book(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<(), StorageError>,
+) -> Result<(), StorageError> {
+    each_book_until(storage, |book| visit(book).map(ControlFlow::Continue))
+}
+
+/// As [`each_book`], and `visit` may stop with `Break`: the rest of the file
+/// is then not read, so a damaged line after the last book wanted is not
+/// noticed (a reader that only shows books does not need it to be).
+pub(crate) fn each_book_until(
+    storage: &dyn Storage,
+    mut visit: impl FnMut(Book) -> Result<ControlFlow<()>, StorageError>,
+) -> Result<(), StorageError> {
+    let mut stopped = false;
+    let mut seen = IdSet::new()?;
     // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
-    // The id of the book made last: a section of it goes on filling that book
-    // (sections in a row, empty ones between, merge); one of an id read before
-    // that is ignored, so the first book of an id is the book.
-    let mut last: Option<u16> = None;
+    // The book being made, and its id: a section of it goes on filling it
+    // (sections in a row, empty ones between, merge).
+    let mut current: Option<Book> = None;
     let mut skip = false;
+    let go = ControlFlow::Continue(());
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
             let name = header.strip_suffix(']').ok_or(StorageError::InvalidData)?;
@@ -224,43 +275,44 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
                 .strip_prefix("book.")
                 .and_then(|id| id.parse::<u16>().ok());
             skip = false;
-            return Ok(());
+            return Ok(go);
         }
         // Nothing for an empty line or a comment.
         let Some(entry) = paperpaw_sdk::config::parse(line).next() else {
-            return Ok(());
+            return Ok(go);
         };
         let entry = entry.map_err(|_| StorageError::InvalidData)?;
         let Some(id) = section else {
-            return Ok(());
+            return Ok(go);
         };
         if skip {
-            return Ok(());
+            return Ok(go);
         }
-        let at = match books.binary_search_by_key(&id, |b| b.id) {
-            Ok(at) if last == Some(id) => at,
+        if current.as_ref().is_none_or(|book| book.id != id) {
             // Another section of this id came before: the first one is the book.
-            Ok(_) => {
+            if seen.has(id) {
                 skip = true;
-                return Ok(());
+                return Ok(go);
             }
-            Err(at) => {
-                books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
-                books.insert(
-                    at,
-                    Book {
-                        id,
-                        ..Book::default()
-                    },
-                );
-                last = Some(id);
-                at
+            seen.insert(id);
+            if let Some(done) = current.take()
+                && visit(done)?.is_break()
+            {
+                stopped = true;
+                return Ok(ControlFlow::Break(()));
             }
+            current = Some(Book {
+                id,
+                ..Book::default()
+            });
+        }
+        let Some(book) = current.as_mut() else {
+            return Ok(go);
         };
-        let Some(book) = books.get_mut(at) else {
-            return Ok(());
-        };
-        let value = entry.value.as_str();
+        let value = entry
+            .value
+            .try_as_str()
+            .map_err(|_| StorageError::TooLarge)?;
         match entry.key {
             "title" => book.title = copy(&value)?,
             "authors" => book.authors = copy(&value)?,
@@ -273,9 +325,139 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
             "finished" => book.finished = value.parse().unwrap_or(0),
             _ => {}
         }
+        Ok(go)
+    })?;
+    match current {
+        Some(done) if !stopped => visit(done).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
+/// The books, by id; none while there is no `books.ini`. An error where
+/// it cannot be read whole (a read error, invalid UTF-8, a line that is
+/// no entry): then it must not be saved over.
+pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
+    let mut books: Vec<Book> = Vec::new();
+    each_book(storage, |book| {
+        books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+        books.push(book);
         Ok(())
     })?;
+    // Ids are unique: the order is the same whatever the sort.
+    paperpaw_sdk::sort::sort_by_key(&mut books, |b| b.id);
     Ok(books)
+}
+
+/// How many books there are, none held.
+pub(crate) fn count_books(storage: &dyn Storage) -> Result<usize, StorageError> {
+    let mut count = 0usize;
+    each_book(storage, |_| {
+        count += 1;
+        Ok(())
+    })?;
+    Ok(count)
+}
+
+/// Book `id`, if there is one: the only one held.
+pub(crate) fn find_book(storage: &dyn Storage, id: u16) -> Result<Option<Book>, StorageError> {
+    let mut found = None;
+    each_book(storage, |book| {
+        if book.id == id {
+            found = Some(book);
+        }
+        Ok(())
+    })?;
+    Ok(found)
+}
+
+/// The ids of the books with reading time in the log (as much of it as can
+/// be read, as the totals count).
+pub(crate) fn ids_read(storage: &dyn Storage) -> Result<IdSet, StorageError> {
+    let mut ids = IdSet::new()?;
+    scan(storage, |stat| {
+        if stat.duration > 0 {
+            ids.insert(stat.book);
+        }
+    })
+    .ok();
+    Ok(ids)
+}
+
+/// The books to list: of those with reading time, the `most` opened last (ties
+/// by id, the smaller first), by id, each as `keep` makes it from the book read.
+/// The file is read one book at a time and at most `most` are held, so the
+/// memory is the same for a library of ten books and of ten thousand.
+pub(crate) fn most_recent<T>(
+    storage: &dyn Storage,
+    most: usize,
+    mut keep: impl FnMut(Book) -> Result<T, StorageError>,
+    // The id and the last open of what was kept.
+    of: impl Fn(&T) -> (u16, i64),
+) -> Result<Vec<T>, StorageError> {
+    let read = ids_read(storage)?;
+    // Newer is smaller: the worst of those held is the largest.
+    let key = |b: &T| {
+        let (id, last_open) = of(b);
+        (core::cmp::Reverse(last_open), id)
+    };
+    let mut held: Vec<T> = Vec::new();
+    each_book(storage, |book| {
+        if !read.has(book.id) || most == 0 {
+            return Ok(());
+        }
+        if held.len() < most {
+            held.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+            held.push(keep(book)?);
+            return Ok(());
+        }
+        let worst = (0..held.len()).max_by_key(|&at| held.get(at).map(key));
+        if let Some(at) = worst
+            && held
+                .get(at)
+                .is_some_and(|w| (core::cmp::Reverse(book.last_open), book.id) < key(w))
+        {
+            let kept = keep(book)?;
+            if let Some(slot) = held.get_mut(at) {
+                *slot = kept;
+            }
+        }
+        Ok(())
+    })?;
+    paperpaw_sdk::sort::sort_by_key(&mut held, |b| of(b).0);
+    Ok(held)
+}
+
+/// The titles of the books `ids` name, each as `keep` makes it (`None` for an
+/// id with no book): only those titles are held, and the file is read no
+/// further than the last of them.
+pub(crate) fn titles(
+    storage: &dyn Storage,
+    ids: &[u16],
+    mut keep: impl FnMut(&str) -> Result<String, StorageError>,
+) -> Result<Vec<Option<String>>, StorageError> {
+    let mut out: Vec<Option<String>> = Vec::new();
+    out.try_reserve_exact(ids.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    out.resize(ids.len(), None);
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    each_book_until(storage, |book| {
+        for (at, id) in ids.iter().enumerate() {
+            if *id == book.id
+                && let Some(slot) = out.get_mut(at)
+            {
+                *slot = Some(keep(&book.title)?);
+            }
+        }
+        // Every one found: the books after are not needed.
+        Ok(if out.iter().all(Option::is_some) {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        })
+    })?;
+    Ok(out)
 }
 
 /// An owned copy of `text`, made with fallible allocation.
@@ -302,6 +484,9 @@ pub(crate) fn update_books(
 ) -> Result<bool, StorageError> {
     // Books waiting beside their place are put there first: a new list
     // would take their place.
+    if !finish_commit(storage) {
+        return Err(StorageError::Io);
+    }
     recover_file(storage, BOOKS, BOOKS_NEW);
     let mut books = load_books(storage)?;
     if !change(&mut books) {
@@ -315,12 +500,26 @@ pub(crate) fn update_books(
 /// them with [`load_books`] (or use [`update_books`]). The text is written a
 /// piece at a time, never held whole.
 pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    stage_books(storage, books)?;
+    commit_books(storage, books)
+}
+
+/// The first half of [`save_books`]: `books` written to a new file, which a
+/// refused allocation or a full card leaves as it was (and without the new
+/// file). [`commit_books`] puts it in place; until then nothing changed.
+pub(crate) fn stage_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
     let new = BOOKS_NEW;
     if let Err(e) = write_books(storage, new, books) {
         remove_temporary(storage, new);
         return Err(e);
     }
-    let file = BOOKS;
+    Ok(())
+}
+
+/// The second half of [`save_books`]: the staged file replaces `books.ini`.
+/// Where files cannot be renamed, `books` are written in place instead.
+pub(crate) fn commit_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    let (new, file) = (BOOKS_NEW, BOOKS);
     match storage.rename(new, file) {
         // Where files cannot be renamed, written in place.
         Err(StorageError::Unsupported) => {
@@ -333,6 +532,76 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
         }
         Ok(()) => Ok(()),
     }
+}
+
+/// Puts the staged books and the staged log in place, as a pair: a marker says
+/// that both are whole, then both are renamed, the books first. A cut between
+/// the renames leaves the marker and the log still beside its place, and
+/// [`finish_commit`] puts it there at the next start; a cut before the marker
+/// leaves the old pair (the staged files go as unfinished).
+///
+/// # Errors
+/// Where the marker cannot be written, or the books cannot be put in place
+/// while the old ones are still there, the old pair stays and the staged files
+/// go. Where the books are gone with a failed rename (FAT removes the old file
+/// first), or the log cannot be put in place after the books, nothing staged
+/// goes: the marker stays and the next start finishes the pair.
+pub(crate) fn commit_pair(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    if let Err(e) = storage.write(COMMIT, b"1") {
+        unstage_log(storage);
+        unstage_books(storage);
+        remove_temporary(storage, COMMIT);
+        return Err(e);
+    }
+    match storage.rename(BOOKS_NEW, BOOKS) {
+        Ok(()) => {}
+        Err(StorageError::Unsupported) => {
+            unstage_books(storage);
+            if let Err(e) = write_books(storage, BOOKS, books) {
+                unstage_log(storage);
+                remove_temporary(storage, COMMIT);
+                return Err(e);
+            }
+        }
+        Err(e) => {
+            if storage.exists(BOOKS) {
+                // Nothing has changed.
+                unstage_log(storage);
+                unstage_books(storage);
+                remove_temporary(storage, COMMIT);
+            }
+            return Err(e);
+        }
+    }
+    // The books are the new ones: the log follows, or is finished later. It
+    // stays beside its place, with the marker, also while the old log is
+    // there: the books cannot go back.
+    storage.rename(PAGES_NEW, PAGES)?;
+    remove_temporary(storage, COMMIT);
+    Ok(())
+}
+
+/// After a cut between the two renames of [`commit_pair`], or a rename that
+/// failed in it: what is still beside its place is put there, the books first,
+/// and the marker goes. Whether it is done. Where a rename fails now,
+/// everything stays as it is (the staged files and the marker) and the next
+/// start tries again; callers leave the files alone until then.
+fn finish_commit(storage: &dyn Storage) -> bool {
+    if !storage.exists(COMMIT) {
+        return true;
+    }
+    for (new, file) in [(BOOKS_NEW, BOOKS), (PAGES_NEW, PAGES)] {
+        if storage.exists(new) && storage.rename(new, file).is_err() {
+            return false;
+        }
+    }
+    remove_temporary(storage, COMMIT);
+    true
+}
+
+/// Drops what [`stage_books`] wrote, where [`commit_books`] will not follow.
+pub(crate) fn unstage_books(storage: &dyn Storage) {
+    remove_temporary(storage, BOOKS_NEW);
 }
 
 /// The pieces of a file written a few KiB at a time: the first one replaces
@@ -521,8 +790,11 @@ fn recover_file(storage: &dyn Storage, file: &str, new: &str) {
 /// Puts the log and the books written anew in their place where a cut
 /// left them beside it. Called at start.
 pub(crate) fn recover(storage: &dyn Storage) {
-    recover_file(storage, PAGES, PAGES_NEW);
-    recover_file(storage, BOOKS, BOOKS_NEW);
+    // A pair that cannot be finished now keeps its files for the next start.
+    if finish_commit(storage) {
+        recover_file(storage, PAGES, PAGES_NEW);
+        recover_file(storage, BOOKS, BOOKS_NEW);
+    }
 }
 
 /// An id for a new book: above those of `books` and of every stay in the
@@ -577,14 +849,33 @@ fn drop_cut_record(storage: &dyn Storage, log: &str, size: u64) -> Result<(), St
 /// start, duration and pages as big-endian u32, in time order), e.g.
 /// after merging with another device's; the day totals are summed anew.
 /// After an error the log is as it was.
+#[cfg(test)]
 pub(crate) fn replace_log(storage: &dyn Storage, file: &str) -> Result<(), StorageError> {
+    stage_log(storage, file)?;
+    commit_log(storage)
+}
+
+/// The first half of [`replace_log`]: the new log written beside the old
+/// one, which a refusal or a full card leaves as it was.
+pub(crate) fn stage_log(storage: &dyn Storage, file: &str) -> Result<(), StorageError> {
     let new = PAGES_NEW;
     if let Err(e) = write_log(storage, file, new) {
         remove_temporary(storage, new);
         return Err(e);
     }
-    // Swapped in at once, by a rename where the storage can.
-    put_in_place(storage, new, PAGES)
+    Ok(())
+}
+
+/// Drops what [`stage_log`] wrote, where [`commit_log`] will not follow.
+pub(crate) fn unstage_log(storage: &dyn Storage) {
+    remove_temporary(storage, PAGES_NEW);
+}
+
+/// The second half of [`replace_log`]: swapped in at once, by a rename
+/// where the storage can.
+#[cfg(test)]
+pub(crate) fn commit_log(storage: &dyn Storage) -> Result<(), StorageError> {
+    put_in_place(storage, PAGES_NEW, PAGES)
 }
 
 fn write_log(storage: &dyn Storage, file: &str, new: &str) -> Result<(), StorageError> {

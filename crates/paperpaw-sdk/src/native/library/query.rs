@@ -132,19 +132,19 @@ impl<'a> Query<'a> {
         self.cursor = cursor;
         self
     }
-    pub(super) fn record(self) -> Record<'a> {
+    pub(super) fn record(self) -> wire::ServiceLibQuery<'a> {
         let mut row = self.row;
         row.cursor = self.cursor.offset;
         row.generation = self.cursor.generation;
-        Record::ServiceLibQuery(row)
+        row
     }
     /// The record of op 5: this query's filters and cursor over one facet.
-    pub(super) fn facet_record(self, facet: u32) -> Record<'a> {
+    pub(super) fn facet_record(self, facet: u32) -> wire::ServiceLibQuery<'a> {
         let mut row = self.row;
         row.cursor = self.cursor.offset;
         row.generation = self.cursor.generation;
         row.facet = facet;
-        Record::ServiceLibQuery(row)
+        row
     }
 }
 macro_rules! filter {

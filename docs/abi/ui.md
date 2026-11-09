@@ -200,6 +200,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 | 1551 | `command.show_hints` | (none) |
 | 1552 | `command.raise_input` | `input: str 64` |
 | 1563 | `command.screen_policy` | `instance: u32`, `flags: u32` |
+| 1594 | `command.set_hint` | `action: str 128`, `kind: u32`, `label: str 64` |
 
 - [D] `open.mode`: 0 `screen` (open screen `target` on top), 1 `slot` (show the screen bound to slot
   `target`; if that slot is open already, close the screens above it and pass it the new hand-over),
@@ -225,12 +226,55 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   instance. Outside its own top screen `ERR_STATE`.
 - [D] `show_hints`: shows the row of button hints for a few seconds on a device with a hint row
   (`menu.need` 5); elsewhere `OK` and nothing.
+- [D] `set_hint` (draft 29, interface 6 `Screen::hint`): how the row of button hints labels the
+  button bound to `action` (a full action id, as key maps name it: `core.back`, the plugin's own)
+  while the submitter's own top instance shows. `kind` 0 the action's usual name (removes an
+  earlier `set_hint` for it), 1 the words in `label` (the plugin's own text, already translated;
+  empty `ERR_INVALID`), 2 the icon named by `label` (an `icon.spec` name or a host icon; unknown
+  `ERR_NOT_FOUND`), 3 hidden (the button does nothing here); other kinds `ERR_INVALID`, and
+  `label` is empty for kinds 0 and 3. Kind 3 is `ERR_DENIED` for the actions that are the user's
+  way out: `core.back`, the pinned actions (the main menu's opener, the settings editor's entry,
+  sleep, power off, restart; `registry.md` section 4.2) and the Power key's escape; their hint is
+  never hidden by a plugin. The labels go with the instance and end when it closes; a second
+  `set_hint` for one action replaces the first; at most 8 actions per instance (a ninth
+  `ERR_NO_SPACE`). Outside its own top screen `ERR_STATE`. On a device without a hint row `OK` and
+  nothing, as `show_hints`. The host draws the words with its own rules (smaller, two lines, then
+  shortened); a label never moves or adds a button. **Memory:** the host keeps each label as
+  given, at most 8 × (128 + 64 + 4) = 1,568 bytes per instance on the X4, charged to the
+  submitter's heap budget (`abi/heap-word.md` section 4; `ERR_NO_MEMORY` when it is spent, the
+  earlier labels kept), and frees them when the instance closes.
 - [D] `raise_input`: raises an input as written in key maps (`button.menu`, `double-tap.center`,
   or the submitter's own `input.<plugin>.<name>` / `gesture.<plugin>.<name>`): it runs what the
   layers shown bind it to, as if it came from the device. Another plugin's input or gesture, the
   Power key and the escape chord are `ERR_DENIED`; while an instance guards, only the guard's
   plugin may raise (`ERR_DENIED`, section 4.3). Raised inputs are a chain step (hop + 1) and pass
   no input filter.
+- [D] **Core slots** (draft 25; interface 6 `builtin::slots`). A plugin offers a screen for one
+  with the record `slot.offer` (`registry.md` section 6, SDK `SlotOfferDecl`); the user's binding
+  picks among the offers.
+  Anyone opens a slot with `open` mode 1 and a hand-over whose `ui_param` keys are below (all
+  optional unless named; the host passes params through and does not check them, so a screen
+  ignores keys it does not know). The dialog slots are asked, not opened (section 3.1).
+
+  | Slot | Shows | Hand-over params |
+  | --- | --- | --- |
+  | `core.home` | the start screen | none |
+  | `core.reader` | a book | `path` (required), `root`, `page`, `section`, `offset`, `conversion` (`document.md` 1) |
+  | `core.library` | the library | none |
+  | `core.menu` | a menu, an overlay | `menu` (required: the menu id, rows by `core.registry` op 12), `depth`, `mode` (the menu screen's own) |
+  | `core.panel` | a menu as a panel of controls, an overlay | `menu` (required), as `core.menu` |
+  | `core.settings` | settings | `id` (a group), `focus` (a setting) |
+  | `core.setup` | the first-run setup | none |
+  | `core.lookup`, `core.lookup-online` | a word looked up, an overlay | `word` (required), `language` |
+  | `core.browser` | a web page | `url` (required), `id` |
+  | `core.bluetooth` | the Bluetooth page | none |
+  | `core.cable` | the cable (USB) transfer | none (opened by the host) |
+  | `core.edit-widgets` | a widget stack's editor | `id` (required: the stack's setting) |
+  | `core.book-info`, `core.toc`, `core.search`, `core.annotations` | about the open book | `path` |
+  | `core.keyboard`, `core.remote-keyboard`, `core.choice`, `core.confirm`, `core.choose-folder`, `core.choose-value` | dialogs | asked (section 3.1), not opened |
+
+  A slot nobody offers a screen for opens nothing (`ERR_NOT_FOUND`), so a plugin may test for it
+  first (`core.registry` op 9 `slots`, op 10 `slot_offers`).
 
 ## 2. Plugin inputs and gestures (declarations)
 
@@ -357,6 +401,10 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
+- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+  through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
+  (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
+  addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
   has (`core-events.md` 3.3), so the held-event store being full never drops it. The one
@@ -400,6 +448,28 @@ asker learns its request id at once and long texts move in pages, never cut.
   callback fails while it holds a capture, the host releases the capture: the rest of that
   pointer or key goes nowhere (the up or release is swallowed), and the next input starts fresh
   with all filters.
+- [D] **The rest of a captured input** (Input and Code Reviewer on #353). A capture belongs to one
+  subscription (owner and token: a plugin may subscribe with several tokens) and is keyed by the
+  **physical** input (the key as the device gave it, or the pointer contact), not by what a
+  replace turned it into. Its rest (the moves and up of a pointer, the repeats and release of a
+  key) goes through the filters before the capturer as usual, so one that replaced the start can
+  replace the rest the same way (their verdicts other than pass and replace are ignored for it),
+  then to the capturer, with `filter.input.flags` bit 0 `captured`; nothing after it (no later
+  filter, screen, gesture or key map) sees it. The capturer's verdict on the rest: 2 run and 5
+  raise act (a recognizer raises its gesture at the up), 4 replace is ignored, the others just end
+  it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
+  filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
+  them.
+- [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
+  down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
+  it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
+  got the down always gets its up and never stays pressed.
+- [D] **A replaced input** (verdict 4) is checked as plugin input: one `input.key`,
+  `input.pointer` or `input.gesture` record, whole, else the verdict counts as pass (logged). Key
+  names are not checked against a table (`screens-input.md` 2.2: unknown names pass through):
+  `key` is 1 to 32 bytes of UTF-8 without control characters. A replace may not make `power`
+  (it counts as pass): the Power key's escape and power actions come from the physical button
+  only. The router clamps a replaced pointer's `x` and `y` to the screen's pane.
 - [D] Cost: one callback per filter per input; on the X4 key presses only (no touch). Counts
   against the input-latency timing gate of the lock port.
 
@@ -445,8 +515,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     (`screen`, `owner`, flag guards) and nothing above or below it; `service.end.flags` bit 2
     says rows were left out. The guard's plugin sees the instances from the guard up.
   - **Drawing below.** Under another plugin's overlay nothing at or below the guard is drawn
-    (section 1.2): the sleep screen never shows the page while the device is locked. Widget
-    instances made by a screen below the guard are `ERR_DENIED` for ops 4-7 and 12-15.
+    (section 1.2): the sleep screen never shows the page while the device is locked. A screen
+    below the guard is not the top instance, so it makes no widget (op 4 `ERR_STATE`, checked
+    before any guard rule). The widget instances it made before are `ERR_DENIED` for ops 6, 7,
+    12 and 13 while the guard is up, and so are ops 14 and 15 for it; it may still drop them
+    (op 5: dropping frees memory and shows nothing).
   - **Output.** No `notify` is drawn over it (it waits, section 7); help shows nothing for any
     screen while the guard is up except the guard's plugin's own.
   - Core's tests cover each of these (hand-off, section 10).
@@ -490,10 +563,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   re-entered while its `draw` runs; it draws its own widgets itself); a call from depth 2
   `ERR_BUSY`.
 - [D] **Depth.** The caller's `draw` runs at depth 1, the child's at depth 2. A child cannot
-  compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 7 and 12-15 are
-  depth 1 only. Only widgets and status values are children, and they hold no widgets
-  themselves, so nothing visible is lost; screens under an overlay are drawn at depth 1 with
-  everything (section 1.2).
+  compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 4, 7 and 12-15
+  are depth 1 only. Only widgets and status values are children, and they hold no widgets
+  themselves (op 4 `ERR_BUSY` at depth 2), so nothing visible is lost; screens under an overlay
+  are drawn at depth 1 with everything (section 1.2).
 - [D] **State.** The host saves the caller's clip and canvas state before the child and restores
   them after it, also when the child fails or faults. The child's failure is its status, logged;
   the caller's frame stays.
@@ -525,7 +598,13 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   widget kinds or a catalog key of the plugin's own, `previews` the settings group it previews
   (empty for none), `cells` columns in bits 0-7 and rows in bits 8-15 (0: the grid's width and the
   rows it needs), `token` its callback state; `flags` bit 0 `live` (read each minute; without it
-  only after events). REG op 19 lists them.
+  only after events), bit 2 `square` (as wide as high; interface 6 `SizeHint::square`). **Size
+  hint (draft 29, interface 6 `SizeHint`):** `cells` bits 16-23 the least columns and bits 24-31
+  the least rows (0: one); a declared column or row count under its least, a square widget that
+  declares two different sides, or a square widget's declared side under either least, is
+  `ERR_INVALID` at admission (a square widget's side is at least the larger least). The host and
+  a home screen never lay a widget out below its least, and keep a square one square. REG op 19 lists them,
+  with `cells` and `square` (`reg_widget`).
 - [D] `widget.place` declares where widgets show (interface 6 `WidgetPlace`): `list_keys` the
   settings that list them (full ids, one per line, at most 8: a grid's pages each one), `layout`
   0 grid, 1 stack; `shown_if_key` and `shown_if_value`: the place shows only while that setting
@@ -568,11 +647,28 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   stream, the reader's
   `title`, `chapter`, `page`, `progress`) and gets one `ui_status_value` row per item (`item`,
   `flags`, `text`, `handle`), then `end`. The host runs the **host-defined stage `core.status`**
-  once per owning plugin for its items (stage-local `status.ask` / `status.value`) and caches the
-  values per (item, context) until event 73 (`status_changed`) or the minute tick. A value is text
+  once per owning plugin and `status.item.token` for its items (stage-local `status.ask` /
+  `status.value`) and caches the values per (item, context) until event 73 (`status_changed`) or
+  the minute tick.
+- [D] **Status calls (Core's question, todo 76).** Own items, hidden private ones and cached values
+  need no call. The rest are grouped by (owner, token), groups in the order of their first item
+  in op 14's `items`; each group is one call through `dispatch_stage` with that token,
+  `status.ask.items` only the group's ids in op 14's order and `context` op 14's, byte for byte.
+  At most 8 items, so at most 8 calls. This is not `stage.run`: one target, membership from the
+  registered `status.item` rows (no `registration.stage`, no `order`, no frozen membership), the
+  stage's codec and caps (1 input record, at most 8 reply rows, 3,840 bytes). The caller is at
+  depth 1, the owner runs at depth 2 under the re-entry guard and N8; the host holds no store
+  borrow across the owner's code. Reply rows whose `item` is not in the group are ignored, the
+  first row of an item wins. An item without a row, or whose owner call fails (`ERR_BUSY`, an
+  error, a crash, over budget), comes back with `flags` 0, `handle` 0 and no text, not cached; op
+  14 still answers `OK`, and other groups are unaffected. A value is text
   (at most 128 bytes) or, with `flags` bit 0, drawn: the showing screen composes it with
   `ui.compose` kind 1 and the row's `handle`. A handle is valid only inside the callback that got
   it, so a drawn item is asked for with op 14 inside `draw`, then composed in the same `draw`.
+- [D] **An empty value hides the item** (Port Reviewer, #343): a row with no text and `flags` bit
+  0 clear (an owner answering empty text, or no value at all as above) is not shown; the line
+  gives its room to the other items, as interface 6 did for an item without a value. A provider
+  that wants a blank place answers a space.
 - [D] **Own items are not called back.** The host never re-enters the caller (section 5.1): an
   item of the caller's own plugin (the reader showing its own page number) comes back from op 14
   with `flags` bit 2 `own`, no text and no handle, without a `core.status` call; the caller fills
@@ -603,14 +699,17 @@ For the host implementer: `host_records_visit` checks the whole batch before its
 but an error the visitor itself returns stops the walk with the earlier visits done. So the op 16
 handler stages the params in its own scratch and publishes the hand-over only after the walk
 returned `OK`; a refusal leaves no hand-over and no partial params.
-Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper).
+Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper),
+and so is op 4 (a child holds no widgets, section 5.1). Op 6 runs nothing inside the caller: the
+host queues `input.widget` for the owner's `input` callback, as other input. Op 5 has no depth
+or guard rule: only the maker drops its instances.
 
 | Op | Name | Input | Reply | Who |
 | --- | --- | --- | --- | --- |
 | 1 | `stack` | `reg_query` | `ui_screen`*, `end` | anyone; top first, guarded rows left out |
 | 2 | `question` | `ui_request` | `ui_question` | the request's dialog instance |
 | 3 | `hints` | `reg_query` (`scope`: screen id) | `ui_hint`*, `end` | anyone (the help plugin) |
-| 4 | `widget_make` | `ui_widget_ref` | `ui_instance` | for the caller's top instance |
+| 4 | `widget_make` | `ui_widget_ref` | `ui_instance` | for the caller's top instance (else `ERR_STATE`) |
 | 5 | `widget_drop` | `ui_instance` | (none) | the instance's maker |
 | 6 | `widget_input` | `ui_widget_input` | (none) | the instance's maker |
 | 7 | `widget_targets` | `ui_widget_area` | `ui_target`*, `end` | the instance's maker |
@@ -733,6 +832,9 @@ its caps (hand-off).
 
 ### 8.2 Memory (X4)
 
+"The X4" in the limits of this section and of `core.ui` means the 256 KiB heap profile: the X4
+and every device of that profile (the X3 too), not the model.
+
 - Instances: one entry per open instance (about 16 bytes; the stack is at most 16 deep, deeper opens
   are `ERR_FULL`) plus its hand-over's params, kept while it is open, stored encoded (at most 1,313
   bytes each). On the X4 the params of all instances share 1,536 bytes (op 16 `ERR_FULL` beyond):
@@ -783,7 +885,13 @@ its caps (hand-off).
   answer `ERR_UNSUPPORTED` on the X4 until it passes.
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
-  bytes); each table is one allocation of its cap, made at its first use.
+  bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
+  listed for its owner until `event.widget_dropped` (85) is delivered at the widget's token, so
+  live instances and drops not yet delivered share the cap: op 4 answers `ERR_FULL` while the
+  waiting drops fill it (#599), and makes again once they are delivered. The entry ends at the
+  first delivery attempt, whatever its outcome (the callback returned, failed or trapped), and at
+  once when delivery cannot happen: the owner stopped (`owner_stopped`), unloaded or switched off,
+  or the start went without code plugins (safe mode). A dead owner never pins the cap.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
 - Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4

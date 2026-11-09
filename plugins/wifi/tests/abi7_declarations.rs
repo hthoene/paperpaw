@@ -186,7 +186,7 @@ fn screens_action_status_item_icons_needs_and_step_match() {
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
-    // Nine subscriptions (the radio's four among them) in two batches.
+    // Ten subscriptions (the radio's four and the timers' work among them) in two batches.
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 2);
 }
 
@@ -207,7 +207,7 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
         }
     }
     // The device's five, as before, then the radio's four: scanned 92, done 93,
-    // network wanted 94 and idle 95 (`docs/abi/device.md`).
+    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's.
     let tokens: Vec<u32> = found.iter().map(|(_, token)| *token).collect();
     assert_eq!(
         tokens,
@@ -221,9 +221,12 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
             declarations::WIFI_DONE,
             declarations::NETWORK_WANTED,
             declarations::NETWORK_IDLE,
+            declarations::WORK,
         ]
     );
-    let radio: Vec<u32> = found[5..].iter().map(|(tag, _)| *tag).collect();
+    let radio: Vec<u32> = found[5..9].iter().map(|(tag, _)| *tag).collect();
     assert_eq!(radio, [92, 93, 94, 95]);
+    // The timers (idle off, retry) come due as work (`event.work_due`).
+    assert_eq!(found[9].0, 103, "work_due");
     assert_eq!(found[0].0, 32, "started");
 }

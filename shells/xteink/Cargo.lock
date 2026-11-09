@@ -2270,7 +2270,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-plugin-about",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -2302,6 +2301,7 @@ dependencies = [
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -2312,10 +2312,12 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-graphics",
  "paperpaw-hid",
+ "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-sort",
 ]
 
 [[package]]
@@ -2367,6 +2369,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
+ "paperpaw-sort",
  "paperpaw-table",
 ]
 
@@ -2413,46 +2416,43 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
- "miniz_oxide",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-diagnostics"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
@@ -2473,28 +2473,29 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-xtc"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-help"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2518,9 +2519,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2533,30 +2535,33 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-opds"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-power"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.8"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2569,28 +2574,31 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.6"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
@@ -2598,7 +2606,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2613,9 +2621,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2646,12 +2655,17 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
+ "paperpaw-sort",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
  "paperpaw-zip",
 ]
+
+[[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-stardict"
@@ -2673,6 +2687,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-table",
  "read-fonts",
  "skrifa",

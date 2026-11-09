@@ -18,6 +18,7 @@
 //! made it and read (op 10) only by the owning instance; they are wiped when
 //! freed and never in a `Debug` or a log.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
@@ -31,6 +32,14 @@ pub(crate) const PARAMS_MAX: usize = 32;
 pub(crate) const PARAM_BYTES_MAX: usize = 1_024;
 /// Longest key.
 const KEY_MAX: usize = 32;
+/// Whether the device id is one of the small-heap Xteink devices, the X4 and
+/// the X3 (the same 256 KiB RISC-V heap): the one place the X4 profile of
+/// `core.ui` is decided, for the store's limits (`HostWiring::ui`), for the
+/// admission rules (`Frame::ui_x4`) and for op 14 (`native_status`).
+pub(crate) fn is_x4(device_id: &str) -> bool {
+    matches!(device_id, "xteink-x4" | "xteink-x3")
+}
+
 /// Largest text of a hand-over or a request.
 pub(crate) const TEXT_MAX: usize = 24_576;
 /// Largest part one write brings.
@@ -134,6 +143,45 @@ pub(crate) struct Info {
     pub(crate) handover: u32,
     pub(crate) params: u32,
     pub(crate) text_bytes: u32,
+}
+
+/// Whether `ok` holds for every param of the framed block `block`.
+fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            return false;
+        };
+        if !ok(param.key, param.value) {
+            return false;
+        }
+        rest = &rest[used..];
+    }
+    true
+}
+
+/// The value of param `key` in the framed block, if it has one.
+fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
+            return None;
+        };
+        if param.key == key {
+            return Some(param.value);
+        }
+        rest = &rest[used..];
+    }
+    None
+}
+
+impl Info {
+    /// No hand-over: what the event says of an instance opened without one.
+    pub(crate) const NONE: Self = Self {
+        handover: 0,
+        params: 0,
+        text_bytes: 0,
+    };
 }
 
 /// Bytes wiped when they are freed (with the shared volatile wipe). Room
@@ -401,7 +449,7 @@ impl UiStore {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
-            framed += wire::record_framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
+            framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
             }))?;
@@ -422,7 +470,7 @@ impl UiStore {
                 key: param.key,
                 value: param.value,
             });
-            used += wire::record_encode_one(&record, &mut block.0[used..])?;
+            used += codec::encode_one(&record, &mut block.0[used..])?;
         }
         inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
@@ -639,6 +687,28 @@ impl UiStore {
         Ok(())
     }
 
+    /// Find the next retained instance, including request ties and dialogs.
+    /// The kernel compares these ids against its actual stack during recovery.
+    pub(crate) fn next_retained_instance(&self, after: u32) -> Result<Option<u32>, i32> {
+        let inner = self.inner_busy()?;
+        Ok(inner
+            .entries
+            .iter()
+            .filter_map(|entry| match entry.state {
+                State::Owned { instance } => Some(instance),
+                _ => None,
+            })
+            .chain(
+                inner
+                    .requests
+                    .iter()
+                    .flat_map(|request| request.instances())
+                    .flatten(),
+            )
+            .filter(|instance| *instance > after)
+            .min())
+    }
+
     /// An instance closed: what it owns is freed.
     pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;
@@ -680,6 +750,31 @@ impl UiStore {
         let entry = inner.entries.remove(at);
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
+    }
+
+    /// Whether `made` (a hand-over of an `open` being applied, or none) has
+    /// the params `instance` was given: the compare of `open` modes 1 and 3 and
+    /// of instances per params (`ui.md` 1.1). Texts are not compared.
+    pub(crate) fn same_params(&self, made: Option<u32>, instance: u32) -> bool {
+        let Ok(inner) = self.inner.try_borrow() else {
+            return false;
+        };
+        let framed = |id: Option<u32>, owned: bool| -> (&[u8], u32) {
+            inner
+                .entries
+                .iter()
+                .find(|entry| match id {
+                    Some(id) => entry.id == id,
+                    None => {
+                        owned
+                            && matches!(entry.state, State::Owned { instance: i } if i == instance)
+                    }
+                })
+                .map_or((&[][..], 0), |entry| (&entry.params.0[..], entry.count))
+        };
+        let ((new, new_count), (old, old_count)) = (framed(made, false), framed(None, true));
+        // The same keys with the same values, in any order (keys are unique).
+        new_count == old_count && params_in(new, |key, value| value_of(old, key) == Some(value))
     }
 
     /// What the opened event says about `instance`'s hand-over, if it has one.

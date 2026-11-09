@@ -76,8 +76,22 @@ pub enum EventKind {
     HttpDone,
     /// Bytes of a request's body came.
     HttpProgress,
-    /// A question this plugin asked was answered or cancelled.
-    Answered,
+    /// Something happened to a socket of this plugin (`core.sockets`). Needed
+    /// before the first `connect`.
+    Socket,
+    /// Something happened to a broadcast of this plugin. Needed before the
+    /// first `broadcast`.
+    Broadcast,
+    /// Work of this plugin came due (`core.work`). Needed before `Work::declare`
+    /// (without it the call answers `State`); the event goes only to the plugin
+    /// that declared the work.
+    WorkDue,
+    /// Work of this plugin was taken out for good. Optional: without it a refused
+    /// work just vanishes from the work list.
+    WorkRefused,
+    /// What held work back no longer does (a hint, coalesced). Optional: without
+    /// it the plugin tries again at its next work or event.
+    WorkAllowed,
 }
 
 impl EventKind {
@@ -118,7 +132,11 @@ impl EventKind {
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
             Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
             Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
-            Self::Answered => records_wire::EVENT_ANSWERED_TAG,
+            Self::Socket => records_wire::EVENT_SOCKET_TAG,
+            Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
+            Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
+            Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
+            Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
         }
     }
 }

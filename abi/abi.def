@@ -1066,6 +1066,154 @@
       "ownership": "call",
       "reentry": "deny",
       "max_bytes": 0
+    },
+    {
+      "id": 36,
+      "name": "image.info",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "result": "status",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 64
+    },
+    {
+      "id": 37,
+      "name": "canvas.draw_image",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ],
+      "result": "status",
+      "effect": "mutate",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 0
+    },
+    {
+      "id": 38,
+      "name": "text.hyphenate",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "language",
+          "type": "bytes"
+        },
+        {
+          "name": "word",
+          "type": "bytes"
+        },
+        {
+          "name": "left",
+          "type": "u32"
+        },
+        {
+          "name": "right",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "result": "status",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 192
+    },
+    {
+      "id": 39,
+      "name": "text.covers",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        }
+      ],
+      "result": "length",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 1024
+    },
+    {
+      "id": 40,
+      "name": "icon.glyph",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "name",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "result": "length",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 64
     }
   ],
   "records": [
@@ -1299,7 +1447,7 @@
           "max_bytes": 1024,
           "list": {
             "separator": "\n",
-            "max_items": 32,
+            "max_items": 64,
             "item_max_bytes": 96
           }
         }
@@ -4913,6 +5061,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 128
+        },
+        {
+          "name": "cells",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": 0,
+          "max_bytes": 0
         }
       ]
     },
@@ -13542,7 +13699,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 256,
+          "secret": true
         }
       ]
     },
@@ -14392,6 +14550,124 @@
           "max_bytes": 0
         }
       ]
+    },
+    {
+      "id": 109,
+      "name": "event.text_typed",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "name": "event.lookup_ready",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "provider",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
+    },
+    {
+      "id": 1593,
+      "name": "command.lookup_ready",
+      "since": 1,
+      "fields": [
+        {
+          "name": "text",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        },
+        {
+          "name": "language",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 35
+        }
+      ]
+    },
+    {
+      "id": 1594,
+      "name": "command.set_hint",
+      "since": 1,
+      "fields": [
+        {
+          "name": "action",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "label",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
     }
   ],
   "statuses": [
@@ -14496,6 +14772,15 @@
         "pointer_bits": 32,
         "byte_order": "little",
         "calling_convention": "riscv-ilp32-soft",
+        "entry_layout": 1,
+        "entry_bytes": 20,
+        "entry_align": 4
+      },
+      {
+        "name": "esp32s3-xtensa-lx7-ilp32-windowed-le",
+        "pointer_bits": 32,
+        "byte_order": "little",
+        "calling_convention": "xtensa-windowed-call8",
         "entry_layout": 1,
         "entry_bytes": 20,
         "entry_align": 4
@@ -15201,8 +15486,12 @@
         "type": "u8"
       },
       {
+        "name": "utc_offset_minutes",
+        "type": "i16"
+      },
+      {
         "name": "reserved_tail",
-        "type": "bytes3"
+        "type": "bytes1"
       }
     ],
     "presence": [
@@ -15217,6 +15506,10 @@
       {
         "name": "unix",
         "bit": 4
+      },
+      {
+        "name": "utc_offset",
+        "bit": 8
       }
     ],
     "pixels": [

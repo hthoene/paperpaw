@@ -64,8 +64,9 @@ pub(crate) fn due(
                 // Keep those due longest, without holding more than twice
                 // as many at a time.
                 if reviews.len() >= most * 2 {
-                    reviews
-                        .sort_unstable_by_key(|d: &Due| (d.state.due, position(d.deck), d.offset));
+                    paperpaw_sdk::sort::sort_by_key(&mut reviews, |d: &Due| {
+                        (d.state.due, position(d.deck), d.offset)
+                    });
                     reviews.truncate(most);
                 }
             }
@@ -73,7 +74,7 @@ pub(crate) fn due(
         })?;
         failed?;
     }
-    reviews.sort_unstable_by_key(|d| (d.state.due, position(d.deck), d.offset));
+    paperpaw_sdk::sort::sort_by_key(&mut reviews, |d| (d.state.due, position(d.deck), d.offset));
     reviews.truncate(most);
     reviews
         .try_reserve(fresh.len())

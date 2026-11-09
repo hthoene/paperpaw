@@ -166,12 +166,14 @@ fn a_hit_opens_its_page_with_the_setting_focused() {
 #[test]
 fn search_finds_the_pages_of_other_plugins_and_opens_them() {
     for device in DEVICES {
-        let mut app = settings(device, "");
-        search(&mut app, "customise menus");
+        // A plugin's own page, as any plugin registers it.
+        let mut app = with_account(device, "");
+        search(&mut app, "password");
         let hits = titles(&mut app);
-        assert!(hits.iter().any(|h| h == "Customise menus"), "{hits:?}");
-        choose(&mut app, "Customise menus");
-        assert_eq!(app.screen(), "menu-editor.menus");
+        assert!(hits.iter().any(|h| h == "Password"), "{hits:?}");
+        choose(&mut app, "Password");
+        assert_eq!(app.screen(), GROUP);
+        assert!(app.shows("Server"), "{}", app.described());
     }
 }
 

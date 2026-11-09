@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use alloc::{vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -440,6 +441,7 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
     );
 }
 
+mod annotations;
 #[path = "tests/facets.rs"]
 mod facets;
 #[path = "tests/fields.rs"]

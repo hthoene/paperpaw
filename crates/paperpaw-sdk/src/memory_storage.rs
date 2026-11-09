@@ -184,9 +184,9 @@ impl Storage for MemoryStorage {
 }
 
 /// Reads a whole (small) file: [`StorageError::NotFound`] where there is
-/// none, [`StorageError::TooLarge`] for files larger than `limit` bytes
-/// or than the heap can give now, any other error where it could not be
-/// read. Before writing back a
+/// none, [`StorageError::TooLarge`] for files larger than `limit` bytes,
+/// [`StorageError::OutOfMemory`] where the heap cannot give the room now
+/// (try again), any other error where it could not be read. Before writing back a
 /// changed file, read it with
 /// [`files::load_for_update`](crate::files::load_for_update), which tells
 /// a missing file from one that could not be read.
@@ -200,7 +200,7 @@ pub fn read_file(storage: &dyn Storage, path: &str, limit: usize) -> Result<Vec<
     // not the end of the program.
     let mut data = Vec::new();
     data.try_reserve_exact(size)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     data.resize(size, 0);
     let mut filled = 0;
     while filled < size {

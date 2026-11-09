@@ -14,9 +14,13 @@ pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     host: FlatHost,
     report: fn(&S, u32, i32),
     identity: super::native_instances::NativeIdentity,
+    events: super::event_tags::EventTags,
 }
 
 impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
+    /// An instance whose event tags are read from its registrations, which
+    /// the tests that install nothing do.
+    #[cfg(test)]
     pub(crate) fn new(
         instance: Retained<S, M>,
         depth: FlatDepth,
@@ -24,12 +28,26 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         report: fn(&S, u32, i32),
         identity: super::native_instances::NativeIdentity,
     ) -> Self {
+        let events = event_tags(&instance, &depth);
+        Self::with_events(instance, depth, host, report, identity, events)
+    }
+
+    /// An instance with the event tags its install admitted.
+    pub(crate) fn with_events(
+        instance: Retained<S, M>,
+        depth: FlatDepth,
+        host: FlatHost,
+        report: fn(&S, u32, i32),
+        identity: super::native_instances::NativeIdentity,
+        events: super::event_tags::EventTags,
+    ) -> Self {
         Self {
             instance,
             depth,
             host,
             report,
             identity,
+            events,
         }
     }
 
@@ -38,6 +56,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         env: &'a Env<'a>,
         epoch: u64,
         instance: Option<paperpaw_sdk::ScreenKey>,
+        directory: Option<&'a super::native_declarations::NativeDeclarations>,
     ) -> CoreFrame<'a> {
         CoreFrame {
             callback: crate::abi7::core_frame::CallbackStamp::new(self.identity.owner(), epoch)
@@ -45,6 +64,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             env,
             meter: &self.host.meter,
+            depth: Some(self.depth.as_depth()),
+            directory,
+            stack_generation: self.host.stack_rows.generation(),
+            stack_rows: &self.host.stack_rows,
             font_removals: &self.host.font_removals,
             usage: env.usage(),
             plugins: env.plugins(),
@@ -59,13 +82,21 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
         invocation: shell::TokenInvocation<'_>,
     ) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        // A screen's callback is on the stack until this returns (`core.net`
+        // asks whether the screen is showing).
+        let _screen = instance.map(|key| {
+            self.host
+                .stack_rows
+                .enter_callback(self.identity.owner(), key.serial())
+        });
         shell::dispatch_token(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), instance),
+            &self.frame(env, epoch.epoch(), instance, directory.as_deref()),
             invocation,
         )
         .map_err(status)
@@ -78,13 +109,14 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         canvas: &mut Canvas<'_>,
         instance: Option<paperpaw_sdk::ScreenKey>,
     ) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), instance),
+            &self.frame(env, epoch.epoch(), instance, directory.as_deref()),
             frame,
             canvas,
         )
@@ -93,6 +125,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.identity.take_open_info()
+    }
+
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }
@@ -137,13 +173,14 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_stage(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env, epoch.epoch(), None),
+            &self.frame(env, epoch.epoch(), None, directory.as_deref()),
             bytes,
             out,
         )
@@ -156,6 +193,22 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
             status,
         );
     }
+}
+
+/// The event tags the committed registrations name, read once at the start.
+/// A failed read or a tag beyond the set leaves the owner unsubscribed to it.
+#[cfg(test)]
+fn event_tags<S: Services + 'static, M: 'static>(
+    instance: &Retained<S, M>,
+    depth: &FlatDepth,
+) -> super::event_tags::EventTags {
+    let mut tags = super::event_tags::EventTags::default();
+    let _ = instance.registrations(depth.as_depth(), &mut |_, record| {
+        if let super::registrations::Registration::Event { event_tag, .. } = record {
+            let _ = tags.insert(event_tag);
+        }
+    });
+    tags
 }
 
 fn status(error: shell::Error) -> i32 {
@@ -179,6 +232,15 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     }
     fn stop(&self) {
         self.instance.host().stop();
+    }
+    fn callback_depth(&self) -> u8 {
+        self.depth.as_depth().0.current()
+    }
+    fn subscribed(&self, tag: u32) -> bool {
+        self.events.contains(tag)
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(self.instance.host().image());
     }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();

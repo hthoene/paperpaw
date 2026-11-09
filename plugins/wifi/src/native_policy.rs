@@ -12,7 +12,10 @@
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::{mem::push, text::copy};
+use paperpaw_ui_kit::{
+    mem::{push, wipe_text},
+    text::copy,
+};
 
 /// Scans in a row that find no network joined before, until none counts as
 /// in reach: the first after the radio comes on often finds none.
@@ -62,13 +65,7 @@ impl fmt::Debug for Password {
 
 impl Drop for Password {
     fn drop(&mut self) {
-        let mut bytes = core::mem::take(&mut self.0).into_bytes();
-        for byte in &mut bytes {
-            // SAFETY: each byte is live and exclusively borrowed; the volatile
-            // store keeps the wipe when the allocation is freed right after.
-            unsafe { core::ptr::write_volatile(byte, 0) };
-        }
-        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        wipe_text(core::mem::take(&mut self.0));
     }
 }
 

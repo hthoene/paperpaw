@@ -21,6 +21,8 @@ pub const WIFI_SCANNED: u32 = 8;
 pub const WIFI_DONE: u32 = 9;
 pub const NETWORK_WANTED: u32 = 13;
 pub const NETWORK_IDLE: u32 = 14;
+/// The timers (idle off, retry) come due as work.
+pub const WORK: u32 = 15;
 
 /// The idle choices, in the order the page lists them.
 pub const IDLE_OFF: [&str; 5] = [
@@ -136,5 +138,6 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::WifiDone, WIFI_DONE)?;
     d.subscribe_event(EventKind::NetworkWanted, NETWORK_WANTED)?;
     d.subscribe_event(EventKind::NetworkIdle, NETWORK_IDLE)?;
+    d.subscribe_event(EventKind::WorkDue, WORK)?;
     d.submit()
 }

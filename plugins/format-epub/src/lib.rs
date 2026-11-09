@@ -29,12 +29,16 @@ mod cbz;
 mod convert;
 mod css;
 mod document;
+mod fallible;
 mod fb2;
 mod html;
 mod markdown;
+mod native_io;
 mod obfuscation;
 mod package;
 mod pictures;
+pub mod provider;
+mod providers;
 mod woff;
 
 use alloc::borrow::Cow;
@@ -50,6 +54,8 @@ pub use document::EpubDocument;
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
+pub use native_io::NativeIo;
+pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
@@ -301,6 +307,22 @@ pub fn fingerprint(
     Ok(alloc::format!("{size} {hash:016x}"))
 }
 
+/// [`fingerprint`] where a refused allocation is `OutOfMemory` and a
+/// storage error is the document's.
+pub(crate) fn fingerprint_with(
+    storage: &dyn paperpaw_sdk::Storage,
+    path: &str,
+) -> Result<alloc::string::String, paperpaw_sdk::document::DocumentError> {
+    let size = storage.size(path)?;
+    let mut ends = fallible::zeroed(2 * ENDS)?;
+    let (head, tail) = ends.split_at_mut(ENDS);
+    let head = read_full(storage, path, 0, head)?;
+    let tail = read_full(storage, path, size.saturating_sub(ENDS as u64), tail)?;
+    ends.copy_within(ENDS..ENDS + tail, head);
+    let hash = paperpaw_sdk::digest::fnv1a64(&ends[..head + tail]);
+    fallible::try_format!("{size} {hash:016x}")
+}
+
 /// Fills `buf` from `offset` of `path` as far as the file goes; how much.
 fn read_full(
     storage: &dyn paperpaw_sdk::Storage,
@@ -333,7 +355,7 @@ pub(crate) fn head(
 /// Whether a file's first bytes are an EPUB's: a ZIP whose first entry
 /// is `mimetype`, stored, saying `application/epub+zip` (as the format
 /// asks), not any ZIP.
-fn is_epub(head: &[u8]) -> bool {
+pub(crate) fn is_epub(head: &[u8]) -> bool {
     const MIME: &[u8] = b"application/epub+zip";
     let field = |at: usize| {
         head.get(at..at + 2)

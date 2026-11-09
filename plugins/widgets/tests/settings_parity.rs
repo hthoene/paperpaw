@@ -38,6 +38,10 @@ fn legacy(widget: &str) -> Vec<Shape> {
                 (SettingKind::Choice(choices), SettingValue::Text(default)) => {
                     format!("choice {default} {:?}", choices.iter().collect::<Vec<_>>())
                 }
+                (SettingKind::Text, SettingValue::Text(default)) => format!("text {default:?}"),
+                (SettingKind::Int { min, max }, SettingValue::Int(default)) => {
+                    format!("int {default} {min}..={max}")
+                }
                 other => panic!("a kind the widgets do not use: {other:?}"),
             };
             found.push(Shape {
@@ -52,13 +56,14 @@ fn legacy(widget: &str) -> Vec<Shape> {
 }
 
 fn native(def: &declarations::Def) -> Vec<Shape> {
-    def.options
-        .iter()
+    def.all()
         .map(|option| {
-            let row = row(*option);
+            let row = row(option);
             let kind = match row.kind {
                 Kind::Bool(on) => format!("bool {on}"),
                 Kind::Choice { default, choices } => format!("choice {default} {choices:?}"),
+                Kind::Text(default) => format!("text {default:?}"),
+                Kind::Int { default, min, max } => format!("int {default} {min}..={max}"),
                 other => panic!("a kind the widgets do not use: {other:?}"),
             };
             Shape {

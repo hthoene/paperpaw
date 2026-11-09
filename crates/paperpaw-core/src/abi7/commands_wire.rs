@@ -246,6 +246,18 @@ pub const COMMAND_BT_GIVE_PLUGIN_MAX_BYTES: usize = 64;
 pub const COMMAND_BT_TAKE_BACK_TAG: u32 = 1590;
 /// Wire tag of the `command.bt_keys` command.
 pub const COMMAND_BT_KEYS_TAG: u32 = 1591;
+/// Wire tag of the `command.lookup_ready` command.
+pub const COMMAND_LOOKUP_READY_TAG: u32 = 1593;
+/// Maximum bytes of `command.lookup_ready.text`.
+pub const COMMAND_LOOKUP_READY_TEXT_MAX_BYTES: usize = 1024;
+/// Maximum bytes of `command.lookup_ready.language`.
+pub const COMMAND_LOOKUP_READY_LANGUAGE_MAX_BYTES: usize = 35;
+/// Wire tag of the `command.set_hint` command.
+pub const COMMAND_SET_HINT_TAG: u32 = 1594;
+/// Maximum bytes of `command.set_hint.action`.
+pub const COMMAND_SET_HINT_ACTION_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.set_hint.label`.
+pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -626,6 +638,22 @@ pub enum Command<'a> {
         device: u32,
         /// Little-endian u32.
         on: u32,
+    },
+    /// The `command.lookup_ready` command (`docs/abi/registry.md`).
+    LookupReady {
+        /// UTF-8 text of at most 1024 bytes.
+        text: &'a str,
+        /// UTF-8 text of at most 35 bytes.
+        language: &'a str,
+    },
+    /// The `command.set_hint` command (`docs/abi/registry.md`).
+    SetHint {
+        /// UTF-8 text of at most 128 bytes.
+        action: &'a str,
+        /// Little-endian u32.
+        kind: u32,
+        /// UTF-8 text of at most 64 bytes.
+        label: &'a str,
     },
 }
 
@@ -1308,6 +1336,21 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     on: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_LOOKUP_READY_TAG => {
+                body.bitmap()?;
+                Command::LookupReady {
+                    text: text(body.bytes()?, COMMAND_LOOKUP_READY_TEXT_MAX_BYTES)?,
+                    language: text(body.bytes()?, COMMAND_LOOKUP_READY_LANGUAGE_MAX_BYTES)?,
+                }
+            }
+            COMMAND_SET_HINT_TAG => {
+                body.bitmap()?;
+                Command::SetHint {
+                    action: text(body.bytes()?, COMMAND_SET_HINT_ACTION_MAX_BYTES)?,
+                    kind: u32::from_le_bytes(scalar(body.take(4)?)),
+                    label: text(body.bytes()?, COMMAND_SET_HINT_LABEL_MAX_BYTES)?,
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1604,6 +1647,18 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::BtTakeBack { .. } => Ok((COMMAND_BT_TAKE_BACK_TAG, 1 + 4)),
         Command::BtKeys { .. } => Ok((COMMAND_BT_KEYS_TAG, 1 + 8)),
+        Command::LookupReady { text, language } => {
+            let mut len = 1;
+            len += blob_len(text.len(), COMMAND_LOOKUP_READY_TEXT_MAX_BYTES)?;
+            len += blob_len(language.len(), COMMAND_LOOKUP_READY_LANGUAGE_MAX_BYTES)?;
+            Ok((COMMAND_LOOKUP_READY_TAG, len))
+        }
+        Command::SetHint { action, label, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(action.len(), COMMAND_SET_HINT_ACTION_MAX_BYTES)?;
+            len += blob_len(label.len(), COMMAND_SET_HINT_LABEL_MAX_BYTES)?;
+            Ok((COMMAND_SET_HINT_TAG, len))
+        }
     }
 }
 
@@ -1971,6 +2026,20 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&on.to_le_bytes());
                     offset += 4;
+                }
+                Command::LookupReady { text, language } => {
+                    write_blob(text.as_bytes(), out, &mut offset);
+                    write_blob(language.as_bytes(), out, &mut offset);
+                }
+                Command::SetHint {
+                    action,
+                    kind,
+                    label,
+                } => {
+                    write_blob(action.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&kind.to_le_bytes());
+                    offset += 4;
+                    write_blob(label.as_bytes(), out, &mut offset);
                 }
                 Command::SetSetting { .. } => {}
             }

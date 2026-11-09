@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 3] = [
+const CASES: [Case; 9] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -27,6 +27,41 @@ const CASES: [Case; 3] = [
         name: "widgets-system-utc-offset",
         golden: None,
         blocked_by: &["H1", "H3"],
+    },
+    // The greeting by the hour, its sun or moon, the name, the date line.
+    Case {
+        name: "widgets-greeting-draws-by-time-of-day",
+        golden: None,
+        blocked_by: &["H1", "H3"],
+    },
+    // A tap on the note asks for its text on the keyboard, the answer is kept
+    // as the setting (the request and its text are owner resources, H2).
+    Case {
+        name: "widgets-note-edits-on-tap",
+        golden: None,
+        blocked_by: &["H1", "H2", "H4"],
+    },
+    Case {
+        name: "widgets-quote-turns-on-tap",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
+    },
+    Case {
+        name: "widgets-todo-ticks-on-tap",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
+    },
+    // The battery lying, standing and as a ring, a low charge shaded, the bolt
+    // while charging, the caption.
+    Case {
+        name: "widgets-battery-draws-each-style",
+        golden: None,
+        blocked_by: &["H1", "H3"],
+    },
+    Case {
+        name: "widgets-todo-screen-adds-ticks-and-moves",
+        golden: None,
+        blocked_by: &["H1", "H2", "H4"],
     },
 ];
 
@@ -55,4 +90,40 @@ fn widgets_live_minute_update() {
 #[ignore = "BLOCKED H1/H3 and draft 25: the snapshot has no UTC offset yet, so an unset zone reads as UTC"]
 fn widgets_system_utc_offset() {
     CASES[2].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3: native screen commands and composition are not qualified"]
+fn widgets_greeting_draws_by_time_of_day() {
+    CASES[3].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H2/H4: native screen commands, dialogs and widget input are not qualified"]
+fn widgets_note_edits_on_tap() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
+fn widgets_quote_turns_on_tap() {
+    CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
+fn widgets_todo_ticks_on_tap() {
+    CASES[6].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3: native screen commands and composition are not qualified"]
+fn widgets_battery_draws_each_style() {
+    CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H2/H4: native screen commands, dialogs and input are not qualified"]
+fn widgets_todo_screen_adds_ticks_and_moves() {
+    CASES[8].refuse().unwrap();
 }

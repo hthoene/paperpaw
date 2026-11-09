@@ -70,7 +70,7 @@ impl Kernel {
             WifiEvent::Scanned(mut networks) => {
                 // Strongest first, each name once (several access points
                 // may carry one network).
-                networks.sort_by_cached_key(|n| core::cmp::Reverse(n.signal));
+                paperpaw_sort::sort_by_cached_key(&mut networks, |n| core::cmp::Reverse(n.signal));
                 let mut seen: Vec<String> = Vec::new();
                 networks.retain(|n| {
                     let new = !n.ssid.is_empty() && !seen.contains(&n.ssid);

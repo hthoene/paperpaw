@@ -255,6 +255,7 @@ g_native() {
         CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
         CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'
     run "native: NOTICE names every crate that ships" "python3 tools/licences/build.py --check"
+    run "native: every Cargo.lock agrees with its manifests" "python3 tools/check-lockfiles.py"
     run "native: the store's rules are the site's" '
         if curl -sSf --max-time 20 https://paperpaw.org/api/v1/store-rules.json -o target/ci-local/store-rules.json; then
           cargo run --release -p paperpaw-sign -- store-rules target/ci-local/store-rules.json
@@ -302,6 +303,8 @@ g_architecture() {
     fi
     run "architecture: handbook tests" "python3 -m unittest discover -s tools -p test_handbook.py"
     run "architecture: CI tool setup tests" "python3 -m unittest discover -s tools -p test_ci_tools.py"
+    run "architecture: local check script tests" "python3 -m unittest discover -s tools -p test_check_local.py"
+    run "architecture: lockfile check tests" "python3 -m unittest discover -s tools -p test_check_lockfiles.py"
     run "architecture: Android version codes" '
         for pair in "0.4.0-dev 40050" "0.5.0-beta.1 50001" "0.5.0-beta.2 50002" \
           "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.6.0-beta.2 60002" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
@@ -340,8 +343,6 @@ g_emulator() {
         $emu --headless --profile two-buttons \
           --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
           --screenshot out/two-buttons-settings.png
-        $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-          --script "page-forward,long-tap:600:800"
         $emu --registry out/registry.json
         printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
         py="$(command -v python3 || command -v python)"
@@ -432,6 +433,8 @@ g_miri() {
     for model in stacked tree; do
         flags="-Zmiri-strict-provenance"
         [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        run "miri: $model shared ownership and weak teardown" \
+            "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shared::tests::"
         for test_name in token_tests tests; do
             run "miri: $model $test_name" \
                 "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"

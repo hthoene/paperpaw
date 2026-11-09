@@ -118,18 +118,54 @@ native screens replace these callers.
   `create_dir`): the native adapter over `core.files` (SDK `native::files`, PR #384) is the
   shell's, and an ignored case names it.
 
+## Ported (the native shell, first part): `src/native_plugin.rs`, `declarations.rs`
+
+- `NativeVocabulary` (`native_plugin!`, features `linked` and `native-entry`, metadata in `native/`
+  — regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+  --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`;
+  `tools/tests/test_abi_plugin_metadata.py` fails on a stale one). Declares `uses.storage`.
+- The eight settings (`declarations::settings`, pinned in `testdata/declarations.bin.v1`, compared
+  field by field with what interface 6 registered in `tests/settings_parity.rs`): `collect`, `mark`,
+  `new-per-day`, `retention`, `cards-from-lookups`, `review-on-wake`, `sd-auto`, `sd-folder`, all in
+  `core.group.reading`. The seven settings of the role of the marked words (`vocabulary.learning.*`)
+  come with the marks.
+- The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
+  `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
+- Not declared yet: `uses.network` (the phone page), the word list's entry and screen, the sleep
+  choice, the help hints, the widget and the events for the words looked up and the wake (the
+  native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
+  The flash cards' action, entry and screens are declared (next section).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
-- Screens (word list, decks, card files, review, sleep card) on `core.ui`.
+- The rest of the native shell: the word list's action, entry and screen, the scan action, events and help.
+- Screens (word list, card files, sleep card) on `core.ui`.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (decorations).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: `core.files` (#339).
+
+## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
+
+- The rows of the screen (*Review* with the cards due, *Edit with your phone*, *Cards on the SD card*
+  with what its folder holds, then the decks with their sizes) are made from owned `Numbers` over a
+  `Words` trait (the host's catalog behind `HostWords`), so they are tested in both languages without a
+  host; the texts and the five states of the files row are those of interface 6's `decks.rs`. The decks
+  and sizes are read by `Numbers::read` over `cards::decks` and `cards::sizes` (a refused allocation is
+  `TooLarge`, as there); the cards due, the folder and what it holds are the shell's to give (they depend
+  on the clock, the settings and `sdcard`, which are still interface 6).
+- `DecksView` draws the list (`ItemList`, title `vocabulary.cards.title`) and, on a chosen row, opens the
+  screen of its `Target` with a hand-over (a deck is named under `deck`); `tests` pin that the screen ids
+  and the key are those of the interface-6 screens. `native_decks_tests.rs` refuses each allocation of the
+  rows and of the numbers in turn.
+- Registered with the flash cards' shell (next section). The phone and SD-card rows are not offered
+  yet (`Numbers::phone` and `files` are false): their screens wait, and a row that ends in a refusal is
+  not shown. The automatic update of the decks at opening (`SD_AUTO`) waits with the card adapter.
+  `paperpaw-ui-kit` joins the dependencies (the lock files of the plugin's three workspaces).
 
 ## Ported: save to card (`export.rs`, host-free over `Storage`)
 
@@ -151,3 +187,32 @@ native screens replace these callers.
   SDK's `move_to` fallback.
 - Not done: `sdcard.rs` and `sdmenu.rs` (screens, with the native shell); the card folder is
   still the platform `Storage` (the adapter over `core.files` belongs to the shell).
+
+## Ported: the flash cards (`native_plugin.rs`, `native_review.rs`, `native_review_screen.rs`)
+
+- Declared (`declarations::ui`): the action `vocabulary.flash-cards` (the id interface 6 used), its place in
+  the Tools menu (order 36), its icon `stack-2`, the screens `vocabulary.cards` (the decks) and
+  `vocabulary.review` (one instance for each deck or card named in the hand-over: the default
+  per-parameters reuse of interface 6), and the minute tick. `core.ui` joins the services in the metadata.
+- The decks' screen reads the numbers when it opens and when it is shown again (a review changed what is
+  due), the focus kept; the words looked up that wait become cards first (`take_lookups`, as interface 6's
+  `load`). `Numbers` is built over `DataFolder`; the due count is the widget's (`due_now`).
+- The review: `native_review.rs` holds the state and the decisions over a `Storage`, a `Time` and `Words`
+  (tested without a host: `native_review_tests.rs`), `native_review_screen.rs` draws it (card, *Show
+  answer* or the four answers with when each would bring the card back, the cards left in the header)
+  and takes the input (*Select* and a tap show the back and answer; left and right move the focus, which
+  starts on *Good*; *Back* is the host's). Each answer is kept at once (`cards::record`, with
+  "could not be kept" told if it fails), the answers go into the decks when the screen closes
+  (`ScreenClosed`), and a card answered *Again* comes back in this review after its 10 minutes.
+- Differences from interface 6, on purpose: the minute tick (`event.tick`) wakes the review to show such a
+  card (interface 6 woke exactly then with `wake_at`; there is no wall-clock alarm for a screen yet); the
+  card text is wrapped to 12 lines at most; a deck screen shown below another reads its numbers again
+  only when it is shown.
+- Time: `HostTime` reads the snapshot's wall clock and zone offset for each input (the device may have
+  none: the last time known stands, as in `cards::now_of`).
+- Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
+  card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
+  (`vocabulary.open`; needs the kit's `WindowList`, todo 267), the sleep card and review on waking (sleep and
+  wake stages), the widget, marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
+- Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
+  refuses screen commands), a snapshot of the review.

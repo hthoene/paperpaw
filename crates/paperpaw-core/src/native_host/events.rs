@@ -11,13 +11,13 @@
 //! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
-    EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
+    EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
     EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
-    EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
-    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
-    Record, records_decode, records_encode,
+    EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG,
+    EVENT_SUSPEND_TAG, EVENT_TICK_TAG, EventBatteryMeasured, EventPageTurned, EventResume,
+    EventStarted, EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
 };
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3) and 32-37.
 /// Never 38 or 39: those go to the token of the screen or action declaration
@@ -58,7 +58,7 @@ pub fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => records_encode(&[*record], out),
+        | Record::EventActionRun(_) => super::codec::encode_batch(&[*record], out),
         _ => Err(ERR_INVALID),
     }
 }
@@ -175,6 +175,36 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
     encode(&Record::EventPageTurned(record), out)
 }
 
+/// Whether the batch's leading count is a whole, canonical varint above
+/// `REGISTRATION_MAX_RECORDS`: `ERR_NO_SPACE`, before any record is read (as
+/// the counted batch decoder answered). A malformed count is left to the
+/// framing's own status.
+fn count_over_max(bytes: &[u8]) -> bool {
+    let mut count = 0_u32;
+    for (index, byte) in bytes.iter().take(5).enumerate() {
+        if index == 4 && *byte > 15 {
+            return false;
+        }
+        count |= u32::from(byte & 0x7f) << (7 * index as u32);
+        if byte & 0x80 == 0 {
+            return (index == 0 || *byte != 0) && count as usize > REGISTRATION_MAX_RECORDS;
+        }
+    }
+    false
+}
+
+/// The tags `decode` reads.
+const EVENT_TAGS: [u32; 8] = [
+    EVENT_STARTED_TAG,
+    EVENT_RESUME_TAG,
+    EVENT_SUSPEND_TAG,
+    EVENT_STOPPING_TAG,
+    EVENT_BATTERY_MEASURED_TAG,
+    EVENT_SCREEN_SHOWN_TAG,
+    EVENT_ACTION_RUN_TAG,
+    EVENT_PAGE_TURNED_TAG,
+];
+
 /// Decode bytes that hold exactly one event record (tags 32-39).
 ///
 /// # Errors
@@ -183,11 +213,16 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
 /// turn that [`encode_page_turned`] refuses; `ERR_UNSUPPORTED` when that record
 /// is not an event.
 pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    let batch = records_decode(bytes)?;
-    let mut records = batch.iter();
-    let (Some(record), None) = (records.next(), records.next()) else {
-        return Err(ERR_INVALID);
-    };
+    // Only the events are read; a record of any other tag, known or not, is
+    // `ERR_UNSUPPORTED` before its body is looked at.
+    if count_over_max(bytes) {
+        return Err(ERR_NO_SPACE);
+    }
+    let raw = super::registrations::RawRecord::single(bytes)?;
+    if !EVENT_TAGS.contains(&raw.tag()) {
+        return Err(ERR_UNSUPPORTED);
+    }
+    let record = super::codec::decode_single(bytes)?;
     match record {
         Record::EventStarted(_)
         | Record::EventResume(_)
@@ -201,5 +236,25 @@ pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
         }
         Record::EventPageTurned(_) => Err(ERR_INVALID),
         _ => Err(ERR_UNSUPPORTED),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_count_above_the_batch_cap_is_no_space_and_other_counts_keep_their_status() {
+        // Count 9, then nothing: no record is read.
+        assert_eq!(decode(&[9]).unwrap_err(), ERR_NO_SPACE);
+        assert_eq!(decode(&[0x80, 0x01]).unwrap_err(), ERR_NO_SPACE);
+        // Counts 2..=8 are not one record: ERR_INVALID.
+        for count in 2..=8_u8 {
+            assert_eq!(decode(&[count]).unwrap_err(), ERR_INVALID);
+        }
+        // A non-canonical or truncated count is the framing's own status.
+        assert_eq!(decode(&[0x89, 0x00]).unwrap_err(), ERR_INVALID);
+        assert_eq!(decode(&[0x89]).unwrap_err(), ERR_INVALID);
+        assert_eq!(decode(&[]).unwrap_err(), ERR_INVALID);
     }
 }

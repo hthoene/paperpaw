@@ -15,6 +15,27 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Extension,
     Kind::Screen,
     Kind::Action,
+    Kind::Widget,
+    Kind::WidgetPlace,
+    Kind::StatusItem,
+    Kind::StatusLine,
+    Kind::StatusPlace,
+    Kind::MenuEntry,
+    Kind::Icon,
+    Kind::MenuNeed,
+    Kind::MenuSection,
+    Kind::MenuHide,
+    Kind::MenuDescribe,
+    Kind::SlotSpec,
+    Kind::SlotOffer,
+    Kind::KeyBind,
+    Kind::SettingDefault,
+    Kind::SettingChoice,
+    Kind::PresetSpec,
+    Kind::PresetValue,
+    Kind::Stage,
+    Kind::Subscription,
+    Kind::SetupStep,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -25,6 +46,9 @@ struct Image {
     denied: Cell<usize>,
 }
 impl ImageOwner for Image {
+    fn plugin_id(&self) -> &str {
+        "fixture"
+    }
     fn generation(&self) -> u32 {
         self.generation.get()
     }
@@ -1010,3 +1034,283 @@ fn check_busy_cleanup(fallback: bool) {
 
 #[path = "declaration_screen_action_tests.rs"]
 mod screen_action;
+
+#[path = "declaration_reg_admission_tests.rs"]
+mod reg_admission;
+
+// A mixed batch retains this unnamed record without giving it a Kind index.
+fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
+    let source = image();
+    let records = [
+        Record::SettingGroup(SettingGroup {
+            name: "group",
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        }),
+        Record::Registration(Registration::Draw { token: 17 }),
+    ];
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    let offset = super::super::raw_declarations::offsets(&bytes, records.len()).unwrap()[1];
+    *source.bytes.borrow_mut() = bytes;
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    store
+        .prepare(
+            pending(&source, owned, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let key = DeclKey {
+        record: offset,
+        ..keys(&store)[0]
+    };
+    (source, store, key)
+}
+
+#[test]
+fn unnamed_record_visit_uses_both_backings_and_holds_the_owner_guard() {
+    for owned in [false, true] {
+        let (source, store, key) = unnamed_fixture(owned);
+        assert!(!store.with_record(key, &mut |_| panic!("unnamed indexed record")));
+        assert!(store.visit_record(key, &mut |record| {
+            assert!(matches!(
+                record,
+                Record::Registration(Registration::Draw { token: 17 })
+            ));
+            assert!(source.active.get());
+            assert!(source.bytes.try_borrow_mut().is_err());
+        }));
+    }
+}
+
+#[test]
+fn unnamed_visit_rejects_stale_missing_and_reused_owner_keys() {
+    for owned in [false, true] {
+        let (source, mut store, key) = unnamed_fixture(owned);
+        let refused: &mut dyn for<'a> FnMut(Record<'a>) =
+            &mut |_| panic!("invalid record reached reader");
+        source.generation.set(2);
+        assert!(!store.visit_record(key, refused));
+        source.generation.set(1);
+        source.live.set(false);
+        assert!(!store.visit_record(key, refused));
+        source.live.set(true);
+        assert!(!store.visit_record(
+            DeclKey {
+                owner: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                generation: 2,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                batch: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        assert!(!store.visit_record(
+            DeclKey {
+                record: u16::MAX,
+                ..key
+            },
+            refused
+        ));
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        assert!(!store.visit_record(key, refused));
+        let replacement = image();
+        let mut allocations = Allocations::default();
+        store
+            .prepare(
+                pending(&replacement, owned, &mut allocations).unwrap(),
+                &mut allocations,
+            )
+            .unwrap()
+            .commit();
+        assert!(!store.visit_record(key, refused));
+    }
+}
+
+#[test]
+fn unnamed_visit_revalidates_image_bytes_instead_of_caching_the_record() {
+    let (source, store, key) = unnamed_fixture(false);
+    let offset = usize::from(key.record);
+    let byte = source.bytes.borrow()[offset];
+    source.bytes.borrow_mut()[offset] = 0xff;
+    assert!(!store.visit_record(key, &mut |_| panic!("corrupt record")));
+    source.bytes.borrow_mut().truncate(offset);
+    assert!(!store.visit_record(key, &mut |_| panic!("truncated record")));
+    source.bytes.borrow_mut().resize(offset + 1, byte);
+    assert!(!store.visit_record(key, &mut |_| panic!("short record")));
+}
+
+/// An owner holding groups and actions in two batches, interleaved.
+fn two_kinds_in_two_batches() -> [Vec<u8>; 2] {
+    let group = |name| {
+        Record::SettingGroup(SettingGroup {
+            name,
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        })
+    };
+    let action = |name, token| {
+        Record::ActionSpec(ActionSpec {
+            name,
+            title: "Action",
+            token,
+            flags: 0,
+        })
+    };
+    let encode = |records: &[Record<'_>]| {
+        let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+        let len = records_encode(records, &mut bytes).unwrap();
+        bytes.truncate(len);
+        bytes
+    };
+    [
+        encode(&[
+            action("zed", 1),
+            group("beta"),
+            action("alpha", 2),
+            group("alpha"),
+        ]),
+        encode(&[group("gamma"), action("mid", 3)]),
+    ]
+}
+
+fn staged(allocations: &mut Allocations) -> Result<PendingDeclarations, i32> {
+    let source = image();
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
+    for batch in two_kinds_in_two_batches() {
+        pending.stage_batch(&batch, allocations)?;
+    }
+    Ok(pending)
+}
+
+/// The ranges of the one list: in kind order, whole, and each kind's records
+/// together (`starts[k]..starts[k + 1]`).
+fn ranges_hold(pending: &PendingDeclarations) {
+    assert!(pending.starts.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(pending.starts[0], 0);
+    assert_eq!(
+        usize::from(pending.starts[KIND_COUNT]),
+        pending.slots.len(),
+        "the last offset ends the list"
+    );
+}
+
+#[test]
+fn every_kind_lives_in_one_list_by_ranges_and_names_are_found_in_their_kind() {
+    let mut allocations = Allocations::default();
+    let pending = staged(&mut allocations).unwrap();
+    ranges_hold(&pending);
+    assert_eq!(pending.of_kind(Kind::Group).len(), 3);
+    assert_eq!(pending.of_kind(Kind::Action).len(), 3);
+    assert_eq!(pending.slots.len(), 6);
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    let owner = store.owners[0].as_ref().unwrap();
+    for kind in [Kind::Group, Kind::Action] {
+        let slots = owner.of_kind(kind);
+        assert!(
+            slots.windows(2).all(|pair| pair[0].hash <= pair[1].hash),
+            "{kind:?} is sorted by hash once prepared"
+        );
+    }
+    for kind in KINDS {
+        let mut count = 0;
+        store.keys(kind, &mut |_| count += 1);
+        let expected = if matches!(kind, Kind::Group | Kind::Action) {
+            3
+        } else {
+            0
+        };
+        assert_eq!(count, expected, "{kind:?}");
+    }
+    let mut allocations = Allocations::default();
+    assert_eq!(store.all_keys(&mut allocations).unwrap().len(), 6);
+    // A name is found in its own kind's range only. "alpha" is declared as a
+    // group and as an action, so it is found in both; every other name in the
+    // one kind that declares it.
+    let mut found = 0;
+    for name in ["alpha", "beta", "gamma"] {
+        assert!(store.find("fixture", Kind::Group, name, &mut |_| found += 1));
+    }
+    for name in ["alpha", "zed", "mid"] {
+        assert!(store.find("fixture", Kind::Action, name, &mut |_| found += 1));
+    }
+    for name in ["beta", "gamma"] {
+        assert!(
+            !store.find("fixture", Kind::Action, name, &mut |_| found += 1),
+            "{name} is no action"
+        );
+    }
+    for name in ["zed", "mid"] {
+        assert!(
+            !store.find("fixture", Kind::Group, name, &mut |_| found += 1),
+            "{name} is no group"
+        );
+    }
+    assert!(!store.find("fixture", Kind::Group, "missing", &mut |_| found += 1));
+    // Another kind has none of them.
+    for name in ["alpha", "beta", "zed"] {
+        assert!(!store.find("fixture", Kind::Screen, name, &mut |_| found += 1));
+    }
+    assert_eq!(found, 6);
+}
+
+#[test]
+fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
+    let mut reached_success = false;
+    for fail_after in 0..12 {
+        let mut allocations = Allocations {
+            fail_after: Some(fail_after),
+        };
+        let source = image();
+        let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
+        let mut results = Vec::new();
+        for batch in two_kinds_in_two_batches() {
+            results.push(pending.stage_batch(&batch, &mut allocations));
+            // Whatever failed, the offsets describe the list exactly.
+            ranges_hold(&pending);
+        }
+        if results.iter().all(Result::is_ok) {
+            reached_success = true;
+            assert_eq!(pending.slots.len(), 6);
+        } else {
+            assert!(results.contains(&Err(ERR_NO_MEMORY)));
+            // A failed owner stays failed: nothing publishes it.
+            let mut store = DeclarationStore::default();
+            assert!(store.prepare(pending, &mut Allocations::default()).is_err());
+        }
+    }
+    assert!(reached_success, "the walk reached a fully staged owner");
+}
+
+#[test]
+fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
+    // The offsets and counts are 16-bit tables, one list for every kind: the
+    // owner no longer pays a `Vec` and a counter per kind (`abi/heap-word.md`
+    // section 9). On a 32-bit target the build pins it (`PENDING_BUDGET`).
+    let per_kind = size_of::<[u16; KIND_COUNT + 1]>() + size_of::<[u16; KIND_COUNT]>();
+    assert_eq!(per_kind, 2 * (2 * KIND_COUNT) + 2);
+    assert!(
+        size_of::<PendingDeclarations>() <= 2 * size_of::<Vec<Slot>>() + per_kind + 160,
+        "{}",
+        size_of::<PendingDeclarations>()
+    );
+}

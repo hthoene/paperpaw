@@ -192,6 +192,46 @@ pub(crate) fn resolve(base: &str, href: &str) -> (String, Option<String>) {
     (parts.join("/"), fragment)
 }
 
+/// [`resolve`] where a copy that finds no room is `OutOfMemory`.
+pub(crate) fn try_resolve(
+    base: &str,
+    href: &str,
+) -> Result<(String, Option<String>), paperpaw_sdk::document::DocumentError> {
+    use crate::fallible;
+    let (path, fragment) = match href.split_once('#') {
+        Some((p, f)) => (p, Some(fallible::percent_decode(f)?)),
+        None => (href, None),
+    };
+    let joined = if path.is_empty() {
+        fallible::string(base.trim_end_matches('/'))?
+    } else {
+        fallible::try_format!("{base}{}", fallible::percent_decode(path)?)?
+    };
+    // The parts kept are the leading ones of `joined`, cut back at `..`:
+    // written onto `out` as they come.
+    let mut out = fallible::string_with(joined.len())?;
+    let mut kept = 0usize;
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if kept > 0 {
+                    out.truncate(out.rfind('/').unwrap_or(0));
+                    kept -= 1;
+                }
+            }
+            part => {
+                if kept > 0 {
+                    out.push('/');
+                }
+                out.push_str(part);
+                kept += 1;
+            }
+        }
+    }
+    Ok((out, fragment))
+}
+
 /// The most of a description kept, in bytes.
 const MAX_DESCRIPTION: usize = 2000;
 
@@ -868,7 +908,7 @@ fn read_metadata(
     if out_of_memory {
         return Err(DocumentError::OutOfMemory);
     }
-    spine_ids.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut spine_ids);
     Ok(Opf {
         metadata,
         spine_ids,
@@ -1095,7 +1135,7 @@ fn write_styles(
     // Stylesheets, one at a time; a damaged one is skipped.
     let mut rules = css::Rules::default();
     for path in stylesheets {
-        let mut parser = css::Parser::new(dir_of(path));
+        let mut parser = css::Parser::new(dir_of(path))?;
         let Ok(Some(entry)) = archive.entry(storage, path) else {
             continue;
         };

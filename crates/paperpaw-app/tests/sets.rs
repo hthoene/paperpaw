@@ -27,7 +27,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-const ALWAYS: [&str; 15] = [
+const ALWAYS: [&str; 13] = [
     "fonts-default",
     "format-epub",
     "format-txt",
@@ -36,7 +36,6 @@ const ALWAYS: [&str; 15] = [
     "home",
     "menu",
     "settings",
-    "setup",
     "wifi",
     "keyboard",
     "store",
@@ -54,7 +53,7 @@ fn fonts() -> paperpaw_app::Fonts {
 fn builder() -> KernelBuilder {
     Kernel::builder(DEVICE)
         .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
-        .user_config("[help]\nshow = false\n[core]\nlanguage = en\n")
+        .user_config("[core]\nlanguage = en\n")
 }
 
 /// The plugins registered, with their states.
@@ -172,13 +171,11 @@ fn a_store_plugin_switched_off_before_stays_off() {
         .with(".paperpaw/plugins/setup/done", "")
         .with(
             "paperpaw.ini",
-            "[core]\nlanguage = en\n\n[plugins]\nrules = off\n",
+            "[core]\nlanguage = en\n\n[plugins]\nvocabulary = off\n",
         );
     let ran_before = paperpaw_app::ran_before(&storage);
     let kernel = paperpaw_app::install_with(
-        Kernel::builder(DEVICE)
-            .storage(storage)
-            .user_config("[help]\nshow = false\n"),
+        Kernel::builder(DEVICE).storage(storage).user_config(""),
         fonts(),
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
@@ -188,7 +185,7 @@ fn a_store_plugin_switched_off_before_stays_off() {
     let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
     assert_eq!(state("aids"), Some(PluginState::Running));
     assert_eq!(state("stats"), Some(PluginState::Running));
-    assert_eq!(state("rules"), Some(PluginState::Off));
+    assert_eq!(state("vocabulary"), Some(PluginState::Off));
     // Off as it always shipped.
     assert_eq!(state("browser"), Some(PluginState::Off));
 }

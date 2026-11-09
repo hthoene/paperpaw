@@ -13,9 +13,9 @@ use crate::plugin::RegisterError;
 
 mod card;
 
-#[cfg(feature = "kernel")]
-pub use card::CardTable;
 use card::CardTables;
+#[cfg(feature = "kernel")]
+pub use card::{CardTable, wins as plugin_wins};
 
 /// Hyphenation patterns for a language, compiled with
 /// [`hyphen::compile`](crate::hyphen::compile).
@@ -99,6 +99,14 @@ impl Hyphenation {
         }
         self.compiled(language)
             .map(|patterns| Hyphenator::new(Table::Compiled(*patterns)))
+    }
+
+    /// The data plugins' tables on the card, in the order they were added
+    /// (the kernel hands them to a shell's `text.hyphenate`).
+    #[cfg(feature = "kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn card_tables(&self) -> impl Iterator<Item = CardTable<'_>> + Clone {
+        self.card.tables()
     }
 
     /// A table compiled into a plugin for `language`, as [`get`](Self::get)

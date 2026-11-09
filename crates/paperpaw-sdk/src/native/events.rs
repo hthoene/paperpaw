@@ -1,12 +1,41 @@
 //! Borrowed interface-7 host events and stage subscriber calls, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
-use super::{
-    Error,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, declare::records_wire as wire};
+
+/// One function per event: the record's body read as its type and made an [`Event`].
+/// `$r` is the decoded record, `$body` the event (it may use `?`).
+macro_rules! event_fn {
+    ($name:ident, $ty:ty, |$r:ident| $body:expr) => {
+        // Two entries to one decoder. `inline` is what `decode_any` (every kind) uses,
+        // folded into it. `alone` is what `Incoming::decode_as` uses: a function of its
+        // own, so that a plugin's link holds the decoders of the kinds it reads and
+        // `tools/plugin-symbols.sh --events` can tell which.
+        pub(super) mod $name {
+            #[allow(unused_imports, reason = "what the decoder of one kind happens to use")]
+            use super::*;
+            #[inline(always)]
+            pub(in crate::native::events) fn inline<'a>(
+                raw: wire::RawRecord<'a>,
+                _bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                let $r: $ty = raw.decode().map_err(Error::from_status)?;
+                Ok($body)
+            }
+            #[inline(never)]
+            pub(in crate::native::events) fn alone<'a>(
+                raw: wire::RawRecord<'a>,
+                bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                inline(raw, bytes)
+            }
+        }
+    };
+}
 
 mod core_events;
+mod host_events;
+pub mod kinds;
 mod states;
 pub use states::{
     BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
@@ -390,6 +419,23 @@ pub enum Event<'a> {
     HttpDone(super::net::HttpDone),
     /// Bytes of a request's body came.
     HttpProgress(super::net::HttpProgress),
+    /// Something happened to a socket of this plugin (`core.sockets`); read
+    /// arrived bytes in this callback.
+    Socket(super::sockets::SocketEvent),
+    /// Something happened to a broadcast of this plugin.
+    Broadcast(super::sockets::BroadcastEvent<'a>),
+    /// Work of this plugin came due (`core.work`): opens a run. Requests and sockets
+    /// started in this callback belong to the run (background, `work.md` 2.3); the
+    /// run ends when this callback has returned and its last request and socket
+    /// have ended, so its sockets must have an idle time. It lasts at most 10
+    /// minutes. The run is quiet: UI calls that would ask the user answer
+    /// `Error::State` in this callback and in the events of the run's requests and
+    /// sockets, and notices go to the plugin's work note.
+    WorkDue(super::work::WorkDue<'a>),
+    /// Work was taken out for good (the user turned the network off).
+    WorkRefused(super::work::WorkRefused<'a>),
+    /// What held work back no longer does: try again what was held.
+    WorkAllowed { now_ms: u64 },
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
@@ -424,7 +470,9 @@ pub enum Event<'a> {
 }
 
 impl<'a> Event<'a> {
-    /// Decode one event, borrowing strings from the callback input.
+    /// Decode one event, borrowing strings from the callback input. This decodes
+    /// whichever event the record holds, so it links the decoder of every event; a
+    /// plugin that reads a few kinds uses [`Incoming::decode_as`].
     ///
     /// The decoded event cannot outlive its input:
     ///
@@ -439,101 +487,95 @@ impl<'a> Event<'a> {
     /// Returns framing, UTF-8, cap or event-field errors. Other exact tags
     /// return [`Error::Unsupported`].
     pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
-        decode(bytes)
+        Incoming::new(bytes)?.decode()
     }
 }
 
-/// Decode exactly one event record. Unknown appended optional fields are
-/// accepted; strings remain borrowed from `bytes`.
+/// One event as the host delivered it: its record framed and its body not read yet.
+/// The plugin reads the kinds it handles with [`Self::decode_as`] and links only
+/// their decoders; [`Self::decode`] reads any kind.
 ///
-/// # Errors
-/// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
-/// non-singleton batch or unsound counters/progress; Unsupported for other tags.
-fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
-    let record = match wire::records_decode_single(bytes) {
-        Ok(record) => record,
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED) => {
-            return wire::tick_decode(bytes)
-                .map(|now_ms| Event::Tick { now_ms })
-                .map_err(Error::from_status);
-        }
-        Err(status) => return Err(Error::from_status(status)),
-    };
-    Ok(match record {
-        Record::StageCall(r) => Event::StageCall {
-            stage: r.stage,
-            schema: r.schema,
-            payload: r.payload,
-        },
-        Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
-        Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
-        Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
-        Record::EventStopping(r) => Event::Stopping { now_ms: r.now_ms },
-        Record::EventBatteryMeasured(r) => Event::BatteryMeasured { now_ms: r.now_ms },
-        Record::EventPageTurned(r) => Event::PageTurned(
-            ReadingView {
-                now_ms: r.now_ms,
-                section: r.section,
-                offset: r.offset,
-                insert: r.insert.unwrap_or(0),
-                progress_ppm: r.progress_ppm,
-                path: r.path,
-                title: r.title,
-                chapter: r.chapter,
-                page: r.page,
-                pages: r.pages,
-            }
-            .validate()?,
-        ),
-        Record::EventScreenShown(r) => Event::ScreenShown {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            width: r.width,
-            height: r.height,
-            instance: r
-                .instance
-                .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
-                .transpose()?,
-        },
-        Record::EventActionRun(r) => Event::ActionRun {
-            now_ms: r.now_ms,
-            action: r.action,
-        },
-        other => decode_registry(other)?,
-    })
+/// ```
+/// use paperpaw_sdk::native::{Error, events::{Event, Incoming, kinds}};
+/// fn on_tick(event: Incoming<'_>) -> Result<Option<u64>, Error> {
+///     Ok(match event.decode_as::<kinds::Tick>()? {
+///         Some(Event::Tick { now_ms }) => Some(now_ms),
+///         _ => None,
+///     })
+/// }
+/// ```
+///
+/// It cannot outlive the callback bytes:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::events::Incoming;
+/// fn escape(bytes: &[u8]) -> Incoming<'static> {
+///     Incoming::new(bytes).unwrap()
+/// }
+/// ```
+#[derive(Clone, Copy)]
+pub struct Incoming<'a> {
+    raw: wire::RawRecord<'a>,
+    bytes: &'a [u8],
 }
 
-fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
-    Ok(match record {
-        Record::EventRegistryChanged(r) => Event::RegistryChanged {
-            now_ms: r.now_ms,
-            what: RegistryChanges::from_bits(r.what),
-        },
-        Record::EventPreviewChanged(r) => Event::PreviewChanged { now_ms: r.now_ms },
-        Record::EventPluginsRequested(r) => Event::PluginsRequested {
-            now_ms: r.now_ms,
-            request: PluginRequestId(r.request),
-            by: r.by,
-            plugins: RequestedPlugins::decode(r.plugins)?,
-        },
-        Record::EventPluginAnswered(r) => {
-            use super::commands::PluginOutcome;
-            let outcome = match r.outcome {
-                0 => PluginOutcome::Installed,
-                1 => PluginOutcome::Declined,
-                3 => PluginOutcome::NotFound,
-                _ => PluginOutcome::Failed,
-            };
-            Event::PluginAnswered {
-                now_ms: r.now_ms,
-                request: PluginRequestId(r.request),
-                plugin: r.plugin,
-                outcome,
-            }
-        }
-        other => uix_events::decode(other)?,
-    })
+/// Its tag only: a body may hold text a plugin keeps private.
+impl core::fmt::Debug for Incoming<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Incoming")
+            .field("tag", &self.raw.tag())
+            .finish()
+    }
 }
+
+impl<'a> Incoming<'a> {
+    /// Frame one event record: exactly one record in a batch of one, nothing after.
+    /// The body is not read.
+    ///
+    /// # Errors
+    /// Returns the framing errors [`Event::decode`] returns before it reads a body.
+    pub fn new(bytes: &'a [u8]) -> Result<Self, Error> {
+        let raw = wire::RawRecord::single(bytes).map_err(Error::from_status)?;
+        Ok(Self { raw, bytes })
+    }
+
+    /// Whether this is an event of kind `K`; the body is not read.
+    #[must_use]
+    pub fn is<K: kinds::Kind>(&self) -> bool {
+        self.raw.tag() == K::TAG
+    }
+
+    /// Read the event if it is of kind `K`: `Ok(None)` for any other, without reading
+    /// its body. A plugin links the decoders of the kinds it names only.
+    ///
+    /// # Errors
+    /// Returns UTF-8, cap or event-field errors of an event of kind `K`.
+    pub fn decode_as<K: kinds::Kind>(&self) -> Result<Option<Event<'a>>, Error> {
+        if self.raw.tag() != K::TAG {
+            return Ok(None);
+        }
+        <K as kinds::sealed::Sealed>::decode_event(self.raw, self.bytes).map(Some)
+    }
+
+    /// Read the event, whichever kind it is, as [`Event::decode`] does. This links the
+    /// decoder of every event: use [`Self::decode_as`] where a plugin handles a few.
+    ///
+    /// # Errors
+    /// Returns UTF-8, cap or event-field errors; Unsupported for a tag no event has.
+    pub fn decode(&self) -> Result<Event<'a>, Error> {
+        kinds::decode_any(self.raw, self.bytes)
+    }
+}
+
+/// What the tests of the decoders read an event with.
+#[cfg(test)]
+fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
+    Event::decode(bytes)
+}
+
+#[cfg(test)]
+#[path = "events/kinds_tests.rs"]
+mod kinds_tests;
 
 #[cfg(test)]
 #[path = "events_tests.rs"]

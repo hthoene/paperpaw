@@ -94,6 +94,21 @@ pub trait CodeLoader {
     /// was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
     fn finish(&mut self, _storage: &dyn Storage) {}
+
+    /// Where the declared hyphenation tables of the data plugins go, if this
+    /// shell serves `text.hyphenate` (`storage`: the card the tables are read
+    /// from). Asked once, after [`finish`](Self::finish); from then on every
+    /// plugin added or removed and every change of the card reaches the sink
+    /// ([`HyphenTables`](crate::native_host::HyphenTables)). A shell makes
+    /// its one `HostResources::wire` call here, so it wires its other host
+    /// views (`core.ui`) with the tables: a refused wiring leaves them all
+    /// unwired, and the shell says so.
+    fn hyphenation_sink(
+        &mut self,
+        _storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<crate::native_host::HyphenTables> {
+        None
+    }
 }
 
 /// A code plugin's file to load ([`CodeLoader::load`]).
@@ -150,7 +165,7 @@ impl Kernel {
         disabled: &[String],
         code: Option<CodePlugins>,
     ) {
-        found.sort_by_cached_key(|plugin| plugin.manifest().id);
+        paperpaw_sort::sort_by_cached_key(&mut found, |plugin| plugin.manifest().id);
         let Some(CodePlugins {
             mut native,
             mut loader,
@@ -188,10 +203,7 @@ impl Kernel {
         // Plugins whose author's key was revoked (stolen): their code does
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
-        let host = crate::native_host::FlatHost {
-            meter: alloc::rc::Rc::clone(&self.shared.meter),
-            font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
-        };
+        let host = self.flat_host();
         for plugin in found {
             let manifest = plugin.manifest();
             let id = manifest.id.clone();
@@ -258,6 +270,7 @@ impl Kernel {
         }
         drop(installed);
         loader.finish(storage.as_ref());
+        self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
     }
 
@@ -1102,3 +1115,7 @@ version = 2.0.0
 #[cfg(test)]
 #[path = "code_plugin_startup_tests.rs"]
 mod startup_tests;
+
+#[cfg(test)]
+#[path = "code_plugin_migration_tests.rs"]
+mod migration_tests;

@@ -1,6 +1,7 @@
 //! Typed EVT producer adapters. Admission stays disabled until Core wires delivery.
 use super::registrations as wire;
 use crate::abi7::settings_wire::{SettingValueRef, settings_encode};
+use crate::native_host::codec;
 use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_UNSUPPORTED};
 use paperpaw_platform::SystemStatus;
@@ -139,7 +140,7 @@ impl Hint<'_> {
                 flags: charge.flags(),
             }),
         };
-        wire::records_encode(&[record], out)
+        codec::encode_batch(&[record], out)
     }
 }
 
@@ -192,7 +193,18 @@ impl crate::Kernel {
             sink.setting(self.now.millis(), key, old.bytes());
         }
     }
+    /// Ends the cached status values of `core.ui` op 14 (event 73). A refusal
+    /// (the cache borrowed) leaves them until the next change or minute.
+    pub(crate) fn status_values_changed(&self) {
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            ui.status_changed().ok();
+        }
+    }
     pub(crate) fn native_hint(&self, tag: u32) {
+        // Event 73 also ends the cached status values of `core.ui` op 14.
+        if tag == super::registrations::EVENT_STATUS_CHANGED_TAG {
+            self.status_values_changed();
+        }
         if let Some(sink) = self.native_event_sink() {
             sink.hint(tag);
         }

@@ -33,10 +33,10 @@ impl Facet {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FacetRow<'a>(wire::ServiceLibFacet<'a>);
 impl<'a> FacetRow<'a> {
-    fn decode(record: Record<'a>) -> Result<Self, Error> {
-        let Record::ServiceLibFacet(row) = record else {
-            return Err(Error::Invalid);
-        };
+    fn decode(record: RawRecord<'a>) -> Result<Self, Error> {
+        let row = record
+            .decode::<wire::ServiceLibFacet<'a>>()
+            .map_err(|_| Error::Invalid)?;
         Ok(Self(row))
     }
     /// The value, whole (at most 256 UTF-8 bytes).
@@ -50,7 +50,9 @@ impl<'a> FacetRow<'a> {
         self.0.count
     }
     /// The index of its first book in the same query sorted by this facet, for
-    /// jumping to it in a [`Library::query`] list with that ordering.
+    /// jumping to it in a [`Library::query`] list with that ordering. It is
+    /// `0xFFFF_FFFF` for tags and folders, where a book can carry several values
+    /// and there is no jump (`library.md`).
     #[must_use]
     pub const fn first(self) -> u32 {
         self.0.first
@@ -99,7 +101,7 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<FacetPage<'a>, Error> {
         let record = query.facet_record(facet.code());
-        let n = self.call(host, schema::OP_FACETS, &[record], input, out)?;
+        let n = self.call(host, schema::OP_FACETS, &[&record], input, out)?;
         rows::page(
             &out[..n],
             Some(query.cursor),

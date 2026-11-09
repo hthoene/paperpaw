@@ -1,5 +1,5 @@
-//! The host views behind the service families `core.document`, `core.library`
-//! and `core.lookup`, kept once per device next to the handle table.
+//! The host views behind the service families `core.document`, `core.files`,
+//! `core.library` and `core.lookup`, kept once per device next to the handle table.
 //!
 //! A shell (or a test) wires each view once; until then the family answers
 //! `ERR_UNSUPPORTED` from its backend. The views are stateless to the
@@ -9,10 +9,13 @@
 //! and its annotation transactions.
 use super::{
     doc_service::{self, DocHost, DocServices},
+    files_service::{FilesHost, FilesServices},
+    hyphen_service::HyphenServices,
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
+    sock_service::{self, SockHost, SockServices},
     ui_service::UiServices,
     work_service::WorkServices,
 };
@@ -37,13 +40,23 @@ pub(crate) struct Caller<'a> {
 #[derive(Default)]
 pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
+    files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    hyphen: OnceCell<HyphenServices>,
+    images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
     net: OnceCell<NetServices>,
+    sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The `core.format` calls under way (root 3 of the file service).
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    format_scope: super::format_scope::FormatScope,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -62,11 +75,14 @@ impl core::fmt::Debug for HostServices {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostServices")
             .field("documents", &self.documents.get().is_some())
+            .field("files", &self.files.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("hyphen", &self.hyphen.get().is_some())
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
             .field("net", &self.net.get().is_some())
+            .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
             .field("secrets", &self.secrets.get().is_some())
             .finish()
@@ -77,13 +93,18 @@ impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
             documents: OnceCell::new(),
+            files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            hyphen: OnceCell::new(),
+            images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
             net: OnceCell::new(),
+            sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -191,6 +212,11 @@ impl HostServices {
         self.documents.set(DocServices(host)).map_err(|_| ERR_STATE)
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.files` once.
+    pub(crate) fn wire_files(&self, host: Rc<dyn FilesHost>) -> Result<(), i32> {
+        self.files.set(FilesServices(host)).map_err(|_| ERR_STATE)
+    }
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.library` once.
     pub(crate) fn wire_library(&self, host: Rc<dyn LibHost>) -> Result<(), i32> {
         self.library.set(LibServices(host)).map_err(|_| ERR_STATE)
@@ -198,7 +224,30 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
-        self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+        self.lookup
+            .set(LookupServices::new(host))
+            .map_err(|_| ERR_STATE)
+    }
+
+    /// Wire `text.hyphenate` once.
+    pub(crate) fn wire_hyphen(
+        &self,
+        host: Rc<dyn super::hyphen_service::HyphenHost>,
+    ) -> Result<(), i32> {
+        self.hyphen
+            .set(HyphenServices(Rc::new(
+                super::hyphen_service::HyphenState::new(host),
+            )))
+            .map_err(|_| ERR_STATE)
+    }
+
+    /// The device's decoded pictures (`image.info`, `canvas.draw_image`).
+    pub(crate) fn images(&self) -> &super::image_service::ImageTable {
+        &self.images
+    }
+
+    pub(crate) fn hyphen(&self) -> Option<&HyphenServices> {
+        self.hyphen.get()
     }
 
     #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
@@ -211,7 +260,6 @@ impl HostServices {
         self.ui.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
@@ -230,6 +278,16 @@ impl HostServices {
 
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
+    }
+
+    #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
+    /// Wire `core.sockets` once.
+    pub(crate) fn wire_sockets(&self, host: Rc<dyn SockHost>) -> Result<(), i32> {
+        self.sockets.set(SockServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn sockets(&self) -> Option<&SockServices> {
+        self.sockets.get()
     }
 
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
@@ -252,8 +310,20 @@ impl HostServices {
         self.secrets.get()
     }
 
+    /// The `core.format` calls under way: the document service enters one
+    /// around each call, the file service asks it for root 3.
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
+        &self.format_scope
+    }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    pub(crate) fn files(&self) -> Option<&FilesServices> {
+        self.files.get()
     }
     pub(crate) fn library(&self) -> Option<&LibServices> {
         self.library.get()
@@ -289,12 +359,18 @@ impl HostServices {
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
         }
+        // The plugin's pictures end with it (its image ids are its own).
+        result = result.and(self.images.owner_stopped(owner));
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
+            result = result.and(ui.plugin_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));
+        }
+        if let Some(sockets) = self.sockets.get() {
+            result = result.and(sock_service::owner_stopped(&*sockets.0, owner));
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {

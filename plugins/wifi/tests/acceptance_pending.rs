@@ -9,36 +9,44 @@ use pending::Case;
 
 const CASES: [Case; 5] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
-    // network, typing its password and forgetting one work.
+    // network, typing its password and forgetting one work. The screens are
+    // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
+    // device and the secrets. The scripted host does not answer
+    // `i18n.copy` and `i18n.format` yet, so the rows' texts, the drawing and
+    // the answers to the password question are not run.
     Case {
         name: "wifi-pages",
         golden: None,
-        blocked_by: &["H1", "H2", "H4"],
-    },
-    // The radio follows the policy through the production loader: on when a
-    // plugin wants the network, joins the network joined before, off after the
-    // idle time. The events 92-95 are subscribed and the decisions ported
-    // (`native_radio`); what is missing is the timers (the idle-off and retry
-    // `work` entries) and the callbacks that read the facts and send the
-    // commands.
-    Case {
-        name: "wifi-radio-events",
-        golden: None,
-        blocked_by: &["WORK-timers", "H4"],
+        blocked_by: &["SCRIPTED-i18n"],
     },
     // The setup with a phone: the device's own network and a page it serves
-    // at port 80 (`core.net` `serve` / `respond`).
+    // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
+    // `native_phone` (compared with the old screen); serving them, the codes
+    // and the screen are what waits.
     Case {
         name: "wifi-phone",
         golden: None,
         blocked_by: &["NET-serve"],
     },
     // Networks and passwords kept and forgotten through `core.secrets`, and a
-    // `wifi.ini` on the card read once at a start.
+    // `wifi.ini` on the card read once at a start. What the plugin keeps and
+    // asks for is `native_known`; the screens read the names kept (run in
+    // `tests/scripted_networks.rs`); the `wifi.ini` is read at a start and its
+    // networks kept (`native_ini`, compared with the old reading); keeping a
+    // password once the device is in the network is run with the radio's events.
     Case {
         name: "wifi-passwords",
         golden: None,
-        blocked_by: &["SEC", "FS"],
+        blocked_by: &["SCRIPTED-typed-password"],
+    },
+    // The own network opened for the phone: its name and drawn password, the
+    // token of its page, the join code (`native_own`), with the bytes from
+    // `core.secrets` `random`. The setup screen prepares them from a fully
+    // random draw only; opening the network and the served page wait.
+    Case {
+        name: "wifi-own-network",
+        golden: None,
+        blocked_by: &["NET-serve"],
     },
     // The status item shows the sign while the device is in a network.
     Case {
@@ -59,26 +67,26 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H2/H4: native screen commands, dialogs and input are not qualified"]
+#[ignore = "BLOCKED SCRIPTED-i18n: the scripted host does not answer i18n.copy and i18n.format"]
 fn wifi_pages() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED WORK-timers/H4: the idle-off and retry timers and the native callbacks are not wired"]
-fn wifi_radio_events() {
+#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
+fn wifi_phone() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
-fn wifi_phone() {
+#[ignore = "BLOCKED SCRIPTED-typed-password: the typed password kept once online is not run over the scripted dialogs"]
+fn wifi_passwords() {
     CASES[2].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED SEC/FS: secrets facade (PR 367) and core.files are not on integration"]
-fn wifi_passwords() {
+#[ignore = "BLOCKED NET-serve: opening the own network and the served page"]
+fn wifi_own_network() {
     CASES[3].refuse().unwrap();
 }
 

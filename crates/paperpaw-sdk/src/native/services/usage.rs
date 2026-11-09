@@ -1,6 +1,6 @@
 //! Bounded readers for the four usage/clock data services.
 use super::{Blob, Error, Host, query};
-use crate::native::declare::records_wire::{self as wire, Record};
+use crate::native::declare::records_wire as wire;
 use core::fmt::{self, Write};
 
 /// Global counters since this start of PaperPaw. All counters saturate; they may
@@ -175,7 +175,7 @@ fn decode_error(code: i32) -> Error {
 fn scalar<T>(
     host: &Host<'_>,
     key: &str,
-    visit: impl FnOnce(Record<'_>) -> Result<T, Error>,
+    visit: impl FnOnce(wire::RawRecord<'_>) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let blob = query(host, key, 1, 0)?;
     let mut bytes = [0; READ_BYTES];
@@ -184,7 +184,7 @@ fn scalar<T>(
     if len == bytes.len() && blob.read(offset, &mut [0])? != 0 {
         return Err(Error::NoSpace);
     }
-    let record = wire::record_decode_one(&bytes[..len]).map_err(decode_error)?;
+    let record = wire::RawRecord::one(&bytes[..len]).map_err(decode_error)?;
     blob.release()?;
     visit(record)
 }
@@ -195,9 +195,7 @@ fn scalar<T>(
 /// Returns query/read/release errors or Invalid for an unexpected record tag.
 pub fn device_usage(host: &Host<'_>) -> Result<ServiceUsage, Error> {
     scalar(host, "core.usage", |record| {
-        let Record::ServiceUsage(r) = record else {
-            return Err(Error::Invalid);
-        };
+        let r: wire::ServiceUsage = record.decode().map_err(decode_error)?;
         let wire::ServiceUsage {
             fast,
             partial,
@@ -235,9 +233,7 @@ fn plugin_key(service: &str, id: &str) -> Result<Key, Error> {
 pub fn plugin_name(host: &Host<'_>, id: &str, visit: impl FnOnce(&str)) -> Result<(), Error> {
     let key = plugin_key("core.plugin", id)?;
     scalar(host, key.text()?, |record| {
-        let Record::ServicePlugin(r) = record else {
-            return Err(Error::Invalid);
-        };
+        let r: wire::ServicePlugin<'_> = record.decode().map_err(decode_error)?;
         visit(r.name);
         Ok(())
     })
@@ -251,9 +247,7 @@ pub fn plugin_name(host: &Host<'_>, id: &str, visit: impl FnOnce(&str)) -> Resul
 pub fn work_note(host: &Host<'_>, id: &str, visit: impl FnOnce(u64, &str)) -> Result<(), Error> {
     let key = plugin_key("core.work-note", id)?;
     scalar(host, key.text()?, |record| {
-        let Record::ServiceWorkNote(r) = record else {
-            return Err(Error::Invalid);
-        };
+        let r: wire::ServiceWorkNote<'_> = record.decode().map_err(decode_error)?;
         visit(r.at_ms, r.text);
         Ok(())
     })
@@ -284,13 +278,16 @@ pub fn plugin_usage_page(
             break;
         }
         stream
-            .feed(&bytes[..len], &mut |r| {
+            .feed_raw(&bytes[..len], &mut |raw| {
                 if end.is_some() {
                     return Err(i32::from(Error::Invalid));
                 }
-                match r {
-                    Record::ServicePluginUsage(row) => visit(&ServicePluginUsage::from_wire(row)),
-                    Record::ServiceEnd(r) => {
+                match raw.tag() {
+                    wire::SERVICE_PLUGIN_USAGE_TAG => {
+                        visit(&ServicePluginUsage::from_wire(raw.decode()?));
+                    }
+                    wire::SERVICE_END_TAG => {
+                        let r: wire::ServiceEnd = raw.decode()?;
                         if r.next > r.total
                             || (r.flags & 1 != 0) != (r.next < r.total)
                             || (from < r.total && r.next <= from)

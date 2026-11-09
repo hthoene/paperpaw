@@ -3,7 +3,8 @@
 //! the keys, and answers through `core.ui`), and the screen that chooses the
 //! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
-use crate::layouts::{AUTO, LAYOUTS, chosen_for};
+use crate::layouts::{AUTO, Added, LAYOUTS, chosen_with};
+use crate::native_layouts;
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
 };
@@ -16,7 +17,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceCapability},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         formatting::Arg,
         registrations,
@@ -28,9 +29,10 @@ use paperpaw_sdk::{
         },
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, Style, geometry,
-    mem::{SERVICE_BUFFER, buffer, push},
+    mem::{SERVICE_BUFFER, buffer, push, wipe_text},
     paint,
     style::setting_text,
     text::copy,
@@ -83,21 +85,9 @@ impl Dialog {
     fn wipe(&mut self) {
         let text = core::mem::take(&mut self.board.text);
         if self.board.asked.secret {
-            let mut bytes = text.into_bytes();
-            wipe_bytes(&mut bytes);
+            wipe_text(text);
         }
     }
-}
-
-/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead
-/// store before the memory is freed.
-fn wipe_bytes(bytes: &mut [u8]) {
-    for byte in bytes.iter_mut() {
-        // SAFETY: each byte is live and exclusively borrowed; the volatile
-        // store keeps the wipe when the allocation is freed right after.
-        unsafe { core::ptr::write_volatile(byte, 0) };
-    }
-    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Choosing the layouts.
@@ -135,6 +125,7 @@ impl Plugin for NativeKeyboard {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::STAGE_SPECS)
         {
             registrations::submit(host, batch)?;
         }
@@ -146,10 +137,14 @@ impl Plugin for NativeKeyboard {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,
@@ -333,11 +328,12 @@ impl NativeKeyboard {
         };
         let language = setting_text(host, LANGUAGE_KEY)?;
         let rows = messages.copy(host, "keyboard.letters")?;
-        let layouts = chosen_for(
+        let layouts = chosen_with(
             &language,
             &rows,
             &setting_text(host, LAYOUTS_KEY)?,
             read_bool(host, UMLAUT_KEY)?,
+            &added_layouts(host, &language)?,
         )?;
         // *Phone* where there is a network and a screen to type on another
         // device, *Paste* when the clipboard has text.
@@ -848,12 +844,27 @@ fn answer_text(
     ui.answer(host, request, how, &mut input, &mut output)
 }
 
+/// The layouts other plugins add, by the stage `keyboard.layouts`. Where the
+/// host does not run the stage (or nobody subscribed) there are none: the
+/// built-in layouts work without it.
+fn added_layouts(host: &Host<'_>, language: &str) -> Result<Vec<Added>, Error> {
+    match native_layouts::collect(host, language) {
+        Ok(added) => Ok(added),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
 /// The rows of the layout chooser and its items, from the setting.
 fn build_choose(host: &Host<'_>) -> Result<ChooseView, Error> {
     let mut rows: Vec<String> = Vec::new();
     push(&mut rows, copy(AUTO)?)?;
     for layout in &LAYOUTS {
         push(&mut rows, copy(layout.id)?)?;
+    }
+    let language = setting_text(host, LANGUAGE_KEY)?;
+    for layout in added_layouts(host, &language)? {
+        push(&mut rows, layout.id)?;
     }
     let mut chosen: Vec<String> = Vec::new();
     for id in setting_text(host, LAYOUTS_KEY)?
@@ -879,7 +890,13 @@ fn items(host: &Host<'_>, rows: &[String], chosen: &[String]) -> Result<Vec<Item
     let off = messages.copy(host, "keyboard.off")?;
     let mut list = Vec::new();
     for id in rows {
-        let name = messages.copy(host, id)?;
+        // The id is the translation key of the name; an added layout may have
+        // none, and then shows as its id.
+        let name = match messages.copy(host, id) {
+            Ok(name) => name,
+            Err(Error::NotFound | Error::Invalid | Error::Utf8 | Error::NoSpace) => copy(id)?,
+            Err(error) => return Err(error),
+        };
         let at = chosen.iter().position(|c| c == id);
         let mut digits = [0; 20];
         let value = match at {

@@ -1,44 +1,34 @@
 # The plugins the store offers as files, built here for every release: a
 # line each, its id (a binary of this workspace, a folder of plugins/)
 # and its group in the plugin library (ADR 0023). The firmware leaves them
-# out (crates/paperpaw-app, feature `store-plugins`); keep both in step.
+# out (crates/paperpaw-app, feature `store-plugins`). The two are no longer
+# kept in step, by design: a plugin that became a data plugin (data.toml)
+# leaves this list and stays in `store-plugins` until its code is removed.
 aids reading
 # battery system  (no file until the store build moves to interface 7, #228)
 browser news
 calibre library
-diagnostics system
+# diagnostics system  (no file until the store build moves to interface 7, #228)
 # end-of-book reading  (no file until the store build moves to interface 7, #228)
 fonts-browser look
 format-mobi reading
 format-docx reading
 format-images reading
-hyphenation-da reading
-hyphenation-de reading
-hyphenation-es reading
-hyphenation-fr reading
-hyphenation-it reading
-hyphenation-nb reading
-hyphenation-nl reading
-hyphenation-pl reading
-hyphenation-pt reading
-hyphenation-ru reading
-hyphenation-sv reading
-hyphenation-uk reading
 joplin notes
-keys system
+# keys system  (no file until the store build moves to interface 7, #228)
 koreader sync
 kosync sync
 mail news
-menu-editor look
+# menu-editor look  (no file until the store build moves to interface 7, #228)
 news news
-notes-overview notes
+# notes-overview notes  (no file until the store build moves to interface 7, #228)
 notes-vault notes
 picture-home look
-profiles reading
+# profiles reading  (no file until the store build moves to interface 7, #228)
 reading-goal reading
 readwise notes
 read-later-cloud news
-rules system
+# rules system  (no file until the store build moves to interface 7, #228)
 stats reading
 translate reading
 vocabulary learning

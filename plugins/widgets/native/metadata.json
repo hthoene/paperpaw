@@ -105,10 +105,39 @@
     {
       "kind": "host",
       "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
     }
   ],
   "services": [
-    "core.registry"
+    "core.registry",
+    "core.ui"
   ],
   "features": []
 }
