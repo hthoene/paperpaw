@@ -795,3 +795,52 @@ fn a_nested_stage_call_is_charged_to_the_plugin_called() {
     drop(outer);
     METER.with(|meter| *meter.borrow_mut() = None);
 }
+
+/// A draw reached from inside another plugin's callback (a compose child) runs
+/// the plugin called on the usage meter and gives the tracker back; a plugin
+/// that runs already is not entered twice.
+#[test]
+fn a_nested_draw_is_charged_to_the_plugin_called() {
+    use paperpaw_sdk::secrets::Running;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    let mut framebuffer = paperpaw_graphics::Framebuffer::new(20, 80, PixelFormat::Gray8).unwrap();
+    let mut full_canvas = framebuffer.canvas();
+    let mut canvas = full_canvas.clipped(Rect::new(0, 5, 20, 4));
+    let draw_frame = super::super::frames::screen(0, 0, 20, 80, (5, 9));
+    METER.with(|meter| *meter.borrow_mut() = Some(kernel.shared.meter.clone()));
+    RESULT.with(|value| value.set(0));
+    // The last case has the plugin drawn lower on the stack, under another.
+    for stack in [&["composer"][..], &["tokens"], &["tokens", "composer"]] {
+        let outer = *stack.last().unwrap();
+        RUNNING.with(|seen| seen.set(None));
+        let running: std::vec::Vec<_> = stack
+            .iter()
+            .map(|plugin| kernel.shared.meter.enter(plugin))
+            .collect();
+        scoped(&kernel, |frame| {
+            assert_eq!(
+                dispatch_token_draw(
+                    &batch,
+                    TOKEN,
+                    &DispatchDepth::new(),
+                    frame,
+                    &draw_frame,
+                    &mut canvas
+                ),
+                Ok(0)
+            );
+        });
+        // The plugin drawn runs as itself, inside the composer's call and where
+        // it was running already; whoever ran before runs again after.
+        assert_eq!(RUNNING.with(Cell::get), Some(true), "{stack:?}");
+        assert!(kernel.shared.meter.runs(outer), "{outer} runs again after");
+        drop(running);
+    }
+    METER.with(|meter| *meter.borrow_mut() = None);
+}
