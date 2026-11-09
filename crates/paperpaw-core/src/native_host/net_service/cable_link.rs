@@ -160,9 +160,15 @@ impl CableLink {
                     .answer(open.link, status, content_type, Vec::new(), true);
                 Err(ERR_UNSUPPORTED)
             } else if fits {
-                link.proto
-                    .answer(open.link, status, content_type, kept, false);
-                Ok(())
+                // A full queue (a computer that does not read) or no memory.
+                if link
+                    .proto
+                    .answer(open.link, status, content_type, kept, false)
+                {
+                    Ok(())
+                } else {
+                    Err(ERR_NO_MEMORY)
+                }
             } else {
                 link.proto
                     .refuse_request(open.link, 503, "no memory for the answer");

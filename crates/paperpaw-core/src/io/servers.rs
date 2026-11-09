@@ -222,9 +222,11 @@ impl Servers {
         }
         if response.request >= cable::FIRST_REQUEST {
             let ct = &response.content_type;
-            return self
+            // A full queue leaves it unanswered (`cable::OUT_MAX`).
+            let _ = self
                 .cable
                 .answer(response.request, status, ct, body, file.is_some());
+            return;
         }
         self.calls.push(ServerCall::Respond {
             request: response.request,
@@ -387,9 +389,10 @@ impl Servers {
     fn refuse(&mut self, request: u32, status: u16, reason: &str) {
         if request >= cable::FIRST_REQUEST {
             let ct = "text/plain";
-            return self
+            let _ = self
                 .cable
                 .answer(request, status, ct, reason.as_bytes().to_vec(), false);
+            return;
         }
         self.calls.push(ServerCall::Respond {
             request,
