@@ -41,6 +41,25 @@ pub enum InstallRoot {
     Files,
 }
 
+/// What [`CommandSender::check_file`] checks a file as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckKind {
+    /// A plugin: a `.ppn` file or a plugin folder (`uses.install`).
+    Plugin,
+    /// A firmware image (`uses.firmware`).
+    Firmware,
+}
+
+impl CheckKind {
+    const fn wire(self) -> u32 {
+        match self {
+            Self::Plugin => 0,
+            Self::Firmware => 1,
+        }
+    }
+}
+
 impl InstallRoot {
     const fn wire(self) -> u32 {
         match self {
@@ -349,5 +368,41 @@ impl CommandSender<'_, '_> {
     /// no image waiting).
     pub fn firmware_restart(&mut self) -> Result<(), Error> {
         self.submit(wire::Command::FirmwareRestart {})
+    }
+
+    /// Ask the host to check a file before the user is asked to install it
+    /// (`docs/abi/device.md` 5.1): a plugin (`uses.install`) or a firmware image
+    /// (`uses.firmware`), from `root` ([`InstallRoot::Files`] also needs
+    /// `uses.storage`). Nothing is changed. The check is a job of the install queue
+    /// run in bounded steps and ends with `install_done` kind 3 (`status` OK once it
+    /// ran); then read the evidence (verdict, signer, version, whether it is newer
+    /// or foreign) with `Device::check`, naming the same non-zero `request`, until
+    /// the plugin's next check. A check is advice for the view: an install checks
+    /// the file again, whatever a check said.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, `NoSpace` for a
+    /// path over 512 bytes or buffer limits, or the host's refusal (`Denied`
+    /// without the feature of the `kind`, `Full` when four install, removal,
+    /// firmware or check requests wait already).
+    pub fn check_file(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        kind: CheckKind,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        if path.len() > 512 {
+            return Err(Error::NoSpace);
+        }
+        self.submit(wire::Command::CheckFile {
+            request,
+            root: root.wire(),
+            path,
+            kind: kind.wire(),
+        })
     }
 }
