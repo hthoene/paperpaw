@@ -1,0 +1,3 @@
+### Added
+
+- **`core.ui` widget ops 6, 7, 12 and 13 are served** (#228). A screen that shows a widget instance it made measures it (`widget_measure`: height and least height for a width), tells it its place (`widget_place`) and reads its targets (`widget_targets`, at most 32, reading order) with one `core.widget` stage call to the owner each, and forwards a tap or long press (`widget_input`), queued for the owner's `input` callback (8 waiting, 2 on the X4). Only the instance's maker may; an own widget is `ERR_BUSY`, a private or guarded-below instance `ERR_DENIED` under another plugin's guard, depth 1 only, `ERR_UNSUPPORTED` on the X4 until its stack gate passes. An owner that fails or answers badly counts as no answer: height 0, no targets, the caller goes on.

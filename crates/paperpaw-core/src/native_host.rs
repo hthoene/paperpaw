@@ -78,6 +78,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_layout.rs"]
+pub(crate) mod ui_widget_layout;
+
 #[path = "native_host/ui_widget_ops.rs"]
 pub(crate) mod ui_widget_ops;
 
@@ -289,6 +292,13 @@ mod retained;
     reason = "shared declaration producer is attached by the UI admission slice"
 )]
 pub(crate) mod native_declarations;
+
+#[path = "native_host/native_widget.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame::widget_call carries ops 7, 12 and 13 of core.ui"
+)]
+pub(crate) mod native_widget;
 
 #[path = "native_host/native_status.rs"]
 #[allow(

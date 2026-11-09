@@ -119,6 +119,16 @@ pub(crate) struct Caller {
     pub(crate) depth: u8,
 }
 
+/// A widget instance as its maker's layout ops see it (`widget_of`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WidgetRef {
+    pub(crate) owner: u64,
+    pub(crate) token: u32,
+    /// The maker's screen instance that made it.
+    pub(crate) screen: u32,
+    pub(crate) private: bool,
+}
+
 /// What a handle resolved to: the owner's plugin and its callback token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
@@ -219,6 +229,31 @@ impl UiHandles {
         let gone = self.widgets.swap_remove(at);
         self.dropped.push(gone.notice());
         Ok(())
+    }
+
+    /// Whether instance `id` is still made (not dropped).
+    pub(crate) fn has_widget(&self, id: u32) -> bool {
+        self.widget(id).is_some()
+    }
+
+    /// An instance for ops 6, 7, 12 and 13, for its maker only: instance 0 (an
+    /// own widget, op 4's `flags` bit 0) `ERR_BUSY` (the plugin lays out and
+    /// draws its own), an unknown or dropped one `ERR_NOT_FOUND`, another
+    /// plugin's `ERR_DENIED` (as op 5).
+    pub(crate) fn widget_of(&self, maker: u64, id: u32) -> Result<WidgetRef, i32> {
+        if id == 0 {
+            return Err(ERR_BUSY);
+        }
+        let widget = self.widget(id).ok_or(ERR_NOT_FOUND)?;
+        if widget.maker != maker {
+            return Err(ERR_DENIED);
+        }
+        Ok(WidgetRef {
+            owner: widget.owner,
+            token: widget.token,
+            screen: widget.screen,
+            private: widget.private,
+        })
     }
 
     /// The screen instance closed: its widgets go and their owners are to be

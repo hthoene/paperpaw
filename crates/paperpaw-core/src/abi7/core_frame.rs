@@ -126,6 +126,16 @@ impl Frame for CoreFrame<'_> {
         .ask(owner, token, items, context, out)
     }
 
+    fn widget_call(
+        &self,
+        owner: u64,
+        token: u32,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        crate::native_host::native_widget::call(self, owner, token, payload, out)
+    }
+
     fn compose(
         &self,
         _caller_id: &str,
