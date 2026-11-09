@@ -34,6 +34,7 @@ pub(crate) trait RegistryView {
     fn generation(&self) -> u32;
 
     /// The rows of list op `op` for `scope`, in order, until `visit` breaks.
+    /// `flags` are the query's (`reg_query.flags`: op 12 reads bits 0 and 1).
     /// The rows are built for `visit` alone: none outlives the call. A scope
     /// that names nothing known visits nothing. `ERR_UNSUPPORTED` for an op
     /// this view does not carry.
@@ -41,6 +42,7 @@ pub(crate) trait RegistryView {
         &self,
         op: u32,
         scope: &str,
+        flags: u32,
         asker: &Asker<'_>,
         visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
     ) -> Result<(), i32>;

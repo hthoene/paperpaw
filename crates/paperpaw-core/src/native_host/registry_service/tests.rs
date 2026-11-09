@@ -105,7 +105,7 @@ impl Frame for View<'_> {
     }
 }
 
-fn op(id: u32) -> &'static ServiceOp {
+pub(super) fn op(id: u32) -> &'static ServiceOp {
     service_schema(schema::KEY, schema::MAJOR)
         .unwrap()
         .op(id)
@@ -114,12 +114,23 @@ fn op(id: u32) -> &'static ServiceOp {
 
 /// One call of op `id` with `input` (a counted batch), on `kernel`.
 fn call(kernel: &crate::Kernel, id: u32, input: &[u8], room: usize) -> Result<Vec<u8>, i32> {
+    call_in(kernel, None, id, input, room)
+}
+
+/// [`call`] with a declaration store.
+pub(super) fn call_in(
+    kernel: &crate::Kernel,
+    directory: Option<&crate::native_host::native_declarations::NativeDeclarations>,
+    id: u32,
+    input: &[u8],
+    room: usize,
+) -> Result<Vec<u8>, i32> {
     let env = kernel.shared.env(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
             env: &env,
-            directory: None,
+            directory,
             generation: &kernel.shared.registry_generation,
         },
         hosts: HostServices::new(),
@@ -138,11 +149,15 @@ fn call(kernel: &crate::Kernel, id: u32, input: &[u8], room: usize) -> Result<Ve
 }
 
 fn query(scope: &str, cursor: u32, generation: u32) -> Vec<u8> {
+    query_flags(scope, cursor, generation, 0)
+}
+
+pub(super) fn query_flags(scope: &str, cursor: u32, generation: u32, flags: u32) -> Vec<u8> {
     let record = Record::ServiceRegQuery(wire::ServiceRegQuery {
         scope,
         cursor,
         generation,
-        flags: 0,
+        flags,
     });
     let mut input = std::vec![0; 512];
     let used = wire::records_encode_counted(&[record], 1, 256, &mut input).unwrap();
@@ -159,7 +174,7 @@ fn key(key: &str) -> Vec<u8> {
 }
 
 /// A reply as text rows, one per record, and its `end`.
-fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
+pub(super) fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
     let mut rows = Vec::new();
     let mut end = None;
     let mut rest = reply;
@@ -196,20 +211,43 @@ fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
                 r.update
             ),
             Record::ServiceRegText(r) => format!("text {}", r.text),
+            Record::ServiceRegMenuRow(r) => format!(
+                "row {} kind={} flags={} order={} by={} title={} icon={} badge={} describe={}",
+                r.item, r.kind, r.flags, r.order, r.by, r.title, r.icon, r.badge, r.describe
+            ),
+            Record::ServiceRegBinding(r) => {
+                format!("bind {} {} {} {}", r.layer, r.input, r.action, r.origin)
+            }
+            Record::ServiceRegSetupStep(r) => format!(
+                "step {} {} {} {} {} {}",
+                r.id, r.page_kind, r.page, r.order, r.flags, r.title
+            ),
+            Record::ServiceRegWidget(r) => format!(
+                "widget {} {} {} {} {} cells={} {}",
+                r.id, r.plugin, r.kind, r.icon, r.flags, r.cells, r.title
+            ),
+            Record::ServiceRegStatus(r) => format!(
+                "status {} {} kind={} flags={} priority={} size={} tap={} {}",
+                r.id, r.plugin, r.kind, r.flags, r.priority, r.size, r.tap, r.title
+            ),
             other => panic!("unexpected {other:?}"),
         });
     }
     (rows, end)
 }
 
-fn page(kernel: &crate::Kernel, id: u32, scope: &str) -> (Vec<String>, wire::ServiceEnd) {
+pub(super) fn page(
+    kernel: &crate::Kernel,
+    id: u32,
+    scope: &str,
+) -> (Vec<String>, wire::ServiceEnd) {
     let reply = call(kernel, id, &query(scope, 0, 0), 4096).unwrap();
     let (rows, end) = read(&reply);
     (rows, end.unwrap())
 }
 
 /// Every row of a list, page by page.
-fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String> {
+pub(super) fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String> {
     let mut all = Vec::new();
     let (mut cursor, mut generation) = (0, 0);
     loop {
