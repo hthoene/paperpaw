@@ -215,8 +215,10 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   request always has room for its outcome and is never dropped later. Outcomes are kept until
   delivered; an install, removal, firmware or check outcome is then readable with op 13 until the
   plugin's next request of the same kind or its stop. A radio outcome (`wifi_done`, 93) is not kept
-  after delivery: its room is released when it is delivered or its sender stops, and the current
-  radio state is op 8.
+  after delivery: the callback is called **at most once** per request, and the entry is released
+  after it was called, whatever it answered (only `ERR_BUSY` is retried; a failing callback does not
+  get the event again). A sender that stopped or did not subscribe is not called and its entry is
+  released. The current radio state is op 8.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
