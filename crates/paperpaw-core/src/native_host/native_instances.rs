@@ -182,6 +182,8 @@ pub(crate) struct NativeInstances {
     work_seen: Cell<u8>,
     /// What the image pump keeps between passes (see `image_pump`).
     pub(super) image_pump: super::image_pump::ImagePump,
+    /// The queues of `event.setting_changed` (see `setting_events`).
+    pub(super) setting_events: super::setting_events::SettingEvents,
     /// The commands a callback staged, till the kernel runs them (see
     /// `event_call`).
     pub(super) outbox: super::event_call::Outbox,
