@@ -124,6 +124,11 @@ struct Inner {
     verdicts: Vec<(Key, Verdict)>,
     /// The address of the device at the last step, for what `listen` answers.
     address: Option<serve7::Ipv4>,
+    /// Reports dropped for a service that was not wired (since last logged).
+    unwired: u32,
+    /// Answers whose body went with a report core refused busy, since last
+    /// logged.
+    lost_answers: u32,
     /// The services still to be told the network is lost: flags, never a
     /// list item, so that saying so needs no memory (and is made again where
     /// core is busy).
@@ -171,6 +176,8 @@ impl Bridge {
                 closes7: Vec::new(),
                 verdicts: Vec::new(),
                 address: None,
+                unwired: 0,
+                lost_answers: 0,
                 lost: NetLost::new(),
             }),
             up: Cell::new(false),
@@ -361,6 +368,13 @@ impl Bridge {
         told.then(|| kernel.tick(crate::now()))
     }
 
+    /// A report was dropped for a service that is not wired, counted.
+    fn count_unwired(&self) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.unwired = inner.unwired.saturating_add(1);
+        }
+    }
+
     /// Keeps a report core refused for the next step.
     fn keep_for_later(&self, item: Out) {
         if let Ok(mut inner) = self.inner.try_borrow_mut() {
@@ -379,11 +393,13 @@ impl Bridge {
     ) -> Result<(), Out> {
         if let Out::Net(report) = item {
             let Some(net) = net else {
+                self.count_unwired();
                 return Ok(());
             };
             return self.report_net(net, report).map_err(Out::Net);
         }
         let Some(sockets) = sockets else {
+            self.count_unwired();
             return Ok(());
         };
         let result = match &item {
@@ -471,15 +487,23 @@ impl Bridge {
     /// since the last time, once the sockets are all closed (never what
     /// they held). Cheap: a counter each.
     fn log_counts(&self) {
-        let (reports, idle) = match self.inner.try_borrow() {
-            Ok(inner) => (
-                inner.reports.as_ref().and_then(|w| w.sockets.clone()),
-                !inner.sockets.any() && inner.calls.is_empty(),
-            ),
+        let (reports, unwired, lost) = match self.inner.try_borrow_mut() {
+            Ok(mut inner) => {
+                if inner.sockets.any() || !inner.calls.is_empty() || inner.http.busy() {
+                    return;
+                }
+                (
+                    inner.reports.as_ref().and_then(|w| w.sockets.clone()),
+                    core::mem::take(&mut inner.unwired),
+                    core::mem::take(&mut inner.lost_answers),
+                )
+            }
             Err(_) => return,
         };
-        if !idle {
-            return;
+        if unwired != 0 || lost != 0 {
+            info!(
+                "net: {unwired} reports dropped (service not wired), {lost} answers lost (core busy)"
+            );
         }
         let Some(sockets) = reports else {
             return;
