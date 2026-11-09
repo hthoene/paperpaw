@@ -70,8 +70,8 @@ fn network_settings_keep_their_ids_defaults_and_values() {
         assert!(settings.bool(&network), "{network}");
         assert_eq!(settings.text(&saving), "core.saving.follow", "{saving}");
     }
-    let kernel = app("[core]\nnetwork.weather = false\nsaving.news = core.saving.manual\n");
-    assert!(!kernel.settings().bool("core.network.weather"));
+    let kernel = app("[core]\nnetwork.opds = false\nsaving.news = core.saving.manual\n");
+    assert!(!kernel.settings().bool("core.network.opds"));
     assert_eq!(
         kernel.settings().text("core.saving.news"),
         "core.saving.manual"
