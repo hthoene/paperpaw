@@ -19,16 +19,9 @@ const FORECAST: &str = include_str!("../testdata/forecast.json");
 const SEARCH: &str = include_str!("../testdata/search.json");
 
 fn weather_line(weather: &native::Weather) -> String {
-    let current = weather.current.map(|c| {
-        (
-            c.temperature,
-            c.feels,
-            c.humidity,
-            c.code,
-            c.wind,
-            c.day,
-        )
-    });
+    let current = weather
+        .current
+        .map(|c| (c.temperature, c.feels, c.humidity, c.code, c.wind, c.day));
     let days: Vec<_> = weather
         .days
         .iter()
@@ -40,10 +33,28 @@ fn weather_line(weather: &native::Weather) -> String {
     )
 }
 
+#[allow(clippy::too_many_lines, reason = "a transcript, read top to bottom")]
 fn model(out: &mut String) {
     for text in [
-        "12.3", "-3.46", "-0.4", "7", ".5", "null", "", "1e5", " 4.55 ", "-", ".", "1234567",
-        "123456.78", "-.05", "0.04", "9.95", "--1", "1.2.3", "\u{663}",
+        "12.3",
+        "-3.46",
+        "-0.4",
+        "7",
+        ".5",
+        "null",
+        "",
+        "1e5",
+        " 4.55 ",
+        "-",
+        ".",
+        "1234567",
+        "123456.78",
+        "-.05",
+        "0.04",
+        "9.95",
+        "--1",
+        "1.2.3",
+        "\u{663}",
     ] {
         let _ = writeln!(out, "tenths {text:?} {:?}", native::tenths(text));
     }
@@ -192,7 +203,10 @@ fn units(out: &mut String) {
         4000,
         i32::MAX,
     ];
-    for unit in [native::Temperature::Celsius, native::Temperature::Fahrenheit] {
+    for unit in [
+        native::Temperature::Celsius,
+        native::Temperature::Fahrenheit,
+    ] {
         for tenths in values {
             let _ = writeln!(
                 out,
@@ -213,7 +227,13 @@ fn units(out: &mut String) {
             let _ = writeln!(out, "wind {} {tenths} {}", unit.key(), unit.speed(tenths));
         }
     }
-    for value in ["weather.every.1", "", "weather.every.0", "weather.every.99", "x"] {
+    for value in [
+        "weather.every.1",
+        "",
+        "weather.every.0",
+        "weather.every.99",
+        "x",
+    ] {
         let _ = writeln!(out, "every {value:?} {}", native::every(value));
     }
     for every in [3600, 7200, 21_600] {

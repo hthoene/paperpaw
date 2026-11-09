@@ -5,9 +5,7 @@
 //! again. The widgets' drawing and the place screen have tests of their own.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use paperpaw_core::native_host::environment::{
-    SNAPSHOT_BYTES, SNAPSHOT_VERSION, SettingValueRef,
-};
+use paperpaw_core::native_host::environment::{SNAPSHOT_BYTES, SNAPSHOT_VERSION, SettingValueRef};
 use paperpaw_core::native_host::registrations::{
     EventActionRun, EventHttpDone, EventSettingChanged, EventStarted, EventWidgetMade,
     EventWorkDue, Record, ServiceDevPower, ServiceDevWifi, ServiceNetAnswer, ServiceNetBytes,
@@ -16,8 +14,7 @@ use paperpaw_core::native_host::registrations::{
 use paperpaw_plugin_weather::{
     NATIVE_ENTRY,
     declarations::{
-        FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN, REFRESH_TOKEN,
-        WORK_TOKEN,
+        FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN, REFRESH_TOKEN, WORK_TOKEN,
     },
 };
 use paperpaw_scripted_host::{Callback, ScriptedHost, event_batch};
@@ -432,7 +429,11 @@ fn a_new_place_replaces_the_fetch_under_way() {
     assert_eq!(changed(&p, "weather.coordinates").status, 0);
     let all = requests(&world);
     assert_eq!(all.len(), 2, "{:?}", world.log.borrow());
-    assert!(all[1].contains("latitude=48.14&longitude=11.58"), "{}", all[1]);
+    assert!(
+        all[1].contains("latitude=48.14&longitude=11.58"),
+        "{}",
+        all[1]
+    );
     assert!(world.log.borrow().iter().any(|l| l == "cancel"));
     // The first one's end is ignored; the second one's counts.
     assert_eq!(done(&p, 1, 200, 0).batches.len(), 0);

@@ -321,7 +321,10 @@ fn plan_for(
                 let wide = part(area.width, 2, 5);
                 let side = match set.fixed {
                     None => area.height.min(wide),
-                    Some(size) => area.height.min(wide).min(digits_height(size).saturating_mul(2)),
+                    Some(size) => area
+                        .height
+                        .min(wide)
+                        .min(digits_height(size).saturating_mul(2)),
                 };
                 let shift = side.saturating_add(gap);
                 let text = Rect::new(
@@ -391,8 +394,7 @@ fn plan_for(
             let symbol = match placing {
                 Placing::Beside => Rect::new(
                     area.x,
-                    area.y
-                        .saturating_add(area.height.saturating_sub(side) / 2),
+                    area.y.saturating_add(area.height.saturating_sub(side) / 2),
                     side,
                     side,
                 ),

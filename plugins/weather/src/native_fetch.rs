@@ -218,7 +218,8 @@ impl Fetcher {
     /// Whether the network can be used now: where PaperPaw manages Wi-Fi, only
     /// while it is in a network (the radio is not switched on for the weather).
     fn online(&mut self, host: &Host<'_>) -> bool {
-        let (Ok(mut input), Ok(mut out)) = (mem::buffer(SERVICE_BUFFER), mem::buffer(SERVICE_BUFFER))
+        let (Ok(mut input), Ok(mut out)) =
+            (mem::buffer(SERVICE_BUFFER), mem::buffer(SERVICE_BUFFER))
         else {
             return false;
         };

@@ -19,7 +19,10 @@ pub const LIFECYCLE_TOKEN: u32 = 3;
 /// The token of the end of a request (`core.net`).
 pub const HTTP_TOKEN: u32 = 4;
 /// The token of the work that looks whether the weather is due.
-#[allow(dead_code, reason = "only the plugin schedules work; the build script sees the declarations alone")]
+#[allow(
+    dead_code,
+    reason = "only the plugin schedules work; the build script sees the declarations alone"
+)]
 pub const WORK_TOKEN: u32 = 5;
 /// The widget *Weather now*.
 pub const NOW_TOKEN: u32 = 20;

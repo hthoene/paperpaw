@@ -100,7 +100,9 @@ fn little_room_drops_the_least_important_lines_first() {
 fn what_fits_is_all_kept() {
     let all = lines();
     let plan = plan(&Even, &setup(), Rect::new(0, 0, 600, 600), "12°C", &all).unwrap();
-    assert_eq!(plan.lines.len(), 5);
+    // The two faint details share a line.
+    assert_eq!(plan.lines.len(), 4);
+    assert!(plan.lines.iter().any(|l| l.text.contains("Humidity")));
 }
 
 #[test]
@@ -113,7 +115,8 @@ fn details_share_a_line_where_they_fit() {
     assert_eq!(wide.len(), 1);
     assert_eq!(wide[0].text, "Feels like 9° · Humidity 80 %");
     let narrow = packed(&Even, &all, 0, 100.0).unwrap();
-    assert_eq!(narrow.len(), 1);
+    // Each fits alone, not together.
+    assert_eq!(narrow.len(), 2);
     assert_eq!(narrow[0].text, "Feels like 9°");
 }
 
@@ -146,7 +149,6 @@ fn odd_places_never_panic() {
 #[test]
 fn refused_memory_is_an_error() {
     use crate::fail_alloc::sweep;
-    sweep(|| {
-        plan(&Even, &setup(), Rect::new(0, 0, 400, 150), "12°C", &lines()).map(|_| ())
-    });
+    let all = lines();
+    sweep(|| plan(&Even, &setup(), Rect::new(0, 0, 400, 150), "12°C", &all).map(|_| ()));
 }

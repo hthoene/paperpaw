@@ -230,7 +230,10 @@ impl Context<'_> {
     }
 
     fn rain(&self, cx: &mut Cx<'_>, day: &Day) -> Result<Option<String>, Error> {
-        let Some(rain) = day.rain.filter(|_| cx.settings.shows("rain").unwrap_or(false)) else {
+        let Some(rain) = day
+            .rain
+            .filter(|_| cx.settings.shows("rain").unwrap_or(false))
+        else {
             return Ok(None);
         };
         cx.format(
@@ -297,7 +300,9 @@ impl Context<'_> {
             y = y.saturating_add(plan.name_h);
             if plan.side > 0 {
                 y = y.saturating_add(plan.gap);
-                let x = cell.x.saturating_add(cell.width.saturating_sub(plan.side) / 2);
+                let x = cell
+                    .x
+                    .saturating_add(cell.width.saturating_sub(plan.side) / 2);
                 let (_, symbol) = condition(day.code);
                 let square = Rect::new(x, y, plan.side, plan.side);
                 draw_symbol(out, square, (symbol, true), self.symbols, self.look.ink)?;
@@ -364,6 +369,21 @@ impl Context<'_> {
         }
     }
 
+    /// The names of `days`: as set, then short, then the initials.
+    fn names(&self, cx: &mut Cx<'_>, days: &[Day]) -> Result<[Vec<String>; 3], Error> {
+        let (long, initial) = naming(cx)?;
+        let mut names: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+        for (list, way) in names
+            .iter_mut()
+            .zip([(long, initial), (false, initial), (false, true)])
+        {
+            for day in days {
+                put(list, day_name(cx, day, self.today, way)?)?;
+            }
+        }
+        Ok(names)
+    }
+
     /// The days one below the other, each a row: its name, symbol, chance of
     /// rain, lowest, a bar of its range within the week's, highest.
     fn list(
@@ -384,16 +404,7 @@ impl Context<'_> {
             put(&mut lows, self.degrees(day.low)?)?;
             put(&mut rains, self.rain(cx, day)?)?;
         }
-        let (long, initial) = naming(cx)?;
-        let mut names: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-        for (variant, way) in [(long, initial), (false, initial), (false, true)]
-            .into_iter()
-            .enumerate()
-        {
-            for day in days {
-                put(&mut names[variant], day_name(cx, day, self.today, way)?)?;
-            }
-        }
+        let names = self.names(cx, days)?;
         let wants = Wants {
             symbol: cx.settings.shows("symbol")?,
             low: cx.settings.shows("low")?,
@@ -442,12 +453,18 @@ impl Context<'_> {
                 text_from(out, font, plan.size, f32::from(area.x), row, name, color)?;
             }
             if plan.side > 0 {
-                let top = row.y.saturating_add(plan.height.saturating_sub(plan.side) / 2);
+                let top = row
+                    .y
+                    .saturating_add(plan.height.saturating_sub(plan.side) / 2);
                 let square = Rect::new(at_x(plan.symbol_x), top, plan.side, plan.side);
                 let (_, symbol) = condition(day.code);
                 draw_symbol(out, square, (symbol, true), self.symbols, self.look.ink)?;
             }
-            if let Some(rain) = rains.get(i).and_then(Option::as_ref).filter(|_| plan.rain_w > 0) {
+            if let Some(rain) = rains
+                .get(i)
+                .and_then(Option::as_ref)
+                .filter(|_| plan.rain_w > 0)
+            {
                 let w = measure(font, plan.small, rain)?;
                 let x = f32::from(at_x(plan.rain_x)) + f32::from(plan.rain_w) - w;
                 text_from(out, font, plan.small, x, row, rain, self.look.faint)?;

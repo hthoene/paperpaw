@@ -123,14 +123,26 @@ fn the_kept_file_is_read_to_its_cap_only() {
         .unwrap();
     let mut text = weather.to_text().unwrap();
     assert!(text.len() < native::KEPT_CAP);
-    assert!(native::Weather::from_file(text.as_bytes()).unwrap().is_some());
+    assert!(
+        native::Weather::from_file(text.as_bytes())
+            .unwrap()
+            .is_some()
+    );
     // At the cap it is read; one byte over counts as none.
     while text.len() < native::KEPT_CAP {
         text.push('\n');
     }
-    assert!(native::Weather::from_file(text.as_bytes()).unwrap().is_some());
+    assert!(
+        native::Weather::from_file(text.as_bytes())
+            .unwrap()
+            .is_some()
+    );
     text.push('\n');
-    assert!(native::Weather::from_file(text.as_bytes()).unwrap().is_none());
+    assert!(
+        native::Weather::from_file(text.as_bytes())
+            .unwrap()
+            .is_none()
+    );
     // Invalid UTF-8 is replaced, not refused.
     let bytes = b"weather 1\nfetched 3\ncoordinates 1,2\n\xff\xfe\n";
     assert!(native::Weather::from_file(bytes).unwrap().is_some());

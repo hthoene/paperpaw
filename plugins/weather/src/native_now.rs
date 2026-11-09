@@ -326,18 +326,15 @@ fn draw_now(
     let symbol_style = crate::native_draw::style(cx)?;
     let (_, symbol) = condition(current.code);
     let mark = (symbol, current.day);
-    let color = |line: &Line| -> Color {
-        if line.faint { look.faint } else { look.ink }
-    };
+    let color = |line: &Line| -> Color { if line.faint { look.faint } else { look.ink } };
 
     let (inline, inline_gap) = if plan.placing == Placing::Inline {
         inline_symbol(plan.size, gap)
     } else {
         (0, 0)
     };
-    let temperature_width = measure(font, plan.size, temperature)?
-        + f32::from(inline)
-        + f32::from(inline_gap);
+    let temperature_width =
+        measure(font, plan.size, temperature)? + f32::from(inline) + f32::from(inline_gap);
     let rows = rows(font, plan, temperature_width)?;
     let total = rows
         .iter()

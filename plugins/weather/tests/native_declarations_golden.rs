@@ -9,12 +9,17 @@
     reason = "the declaring functions are generic over the sink: a closure fixes it"
 )]
 #[path = "../declarations.rs"]
-#[allow(dead_code, reason = "the build script and the plugin read the same file")]
+#[allow(
+    dead_code,
+    reason = "the build script and the plugin read the same file"
+)]
 mod declarations;
 use paperpaw_sdk::native::declare::{Declarations, DeclareError};
 
 fn framed(
-    declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>) -> Result<(), DeclareError>,
+    declare: impl FnOnce(
+        &mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>,
+    ) -> Result<(), DeclareError>,
     out: &mut Vec<u8>,
 ) {
     let mut sink = |batch: &[u8]| -> Result<(), i32> {

@@ -127,7 +127,11 @@ pub fn row(
     let column = width / count;
     let gap = set.gap / 2;
     let mut with_low = parts.low;
-    let rain_h = if parts.rain { fonts.line(set.small)? } else { 0 };
+    let rain_h = if parts.rain {
+        fonts.line(set.small)?
+    } else {
+        0
+    };
     // The temperatures as large as the column allows, as set, and smaller
     // where the column is low; the lowest left out where even the smallest do
     // not fit.
@@ -315,17 +319,18 @@ pub fn list(
     // The text as large as the rows allow, as set, and as the width allows:
     // the names shorter where they would not fit.
     let by_height = digits_size(f32::from(height) * 0.55).min(set.title * 1.1);
-    let wanted = set
-        .fixed
-        .unwrap_or(by_height)
-        .min(by_height.max(set.small));
+    let wanted = set.fixed.unwrap_or(by_height).min(by_height.max(set.small));
     let probe = sane(set.title);
     let fixed = f32::from(side) + f32::from(rain_w) + f32::from(gap) * 4.0;
     let mut size = set.small;
     let mut chosen = 2;
     for (variant, names) in texts.names.iter().enumerate() {
         let at_probe = f32::from(widest(fonts, probe, names.iter().map(String::as_str))?)
-            + f32::from(widest(fonts, probe, texts.highs.iter().map(String::as_str))?)
+            + f32::from(widest(
+                fonts,
+                probe,
+                texts.highs.iter().map(String::as_str),
+            )?)
             + if wants.low {
                 f32::from(widest(fonts, probe, texts.lows.iter().map(String::as_str))?)
             } else {

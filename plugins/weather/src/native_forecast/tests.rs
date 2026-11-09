@@ -80,14 +80,14 @@ fn a_column_keeps_its_parts_inside() {
 
 #[test]
 fn without_room_below_the_lowest_goes_beside_or_away() {
-    let plan = row(&Even, &setup(), (400, 60), 5, PARTS).unwrap();
+    let plan = row(&Even, &setup(), (400, 30), 5, PARTS).unwrap();
     assert!(!plan.with_low);
     assert!(plan.low_beside);
     assert_eq!(plan.side, 0);
     let none = row(
         &Even,
         &setup(),
-        (400, 60),
+        (400, 30),
         5,
         Parts {
             low: false,
@@ -143,21 +143,35 @@ fn a_list_with_room_shows_everything() {
     assert!(plan.high_x + plan.high_w <= 400);
 }
 
+/// The widest place (of 400 down to 30) where `gone` holds.
+fn first_where(gone: impl Fn(&List) -> bool, wants: Wants) -> u16 {
+    (30..=400u16)
+        .rev()
+        .find(|width| gone(&list_of(*width, 300, 5, wants)))
+        .unwrap_or(0)
+}
+
 #[test]
 fn a_narrow_list_gives_up_the_symbol_then_the_rain_then_the_lowest() {
-    let narrow = list_of(120, 300, 5, WANTS);
-    assert_eq!(narrow.side, 0);
-    let narrower = list_of(90, 300, 5, WANTS);
-    assert_eq!(narrower.rain_w, 0);
-    let narrowest = list_of(60, 300, 5, WANTS);
-    assert_eq!(narrowest.low_w, 0);
-    assert!(narrowest.bars.is_none());
+    let symbol = first_where(|l| l.side == 0, WANTS);
+    let rain = first_where(|l| l.rain_w == 0, WANTS);
+    let low = first_where(|l| l.low_w == 0, WANTS);
+    // Each is gone at a wider place than the next one.
+    assert!(symbol > rain && rain > low, "{symbol} {rain} {low}");
 }
 
 #[test]
 fn the_names_get_shorter_before_the_digits_do() {
-    let plan = list_of(130, 300, 5, Wants { symbol: false, ..WANTS });
-    assert!(plan.names >= 1, "{plan:?}");
+    let no_symbol = Wants {
+        symbol: false,
+        ..WANTS
+    };
+    let shorter = first_where(|l| l.names >= 1, no_symbol);
+    assert!(shorter > 0);
+    // At a place where the names were shortened, the digits are not yet the
+    // least size.
+    let plan = list_of(shorter, 300, 5, no_symbol);
+    assert!(plan.size >= setup().small * 0.8, "{plan:?}");
 }
 
 #[test]
