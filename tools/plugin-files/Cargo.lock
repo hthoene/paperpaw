@@ -333,6 +333,7 @@ name = "paperpaw-plugin-news"
 version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

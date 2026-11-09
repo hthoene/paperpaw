@@ -107,7 +107,15 @@ fn read_head_on(v: &impl Volume, name: &str, n: usize) -> Result<Option<Vec<u8>>
     Ok(Some(bytes))
 }
 
-fn read_all_on(v: &impl Volume, name: &str, max: usize) -> Result<Option<Vec<u8>>, Error> {
+/// [`read_all`] on any [`Volume`].
+///
+/// # Errors
+/// As [`read_all`].
+pub fn read_all_on(
+    v: &(impl Volume + ?Sized),
+    name: &str,
+    max: usize,
+) -> Result<Option<Vec<u8>>, Error> {
     let size = match v.size(name) {
         Ok(size) => usize::try_from(size).map_err(|_| Error::NoSpace)?,
         Err(Error::NotFound) => return Ok(None),
@@ -141,7 +149,11 @@ fn temp_name(name: &str) -> Result<String, Error> {
     Ok(temp)
 }
 
-fn replace_on(v: &impl Volume, name: &str, bytes: &[u8]) -> Result<(), Error> {
+/// [`replace`] on any [`Volume`].
+///
+/// # Errors
+/// As [`replace`].
+pub fn replace_on(v: &(impl Volume + ?Sized), name: &str, bytes: &[u8]) -> Result<(), Error> {
     if bytes.len() <= MAX_DATA {
         v.write(name, bytes)?;
         // A temp file a cut or a refusal left behind earlier is of no use now.
