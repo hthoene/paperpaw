@@ -132,7 +132,10 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below are n
    when the picture shows; only when it changed; the text is in the reader's language at that time, with the
    reason keys `sleep.overlay.reason.*`). Differences from interface 6: the folder's pictures are rows (interface
    6 offered only the folder as one row and the presets); a widget that cannot be made at the sleep itself is
-   noted only by the picker's own check (a draw sends nothing and writes nothing).
+   noted only by the picker's own check (a draw sends nothing and writes nothing). Run over the scripted host in
+   `tests/scripted_picker.rs` (the folder through `core.files`, the registry's widgets, presets and values, the
+   row the focus starts on, what a choice stages, every refused call; the scripted host refuses the redraw a
+   moved focus asks for and does not stage the closing, so those two are the acceptance case `sleep-picker`).
 5. **Another plugin's mode (reading-goal's `reading-goal.sleep`): settled (Kernel's ruling), done in sleep.** Nothing is
    embedded or opened by sleep: the sleep screen stays the slot `core.sleep`, shown by the host with its device-state
    rules. The offering plugin (reading-goal) declares a `slot.offer` of its screen `reading-goal.sleep` to the slot

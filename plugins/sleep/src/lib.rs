@@ -16,7 +16,7 @@
 //!   in the middle of the screen;
 //! - *Page*: the screen stays as it is;
 //! - *Page with a picture*: the page stays, a picture or a widget over
-//!   it (picked on the screen `pick-overlay`, see [`native_picker`]); where
+//!   it (picked on the screen `pick-overlay`, see `native_picker`); where
 //!   and how large it is, how much the page shows through it and when it is
 //!   used are settings ([`native_sleep`]);
 //! - a mode of another plugin: it offers a screen of its own for the slot
