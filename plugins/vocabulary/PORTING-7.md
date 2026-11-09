@@ -234,6 +234,13 @@ native screens replace these callers.
   `core.lookup`, #352/dictionary port), *Go to* in its book (the reader's open-at, #224), *Export*
   (`core.files` adapter, #339/#384; `store::export` is ported and tested). A tap on a word takes the input and does
   nothing. No row ends in a refusal.
+- A tap or *Select* on a word says "Hold a word to delete it." (`vocabulary.hold-to-delete`, en and de) until looking
+  it up works.
+- Tested: the rows (pages, order, notes), the word a row names, the delete and the count after it
+  (`native_list::delete`, also over a storage that fails), both languages of the question, and every
+  allocation of an *Again* answer refused in turn (`native_review_tests`: the card stays shown). Not tested
+  (they need the host): that the `Answered` event is matched to the question and a *yes* (choice 1) deletes,
+  the stack query that keeps a tick from redrawing under another screen, and what is drawn.
 - Differences: the words looked up while the list is open show when it is shown again, not at once (no
   word-looked-up event yet). Rows are numbered from the newest, so a hold first counts the words again: a list
   that changed since it was counted is counted again and drawn anew, never deleting another word.

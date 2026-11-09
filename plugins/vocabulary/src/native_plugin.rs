@@ -168,9 +168,14 @@ impl Plugin for NativeVocabulary {
                     return Ok(Handled::No);
                 };
                 let step = view.input(host, &input)?;
-                if let native_list::Step::Held(row) = step {
-                    self.held(host, row)?;
-                    return Ok(Handled::Yes);
+                match step {
+                    native_list::Step::Held(row) => self.held(host, row)?,
+                    native_list::Step::Tapped => {
+                        // Looking the word up waits for its panel.
+                        let said = HostWords::new(host)?.copy("vocabulary.hold-to-delete")?;
+                        CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
+                    }
+                    _ => {}
                 }
                 Ok(native_list::handled(&step))
             }
@@ -244,17 +249,22 @@ impl NativeVocabulary {
             return Ok(());
         }
         let data = DataStorage::new(host);
-        if store::remove(&DataFolder(&data), &word).is_err() {
+        let (deleted, count) = native_list::delete(&DataFolder(&data), &word);
+        if !deleted {
             let said = HostWords::new(host)?.copy("vocabulary.delete-failed")?;
             CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
         }
-        self.recount(host)
+        self.recounted(host, count)
     }
 
     /// The words are counted again and the list drawn again.
     fn recount(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let data = DataStorage::new(host);
         let count = store::count(&DataFolder(&data)).map_err(native_review::storage_error)?;
+        self.recounted(host, count)
+    }
+
+    fn recounted(&mut self, host: &Host<'_>, count: usize) -> Result<(), Error> {
         if let Some(view) = self.words.top(WORDS_TOKEN) {
             view.recount(count);
             CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;

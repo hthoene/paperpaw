@@ -33,9 +33,11 @@ pub(crate) const SCREEN: &str = "vocabulary.list";
 pub(crate) enum Step {
     /// The input is not for the list.
     Ignored,
-    /// The list took it (the focus moved, a page was turned, a word was
-    /// tapped: looking it up waits for the dictionary's panel).
+    /// The list took it (the focus moved, a page was turned).
     Taken,
+    /// A word is tapped or chosen: looking it up waits for the dictionary's
+    /// panel, so the screen says how to delete it instead.
+    Tapped,
     /// A word is held (or *Menu*): its row.
     Held(usize),
 }
@@ -123,6 +125,13 @@ pub(crate) struct DeleteTexts {
     pub title: String,
     pub text: String,
     pub labels: String,
+}
+
+/// Deletes `word` and counts the words again: whether it was deleted, and how
+/// many there are now (0 where they cannot be counted).
+pub(crate) fn delete(storage: &dyn Storage, word: &Word) -> (bool, usize) {
+    let deleted = store::remove(storage, word).is_ok();
+    (deleted, store::count(storage).unwrap_or(0))
 }
 
 /// The texts of the question about deleting `word`.
@@ -245,6 +254,7 @@ impl WordsView {
         Ok(match self.list.input(host, self.count, input)? {
             ItemStep::Ignored => Step::Ignored,
             ItemStep::Held(row) => Step::Held(row),
+            ItemStep::Chosen(_) => Step::Tapped,
             _ => Step::Taken,
         })
     }

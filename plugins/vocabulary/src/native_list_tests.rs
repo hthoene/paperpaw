@@ -135,3 +135,27 @@ fn the_question_names_the_word_in_both_languages() {
     assert!(en.question().is_ok());
     assert!(de.question().is_ok());
 }
+
+#[test]
+fn a_word_deleted_is_counted_out_and_a_failed_delete_says_so() {
+    let storage = stored(3);
+    let held = WordRows::new(&storage, 3).word(0).unwrap();
+    assert_eq!(delete(&storage, &held), (true, 2));
+    // The same word again: nothing to remove is not a failure; still 2.
+    assert_eq!(delete(&storage, &held).1, 2);
+    // A storage that cannot be written: not deleted, and what is there is counted.
+    let (deleted, count) = delete(&paperpaw_sdk::NoStorage, &held);
+    assert!(!deleted);
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn a_tap_on_a_word_says_how_to_delete_it_in_both_languages() {
+    for language in ["en", "de"] {
+        let said = words(language).copy("vocabulary.hold-to-delete").unwrap();
+        assert!(
+            !said.is_empty() && said != "vocabulary.hold-to-delete",
+            "{language}"
+        );
+    }
+}
