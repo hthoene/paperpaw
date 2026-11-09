@@ -1180,6 +1180,32 @@ fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
 }
 
 #[test]
+fn a_recovery_key_alone_sends_the_author_record_with_an_empty_author() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let recovery = [9_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().recovery(&recovery),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].starts_with("InstallAuthor"));
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("[9, 9"));
+}
+
+#[test]
 fn an_install_with_evidence_refuses_what_does_not_fit_before_the_host() {
     let table = table();
     let mut ctx = Context::default();

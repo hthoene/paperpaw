@@ -27,6 +27,7 @@ pub struct Rotation<'a> {
 }
 
 impl<'a> Rotation<'a> {
+    #[must_use]
     pub const fn new(to: &'a [u8; 32], signature: &'a [u8; 64]) -> Self {
         Self { to, signature }
     }
@@ -44,6 +45,7 @@ pub struct Evidence<'a> {
 
 impl<'a> Evidence<'a> {
     /// No evidence: a plugin the user sideloads.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             author: None,
@@ -88,6 +90,7 @@ pub struct Revocation<'a> {
 }
 
 impl<'a> Revocation<'a> {
+    #[must_use]
     pub const fn new(plugin: &'a str, key: &'a [u8; 32], signature: &'a [u8; 64]) -> Self {
         Self {
             plugin,
