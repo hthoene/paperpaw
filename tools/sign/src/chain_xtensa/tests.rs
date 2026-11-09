@@ -440,15 +440,15 @@ fn a_truncated_or_damaged_firmware_is_an_error_not_a_panic() {
 /// The privileged forms as the S3 toolchain's assembler makes them
 /// (`xtensa-esp32s3-elf-as`, little endian): `(name, bytes, writes a1)`.
 const FORM_WORDS: [(&str, [u8; 3], bool); 9] = [
-    ("rsil", [0x20, 0x63, 0x00], false),  // rsil a2, 3
-    ("waiti", [0x00, 0x70, 0x00], false), // waiti 0
-    ("wsr", [0x20, 0xe6, 0x13], false),   // wsr.ps a2
-    ("xsr", [0x20, 0xe6, 0x61], false),   // xsr.ps a2
-    ("xsr", [0x10, 0xe6, 0x61], true),    // xsr.ps a1
-    ("l32e", [0x20, 0xc3, 0x09], false),  // l32e a2, a3, -16
-    ("l32e", [0x10, 0xc3, 0x09], true),   // l32e a1, a3, -16
-    ("s32e", [0x20, 0xc3, 0x49], false),  // s32e a2, a3, -16
-    ("rsil", [0x10, 0x63, 0x00], true),   // rsil a1, 3
+    ("rsil", [0x20, 0x63, 0x00], false),   // rsil a2, 3
+    ("waiti", [0x00, 0x70, 0x00], false),  // waiti 0
+    ("wsr.ps", [0x20, 0xe6, 0x13], false), // wsr.ps a2
+    ("xsr.ps", [0x20, 0xe6, 0x61], false), // xsr.ps a2
+    ("xsr.ps", [0x10, 0xe6, 0x61], true),  // xsr.ps a1
+    ("l32e", [0x20, 0xc3, 0x09], false),   // l32e a2, a3, -16
+    ("l32e", [0x10, 0xc3, 0x09], true),    // l32e a1, a3, -16
+    ("s32e", [0x20, 0xc3, 0x49], false),   // s32e a2, a3, -16
+    ("rsil", [0x10, 0x63, 0x00], true),    // rsil a1, 3
 ];
 
 #[test]
@@ -487,6 +487,54 @@ fn a_privileged_form_fails_unless_its_function_and_form_are_named() {
         let wrong = run(&[("root", root)], &["root"], &other);
         assert_eq!(wrong.problems.len(), 2, "{name}: {:?}", wrong.problems);
     }
+}
+
+#[test]
+fn the_window_registers_are_a_stack_pointer_change_and_ps_is_its_own_form() {
+    // wsr/xsr of WINDOWBASE (72) and WINDOWSTART (73): the stack-pointer rule,
+    // whatever `allow form` says; only `allow sp` passes them.
+    for (name, word) in [
+        ("wsr.windowbase", [0x20, 0x48, 0x13]),
+        ("wsr.windowstart", [0x20, 0x49, 0x13]),
+        ("xsr.windowbase", [0x20, 0x48, 0x61]),
+        ("xsr.windowstart", [0x20, 0x49, 0x61]),
+    ] {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let bare = run(&[("root", root.clone())], &["root"], "");
+        assert_eq!(bare.problems.len(), 1, "{name}: {:?}", bare.problems);
+        assert!(bare.problems[0].contains("stack pointer"), "{name}");
+        let kind = &name[..3];
+        let line = format!("allow form root {kind} not enough\n");
+        let listed = run(&[("root", root.clone())], &["root"], &line);
+        assert!(
+            listed.problems.iter().any(|p| p.contains("stack pointer")),
+            "{name}: {:?}",
+            listed.problems
+        );
+        let sp = run(&[("root", root)], &["root"], "allow sp root window moved\n");
+        assert!(sp.problems.is_empty(), "{name}: {:?}", sp.problems);
+    }
+    // PS (230): `wsr.ps` and `xsr.ps` are forms of their own; the generic
+    // `wsr` or `xsr` line does not cover them (and is then unused).
+    for (kind, word) in [("wsr", [0x20, 0xe6, 0x13]), ("xsr", [0x20, 0xe6, 0x61])] {
+        let root = f(&[&entry(32), &word, &RETW_N]);
+        let generic = run(
+            &[("root", root.clone())],
+            &["root"],
+            &format!("allow form root {kind} wrong register\n"),
+        );
+        assert_eq!(generic.problems.len(), 2, "{kind}: {:?}", generic.problems);
+        let exact = run(
+            &[("root", root)],
+            &["root"],
+            &format!("allow form root {kind}.ps restores the interrupt level\n"),
+        );
+        assert!(exact.problems.is_empty(), "{kind}.ps: {:?}", exact.problems);
+    }
+    // Another special register (VECBASE, 231) is the generic form.
+    let vec = f(&[&entry(32), &[0x30, 0xe7, 0x13], &RETW_N]);
+    let ok = run(&[("root", vec)], &["root"], "allow form root wsr vecbase\n");
+    assert!(ok.problems.is_empty(), "{:?}", ok.problems);
 }
 
 #[test]

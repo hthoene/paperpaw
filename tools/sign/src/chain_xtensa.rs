@@ -53,7 +53,8 @@
 //! allow nosize <name> <why>           a function with no size (assembly)
 //! allow form <caller> <form> <why>    the caller uses a privileged form that
 //!                                     leaves a1 alone (`rsil`, `waiti`,
-//!                                     `wsr`, `xsr`, `l32e`, `s32e`)
+//!                                     `wsr`, `xsr`, `wsr.ps`, `xsr.ps`,
+//!                                     `l32e`, `s32e`)
 //! ```
 //!
 //! The roots come from the tables themselves (Kernel's ruling on todo 206):
@@ -80,7 +81,12 @@
 //! writes (`rsil`, `xsr` and `l32e` write `at`, the others no `a` register),
 //! and fails unless the budget has an `allow form` line for that function and
 //! form, with a reason; one that writes `a1` is a change of the stack pointer
-//! and is judged as such, whatever the line says. `rotw`, the `rf*` returns,
+//! and is judged as such, whatever the line says. So is a `wsr` or `xsr` of
+//! `WINDOWBASE` or `WINDOWSTART` (special registers 72 and 73): they change
+//! the register window, which is what `a1` names (`allow sp` only). A `wsr` or
+//! `xsr` of `PS` (230, which holds the window's own enable and increment)
+//! is its own form, `wsr.ps` or `xsr.ps`: the generic `wsr` and `xsr` lines
+//! cover the other special registers. `rotw`, the `rf*` returns,
 //! MAC16 and the S3's `ee.*` forms stay unknown: no line can allow them.
 //!
 //! **Assumption: literals lie outside the functions.** A function's bytes are
@@ -121,7 +127,15 @@ pub enum Allow {
 }
 
 /// The privileged forms an `allow form` line may name.
-pub const FORMS: [&str; 6] = ["rsil", "waiti", "wsr", "xsr", "l32e", "s32e"];
+pub const FORMS: [&str; 8] = [
+    "rsil", "waiti", "wsr", "xsr", "wsr.ps", "xsr.ps", "l32e", "s32e",
+];
+
+/// The special registers that name the register window (`WINDOWBASE`,
+/// `WINDOWSTART`) and the processor state (`PS`).
+const SR_WINDOWBASE: u32 = 72;
+const SR_WINDOWSTART: u32 = 73;
+const SR_PS: u32 = 230;
 
 /// What the budget asks.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -273,12 +287,17 @@ fn callx_t(w: u32) -> Option<u32> {
 }
 
 /// A privileged form that `wide_class` leaves unknown but whose effect is
-/// known: its name (one of [`FORMS`]) and the `a` register it writes, if any.
-/// `op0` is 0 (QRST) in all of them. Encodings as the S3 toolchain's
-/// assembler makes them (`tests.rs`).
-fn named_form(w: u32) -> Option<(&'static str, Option<u32>)> {
+/// known: its name (one of [`FORMS`]), the `a` register it writes, if any, and
+/// whether it changes the register window (a `wsr` or `xsr` of `WINDOWBASE` or
+/// `WINDOWSTART`, which is a change of what `a1` names). `op0` is 0 (QRST) in
+/// all of them. Encodings as the S3 toolchain's assembler makes them
+/// (`tests.rs`); the special register is `s << 4 | r`.
+fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
     let t = (w >> 4) & 0xF;
     let r = (w >> 12) & 0xF;
+    let s = (w >> 8) & 0xF;
+    let sr = s << 4 | r;
+    let window = sr == SR_WINDOWBASE || sr == SR_WINDOWSTART;
     let (op1, op2) = ((w >> 16) & 0xF, (w >> 20) & 0xF);
     if w & 0xF != 0 {
         return None;
@@ -286,16 +305,18 @@ fn named_form(w: u32) -> Option<(&'static str, Option<u32>)> {
     match (op1, op2) {
         // RST0 `st0`: `rsil at, imm` (r = 6) writes `at`; `waiti imm`
         // (r = 7, t = 0) writes no `a` register.
-        (0, 0) if r == 6 => Some(("rsil", Some(t))),
-        (0, 0) if r == 7 && t == 0 => Some(("waiti", None)),
+        (0, 0) if r == 6 => Some(("rsil", Some(t), false)),
+        (0, 0) if r == 7 && t == 0 => Some(("waiti", None, false)),
         // RST3: `wsr at, sr` (op2 = 1) writes a special register.
-        (3, 1) => Some(("wsr", None)),
+        (3, 1) if sr == SR_PS => Some(("wsr.ps", None, false)),
+        (3, 1) => Some(("wsr", None, window)),
         // RST1: `xsr at, sr` (op2 = 6) swaps `at` with a special register.
-        (1, 6) => Some(("xsr", Some(t))),
+        (1, 6) if sr == SR_PS => Some(("xsr.ps", Some(t), false)),
+        (1, 6) => Some(("xsr", Some(t), window)),
         // LSC4 (op1 = 9): `l32e at, as, imm` (op2 = 0) writes `at`;
         // `s32e at, as, imm` (op2 = 4) writes memory.
-        (9, 0) => Some(("l32e", Some(t))),
-        (9, 4) => Some(("s32e", None)),
+        (9, 0) => Some(("l32e", Some(t), false)),
+        (9, 4) => Some(("s32e", None, false)),
         _ => None,
     }
 }
@@ -353,11 +374,12 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
                         reads.writes_sp.get_or_insert(pc);
                     }
                     Class::Unknown => match named_form(w) {
-                        // A written `a1` is a change of the stack pointer.
-                        Some((_, Some(1))) => {
+                        // A written `a1`, or a changed register window, is a
+                        // change of the stack pointer.
+                        Some((_, Some(1), _) | (_, _, true)) => {
                             reads.writes_sp.get_or_insert(pc);
                         }
-                        Some((name, _)) => {
+                        Some((name, _, _)) => {
                             reads.forms.entry(name).or_insert(pc);
                         }
                         None => {
