@@ -307,7 +307,7 @@ fn shared_callback_stamp_constructor_refuses_epoch_zero() {
 /// holds one slot per live instance.
 #[test]
 fn core_ui_reads_the_stack_through_a_live_frame_only() {
-    use crate::native_host::{stack_rows::StackRow, ui_guard::UiStackView};
+    use crate::native_host::stack_rows::StackRow;
     use paperpaw_native::host_glue::ERR_STATE;
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -325,16 +325,17 @@ fn core_ui_reads_the_stack_through_a_live_frame_only() {
     rows(&[7, 8]);
     let env = kernel.shared.env(Instant(0));
     let mut frame = frame(&kernel, &env);
-    let mut seen = alloc::vec::Vec::new();
-    let mut view = |frame: &CoreFrame<'_>| {
-        seen.clear();
-        frame.with_stack(&mut |stack| {
-            seen.extend(
-                (0..stack.len())
-                    .filter_map(|at| stack.row(at))
-                    .map(|r| r.instance),
-            );
-        })
+    let view = |frame: &CoreFrame<'_>| {
+        let mut seen = alloc::vec::Vec::new();
+        frame
+            .with_stack(&mut |stack| {
+                seen.extend(
+                    (0..stack.len())
+                        .filter_map(|at| stack.row(at))
+                        .map(|row| row.instance),
+                );
+            })
+            .map(|()| seen)
     };
     // No callback (or a zero epoch): nothing is readable or queued.
     assert_eq!(view(&frame), Err(ERR_STATE));
@@ -343,8 +344,7 @@ fn core_ui_reads_the_stack_through_a_live_frame_only() {
     assert_eq!(view(&frame), Err(ERR_STATE));
     // A live callback sees the stack, bottom to top.
     frame.callback = Some(CallbackStamp { owner: 5, epoch: 1 });
-    assert_eq!(view(&frame), Ok(()));
-    assert_eq!(seen, [7, 8]);
+    assert_eq!(view(&frame), Ok(alloc::vec![7, 8]));
     // One slot per live instance: a repeat is the same slot; an instance
     // that is not on the stack is `ERR_STATE`.
     assert_eq!(frame.close_dialog(8), Ok(()));
