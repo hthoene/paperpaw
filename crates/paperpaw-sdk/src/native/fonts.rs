@@ -224,3 +224,7 @@ mod drawing_tests;
 #[path = "fonts_metrics.rs"]
 mod metrics;
 pub use metrics::InkBounds;
+
+#[path = "fonts_icons.rs"]
+mod icons;
+pub use icons::IconGlyph;
