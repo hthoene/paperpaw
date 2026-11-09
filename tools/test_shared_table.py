@@ -88,8 +88,14 @@ class BodyHashes(unittest.TestCase):
         # `layout` is defined three times, but once in the caller's file.
         self.assertEqual(shared.reach(functions, a, "{ self.layout() }"),
                          {"{ inner() }", "{ 1 }"})
-        # From another file, a name defined more than twice is not followed.
-        self.assertEqual(shared.reach(functions, pathlib.Path("c.rs"), "{ common() }"), set())
+        # From another file, a name defined more than twice is not followed
+        # where it is listed as skipped, and refused where it is not (#732).
+        met = set()
+        self.assertEqual(shared.reach(functions, pathlib.Path("c.rs"), "{ common() }",
+                                      skipped=(frozenset({"common"}), met)), set())
+        self.assertEqual(met, {"common"})
+        with self.assertRaises(SystemExit):
+            shared.reach(functions, pathlib.Path("c.rs"), "{ common() }")
 
     def test_generated_codec_copies_are_no_callees(self):
         with tempfile.TemporaryDirectory() as root:
