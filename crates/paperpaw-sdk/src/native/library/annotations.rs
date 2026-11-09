@@ -294,9 +294,31 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
+        let (cap, n) = self.annotation_encode(op, records, input)?;
+        self.annotation_send(host, op, cap, &input[..n], out)
+    }
+    /// Encode a call's records: the reply cap of the op and the input's length.
+    /// Nothing reaches the host, so a failure here changes nothing there.
+    pub(super) fn annotation_encode(
+        &self,
+        op: u32,
+        records: &[&dyn wire::WireEncode],
+        input: &mut [u8],
+    ) -> Result<(usize, usize), Error> {
         let cap = self.service.max_reply(op).ok_or(Error::Unsupported)?;
         let n = wire::records_encode_of(records, input).map_err(Error::from_status)?;
-        let n = self.service.call(host, op, &input[..n], out)?;
+        Ok((cap, n))
+    }
+    /// Send encoded records and check the reply's size against the op's cap.
+    pub(super) fn annotation_send(
+        &self,
+        host: &Host<'_>,
+        op: u32,
+        cap: usize,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, Error> {
+        let n = self.service.call(host, op, input, out)?;
         if n > cap {
             return Err(Error::Invalid);
         }

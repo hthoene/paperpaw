@@ -446,6 +446,8 @@ mod anchors;
 mod annotations;
 #[path = "tests/cover.rs"]
 mod cover;
+#[path = "tests/edits.rs"]
+mod edits;
 #[path = "tests/facets.rs"]
 mod facets;
 #[path = "tests/fields.rs"]
