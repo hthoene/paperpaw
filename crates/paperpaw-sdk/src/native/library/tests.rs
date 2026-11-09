@@ -458,3 +458,5 @@ mod fields;
 mod files;
 #[path = "tests/position.rs"]
 mod position;
+#[path = "tests/provide.rs"]
+mod provide;

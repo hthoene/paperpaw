@@ -169,6 +169,7 @@ fn style() -> Style {
         card: Color::gray(230),
         on_dark_muted: Color::gray(200),
         strong: false,
+        rtl: false,
     }
 }
 

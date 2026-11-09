@@ -147,16 +147,13 @@ pub(super) fn resolve(
     if root == CARD && !first.is_empty() && reaches_protected(view, first) {
         return Err(ERR_INVALID);
     }
-    let received = root == DATA
-        && !first.is_empty()
-        && (first.eq_ignore_ascii_case(RECEIVED) || view.host.excluded(DATA, first));
     // Filled in the caller's place: a path is 640 bytes, and a copy of it per
     // return would put several of them in the frame of an op with two.
     target.len = 0;
     target.start = 0;
     target.base = 0;
     target.root = root;
-    target.received = received;
+    target.received = false;
     target.empty_bundle = false;
     let (kind, folder) = match root {
         DATA => (PREFIX, Some(view.who.plugin)),
@@ -175,6 +172,11 @@ pub(super) fn resolve(
         push(target, kind.as_bytes())?;
         push(target, id.as_bytes())?;
         target.base = target.len;
+        // `.received` of the data folder (the host's), by spelling or by the
+        // storage's identity: the folder it is in is the data folder.
+        target.received = root == DATA
+            && !first.is_empty()
+            && (same_fold(first, RECEIVED) || view.host.excluded(DATA, target.joined(), first));
         if !path.is_empty() {
             push(target, b"/")?;
         }
@@ -259,33 +261,38 @@ fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
 /// Whether a first segment of root 1 is `plugins` or `.paperpaw`, by
 /// spelling in any case or by identity (the host).
 pub(super) fn reaches_protected(view: &View<'_>, first: &str) -> bool {
-    first.eq_ignore_ascii_case(INSTALL)
-        || first.eq_ignore_ascii_case(KERNEL)
-        || view.host.excluded(CARD, first)
+    same_fold(first, INSTALL) || same_fold(first, KERNEL) || view.host.excluded(CARD, "", first)
 }
 
-/// Whether `path` is `folder` or below it, `ignore_case` for a storage that
-/// takes names differing in case for one.
-pub(super) fn within(ignore_case: bool, path: &str, folder: &str) -> bool {
-    let same = |a: char, b: char| a == b || (ignore_case && a.to_lowercase().eq(b.to_lowercase()));
-    let mut path = path.chars();
-    for expected in folder.chars() {
-        match path.next() {
-            Some(found) if same(found, expected) => {}
-            _ => return false,
-        }
-    }
-    matches!(path.next(), None | Some('/'))
+/// Whether `a` and `b` are one name to the FAT driver: in upper case, the
+/// whole name (so `ı` is `I`, `ſ` is `S` and `ß` is `SS`), exactly as
+/// `paperpaw-fat` compares. Used for the names the host keeps for itself,
+/// whatever the storage does with case: a spelling the driver would take for
+/// one of them must not get past.
+pub(crate) fn same_fold(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_uppercase)
+        .eq(b.chars().flat_map(char::to_uppercase))
 }
 
-/// Whether the two paths are spelt alike (`ignore_case` for FAT).
+/// Whether `path` is `folder` or below it, name by name; `ignore_case` for a
+/// storage that takes names differing in case for one, folded as the driver
+/// does ([`same_fold`]).
+pub(crate) fn within(ignore_case: bool, path: &str, folder: &str) -> bool {
+    let mut parts = path.split('/');
+    folder.split('/').all(|name| {
+        parts.next().is_some_and(|part| {
+            if ignore_case {
+                same_fold(part, name)
+            } else {
+                part == name
+            }
+        })
+    })
+}
+
+/// Whether the two paths are spelt alike (`ignore_case` for FAT, folded as
+/// the driver does).
 pub(super) fn same_spelling(ignore_case: bool, a: &str, b: &str) -> bool {
-    let mut b = b.chars();
-    for x in a.chars() {
-        match b.next() {
-            Some(y) if x == y || (ignore_case && x.to_lowercase().eq(y.to_lowercase())) => {}
-            _ => return false,
-        }
-    }
-    b.next().is_none()
+    if ignore_case { same_fold(a, b) } else { a == b }
 }

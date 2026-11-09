@@ -584,6 +584,14 @@ jobs:
         run: |
           python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
           python3 tools/stage-codec.py plugins/reader/stages plugins/reader/src/stages.rs --check --plugin reader
+          python3 tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check
+          cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def
+      - name: A subscriber's stage codec is its copy of the owner's schema
+        # plugins/wikipedia/src/stages.rs from the copy of about.lines@1.def (a test holds
+        # the copy to the owner's file); no --plugin: the stage is About's.
+        run: python3 tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check
+      - name: Joplin's copy of the reader's export stage codec is the schema's
+        run: python3 tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check
       - name: The plugin store's rules are the site's
         # tools/publish/store-rules.json, which paperpaw-dev and
         # paperpaw-sign check by, against paperpaw.org's own (where it

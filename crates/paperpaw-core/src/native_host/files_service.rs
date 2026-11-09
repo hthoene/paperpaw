@@ -29,6 +29,8 @@ mod change;
 mod read;
 mod target;
 
+pub(crate) use target::{same_fold, within};
+
 pub(crate) use super::lib_service::moves::Access;
 
 /// The calling plugin: its host owner id, its plugin id, and whether the
@@ -51,8 +53,11 @@ pub(crate) trait FilesHost {
     /// The service already refuses their spelling in any case; this is the
     /// identity beyond it (an 8.3 alias such as `PAPERP~1`).
     ///
+    /// `parent` is the storage folder `first_segment` is in (root 0: the
+    /// plugin's data folder; root 1: `""`, the card's top).
+    ///
     /// Required: a host that forgets it would let an alias reach them.
-    fn excluded(&self, root: u32, first_segment: &str) -> bool;
+    fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool;
 
     /// Whether `plugin` is built into the firmware (a linked plugin). Its
     /// install folder (root 2) counts as empty whatever the card holds at

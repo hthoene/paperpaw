@@ -18,10 +18,10 @@ use crate::sync::tests::heap::{armed, fixture};
 pub(crate) struct Quiet(pub(crate) MemoryStorage);
 
 impl Quiet {
-    fn with(self, path: &str, data: impl Into<Vec<u8>>) -> Self {
+    pub(crate) fn with(self, path: &str, data: impl Into<Vec<u8>>) -> Self {
         Quiet(self.0.with(path, data.into()))
     }
-    fn get(&self, path: &str) -> Option<Vec<u8>> {
+    pub(crate) fn get(&self, path: &str) -> Option<Vec<u8>> {
         fixture(|| self.0.get(path))
     }
 }

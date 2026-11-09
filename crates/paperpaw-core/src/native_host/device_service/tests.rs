@@ -1073,11 +1073,11 @@ fn malformed_input_is_refused_and_never_panics() {
         hostile.push(twice);
     }
     with_view(Fake::full(), Some(5), |view| {
-        for id in 1..=15 {
+        for id in 1..=16 {
             for input in &hostile {
                 let mut scratch = vec![0_u8; schema_op(id).max_reply];
                 let result = view.backend(schema_op(id), input, &mut scratch);
-                if *input == valid(id) && id != 6 && id != 13 {
+                if *input == valid(id) && ![6, 13, 16].contains(&id) {
                     assert!(result.is_ok(), "op {id}");
                 } else {
                     assert!(result.is_err(), "op {id} input {input:?}");
@@ -1086,7 +1086,7 @@ fn malformed_input_is_refused_and_never_panics() {
         }
         // Undefined ops and a short scratch are errors, not panics.
         let mut scratch = [0_u8; 4096];
-        for id in [0, 16, 99, u32::MAX] {
+        for id in [0, 17, 99, u32::MAX] {
             let op = ServiceOp {
                 id,
                 ..*schema_op(1)
@@ -1185,3 +1185,6 @@ fn the_service_catalog_offers_only_core_device() {
             .any(|s| s.key == KEY)
     );
 }
+
+#[path = "firmware_tests.rs"]
+mod firmware;

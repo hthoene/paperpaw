@@ -483,7 +483,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
-  (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
+  (first frame) of the caller's root 0, root 1 (`uses.storage`) or root 2 (its own install folder,
+  read-only, no feature; a built-in plugin's is empty, so `status` 6) into the host's image cache at
   most `side` pixels on the longest side (0: the screen's), in the background: **one request per
   main-loop turn**, decoded to completion in that turn (the `paperpaw-image` decoders cannot pause;
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
@@ -496,7 +497,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
   decoder caps; `paperpaw_image::ImageError::TooLarge`), 4 card failure (`ERR_IO`, no card or
-  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
+  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later), 6 not found (no such file on
+  that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
+  prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
   (where the screen has it).
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1

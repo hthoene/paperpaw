@@ -38,6 +38,7 @@ fn main() -> Result<(), String> {
     let mut source = String::new();
     emit!(source, "SCREEN", declarations::screen);
     emit!(source, "PROVIDER", declarations::provider);
+    emit!(source, "ABOUT", declarations::about);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("wikipedia_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))

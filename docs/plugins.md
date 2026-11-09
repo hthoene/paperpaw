@@ -2780,12 +2780,15 @@ buffer is 1,024 bytes for `book_key` and `position` and 2,048 bytes for `set_pos
 
 The host decodes and draws pictures; a plugin never holds one in memory.
 `CommandSender::image_prepare(&PrepareImage)` asks for a JPEG, PNG (not interlaced) or GIF
-of the plugin's data folder or, with `uses.storage`, the library
+of the plugin's data folder, with `uses.storage` the library, or (`PrepareRoot::Bundle`, no
+feature) the plugin's own install folder, read only: the pictures it ships; a plugin built into
+the image has none there, and the host answers `ImageStatus::NotFound`
 (`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)` for the longest side, 0
 being the screen's and a side above 1,600 being clamped, `.colour()`). Subscribe to
 `EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the cookie, an
-`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`;
-an unknown value reads as `Damaged`), and for `Ready` the `ImageId` and the size made. At
+`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`,
+`NotFound`: no such file at that root and path; an unknown value reads as `Damaged`), and for
+`Ready` the `ImageId` and the size made. At
 most 4 requests wait and 8 pictures are kept per plugin; give each back with
 `image_release(id)`. `ImageInfo::read(host, id)` gives the size and whether it is colour
 (`image.info`; `not_decoded()` says the format has not decoded it yet), and
@@ -2834,6 +2837,15 @@ with that id (empty for all), `ReaderPage::rows()` gives each `Reader` (`id()`, 
 list changed answers `State`: start again from `ReaderCursor::start()`. No permission is needed.
 A reader opens a book through `command.open` with its `screen` and the slot `core.reader`.
 `input` is 256 bytes and `out` 4,096.
+
+`Documents::format_for(host, root, path, sniff, input, out)` tells which format reads a file
+(`Root::Data`, or `Root::Library` for the user's files, which needs `uses.storage`): by its extension,
+and when none matches and `sniff` is set, by the file's first 512 bytes. The answer is a `Format`
+(`id()`, `title()`, `extensions()`, `priority()`); `NotFound` means no format reads it, so a file
+manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
+the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
+pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
+`formats`; `out` 4,096 for both.
 
 ### Annotation anchors and per-book folders
 
@@ -2911,6 +2923,19 @@ preparation state (`Preparation`), `close` ends the document, `xpointer` turns a
 bytes) back. An answer for another document is `Invalid`. Reading blocks and the
 table of contents are not in this client yet. The host answers `Busy` while a
 document is preparing.
+
+### Provided metadata
+
+`Library::provide(host, book, &Provided, input, out)` (needs `uses.library`) sets what another
+source knows and the book's file does not name, as calibre does for a book it sent:
+`Provided::new().title(..)?.author(..)?.series(..)?.number(..)?.tags("a\nb")?` (title and author
+at most 512 bytes, series 256, number 32, up to 32 tags of 1 to 128 bytes one per line, 2,048 in
+all). Only the fields set are provided, the rest are left alone: a value is never empty or blank
+(only Unicode whitespace; nothing clears a field: leave it out) and has no control
+character (`char::is_control`: C0, DEL and C1, so a tab or line break either, and U+2028 and U+2029; a tag list separates its tags by line breaks only), and tags replace the provider's whole tag list. Provided
+values fill what the book's file does not name: where the file names a field, its own value wins
+on (re)index. The last provider's values replace earlier ones, and there is one tag list per
+book. They are kept with the book's data and follow it when the book moves. `input` is 4,096 bytes and `out` 64.
 
 ### Book fields and badges
 

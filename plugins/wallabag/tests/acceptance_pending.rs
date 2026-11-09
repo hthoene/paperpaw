@@ -1,7 +1,7 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin is pinned by `fetch.rs` and `answers.rs` on a kernel; these cases are
-//! the same behaviours through the production loader with the native plugin.
-//! They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host. `native_fetch_flow.rs`
+//! pins the fetch against scripted services; these cases are the same
+//! behaviours through the production loader with the native plugin. They
+//! never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -19,20 +19,20 @@ const CASES: [Case; 4] = [
     Case {
         name: "wallabag-fetch",
         golden: None,
-        blocked_by: &["NET", "FS", "JSON-stream"],
+        blocked_by: &["HOST-activation", "NET-shell", "FS"],
     },
     // Articles read to the end are archived with the next fetch and their books
     // removed unless they carry the reader's marks.
     Case {
         name: "wallabag-archive",
         golden: None,
-        blocked_by: &["NET", "FS", "EVENT-page-turned", "ANNOTATIONS"],
+        blocked_by: &["HOST-activation", "NET-shell", "FS"],
     },
     // A fetch started by a rule runs as declared work at a cheap moment.
     Case {
         name: "wallabag-fetch-due",
         golden: None,
-        blocked_by: &["WORK-declaration", "NET"],
+        blocked_by: &["WORK-declaration", "HOST-activation"],
     },
 ];
 
@@ -53,19 +53,19 @@ fn wallabag_setup() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET/FS: network and files are not qualified for the native plugin"]
+#[ignore = "BLOCKED HOST-activation/NET-shell/FS: the native plugin is not linked into the app yet and the shells have no core.net and storage production wiring"]
 fn wallabag_fetch() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED NET/FS/EVENT-page-turned/ANNOTATIONS: network, files, the reading event and annotations are not qualified"]
+#[ignore = "BLOCKED HOST-activation/NET-shell/FS: the native plugin is not linked into the app yet and the shells have no core.net and storage production wiring"]
 fn wallabag_archive() {
     CASES[2].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED WORK-declaration/NET: declared work and the network are not qualified for the native plugin"]
+#[ignore = "BLOCKED WORK-declaration/HOST-activation: there is no native work declaration, and the plugin is not linked into the app yet"]
 fn wallabag_fetch_due() {
     CASES[3].refuse().unwrap();
 }

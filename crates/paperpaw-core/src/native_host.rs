@@ -32,6 +32,13 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_install.rs"]
+#[allow(
+    dead_code,
+    reason = "the command arms and the pump (slice B) drive the machine; tests do today"
+)]
+pub(crate) mod firmware_install;
+
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
 
@@ -113,6 +120,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
@@ -121,6 +129,7 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+pub(crate) mod event_call;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -144,15 +153,27 @@ pub(crate) mod host_services;
 )]
 pub(crate) mod hyphen_card;
 pub(crate) mod hyphen_service;
+pub(crate) mod image_pump;
 #[allow(
     dead_code,
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[allow(
+    dead_code,
+    reason = "the library host composes it with the catalog carry (library moves, next slice)"
+)]
+pub(crate) mod lib_moves_host;
+#[allow(
+    dead_code,
+    reason = "the card's MoveHost uses it (library moves, next slice)"
+)]
+pub(crate) mod lib_moves_journal;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 #[allow(
@@ -170,6 +191,8 @@ pub(crate) mod save_files;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;
+#[path = "native_host/setting_events.rs"]
+pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
 #[allow(
@@ -182,6 +205,7 @@ mod stage_wire;
     reason = "the NET and SOCK adapters name their staged file by it"
 )]
 pub(crate) mod staged_name;
+mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod work_pump;
@@ -208,6 +232,9 @@ mod declaration_checks;
 
 #[path = "native_host/declarations_uix.rs"]
 mod declarations_uix;
+
+#[path = "native_host/declarations_input.rs"]
+mod declarations_input;
 
 #[path = "native_host/declaration_reg_checks.rs"]
 mod declaration_reg_checks;
@@ -277,6 +304,13 @@ pub mod registrations;
 #[path = "native_host/retained.rs"]
 mod retained;
 
+#[path = "native_host/item_state.rs"]
+#[allow(
+    dead_code,
+    reason = "the registry and the production native command path read and fill it"
+)]
+pub(crate) mod item_state;
+
 #[path = "native_host/native_declarations.rs"]
 #[allow(
     dead_code,
@@ -291,6 +325,8 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_keys.rs"]
+mod native_keys;
 #[path = "native_host/native_menus.rs"]
 #[allow(
     dead_code,

@@ -504,7 +504,7 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 31u16
+const paperpaw_sdk::native::DRAFT: u16 = 33u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 14_624_794_190_512_990_983u64
@@ -1130,6 +1130,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ICON_MAX_B
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_ID_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_KIND_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TAG: u32 = 1_040u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_WIDGET_TITLE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_SEC_BYTES_DATA_MAX_BYTES: usize = 256usize
@@ -1914,6 +1915,7 @@ const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_DEVICE: u32 
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_FIRMWARE: u32 = 3u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_INSTALL: u32 = 13u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_KEYS: u32 = 15u32
+const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_LEAVES_OUT: u32 = 16u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_MEMORY: u32 = 7u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_NATIVE: u32 = 5u32
 const paperpaw_sdk::native::wire::services_wire::core_device_v1::OP_NETWORKS: u32 = 9u32
@@ -2416,8 +2418,8 @@ enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
 enum paperpaw_sdk::native::format::lists::LinkKind #{"repr": {"align": null, "int": "u32", "kind": "rust", "packed": null}} { Internal = 0, External = 1, Footnote = 2 }
 enum paperpaw_sdk::native::format::request::FormatOp { Sniff, Open, Prepare, Close, Meta, MetaText, Sections, Block, Toc, TocTarget, PageLabel, Xpointer, Locate, Links, LinkTarget, Fonts, Cover, Image, Progress }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
-enum paperpaw_sdk::native::image::ImageStatus { Ready, Unsupported, Damaged, TooLarge, CardFailure, NoMemory }
-enum paperpaw_sdk::native::image::PrepareRoot { Data, Library }
+enum paperpaw_sdk::native::image::ImageStatus { Ready, Unsupported, Damaged, TooLarge, CardFailure, NoMemory, NotFound }
+enum paperpaw_sdk::native::image::PrepareRoot { Data, Library, Bundle }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }
@@ -2744,7 +2746,7 @@ struct paperpaw_sdk::memory::Memory { read: core::option::Option<fn() -> core::o
 struct paperpaw_sdk::memory::MemoryRegion { free: u32, size: u32, external: bool }
 struct paperpaw_sdk::memory::MemoryUse { heap_free: u32, heap_size: u32, stack_free: core::option::Option<u32>, stack_size: core::option::Option<u32>, largest_free: core::option::Option<u32>, regions: [core::option::Option<paperpaw_sdk::memory::MemoryRegion>; 3] }
 struct paperpaw_sdk::memory::Placement(0: u32)
-struct paperpaw_sdk::memory_storage::MemoryStorage { files: core::cell::RefCell<alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<u8>>> }
+struct paperpaw_sdk::memory_storage::MemoryStorage { files: core::cell::RefCell<alloc::collections::btree::map::BTreeMap<alloc::string::String, (u64, alloc::vec::Vec<u8>)>>, dirs: core::cell::RefCell<alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>>, last: core::cell::Cell<u64> }
 struct paperpaw_sdk::menus::ItemState { label: core::option::Option<alloc::borrow::Cow<'static, str>>, checked: core::option::Option<bool>, enabled: bool, shown: bool, badge: core::option::Option<alloc::borrow::Cow<'static, str>> }
 struct paperpaw_sdk::menus::MenuEntry { menu: paperpaw_sdk::id::Id, item: paperpaw_sdk::id::Id, order: i16, place: core::option::Option<paperpaw_sdk::menus::MenuPlace> }
 struct paperpaw_sdk::menus::MenuItem<'a> { id: &'a paperpaw_sdk::id::Id, title: &'a str, icon: core::option::Option<&'a str>, section: bool }
@@ -2992,7 +2994,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceRegSlot<'a> { id: &'a
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegStatus<'a> { id: &'a str, plugin: &'a str, kind: u32, flags: u32, priority: u32, size: u32, tap: &'a str, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegText<'a> { text: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegValue<'a> { key: &'a str, value: &'a [u8], flags: u32 }
-struct paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> { id: &'a str, plugin: &'a str, kind: &'a str, icon: &'a str, flags: u32, title: &'a str, cells: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegWidget<'a> { id: &'a str, plugin: &'a str, kind: &'a str, icon: &'a str, flags: u32, title: &'a str, cells: u32, previews: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecBytes<'a> { flags: u32, data: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecEntry<'a> { flags: u32, plugin: &'a str, name: &'a str, label: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceSecKeep<'a> { plugin: &'a str, name: &'a str, label: &'a str, flags: u32, value: &'a str }
@@ -3093,6 +3095,10 @@ struct paperpaw_sdk::native::document::DocPosition { section: u32, offset: u32 }
 struct paperpaw_sdk::native::document::DocState<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocState<'a>)
 struct paperpaw_sdk::native::document::Documents { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::document::OpenBook<'a> { root: paperpaw_sdk::native::document::Root, path: &'a str, format: &'a str, flags: u32, image_side: u32, cover_side: u32, css: core::option::Option<(paperpaw_sdk::native::document::Root, &'a str)>, options: &'a [(&'a str, &'a str)] }
+struct paperpaw_sdk::native::document::formats::Format<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocFormat<'a>)
+struct paperpaw_sdk::native::document::formats::FormatCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::document::formats::FormatPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::document::formats::FormatPageEnd }
+struct paperpaw_sdk::native::document::formats::FormatPageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::document::formats::FormatCursor> }
 struct paperpaw_sdk::native::document::meta::DocTextPart<'a> { text: &'a str, total: u32, next: core::option::Option<u32> }
 struct paperpaw_sdk::native::document::meta::DocTextQuery { kind: u32, index: u32, offset: u32 }
 struct paperpaw_sdk::native::document::meta::Metadata<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocMeta<'a>)
@@ -3223,6 +3229,7 @@ struct paperpaw_sdk::native::library::files::Import<'a> { from: &'a str, folder:
 struct paperpaw_sdk::native::library::position::BookKey<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibKey<'a>)
 struct paperpaw_sdk::native::library::position::Position<'a> { section: u32, offset: u32, insert: u32, progress_ppm: u32, conversion: core::option::Option<u64>, updated: u64, xpointer: core::option::Option<&'a str>, from_sync: bool }
 struct paperpaw_sdk::native::library::position::PositionWrite<'a> { position: paperpaw_sdk::native::library::position::Position<'a>, sync: bool, confirmed: bool }
+struct paperpaw_sdk::native::library::provide::Provided<'a> { title: &'a str, author: &'a str, series: &'a str, number: &'a str, tags: &'a str, flags: u32 }
 struct paperpaw_sdk::native::library::query::CatalogCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::query::Query<'a> { row: paperpaw_sdk::native::declare::records_wire::ServiceLibQuery<'a>, cursor: paperpaw_sdk::native::library::query::CatalogCursor }
 struct paperpaw_sdk::native::library::rows::Book<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibBook<'a>)

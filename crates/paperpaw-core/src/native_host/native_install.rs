@@ -86,6 +86,20 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::MenuSection(_)
         | Record::MenuHide(_)
         | Record::MenuDescribe(_) => Ok(None),
+        // A key binding stays in the declaration store too (charged there,
+        // removed with its owner); the key map is built from it
+        // (`native_keys`). One the key map cannot hold is refused here, never
+        // dropped later.
+        Record::KeyBind(bind) => {
+            if crate::keymap::native_binding_ok(bind.layer, bind.input, bind.action) {
+                Ok(None)
+            } else {
+                Err(ERR_INVALID)
+            }
+        }
+        // An input of the plugin's own and a help hint stay in the declaration
+        // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
+        Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -133,7 +147,12 @@ impl crate::Kernel {
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
+        let keys_before = self.native_key_count();
         self.admit_native(host, depth, folder, report)?;
+        if self.native_key_count() != keys_before {
+            // Its bindings are in the key map from now on.
+            self.rebuild_keymap();
+        }
         if self.shared.registry.offers() != offers_before {
             // The slots now bound are known to plugins (`Env::has_slot`).
             self.refresh_slots();
@@ -251,6 +270,8 @@ impl crate::Kernel {
         key: u64,
         owner: &Id,
     ) -> Option<alloc::string::String> {
+        // Counted before the stop: a revoked owner's rows no longer show.
+        let keys_before = self.native_key_count();
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
@@ -258,6 +279,7 @@ impl crate::Kernel {
             &self.shared.registry_generation,
         );
         self.warn_directory_missed();
+        let mut forgot_states = false;
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -266,6 +288,20 @@ impl crate::Kernel {
             if declarations.catalog.prune(&store).is_err() {
                 return None;
             }
+            // Its pushed item states go with it (`keep` waits for the kept
+            // file). The table is only borrowed here, never across a call.
+            let Ok(mut states) = declarations.items.try_borrow_mut() else {
+                return None;
+            };
+            forgot_states = states.forget(owner.as_str());
+        }
+        if forgot_states {
+            // The menus lose the states the plugin pushed (bit 0).
+            self.native_registry_changed(1);
+        }
+        if self.native_key_count() != keys_before {
+            // Its bindings leave the key map with it.
+            self.rebuild_keymap();
         }
         if self.native_owner_stopped(key).is_err() {
             return None;

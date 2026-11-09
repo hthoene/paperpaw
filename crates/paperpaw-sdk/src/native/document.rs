@@ -452,6 +452,9 @@ pub use readers::{Reader, ReaderCursor, ReaderPage, ReaderPageEnd};
 #[path = "document_meta.rs"]
 mod meta;
 pub use meta::{DocTextPart, DocTextQuery, Metadata};
+#[path = "document_formats.rs"]
+mod formats;
+pub use formats::{Format, FormatCursor, FormatPage, FormatPageEnd};
 
 fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
     RawRecord::one(bytes).map_err(|_| Error::Invalid)
