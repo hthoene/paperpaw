@@ -35,7 +35,7 @@ use crate::declarations::{
 use crate::native_account::{Account, Field, Message, Row, Todo};
 use crate::native_backing as backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
-use crate::native_model::{self, MAX_ANSWER, Remote, failure, percent_text, progress_body};
+use crate::native_model::{self, MAX_ANSWER, Remote, Secret, failure, percent_text, progress_body};
 use crate::native_store as store;
 use crate::native_sync::{Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, Position};
 
@@ -89,21 +89,13 @@ pub struct NativeKosync {
     engine: Option<Engine>,
     table: Table,
     /// The account's key, read from the secrets once.
-    key: Option<String>,
+    key: Option<Secret>,
     key_read: bool,
     /// The text being typed on the screen, and which one.
     typing: Option<(AskId, Field)>,
     offers: Vec<Asked>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
-}
-
-impl Drop for NativeKosync {
-    fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
-            store::drop_key(key);
-        }
-    }
 }
 
 impl Plugin for NativeKosync {
@@ -365,25 +357,16 @@ impl NativeKosync {
         if self.key.is_none() {
             let Some(secrets) = &self.secrets else {
                 // Kept where it is: moved at a start that has secrets.
-                store::drop_key(old);
                 return Ok(());
             };
             let mut say = Messages::new()?;
             let label = say.copy(host, "kosync.secret")?;
-            let kept = store::keep_key(secrets, host, &label, &old);
+            let kept = store::keep_key(secrets, host, &label, old.as_str());
             match kept {
                 Ok(()) => self.key = Some(old),
-                Err(Error::NoMemory) => {
-                    store::drop_key(old);
-                    return Err(Error::NoMemory);
-                }
-                Err(_) => {
-                    store::drop_key(old);
-                    return Ok(());
-                }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => return Ok(()),
             }
-        } else {
-            store::drop_key(old);
         }
         store::forget_old(host);
         Ok(())
@@ -454,7 +437,7 @@ impl NativeKosync {
         Ok(())
     }
 
-    fn credentials(&self, host: &Host<'_>) -> Result<Option<(String, String)>, Error> {
+    fn credentials(&self, host: &Host<'_>) -> Result<Option<(String, Secret)>, Error> {
         let Some(key) = &self.key else {
             return Ok(None);
         };
@@ -462,7 +445,7 @@ impl NativeKosync {
         if user.is_empty() {
             return Ok(None);
         }
-        Ok(Some((user, copy(key)?)))
+        Ok(Some((user, Secret::copy(key.as_str())?)))
     }
 
     fn fetch(
@@ -509,9 +492,9 @@ impl NativeKosync {
             "GET",
             &target,
             None,
-            Some((&user, &key)),
+            Some((&user, key.as_str())),
         )?;
-        store::drop_key(key);
+        drop(key);
         let pending = Pending {
             id: RequestId::new(1)?,
             purpose: Purpose::Pull,
@@ -559,9 +542,9 @@ impl NativeKosync {
             "PUT",
             "/syncs/progress",
             Some(body),
-            Some((&user, &key)),
+            Some((&user, key.as_str())),
         )?;
-        store::drop_key(key);
+        drop(key);
         let pending = Pending {
             id: RequestId::new(1)?,
             purpose: Purpose::Push,
@@ -616,6 +599,9 @@ impl NativeKosync {
     }
 
     fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if !backing::can_send() {
+            return Ok(());
+        }
         let Some(work) = &self.work else {
             return Ok(());
         };
@@ -758,12 +744,10 @@ impl NativeKosync {
             return Ok(());
         }
         let mut say = Messages::new()?;
-        let percent = native_model::progress_text(0.0).and_then(|_| {
-            offer
-                .percentage
-                .parse::<f64>()
-                .map_or(copy("?"), percent_text)
-        })?;
+        let percent = offer
+            .percentage
+            .parse::<f64>()
+            .map_or_else(|_| copy("?"), percent_text)?;
         let text = say.format(
             host,
             "kosync.further",
@@ -1070,16 +1054,16 @@ impl NativeKosync {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let read = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out);
         let text = match read {
-            Ok(part) if part.data().len() as u64 == u64::from(part.total()) => copy(part.data()),
+            Ok(part) if part.data().len() as u64 == u64::from(part.total()) => {
+                Secret::copy(part.data())
+            }
             Ok(_) => Err(Error::NoSpace),
             Err(error) => Err(error),
         };
         wipe(&mut input);
         wipe(&mut out);
         let text = text?;
-        let result = self.apply_typed(host, field, &text);
-        store::drop_key(text);
-        result
+        self.apply_typed(host, field, text.as_str())
     }
 
     fn apply_typed(&mut self, host: &Host<'_>, field: Field, text: &str) -> Result<(), Error> {
@@ -1112,7 +1096,7 @@ impl NativeKosync {
             return Ok(());
         };
         let (Some(key), user) = (
-            view.account.key().map(copy).transpose()?,
+            view.account.key().map(Secret::copy).transpose()?,
             copy(&view.account.user)?,
         ) else {
             return Ok(());
@@ -1123,13 +1107,19 @@ impl NativeKosync {
                 &base,
                 "POST",
                 "/users/create",
-                Some(create_body(&user, &key)?),
+                Some(create_body(&user, key.as_str())?),
                 None,
             )?
         } else {
-            Call::server(&base, "GET", "/users/auth", None, Some((&user, &key)))?
+            Call::server(
+                &base,
+                "GET",
+                "/users/auth",
+                None,
+                Some((&user, key.as_str())),
+            )?
         };
-        store::drop_key(key);
+        drop(key);
         let purpose = if create {
             Purpose::Create
         } else {
@@ -1161,7 +1151,7 @@ impl NativeKosync {
         let key = self
             .screens
             .top(ACCOUNT)
-            .and_then(|v| v.account.key().map(copy))
+            .and_then(|v| v.account.key().map(Secret::copy))
             .transpose()?;
         let mut user = String::new();
         self.change(host, ACCOUNT, |view| {
@@ -1173,8 +1163,8 @@ impl NativeKosync {
             Ok(())
         })?;
         if kept && let Some(key) = key {
-            let refused = !self.keep(host, &key, &user)?;
-            store::drop_key(key);
+            let refused = !self.keep(host, key.as_str(), &user)?;
+            drop(key);
             if refused {
                 // Not kept: not signed in, and said.
                 self.change(host, ACCOUNT, |view| {
@@ -1203,9 +1193,7 @@ impl NativeKosync {
                 return Ok(false);
             }
         }
-        if let Some(old) = self.key.replace(copy(key)?) {
-            store::drop_key(old);
-        }
+        self.key = Some(Secret::copy(key)?);
         let mut scratch = [0; 1200];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(user))?;
         if let Some(engine) = &mut self.engine {
@@ -1223,9 +1211,7 @@ impl NativeKosync {
         if let Some(secrets) = &self.secrets {
             best_effort(store::remove_key(secrets, host));
         }
-        if let Some(key) = self.key.take() {
-            store::drop_key(key);
-        }
+        self.key = None;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(""))?;
         if let Some(engine) = &mut self.engine {

@@ -68,22 +68,33 @@ impl Call {
         body: Option<String>,
         auth: Option<(&str, &str)>,
     ) -> Result<Self, Error> {
-        let mut headers = Vec::new();
+        // Built into the call at once: the call's drop wipes what a refused
+        // allocation leaves behind, the key included.
+        let mut call = Self {
+            method,
+            url: String::new(),
+            headers: Vec::new(),
+            body,
+        };
+        call.url = concat(&[base, path])?;
+        // Room for all four headers first: a push cannot then refuse and drop
+        // a copy of the key unwiped.
+        call.headers
+            .try_reserve_exact(4)
+            .map_err(|_| Error::NoMemory)?;
         push(
-            &mut headers,
+            &mut call.headers,
             ("Accept", copy("application/vnd.koreader.v1+json")?),
         )?;
-        push(&mut headers, ("Content-Type", copy("application/json")?))?;
+        push(
+            &mut call.headers,
+            ("Content-Type", copy("application/json")?),
+        )?;
         if let Some((user, key)) = auth {
-            push(&mut headers, ("x-auth-user", copy(user)?))?;
-            push(&mut headers, ("x-auth-key", copy(key)?))?;
+            push(&mut call.headers, ("x-auth-user", copy(user)?))?;
+            push(&mut call.headers, ("x-auth-key", copy(key)?))?;
         }
-        Ok(Self {
-            method,
-            url: concat(&[base, path])?,
-            headers,
-            body,
-        })
+        Ok(call)
     }
 
     /// The address.

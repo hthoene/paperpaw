@@ -1,7 +1,10 @@
 //! The plugin's native declarations are what the image holds, and the host
 //! admits them.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
-use paperpaw_core::native_host::{declarations::validate_batch, registrations::records_decode};
+use paperpaw_core::native_host::{
+    declarations::validate_batch,
+    registrations::{Record, records_decode},
+};
 
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses, not the declarations")]
@@ -89,7 +92,27 @@ fn the_tokens_are_distinct() {
 fn the_host_admits_the_group_and_the_three_settings() {
     for batch in batches() {
         let records = records_decode(&batch).unwrap();
-        assert_eq!(records.iter().count(), 4);
+        assert_eq!(records.iter().count(), 6);
         validate_batch("kosync", &records).unwrap();
     }
+}
+
+/// As in interface 6, the user name and the server are set on the account
+/// screen (a tap on either opens it); the switch for syncing by itself is a
+/// plain row.
+#[test]
+fn the_account_screen_edits_the_user_and_the_server() {
+    let mut edited = Vec::new();
+    for batch in batches() {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            if let Record::SettingExtra(extra) = record {
+                // Kind 1: a screen of the plugin.
+                assert_eq!((extra.editor_kind, extra.editor), (1, "account"));
+                edited.push(extra.name.to_string());
+            }
+        }
+    }
+    edited.sort();
+    assert_eq!(edited, ["server", "user"]);
 }

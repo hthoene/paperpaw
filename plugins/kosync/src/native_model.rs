@@ -11,7 +11,7 @@
 use alloc::string::String;
 use paperpaw_sdk::{digest::md5::Md5, json, native::Error};
 use paperpaw_ui_kit::{
-    mem::wipe,
+    mem::{wipe, wipe_text},
     text::{concat, copy, decimal},
 };
 
@@ -73,7 +73,7 @@ pub const fn failure(status: u32) -> &'static str {
 ///
 /// # Errors
 /// `NoMemory` when the key cannot be kept.
-pub fn password_key(password: &str) -> Result<String, Error> {
+pub fn password_key(password: &str) -> Result<Secret, Error> {
     let mut digits = [0; 32];
     key_with(password, &mut digits)
 }
@@ -83,12 +83,51 @@ pub fn password_key(password: &str) -> Result<String, Error> {
 ///
 /// The MD5 state (it holds the password's last block) wipes itself when
 /// the digest is dropped (`paperpaw_digest`'s `Drop`, #451).
-fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<String, Error> {
+fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<Secret, Error> {
     let mut md5 = Md5::new();
     md5.update(password.as_bytes());
-    let key = copy(md5.hex_into(digits));
+    let key = Secret::copy(md5.hex_into(digits));
     wipe(digits);
     key
+}
+
+/// A text that is a secret (the account's key, a typed text): zeroed when it
+/// is dropped, also on an early return, and never shown by `Debug`.
+#[derive(Default)]
+pub struct Secret(String);
+
+impl Secret {
+    /// Takes `text` over.
+    #[must_use]
+    pub const fn new(text: String) -> Self {
+        Self(text)
+    }
+
+    /// A copy of `text`.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn copy(text: &str) -> Result<Self, Error> {
+        copy(text).map(Self)
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        wipe_text(core::mem::take(&mut self.0));
+    }
+}
+
+impl core::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Secret(..)")
+    }
 }
 
 /// A progress as text, as `{progress}` writes it, for the key of a position
@@ -438,10 +477,19 @@ mod tests {
     }
 
     #[test]
+    fn a_secret_is_never_shown() {
+        let key = Secret::copy("900150983cd24fb0d6963f7d28e17f72").unwrap();
+        assert_eq!(key.as_str(), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(format!("{key:?}"), "Secret(..)");
+        let held = Some(password_key("abc").unwrap());
+        assert!(!format!("{held:?}").contains("9001"));
+    }
+
+    #[test]
     fn the_hex_digits_are_zeroed_once_the_key_is_made() {
         let mut digits = [0xAA; 32];
         let key = key_with("abc", &mut digits).unwrap();
-        assert_eq!(key, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(key.as_str(), "900150983cd24fb0d6963f7d28e17f72");
         assert_eq!(digits, [0; 32]);
     }
 
@@ -463,7 +511,7 @@ mod tests {
     fn the_password_key_is_its_md5() {
         for text in ["", "secret", "pässwörd", "a very long password indeed"] {
             assert_eq!(
-                password_key(text).unwrap(),
+                password_key(text).unwrap().as_str(),
                 paperpaw_sdk::digest::md5::of(text)
             );
         }

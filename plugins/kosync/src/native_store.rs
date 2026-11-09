@@ -6,6 +6,8 @@
 //! is wiped.
 use alloc::string::String;
 
+pub use crate::native_model::Secret;
+
 use paperpaw_sdk::{
     config,
     digest::md5::Md5,
@@ -16,7 +18,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    mem::{buffer, wipe, wipe_text},
+    mem::{buffer, wipe},
     text::{concat, copy},
 };
 
@@ -128,11 +130,13 @@ pub fn device_id(host: &Host<'_>, seed: &[u8]) -> Result<String, Error> {
 ///
 /// # Errors
 /// `NoMemory`.
-pub fn old_key(host: &Host<'_>) -> Result<Option<String>, Error> {
-    match read_file(host, OLD_ACCOUNT)? {
-        Some(text) => value_of(&text, "key").map(|key| key.filter(|key| !key.is_empty())),
-        None => Ok(None),
-    }
+pub fn old_key(host: &Host<'_>) -> Result<Option<Secret>, Error> {
+    let Some(text) = read_file(host, OLD_ACCOUNT)?.map(Secret::new) else {
+        return Ok(None);
+    };
+    Ok(value_of(text.as_str(), "key")?
+        .filter(|key| !key.is_empty())
+        .map(Secret::new))
 }
 
 /// Removes `account.ini`.
@@ -145,12 +149,12 @@ pub fn forget_old(host: &Host<'_>) {
 ///
 /// # Errors
 /// What the service says; `NoMemory`.
-pub fn read_key(secrets: &Secrets, host: &Host<'_>) -> Result<Option<String>, Error> {
+pub fn read_key(secrets: &Secrets, host: &Host<'_>) -> Result<Option<Secret>, Error> {
     let mut input = buffer(INPUT)?;
     let mut reply = buffer(REPLY)?;
     let found = match secrets.get(host, KEY, &mut input, &mut reply) {
         Ok(value) if value.value().is_empty() => Ok(None),
-        Ok(value) => copy(value.value()).map(Some),
+        Ok(value) => Secret::copy(value.value()).map(Some),
         Err(Error::NotFound) => Ok(None),
         Err(error) => Err(error),
     };
@@ -189,11 +193,6 @@ pub fn remove_key(secrets: &Secrets, host: &Host<'_>) -> Result<(), Error> {
     wipe(&mut input);
     wipe(&mut reply);
     result
-}
-
-/// Wipes a key text that is no longer needed.
-pub fn drop_key(key: String) {
-    wipe_text(key);
 }
 
 #[cfg(test)]

@@ -1,11 +1,11 @@
 //! The progress sync's native declarations (slice 1): its settings group and
 //! the three settings (the account's user name, whether books sync by
-//! themselves, the server). The account editor, the confirmation overlay, the
-//! menu entry *Sync progress* and the icons follow with their screens
-//! (`PORTING-7.md`).
+//! themselves, the server), the account screen as the editor of the user name
+//! and the server, the menu entry *Sync progress*, the icons and the event
+//! subscriptions.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances,
+    Kind, MenuEntryDecl, ScreenDecl, SpecDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -62,6 +62,12 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     server.kept_on_reset = true;
     server.advanced = true;
     d.spec(server)?;
+    // As in interface 6, the account and the server are set on the account screen.
+    for name in ["user", "server"] {
+        let mut extra = ExtraDecl::new(name);
+        extra.editor = Some(EditorDecl::Screen("account"));
+        d.extra(extra)?;
+    }
     d.submit()?;
     Ok(())
 }

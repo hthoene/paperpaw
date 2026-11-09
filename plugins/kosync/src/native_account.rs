@@ -8,12 +8,9 @@
 use alloc::{string::String, vec::Vec};
 
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::{
-    mem::{push, wipe_text},
-    text::copy,
-};
+use paperpaw_ui_kit::{mem::push, text::copy};
 
-use crate::native_model::{normalize_server, password_key};
+use crate::native_model::{Secret, normalize_server, password_key};
 
 /// A row of the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +88,7 @@ pub struct Account {
     /// The user name typed (or the account's).
     pub user: String,
     /// The MD5 of the password typed, or of the account's.
-    key: Option<String>,
+    key: Option<Secret>,
     /// The account signed in with (the setting); empty when signed out.
     pub signed_in: String,
     /// Waiting for the server.
@@ -109,14 +106,6 @@ impl core::fmt::Debug for Account {
             .field("signed_in", &self.signed_in)
             .field("busy", &self.busy)
             .finish_non_exhaustive()
-    }
-}
-
-impl Drop for Account {
-    fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
-            wipe_text(key);
-        }
     }
 }
 
@@ -166,7 +155,7 @@ impl Account {
     /// The key (the MD5 of the password typed), for the request and for keeping.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        self.key.as_ref().map(Secret::as_str)
     }
 
     /// A row was chosen.
@@ -220,9 +209,7 @@ impl Account {
     /// # Errors
     /// `NoMemory`.
     pub fn typed_password(&mut self, text: &str) -> Result<(), Error> {
-        if let Some(old) = self.key.take() {
-            wipe_text(old);
-        }
+        self.key = None;
         if !text.is_empty() {
             self.key = Some(password_key(text)?);
         }

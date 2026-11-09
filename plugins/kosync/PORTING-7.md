@@ -43,6 +43,10 @@ named below and in `tests/acceptance_pending.rs`.
   the account screen, *Sync progress*'s account prompt and sign out all work. Services' PR #651 now has
   `Library::book_key`, `position` and `set_position`; `native_backing.rs` takes them over once it merges
   and is blessed. The `core.document` client (`xpointer`, `locate`) follows.
+- **Sync progress is a silent no-op until the facades land.** With no book key and no XPointer the menu
+  entry, the page-turn and book-close events and *Sync now* do nothing the reader can see, and the 30-minute
+  push work (`Action::PushLater`) is not declared at all (`native_backing::can_send`), so the radio is not
+  woken for nothing. Signing in, signing out, the key and the account screen work.
 - **Go there** needs `core.document` `locate`; without it the offer is treated as closed (*not now*).
   It opens the book through `core.reader` with `path`, `section` and `offset` (the reader reads them
   since #629).

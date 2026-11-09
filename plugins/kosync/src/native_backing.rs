@@ -10,6 +10,14 @@ use alloc::string::String;
 
 use paperpaw_sdk::native::{Error, Host};
 
+/// Whether a position can be sent at all: the book's key and the place's
+/// XPointer are available. Nothing is declared for a push while they are not
+/// (it would wake the radio for nothing).
+#[must_use]
+pub const fn can_send() -> bool {
+    false
+}
+
 /// The KOReader fingerprint of the book at `path`: the 32 hex digits of its
 /// partial MD5 (`library.md` section 6).
 ///
