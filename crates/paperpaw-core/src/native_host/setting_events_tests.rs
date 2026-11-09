@@ -271,7 +271,7 @@ fn more_edges_than_a_queue_holds_end_in_the_empty_key() {
 fn plugins_are_told_in_turn_not_one_after_the_other() {
     let mut w = world(true);
     for n in 0..8 {
-        w.kernel.native_setting_publish("c.size", Ok(&[]));
+        w.kernel.native_setting_publish("c.size", Ok(&int(n)));
     }
     // One pass: at most four each, so both are told before either is done.
     w.kernel.native_setting_pump();
