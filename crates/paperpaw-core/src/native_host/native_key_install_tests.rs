@@ -105,6 +105,14 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             )],
             &mut bytes,
         ),
+        // The global menu input replaced, and another input bound.
+        112 => wire::records_encode(
+            &[
+                bind("global", "button.menu", "factory.done", none),
+                bind("global", "swipe.up", "factory.done", none),
+            ],
+            &mut bytes,
+        ),
         _ => return ERR_INVALID,
     }
     .unwrap();
@@ -266,6 +274,30 @@ fn a_malformed_binding_refuses_the_whole_owner_without_a_panic() {
 }
 
 #[test]
+fn a_global_binding_that_leaves_another_input_to_the_menu_is_bound() {
+    let mut kernel = fresh();
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("core.menu")
+    );
+    install_with(&mut kernel, 112).unwrap();
+    // The default key map reaches the menu by touch too, so the button may go.
+    assert_eq!(rows(&kernel), 2);
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("factory.done")
+    );
+    assert_eq!(
+        bound(&kernel, "global", "tap.center").as_deref(),
+        Some("core.menu")
+    );
+    assert_eq!(
+        bound(&kernel, "global", "swipe.up").as_deref(),
+        Some("factory.done")
+    );
+}
+
+#[test]
 fn unloading_the_owner_takes_its_bindings_out_of_the_key_map() {
     let mut kernel = fresh();
     install_with(&mut kernel, 100).unwrap();
@@ -281,6 +313,64 @@ fn unloading_the_owner_takes_its_bindings_out_of_the_key_map() {
     assert_eq!(
         bound(&kernel, "factory.screen", "long.back").as_deref(),
         Some("factory.done")
+    );
+}
+
+/// A device with buttons and no touch screen (the X4's kind).
+const BUTTONS_ONLY: paperpaw_platform::DeviceInfo = paperpaw_platform::DeviceInfo::new(
+    "buttons",
+    "Buttons only",
+    paperpaw_platform::DisplayInfo::new(
+        90,
+        90,
+        100,
+        paperpaw_platform::PixelFormat::Gray4,
+        paperpaw_platform::Rotation::Deg0,
+        None,
+    ),
+    paperpaw_platform::InputCaps::new(true, false, false, &["back", "confirm", "menu", "up"]),
+    paperpaw_platform::MemoryClass::Large,
+);
+
+#[test]
+fn a_global_binding_that_takes_the_last_menu_input_is_dropped_and_said_once() {
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(BUTTONS_ONLY).build().unwrap();
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("core.menu")
+    );
+    install_with(&mut kernel, 112).unwrap();
+    // The touch zones that open the menu are no way to it here, so the button
+    // stays; the plugin's other binding is made, and both rows are its own.
+    assert_eq!(rows(&kernel), 2);
+    assert_eq!(
+        bound(&kernel, "global", "button.menu").as_deref(),
+        Some("core.menu")
+    );
+    assert_eq!(
+        bound(&kernel, "global", "swipe.up").as_deref(),
+        Some("factory.done")
+    );
+    // The drop is the plugin's warning, once however often the map is built.
+    kernel.rebuild_keymap();
+    kernel.rebuild_keymap();
+    let said: Vec<_> = kernel
+        .take_warnings()
+        .into_iter()
+        .filter(|warning| warning.message.contains("no input to the main menu"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        said[0].source,
+        crate::WarningSource::Plugin(Id::new_static("factory"))
+    );
+    assert!(said[0].message.contains("button.menu"));
+    // Unloaded, the plugin's rows are gone and the default's binding is back.
+    kernel.unload_plugin(&Id::new_static("factory"));
+    assert_eq!(
+        bound(&kernel, "global", "swipe.up").as_deref(),
+        Some("core.next-page")
     );
 }
 
