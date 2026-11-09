@@ -52,6 +52,9 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
+    emit(&mut source, "EVENTS", |sink| {
+        declarations::events(sink).map_err(|e| format!("invalid Mail event declarations: {e:?}"))
+    })?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("mail_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;

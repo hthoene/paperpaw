@@ -17,6 +17,8 @@ pub mod native_model;
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin (slice 1: its settings; see `PORTING-7.md`).
 pub mod native_plugin;
+mod native_socket;
+mod native_values;
 
 pub mod account;
 pub mod browser;
