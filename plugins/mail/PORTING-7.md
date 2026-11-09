@@ -186,12 +186,31 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   checks again when it shows; a screen that closes closes its socket. An untrusted server is asked about once with
   `Question::confirm` (Trust, Don't trust) and the key is kept as the account's pin setting (`set_setting`) when the reader
   trusts it; a provider's server or a changed key is only said, as in interface 6. The Tools entry opens *Mail*.
-- Not in this slice: choosing a mail or *Write a mail* does nothing yet (the reader and the compose window are the next
-  slice; the actions and screens are declared). No host with `core.ui`, storage and sockets runs a native plugin end to end
-  yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks, the words and the times are
-  tested without one.
+- *Write a mail* opens `mail.compose`, which has no native screen yet (slice 9); until then it, the *write* action and the
+  replies of the reader are inert, and **Mail stays out of `NATIVE_PLUGINS` and `complete.txt`** (it is not complete). No
+  host with `core.ui`, storage and sockets runs a native plugin end to end yet (#944), so what the screens do with the
+  host is an ignored case; the lines, the tasks, the words and the times are tested without one.
+- Interface 7 has no event for a screen of another plugin put above one of Mail's, so a connection is not let go then as
+  it is when a Mail screen opens above (interface 6 did not either: it lets go only when its own screens open or close);
+  the host's `idle_ms` ends a connection nobody serves, and a screen that closes closes its socket.
 - Differences from interface 6, on purpose: the hash is grouped by a fallible function; the date is the reader's zone from
   the host's snapshot.
+
+## Ported in slice 8 (the reader)
+
+- `src/native_model/reader.rs` (`tests/native_reader.rs`): the headers and the text as the reader shows them (the sender, the
+  copies, the date, the attachments where there is something to say, the text, and a line where it was cut), the tasks that
+  fetch a mail (and mark it read where the setting says so), the star and read marks in the folder's list, where the parts
+  of the screen go (`layout`), how the text scrolls (a third of a page for up and down, a page for page keys, swipes and taps
+  in the text) and how the focus goes round the three buttons.
+- `src/native_reader.rs`: the screen `mail.read` (the handover carries `account`, `folder` and `uid`), drawn from owned
+  paint like the other native screens: the header (back on touch), the lines of the mail from the one the reader is at
+  (wrapped once for the width, at most 1,024 lines, 24 KiB of text), the status line and *Reply*, *Reply all* and *Star*.
+  The mail is fetched the first time it shows if it is not on the card, becomes a letter on the card and is marked read in
+  the list; *Star* marks the list at once and the server after; leaving the screen (or opening the compose window above)
+  lets go of its connection. An untrusted server is said (*Open Mail to trust this server*): the list asks.
+- Differences from interface 6, on purpose: the letter is not kept in memory beside the text shown (it is read again from
+  the card where the reply needs it).
 
 ## The interface-6 files on the card
 

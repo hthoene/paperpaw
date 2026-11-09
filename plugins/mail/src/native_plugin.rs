@@ -12,6 +12,7 @@ use crate::native_model::{
     mem::Error as MailError,
     session::{Outgoing, Task},
 };
+use crate::native_reader::{READ_TOKEN, Reading};
 use crate::native_screens::{Asked, BOXES_TOKEN, Check, LIST_TOKEN, View};
 use crate::native_socket::HostNet;
 use crate::native_values::HostValues;
@@ -50,6 +51,8 @@ pub struct NativeMail {
     pub(crate) ui: Option<Ui>,
     /// The open list screens.
     pub(crate) screens: Screens<View>,
+    /// The open readers.
+    pub(crate) readers: Screens<Reading>,
     /// The check that is going, if one is.
     pub(crate) check: Option<Check>,
     /// The question *Trust this server?* that is open.
@@ -114,8 +117,16 @@ impl Plugin for NativeMail {
             } if token == BOXES_TOKEN || token == LIST_TOKEN => {
                 self.screen_shown(host, token, instance)
             }
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == READ_TOKEN => self.reader_opened(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == READ_TOKEN => self.reader_shown(host, instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screen_closed(host, instance);
+                self.reader_closed(host, instance);
                 Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
@@ -124,10 +135,16 @@ impl Plugin for NativeMail {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == READ_TOKEN {
+            return self.draw_reader(host, frame);
+        }
         self.draw_list(host, token, frame)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == READ_TOKEN {
+            return self.input_reader(host, &input);
+        }
         if token != BOXES_TOKEN && token != LIST_TOKEN {
             return Ok(Handled::No);
         }
@@ -236,16 +253,15 @@ impl NativeMail {
         self.progressed(host)
     }
 
-    /// Lets go of the connection: its socket is closed.
+    /// Lets go of the connection: its socket is closed (with small buffers
+    /// of the stack, so that a refused allocation cannot leave it open) and the
+    /// job, which holds the password, is reset.
     pub(crate) fn cancel(&mut self, host: &Host<'_>) {
-        if let Some(sockets) = self.sockets.as_ref()
-            && let Ok(net) =
-                HostNet::new(host, sockets, &mut self.socket, SOCKET_TOKEN, &self.server)
-        {
-            self.job.cancel(net);
-        } else {
-            self.job.run = Run::Idle;
+        if let (Some(id), Some(sockets)) = (self.socket.take(), self.sockets.as_ref()) {
+            let (mut input, mut reply) = ([0u8; 128], [0u8; 128]);
+            // A socket that is gone already is fine; nothing else to do here.
+            sockets.close(host, id, &mut input, &mut reply).ok();
         }
-        self.socket = None;
+        self.job.reset();
     }
 }

@@ -61,9 +61,23 @@ pub(crate) struct View {
 /// The check that is going, and the accounts still to check.
 #[derive(Debug)]
 pub(crate) struct Check {
-    owner: Instance,
+    pub(crate) owner: Instance,
     /// The account now checked first, then those after it.
     queue: Vec<u8>,
+}
+
+impl Check {
+    /// A check of `queue` for the screen `owner`.
+    pub(crate) fn new(owner: Instance, queue: Vec<u8>) -> Self {
+        Self { owner, queue }
+    }
+
+    /// The account at the front is done (or passed by).
+    fn pass(&mut self) {
+        if !self.queue.is_empty() {
+            self.queue.remove(0);
+        }
+    }
 }
 
 /// The question *Trust this server?* that is open.
@@ -106,14 +120,14 @@ fn fail_error(fail: Fail) -> Error {
 }
 
 impl NativeMail {
-    fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    pub(crate) fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
         Ok(())
     }
 
-    fn ui(&self) -> Result<&Ui, Error> {
+    pub(crate) fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
     }
 
@@ -183,14 +197,27 @@ impl NativeMail {
         } else {
             Mode::Boxes
         };
-        let (title, lines) = self.lines_of(host, &mode)?;
+        // A card that cannot be read shows an empty list that says so, not a
+        // screen that cannot be drawn.
+        let (title, lines, status) = match self.lines_of(host, &mode) {
+            Ok((title, lines)) => (title, lines, String::new()),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => {
+                let mut words = HostWords::new(host)?;
+                (
+                    words.tr("mail.title")?,
+                    Vec::new(),
+                    words.tr("mail.fail.storage")?,
+                )
+            }
+        };
         let (items, targets) = items_of(lines)?;
         let view = View {
             mode,
             title,
             list: ItemList::new(items),
             targets,
-            status: String::new(),
+            status,
             interrupted: false,
             asked: false,
         };
@@ -263,7 +290,7 @@ impl NativeMail {
     }
 
     /// Lets go of the connection and the accounts still to check.
-    fn stop(&mut self, host: &Host<'_>) {
+    pub(crate) fn stop(&mut self, host: &Host<'_>) {
         self.check = None;
         self.cancel(host);
     }
@@ -333,9 +360,65 @@ impl NativeMail {
         match target {
             Target::Folder { account, raw } => self.open_folder(host, *account, raw),
             Target::Settings => self.open_settings(host),
-            // Reading and writing a mail are the next slice's.
+            Target::Message { uid } => {
+                let Some(Mode::Folder { account, raw }) =
+                    self.screens.get(instance).map(|v| v.mode.clone())
+                else {
+                    return Ok(());
+                };
+                self.open_reader(host, account, &raw, *uid)
+            }
+            Target::Write => {
+                let account = match self.screens.get(instance).map(|v| v.mode.clone()) {
+                    Some(Mode::Folder { account, .. }) => account,
+                    _ => 0,
+                };
+                self.open_compose(host, account, None)
+            }
             _ => Ok(()),
         }
+    }
+
+    fn open_reader(&self, host: &Host<'_>, account: u8, raw: &str, uid: u32) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let (number, uid) = (
+            text::format(format_args!("{account}"))?,
+            text::format(format_args!("{uid}"))?,
+        );
+        let params = [
+            Param::new(ACCOUNT, &number)?,
+            Param::new(FOLDER, raw)?,
+            Param::new("uid", &uid)?,
+        ];
+        let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::screen("mail.read")?.handover(handover))
+    }
+
+    /// Opens the compose window for `account` (0: the first), or as a reply
+    /// to the mail `uid` of `folder` (to all where the last is true).
+    pub(crate) fn open_compose(
+        &self,
+        host: &Host<'_>,
+        account: u8,
+        reply: Option<(&str, u32, bool)>,
+    ) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let number = text::format(format_args!("{account}"))?;
+        let mut params: Vec<Param<'_>> = Vec::new();
+        params.try_reserve(4).map_err(|_| Error::NoMemory)?;
+        params.push(Param::new(ACCOUNT, &number)?);
+        let uid_text;
+        if let Some((folder, uid, all)) = reply {
+            uid_text = text::format(format_args!("{uid}"))?;
+            params.push(Param::new(FOLDER, folder)?);
+            params.push(Param::new("uid", &uid_text)?);
+            params.push(Param::new("reply", if all { "all" } else { "one" })?);
+        }
+        let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .open(Open::screen("mail.compose")?.handover(handover))
     }
 
     fn open_folder(&self, host: &Host<'_>, account: u8, raw: &str) -> Result<(), Error> {
@@ -359,7 +442,12 @@ impl NativeMail {
     }
 
     /// Sets what the screen says under its rows, and draws it.
-    fn say_in(&mut self, host: &Host<'_>, instance: Instance, say: Say<'_>) -> Result<(), Error> {
+    pub(crate) fn say_in(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        say: Say<'_>,
+    ) -> Result<(), Error> {
         let mut words = HostWords::new(host)?;
         let status = words.say(say)?;
         if let Some(view) = self.screens.get(instance) {
@@ -395,7 +483,7 @@ impl NativeMail {
                 // An account that is not set up (any more) is passed by.
                 Err(MailError::NotFound) => {
                     if let Some(check) = &mut self.check {
-                        check.queue.remove(0);
+                        check.pass();
                     }
                 }
                 Err(error) => {
@@ -464,11 +552,14 @@ impl NativeMail {
         let Some(owner) = self.check.as_ref().map(|c| c.owner) else {
             return Ok(());
         };
+        if self.readers.get(owner).is_some() {
+            return self.reader_progressed(host, owner);
+        }
         match self.job.run.clone() {
             Run::Working(stage) => self.say_in(host, owner, Say::Key(texts::stage(stage))),
             Run::Done => {
                 if let Some(check) = &mut self.check {
-                    check.queue.remove(0);
+                    check.pass();
                 }
                 self.reload(host, owner)?;
                 self.say_in(host, owner, Say::Key("mail.up-to-date"))?;

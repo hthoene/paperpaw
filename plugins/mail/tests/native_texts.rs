@@ -73,3 +73,57 @@ fn every_stage_and_distrust_has_a_message() {
     );
     assert_eq!(distrust(Untrusted::Other(9)), "mail.pin.why.unknown-issuer");
 }
+
+/// Every `"mail.…"` string in `source`.
+fn keys_in(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for part in source.split('"').skip(1).step_by(2) {
+        if part.starts_with("mail.")
+            && part.len() > 5
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+        {
+            found.push(part.to_string());
+        }
+    }
+    found
+}
+
+#[test]
+fn every_key_the_native_screens_use_is_in_both_languages() {
+    let en = include_str!("../i18n/en.ini");
+    let de = include_str!("../i18n/de.ini");
+    let has = |ini: &str, key: &str| {
+        ini.lines()
+            .any(|line| line.split('=').next().is_some_and(|k| k.trim() == key))
+    };
+    let mut checked = 0;
+    for source in [
+        include_str!("../src/native_model/texts.rs"),
+        include_str!("../src/native_model/browser.rs"),
+        include_str!("../src/native_screens.rs"),
+        include_str!("../src/native_words.rs"),
+        include_str!("../src/native_reader.rs"),
+        include_str!("../src/native_model/reader.rs"),
+    ] {
+        for key in keys_in(source) {
+            // Ids of screens and actions, not messages.
+            if [
+                "mail.boxes",
+                "mail.list",
+                "mail.read",
+                "mail.compose",
+                "mail.open",
+            ]
+            .contains(&key.as_str())
+            {
+                continue;
+            }
+            assert!(has(en, &key), "{key} is not in en.ini");
+            assert!(has(de, &key), "{key} is not in de.ini");
+            checked += 1;
+        }
+    }
+    assert!(checked > 30, "found only {checked} keys");
+}
