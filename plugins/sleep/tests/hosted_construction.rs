@@ -1,7 +1,8 @@
 //! The plugin is constructed in the real registered scope of the kernel's
 //! native host. `make` submits the declarations, which the host checks and
 //! then refuses as `Unsupported` (-1) until it admits every declaration family
-//! (Core #944); the second test pins that it is that refusal.
+//! and every event it subscribes to (Core #944); the second test pins that it
+//! is that refusal.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -27,11 +28,14 @@ fn make_runs_in_a_real_registered_scope() {
 }
 
 #[test]
-fn until_the_host_admits_every_family_the_commit_is_refused() {
-    // `make` runs to its end; the host then refuses the commit of the declarations
-    // (screen views, #944).
+fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
+    // The subscription to `event.setting.changed` (the slot binding) names an
+    // event the host has no encoder for yet: the batch is refused as
+    // `Unsupported` (-1) at `make`, as for `home`; before that subscription
+    // `make` ran to its end and the commit was refused (#944).
+    let refused = construct().unwrap_err();
     assert_eq!(
-        construct().unwrap_err(),
-        "Lifecycle(DeclarationViewsUnavailable)"
+        refused, "Factory(-1)",
+        "not a service-state refusal from make"
     );
 }

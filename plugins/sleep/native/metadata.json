@@ -115,5 +115,10 @@
     "core.registry",
     "core.ui"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.registry",
+      "required": false
+    }
+  ]
 }

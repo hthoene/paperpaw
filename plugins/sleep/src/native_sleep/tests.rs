@@ -301,3 +301,74 @@ fn a_folder_of_thousands_keeps_the_first_by_name() {
         .unwrap();
     assert_eq!(pictures.names.len(), kept);
 }
+
+const GOAL: &str = "reading-goal.sleep";
+
+#[test]
+fn the_slot_is_bound_to_a_foreign_mode_that_is_a_candidate() {
+    let offered = [OWN_SCREEN, GOAL, "other.sleep"];
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding("other.sleep", &offered), Some("other.sleep"));
+    // Also from owned strings, and with the candidate alone.
+    let owned = [GOAL.to_string()];
+    assert_eq!(binding(GOAL, &owned), Some(GOAL));
+}
+
+#[test]
+fn the_slot_returns_to_the_default_for_the_plugins_own_modes_and_an_empty_value() {
+    let offered = [OWN_SCREEN, GOAL];
+    for mode in BUILT_IN {
+        assert_eq!(binding(mode, &offered), None, "{mode}");
+        // Even if a plugin offered a screen of that very name.
+        assert_eq!(binding(mode, &[mode]), None, "{mode}");
+    }
+    assert_eq!(binding("", &offered), None);
+    assert_eq!(binding("", &[""]), None);
+}
+
+#[test]
+fn a_stale_foreign_value_binds_nothing() {
+    // The plugin that offered the mode is gone, or never was.
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+    assert_eq!(binding(GOAL, &["other.sleep"]), None);
+    assert_eq!(binding(GOAL, &[] as &[&str]), None);
+    // A prefix or a longer word of a candidate is not the candidate.
+    assert_eq!(binding("reading-goal", &[GOAL]), None);
+    assert_eq!(binding("reading-goal.sleep2", &[GOAL]), None);
+    assert_eq!(binding("Reading-Goal.Sleep", &[GOAL]), None);
+}
+
+#[test]
+fn the_plugins_own_screen_among_the_candidates_is_never_a_foreign_mode() {
+    let offered = [OWN_SCREEN, GOAL];
+    // Its id as the stored value is the default, not a pinned binding.
+    assert_eq!(binding(OWN_SCREEN, &offered), None);
+    assert_eq!(binding(GOAL, &offered), Some(GOAL));
+    assert_eq!(binding(GOAL, &[OWN_SCREEN]), None);
+}
+
+#[test]
+fn odd_and_long_values_bind_nothing_and_do_not_panic() {
+    let long = "x".repeat(4096);
+    let offered = [OWN_SCREEN, GOAL];
+    for value in [
+        " ",
+        " reading-goal.sleep",
+        "reading-goal.sleep ",
+        "reading-goal.sleep\n",
+        "\0",
+        "é.sleep",
+        "😀",
+        long.as_str(),
+    ] {
+        assert_eq!(binding(value, &offered), None, "{value:?}");
+    }
+    // A long candidate matches itself only; the caller's refusal of a screen
+    // id too long for the command is a refusal like any other.
+    let list = [long.clone()];
+    assert_eq!(binding(&long, &list), Some(long.as_str()));
+    assert_eq!(binding(&long[1..], &list), None);
+    assert!(is_foreign(&long));
+    assert!(!is_foreign(""));
+    assert!(!is_foreign(CAT));
+}

@@ -18,6 +18,35 @@ pub const WIDGETS: &str = "sleep.show.widgets";
 pub const OVERLAY: &str = "sleep.show.overlay";
 const BUILT_IN: [&str; 7] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE];
 
+/// The slot the sleep screen is shown in, and the plugin's own screen for it.
+pub const SLOT: &str = "core.sleep";
+pub const OWN_SCREEN: &str = "sleep.screen";
+
+/// Whether `value` of `sleep.show` is another plugin's mode: not one of the
+/// seven of the plugin's own and not empty.
+#[must_use]
+pub fn is_foreign(value: &str) -> bool {
+    !value.is_empty() && !BUILT_IN.contains(&value)
+}
+
+/// The screen the slot [`SLOT`] is bound to for the stored `value` of
+/// `sleep.show`, given the screens now offered for the slot (`candidates`):
+/// `Some(screen)` for another plugin's mode that is one of them, `None` (the
+/// slot's default, the plugin's own screen) for a mode of the plugin's own, an
+/// empty value, the plugin's own screen's id, or a value no plugin offers (a
+/// plugin that is gone, a word from a newer version: the host would refuse it,
+/// and the screen falls back in [`decide`]).
+#[must_use]
+pub fn binding<'a, S: AsRef<str>>(value: &str, candidates: &'a [S]) -> Option<&'a str> {
+    if !is_foreign(value) || value == OWN_SCREEN {
+        return None;
+    }
+    candidates
+        .iter()
+        .map(AsRef::as_ref)
+        .find(|screen| *screen == value)
+}
+
 /// What is at hand when the screen opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools, reason = "one fact each")]

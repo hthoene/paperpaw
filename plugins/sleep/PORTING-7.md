@@ -22,7 +22,7 @@ time it shows (not for `page`).
 - `src/native_sleep.rs`: what the screen shows for the setting and the facts at hand (`decide`, with
   the two fallbacks: off, a page that stayed would look like a device that is on; an overlay with
   nothing to show is the cover; the cat where there is no cover or picture; a mode of another
-  plugin's screen), the pictures folder (`is_picture`, `Pictures`: one after the other from where
+  plugin's screen), `binding` (the screen `core.sleep` is bound to for a stored mode, item 5), the pictures folder (`is_picture`, `Pictures`: one after the other from where
   the last sleep left off, `shown_before`; a folder keeps the first 512 pictures by name within 24 KiB
   of names, so a folder of more cycles only through those, whatever order the card lists them in), and the geometry of a picture over the page (`placed`
   by position inside the margins and clear of the status lines, `box_size`, `fit` equal to the
@@ -48,8 +48,8 @@ time it shows (not for `page`).
   **no editor** until then (a text row), and the screen is not declared, so that no row opens a screen nobody answers.
   `tests/abi7_declarations.rs` pins the difference to interface 6 (two extras, one screen).
 - **Hidden hints:** no declaration of a screen's hint visibility.
-- **Another plugin's mode:** `Registrar::add_choice(sleep::SHOW, …)` adds a choice to a setting at run time; the
-  declarations carry the plugin's own seven.
+- **Another plugin's mode:** the declarations carry the plugin's own seven; another plugin's mode is a foreign
+  `setting.choice` it declares itself, and sleep binds the slot for it (item 5 below).
 
 (Done in this slice: the screen itself, the widgets composed with `ui.compose`, the presses taken while asleep, and
 closing on wake: only a close, as interface 6 did.)
@@ -80,23 +80,33 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
 4. **The picker (`pick-overlay`):** not an image matter: a list screen of the picture folder (`core.files` listing,
    as `picture-home`'s chooser) and of the widgets (`core.registry`): a slice of its own; the two settings have no
    editor until then.
-5. **Another plugin's mode (reading-goal's `reading-goal.sleep`):** on interface 6 the plugin adds the choice
-   with `Registrar::add_choice(sleep::SHOW, …)` and the sleep screen embeds the plugin's `Screen`. Natively the
-   **offering side exists**: the offering plugin (reading-goal) declares the foreign `setting.choice` (`registry.md`
-   record 26) with `Declarations::setting_choice("sleep.show", "reading-goal.sleep", title)`; sleep itself declares
-   nothing for it. What is missing is the **showing side**: a mode's screen cannot be embedded in another plugin's
-   draw, and the contract to settle (Kernel, asked) is that the sleep screen opens it with `command.open` in
-   `replace` mode (the offered screen declared `overlay`, closing itself on `event.resume`), after checking the
-   stored value among the `core.registry` choices (op 3). Until it exists, `native_sleep::decide` never answers
-   `Content::Other` (`Facts::other_screen` is false).
-   **Meanwhile a stored `sleep.show = reading-goal.sleep` (or any mode no plugin offers) falls back as interface 6
-   did for a mode no plugin offers any more: the cover where there is one, else the cat** (`native_sleep::decide`;
-   the stored word is left as it is; pinned by `a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat`
-   over all fact combinations). `Facts::other_screen` is false until the builder and the opening contract exist.
+5. **Another plugin's mode (reading-goal's `reading-goal.sleep`): settled (Kernel's ruling), done in sleep.** Nothing is
+   embedded or opened by sleep: the sleep screen stays the slot `core.sleep`, shown by the host with its device-state
+   rules. The offering plugin (reading-goal) declares a `slot.offer` of its screen `reading-goal.sleep` to the slot
+   `core.sleep` (priority below sleep's own screen) and a foreign `setting.choice` (`registry.md` record 26,
+   `Declarations::setting_choice("sleep.show", "reading-goal.sleep", title)`) whose value is that screen id. Sleep's
+   part (`native_plugin.rs`, `bind_mode`; the decision is `native_sleep::binding`): at start and on `event.setting.changed`
+   for `sleep.show` (or an empty key) it reads the setting and
+   - for a **foreign value** (not one of the seven modes, not empty) that is a **current candidate** of `core.sleep`
+     (the registry's slot offers, matched by screen id) it calls `command.bind_slot("core.sleep", Some(screen))`;
+   - for its own modes, an empty value, its own screen's id, or a value no plugin offers (stale) it calls
+     `bind_slot("core.sleep", None)`: back to the default, its own screen.
+   The host refuses a screen not offered for the slot with `ERR_INVALID`; Invalid, NotFound, Denied and Unsupported
+   are taken as "no binding" (never the plugin's failure), as is any other error but a memory shortage. The command
+   needs the optional feature `uses.registry` (`registry.md` section 4.2; metadata declares it, `required: false`;
+   without the user's consent the host answers Denied and the mode keeps the sleep screen). The registry query needs
+   no feature (`core.registry` was declared already). **Meanwhile, and whenever the plugin that offered the mode is
+   gone, a stored `sleep.show = reading-goal.sleep` (or any mode no plugin offers) falls back as interface 6 did: the
+   cover where there is one, else the cat** (`native_sleep::decide`; the stored word is left as it is; pinned by
+   `a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat` over all fact combinations).
+   `Facts::other_screen` stays false and `Content::Other` is never answered: the other plugin's screen is shown by the
+   host, not by sleep. Known limits: the binding is made when the setting changes and at start, not when a plugin
+   offering the mode appears later; and a built-in mode binds `core.sleep` back to the default, which also replaces a
+   screen the user bound by hand in the plugin manager.
 6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
 
 The order that makes the plugin native-only: #692 → 1 and 2 (one stacked PR on #692's branch; one decode at a time,
-four waiting at most) → 3 with the cover facade → 5 with the builder → 4.
+four waiting at most) → 3 with the cover facade → 4 (5 is done).
 
 ## Removal step (one sweep, with the reader port and Core #944)
 

@@ -10,6 +10,10 @@ use paperpaw_sdk::native::declare::{
 pub const SCREEN: u32 = 11;
 /// The event subscription's token.
 pub const EVENTS: u32 = 12;
+/// The start: a stored `sleep.show` is applied to the slot.
+pub const STARTED: u32 = 13;
+/// A setting changed: `sleep.show` binds the slot (`native_plugin`).
+pub const SETTING_CHANGED: u32 = 14;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -171,11 +175,14 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The device waking closes the screen (`event.resume`).
+/// The device waking closes the screen (`event.resume`); the start and a
+/// changed setting bind the slot `core.sleep` for the mode chosen.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Resume, EVENTS)?;
+    d.subscribe_event(EventKind::Started, STARTED)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()
 }
 

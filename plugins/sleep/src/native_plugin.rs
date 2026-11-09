@@ -6,9 +6,11 @@
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 use crate::{
-    declarations::{EVENTS, SCREEN},
-    native_screen::Sleeping,
+    declarations::{EVENTS, SCREEN, SETTING_CHANGED, STARTED},
+    native_screen::{Sleeping, read_text},
+    native_sleep,
 };
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -17,11 +19,22 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{Event, Incoming, kinds},
         registrations,
+        registry::{PageCursor, Registry},
         reply::Reply,
         ui::{HandoverId, Instance, Ui},
     },
 };
-use paperpaw_ui_kit::{Screens, read_event};
+use paperpaw_ui_kit::{
+    Screens,
+    mem::{SERVICE_BUFFER, buffer, push},
+    read_event,
+    text::copy,
+};
+
+/// Pages of the offers for the slot read at most (a page holds dozens).
+const MOST_PAGES: usize = 8;
+/// The room a `command.bind_slot` takes: two identifiers of 128 bytes at most.
+const BIND_SCRATCH: usize = 512;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/sleep_declarations.rs"));
@@ -32,6 +45,7 @@ mod image {
 pub struct NativeSleep {
     ui: Option<Ui>,
     screens: Screens<Sleeping>,
+    registry: Option<Registry>,
 }
 
 impl Plugin for NativeSleep {
@@ -57,6 +71,8 @@ impl Plugin for NativeSleep {
         let Some(event) = read_event!(
             incoming;
             kinds::Resume,
+            kinds::Started,
+            kinds::SettingChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed
@@ -76,6 +92,13 @@ impl Plugin for NativeSleep {
                 Ok(())
             }
             Event::Resume { .. } if token == EVENTS => self.woke(host),
+            Event::Started { .. } if token == STARTED => self.bind_mode(host),
+            // An empty key asks to read every setting again.
+            Event::SettingChanged { key, .. }
+                if token == SETTING_CHANGED && matches!(key, "" | "sleep.show") =>
+            {
+                self.bind_mode(host)
+            }
             _ => Ok(()),
         }
     }
@@ -124,6 +147,58 @@ fn close(host: &Host<'_>) -> Result<(), Error> {
 }
 
 impl NativeSleep {
+    /// Binds the slot `core.sleep` for the stored `sleep.show`: to the screen
+    /// of another plugin's mode while that plugin offers it, else back to the
+    /// default (the plugin's own screen). A refusal (a screen not offered, no
+    /// consent, a host without the command) binds nothing and is not the
+    /// plugin's failure; only a memory shortage is reported.
+    fn bind_mode(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        match self.try_bind_mode(host) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(()) | Err(_) => Ok(()),
+        }
+    }
+
+    fn try_bind_mode(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let value = read_text(host, "sleep.show")?;
+        let offered = if native_sleep::is_foreign(&value) {
+            self.candidates(host)?
+        } else {
+            Vec::new()
+        };
+        let screen = native_sleep::binding(&value, &offered);
+        let mut scratch = [0; BIND_SCRATCH];
+        match CommandSender::new(host, &mut scratch).bind_slot(native_sleep::SLOT, screen) {
+            Ok(()) | Err(Error::Invalid | Error::NotFound | Error::Denied | Error::Unsupported) => {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The screens now offered for the slot `core.sleep`, highest priority first.
+    fn candidates(&mut self, host: &Host<'_>) -> Result<Vec<String>, Error> {
+        if self.registry.is_none() {
+            self.registry = Some(Registry::open(host)?);
+        }
+        let registry = self.registry.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut offered = Vec::new();
+        let mut cursor = PageCursor::start();
+        for _ in 0..MOST_PAGES {
+            let page =
+                registry.slot_offers(host, native_sleep::SLOT, cursor, &mut input, &mut out)?;
+            for item in page.rows() {
+                push(&mut offered, copy(item.id())?)?;
+            }
+            match page.end().next_cursor() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        Ok(offered)
+    }
+
     fn opened(
         &mut self,
         host: &Host<'_>,
