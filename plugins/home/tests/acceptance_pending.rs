@@ -127,7 +127,7 @@ fn home_edit() {
 }
 
 #[test]
-#[ignore = "BLOCKED WIDGETS-declarations: the five built-in widgets are still the interface-6 `blocks.rs`; their native port is plugin work (composition into the screen is #827, the books need the library calls and the covers the image slots, SDK facade #692)"]
+#[ignore = "BLOCKED WIDGETS-declarations: the date and the clock are native (declared and drawn by the plugin); the status line, the continue card and the recent shelf are still the interface-6 `blocks.rs`, their native port is plugin work (composition into the screen is #827, the books need the library calls and the covers the image slots, SDK facade #692)"]
 fn home_builtin_widgets() {
     CASES[2].refuse().unwrap();
 }

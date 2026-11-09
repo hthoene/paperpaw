@@ -35,8 +35,9 @@ interface-6 suites in `tests/` still pin the behaviour end to end.
 Each is an ignored case in `tests/acceptance_pending.rs`; the section *Blockers* below says for
 each what it waits for.
 
-- The built-in widgets (`blocks.rs`: status line, date, clock, continue reading, recently read) with
-  their settings and groups, and the covers and the recent books they show.
+- The built-in widgets still in `blocks.rs`: the status line, continue reading and recently read,
+  with their settings and groups, and the covers and the recent books they show (the date and the
+  clock are native: slice 4a).
 - The status line above the grid (composed through slot 35).
 - The fitting of the pages to a new grid (`native_pages::reflow` is ready).
 - *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
@@ -239,6 +240,52 @@ Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and
 dozen bytes) and one page of cells with their names; one dashboard open at a time. Not measured on
 the device.
 
+## Slice 4a: the built-in widgets, the date and the clock
+
+`declarations.rs` (`WIDGETS`, `widgets`, the batch `WIDGETS` of `build.rs`): the widgets `home.date`
+and `home.clock` (category *Time*, read each minute), each with a group of settings named as it and
+titled `home.widget.<name>`, and the settings of interface 6 in its order: the shared look (alignment
+with its default, frame, padding, paper, ink, corners, frame line, shadow, from the kit's `Opt`),
+the size (the clock's offers *as large as fits*, the date's does not) and the clock's *Date* switch.
+`tests/widgets_declarations.rs` compares every setting (id, kind, default, choices, title, help)
+and each widget's title, category and group with the interface-6 registration.
+
+`src/native_widgets.rs` (`Widgets`, in `NativeHome`): the instances a screen made
+(`event.widget_made` / `widget_dropped`; a widget that is none of ours is none of our business), the
+`core.widget` stage (measure: the height; place; targets: none, a tap on these does nothing as on
+interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay_with`)
+and the minute tick that tells the maker (`command.widget_changed`) what shows something new.
+`src/native_date.rs` and `src/native_clock.rs` are the two widgets, over the kit's look, text and
+layout (the same arithmetic as interface 6 `blocks.rs`: the date as large as set, smaller down to the
+body's size, then in short words, then in two lines; the clock's time as large as set or fits, what
+follows the digits ("PM") beside them, the date below it in proportion).
+
+Differences from interface 6 (each deliberate):
+
+- The digits are measured and drawn at any size by the host's font; interface 6 asked a font pack
+  for its large sizes of the digits (`FontHandle::display`). Where the host has no such size it
+  chooses; nothing in the plugin depends on it.
+- A clock shown in a language with other digits splits the time from "PM" by any numeric character,
+  not only ASCII digits (interface 6 drew the whole time small there).
+- The clock's height counts the frame's padding once (`Shape::frame_height` includes it); interface
+  6 added it twice. Only where a padding is set.
+- The accessibility description of the time and the date (`Canvas::describe`) has no native call
+  yet.
+- What the clock shows is tracked by the minute, not by its text: a change of the 12/24-hour setting
+  is seen by the screen when it shows again.
+
+### Gaps
+
+- The status line, the continue card and the recent shelf are still interface-6 widgets
+  (`blocks.rs`); the next slices.
+- Drawing and sizing go through the host (H1/H3 composition, #827): the cases `home-builtin-widgets`
+  and `home-dashboard` stay ignored. The scripted host has no fonts, so the drawing is covered by the
+  pure parts (`split_time`, the shares) and the declaration tests; the widgets' draw is not run
+  without a host.
+- Worst-case memory: the widgets keep one small record per instance (id, token, last shown); the
+  text of a draw is a few short strings and at most a dozen paint operations; frames stay far under
+  2,048 B. Not measured on the device.
+
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
 Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the missing piece.
@@ -252,7 +299,7 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | dashboard slice (`HOME-dashboard-slice`) | the dashboard measures widgets | (a) done in slices 3b–3d; the stale blocker is gone |
 | cell hints (`KERNEL-cell-hints`) | a widget's declared cells | (a) done (#824) |
 | subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (c) the host does not deliver `event.widget_changed` (86) yet (core has only its codec; `command.widget_changed` is unsupported too) |
-| built-in widgets (`WIDGETS-declarations`) | the five widgets are still `blocks.rs` | (c) plugin work: port them like the widgets plugin's (composition #827 is wired by H3a); the covers and books need library calls and the image slots (SDK facade #692) |
+| built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a). (c) plugin work for the other three (composition #827 is wired by H3a); the covers and books need library calls and the image slots (SDK facade #692) |
 | status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
 | reflow (`HOME-reflow-slice`, was in `HOME-dashboard-slice`) | the setting-change handler | (c) plugin work, host ready: event 64 admitted (#763) |
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |

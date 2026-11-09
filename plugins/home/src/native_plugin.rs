@@ -37,6 +37,7 @@ use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
+use crate::native_widgets::Widgets;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
@@ -58,6 +59,8 @@ struct Editor {
 pub struct NativeHome {
     ui: Option<Ui>,
     screens: Screens<Slot>,
+    /// The instances of the home screen's own widgets.
+    widgets: Widgets,
 }
 
 /// What an open screen of this plugin is.
@@ -77,6 +80,7 @@ impl Plugin for NativeHome {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
             .iter()
+            .chain(image::WIDGETS)
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
@@ -92,10 +96,10 @@ impl Plugin for NativeHome {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -148,7 +152,22 @@ impl Plugin for NativeHome {
             // The minute tick, and a widget that says it shows something new
             // (`event.widget_changed`, which the host does not deliver yet:
             // `PORTING-7.md`): what shows is laid out and drawn anew.
-            Event::Tick { .. } if token == TICK => self.refresh(host),
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            Event::Tick { .. } if token == TICK => {
+                self.widgets.tick(host);
+                self.refresh(host)
+            }
             Event::WidgetChanged { .. } => self.refresh(host),
             // The pages are fitted to a new grid by a later slice (`PORTING-7.md`).
             _ => Ok(()),
@@ -156,6 +175,9 @@ impl Plugin for NativeHome {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }

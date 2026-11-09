@@ -4,9 +4,10 @@
 //! and the help hints follow (`PORTING-7.md`).
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
-    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetLayout,
-    WidgetPlaceDecl,
+    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetDecl,
+    WidgetLayout, WidgetPlaceDecl,
 };
+use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
 /// Callback tokens: stable within this plugin.
 pub const DASHBOARD: u32 = 10;
@@ -17,6 +18,9 @@ pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
 pub const TICK: u32 = 4;
+/// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
+pub const DATE: u32 = 20;
+pub const CLOCK: u32 = 21;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 8;
@@ -217,4 +221,79 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::Tick, TICK)?;
     d.submit()
+}
+
+/// A built-in widget of the home screen.
+#[derive(Debug, Clone, Copy)]
+pub struct Def {
+    /// Relative to the plugin: `date` is `home.date`.
+    pub name: &'static str,
+    pub token: u32,
+    pub category: &'static str,
+    /// The catalog key of its name (and of its settings group).
+    pub title: &'static str,
+    /// Where the text sits by default; the widget's look settings (frame,
+    /// padding, paper, ink, corners, line, shadow) are the shared ones and
+    /// come first, then its own.
+    pub align: &'static str,
+    /// The widget's own settings.
+    pub options: &'static [Opt],
+}
+
+impl Def {
+    /// Every setting of the widget in the order interface 6 registered them:
+    /// the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
+    pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
+        shared_look(self.align)
+            .into_iter()
+            .chain(self.options.iter().copied())
+    }
+}
+
+/// The widget categories of the host's catalogue.
+const TIME: &str = "core.widgets.time";
+
+/// The date in words, and the clock with its date.
+pub const WIDGETS: &[Def] = &[
+    Def {
+        name: "date",
+        token: DATE,
+        category: TIME,
+        title: "home.widget.date",
+        align: "core.align.center",
+        options: &[Opt::Size("core.size.medium", false)],
+    },
+    Def {
+        name: "clock",
+        token: CLOCK,
+        category: TIME,
+        title: "home.widget.clock",
+        align: "core.align.center",
+        options: &[
+            Opt::Size("core.size.medium", true),
+            Opt::Part("date", "home.setting.clock-date", true),
+        ],
+    },
+];
+
+/// The built-in widgets: each is read each minute, and has a group of settings
+/// of its own, named as it is.
+pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for widget in WIDGETS {
+        d.group(GroupDecl::new(widget.name, widget.title))?;
+        let spec = WidgetDecl::new(widget.name, widget.title, widget.category, widget.token)
+            .map_err(|_| DeclareError::TooLong("widget"))?
+            .live();
+        d.widget(spec)?;
+        let group = ["home.", widget.name].concat();
+        declare_all(d, widget.name, &group, widget.all())?;
+        d.submit()?;
+    }
+    Ok(())
 }

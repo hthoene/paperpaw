@@ -2,7 +2,8 @@
 //! what is ported: the group and its 24 settings (kinds, defaults, levels,
 //! the editor of a page), the screens, the slot, the actions with their
 //! icons and menu places, the swipe up, the pages as a place of widgets and
-//! the need. The built-in widgets and the help hints are not declared yet.
+//! the need. The built-in widgets are declared by `widgets_declarations.rs`; the help
+//! hints are not declared yet.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
