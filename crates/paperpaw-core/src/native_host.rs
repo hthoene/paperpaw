@@ -291,6 +291,8 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_keys.rs"]
+mod native_keys;
 #[path = "native_host/native_menus.rs"]
 #[allow(
     dead_code,

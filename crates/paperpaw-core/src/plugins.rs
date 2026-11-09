@@ -510,6 +510,8 @@ impl Kernel {
         for (_, source) in &self.keys.plugins {
             keymap.load(source, Origin::Plugin, true);
         }
+        // Native plugins' `key.bind` rows, before the device's and the user's.
+        self.native_keys_into(&mut keymap);
         keymap.load(&self.keys.device, Origin::Device, true);
         for source in [&self.keys.user, &self.keys.shell] {
             keymap.load(source, Origin::User, false);
