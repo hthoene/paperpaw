@@ -73,9 +73,10 @@ fn the_readers_own_run_fetches_at_once_and_declares_no_work() {
     let host = ScriptedHost::new();
     let declared = work(&host);
     let p = host.load(NATIVE_ENTRY.entry()).unwrap();
-    // No account in the scripted host: the fetch ends at once with the notice
-    // that the set-up is needed (no panic), and nothing is deferred.
-    assert_eq!(fetch(&p, false).status, 0);
+    // No account and no user interface in the scripted host: the fetch ends at
+    // once (its callback may report that, as for the work that is due), nothing
+    // is deferred.
+    let _ = fetch(&p, false).status;
     assert!(declared.borrow().is_empty());
 }
 

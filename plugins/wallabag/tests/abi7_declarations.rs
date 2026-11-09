@@ -60,7 +60,10 @@ fn the_decoded_batches_say_what_the_plugin_declares() {
     );
     // The plugin stopping (35), the reader's page turns (37), the end of a
     // request (99) and the work that is due (103).
-    assert_eq!(native.events, ["35:5", "37:4", "99:3", "103:6"]);
+    // (the order the host keeps them in is not the plugin's)
+    let mut events = native.events.clone();
+    events.sort();
+    assert_eq!(events, ["103:6", "35:5", "37:4", "99:3"]);
     assert!(native.groups.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
