@@ -1488,5 +1488,7 @@ mod menu_records;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
 
+#[path = "native_reserved_id_tests.rs"]
+mod reserved_id;
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;

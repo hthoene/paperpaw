@@ -375,6 +375,18 @@ fn an_unparseable_id_is_refused_before_make() {
 }
 
 #[test]
+fn the_host_id_is_denied_before_make() {
+    let mut kernel = kernel();
+    assert_eq!(
+        status(install(&mut kernel, entry(|_| {}), METADATA, "core")),
+        host_glue::ERR_DENIED
+    );
+    // Ids that only start like it are plugins' own.
+    install(&mut kernel, entry(|_| {}), METADATA, "core-tools").unwrap();
+    assert_eq!(MAKES.with(Cell::get), 1);
+}
+
+#[test]
 fn a_required_feature_the_shell_host_lacks_refuses_the_plugin_before_make() {
     let bytes = registry_metadata();
     let with_view = entry(|entry| {
