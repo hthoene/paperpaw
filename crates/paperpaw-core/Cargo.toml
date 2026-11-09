@@ -37,6 +37,8 @@ paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 paperpaw-sort.workspace = true
 
 [dev-dependencies]
+# The library's moves on a real FAT card (native_host/lib_moves_fat_tests.rs).
+paperpaw-fat.workspace = true
 paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
 paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }

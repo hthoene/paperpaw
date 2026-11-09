@@ -18,11 +18,12 @@
 //! - **Rename.** `Storage::rename`: the journalled card move
 //!   (`library.md` 6), the new entry added before the old one goes.
 use super::{
-    lib_moves_journal::Journal,
+    lib_moves_journal::{Journal, Opened},
     lib_service::moves::{Entry, MoveHost, Phase},
     storage::status,
 };
 use alloc::rc::Rc;
+use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::{Storage, StorageError};
 
@@ -65,15 +66,27 @@ pub(crate) trait MoveCarry {
 pub(crate) struct CardMoves {
     storage: Rc<dyn Storage>,
     identity: Option<Rc<dyn EntryIdentity>>,
+    /// Journals set aside as unreadable since the kernel last asked.
+    set_aside: Cell<u32>,
 }
 
 impl CardMoves {
     pub(crate) fn new(storage: Rc<dyn Storage>, identity: Option<Rc<dyn EntryIdentity>>) -> Self {
-        Self { storage, identity }
+        Self {
+            storage,
+            identity,
+            set_aside: Cell::new(0),
+        }
     }
 
     fn journal(&self) -> Journal<'_> {
         Journal(&*self.storage)
+    }
+
+    /// How many unreadable journals were set aside (`journal.bad`) since the
+    /// last call, for the kernel to log: the moves went on without them.
+    pub(crate) fn take_set_aside(&self) -> u32 {
+        self.set_aside.replace(0)
     }
 }
 
@@ -84,7 +97,15 @@ fn split(path: &str) -> (&str, &str) {
 
 impl MoveHost for CardMoves {
     fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32> {
-        self.journal().open_entry(visit)
+        match self.journal().open_or_set_aside(visit)? {
+            Opened::Entry => Ok(true),
+            Opened::Nothing => Ok(false),
+            // Not a block for good: the record is kept as `journal.bad`.
+            Opened::SetAside => {
+                self.set_aside.set(self.set_aside.get().saturating_add(1));
+                Ok(false)
+            }
+        }
     }
 
     fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32> {

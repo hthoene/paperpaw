@@ -118,7 +118,11 @@ struct Carry {
 
 impl Carry {
     fn count(&self, what: &str) -> usize {
-        self.calls.borrow().iter().filter(|c| c.starts_with(what)).count()
+        self.calls
+            .borrow()
+            .iter()
+            .filter(|c| c.starts_with(what))
+            .count()
     }
 }
 
@@ -180,12 +184,18 @@ fn a_folder_move_journals_renames_carries_every_phase_and_clears_the_entry() {
             .unwrap()
     );
     run(&moves, &host, &carry);
-    assert!(!card.inner.exists(JOURNAL), "cleared when everything is carried");
+    assert!(
+        !card.inner.exists(JOURNAL),
+        "cleared when everything is carried"
+    );
     let calls = carry.calls.borrow();
     assert!(calls[0].starts_with("Books(") && calls.last().unwrap().starts_with("Events("));
     assert!(calls.iter().any(|c| c.starts_with("Assignments")));
     assert!(calls.iter().any(|c| c.starts_with("Settings")));
-    assert!(!calls.iter().any(|c| c.starts_with("discard")), "nothing was replaced");
+    assert!(
+        !calls.iter().any(|c| c.starts_with("discard")),
+        "nothing was replaced"
+    );
 }
 
 #[test]
@@ -221,7 +231,10 @@ fn a_cut_before_the_rename_drops_the_entry_and_nothing_is_carried() {
     run(&moves, &host, &carry);
     assert!(!card.inner.exists(JOURNAL));
     assert!(card.inner.exists("Books/old/a.epub"));
-    assert!(carry.calls.borrow().is_empty(), "nothing moved, nothing carried");
+    assert!(
+        carry.calls.borrow().is_empty(),
+        "nothing moved, nothing carried"
+    );
 }
 
 #[test]
@@ -229,22 +242,27 @@ fn a_replacing_move_discards_the_replaced_data_once_before_any_book_is_carried()
     let (card, carry) = (library(), Carry::default());
     card.put("Books/b.epub", b"the replaced book");
     let (host, moves) = (host(&card), Moves::default());
-    moves.begin(&host, "Books/other.epub", "Books/b.epub", true).unwrap();
+    moves
+        .begin(&host, "Books/other.epub", "Books/b.epub", true)
+        .unwrap();
     assert!(card.inner.exists("Books/b.epub") && !card.inner.exists("Books/other.epub"));
     // The plugin's call had no catalog: nothing was discarded yet, and a
     // reader that opens the book meanwhile is told to retry.
     assert_eq!(carry.count("discard"), 0);
     let step = StepHost::new(&host, &carry);
-    assert_eq!(step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub"), Err(ERR_BUSY));
+    assert_eq!(
+        step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub"),
+        Err(ERR_BUSY)
+    );
     assert_eq!(carry.count("book"), 0);
-    // The deciding step carries nothing; the first carrying step discards,
-    // records it, and only then carries.
-    assert!(moves.step(&step).unwrap());
-    assert_eq!(carry.count("discard"), 0);
+    // The first step discards, records it, and only then carries.
     assert!(moves.step(&step).unwrap());
     assert_eq!(carry.calls.borrow()[0], "discard Books/b.epub");
     assert!(carry.calls.borrow()[1].starts_with("Books("));
-    assert!(step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub").is_ok());
+    assert!(
+        step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub")
+            .is_ok()
+    );
     // A cut and a restart in the middle of the job: replayed from the entry
     // alone, and it never discards again (it would clear what was carried).
     drop(moves);
@@ -286,7 +304,10 @@ fn a_storage_that_cannot_tell_same_entry_refuses_and_one_that_can_does_not() {
     });
     card.put("Books/a.epub", b"A");
     let host = CardMoves::new(card.clone(), Some(card.clone()));
-    assert_eq!(host.same_entry("Books/a.epub", "books/A.EPUB"), Err(ERR_UNSUPPORTED));
+    assert_eq!(
+        host.same_entry("Books/a.epub", "books/A.EPUB"),
+        Err(ERR_UNSUPPORTED)
+    );
     let told = library();
     let host = CardMoves::new(told.clone(), Some(told.clone()));
     assert_eq!(host.same_entry("Books/old", "books/OLD"), Ok(true));
@@ -318,7 +339,11 @@ fn folders_spelling_and_within_follow_the_storage() {
     assert_eq!(host.is_folder("Books/other.epub"), Ok(false));
     assert_eq!(host.is_folder("Books/nothing"), Ok(false));
     assert_eq!(host.spelled_as("Books/old"), Ok(true));
-    assert_eq!(host.spelled_as("Books/OLD"), Ok(false), "the stored spelling is exact");
+    assert_eq!(
+        host.spelled_as("Books/OLD"),
+        Ok(false),
+        "the stored spelling is exact"
+    );
     assert_eq!(host.spelled_as("Books/none"), Ok(false));
     assert_eq!(host.spelled_as("Nowhere/x"), Ok(false));
     // Case folds as the storage says; the top is every path's folder.
@@ -337,3 +362,28 @@ fn folders_spelling_and_within_follow_the_storage() {
     assert!(!host.within("books/old", "Books"));
     assert!(host.within("Books/old", "Books"));
 }
+
+#[test]
+fn an_unreadable_journal_is_set_aside_and_moves_go_on() {
+    let (card, carry) = (library(), Carry::default());
+    card.put(JOURNAL, b"not a journal");
+    let (host, moves) = (host(&card), Moves::default());
+    assert_eq!(host.take_set_aside(), 0);
+    // Not blocked for good: the move runs, the bad record is kept aside.
+    moves.begin(&host, "Books/old", "Books/new", false).unwrap();
+    run(&moves, &host, &carry);
+    assert_eq!(host.take_set_aside(), 1);
+    assert_eq!(host.take_set_aside(), 0, "counted once");
+    assert_eq!(carry.count("Books("), 1);
+    assert!(!card.inner.exists(JOURNAL));
+    assert!(card.inner.exists(crate::native_host::lib_moves_journal::SET_ASIDE));
+    // At start, too: nothing to finish, and no job.
+    card.put(JOURNAL, b"x");
+    let moves = Moves::default();
+    moves.start(&host).unwrap();
+    assert!(!moves.active());
+    assert_eq!(host.take_set_aside(), 1);
+}
+
+#[path = "lib_moves_fat_tests.rs"]
+mod fat;

@@ -14,12 +14,29 @@
 //! over the journal, synced. A cut before the rename leaves the old state (no
 //! entry, so the move never started: the journal is written before the card
 //! changes); a cut after it leaves the new one, never a mix. A record that
-//! cannot be read (bad magic, version, length, check, UTF-8) is an error, so
-//! the entry is never overwritten blind (`Moves::begin` refuses, the job
-//! stays as it is). Phase cursors are not kept: a replay starts from the
+//! cannot be read (bad magic, version, length, check, UTF-8) is never
+//! overwritten blind and never blocks the library for good: the host sets it
+//! aside as `journal.bad` (the one older copy is replaced), counts it for the
+//! kernel to log, and moves go on without it ([`Journal::open_or_set_aside`]).
+//! A card read that fails is another matter: that stays an error and the
+//! journal is left alone. Phase cursors are not kept: a replay starts from the
 //! first phase, and every phase is idempotent. `kind` is 0 for a move; 1
 //! (delete) and 2 (import) are reserved for the library's other journalled
-//! steps, which reuse the format, and read as an error until they exist.
+//! steps, which reuse the format; an older firmware that finds one reads it as
+//! an unreadable record and sets it aside.
+//!
+//! Interrupted replacing move (`replace` set). The journal is written, then
+//! the card renames `from` over the existing `to` (FAT makes that one step
+//! whole or not at all), then the first step discards the replaced file's
+//! catalog data and records that in the `discarded` flag, then the carry
+//! runs. A cut before the rename: the identity is still at `from`, the job is
+//! dropped, nothing changed and the replaced file is intact. A cut after the
+//! rename: the job is finished from the journal; the replaced file's bytes
+//! are gone by then (that is what `replace` asked for). A cut after the
+//! discard and before its flag: the discard runs a second time, which is
+//! harmless because no book is carried before the flag is written. A cut after
+//! the flag: it is never discarded again, so what the carry has put at `to`
+//! stays.
 use super::{lib_service::moves::Entry, storage::status};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
@@ -29,6 +46,8 @@ use paperpaw_platform::{Storage, StorageError};
 pub(crate) const JOURNAL: &str = ".paperpaw/library/journal";
 /// What the record is written to before it replaces the journal.
 const TEMP: &str = ".paperpaw/library/journal.tmp";
+/// Where a record that cannot be read is set aside.
+pub(crate) const SET_ASIDE: &str = ".paperpaw/library/journal.bad";
 const MAGIC: &[u8; 4] = b"PPLJ";
 const VERSION: u8 = 1;
 const HEAD: usize = 4 + 1 + 1 + 1 + 8 + 2 + 2;
@@ -122,42 +141,99 @@ fn decode(record: &[u8]) -> Result<(Entry<'_>, bool), i32> {
 /// The journal on `storage`.
 pub(crate) struct Journal<'a>(pub(crate) &'a dyn Storage);
 
+/// Why a record was not read.
+enum Fault {
+    /// The record is not whole.
+    Bad,
+    /// The card failed (or memory ran out): the journal says nothing.
+    Card(i32),
+}
+
+impl From<Fault> for i32 {
+    fn from(fault: Fault) -> Self {
+        match fault {
+            Fault::Bad => ERR_IO,
+            Fault::Card(status) => status,
+        }
+    }
+}
+
+/// What [`Journal::open_or_set_aside`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Opened {
+    /// No journal.
+    Nothing,
+    /// An entry, visited.
+    Entry,
+    /// A record that is not whole, now set aside; there is no entry.
+    SetAside,
+}
+
 impl Journal<'_> {
     /// Visits the open entry; whether there is one.
     ///
     /// # Errors
-    /// `ERR_IO` for a record that is not whole (the journal is then never
-    /// overwritten); the card's own status for a read that failed;
-    /// `ERR_NO_MEMORY`.
+    /// `ERR_IO` for a record that is not whole (the journal is left as it
+    /// is); the card's own status for a read that failed; `ERR_NO_MEMORY`.
+    #[cfg(test)]
     pub(crate) fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32> {
-        let Some(record) = self.read()? else {
+        let Some(record) = self.read().map_err(i32::from)? else {
             return Ok(false);
         };
         visit(&decode(&record)?.0);
         Ok(true)
     }
 
+    /// Visits the open entry, and sets a record that is not whole aside
+    /// (`journal.bad`, replacing an older one) so that moves go on.
+    ///
+    /// # Errors
+    /// The card's status for a read or the set-aside that failed (the
+    /// journal is then as it was); `ERR_NO_MEMORY`.
+    pub(crate) fn open_or_set_aside(
+        &self,
+        visit: &mut dyn FnMut(&Entry<'_>),
+    ) -> Result<Opened, i32> {
+        match self.read() {
+            Ok(None) => Ok(Opened::Nothing),
+            Ok(Some(record)) => {
+                visit(&decode(&record)?.0);
+                Ok(Opened::Entry)
+            }
+            Err(Fault::Bad) => {
+                self.0.rename(JOURNAL, SET_ASIDE).map_err(status)?;
+                self.0.sync().map_err(status)?;
+                Ok(Opened::SetAside)
+            }
+            Err(Fault::Card(error)) => Err(error),
+        }
+    }
+
     /// The record, read whole and checked; `None` where there is none.
-    fn read(&self) -> Result<Option<Vec<u8>>, i32> {
+    fn read(&self) -> Result<Option<Vec<u8>>, Fault> {
         let size = match self.0.size(JOURNAL) {
             Ok(size) => size,
             Err(StorageError::NotFound) => return Ok(None),
-            Err(error) => return Err(status(error)),
+            Err(error) => return Err(Fault::Card(status(error))),
         };
         if size > MAX_RECORD as u64 {
-            return Err(ERR_IO);
+            return Err(Fault::Bad);
         }
-        let mut record = room(size as usize)?;
+        let mut record = room(size as usize).map_err(Fault::Card)?;
         record.resize(size as usize, 0);
         let mut at = 0;
         while at < record.len() {
-            let tail = record.get_mut(at..).ok_or(ERR_IO)?;
-            match self.0.read_at(JOURNAL, at as u64, tail).map_err(status)? {
-                0 => return Err(ERR_IO),
+            let tail = record.get_mut(at..).ok_or(Fault::Bad)?;
+            match self
+                .0
+                .read_at(JOURNAL, at as u64, tail)
+                .map_err(|error| Fault::Card(status(error)))?
+            {
+                0 => return Err(Fault::Bad),
                 n => at += n,
             }
         }
-        decode(&record)?;
+        decode(&record).map_err(|_| Fault::Bad)?;
         Ok(Some(record))
     }
 
@@ -167,7 +243,7 @@ impl Journal<'_> {
     /// # Errors
     /// `ERR_IO` for a record that is not whole; the card's status.
     pub(crate) fn needs_discard(&self) -> Result<bool, i32> {
-        let Some(record) = self.read()? else {
+        let Some(record) = self.read().map_err(i32::from)? else {
             return Ok(false);
         };
         let (entry, discarded) = decode(&record)?;
@@ -181,7 +257,7 @@ impl Journal<'_> {
     /// # Errors
     /// `ERR_NOT_FOUND` for no entry; as [`Self::needs_discard`], and the write's.
     pub(crate) fn mark_discarded(&self) -> Result<(), i32> {
-        let record = self.read()?.ok_or(ERR_NOT_FOUND)?;
+        let record = self.read().map_err(i32::from)?.ok_or(ERR_NOT_FOUND)?;
         let (entry, _) = decode(&record)?;
         self.put(&encode(&entry, true)?)
     }

@@ -147,7 +147,9 @@ fn the_discarded_mark_is_written_whole_and_kept_with_the_entry() {
     let journal = Journal(&card);
     assert_eq!(journal.needs_discard(), Ok(false), "no entry");
     assert_eq!(journal.mark_discarded(), Err(ERR_NOT_FOUND));
-    journal.write_entry(&entry("Books/old", "Books/new")).unwrap();
+    journal
+        .write_entry(&entry("Books/old", "Books/new"))
+        .unwrap();
     assert_eq!(journal.needs_discard(), Ok(true), "a replacing move");
     journal.mark_discarded().unwrap();
     journal.mark_discarded().unwrap();
@@ -155,19 +157,84 @@ fn the_discarded_mark_is_written_whole_and_kept_with_the_entry() {
     // The rest of the entry is what it was.
     let mut seen = None;
     journal
-        .open_entry(&mut |e| seen = Some((String::from(e.from), String::from(e.to), e.replace, e.identity)))
+        .open_entry(&mut |e| {
+            seen = Some((
+                String::from(e.from),
+                String::from(e.to),
+                e.replace,
+                e.identity,
+            ))
+        })
         .unwrap();
     assert_eq!(
         seen,
-        Some(("Books/old".into(), "Books/new".into(), true, 0x0123_4567_89ab_cdef))
+        Some((
+            "Books/old".into(),
+            "Books/new".into(),
+            true,
+            0x0123_4567_89ab_cdef
+        ))
     );
     assert!(!card.exists(TEMP));
     // A new entry starts again undiscarded.
     journal.write_entry(&entry("a", "b")).unwrap();
-    assert_eq!(journal.needs_discard(), Ok(true), "a new entry starts undiscarded");
+    assert_eq!(
+        journal.needs_discard(),
+        Ok(true),
+        "a new entry starts undiscarded"
+    );
     // A move that replaces nothing never needs it.
     journal
-        .write_entry(&Entry { replace: false, ..entry("a", "b") })
+        .write_entry(&Entry {
+            replace: false,
+            ..entry("a", "b")
+        })
         .unwrap();
     assert_eq!(journal.needs_discard(), Ok(false));
+}
+
+#[test]
+fn an_unreadable_record_is_set_aside_so_moves_go_on() {
+    let good = encode(&entry("Books/old", "Books/new"), false).unwrap();
+    let mut torn = vec![good[..good.len() - 3].to_vec(), vec![0u8; 100_000]];
+    // A newer firmware's record of a reserved kind, with a good check.
+    let mut reserved = good.clone();
+    reserved[5] = 1;
+    let sum = check(&reserved[..reserved.len() - 8]).to_le_bytes();
+    let at = reserved.len() - 8;
+    reserved[at..].copy_from_slice(&sum);
+    torn.push(reserved);
+    for record in torn {
+        let card = MemoryStorage::new();
+        card.write(JOURNAL, &record).unwrap();
+        let journal = Journal(&card);
+        assert_eq!(
+            journal.open_or_set_aside(&mut |_| panic!("no entry")),
+            Ok(Opened::SetAside)
+        );
+        // Kept for a look, not deleted; the journal is free again.
+        assert_eq!(card.size(SET_ASIDE).unwrap(), record.len() as u64);
+        assert!(!card.exists(JOURNAL));
+        assert_eq!(
+            journal.open_or_set_aside(&mut |_| panic!("no entry")),
+            Ok(Opened::Nothing)
+        );
+        journal.write_entry(&entry("a", "b")).unwrap();
+        assert_eq!(journal.open_or_set_aside(&mut |_| ()), Ok(Opened::Entry));
+    }
+}
+
+#[test]
+fn a_second_set_aside_replaces_the_first_and_a_good_entry_is_not_touched() {
+    let card = MemoryStorage::new();
+    let journal = Journal(&card);
+    card.write(JOURNAL, b"first").unwrap();
+    assert_eq!(journal.open_or_set_aside(&mut |_| ()), Ok(Opened::SetAside));
+    card.write(JOURNAL, b"second!").unwrap();
+    assert_eq!(journal.open_or_set_aside(&mut |_| ()), Ok(Opened::SetAside));
+    assert_eq!(card.size(SET_ASIDE).unwrap(), 7);
+    journal.write_entry(&entry("a", "b")).unwrap();
+    assert_eq!(journal.open_or_set_aside(&mut |_| ()), Ok(Opened::Entry));
+    assert!(card.exists(JOURNAL));
+    assert_eq!(card.size(SET_ASIDE).unwrap(), 7, "the old copy stays");
 }
