@@ -733,6 +733,8 @@ fn op_15_lists_every_step_in_order_with_what_applies_merged_with_the_declared_on
             "step nat.later 0 demo.flag 13 0 nat.step",
             "step nat.speaks 0 demo.flag 14 0 nat.step",
             "step nat.plain 0 demo.flag 15 1 nat.step",
+            // The host's own step for a device with buttons only: not here.
+            "step core.setup.buttons 0 core.keymap-preset 20 0 Button layout",
             "step demo.two 0 demo.flag 20 1 demo.step.two",
             "step nat.touch 0 demo.flag 20 1 nat.step",
             "step core.setup.time-zone 0 core.time-zone 40 1 Time zone",
@@ -740,13 +742,13 @@ fn op_15_lists_every_step_in_order_with_what_applies_merged_with_the_declared_on
     );
     // The environment's steps alone; the step that never applies is listed too.
     let rows = rows_of(&kernel, None, schema::OP_SETUP, "", 0);
-    assert_eq!(rows.len(), 5);
+    assert_eq!(rows.len(), 6);
     assert!(
         rows.iter()
             .any(|row| row.starts_with("step demo.never ") && row.contains(" 5 0 "))
     );
     let (rows, end) = page(&kernel, schema::OP_SETUP, "ignored");
-    assert_eq!((rows.len(), end.total), (5, 5));
+    assert_eq!((rows.len(), end.total), (6, 6));
 }
 
 fn widget(
