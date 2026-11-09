@@ -11,8 +11,6 @@ pub enum Button {
     Pencil,
     /// *Add*, while editing.
     Plus,
-    /// The footer's action of this number.
-    Action(usize),
 }
 
 /// Whose a target is.
