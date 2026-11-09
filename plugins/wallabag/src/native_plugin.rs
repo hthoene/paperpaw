@@ -1,7 +1,9 @@
-//! The interface-7 wallabag plugin (slice 3: the set-up). The set-up screen
-//! with the server, the user name, the password, the API client's ID and its
-//! secret; the password and the secret are kept among the plugin's secrets, the
-//! rest as settings. Fetching articles follows (`PORTING-7.md`).
+//! The interface-7 wallabag plugin. The set-up screen with the server, the
+//! user name, the password, the API client's ID and its secret (the password
+//! and the secret are kept among the plugin's secrets, the rest as settings),
+//! and the fetch of the articles (`Fetcher`): started by the *Fetch articles*
+//! row or the action, ended by the `http_done` events of its requests; the
+//! reader's page turns note the articles read to the end.
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -11,6 +13,8 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, Input},
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+    formatting::Arg,
+    net::HttpDone,
     registrations,
     reply::Reply,
     secrets::Secrets,
@@ -24,9 +28,11 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::declarations::{OPEN_TOKEN, SCREEN};
+use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, PAGE_TOKEN, SCREEN, STOP_TOKEN};
+use crate::native_fetcher::{Fetcher, Finish, Login};
 use crate::native_keep::{self as keep, CLIENT_SECRET, PASSWORD, Secret};
-use crate::native_wallabag::Row;
+use crate::native_lists::{self as lists, DataFiles};
+use crate::native_wallabag::{Row, is_read};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/wallabag_declarations.rs"));
@@ -35,13 +41,14 @@ mod image {
 const SERVER: &str = "wallabag.server";
 const USER: &str = "wallabag.user";
 const CLIENT: &str = "wallabag.client-id";
-/// The rows the set-up shows: *Fetch articles* comes with the fetch.
-const SHOWN: [Row; 5] = [
+/// The rows the set-up shows.
+const SHOWN: [Row; 6] = [
     Row::Server,
     Row::User,
     Row::Password,
     Row::Client,
     Row::Secret,
+    Row::Fetch,
 ];
 /// What a kept secret is shown as.
 const DOTS: &str = "••••••";
@@ -58,6 +65,7 @@ struct View {
 pub struct NativeWallabag {
     ui: Option<Ui>,
     secrets: Option<Secrets>,
+    fetcher: Fetcher,
     opened: bool,
     screens: Screens<View>,
     /// The row being typed, and its question.
@@ -70,6 +78,7 @@ impl Plugin for NativeWallabag {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
         {
             registrations::submit(host, batch)?;
         }
@@ -84,7 +93,7 @@ impl Plugin for NativeWallabag {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::PageTurned, kinds::Stopping)
         else {
             return Ok(());
         };
@@ -92,6 +101,21 @@ impl Plugin for NativeWallabag {
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wallabag.setup")?)
+            }
+            Event::ActionRun { .. } if token == FETCH_TOKEN => self.fetch(host),
+            Event::HttpDone(done) if token == HTTP_TOKEN => self.fetch_done(host, &done),
+            Event::PageTurned(reading) if token == PAGE_TOKEN => {
+                if is_read(reading.page(), reading.pages(), reading.progress_ppm())
+                    && let Err(Error::NoMemory) =
+                        lists::note_read(&DataFiles::new(host), reading.path())
+                {
+                    return Err(Error::NoMemory);
+                }
+                Ok(())
+            }
+            Event::Stopping { .. } if token == STOP_TOKEN => {
+                self.fetcher.cancel(host, &DataFiles::new(host));
+                Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. } if token == SCREEN => {
@@ -132,7 +156,11 @@ impl Plugin for NativeWallabag {
         if let ItemStep::Chosen(index) = step
             && let Some(row) = SHOWN.get(index).copied()
         {
-            self.ask(host, row)?;
+            if row == Row::Fetch {
+                self.fetch(host)?;
+            } else {
+                self.ask(host, row)?;
+            }
         }
         Ok(ItemList::handled(step))
     }
@@ -190,7 +218,7 @@ impl NativeWallabag {
                 Row::Client => Self::text_setting(host, CLIENT)?,
                 Row::Password => dots(self.kept(host, PASSWORD)?)?,
                 Row::Secret => dots(self.kept(host, CLIENT_SECRET)?)?,
-                Row::Fetch => continue,
+                Row::Fetch => copy("›")?,
             };
             let title = say.copy(host, row.title())?;
             push(&mut items, Item::row(&title, &value)?)?;
@@ -326,6 +354,91 @@ impl NativeWallabag {
             top.list.set_focus((at + 1).min(SHOWN.len() - 1));
         }
         self.refresh(host)
+    }
+
+    /// Starts a fetch: the account is read from the settings and the secrets,
+    /// and what is missing is said.
+    fn fetch(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.fetcher.running() {
+            return Ok(());
+        }
+        self.ensure(host)?;
+        let url = paperpaw_sdk::web::try_base_url(&Self::text_setting(host, SERVER)?)
+            .map_err(|_| Error::NoMemory)?;
+        let (user, client) = (
+            Self::text_setting(host, USER)?,
+            Self::text_setting(host, CLIENT)?,
+        );
+        let secrets = match &self.secrets {
+            Some(secrets) => (
+                keep::read(secrets, host, PASSWORD)?,
+                keep::read(secrets, host, CLIENT_SECRET)?,
+            ),
+            None => (None, None),
+        };
+        let (Some(password), Some(secret)) = secrets else {
+            return self.finished(host, Finish::said("wallabag.setup-needed"));
+        };
+        if url.is_empty() || user.is_empty() || client.is_empty() {
+            return self.finished(host, Finish::said("wallabag.setup-needed"));
+        }
+        let mut say = Messages::new()?;
+        let text = say.copy(host, "wallabag.fetching")?;
+        self.notice(host, &text)?;
+        let login = Login::new(&url, &user, &client, &password, &secret);
+        match self.fetcher.start(host, &DataFiles::new(host), &login)? {
+            Some(finish) => self.finished(host, finish),
+            None => Ok(()),
+        }
+    }
+
+    /// The end of a request of the fetch.
+    fn fetch_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+        match self.fetcher.done(host, &DataFiles::new(host), done)? {
+            Some(finish) => self.finished(host, finish),
+            None => Ok(()),
+        }
+    }
+
+    /// Says how the fetch ended: a notice, and the note of the set-up screen.
+    fn finished(&mut self, host: &Host<'_>, finish: Finish) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let text = match finish.counts {
+            Some((fetched, archived, failed)) => say.format(
+                host,
+                finish.key,
+                &[
+                    Arg::Int {
+                        name: "fetched",
+                        value: i64::from(fetched),
+                    },
+                    Arg::Int {
+                        name: "archived",
+                        value: i64::from(archived),
+                    },
+                    Arg::Int {
+                        name: "failed",
+                        value: i64::from(failed),
+                    },
+                ],
+            )?,
+            None => say.copy(host, finish.key)?,
+        };
+        self.notice(host, &text)?;
+        if let Some(top) = self.screens.top(SCREEN) {
+            top.note = text;
+            self.refresh(host)?;
+        }
+        Ok(())
+    }
+
+    /// A notice, where it can be shown.
+    fn notice(&self, host: &Host<'_>, text: &str) -> Result<(), Error> {
+        let mut scratch = [0; 512];
+        match CommandSender::new(host, &mut scratch).notify(Notify::new(text)?) {
+            Ok(()) | Err(_) => {}
+        }
+        Ok(())
     }
 
     /// Keeps a secret; said with the shared text where the device keeps none.

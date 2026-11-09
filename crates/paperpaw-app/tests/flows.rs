@@ -244,11 +244,11 @@ impl App {
     }
 }
 
-/// A book chosen in the library with the buttons, read, and home again: the
-/// book is the one to continue, now and after a restart. (The first-run
-/// guide before it is the native setup plugin's, which the app does not
-/// register until the host activates native plugins: the pending case
-/// `setup-first-start`, `plugins/setup/tests/acceptance_pending.rs`.)
+/// A book opened in the reader, read, and home again: the book is the one to
+/// continue, now and after a restart. (The library that lists the books is the
+/// native `files` plugin's and the first-run guide the native setup plugin's;
+/// the app registers neither until the host activates native plugins: the
+/// pending cases of `plugins/files` and `plugins/setup`.)
 #[test]
 fn reading_and_home_keep_the_book_opened() {
     let card = Card::new(true);
@@ -256,12 +256,13 @@ fn reading_and_home_keep_the_book_opened() {
     assert_eq!(app.screen(), "home.dashboard");
     assert!(app.shows("Start reading"));
 
-    // The library: the book chosen with the buttons.
-    app.run(actions::LIBRARY);
-    let library = app.screen();
-    app.focus_on("Alice", 20);
-    app.run(actions::CONFIRM);
-    assert_eq!(app.screen(), "reader.screen", "from {library}");
+    // The book opened in the reader, as the library would.
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    assert_eq!(app.screen(), "reader.screen");
     for _ in 0..3 {
         app.run(actions::NEXT_PAGE);
     }
@@ -454,6 +455,11 @@ fn open_every_screen(device: DeviceInfo) {
     assert!(screens.len() > 20, "{screens:?}");
     let mut elsewhere = Vec::new();
     for screen in screens {
+        // The folder editor is the slot `core.choose-folder`, filled by the native
+        // `files` plugin, which the app does not register (see `NATIVE_PLUGINS`).
+        if screen.as_str() == "core.folder-editor" {
+            continue;
+        }
         app.run(actions::HOME);
         app.open(screen.clone());
         if app.screen() != screen.as_str() {

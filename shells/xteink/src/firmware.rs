@@ -92,6 +92,10 @@ pub struct Firmware {
     /// The device behind `core.device`, told of what the kernel keeps.
     #[cfg(feature = "ppn5")]
     pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// The loader's table of handles, for the measurement-only linked-plugin
+    /// probe (`static-native`): one table for the device.
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
 
@@ -190,8 +194,10 @@ impl Firmware {
         // Here, on the kernel in its place: a local in `kernel()` or `start()`
         // would copy it (+4 KB on the frame).
         #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-        if core::hint::black_box(false) {
-            crate::native::register_linked_probe(&mut self.kernel);
+        if core::hint::black_box(false)
+            && let Some(table) = &self.device_table
+        {
+            crate::native::register_linked_probe(&mut self.kernel, table);
         }
         let effects = self.kernel.start(now());
         self.apply(effects);

@@ -831,3 +831,139 @@ fn a_card_that_fails_mid_scan_is_an_error_not_a_short_list() {
     let none = Files(Vec::new());
     assert_eq!(catalog::try_query(&none, &query, None, 10), Ok(Vec::new()));
 }
+
+/// Files that are read as [`Files`] and written without allocating: what
+/// was written is kept as a hash of the bytes and their number.
+struct Writing {
+    files: Files,
+    wrote: Cell<Option<(u64, usize)>>,
+}
+
+impl Storage for Writing {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.files.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.files.size(path)
+    }
+    fn write(&self, _: &str, data: &[u8]) -> Result<(), StorageError> {
+        let hash = data.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+        self.wrote.set(Some((hash, data.len())));
+        Ok(())
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.files.append(path, data)
+    }
+    fn list(&self, path: &str, each: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.files.list(path, each)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.files.remove(path)
+    }
+}
+
+fn writing() -> Writing {
+    Writing {
+        files: files(),
+        wrote: Cell::new(None),
+    }
+}
+
+/// The details are written whole or not at all: every allocation of
+/// `save` refused in turn is the memory error with nothing written, and
+/// the first call that is not refused writes what an unrefused one does.
+#[test]
+fn details_are_written_whole_or_refused_for_every_allocation() {
+    let storage = writing();
+    let book = library::try_book(&storage, BOOK).unwrap().unwrap();
+    library::save(&storage, BOOK, &book).unwrap();
+    let kept = storage.wrote.take().expect("written");
+    for number in 1.. {
+        let (result, refused) = with_refusal(number, || library::save(&storage, BOOK, &book));
+        if !refused {
+            assert_eq!(result, Ok(()));
+            assert_eq!(storage.wrote.take(), Some(kept));
+            assert!(number > 8, "only {number} allocation sites");
+            break;
+        }
+        assert_eq!(result, Err(Error::OutOfMemory), "refusal {number}");
+        assert_eq!(storage.wrote.take(), None, "refusal {number}");
+    }
+}
+
+/// Details over what is read back are refused (as before) before the text
+/// is made: nothing is written, and nothing near the limit is reserved.
+#[test]
+fn details_over_the_limit_are_refused_before_the_text_is_made() {
+    let storage = writing();
+    let mut book = library::try_book(&storage, BOOK).unwrap().unwrap();
+    book.fields = (0..40)
+        .map(|i| (format!("test.field{i}"), "x".repeat(1000)))
+        .collect();
+    let (result, refused) = with_refusal(usize::MAX, || library::save(&storage, BOOK, &book));
+    assert!(!refused);
+    assert_eq!(result, Err(Error::Storage(StorageError::TooLarge)));
+    assert_eq!(storage.wrote.take(), None);
+    let largest = LARGEST.with(Cell::get);
+    assert!(largest < 16 * 1024, "reserved {largest} bytes");
+}
+
+/// What a write of the details of [`BOOK`] ends as, for every allocation of
+/// `write` refused in turn: nothing is written (and nothing aborts) while one
+/// is refused, and the first call that is not refused writes what an
+/// unrefused one does. Returns how many allocation sites there were.
+fn written_whole_or_not_at_all(storage: &Writing, write: impl Fn(&Writing)) -> usize {
+    write(storage);
+    let kept = storage.wrote.take().expect("written");
+    for number in 1.. {
+        let (_, refused) = with_refusal(number, || write(storage));
+        if !refused {
+            assert_eq!(storage.wrote.take(), Some(kept));
+            return number - 1;
+        }
+        assert_eq!(storage.wrote.take(), None, "refusal {number}");
+    }
+    unreachable!()
+}
+
+#[test]
+fn a_field_is_set_whole_or_not_at_all_for_every_allocation() {
+    let storage = writing();
+    let sites = written_whole_or_not_at_all(&storage, |storage| {
+        library::set_field(storage, BOOK, "myplugin.stars", "4");
+    });
+    assert!(sites >= 5, "only {sites} allocation sites");
+    // Removing a field is a write too.
+    let sites = written_whole_or_not_at_all(&storage, |storage| {
+        library::set_field(storage, BOOK, "myplugin.rating", "");
+    });
+    assert!(sites >= 3, "only {sites} allocation sites");
+}
+
+#[test]
+fn what_a_source_provides_is_kept_whole_or_not_at_all_for_every_allocation() {
+    let storage = writing();
+    // The provided text is made before each call: the call's own allocations
+    // are the ones refused.
+    let provided = || {
+        library::Provided::default()
+            .title("Provided".to_owned())
+            .author("Ann".to_owned())
+            .tags(vec!["a".to_owned(), "b".to_owned()])
+    };
+    storage.wrote.set(None);
+    library::provide(&storage, BOOK, provided());
+    let kept = storage.wrote.take().expect("written");
+    for number in 1.. {
+        let input = provided();
+        let (_, refused) = with_refusal(number, || library::provide(&storage, BOOK, input));
+        if !refused {
+            assert_eq!(storage.wrote.take(), Some(kept));
+            assert!(number > 5, "only {number} allocation sites");
+            break;
+        }
+        assert_eq!(storage.wrote.take(), None, "refusal {number}");
+    }
+}

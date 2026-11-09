@@ -15,13 +15,14 @@ const CASES: [Case; 3] = [
         golden: None,
         blocked_by: &["H1", "H4"],
     },
-    // Downloading a font into the data folder and having it installed:
-    // `command.install_plugin` has a wire form but no `CommandSender` method,
-    // and the host asks the user first (decision 132).
+    // Downloading a font into the data folder and having it installed or
+    // removed (the plugin does this through `core.net`, `command.install_plugin`
+    // and `command.remove_plugin`); the host asks the user first (decisions 132,
+    // 124) and its question is not wired to native plugins yet.
     Case {
         name: "fonts-browser-install",
         golden: None,
-        blocked_by: &["DEV-install-facade", "H2"],
+        blocked_by: &["H2"],
     },
     // Every font's name and the sample sentence drawn in the font's own face,
     // from a sample pack downloaded at run time: fonts are declared in the
@@ -50,7 +51,7 @@ fn fonts_browser_screens() {
 }
 
 #[test]
-#[ignore = "BLOCKED DEV-install-facade/H2: no CommandSender::install_plugin, no dialogs"]
+#[ignore = "BLOCKED H2: the host's install and removal questions are not wired to native plugins"]
 fn fonts_browser_install() {
     CASES[1].refuse().unwrap();
 }

@@ -1,4 +1,4 @@
-#[allow(dead_code, reason = "the screen identity is for the declaration tests")]
+#[allow(dead_code, reason = "the build script emits only some of the builders")]
 mod declarations;
 
 use std::{fmt::Write, path::PathBuf};
@@ -51,7 +51,7 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 3] = [
+    let emits: [(&str, Emit); 5] = [
         ("WIDGETS", |sink| {
             let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
             declarations::widgets(&mut d)
@@ -60,6 +60,16 @@ fn main() -> Result<(), String> {
         ("EVENTS", |sink| {
             declarations::events(sink)
                 .map_err(|e| format!("invalid Reading goal event declarations: {e:?}"))
+        }),
+        ("SCREENS", |sink| {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
+            declarations::screens(&mut d)
+                .map_err(|e| format!("invalid Reading goal screen declarations: {e:?}"))
+        }),
+        ("NAVIGATION", |sink| {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
+            declarations::navigation(&mut d)
+                .map_err(|e| format!("invalid Reading goal navigation declarations: {e:?}"))
         }),
         ("STAGES", |sink| {
             declarations::stages(sink)

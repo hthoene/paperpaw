@@ -139,6 +139,14 @@ fn ask(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
+    // A work run's callback is quiet (`work.md` section 2): no dialog.
+    if who
+        .hosts
+        .work()
+        .is_some_and(|work| work.sched.quiet(who.owner))
+    {
+        return Err(ERR_STATE);
+    }
     let ask: wire::ServiceUiAsk<'_> = codec::single(input)?;
     let stamp = stamp(frame, who)?;
     let question = question_of(&ask)?;

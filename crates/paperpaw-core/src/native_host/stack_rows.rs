@@ -40,6 +40,9 @@ pub(crate) struct StackRows {
     cleanup_sweep: Cell<bool>,
     /// The screen callback on the stack: `(owner, instance)`, `(0, 0)` for none.
     running: Cell<(u64, u32)>,
+    /// What the open instances relabel in the row of button hints
+    /// (`command.set_hint`); an instance's labels go when it leaves the stack.
+    labels: core::cell::RefCell<super::hint_labels::HintLabels>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -51,6 +54,7 @@ impl Default for StackRows {
             close_error: Cell::new(0),
             cleanup_sweep: Cell::new(false),
             running: Cell::new((0, 0)),
+            labels: core::cell::RefCell::default(),
         }
     }
 }
@@ -107,6 +111,31 @@ impl StackRows {
         let len = self.len();
         let at =
             (0..len).find(|&index| self.row(index).is_some_and(|row| row.instance == instance))?;
+        self.uncovered(owner, at)
+    }
+
+    /// The topmost screen of `owner`, if it is showing: the owner's own
+    /// non-host, non-overlay row nearest the top (its own dialogs above it do
+    /// not hide it) with nothing covering it, by the rules of
+    /// [`Self::showing_screen`] (`network.md` 5.1: a server started outside a
+    /// screen callback is tied to it). `None` for another owner's or a host
+    /// screen on top, a covered one, no screen, and for a stale, missing or
+    /// overflowed snapshot. No allocation.
+    pub(crate) fn topmost_screen(&self, owner: u64) -> Option<u64> {
+        if owner == 0 || !self.valid(self.generation.get()) {
+            return None;
+        }
+        let at = (0..self.len()).rev().find(|&index| {
+            self.row(index)
+                .is_some_and(|row| !row.host && !row.overlay && row.owner == owner)
+        })?;
+        self.uncovered(owner, at)
+    }
+
+    /// The instance of the row at `at` when it is `owner`'s own non-host row
+    /// and nothing above it covers it (see [`Self::showing_screen`]).
+    fn uncovered(&self, owner: u64, at: usize) -> Option<u64> {
+        let len = self.len();
         let row = self.row(at)?;
         if row.host || row.owner != owner {
             return None;
@@ -119,7 +148,7 @@ impl StackRows {
                     || (above.owner != owner && (row.secret || row.guards))
             })
         });
-        (!covered).then_some(u64::from(instance))
+        (!covered).then_some(u64::from(row.instance))
     }
 
     pub(crate) fn generation(&self) -> u64 {
@@ -196,6 +225,10 @@ impl StackRows {
     }
 
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.
+    /// The labels of `command.set_hint` of the open instances.
+    pub(crate) fn labels(&self) -> &core::cell::RefCell<super::hint_labels::HintLabels> {
+        &self.labels
+    }
     pub(crate) fn update(&self, rows: impl IntoIterator<Item = StackRow>) {
         let mut count = 0;
         for row in rows {
@@ -218,6 +251,13 @@ impl StackRows {
             {
                 pending.set(NO_PENDING);
             }
+        }
+        // Labels of instances that left the stack go with them. A labels
+        // call in progress (a hint being drawn) keeps what it has: the next
+        // change of the stack prunes.
+        if let Ok(mut labels) = self.labels.try_borrow_mut() {
+            let open = &self.rows[..count.min(STACK_MAX)];
+            labels.retain_open(|instance| open.iter().any(|row| row.get().instance == instance));
         }
         let generation = self.generation.get();
         self.generation.set(if generation == 0 {
@@ -301,6 +341,29 @@ mod tests {
         assert!(rows.instance(2, generation).is_none());
         assert!(rows.instance(1, rows.generation()).is_none());
         assert!(rows.instance(0, rows.generation()).is_none());
+    }
+    #[test]
+    fn set_hint_labels_go_when_their_instance_leaves_the_stack() {
+        use crate::native_host::hint_labels::{HintLabels, make};
+        let rows = StackRows::default();
+        let row = |instance| StackRow {
+            instance,
+            owner: 8,
+            flags: 0,
+        };
+        rows.update([row(1), row(2)]);
+        let sets = alloc::vec![
+            make("probe", 1, "probe.go", 1, "One").unwrap(),
+            make("probe", 2, "probe.go", 1, "Two").unwrap()
+        ];
+        rows.labels().borrow_mut().reserve(&sets).unwrap();
+        rows.labels().borrow_mut().apply(sets);
+        let hint = |labels: &HintLabels, instance| labels.hint(instance, "probe.go");
+        rows.update([row(1)]);
+        assert!(hint(&rows.labels().borrow(), 1).is_some());
+        assert!(hint(&rows.labels().borrow(), 2).is_none());
+        rows.update([]);
+        assert!(rows.labels().borrow().is_empty());
     }
     #[test]
     fn unknown_plugin_owner_and_overflow_are_secret_and_guarding() {
@@ -475,6 +538,52 @@ mod tests {
         rows.update((1..=17).map(|instance| row(instance, 9, 0)));
         let _call = rows.enter_callback(9, 3);
         assert_eq!(rows.showing_screen(9), None);
+    }
+
+    fn topmost(rows: &[StackRow], owner: u64) -> Option<u64> {
+        let stack = StackRows::default();
+        stack.update(rows.iter().copied());
+        stack.topmost_screen(owner)
+    }
+
+    #[test]
+    fn the_topmost_own_screen_is_found_without_a_callback_and_its_own_dialogs_do_not_hide_it() {
+        assert_eq!(topmost(&[row(1, 9, 0)], 9), Some(1));
+        // The nearest own screen counts, not a lower one.
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 9, 0)], 9), Some(2));
+        // Its own non-guarding dialog above it does not cover it.
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 9, OVERLAY)], 9), Some(1));
+        // Another plugin's overlay does not cover a plain screen.
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 8, OVERLAY)], 9), Some(1));
+    }
+
+    #[test]
+    fn a_dialog_callback_is_still_a_showing_screen_of_its_own() {
+        // The running dialog is the screen the server ties to, not the one
+        // below it (`showing_screen` comes first in `serve`).
+        let rows = [row(1, 9, 0), row(2, 9, OVERLAY)];
+        assert_eq!(showing(&rows, 9, 2), Some(2));
+        assert_eq!(topmost(&rows, 9), Some(1));
+    }
+
+    #[test]
+    fn the_topmost_own_screen_is_none_when_covered_or_not_there() {
+        // Another plugin's or the host's screen on top.
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 8, 0)], 9), None);
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 0, HOST)], 9), None);
+        // A guard above, an unknown row above (fail closed).
+        assert_eq!(
+            topmost(&[row(1, 9, 0), row(2, 8, GUARDS | OVERLAY)], 9),
+            None
+        );
+        assert_eq!(topmost(&[row(1, 9, 0), row(2, 0, OVERLAY)], 9), None);
+        // No screen of the owner, the unknown owner 0, an empty stack.
+        assert_eq!(topmost(&[row(1, 8, 0)], 9), None);
+        assert_eq!(topmost(&[row(1, 0, HOST)], 0), None);
+        assert_eq!(topmost(&[], 9), None);
+        // An overflowed snapshot fails closed.
+        let many: alloc::vec::Vec<StackRow> = (1..=17).map(|n| row(n, 9, 0)).collect();
+        assert_eq!(topmost(&many, 9), None);
     }
 }
 

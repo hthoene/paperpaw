@@ -10,23 +10,24 @@ use pending::Case;
 
 const CASES: [Case; 5] = [
     // The page is served to the network, with its key; a few wrong keys lock it.
+    // Native since slice 2; through the production loader it waits for the host.
     Case {
         name: "transfer-serving",
         golden: None,
-        blocked_by: &["SOCK", "WIFI"],
+        blocked_by: &["#944", "WIFI"],
     },
     // Files are put, fetched, renamed and deleted through the page; a book
     // goes into the library folder, a plugin is installed.
     Case {
         name: "transfer-files",
         golden: None,
-        blocked_by: &["FS", "SOCK", "INSTALL-design"],
+        blocked_by: &["#944", "LIB-move", "INSTALL-design"],
     },
     // The screen shows the address as text and as a QR code.
     Case {
         name: "transfer-screen",
         golden: None,
-        blocked_by: &["H1", "H3"],
+        blocked_by: &["#944", "H1", "H3"],
     },
     // The cable: an offer is asked about, allowed and taken once.
     Case {
@@ -53,19 +54,19 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED SOCK/WIFI: core.sockets and the Wi-Fi state are not on integration"]
+#[ignore = "BLOCKED #944/WIFI: the host does not admit every declaration family; the own network needs the Wi-Fi commands"]
 fn transfer_serving() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED FS/SOCK/INSTALL-design: files, sockets and the native install path are not on integration"]
+#[ignore = "BLOCKED #944/LIB-move/INSTALL-design: the host does not admit the plugin yet; the library does not follow a move; the install path from the computer is not ported"]
 fn transfer_files() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H3: screen commands and composition are not qualified for the native plugin"]
+#[ignore = "BLOCKED #944/H1/H3: the host does not admit the plugin yet; screen composition is not qualified for the native plugin"]
 fn transfer_screen() {
     CASES[2].refuse().unwrap();
 }

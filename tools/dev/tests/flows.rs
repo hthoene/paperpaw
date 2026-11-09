@@ -42,9 +42,9 @@ fn flows_pass_and_fail_where_they_should() {
     let _ = std::fs::remove_dir_all(&out);
     let mut context = Context::new(Target::default(), out.clone());
     context.snapshots = Some(out.join("snapshots"));
-    context.flows = vec![fixture("night-mode.flow"), fixture("stats.flow")];
+    context.flows = vec![fixture("night-mode.flow"), fixture("settings.flow")];
 
-    // The first run writes the statistics page's picture.
+    // The first run writes the settings page's picture.
     context.bless = true;
     let mut report = Report::default();
     flows::run(&context, &mut report).unwrap();
@@ -54,15 +54,15 @@ fn flows_pass_and_fail_where_they_should() {
         "{}",
         report.text(Level::Info)
     );
-    let file = out.join("snapshots/boox-go-7/stats.png");
+    let file = out.join("snapshots/boox-go-7/settings.png");
     assert!(file.is_file());
     // Night mode on the devices with the X4's buttons (the X4 alone of
-    // those checked by default), the statistics page on the Boox only.
+    // those checked by default), the settings page on the Boox only.
     assert_eq!(found(&report, "flows.passed").len(), 2);
     assert!(ran(&report, "night-mode.flow", "xteink-x4"));
     assert!(!ran(&report, "night-mode.flow", "xteink-x4-pro"));
     assert!(!ran(&report, "night-mode.flow", "boox-go-7"));
-    assert!(ran(&report, "stats.flow", "boox-go-7"));
+    assert!(ran(&report, "settings.flow", "boox-go-7"));
 
     // Then it is compared, and passes.
     context.bless = false;
@@ -85,7 +85,7 @@ fn flows_pass_and_fail_where_they_should() {
     assert_eq!(failed.len(), 1, "{}", report.text(Level::Info));
     let failure = failed[0];
     assert!(
-        failure.place.ends_with("stats.flow:14"),
+        failure.place.ends_with("settings.flow:12"),
         "{}",
         failure.place
     );
