@@ -48,6 +48,11 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   test fails and `make` submits `image::PROVIDER`.
 - **The summary given by the dictionary's panel** (`text`): the panel does not offer one without the
   provider; the screen always fetches.
-- **The line in *About*** naming the source and the licence (the stage `about.lines`).
+- **The line in *About*** (done): the plugin subscribes to `about.lines` (token 4) and answers one
+  `lines.line` with `wikipedia.about` (en/de, at most 512 bytes: the source and CC BY-SA 4.0). The codec
+  is generated (`tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs`,
+  checked in CI) from a copy of the owner's `about.lines@1.def`; a test holds the copy to the owner's file
+  (a published `@1` never changes; Kernel's convention for subscribers). Host acceptance (About listing
+  it) stays with the About page's own cases.
 - **Goldens**: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
 - The screen shows the page the same way the dictionary's panel does but has no "page n of m" note.
