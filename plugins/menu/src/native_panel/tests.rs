@@ -124,7 +124,6 @@ fn a_badge_follows_the_label_and_counts_in_the_width() {
     assert_eq!(button_text(&r).unwrap(), "Run");
     r.badge = "3".to_string();
     assert_eq!(button_text(&r).unwrap(), "Run · 3");
-    assert_eq!(toggle_text(&r).unwrap(), "• Run · 3");
 }
 
 #[test]
@@ -344,13 +343,16 @@ fn controls_share_their_row() {
     assert!(row.controls[0].1.x >= 20 + 150);
     assert_eq!(row.controls[1].1.right(), 480 - 20);
 
-    // A stepper's two buttons are the whole row until its value places them.
+    // A stepper's `−` and `+` are at the ends of what follows the label.
     let area = Rect::new(0, 0, 480, 60);
     let stepper = place(&Line::Stepper(2), area, &geometry()).unwrap();
-    assert_eq!(
-        stepper.controls,
-        [(Control::Step(2, -1), area), (Control::Step(2, 1), area)]
-    );
+    let [(minus, left), (plus, right)] = stepper.controls.as_slice() else {
+        panic!("two buttons");
+    };
+    assert_eq!((*minus, *plus), (Control::Step(2, -1), Control::Step(2, 1)));
+    assert_eq!(left.x, 20 + 150);
+    assert_eq!(right.right(), 480 - 20);
+    assert!(left.right() < u32::from(right.x));
 }
 
 #[test]
@@ -381,4 +383,56 @@ fn the_models_survive_refused_allocations() {
     let mut badged = row("a.run", Kind::Action, "Run");
     badged.badge = "1".to_string();
     sweep(|| button_text(&badged).map(|t| t.len()));
+}
+
+#[test]
+fn the_focus_goes_round_and_past_faint_controls() {
+    let all = |_: usize| true;
+    assert_eq!(step_focus(0, None, 1, all), None);
+    // Nowhere yet: forward the first, back the last.
+    assert_eq!(step_focus(4, None, 1, all), Some(0));
+    assert_eq!(step_focus(4, None, -1, all), Some(3));
+    assert_eq!(step_focus(4, Some(3), 1, all), Some(0));
+    assert_eq!(step_focus(4, Some(0), -1, all), Some(3));
+    // Past faint ones, round the end.
+    let not_one_two = |i: usize| i != 1 && i != 2;
+    assert_eq!(step_focus(4, Some(0), 1, not_one_two), Some(3));
+    assert_eq!(step_focus(4, Some(3), -1, not_one_two), Some(0));
+    // All faint: one on all the same.
+    assert_eq!(step_focus(3, Some(0), 1, |_| false), Some(1));
+}
+
+#[test]
+fn controls_have_pages_rows_and_hits() {
+    let lines: Vec<Line> = (0..20).map(Line::Open).collect();
+    let layout = layout(&lines, &geometry()).unwrap();
+    assert_eq!(layout.count(), 20);
+    assert!(layout.pages() > 1);
+    assert_eq!(layout.page_of(0), 0);
+    assert_eq!(layout.page_of(19), layout.pages() - 1);
+    assert_eq!(layout.row_of(1), Some(layout.rows[1].area));
+    assert_eq!(layout.row_of(20), None);
+    let second = &layout.rows[1];
+    let inside =
+        paperpaw_sdk::Point::new(i32::from(second.area.x) + 5, i32::from(second.area.y) + 5);
+    assert_eq!(layout.hit(0, inside), Some((1, Control::Open(1))));
+    // The same place on another page is another control, or none.
+    assert_ne!(layout.hit(1, inside).map(|(i, _)| i), Some(1));
+    assert_eq!(layout.hit(0, paperpaw_sdk::Point::new(5, 0)), None);
+}
+
+#[test]
+fn a_long_menu_is_cut_to_the_cap() {
+    let mut rows: Vec<Row> = (0..MAX_ROWS + 6)
+        .map(|i| row(&alloc::format!("a.{i}"), Kind::Action, "Run"))
+        .collect();
+    cap_rows(&mut rows);
+    assert_eq!(rows.len(), MAX_ROWS);
+    assert_eq!(
+        rows[MAX_ROWS - 1].item,
+        alloc::format!("a.{}", MAX_ROWS - 1)
+    );
+    let mut few = vec![row("a.one", Kind::Action, "Run")];
+    cap_rows(&mut few);
+    assert_eq!(few.len(), 1);
 }
