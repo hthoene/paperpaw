@@ -178,9 +178,13 @@ impl Plugin for NativeFiles {
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
-            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
+        }
+        // Help hints are a help: a host that takes none (yet) must not stop the
+        // library from loading.
+        for batch in image::HELP {
+            registrations::submit(host, batch).ok();
         }
         // The services are opened by the first callback: opening needs a live frame.
         Ok(Self::default())
