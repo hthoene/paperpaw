@@ -125,7 +125,7 @@ impl ImageRoots for Roots<'_> {
 fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
     let screen = u32::from(device.display.width.max(device.display.height));
     let colour = device.display.color.is_some();
-    if super::ui_store::is_x4(device.id) {
+    if super::ui_store::is_x4(device.memory) {
         DecodeEnv::x4(screen, colour)
     } else {
         DecodeEnv {
