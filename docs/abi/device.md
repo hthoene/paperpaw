@@ -264,9 +264,11 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   or a card move the journals finish or roll back at the next start (5.4). [Q] Firmware: confirm the
   X4's hold timer is not main-loop polled today, else this is a Firmware fix with DEV.
 - [D] Batch limits: at most one power command (1572-1575) and one firmware command per batch, at
-  most two Wi-Fi commands, at most one `install_author` and 8 `install_rotation` per request (the
-  store's `MAX_STEPS`), both after their `install_plugin` in the same batch, at most 16
-  `trust_revoked` per batch (`ERR_INVALID` beyond or out of place).
+  most two Wi-Fi commands, at most one `install_author` and 6 `install_rotation` per request (so
+  `install_plugin`, its author and its rotations fill one 8-record batch; Beta 3's store
+  `MAX_STEPS` was 8, and a longer chain ends with reason 6), both after their `install_plugin` in
+  the same batch, at most 8 `trust_revoked` per batch (the batch cap; more go in later batches)
+  (`ERR_INVALID` beyond or out of place).
 - [D] **Network manager** (Firmware's Q7): `event.network_wanted`/`idle` go only to the plugin the
   user chose as network manager, the host setting `core.network-manager` (a plugin id; the Wi-Fi
   plugin by default; REG-visible and resettable). Without one they go nowhere and network work waits
