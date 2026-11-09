@@ -182,7 +182,7 @@ impl crate::Kernel {
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
-        let (retained, (owner, owned, tokens), raw) =
+        let (retained, (owner, owned, tokens, declared), raw) =
             Retained::make_native_stored(host, map_declarations)?;
         if folder.is_none()
             && owned
@@ -195,6 +195,12 @@ impl crate::Kernel {
         // The callback registrations are admitted whole or the owner is not:
         // none is dropped unrouted.
         let events = check_registrations(&retained, &depth, &tokens)?;
+        // Admitted when it declares OR registers anything (an events-only
+        // plugin is as good as any); a library with nothing at all is no
+        // plugin: invalid, not "needs a newer host".
+        if !declared && events.is_empty() {
+            return Err(shell::Error::Status(ERR_INVALID));
+        }
         let key = self
             .shared
             .native_instances
@@ -653,7 +659,7 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
-) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
+) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
@@ -686,10 +692,10 @@ fn map_declarations(
         })();
     })?;
     result?;
-    if !any {
-        return Err(ERR_UNSUPPORTED);
-    }
-    Ok((owner, owned, tokens))
+    // Whether it declared anything is told with the result: a library that only
+    // registers callbacks (an event, a tick) is admitted too; one with neither
+    // is refused where the registrations are known ([`Kernel::admit_native`]).
+    Ok((owner, owned, tokens, any))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

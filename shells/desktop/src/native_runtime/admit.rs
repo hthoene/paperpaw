@@ -42,8 +42,9 @@ fn problem(error: &shell::Error) -> PluginProblem {
         shell::Error::Allocation | shell::Error::Status(ERR_NO_MEMORY) => PluginProblem::NoRoom,
         // A declaration or requirement this PaperPaw does not serve.
         shell::Error::Status(ERR_UNSUPPORTED) => PluginProblem::NeedsNewerPaperPaw,
-        // An id taken, or a record that does not decode.
-        shell::Error::Status(ERR_INVALID) => PluginProblem::Mismatch,
+        // No plugin at all (nothing declared, nothing registered), or a record
+        // that does not decode.
+        shell::Error::Status(ERR_INVALID) => PluginProblem::Damaged,
         shell::Error::Lifecycle(native_host::Error::Memory | native_host::Error::Capacity) => {
             PluginProblem::NoRoom
         }

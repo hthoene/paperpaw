@@ -682,6 +682,8 @@ fn sweep_post_factory_allocations(arms: u8) {
     );
 }
 
+/// A library with no declaration and no registration is no plugin: invalid
+/// (never "needs a newer host"), nothing published, the host destroyed.
 #[test]
 fn an_empty_install_is_refused_without_publication() {
     reset(NORMAL);
@@ -695,9 +697,30 @@ fn an_empty_install_is_refused_without_publication() {
     EMPTY.with(|value| value.set(false));
     assert!(matches!(
         result,
-        Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        Err(Error::Status(host_glue::ERR_INVALID))
     ));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert!(kernel.shared.native_instances.find("factory").is_none());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
+
+/// A library that declares nothing but registers an event is admitted and
+/// subscribed to it (an events-only plugin: a logger, a sync).
+#[test]
+fn an_events_only_library_is_admitted_and_subscribed() {
+    EMPTY.with(|value| value.set(true));
+    let (mut kernel, result) = regs_kernel(1);
+    EMPTY.with(|value| value.set(false));
+    result.unwrap();
+    let key = kernel.shared.native_instances.find("factory").unwrap();
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .subscribed(key, wire::EVENT_STARTED_TAG)
+    );
+    assert!(!kernel.shared.registry.screens.contains_key("factory.screen"));
+    assert!(kernel.unload_plugin(&Id::new_static("factory")));
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
 

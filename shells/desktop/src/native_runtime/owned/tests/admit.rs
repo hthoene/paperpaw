@@ -83,7 +83,8 @@ fn a_declared_screen_is_admitted_opens_and_draws_through_the_library() {
     assert_ne!(before, after, "the library's draw callback ran");
     let width = usize::from(device.panel.width());
     let at = (8 * width + 8) * 3;
-    assert_eq!(after[at..at + 3], [0, 0, 0], "its bar is on the panel");
+    // Black is not white (the panel's darkest gray is not zero here).
+    assert!(after[at] < 64 && before[at] > after[at], "its bar is on the panel");
     assert!(device.kernel.take_warnings().is_empty());
     assert!(mapped(ID));
     drop(device);
