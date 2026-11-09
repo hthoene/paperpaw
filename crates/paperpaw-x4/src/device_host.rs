@@ -161,6 +161,15 @@ impl X4Device {
         }
     }
 
+    /// [`X4Device::new`] on the heap behind an `Rc`, where the firmware keeps
+    /// it (the one frame that holds the whole struct is this one's, once, at
+    /// start).
+    #[inline(never)]
+    #[must_use]
+    pub fn shared(identity: Identity, list: &'static [u8]) -> Rc<Self> {
+        Rc::new(Self::new(identity, list))
+    }
+
     /// The running firmware (op 3), as the updates know it; `Identity::caps`
     /// has the firmware bit exactly where the firmware calls this.
     pub fn set_firmware(&self, running: &Running<'_>) {
