@@ -400,6 +400,94 @@ impl HostServices {
         )
     }
 
+    /// The document service reports the books it has open
+    /// ([`reader_book_opened`](Self::reader_book_opened) and
+    /// [`reader_book_closed`](Self::reader_book_closed)): the in-use table is
+    /// the reader-book source of `core.files`. Called once, by the document
+    /// service's wiring, and only where it makes those calls: without them
+    /// "no book is open" would be a wrong answer, so `core.files` stays
+    /// unwired until this has been called.
+    ///
+    /// # Errors
+    /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
+    /// sources is in use; `ERR_NO_MEMORY`.
+    #[allow(
+        dead_code,
+        reason = "the document service's wiring calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::ReaderBook) {
+            return Err(ERR_STATE);
+        }
+        sources.register(
+            super::storage_files::BusyKind::ReaderBook,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The library's move job is a busy source of `core.files`: called by the
+    /// library host once, with the `Moves` and the `MoveHost` it runs the job
+    /// with.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    #[allow(dead_code, reason = "the library host registers its job (todo)")]
+    pub(crate) fn register_library_moves(
+        &self,
+        moves: Rc<super::lib_service::moves::Moves>,
+        host: Rc<dyn super::lib_service::moves::MoveHost>,
+    ) -> Result<(), i32> {
+        self.busy_sources().register(
+            super::storage_files::BusyKind::LibraryMoves,
+            Rc::new(super::busy_adapters::MovesBusy::new(moves, host)),
+        )
+    }
+
+    /// A document of the book at `path` was opened through the document
+    /// service: plugins' writes, moves and removals of the book (and of a
+    /// folder holding it) answer `ERR_BUSY` until the document ends
+    /// ([`reader_book_closed`](Self::reader_book_closed)); the host's own
+    /// reads of it are not held back. Counted per path: several documents may
+    /// hold one book. The document service calls it once
+    /// when a document opens and refuses the open on an error, so a book is
+    /// never left unguarded.
+    ///
+    /// # Errors
+    /// `ERR_FULL` when the table has no slot for it (the open is refused
+    /// with it); `ERR_BUSY` when the table is borrowed.
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
+        use paperpaw_native::host_glue::{ERR_FULL, ERR_NO_MEMORY};
+        self.in_use()
+            .claim(super::busy_adapters::READER_OWNER, path)
+            .map_err(|status| {
+                if status == ERR_NO_MEMORY {
+                    ERR_FULL
+                } else {
+                    status
+                }
+            })
+    }
+
+    /// A document of the book at `path` ended (an explicit close, its opener
+    /// or format stopping, the card going, the book moved or removed, its
+    /// place lost to another book): one hold on the path is given back. The
+    /// document service calls it once for each document that ended, with the
+    /// exact path it opened with. Whether there was a hold to give back: a
+    /// `false` is an unbalanced close, for the caller to surface (log).
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_closed(&self, path: &str) -> bool {
+        self.in_use()
+            .release(super::busy_adapters::READER_OWNER, path)
+    }
+
     /// The owner directory, made on first use.
     ///
     /// # Errors
