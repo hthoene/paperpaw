@@ -130,7 +130,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -147,6 +147,7 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
 ];
 
 /// The network settings of every networked first-party plugin, kept in
@@ -162,7 +163,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "opds",
     "read-later-cloud",
     "store",
-    "transfer",
     "update",
     "vocabulary",
     "wifi",
@@ -225,9 +225,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b
-        .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_transfer::Transfer);
+    b = b.plugin(paperpaw_plugin_wifi::Wifi);
     #[cfg(not(feature = "native-linked"))]
     {
         b = b.plugin(paperpaw_plugin_opds::Opds);

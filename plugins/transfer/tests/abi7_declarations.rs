@@ -1,7 +1,14 @@
-//! The native declarations name what the interface-6 registration names: the
-//! three screens, the action, its place in the tools, its icon and the two
-//! slots; and the host's rules accept what they declare.
+//! What the plugin declares: the transfer screen, the phone's keyboard screen
+//! with its slot, the cable's screen with its slot (built, not submitted), the
+//! action that opens the transfer, its place in the tools and its icon, and the
+//! events it hears. The batches are checked by the host's rules, read back and
+//! compared with what is written here, and pinned byte for byte by a reviewed
+//! golden (`PAPERPAW_BLESS=1` writes it anew).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
+#![allow(
+    clippy::redundant_closure,
+    reason = "the declaring functions are generic over the sink: a closure fixes it"
+)]
 #[path = "../declarations.rs"]
 #[allow(
     dead_code,
@@ -11,18 +18,12 @@ mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
-use paperpaw_plugin_transfer::Transfer;
-use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("transfer"));
-    Transfer.register(&mut r).unwrap();
-    r.into_contributions()
-}
+use paperpaw_sdk::native::declare::{Declarations, DeclareError};
 
 fn batches(
-    declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
+    declare: impl FnOnce(
+        &mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>,
+    ) -> Result<(), DeclareError>,
 ) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     {
@@ -31,86 +32,80 @@ fn batches(
             Ok(())
         };
         let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
-        declare(&mut d);
+        declare(&mut d).unwrap();
     }
     out
 }
 
-/// What the batches say, decoded and checked by the host's rules, is what the
-/// interface-6 registration says: the screens, the action, the menu entry,
-/// the icon and the two slots.
-#[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+/// What `make` submits: the screens with the phone's slot, the navigation and
+/// the events.
+fn submitted() -> Vec<Vec<u8>> {
     let mut all = Vec::new();
-    all.extend(batches(|d| declarations::screens(d).unwrap()));
-    all.extend(batches(|d| declarations::cable_later(d).unwrap()));
-    all.extend(batches(|d| declarations::navigation(d).unwrap()));
-    let native = declared::native("transfer", &all);
-    let old = declared::legacy("transfer", "", legacy());
-    // The three screens, whichever batch they came in.
-    let (mut screens, mut old_screens) = (native.screens.clone(), old.screens.clone());
-    screens.sort();
-    old_screens.sort();
-    assert_eq!(screens, old_screens);
-    assert_eq!(native.screens.len(), 3);
-    assert_eq!(native.actions, old.actions);
-    assert_eq!(native.actions, ["open|transfer.title"]);
-    assert_eq!(native.menu_entries, old.menu_entries);
-    assert_eq!(native.menu_entries, ["core.tools|transfer.open|46"]);
-    assert_eq!(native.icons, old.icons);
-    assert_eq!(native.icons, ["transfer.open|transfer"]);
-    let mut slots = native.slots.clone();
-    slots.sort();
-    let mut want = old.slots.clone();
-    want.sort();
-    assert_eq!(slots, want);
-    assert_eq!(
-        slots,
-        [
-            "core.cable|transfer.cable|0",
-            "core.remote-keyboard|transfer.phone|0"
-        ]
-    );
-    assert!(native.groups.is_empty() && native.specs.is_empty());
-    assert!(native.others.is_empty(), "{:?}", native.others);
+    all.extend(batches(|d| declarations::screens(d)));
+    all.extend(batches(|d| declarations::navigation(d)));
+    all.extend(batches(|d| declarations::events(d)));
+    all
 }
 
-/// The instance policy of each screen, as the decoded `screen.spec` flags
-/// say it (bits 6 and 7: 0 per parameters, 1 single, 2 many), is what the
-/// interface-6 registration says: the transfer and the cable open one at a
-/// time, the phone's keyboard screen is kept per parameters (stated, not
-/// left to the default).
 #[test]
-fn the_instances_are_those_of_the_registration() {
-    let mut old = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for s in list.iter() {
-                let policy = match s.how_many() {
-                    i if i == paperpaw_sdk::Instances::PER_PARAMS => 0,
-                    i if i == paperpaw_sdk::Instances::SINGLE => 1,
-                    i if i == paperpaw_sdk::Instances::MANY => 2,
-                    other => panic!("{other:?}"),
-                };
-                old.push((s.id().as_str().to_string(), policy));
-            }
-        }
+fn the_declarations_are_the_reviewed_golden() {
+    let mut all = submitted();
+    all.extend(batches(|d| declarations::cable_later(d)));
+    let mut framed = Vec::new();
+    for batch in all {
+        framed.extend_from_slice(&u32::try_from(batch.len()).unwrap().to_le_bytes());
+        framed.extend_from_slice(&batch);
     }
-    old.sort();
-    let mut new = Vec::new();
-    let mut screens = batches(|d| declarations::screens(d).unwrap());
-    screens.extend(batches(|d| declarations::cable_later(d).unwrap()));
-    for batch in screens {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/declarations.bin.v1");
+    if std::env::var_os("PAPERPAW_BLESS").is_some() {
+        std::fs::write(path, &framed).unwrap();
+    }
+    assert!(
+        framed == std::fs::read(path).unwrap(),
+        "the declarations changed: review, then PAPERPAW_BLESS=1 cargo test"
+    );
+}
+
+/// What the batches say, decoded by the host's rules: the transfer and the
+/// phone's screens, the action, the menu entry, the icon and the phone's slot;
+/// the cable's screen and slot are built but not submitted.
+#[test]
+fn the_decoded_batches_say_what_the_plugin_declares() {
+    let native = declared::native("transfer", &submitted());
+    assert_eq!(
+        native.screens,
+        ["screen|transfer.title", "phone|transfer.phone.title"]
+    );
+    assert_eq!(native.actions, ["open|transfer.title"]);
+    assert_eq!(native.menu_entries, ["core.tools|transfer.open|46"]);
+    assert_eq!(native.icons, ["transfer.open|transfer"]);
+    assert_eq!(native.slots, ["core.remote-keyboard|transfer.phone|0"]);
+    assert!(native.groups.is_empty() && native.specs.is_empty());
+    assert!(native.others.is_empty(), "{:?}", native.others);
+    let later = declared::native("transfer", &batches(|d| declarations::cable_later(d)));
+    assert_eq!(later.screens, ["cable|transfer.cable.title"]);
+    assert_eq!(later.slots, ["core.cable|transfer.cable|0"]);
+}
+
+/// The instance policy of each screen, as the decoded `screen.spec` flags say
+/// it (bits 6 and 7: 0 per parameters, 1 single, 2 many): the transfer and the
+/// cable open one at a time, the phone's keyboard screen is kept per
+/// parameters (stated, not left to the default).
+#[test]
+fn the_instances_are_one_at_a_time_but_the_phones() {
+    let mut policies = Vec::new();
+    let mut all = submitted();
+    all.extend(batches(|d| declarations::cable_later(d)));
+    for batch in all {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::ScreenSpec(s) = record {
-                new.push((format!("transfer.{}", s.name), (s.flags >> 6) & 3));
+                policies.push((format!("transfer.{}", s.name), (s.flags >> 6) & 3));
             }
         }
     }
-    new.sort();
-    assert_eq!(new, old);
+    policies.sort();
     assert_eq!(
-        new,
+        policies,
         [
             ("transfer.cable".to_string(), 1),
             ("transfer.phone".to_string(), 0),
@@ -119,18 +114,9 @@ fn the_instances_are_those_of_the_registration() {
     );
 }
 
-/// What `make` submits (the transfer and phone screens, the phone's slot, the
-/// navigation and the events) holds no offer for the cable: its screen has no
-/// native view yet, and the host must not open one the plugin cannot show.
 #[test]
-fn what_is_submitted_offers_the_phone_not_the_cable_and_hears_the_events() {
-    let mut all = Vec::new();
-    all.extend(batches(|d| declarations::screens(d).unwrap()));
-    all.extend(batches(|d| declarations::navigation(d).unwrap()));
-    let native = declared::native("transfer", &all);
-    assert_eq!(native.slots, ["core.remote-keyboard|transfer.phone|0"]);
-    assert_eq!(native.screens.len(), 2);
-    let events = batches(|d| declarations::events(d).unwrap());
+fn the_events_are_the_servers_the_install_the_network_and_the_timer() {
+    let events = batches(|d| declarations::events(d));
     assert_eq!(events.len(), 1);
     let native = declared::native("transfer", &events);
     let mut tokens: Vec<&str> = native

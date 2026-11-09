@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
-include = ["src", "how", "i18n", "data", "build.rs", "declarations.rs", "native"]
+include = ["src", "how", "i18n", "data", "build.rs", "declarations.rs", "native", "testdata"]
 
 [features]
 linked = []
@@ -17,8 +17,7 @@ native-entry = []
 
 [dependencies]
 paperpaw-qr.workspace = true
-# Installs plugins sent from a computer (kernel).
-paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
@@ -26,14 +25,9 @@ paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true
-paperpaw-digest.workspace = true
 paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-proptest.workspace = true
-# A FAT card for the tests of hostile paths.
-paperpaw-fat.workspace = true
 
 [package.metadata.paperpaw]
 # Large files embedded on purpose (`paperpaw-dev package` says nothing of them).
