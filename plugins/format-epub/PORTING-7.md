@@ -1,8 +1,9 @@
 # Format plugins (EPUB, HTML, Markdown, FB2, CBZ) on interface 7: reading on a full heap
 
-Status: **partly done.** Opening and reading HTML and Markdown (and the conversion, CSS and cache
-code they share with EPUB) answers a refused allocation, it never aborts. The refusal sweeps cover
-Markdown and HTML only; EPUB open (package, ZIP), FB2 and CBZ have no sweep yet (follow-up). A
+Status: Opening and reading Markdown, HTML, EPUB, FictionBook and comic books answers a refused
+allocation, it never aborts. The refusal sweeps (`tests/allocation.rs`) cover all five (an EPUB of
+two chapters, opened and read whole), and a book that converts a chapter again and finds no room part
+of the way reads on as a clean run does. A
 picture that finds no room to be decoded shows its alternative text for now, but its chapter is
 **not marked complete** in the cache (`<n>.end` is not written), so the next opening converts it
 again; one that cannot be decoded for other reasons is cached as its alternative text, as before.

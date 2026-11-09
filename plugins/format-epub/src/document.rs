@@ -9,11 +9,12 @@ use paperpaw_sdk::document::{
 };
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::zip::ZipArchive;
-use paperpaw_sdk::{Env, Storage, StorageError};
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::PLUGIN;
 use crate::cached;
 use crate::convert::{self, CachePaths, INDEX};
+use crate::fallible;
 use crate::obfuscation;
 use crate::package::{self, Chapter};
 
@@ -110,8 +111,13 @@ struct Styled {
 }
 
 impl Styled {
-    fn new(storage: &dyn Storage, cache: &str, styles: bool, user_css: String) -> Self {
-        let chapters = chapters_cache(cache, styles, &user_css);
+    fn new(
+        storage: &dyn Storage,
+        cache: &str,
+        styles: bool,
+        user_css: String,
+    ) -> Result<Self, DocumentError> {
+        let chapters = chapters_cache(cache, styles, &user_css)?;
         if chapters.contains("/css-")
             && paths(&chapters, 0).is_ok_and(|paths| !storage.exists(&paths.end))
         {
@@ -119,7 +125,7 @@ impl Styled {
             // with those before go.
             remove_other_css(storage, cache, &chapters);
         }
-        Styled { chapters, user_css }
+        Ok(Styled { chapters, user_css })
     }
 }
 
@@ -247,30 +253,35 @@ fn left_in(storage: &dyn Storage, dir: &str) -> bool {
 }
 
 /// The cache of a book.
-fn book_cache(path: &str) -> String {
-    paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path)
+fn book_cache(path: &str) -> Result<String, DocumentError> {
+    fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "", path)
 }
 
 /// The cache of a book's chapters converted with its styles or not, and
 /// one's own stylesheets: chapters converted with them go into a cache of
 /// their own, so a changed stylesheet applies at once.
-fn chapters_cache(cache: &str, styles: bool, user_css: &str) -> String {
+fn chapters_cache(cache: &str, styles: bool, user_css: &str) -> Result<String, DocumentError> {
     if !styles {
         plain_cache(cache)
     } else if user_css.is_empty() {
-        String::from(cache)
+        fallible::string(cache)
     } else {
-        alloc::format!("{cache}/css-{:016x}", fnv1a64(user_css))
+        fallible::try_format!("{cache}/css-{:016x}", fnv1a64(user_css))
     }
 }
 
 /// One's own stylesheets for the book at `path` (see [`user_css`]), none
 /// without the book's `styles`.
-fn styles_css(storage: &dyn Storage, path: &str, styles: bool, plugin_css: &str) -> String {
+fn styles_css(
+    storage: &dyn Storage,
+    path: &str,
+    styles: bool,
+    plugin_css: &str,
+) -> Result<String, DocumentError> {
     if styles {
         user_css(storage, path, plugin_css)
     } else {
-        String::new()
+        Ok(String::new())
     }
 }
 
@@ -314,8 +325,8 @@ fn remove_other_css(storage: &dyn Storage, cache: &str, keep: &str) {
 }
 
 /// Where chapters converted without the book's styles are kept.
-fn plain_cache(cache: &str) -> String {
-    alloc::format!("{cache}/plain")
+fn plain_cache(cache: &str) -> Result<String, DocumentError> {
+    fallible::try_format!("{cache}/plain")
 }
 
 impl EpubDocument {
@@ -387,17 +398,32 @@ impl EpubDocument {
         options: &paperpaw_sdk::OpenOptions,
         kept: &PreparedCss,
     ) -> bool {
+        // No room to tell finds the book not prepared (it opens as any).
+        Self::try_prepared_keeping(storage, path, options, kept).unwrap_or(false)
+    }
+
+    fn try_prepared_keeping(
+        storage: &dyn Storage,
+        path: &str,
+        options: &paperpaw_sdk::OpenOptions,
+        kept: &PreparedCss,
+    ) -> Result<bool, DocumentError> {
         let styles = options.publisher_styles;
-        let user_css = styles_css(storage, path, styles, &options.css);
-        let chapters = chapters_cache(&book_cache(path), styles, &user_css);
+        let user_css = styles_css(storage, path, styles, &options.css)?;
+        let chapters = chapters_cache(&book_cache(path)?, styles, &user_css)?;
         let prepared = paths(&chapters, 0).is_ok_and(|paths| storage.exists(&paths.end));
-        *kept.0.borrow_mut() = prepared.then(|| KeptCss {
-            path: String::from(path),
-            styles,
-            plugin_css: options.css.clone(),
-            user_css,
-        });
-        prepared
+        let keep = if prepared {
+            Some(KeptCss {
+                path: fallible::string(path)?,
+                styles,
+                plugin_css: fallible::string(&options.css)?,
+                user_css,
+            })
+        } else {
+            None
+        };
+        *kept.0.borrow_mut() = keep;
+        Ok(prepared)
     }
 
     /// Opens a book with its `styles` or not, the stylesheets to apply
@@ -410,8 +436,8 @@ impl EpubDocument {
         (image_fit, cover_fit): (Fit, Fit),
     ) -> Result<Self, DocumentError> {
         let archive = ZipArchive::open(storage, path).map_err(package::error)?;
-        let cache = book_cache(path);
-        let book = crate::fingerprint(storage, path)?;
+        let cache = book_cache(path)?;
+        let book = fallible::fingerprint(storage, path)?;
         let (package, state) = match package::load(storage, &cache, &book)? {
             Some(package) => (package, Held::Package),
             // A cover made for the library before the book was read stays
@@ -438,12 +464,14 @@ impl EpubDocument {
         };
         let styled = OnceCell::new();
         if let Some(user_css) = user_css {
-            let _ = styled.set(Styled::new(storage, &cache, styles, user_css));
+            let _ = styled.set(Styled::new(storage, &cache, styles, user_css)?);
         }
         let mut metadata = package.metadata;
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(String::from(name.rsplit_once('.').map_or(name, |(s, _)| s)));
+            metadata.title = Some(fallible::string(
+                name.rsplit_once('.').map_or(name, |(s, _)| s),
+            )?);
         }
         let mut lengths = Vec::new();
         lengths
@@ -461,8 +489,8 @@ impl EpubDocument {
             book,
             state: Cell::new(state),
             broken: Cell::new(false),
-            path: String::from(path),
-            plugin_css: String::from(plugin_css),
+            path: fallible::string(path)?,
+            plugin_css: fallible::string(plugin_css)?,
             styled,
             styles,
             color,
@@ -518,15 +546,17 @@ impl EpubDocument {
 
     /// Where its chapters are converted to and one's own stylesheets:
     /// looked for the first time they are needed.
-    fn styled(&self, storage: &dyn Storage) -> &Styled {
-        self.styled.get_or_init(|| {
-            let user_css = styles_css(storage, &self.path, self.styles, &self.plugin_css);
-            Styled::new(storage, &self.cache, self.styles, user_css)
-        })
+    fn styled(&self, storage: &dyn Storage) -> Result<&Styled, DocumentError> {
+        if let Some(styled) = self.styled.get() {
+            return Ok(styled);
+        }
+        let user_css = styles_css(storage, &self.path, self.styles, &self.plugin_css)?;
+        let styled = Styled::new(storage, &self.cache, self.styles, user_css)?;
+        Ok(self.styled.get_or_init(|| styled))
     }
 
     fn paths(&self, storage: &dyn Storage, section: u32) -> Result<CachePaths, DocumentError> {
-        paths(&self.styled(storage).chapters, section)
+        paths(&self.styled(storage)?.chapters, section)
     }
 
     fn length(&self, section: u32) -> Option<u32> {
@@ -579,7 +609,7 @@ impl EpubDocument {
                     Default::default()
                 };
                 // One's own after the book's: they win.
-                let own = &self.styled(storage).user_css;
+                let own = &self.styled(storage)?.user_css;
                 if !own.is_empty() {
                     rules.add_own(own);
                 }
@@ -625,22 +655,29 @@ const MAX_USER_CSS: usize = 64 * 1024;
 /// (e.g. a theme's), then one's own: `styles.css` in its folder (for all
 /// books there), then the one named like the book (`Alice.css` for
 /// `Alice.epub`). The later win.
-pub(crate) fn user_css(storage: &dyn Storage, path: &str, plugins: &str) -> String {
+pub(crate) fn user_css(
+    storage: &dyn Storage,
+    path: &str,
+    plugins: &str,
+) -> Result<String, DocumentError> {
     let folder = paperpaw_sdk::files::parent(path);
     let name = paperpaw_sdk::files::name(path);
     let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
-    let mut css = String::from(plugins);
+    let mut css = fallible::string(plugins)?;
     if !css.is_empty() {
-        css.push('\n');
+        fallible::push_char(&mut css, '\n')?;
     }
-    for file in [String::from("styles.css"), alloc::format!("{stem}.css")] {
-        let file = paperpaw_sdk::files::join(folder, &file);
+    for file in [
+        fallible::string("styles.css")?,
+        fallible::try_format!("{stem}.css")?,
+    ] {
+        let file = fallible::join(folder, &file)?;
         if let Ok(data) = paperpaw_sdk::read_file(storage, &file, MAX_USER_CSS) {
-            css.push_str(&String::from_utf8_lossy(&data));
-            css.push('\n');
+            fallible::push_str(&mut css, &fallible::lossy(&data)?)?;
+            fallible::push_char(&mut css, '\n')?;
         }
     }
-    css
+    Ok(css)
 }
 
 impl EpubDocument {

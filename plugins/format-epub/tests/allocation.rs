@@ -1,5 +1,5 @@
-//! A refused allocation while a Markdown or HTML file is opened and read
-//! is an `OutOfMemory` answer: never an abort or a panic, never output that
+//! A refused allocation while a Markdown, HTML, EPUB, FictionBook or comic
+//! book file is opened and read is an `OutOfMemory` answer: never an abort or a panic, never output that
 //! differs from a clean run, never a cache a later try cannot repair. The
 //! n-th allocation of the parser is refused, for each n.
 //!
@@ -14,7 +14,11 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use paperpaw_plugin_format_epub::{HtmlDocument, MarkdownDocument};
+mod common;
+
+use paperpaw_plugin_format_epub::{
+    CbzDocument, EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument,
+};
 use paperpaw_sdk::document::{Block, Document, DocumentError, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
@@ -200,6 +204,11 @@ type Seen = (Option<String>, Vec<(u32, String, u32, bool)>);
 
 fn read(storage: &Host, open: &Open) -> Result<Seen, DocumentError> {
     let doc = open(storage)?;
+    read_doc(&*doc, storage)
+}
+
+/// What a reader sees of `doc` already open.
+fn read_doc(doc: &dyn Document, storage: &Host) -> Result<Seen, DocumentError> {
     let mut blocks = Vec::new();
     for section in 0..doc.sections() {
         let mut at = Locator::new(section, 0);
@@ -218,13 +227,13 @@ fn read(storage: &Host, open: &Open) -> Result<Seen, DocumentError> {
 fn sweep(
     name: &str,
     file: &str,
-    content: &str,
+    content: &[u8],
     extra: &[(&str, &[u8])],
     short_ok: bool,
     open: &Open,
-) {
+) -> u32 {
     let fresh = || {
-        let mut storage = MemoryStorage::new().with(file, content.as_bytes().to_vec());
+        let mut storage = MemoryStorage::new().with(file, content.to_vec());
         for (path, bytes) in extra {
             storage = storage.with(path, bytes.to_vec());
         }
@@ -256,9 +265,7 @@ fn sweep(
             Err(other) => panic!("{name}: allocation {nth} refused: {other:?}"),
             // A picture that found no room to be decoded is its alternative
             // text, and the chapter is not complete in the cache.
-            Ok(seen)
-                if short_ok && seen != clean && lost_pictures(&seen) == lost_pictures(&clean) =>
-            {
+            Ok(seen) if short_ok && seen != clean && pictures_left_out(&seen, &clean) => {
                 assert_eq!(
                     complete_chapters(&storage),
                     0,
@@ -277,12 +284,7 @@ fn sweep(
         );
     }
     assert!(refusals > 0, "{name}: no refusal answered OutOfMemory");
-    if short_ok {
-        assert!(
-            short > 0,
-            "{name}: no picture was left to its alternative text"
-        );
-    }
+    short
 }
 
 const MARKDOWN: &str = "# A title\n\nA paragraph with *emphasis*, **strong**, `code` and a \
@@ -296,18 +298,57 @@ const HTML: &str = "<html><head><title>Page</title><style>p.k { font-style: ital
 
 #[test]
 fn a_refused_allocation_in_markdown_is_out_of_memory() {
-    sweep("markdown", "notes/n.md", MARKDOWN, &[], false, &|storage| {
-        let doc = MarkdownDocument::open(storage, "notes/n.md", true)?;
-        Ok(host(|| Box::new(doc)))
-    });
+    sweep(
+        "markdown",
+        "notes/n.md",
+        MARKDOWN.as_bytes(),
+        &[],
+        false,
+        &|storage| {
+            let doc = MarkdownDocument::open(storage, "notes/n.md", true)?;
+            Ok(host(|| Box::new(doc)))
+        },
+    );
 }
 
 #[test]
 fn a_refused_allocation_in_html_is_out_of_memory() {
-    sweep("html", "web/p.html", HTML, &[], false, &|storage| {
-        let doc = HtmlDocument::open(storage, "web/p.html", true)?;
-        Ok(host(|| Box::new(doc)))
-    });
+    sweep(
+        "html",
+        "web/p.html",
+        HTML.as_bytes(),
+        &[],
+        false,
+        &|storage| {
+            let doc = HtmlDocument::open(storage, "web/p.html", true)?;
+            Ok(host(|| Box::new(doc)))
+        },
+    );
+}
+
+/// The files the developer aid reads: path, bytes and how to open.
+fn sites_cases() -> Vec<(&'static str, Vec<u8>, Box<Open>)> {
+    vec![
+        (
+            "notes/n.md",
+            MARKDOWN.as_bytes().to_vec(),
+            Box::new(|s: &Host| {
+                let doc = MarkdownDocument::open(s, "notes/n.md", true)?;
+                Ok(host(|| Box::new(doc) as Box<dyn Document>))
+            }),
+        ),
+        (
+            "web/p.html",
+            HTML.as_bytes().to_vec(),
+            Box::new(|s: &Host| {
+                let doc = HtmlDocument::open(s, "web/p.html", true)?;
+                Ok(host(|| Box::new(doc) as Box<dyn Document>))
+            }),
+        ),
+        ("book.epub", epub_fixture(), Box::new(open_epub)),
+        ("b/book.fb2", fb2_fixture().into_bytes(), Box::new(open_fb2)),
+        ("c.cbz", comic_fixture(), Box::new(open_comic)),
+    ]
 }
 
 /// Lists where the parser allocates infallibly (run with `--ignored
@@ -316,18 +357,12 @@ fn a_refused_allocation_in_html_is_out_of_memory() {
 #[ignore = "developer aid: lists the parser's infallible allocation sites"]
 fn list_infallible_sites() {
     SITES.with(|sites| *sites.borrow_mut() = Some(Default::default()));
-    ARMED.with(|armed| armed.set(true));
-    let storage = Host(MemoryStorage::new().with("notes/n.md", MARKDOWN.as_bytes().to_vec()));
-    let _ = read(&storage, &|s| {
-        let doc = MarkdownDocument::open(s, "notes/n.md", true)?;
-        Ok(host(|| Box::new(doc)))
-    });
-    let storage = Host(MemoryStorage::new().with("web/p.html", HTML.as_bytes().to_vec()));
-    let _ = read(&storage, &|s| {
-        let doc = HtmlDocument::open(s, "web/p.html", true)?;
-        Ok(host(|| Box::new(doc)))
-    });
-    ARMED.with(|armed| armed.set(false));
+    for (file, content, open) in sites_cases() {
+        let storage = Host(MemoryStorage::new().with(file, content));
+        ARMED.with(|armed| armed.set(true));
+        let _ = read(&storage, &*open);
+        ARMED.with(|armed| armed.set(false));
+    }
     let sites = SITES.with(|sites| sites.borrow_mut().take().unwrap());
     for (site, count) in &sites {
         eprintln!("{count:5} {site}");
@@ -335,12 +370,17 @@ fn list_infallible_sites() {
     eprintln!("{} sites", sites.len());
 }
 
-/// What a reader sees but for which blocks show a picture.
-fn lost_pictures(seen: &Seen) -> Vec<(u32, &str, u32)> {
-    seen.1
-        .iter()
-        .map(|(section, text, end, _)| (*section, text.as_str(), *end))
-        .collect()
+/// Whether `seen` is `clean` but for pictures that are their alternative
+/// text instead (the text of a block that lost its picture may differ: a
+/// page is named).
+fn pictures_left_out(seen: &Seen, clean: &Seen) -> bool {
+    seen.0 == clean.0
+        && seen.1.len() == clean.1.len()
+        && seen
+            .1
+            .iter()
+            .zip(&clean.1)
+            .all(|(a, b)| a == b || (!a.3 && b.3 && a.0 == b.0 && a.2 == b.2))
 }
 
 /// How many chapters the cache of `storage` holds marked complete.
@@ -361,7 +401,7 @@ fn complete_chapters(storage: &Host) -> usize {
                 if *is_dir {
                     walk(storage, &path)
                 } else {
-                    usize::from(name.ends_with(".end"))
+                    usize::from(name == "end")
                 }
             })
             .sum()
@@ -399,10 +439,10 @@ fn a_refused_allocation_never_caches_a_chapter_without_its_picture() {
         blocks.iter().any(|b| b.3),
         "the picture is shown: {blocks:?}"
     );
-    sweep(
+    let short = sweep(
         "markdown with a picture",
         "notes/n.md",
-        PAGE,
+        PAGE.as_bytes(),
         &[("notes/cat.png", &PNG)],
         true,
         &|storage| {
@@ -410,4 +450,193 @@ fn a_refused_allocation_never_caches_a_chapter_without_its_picture() {
             Ok(host(|| Box::new(doc)))
         },
     );
+    assert!(short > 0, "no picture was left to its alternative text");
+}
+
+/// An EPUB of two chapters with a link, a style, a list, a table, a
+/// picture and a note: opened (package, navigation, spine) and read whole.
+fn epub_fixture() -> Vec<u8> {
+    let chapters = [
+        "<h1 id=\"top\">One</h1><p style=\"text-align:center\">A <b>bold</b> and <i>italic</i> \
+         word with a <a href=\"c1.xhtml#two\">link</a>.</p><ul><li>a</li><li>b</li></ul>\
+         <table><tr><td>x</td><td>y</td></tr></table><img src=\"pic.png\" alt=\"A picture\"/>"
+            .to_string(),
+        "<h2 id=\"two\">Two</h2><blockquote>Quoted text.</blockquote><p>The end.</p>".to_string(),
+    ];
+    common::book_with(
+        &chapters,
+        "p { margin-top: 1em } b { color: #333 }",
+        &[("OEBPS/pic.png", PNG.to_vec())],
+        false,
+    )
+}
+
+fn open_epub(storage: &Host) -> Result<Box<dyn Document>, DocumentError> {
+    let doc = EpubDocument::open(storage, "book.epub")?;
+    Ok(host(|| Box::new(doc)))
+}
+
+#[test]
+fn a_refused_allocation_in_an_epub_is_out_of_memory() {
+    sweep("epub", "book.epub", &epub_fixture(), &[], true, &open_epub);
+}
+
+fn base64(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            out.push(if i <= chunk.len() {
+                char::from(TABLE[(n >> (18 - 6 * i) & 63) as usize])
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
+/// A FictionBook with a title, an author, two sections, a note, a link and
+/// a picture.
+fn fb2_fixture() -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<FictionBook \
+         xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\" xmlns:l=\"http://www.w3.org/1999/xlink\">\
+         <description><title-info><book-title>Story</book-title><author><first-name>Ann</first-name>\
+         <last-name>Writer</last-name></author><lang>en</lang></title-info></description>\
+         <body><title><p>Story</p></title><section><title><p>One</p></title>\
+         <p>Text with <emphasis>emphasis</emphasis> and a <a l:href=\"#n1\">note</a>.</p>\
+         <image l:href=\"#pic\"/><p>After it.</p></section>\
+         <section><title><p>Two</p></title><p>More text.</p></section></body>\
+         <body name=\"notes\"><section id=\"n1\"><p>The note.</p></section></body>\
+         <binary id=\"pic\" content-type=\"image/png\">{}</binary></FictionBook>",
+        base64(&PNG)
+    )
+}
+
+fn open_fb2(storage: &Host) -> Result<Box<dyn Document>, DocumentError> {
+    let doc = Fb2Document::open(storage, "b/book.fb2", true)?;
+    Ok(host(|| Box::new(doc)))
+}
+
+#[test]
+fn a_refused_allocation_in_a_fictionbook_is_out_of_memory() {
+    sweep(
+        "fictionbook",
+        "b/book.fb2",
+        fb2_fixture().as_bytes(),
+        &[],
+        true,
+        &open_fb2,
+    );
+}
+
+/// A comic of three pages.
+fn comic_fixture() -> Vec<u8> {
+    let mut builder = paperpaw_zip::testing::ZipBuilder::new();
+    for name in ["p1.png", "p2.png", "p10.png"] {
+        builder = builder.stored(name, PNG.to_vec());
+    }
+    builder.build()
+}
+
+fn open_comic(storage: &Host) -> Result<Box<dyn Document>, DocumentError> {
+    let doc = CbzDocument::open(storage, "c.cbz")?;
+    Ok(host(|| Box::new(doc)))
+}
+
+#[test]
+fn a_refused_allocation_in_a_comic_is_out_of_memory() {
+    sweep("comic", "c.cbz", &comic_fixture(), &[], true, &open_comic);
+}
+
+/// The files named `name` of the cache of `storage`.
+fn cache_files(storage: &Host, name: &str) -> Vec<String> {
+    fn walk(storage: &Host, dir: &str, name: &str, out: &mut Vec<String>) {
+        let mut found = Vec::new();
+        let _ = storage.list(dir, &mut |entry| {
+            found.push((entry.name.to_string(), entry.is_dir));
+        });
+        for (entry, is_dir) in found {
+            let path = if dir.is_empty() {
+                entry.clone()
+            } else {
+                format!("{dir}/{entry}")
+            };
+            if is_dir {
+                walk(storage, &path, name, out);
+            } else if entry == name {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(storage, "", name, &mut out);
+    out
+}
+
+/// A book that converts a chapter again (its text gone from the cache; the
+/// book keeps the chapter it read last, so it has two)
+/// and finds no room part of the way must not take what that left for the
+/// chapter it once had: reading on gives what a clean run gives.
+#[test]
+fn a_refused_reconversion_is_never_taken_for_the_chapter_the_book_had() {
+    let bodies = [
+        "<h1>One</h1><p>A paragraph of the chapter with <b>bold</b> and a \
+         <a href=\"c0.xhtml\">link</a>.</p><p>Another paragraph, as long.</p>\
+         <img src=\"pic.png\" alt=\"A picture\"/>"
+            .to_string(),
+        "<h2>Two</h2><p>The second chapter, so that the book has left the first.</p>".to_string(),
+    ];
+    let epub = common::book(&bodies, &[("OEBPS/pic.png", PNG.to_vec())]);
+    let storage = Host(MemoryStorage::new().with("book.epub", epub));
+    let doc = open_epub(&storage).expect("a clean open");
+    let clean = read_doc(&*doc, &storage).expect("a clean run reads");
+    let converted_again = || {
+        for path in cache_files(&storage, "txt") {
+            let _ = storage.remove(&path);
+        }
+    };
+    // What one reconversion allocates.
+    converted_again();
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    assert_eq!(read_doc(&*doc, &storage).expect("reads again"), clean);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    assert!(total > 20, "{total} allocations is not representative");
+    let mut refusals = 0;
+    for nth in 1..=total {
+        converted_again();
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let result = read_doc(&*doc, &storage);
+        ARMED.with(|armed| armed.set(false));
+        match result {
+            Err(DocumentError::OutOfMemory) => refusals += 1,
+            Err(other) => panic!("allocation {nth} refused: {other:?}"),
+            Ok(seen) => assert_eq!(seen, clean, "allocation {nth} refused"),
+        }
+        // The same book, the chapter's cache as the refusal left it.
+        assert_eq!(
+            read_doc(&*doc, &storage).expect("reads on"),
+            clean,
+            "reading on after allocation {nth}"
+        );
+        // And converted whole: both chapters are marked complete again.
+        assert_eq!(
+            cache_files(&storage, "end").len(),
+            2,
+            "a chapter not complete after allocation {nth}"
+        );
+    }
+    assert!(refusals > 0, "no refusal answered OutOfMemory");
 }

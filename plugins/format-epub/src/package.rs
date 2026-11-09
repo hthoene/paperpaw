@@ -24,14 +24,18 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use paperpaw_sdk::Storage;
+use paperpaw_sdk::config;
 use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::document::{DocumentError, Metadata, PageProgression};
 use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
 use paperpaw_sdk::zip::{ZipArchive, ZipError};
-use paperpaw_sdk::{config, web};
 
 use crate::css;
+use crate::fallible;
 use crate::obfuscation::Method;
+
+mod nav;
+use nav::{read_nav, read_ncx};
 
 /// Bump when the cache format or the conversion changes.
 pub(crate) const CACHE_VERSION: u32 = 30;
@@ -81,8 +85,8 @@ const TOC_HEADER: usize = 9;
 /// Cache files are appended in chunks of about this size.
 const FLUSH: usize = 256;
 
-fn path(cache: &str, name: &str) -> String {
-    alloc::format!("{cache}/{name}")
+fn path(cache: &str, name: &str) -> Result<String, DocumentError> {
+    fallible::try_format!("{cache}/{name}")
 }
 
 pub(crate) fn error(e: paperpaw_sdk::zip::ZipError) -> DocumentError {
@@ -117,7 +121,8 @@ impl Sections<'_> {
         let record = self.archive.entry(self.storage, file).ok()??.record();
         let section = self.spine.iter().position(|c| c.record == record);
         let section = section.and_then(|s| u32::try_from(s).ok());
-        *last = Some((String::from(file), section));
+        // No room to keep the name only keeps no name.
+        *last = fallible::string(file).ok().map(|name| (name, section));
         section
     }
 }
@@ -151,6 +156,22 @@ fn tokenize(
 /// Adds `more` to `text`, the text of an element being read, while it
 /// holds less than [`MAX_CAPTURE`]; false where the heap has no room.
 /// Grown by what it needs, not by doubling, so it stays near the most.
+/// A copy of `text` kept; no room for it is noted in `out_of_memory`.
+fn own(out_of_memory: &mut bool, text: Option<Cow<'_, str>>) -> Option<String> {
+    text.and_then(|text| keep(out_of_memory, fallible::string(&text)))
+}
+
+/// `result`'s value; no room is noted in `out_of_memory`.
+fn keep<T>(out_of_memory: &mut bool, result: Result<T, DocumentError>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(_) => {
+            *out_of_memory = true;
+            None
+        }
+    }
+}
+
 fn capture(text: &mut String, more: &str) -> bool {
     if text.len() >= MAX_CAPTURE {
         return true;
@@ -169,15 +190,16 @@ fn dir_of(path: &str) -> &str {
 
 /// Resolves `href` relative to the directory `base` into an archive path
 /// and a fragment.
+#[cfg(test)]
 pub(crate) fn resolve(base: &str, href: &str) -> (String, Option<String>) {
     let (path, fragment) = match href.split_once('#') {
-        Some((p, f)) => (p, Some(web::percent_decode(f))),
+        Some((p, f)) => (p, Some(paperpaw_sdk::web::percent_decode(f))),
         None => (href, None),
     };
     let joined = if path.is_empty() {
         String::from(base.trim_end_matches('/'))
     } else {
-        alloc::format!("{base}{}", web::percent_decode(path))
+        alloc::format!("{base}{}", paperpaw_sdk::web::percent_decode(path))
     };
     let mut parts: Vec<&str> = Vec::new();
     for part in joined.split('/') {
@@ -238,7 +260,7 @@ const MAX_DESCRIPTION: usize = 2000;
 /// A description as plain text: Calibre and others write HTML into it
 /// (escaped), so tags go and entities are decoded; cut at
 /// [`MAX_DESCRIPTION`].
-fn plain_text(html: &str) -> String {
+fn plain_text(html: &str) -> Result<String, DocumentError> {
     let mut text = String::new();
     let mut in_tag = false;
     for c in html.chars() {
@@ -246,43 +268,37 @@ fn plain_text(html: &str) -> String {
             '<' => {
                 in_tag = true;
                 // Paragraphs and line breaks part words.
-                text.push(' ');
+                fallible::push_char(&mut text, ' ')?;
             }
             '>' if in_tag => in_tag = false,
-            c if !in_tag => text.push(c),
+            c if !in_tag => fallible::push_char(&mut text, c)?,
             _ => {}
         }
     }
-    let mut plain = clean(&decode(&text));
+    let decoded = paperpaw_sdk::xml::try_decode(&text).map_err(|_| fallible::OOM)?;
+    let mut plain = clean(&decoded)?;
     if plain.len() > MAX_DESCRIPTION {
         let mut end = MAX_DESCRIPTION;
         while !plain.is_char_boundary(end) {
             end -= 1;
         }
         plain.truncate(end);
-        plain.push('…');
+        fallible::push_char(&mut plain, '…')?;
     }
-    plain
+    Ok(plain)
 }
 
 /// A value of the package: its whitespace collapsed, at most
 /// [`MAX_VALUE`] bytes.
-fn value(text: &str) -> String {
-    let mut value = clean(text);
+fn value(text: &str) -> Result<String, DocumentError> {
+    let mut value = clean(text)?;
     value.truncate(truncate(&value, MAX_VALUE).len());
-    value
+    Ok(value)
 }
 
 /// Collapses whitespace in a title.
-fn clean(text: &str) -> String {
-    let mut out = String::new();
-    for word in text.split_whitespace() {
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(word);
-    }
-    out
+fn clean(text: &str) -> Result<String, DocumentError> {
+    fallible::words(text)
 }
 
 fn read_u32(storage: &dyn Storage, path: &str, offset: u64) -> Option<u32> {
@@ -317,7 +333,7 @@ pub(crate) fn load(
     cache: &str,
     book: &str,
 ) -> Result<Option<Package>, DocumentError> {
-    let Some(data) = read_cache(storage, &path(cache, "package.ini"), MAX_INI)? else {
+    let Some(data) = read_cache(storage, &path(cache, "package.ini")?, MAX_INI)? else {
         return Ok(None);
     };
     let parsed = core::str::from_utf8(&data)
@@ -387,7 +403,7 @@ fn load_spine(
     cache: &str,
     sections: usize,
 ) -> Result<Option<Vec<Chapter>>, DocumentError> {
-    let file = path(cache, "spine.bin");
+    let file = path(cache, "spine.bin")?;
     if sections == 0 || storage.size(&file).ok() != Some(sections as u64 * 8) {
         return Ok(None);
     }
@@ -426,8 +442,12 @@ fn write_fonts(
     let mut methods: Vec<(String, Method)> = Vec::new();
     if !faces.is_empty() {
         let mut method = Method::None;
+        let mut refused = None;
         // A missing encryption.xml is fine: nothing is obfuscated.
         let read = tokenize(storage, archive, "META-INF/encryption.xml", &mut |token| {
+            if refused.is_some() {
+                return;
+            }
             if let Token::Start { name, attrs, .. } = token {
                 match local_name(name) {
                     "EncryptionMethod" => {
@@ -436,7 +456,9 @@ fn write_fonts(
                     }
                     "CipherReference" => {
                         if let Some(uri) = attrs.get("URI") {
-                            methods.push((resolve("", &uri).0, method));
+                            refused = try_resolve("", &uri)
+                                .and_then(|(path, _)| fallible::push(&mut methods, (path, method)))
+                                .err();
                         }
                     }
                     _ => {}
@@ -444,23 +466,32 @@ fn write_fonts(
             }
         });
         only_out_of_memory(read)?;
+        if let Some(e) = refused {
+            return Err(e);
+        }
     }
-    let mut out = alloc::format!("id\t{}\n", identifier.replace(['\t', '\n'], " "));
+    let mut out = String::new();
+    fallible::push_str(&mut out, "id\t")?;
+    for c in identifier.chars() {
+        fallible::push_char(&mut out, if matches!(c, '\t' | '\n') { ' ' } else { c })?;
+    }
+    fallible::push_char(&mut out, '\n')?;
     for face in faces {
         let method = methods
             .iter()
             .find(|(p, _)| *p == face.path)
             .map_or(Method::None, |(_, m)| *m);
-        out.push_str(&alloc::format!(
+        fallible::try_write!(
+            &mut out,
             "{}\t{}\t{}\t{}\t{}\n",
             face.family,
             u8::from(face.bold),
             u8::from(face.italic),
             method.code(),
             face.path
-        ));
+        )?;
     }
-    storage.write(&path(cache, "fonts.txt"), out.as_bytes())?;
+    storage.write(&path(cache, "fonts.txt")?, out.as_bytes())?;
     Ok(())
 }
 
@@ -476,7 +507,10 @@ pub(crate) struct FontEntry {
 
 /// The book's identifier and embedded fonts from the cache.
 pub(crate) fn fonts(storage: &dyn Storage, cache: &str) -> (String, Vec<FontEntry>) {
-    let Ok(data) = paperpaw_sdk::read_file(storage, &path(cache, "fonts.txt"), 64 * 1024) else {
+    let Ok(file) = path(cache, "fonts.txt") else {
+        return (String::new(), Vec::new());
+    };
+    let Ok(data) = paperpaw_sdk::read_file(storage, &file, 64 * 1024) else {
         return (String::new(), Vec::new());
     };
     let text = String::from_utf8_lossy(&data);
@@ -508,7 +542,7 @@ pub(crate) fn fonts(storage: &dyn Storage, cache: &str) -> (String, Vec<FontEntr
 /// has no room for them, as a chapter converted without them would be
 /// kept so.
 pub(crate) fn styles(storage: &dyn Storage, cache: &str) -> Result<css::Rules, DocumentError> {
-    let Some(data) = read_cache(storage, &path(cache, "styles.txt"), 64 * 1024)? else {
+    let Some(data) = read_cache(storage, &path(cache, "styles.txt")?, 64 * 1024)? else {
         return Ok(css::Rules::default());
     };
     match String::from_utf8(data) {
@@ -519,10 +553,10 @@ pub(crate) fn styles(storage: &dyn Storage, cache: &str) -> Result<css::Rules, D
 
 /// Reads table of contents entry `index` from the cache.
 pub(crate) fn toc_entry(storage: &dyn Storage, cache: &str, index: u32) -> Option<RawToc> {
-    let data = path(cache, "toc.dat");
+    let data = path(cache, "toc.dat").ok()?;
     let offset = u64::from(read_u32(
         storage,
-        &path(cache, "toc.idx"),
+        &path(cache, "toc.idx").ok()?,
         u64::from(index) * 4,
     )?);
     let mut header = [0u8; TOC_HEADER];
@@ -581,8 +615,8 @@ impl<'a> TocWriter<'a> {
     pub(crate) fn new(storage: &'a dyn Storage, cache: &str) -> Result<Self, DocumentError> {
         let writer = Self {
             storage,
-            data_path: path(cache, "toc.dat"),
-            index_path: path(cache, "toc.idx"),
+            data_path: path(cache, "toc.dat")?,
+            index_path: path(cache, "toc.idx")?,
             data: Vec::new(),
             index: Vec::new(),
             written: 0,
@@ -598,6 +632,20 @@ impl<'a> TocWriter<'a> {
         // Longer ids cannot match an anchor; titles are shown on one line.
         let fragment = truncate(fragment.unwrap_or_default(), 255);
         let title = truncate(title, 1024);
+        if self.failed.is_some() {
+            return;
+        }
+        // Room for the record first: no room ends the table, answered by
+        // `finish`.
+        if self
+            .data
+            .try_reserve(TOC_HEADER + fragment.len() + title.len())
+            .is_err()
+            || self.index.try_reserve(4).is_err()
+        {
+            self.failed = Some(DocumentError::OutOfMemory);
+            return;
+        }
         self.index.extend_from_slice(&self.written.to_le_bytes());
         self.data.push(level);
         self.data.extend_from_slice(&section.to_le_bytes());
@@ -657,14 +705,16 @@ pub(crate) fn read(storage: &dyn Storage, archive: &ZipArchive) -> Result<Packag
 /// Whether a package of some book is in the cache: of another book or
 /// version where [`load`] found none.
 pub(crate) fn cached(storage: &dyn Storage, cache: &str) -> bool {
-    storage.exists(&path(cache, "package.ini"))
+    path(cache, "package.ini").is_ok_and(|file| storage.exists(&file))
 }
 
 /// Whether the cache was made for the book of fingerprint `book`, at this
 /// version, before its package was written (see [`stamp`]).
 pub(crate) fn stamped(storage: &dyn Storage, cache: &str, book: &str) -> bool {
-    let stamp = source_stamp(book);
-    read_cache(storage, &path(cache, SOURCE), stamp.len() + 1)
+    let (Ok(stamp), Ok(file)) = (source_stamp(book), path(cache, SOURCE)) else {
+        return false;
+    };
+    read_cache(storage, &file, stamp.len() + 1)
         .is_ok_and(|data| data.as_deref() == Some(stamp.as_bytes()))
 }
 
@@ -673,15 +723,15 @@ pub(crate) fn stamped(storage: &dyn Storage, cache: &str, book: &str) -> bool {
 /// what a cache holds without the package or this mark is another
 /// book's, or left by a removal cut off, and goes when the book opens.
 pub(crate) fn stamp(storage: &dyn Storage, cache: &str, book: &str) -> Result<(), DocumentError> {
-    storage.write(&path(cache, SOURCE), source_stamp(book).as_bytes())?;
+    storage.write(&path(cache, SOURCE)?, source_stamp(book)?.as_bytes())?;
     Ok(())
 }
 
 /// The file [`stamp`] writes.
 const SOURCE: &str = "source.txt";
 
-fn source_stamp(book: &str) -> String {
-    alloc::format!("{CACHE_VERSION} {book}")
+fn source_stamp(book: &str) -> Result<String, DocumentError> {
+    fallible::try_format!("{CACHE_VERSION} {book}")
 }
 
 /// Reads the package from the archive and writes it to the cache, for
@@ -731,11 +781,10 @@ fn package_path(storage: &dyn Storage, archive: &ZipArchive) -> Result<String, D
             && local_name(name) == "rootfile"
             && opf_path.is_none()
         {
-            opf_path = attrs.get("full-path").map(|p| p.into_owned());
+            opf_path = attrs.get("full-path").map(|p| fallible::string(&p));
         }
     })?;
-    let opf_path = opf_path.ok_or(malformed("no package document"))?;
-    Ok(opf_path)
+    opf_path.ok_or(malformed("no package document"))?
 }
 
 /// What the first pass over the package document finds.
@@ -783,7 +832,7 @@ fn read_metadata(
             attrs,
             self_closing,
         } => match local_name(name) {
-            "package" => unique_id = attrs.get("unique-identifier").map(|v| v.into_owned()),
+            "package" => unique_id = own(&mut out_of_memory, attrs.get("unique-identifier")),
             "identifier"
                 if !self_closing
                     && identifier.is_empty()
@@ -815,19 +864,25 @@ fn read_metadata(
             }
             // Calibre's series.
             "meta" if attrs.get("name").as_deref() == Some("calibre:series") => {
-                if let Some(series) = attrs.get("content").map(|v| value(&v)) {
+                if let Some(series) = attrs
+                    .get("content")
+                    .and_then(|v| keep(&mut out_of_memory, value(&v)))
+                {
                     metadata.series.get_or_insert(series);
                 }
             }
             "meta" if attrs.get("name").as_deref() == Some("calibre:series_index") => {
-                if let Some(index) = attrs.get("content").map(|v| value(&v)) {
+                if let Some(index) = attrs
+                    .get("content")
+                    .and_then(|v| keep(&mut out_of_memory, value(&v)))
+                {
                     metadata.series_index.get_or_insert(index);
                 }
             }
             "meta" if !self_closing => {
                 let property = attrs.get("property");
                 if property.as_deref() == Some("belongs-to-collection") {
-                    collection_id = attrs.get("id").map(|v| v.into_owned());
+                    collection_id = own(&mut out_of_memory, attrs.get("id"));
                     capture = Some("collection");
                     text.clear();
                 } else if property.as_deref() == Some("group-position")
@@ -869,24 +924,28 @@ fn read_metadata(
             if let Some(field) = capture
                 && local_name(name) == element(field)
             {
-                let value = value(&text);
+                let Some(value) = keep(&mut out_of_memory, value(&text)) else {
+                    capture = None;
+                    return;
+                };
                 match field {
                     "title" if metadata.title.is_none() && !value.is_empty() => {
                         metadata.title = Some(value);
                     }
                     "creator" if !value.is_empty() && metadata.authors.len() < MAX_AUTHORS => {
-                        metadata.authors.push(value);
+                        out_of_memory |= fallible::push(&mut metadata.authors, value).is_err();
                     }
                     "subject"
                         if !value.is_empty()
                             && metadata.subjects.len() < MAX_SUBJECTS
                             && !metadata.subjects.contains(&value) =>
                     {
-                        metadata.subjects.push(value);
+                        out_of_memory |= fallible::push(&mut metadata.subjects, value).is_err();
                     }
                     "description" if metadata.description.is_none() => {
-                        let plain = plain_text(&text);
-                        metadata.description = (!plain.is_empty()).then_some(plain);
+                        if let Some(plain) = keep(&mut out_of_memory, plain_text(&text)) {
+                            metadata.description = (!plain.is_empty()).then_some(plain);
+                        }
                     }
                     "language" if metadata.language.is_none() && !value.is_empty() => {
                         metadata.language = Some(value);
@@ -944,7 +1003,7 @@ fn read_manifest(
     opf_path: &str,
     opf: &Opf,
 ) -> Result<Items, DocumentError> {
-    let opf_dir = String::from(dir_of(opf_path));
+    let opf_dir = fallible::string(dir_of(opf_path))?;
     let (spine_ids, ncx_id, cover_id) = (&opf.spine_ids, opf.ncx_id, opf.cover_id);
     // Second pass: the manifest items the spine refers to, the navigation
     // document and the NCX. Nothing else of the manifest is kept.
@@ -963,58 +1022,68 @@ fn read_manifest(
     let mut cover: Option<(bool, String)> = None;
     let mut failed = None;
     tokenize(storage, archive, opf_path, &mut |token| {
-        let Token::Start { name, attrs, .. } = token else {
-            return;
-        };
-        if local_name(name) != "item" {
+        if failed.is_some() {
             return;
         }
-        let get = |n| attrs.get(n).unwrap_or_default();
-        let id = fnv1a64(get("id").as_bytes());
-        let first = spine_ids.partition_point(|&(h, _)| h < id);
-        let positions = spine_ids[first..].iter().take_while(|&&(h, _)| h == id);
-        let is_nav = get("properties").split_whitespace().any(|p| p == "nav");
-        let is_ncx = ncx_id == Some(id);
-        let media_type = get("media-type");
-        let is_ncx_type = media_type == "application/x-dtbncx+xml";
-        let is_css = media_type == "text/css";
-        let is_cover_image = get("properties")
-            .split_whitespace()
-            .any(|p| p == "cover-image");
-        if (is_cover_image || cover_id == Some(id))
-            && media_type.starts_with("image/")
-            && !cover.as_ref().is_some_and(|(declared, _)| *declared)
-        {
-            cover = Some((is_cover_image, resolve(&opf_dir, &get("href")).0));
-        }
-        let mut positions = positions.peekable();
-        if positions.peek().is_none() && !is_nav && !is_ncx && !is_ncx_type && !is_css {
-            return;
-        }
-        let (path, _) = resolve(&opf_dir, &get("href"));
-        if is_css && stylesheets.len() < MAX_STYLESHEETS {
-            stylesheets.push(path.clone());
-        }
-        for &(_, position) in positions {
-            match archive.entry(storage, &path) {
-                Ok(Some(entry)) => {
-                    chapters[position as usize] = Chapter {
-                        record: entry.record(),
-                        size: entry.size,
-                    };
-                }
-                Ok(None) => {}
-                Err(e) => failed = Some(error(e)),
+        // A copy that finds no room ends the read with `OutOfMemory`.
+        let mut item = || -> Result<(), DocumentError> {
+            let Token::Start { name, attrs, .. } = token else {
+                return Ok(());
+            };
+            if local_name(name) != "item" {
+                return Ok(());
             }
-        }
-        if is_nav && nav.is_none() {
-            nav = Some(path.clone());
-        }
-        if is_ncx {
-            ncx = Some(path.clone());
-        }
-        if is_ncx_type && ncx_by_type.is_none() {
-            ncx_by_type = Some(path);
+            let get = |n| attrs.get(n).unwrap_or_default();
+            let id = fnv1a64(get("id").as_bytes());
+            let first = spine_ids.partition_point(|&(h, _)| h < id);
+            let positions = spine_ids[first..].iter().take_while(|&&(h, _)| h == id);
+            let is_nav = get("properties").split_whitespace().any(|p| p == "nav");
+            let is_ncx = ncx_id == Some(id);
+            let media_type = get("media-type");
+            let is_ncx_type = media_type == "application/x-dtbncx+xml";
+            let is_css = media_type == "text/css";
+            let is_cover_image = get("properties")
+                .split_whitespace()
+                .any(|p| p == "cover-image");
+            if (is_cover_image || cover_id == Some(id))
+                && media_type.starts_with("image/")
+                && !cover.as_ref().is_some_and(|(declared, _)| *declared)
+            {
+                cover = Some((is_cover_image, try_resolve(&opf_dir, &get("href"))?.0));
+            }
+            let mut positions = positions.peekable();
+            if positions.peek().is_none() && !is_nav && !is_ncx && !is_ncx_type && !is_css {
+                return Ok(());
+            }
+            let (path, _) = try_resolve(&opf_dir, &get("href"))?;
+            if is_css && stylesheets.len() < MAX_STYLESHEETS {
+                fallible::push(&mut stylesheets, fallible::string(&path)?)?;
+            }
+            for &(_, position) in positions {
+                match archive.entry(storage, &path) {
+                    Ok(Some(entry)) => {
+                        chapters[position as usize] = Chapter {
+                            record: entry.record(),
+                            size: entry.size,
+                        };
+                    }
+                    Ok(None) => {}
+                    Err(e) => return Err(error(e)),
+                }
+            }
+            if is_nav && nav.is_none() {
+                nav = Some(fallible::string(&path)?);
+            }
+            if is_ncx {
+                ncx = Some(fallible::string(&path)?);
+            }
+            if is_ncx_type && ncx_by_type.is_none() {
+                ncx_by_type = Some(path);
+            }
+            Ok(())
+        };
+        if let Err(e) = item() {
+            failed = Some(e);
         }
     })?;
     if let Some(e) = failed {
@@ -1059,7 +1128,7 @@ fn write_toc(
                 toc.push(level, section, fragment, &title);
             }
         };
-    let pages_path = path(cache, "pages.txt");
+    let pages_path = path(cache, "pages.txt")?;
     storage.write(&pages_path, &[])?;
     if let Some(nav) = nav {
         let mut pages = String::new();
@@ -1111,7 +1180,7 @@ fn only_out_of_memory(read: Result<(), DocumentError>) -> Result<(), DocumentErr
 
 /// Writes where the chapters are in the archive, a few at a time.
 fn write_spine(storage: &dyn Storage, cache: &str, spine: &[Chapter]) -> Result<(), DocumentError> {
-    let file = path(cache, "spine.bin");
+    let file = path(cache, "spine.bin")?;
     storage.write(&file, &[])?;
     let mut buf = [0u8; FLUSH];
     for chapters in spine.chunks(FLUSH / 8) {
@@ -1156,7 +1225,7 @@ fn write_styles(
             return Err(DocumentError::OutOfMemory);
         }
     }
-    write_rules(storage, &path(cache, "styles.txt"), &rules)?;
+    write_rules(storage, &path(cache, "styles.txt")?, &rules)?;
     write_fonts(storage, archive, cache, &rules.faces, identifier)?;
     drop(rules);
     Ok(())
@@ -1166,19 +1235,29 @@ fn write_styles(
 fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<(), DocumentError> {
     storage.write(file, &[])?;
     let mut lines = String::new();
-    let mut failed = None;
-    rules.encode_lines(&mut |line| {
-        lines.push_str(line);
+    let mut failed: Option<DocumentError> = None;
+    let encoded = rules.encode_lines(&mut |line| {
+        if failed.is_some() {
+            return;
+        }
+        if let Err(e) = fallible::push_str(&mut lines, line) {
+            failed = Some(e);
+            return;
+        }
         if lines.len() >= FLUSH {
-            if failed.is_none() {
-                failed = storage.append(file, lines.as_bytes()).err();
-            }
+            failed = storage
+                .append(file, lines.as_bytes())
+                .err()
+                .map(DocumentError::Storage);
             lines.clear();
         }
     });
     match failed {
-        Some(e) => Err(DocumentError::Storage(e)),
-        None => Ok(storage.append(file, lines.as_bytes())?),
+        Some(e) => Err(e),
+        None => {
+            encoded?;
+            Ok(storage.append(file, lines.as_bytes())?)
+        }
     }
 }
 
@@ -1219,186 +1298,98 @@ fn write_ini(
     cover: Option<&str>,
     book: &str,
 ) -> Result<(), DocumentError> {
-    let mut entries: Vec<(&str, String, String)> = Vec::new();
-    let mut set = |section: &'static str, key: &str, value: &str| {
-        entries.push((section, String::from(key), String::from(value)));
+    let ini = ini_text(metadata, sections, toc_len, cover, book)?;
+    storage.write(&path(cache, "package.ini")?, ini.as_bytes())?;
+    Ok(())
+}
+
+/// A value as `paperpaw_sdk::config::quote` writes it, where a copy that
+/// finds no room is `OutOfMemory`.
+fn write_value(out: &mut String, value: &str) -> Result<(), DocumentError> {
+    let plain = !value.is_empty()
+        && value.trim() == value
+        && !value.starts_with('"')
+        && !value.contains(['\n', '\r']);
+    if plain {
+        return fallible::push_str(out, value);
+    }
+    fallible::push_char(out, '"')?;
+    for c in value.chars() {
+        match c {
+            '"' => fallible::push_str(out, "\\\"")?,
+            '\\' => fallible::push_str(out, "\\\\")?,
+            '\n' => fallible::push_str(out, "\\n")?,
+            '\t' => fallible::push_str(out, "\\t")?,
+            '\r' => {}
+            c => fallible::push_char(out, c)?,
+        }
+    }
+    fallible::push_char(out, '"')
+}
+
+/// The text of `package.ini`: the entries of two sections, as
+/// `paperpaw_sdk::config::set_all` writes them to an empty file.
+fn ini_text(
+    metadata: &Metadata,
+    sections: usize,
+    toc_len: u32,
+    cover: Option<&str>,
+    book: &str,
+) -> Result<String, DocumentError> {
+    let mut out = String::new();
+    let mut section = "";
+    let mut set = |name: &'static str, key: &str, value: &str| -> Result<(), DocumentError> {
+        if name != section {
+            if !out.is_empty() {
+                fallible::push_char(&mut out, '\n')?;
+            }
+            fallible::try_write!(&mut out, "[{name}]\n")?;
+            section = name;
+        }
+        fallible::try_write!(&mut out, "{key} = ")?;
+        write_value(&mut out, value)?;
+        fallible::push_char(&mut out, '\n')
     };
-    set("cache", "version", &CACHE_VERSION.to_string());
-    set("cache", "source", book);
+    set(
+        "cache",
+        "version",
+        &fallible::try_format!("{CACHE_VERSION}")?,
+    )?;
+    set("cache", "source", book)?;
     if let Some(title) = &metadata.title {
-        set("book", "title", title);
+        set("book", "title", title)?;
     }
     if let Some(language) = &metadata.language {
-        set("book", "language", language);
+        set("book", "language", language)?;
     }
     if let Some(series) = &metadata.series {
-        set("book", "series", series);
+        set("book", "series", series)?;
     }
     if let Some(index) = &metadata.series_index {
-        set("book", "series-index", index);
+        set("book", "series-index", index)?;
     }
-    set("book", "sections", &sections.to_string());
-    set("book", "toc", &toc_len.to_string());
+    set("book", "sections", &fallible::try_format!("{sections}")?)?;
+    set("book", "toc", &fallible::try_format!("{toc_len}")?)?;
     for (i, author) in metadata.authors.iter().enumerate() {
-        set("book", &alloc::format!("author.{}", i + 1), author);
+        set("book", &fallible::try_format!("author.{}", i + 1)?, author)?;
     }
     for (i, subject) in metadata.subjects.iter().enumerate() {
-        set("book", &alloc::format!("subject.{}", i + 1), subject);
+        set(
+            "book",
+            &fallible::try_format!("subject.{}", i + 1)?,
+            subject,
+        )?;
     }
     if let Some(description) = &metadata.description {
-        set("book", "description", description);
+        set("book", "description", description)?;
     }
     if metadata.direction == PageProgression::RightToLeft {
-        set("book", "direction", "rtl");
+        set("book", "direction", "rtl")?;
     }
     if let Some(cover) = cover {
-        set("book", "cover", cover);
+        set("book", "cover", cover)?;
     }
-    let ini = config::set_all("", entries);
-    storage.write(&path(cache, "package.ini"), ini.as_bytes())?;
-    Ok(())
-}
-
-type AddToc<'a> = dyn FnMut(String, u8, &str, Option<&str>) + 'a;
-
-/// EPUB 3: `<nav epub:type="toc">` with nested `<ol><li><a href>`, and
-/// the printed pages of `<nav epub:type="page-list">` for `page`.
-fn read_nav(
-    storage: &dyn Storage,
-    archive: &ZipArchive,
-    path: &str,
-    add: &mut AddToc<'_>,
-    page: &mut dyn FnMut(String, &str, Option<&str>),
-) -> Result<(), DocumentError> {
-    let base = String::from(dir_of(path));
-    let mut in_toc = false;
-    let mut in_pages = false;
-    let mut page_link: Option<(String, Option<String>)> = None;
-    let mut ol_depth = 0u8;
-    let mut link: Option<(String, Option<String>)> = None;
-    let mut text = String::new();
-    let mut out_of_memory = false;
-    tokenize(storage, archive, path, &mut |token| match token {
-        Token::Start {
-            name,
-            attrs,
-            self_closing,
-        } => match local_name(name) {
-            "nav" => {
-                let kind = attrs
-                    .iter()
-                    .find(|(n, _)| local_name(n) == "type")
-                    .map(|(_, v)| v);
-                if kind.is_some_and(|k| k.split_whitespace().any(|t| t == "toc")) {
-                    in_toc = true;
-                    ol_depth = 0;
-                }
-                in_pages = kind.is_some_and(|k| k.split_whitespace().any(|t| t == "page-list"));
-            }
-            "a" if in_pages && !self_closing => {
-                let href = attrs.get("href").unwrap_or_default();
-                page_link = Some(resolve(&base, &href));
-                text.clear();
-            }
-            "ol" if in_toc => ol_depth = ol_depth.saturating_add(1),
-            "a" if in_toc && !self_closing => {
-                let href = attrs.get("href").unwrap_or_default();
-                link = Some(resolve(&base, &href));
-                text.clear();
-            }
-            _ => {}
-        },
-        Token::Text(t) if link.is_some() || page_link.is_some() => {
-            out_of_memory |= !capture(&mut text, &decode(&t));
-        }
-        Token::End { name } => match local_name(name) {
-            "nav" => {
-                in_toc = false;
-                in_pages = false;
-            }
-            "a" if page_link.is_some() => {
-                if let Some((file, fragment)) = page_link.take() {
-                    let label = clean(&text);
-                    if !label.is_empty() && !file.is_empty() {
-                        page(label, &file, fragment.as_deref());
-                    }
-                }
-            }
-            "ol" if in_toc => ol_depth = ol_depth.saturating_sub(1),
-            "a" => {
-                if let Some((file, fragment)) = link.take() {
-                    let title = clean(&text);
-                    if !title.is_empty() && !file.is_empty() {
-                        add(
-                            title,
-                            ol_depth.saturating_sub(1),
-                            &file,
-                            fragment.as_deref(),
-                        );
-                    }
-                }
-            }
-            _ => {}
-        },
-        _ => {}
-    })?;
-    if out_of_memory {
-        return Err(DocumentError::OutOfMemory);
-    }
-    Ok(())
-}
-
-/// EPUB 2: nested `<navPoint>` with `<navLabel><text>` and `<content src>`
-/// inside `<navMap>` (page lists and other lists are not chapters).
-fn read_ncx(
-    storage: &dyn Storage,
-    archive: &ZipArchive,
-    path: &str,
-    add: &mut AddToc<'_>,
-) -> Result<(), DocumentError> {
-    let base = String::from(dir_of(path));
-    let mut depth = 0u8;
-    let mut in_map = false;
-    let mut in_label = false;
-    let mut text = String::new();
-    let mut pending: Option<(String, u8)> = None;
-    let mut out_of_memory = false;
-    tokenize(storage, archive, path, &mut |token| match token {
-        Token::Start { name, attrs, .. } => match local_name(name) {
-            "navMap" => in_map = true,
-            _ if !in_map => {}
-            "navPoint" => depth = depth.saturating_add(1),
-            "navLabel" => {
-                in_label = true;
-                text.clear();
-            }
-            "content" => {
-                if let (Some((title, level)), Some(src)) = (pending.take(), attrs.get("src")) {
-                    let (file, fragment) = resolve(&base, &src);
-                    add(title, level, &file, fragment.as_deref());
-                }
-            }
-            _ => {}
-        },
-        Token::Text(t) if in_label => out_of_memory |= !capture(&mut text, &decode(&t)),
-        Token::End { name } => match local_name(name) {
-            "navMap" => in_map = false,
-            "navPoint" => depth = depth.saturating_sub(1),
-            "navLabel" if in_map => {
-                in_label = false;
-                let title = clean(&text);
-                if !title.is_empty() {
-                    pending = Some((title, depth.saturating_sub(1)));
-                }
-            }
-            _ => {}
-        },
-        _ => {}
-    })?;
-    if out_of_memory {
-        return Err(DocumentError::OutOfMemory);
-    }
-    Ok(())
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1431,5 +1422,62 @@ mod tests {
         }
         assert_eq!(out, "/* \u{fffd} 2010 */ p { a: \u{2014} }");
         assert!(pending.is_empty());
+    }
+
+    /// `package.ini` is the text `config::set_all` made of its entries
+    /// before it was written without it.
+    #[test]
+    fn the_ini_is_what_set_all_writes() {
+        use paperpaw_sdk::document::PageProgression;
+        let mut full = Metadata::default();
+        full.title = Some("A \"quoted\" title".into());
+        full.language = Some("en".into());
+        full.series = Some(" padded ".into());
+        full.series_index = Some("2".into());
+        full.authors = alloc::vec!["Ann".into(), "Bob\tTab".into(), String::new()];
+        full.subjects = alloc::vec!["one".into(), "two\nlines".into()];
+        full.description = Some("It begins.\\ Then more.".into());
+        full.direction = PageProgression::RightToLeft;
+        for (metadata, cover) in [(Metadata::default(), None), (full, Some("OEBPS/cover.png"))] {
+            let mut entries: Vec<(&str, String, String)> = Vec::new();
+            let mut set = |section: &'static str, key: &str, value: &str| {
+                entries.push((section, String::from(key), String::from(value)));
+            };
+            set("cache", "version", &CACHE_VERSION.to_string());
+            set("cache", "source", "12 abc");
+            if let Some(title) = &metadata.title {
+                set("book", "title", title);
+            }
+            if let Some(language) = &metadata.language {
+                set("book", "language", language);
+            }
+            if let Some(series) = &metadata.series {
+                set("book", "series", series);
+            }
+            if let Some(index) = &metadata.series_index {
+                set("book", "series-index", index);
+            }
+            set("book", "sections", "3");
+            set("book", "toc", "5");
+            for (i, author) in metadata.authors.iter().enumerate() {
+                set("book", &alloc::format!("author.{}", i + 1), author);
+            }
+            for (i, subject) in metadata.subjects.iter().enumerate() {
+                set("book", &alloc::format!("subject.{}", i + 1), subject);
+            }
+            if let Some(description) = &metadata.description {
+                set("book", "description", description);
+            }
+            if metadata.direction == PageProgression::RightToLeft {
+                set("book", "direction", "rtl");
+            }
+            if let Some(cover) = cover {
+                set("book", "cover", cover);
+            }
+            assert_eq!(
+                ini_text(&metadata, 3, 5, cover, "12 abc").unwrap(),
+                config::set_all("", entries)
+            );
+        }
     }
 }
