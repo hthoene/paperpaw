@@ -1,7 +1,6 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! sleep screen is pinned by `sleep_screen.rs` and `over_page.rs` on a kernel
-//! and by the goldens; these cases are the same behaviours through the
-//! production loader with the native plugin. They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host: the behaviours of
+//! the sleep screen (the interface-6 screen and its kernel tests are gone) through
+//! the production loader with the native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
