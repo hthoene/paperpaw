@@ -3,7 +3,9 @@
 Status: **native only; complete in code, not accepted on a host.** The interface-6 plugin (list, editor,
 browse, downloads, covers, sync, readers) and its kernel-driving tests are removed. `NativeOpds`
 (`NATIVE_ENTRY`, features `linked` and `native-entry`, `native/metadata*`, `build.rs`) is the plugin; it is
-linked into the app's native list, and `opds` is in `tools/plugin-files7/complete.txt`. Host acceptance waits
+linked into the app's native list (the app depends on the crate only with its feature `native-linked`, as for
+the other native ports; the default app no longer installs Catalogs and `opds` left `NETWORK_SETTINGS`), and
+`opds` is in `tools/plugin-files7/complete.txt`. Host acceptance waits
 for the activation of native plugins (Core #944, Host #417) and the shells' production `core.net`, work,
 library and image wiring (`tests/acceptance_pending.rs`). X4 file size and peak memory are not measured.
 

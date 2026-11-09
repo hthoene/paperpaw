@@ -355,10 +355,6 @@ impl Browser {
     ///
     /// # Errors
     /// `NoMemory`.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the services a step may need, passed as they are"
-    )]
     pub fn done(
         &mut self,
         host_: &Host<'_>,
