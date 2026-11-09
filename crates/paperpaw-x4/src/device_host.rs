@@ -1387,6 +1387,7 @@ mod tests {
     #[test]
     fn a_scan_keeps_each_name_once_at_its_strongest() {
         let device = device(&[]);
+        device.set_wifi(radio());
         assert!(device.set_networks(&[
             ("home", -80, true),
             ("cafe", -60, false),

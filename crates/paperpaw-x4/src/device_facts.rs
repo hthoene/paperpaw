@@ -234,10 +234,7 @@ pub fn bonded_row(bonded: &paperpaw_sdk::bluetooth::Bonded) -> Bonded<'_> {
         kind: device_kind_code(bonded.kind),
         connected: bonded.connected,
         remote_keys: bonded.keys,
-        given: bonded
-            .given_plugins()
-            .first()
-            .map_or("", |id| id.as_str()),
+        given: bonded.given_plugins().first().map_or("", |id| id.as_str()),
     }
 }
 

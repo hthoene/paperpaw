@@ -382,8 +382,10 @@ impl Firmware {
         let lit = level > 0 && self.light.is_some();
         let dark = self.state.light_timer.dark(now().0, after, lit);
         #[cfg(feature = "ppn5")]
-        self.device
-            .set_value("frontlight-percent", Some(if lit && !dark { level } else { 0 }));
+        self.device.set_value(
+            "frontlight-percent",
+            Some(if lit && !dark { level } else { 0 }),
+        );
         if let Some(light) = self.light.as_mut() {
             if dark {
                 light.off();

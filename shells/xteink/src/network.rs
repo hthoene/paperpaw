@@ -200,7 +200,7 @@ impl Network {
             self.answer_asked(kernel, &event);
             #[cfg(feature = "ppn5")]
             {
-                scanned |= matches!(event, WifiEvent::Scanned(_));
+                scanned |= matches!(event, paperpaw_core::WifiEvent::Scanned(_));
             }
             effects.push(kernel.wifi_event(now, event));
         }

@@ -169,11 +169,13 @@ pub fn sync_networks(device: &X4Device, kernel: &paperpaw_core::Kernel) {
         log::warn!("device: the networks found could not be kept");
         return;
     }
-    rows.extend(
-        wifi.networks
-            .iter()
-            .map(|network| (network.ssid.as_str(), i32::from(network.signal), network.secured)),
-    );
+    rows.extend(wifi.networks.iter().map(|network| {
+        (
+            network.ssid.as_str(),
+            i32::from(network.signal),
+            network.secured,
+        )
+    }));
     device.set_networks(&rows);
 }
 
