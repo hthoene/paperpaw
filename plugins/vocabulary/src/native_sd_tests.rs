@@ -285,3 +285,31 @@ fn folder_of_the_setting_falls_back_to_the_default() {
     assert_eq!(folder_of("Cards/Spanish").unwrap(), "Cards/Spanish");
     assert_eq!(folder_of("../x").unwrap(), "Flashcards".to_string());
 }
+
+#[test]
+fn a_run_whose_step_cannot_be_done_ends_with_a_line_never_waits_for_a_step_that_does_not_come() {
+    for (language, expected) in [
+        (
+            "en",
+            "The card could not be read. Check that it is in, then try again.",
+        ),
+        (
+            "de",
+            "Die Karte konnte nicht gelesen werden. Prüfe, ob sie steckt, und versuche es noch einmal.",
+        ),
+    ] {
+        let mut run = Run::new(FOLDER, Mode::Manual, None).unwrap();
+        assert!(run.working());
+        let note = words(language).copy("vocabulary.sd.nocard").unwrap();
+        assert_eq!(note, expected);
+        run.abort(Some(note));
+        assert!(!run.working());
+        assert!(!run.asking());
+        assert_eq!(rows_of(&run), [(String::new(), expected.to_string())]);
+    }
+    // Not even the line can be said: the run still ends.
+    let mut run = Run::new(FOLDER, Mode::Manual, Some(1)).unwrap();
+    run.abort(None);
+    assert!(!run.working());
+    assert!(rows_of(&run).is_empty());
+}

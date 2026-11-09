@@ -23,7 +23,7 @@ use crate::declarations::{SD_CARD_TOKEN, SD_MENU_TOKEN, WORK_TOKEN};
 use crate::native_card::with_both;
 use crate::native_plugin::NativeVocabulary;
 use crate::native_sd::{self, CARD, MenuView, Run, Shown, Target};
-use crate::native_words::HostWords;
+use crate::native_words::{HostWords, Words};
 use crate::{cards, sync};
 
 /// The setting that names the folder of the card files, and the one that lets
@@ -68,6 +68,23 @@ fn schedule(host: &Host<'_>) -> Result<(), Error> {
         .and_then(|spec| work.declare(host, &spec, &mut input, &mut []));
     let released = work.release(host);
     declared.and(released)
+}
+
+/// Ends a run whose step could not be done (the card is gone, the heap refuses
+/// the service's buffers) with a line that says why, so that it never waits for
+/// a step that does not come.
+fn end_run(host: &Host<'_>, run: &mut Run, error: Error) {
+    let key = if error == Error::NoMemory {
+        "vocabulary.sd.nomemory"
+    } else {
+        "vocabulary.sd.nocard"
+    };
+    let note = HostWords::new(host)
+        .and_then(|mut words| words.copy(key))
+        .ok();
+    run.abort(note);
+    // Best effort: the screen is drawn again at its next input otherwise.
+    let _ = CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial);
 }
 
 /// Opens `screen`, the hand-over carrying `params`.
@@ -159,7 +176,12 @@ impl NativeVocabulary {
         };
         let run = Run::new(&folder(host)?, mode, save)?;
         self.sd_runs.open(instance, run)?;
-        schedule(host)
+        if let Err(error) = schedule(host)
+            && let Some(run) = self.sd_runs.get(instance)
+        {
+            end_run(host, run, error);
+        }
+        Ok(())
     }
 
     /// One step of the update or the save, and the next asked for.
@@ -173,13 +195,21 @@ impl NativeVocabulary {
         if !run.working() {
             return Ok(());
         }
-        let mut words = HostWords::new(host)?;
-        let next = with_both(host, |storage| Ok(run.step(storage, &mut words)))?;
-        if next.redraw {
-            CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
-        }
-        if next.more {
-            schedule(host)?;
+        let stepped = HostWords::new(host)
+            .and_then(|mut words| with_both(host, |storage| Ok(run.step(storage, &mut words))));
+        match stepped {
+            Ok(next) => {
+                if next.redraw {
+                    CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
+                }
+                if next.more
+                    && let Err(error) = schedule(host)
+                {
+                    end_run(host, run, error);
+                }
+            }
+            // The card is gone, or the heap refuses: the run ends with a line.
+            Err(error) => end_run(host, run, error),
         }
         Ok(())
     }
@@ -239,12 +269,17 @@ impl NativeVocabulary {
             // Row 0 is the question; 1 adds to the deck there, 2 makes a new one.
             if index == 1 || index == 2 {
                 let run = self.sd_runs.top(token).ok_or(Error::State)?;
-                with_both(host, |storage| {
+                let answered = with_both(host, |storage| {
                     run.answer(storage, index == 1);
                     Ok(())
-                })?;
-                schedule(host)?;
-                CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
+                })
+                .and_then(|()| schedule(host));
+                match answered {
+                    Ok(()) => {
+                        CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
+                    }
+                    Err(error) => end_run(host, run, error),
+                }
             }
         }
         Ok(ItemList::handled(step))

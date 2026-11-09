@@ -50,6 +50,22 @@ fn copy(text: &str) -> Result<String, Error> {
     paperpaw_ui_kit::text::copy(text)
 }
 
+/// One result row, made with its room reserved.
+fn one(title: String, note: String) -> Result<Vec<(String, String)>, Error> {
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+    rows.push((title, note));
+    Ok(rows)
+}
+
+/// A list of `items`, its room reserved.
+fn list_of<const N: usize>(items: [Item; N]) -> Result<ItemList, Error> {
+    let mut all = Vec::new();
+    all.try_reserve_exact(N).map_err(|_| Error::NoMemory)?;
+    all.extend(items);
+    Ok(ItemList::new(all))
+}
+
 /// The folder the setting names (the default where the setting is empty or
 /// unusable).
 ///
@@ -337,7 +353,7 @@ impl Run {
                 // Said where the catalog can say it; else the list is empty.
                 let rows = words
                     .copy("vocabulary.sd.nomemory")
-                    .map(|note| alloc::vec![(String::new(), note)])
+                    .and_then(|note| one(String::new(), note))
                     .unwrap_or_default();
                 self.finish_quietly(rows);
                 Next {
@@ -385,11 +401,15 @@ impl Run {
                 Ok(Next { more: true, redraw })
             }
             sync::Step::Ask => {
-                let Some(question) = job.question().cloned() else {
+                let Some(question) = job.question() else {
                     return Ok(Next {
                         more: false,
                         redraw: false,
                     });
+                };
+                let question = Question {
+                    file: copy(&question.file)?,
+                    deck: copy(&question.deck)?,
                 };
                 self.phase = Phase::Asking(question);
                 Ok(Next {
@@ -435,11 +455,11 @@ impl Run {
                     value: &self.folder,
                 }],
             )?;
-            return done(self, alloc::vec![(String::new(), note)]);
+            return done(self, one(String::new(), note)?);
         }
         let Ok(job) = Job::new(storage, &self.folder, self.mode) else {
             let note = words.copy("vocabulary.sd.nomemory")?;
-            return done(self, alloc::vec![(String::new(), note)]);
+            return done(self, one(String::new(), note)?);
         };
         if job.is_empty() {
             let key = if seen.files == 0 {
@@ -454,7 +474,7 @@ impl Run {
                     value: &self.folder,
                 }],
             )?;
-            return done(self, alloc::vec![(String::new(), note)]);
+            return done(self, one(String::new(), note)?);
         }
         self.job = Some(job);
         Ok(Next {
@@ -477,7 +497,7 @@ impl Run {
     }
 
     fn save_failed(&mut self, words: &mut impl Words) -> Result<Next, Error> {
-        let rows = alloc::vec![(String::new(), words.copy("vocabulary.sd.save.failed")?)];
+        let rows = one(String::new(), words.copy("vocabulary.sd.save.failed")?)?;
         self.finish(rows)?;
         Ok(Next {
             more: false,
@@ -497,8 +517,11 @@ impl Run {
                 self.before = rows;
                 return self.begin_save(words, deck);
             }
-            rows.try_reserve(1).map_err(|_| Error::NoMemory)?;
-            rows.push((String::new(), words.copy("vocabulary.sd.save.not-updated")?));
+            push(
+                &mut rows,
+                String::new(),
+                words.copy("vocabulary.sd.save.not-updated")?,
+            )?;
             self.finish(rows)?;
             return Ok(Next {
                 more: false,
@@ -506,7 +529,11 @@ impl Run {
             });
         }
         if rows.is_empty() {
-            rows.push((String::new(), words.copy("vocabulary.sd.uptodate")?));
+            push(
+                &mut rows,
+                String::new(),
+                words.copy("vocabulary.sd.uptodate")?,
+            )?;
         }
         self.finish(rows)?;
         Ok(Next {
@@ -550,6 +577,20 @@ impl Run {
         }
     }
 
+    /// Ends the run where a step cannot be done at all (the card is gone, the
+    /// heap refuses the service's buffers): with `note` as its one line, if
+    /// there is one. A save left off keeps no part of a file in the folder
+    /// only where the card still answers; else the part is the next save's to
+    /// remove.
+    pub(crate) fn abort(&mut self, note: Option<String>) {
+        self.saver = None;
+        self.job = None;
+        let rows = note
+            .and_then(|note| one(String::new(), note).ok())
+            .unwrap_or_default();
+        self.finish_quietly(rows);
+    }
+
     /// What the screen shows now: the progress, the question, or the result.
     ///
     /// # Errors
@@ -579,7 +620,7 @@ impl Run {
                 value.try_reserve(8).map_err(|_| Error::NoMemory)?;
                 value.push_str(text::decimal(usize::from(permille / 10), &mut digits));
                 value.push_str(" %");
-                self.list = ItemList::new(alloc::vec![Item::row(&title, &value)?]);
+                self.list = list_of([Item::row(&title, &value)?])?;
             }
             Phase::Asking(question) => {
                 let ask = words.format(
@@ -596,11 +637,11 @@ impl Run {
                     ],
                 )?;
                 let focus = self.list.focus();
-                self.list = ItemList::new(alloc::vec![
+                self.list = list_of([
                     Item::heading(&ask)?,
                     Item::row(&words.copy("vocabulary.sd.ask.link")?, GO)?,
                     Item::row(&words.copy("vocabulary.sd.ask.new")?, GO)?,
-                ]);
+                ])?;
                 // Rows 1 and 2 are the choices; the heading takes no focus.
                 self.list.set_focus(focus.max(1));
             }
