@@ -988,13 +988,7 @@ fn native_presets_are_listed_with_their_values_and_resets() {
             flags: 0,
         }),
     ]);
-    let rows = rows_of(
-        &kernel,
-        Some(&directory),
-        schema::OP_PRESETS,
-        "nat.mode",
-        0,
-    );
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_PRESETS, "nat.mode", 0);
     assert_eq!(rows, vec!["item nat.night nat 0 Night"]);
     assert!(
         rows_of(
