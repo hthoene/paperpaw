@@ -1065,10 +1065,9 @@ fn firmware_install_refuses_bad_arguments_before_the_host() {
         sender.install_firmware(1, InstallRoot::Data, "", new()),
         Err(Error::Invalid)
     );
-    assert!(
-        sender
-            .install_firmware(1, InstallRoot::Data, &"p".repeat(513), new())
-            .is_err()
+    assert_eq!(
+        sender.install_firmware(1, InstallRoot::Data, &"p".repeat(513), new()),
+        Err(Error::NoSpace)
     );
     assert!(ctx.batches.borrow().is_empty());
     // The longest path is the contract's 512 bytes.
@@ -1076,4 +1075,51 @@ fn firmware_install_refuses_bad_arguments_before_the_host() {
         .install_firmware(1, InstallRoot::Data, &"p".repeat(512), new())
         .unwrap();
     assert_eq!(ctx.batches.borrow().len(), 1);
+}
+
+#[test]
+fn check_file_encodes_its_kind_and_refuses_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(
+        sender.check_file(0, InstallRoot::Data, "a.bin", CheckKind::Firmware),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.check_file(1, InstallRoot::Data, "", CheckKind::Plugin),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.check_file(1, InstallRoot::Data, &"p".repeat(513), CheckKind::Plugin),
+        Err(Error::NoSpace)
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    sender
+        .check_file(5, InstallRoot::Files, "fw.bin", CheckKind::Firmware)
+        .unwrap();
+    sender
+        .check_file(6, InstallRoot::Data, &"p".repeat(512), CheckKind::Plugin)
+        .unwrap();
+    let mut seen = Vec::new();
+    for bytes in ctx.batches.borrow().iter() {
+        for command in wire::commands_decode(bytes).unwrap().iter() {
+            let wire::Command::CheckFile {
+                request,
+                root,
+                path,
+                kind,
+            } = command
+            else {
+                panic!("{command:?}");
+            };
+            seen.push((request, root, path.len(), kind));
+        }
+    }
+    assert_eq!(seen, [(5, 1, 6, 1), (6, 0, 512, 0)]);
 }
