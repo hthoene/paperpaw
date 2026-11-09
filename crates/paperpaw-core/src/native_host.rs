@@ -18,6 +18,8 @@ pub(crate) mod codec;
 
 #[path = "native_host/event_tags.rs"]
 pub(crate) mod event_tags;
+#[path = "native_host/owner_directory.rs"]
+pub(crate) mod owner_directory;
 
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
@@ -153,9 +155,15 @@ pub(crate) mod lookup_service;
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
 )]
+pub(crate) mod net_policy;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+pub(crate) mod owner_paths;
+pub(crate) mod paths_in_use;
+pub(crate) mod save_files;
+pub(crate) mod service_events;
+mod service_pump;
 mod service_slots;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;

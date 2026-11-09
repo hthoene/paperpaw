@@ -167,6 +167,9 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
+        self.shared
+            .native_instances
+            .attach_screens(&self.shared.stack_rows);
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
                 super::shared::Shared::try_new(
@@ -251,6 +254,7 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
+        self.warn_directory_missed();
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -328,10 +332,20 @@ impl crate::Kernel {
             let widgets = ui.screen_closed(instance).map(|_| ());
             result = result.and(widgets);
         }
-        result
+        // The servers and sockets the screen started end with it.
+        result.and(self.native_services_screen_closed(instance))
+    }
+
+    /// An owner-directory update found the table held and was skipped: said
+    /// once per batch (a skipped subscription fails closed).
+    fn warn_directory_missed(&mut self) {
+        if self.shared.native_instances.take_directory_missed() > 0 {
+            self.warn_runtime("owner directory update skipped: the table was in use");
+        }
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
+        self.warn_directory_missed();
         // The same driver handles HostServices' orphan queue and the retained
         // rows whose lifecycle cleanup has not completed. No second queue.
         if let Err(status) = self

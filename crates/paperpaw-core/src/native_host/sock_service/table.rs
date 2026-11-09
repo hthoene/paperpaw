@@ -319,10 +319,29 @@ impl Inner {
         }
     }
 
+    /// A socket of a plugin whose network the user turned off ends now
+    /// (`failed`, `network_off`), whatever its state: the setting is a privacy
+    /// choice and is not waited out. (Offline and saving end what has not
+    /// started only.)
+    fn end_network_off(&mut self, host: &dyn SockHost) {
+        for index in 0..self.socks.len() {
+            let s = &self.socks[index];
+            if !s.live() {
+                continue;
+            }
+            if let Some(end) = host.power_end(s.owner, s.run.is_some())
+                && end.reason == reason::NETWORK_OFF
+            {
+                self.end(host, index, kind::FAILED, end.reason, true);
+            }
+        }
+    }
+
     /// Start the sockets that wait, in order.
     fn pump(&mut self, host: &dyn SockHost) {
         let now = host.now_ms();
         let up = host.network_up();
+        self.end_network_off(host);
         for index in 0..self.socks.len() {
             if self.socks[index].state == State::Securing && !self.socks[index].tls.begun {
                 self.pump_session(host, index, now);
@@ -339,6 +358,13 @@ impl Inner {
             if !up {
                 if now.saturating_sub(self.socks[index].waiting_since) >= NO_NETWORK_MS {
                     self.end(host, index, kind::FAILED, reason::NO_NETWORK, false);
+                } else if self.socks[index].tls.wanted && !self.socks[index].tls.lease {
+                    // It cannot connect: it does not stand at the head of the
+                    // queue for the TLS session meanwhile, and asks again when
+                    // the network is back.
+                    host.table()
+                        .pool
+                        .tls_drop(TlsHolder::Sock(self.socks[index].id));
                 }
                 continue;
             }
@@ -838,6 +864,43 @@ pub(crate) fn tick(host: &dyn SockHost) -> Result<(), i32> {
     Ok(())
 }
 
+/// When the first socket or broadcast runs out of time, in the host's
+/// clock: what [`tick`] and the pump would end then (connect and session
+/// waits, idle time, a waiting socket's network wait, `wait_ms`). `None`
+/// when nothing is waiting on the clock. A borrowed table answers `Some(0)`.
+pub(crate) fn next_deadline(host: &dyn SockHost) -> Option<u64> {
+    let Ok(inner) = table(host) else {
+        return Some(0);
+    };
+    let up = host.network_up();
+    let session_wanted = host.table().pool.tls_waiting();
+    inner
+        .socks
+        .iter()
+        .filter_map(|s| match s.state {
+            State::Connecting => Some(s.deadline),
+            State::Securing if s.tls.lease => Some(s.deadline),
+            State::Securing => s
+                .tls
+                .asked
+                .map(|at| at.saturating_add(u64::from(s.timeout_ms))),
+            State::Waiting if !up => Some(s.waiting_since.saturating_add(NO_NETWORK_MS)),
+            State::Waiting => s
+                .tls
+                .asked
+                .map(|at| at.saturating_add(u64::from(s.timeout_ms))),
+            State::Open => {
+                let idle = s.last_move.saturating_add(u64::from(s.idle_ms));
+                let give_up = (s.tls.secure && session_wanted)
+                    .then(|| s.last_move.saturating_add(tls::SESSION_IDLE_MS));
+                Some(give_up.map_or(idle, |at| at.min(idle)))
+            }
+            _ => None,
+        })
+        .chain(inner.cast_next_deadline())
+        .min()
+}
+
 /// The network went away or the device sleeps: every socket ends
 /// `failed` `no_network`.
 ///
@@ -961,7 +1024,7 @@ pub(crate) fn next_event(
             .end
             .map_or((0, kind::FAILED, 0, 0), |(e, k, r)| (e.at, k, r, 0)),
     };
-    let used = codec::encode_one(
+    let used = codec::encode_event(
         &Record::EventSocket(wire::EventSocket {
             now_ms: at,
             socket: s.id,

@@ -21,12 +21,14 @@ paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-platform.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }

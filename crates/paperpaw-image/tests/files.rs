@@ -293,3 +293,23 @@ fn a_full_card_stops_decoding_with_an_error() {
     assert_eq!(ImageFile::open(&storage, "g"), None);
     assert_eq!(ImageFile::open(&storage, "c"), None);
 }
+
+#[test]
+fn try_open_tells_no_image_from_an_image() {
+    let storage = Files::default();
+    storage.put("a.rgb", &file(b"PPCI", 2, 2, &[7; 12]));
+    let opened = ImageFile::try_open(&storage, "a.rgb").unwrap().unwrap();
+    assert_eq!((opened.width, opened.height, opened.color), (2, 2, true));
+    assert_eq!(opened.path, "a.rgb");
+    assert!(matches!(
+        paperpaw_image::Decoded::try_open(&storage, "a.rgb"),
+        Ok(Some(paperpaw_image::Decoded::Color(_)))
+    ));
+    // No file, another magic and a size that is not the header's: no image.
+    storage.put("short.rgb", &file(b"PPCI", 2, 2, &[7; 11]));
+    storage.put("other", &file(b"PPGX", 1, 1, &[0]));
+    for path in ["none", "short.rgb", "other"] {
+        assert_eq!(ImageFile::try_open(&storage, path), Ok(None), "{path}");
+        assert!(ImageFile::open(&storage, path).is_none(), "{path}");
+    }
+}

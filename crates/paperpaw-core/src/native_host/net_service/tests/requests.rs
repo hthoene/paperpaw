@@ -699,7 +699,7 @@ fn the_network_manager_hears_demand_and_idle_once_each() {
 #[test]
 fn net_idle_while_a_socket_is_live_is_no_idle_edge() {
     use crate::native_host::net_pool::{DEMAND_SOCK, NetPool};
-    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
     let fake = Fake::with_pool(NetProfile::X4, pool.clone());
     // A socket wants the network first: NET adds no edge.
     assert_eq!(pool.demand(DEMAND_SOCK, true), Some(true));
@@ -1239,7 +1239,7 @@ fn an_error_answer_keeps_status_and_body_when_its_head_cannot_be_held() {
 
 #[test]
 fn dropping_the_net_tables_gives_back_only_their_own_charges() {
-    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
     // core.sockets holds 8 KiB for the whole test.
     assert!(pool.reserve(8_192));
     {
@@ -1260,7 +1260,7 @@ fn dropping_the_net_tables_gives_back_only_their_own_charges() {
 fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     let external = 8_192;
     let new_fake = || {
-        let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+        let pool = Rc::new(NetPool::with_tls_sessions(NetProfile::X4.pool, 4));
         assert!(pool.reserve(external));
         (Fake::with_pool(NetProfile::X4, pool.clone()), pool)
     };
@@ -1309,4 +1309,31 @@ fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     request(&fake, OWNER, &save_to(2, 0, "same.bin")).unwrap();
     owner_stopped(&fake, OWNER).unwrap();
     assert_eq!(pool.used(), external, "replaced and stopped");
+}
+
+#[test]
+fn turning_a_plugins_network_off_ends_what_it_has_open_at_the_next_pass() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    assert_eq!(fake.started.borrow().len(), 1, "it runs");
+    // Offline and saving let a running request finish; "off" does not wait.
+    for later_end in [reason::OFFLINE, reason::SAVING] {
+        fake.power.set(Some(PowerEnd {
+            reason: later_end,
+            later: true,
+        }));
+        tick(&fake).unwrap();
+        assert_eq!(drain(&fake, OWNER), [], "{later_end}: left to finish");
+    }
+    fake.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&fake).unwrap();
+    assert_eq!(*fake.aborted.borrow(), [id], "the transport let go of it");
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 0, reason::NETWORK_OFF, 0, 0)]
+    );
+    assert_eq!(fake.pool_used(), 0);
 }
