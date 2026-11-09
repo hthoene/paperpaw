@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 7] = [
     // The main page, a group's page and choosing a value draw as before.
     Case {
         name: "settings-pages",
@@ -50,6 +50,14 @@ const CASES: [Case; 6] = [
         name: "settings-restart",
         golden: None,
         blocked_by: &["H2", "H4"],
+    },
+    // A widget placement's page (`widgets.clock@2`): its widget's settings with
+    // the values that placement has (the widget's own where it sets none),
+    // changed and reset on the placement alone.
+    Case {
+        name: "settings-placement-page",
+        golden: None,
+        blocked_by: &["H1", "H4"],
     },
 ];
 
@@ -97,4 +105,10 @@ fn settings_secrets() {
 #[ignore = "BLOCKED H2/H4: dialogs and input are not qualified"]
 fn settings_restart() {
     CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: screen commands, drawing and input are not qualified; the id rules run in native_model tests"]
+fn settings_placement_page() {
+    CASES[6].refuse().unwrap();
 }

@@ -225,6 +225,52 @@ fn placements_rename_the_settings_of_their_group() {
 }
 
 #[test]
+fn a_placement_id_names_its_widget_and_its_settings() {
+    assert_eq!(unplaced("widgets.clock@2"), Some("widgets.clock"));
+    assert_eq!(unplaced("widgets.clock@12"), Some("widgets.clock"));
+    for none in [
+        "widgets.clock",
+        "widgets.clock@",
+        "widgets.clock@x",
+        "@2",
+        "a@2b",
+        "x@2@3",
+        "",
+    ] {
+        assert_eq!(unplaced(none), None, "{none}");
+    }
+    assert_eq!(
+        unplaced_key("widgets.clock@2.face").unwrap().as_deref(),
+        Some("widgets.clock.face")
+    );
+    assert_eq!(
+        unplaced_key("widgets.clock@12.frame.width")
+            .unwrap()
+            .as_deref(),
+        Some("widgets.clock.frame.width")
+    );
+    for none in [
+        "widgets.clock.face",
+        "widgets.clock@.face",
+        "@2.face",
+        "x@y",
+        "a@2b.x",
+        "x@2@3.face",
+        "x@2.f@3",
+    ] {
+        assert_eq!(unplaced_key(none).unwrap(), None, "{none}");
+    }
+    // The two are inverse: placed -> unplaced gives the key back.
+    let placed_key = placed("widgets.clock.face", "widgets.clock", "widgets.clock@2")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        unplaced_key(&placed_key).unwrap().as_deref(),
+        Some("widgets.clock.face")
+    );
+}
+
+#[test]
 fn every_word_counts() {
     let find = |text: &str, query: &str| matches(text, &words(query).unwrap()).unwrap();
     assert!(find("Font size of the book's text", "SIZE font"));
@@ -265,6 +311,7 @@ fn allocation_refusals_end_in_no_memory() {
     a.value = Some(Val::Text("x".repeat(600)));
     sweep(|| a.try_clone().map(|c| c.value == a.value));
     sweep(|| placed("widgets.clock.face", "widgets.clock", "widgets.clock@2").map(|p| p.is_some()));
+    sweep(|| unplaced_key("widgets.clock@2.face").map(|k| k.is_some()));
     sweep(|| section_order(["b", "a", "b", ""].into_iter()).map(|s| s.len()));
     sweep(|| words("Brightness  sleep").map(|w| w.len()));
     sweep(|| {
