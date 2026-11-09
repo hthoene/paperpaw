@@ -6,7 +6,8 @@ use super::{ImageTable, MAX_SIDE, prepare};
 use crate::native_host::commands::WireCommand;
 use alloc::string::String;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
+    ERR_UNSUPPORTED,
 };
 
 /// `image_prepare.flags` bit 0: colour, where the screen has it.
@@ -85,6 +86,8 @@ impl ImageAdmit {
             0 => {}
             1 if self.storage_root => {}
             1 => return Err(ERR_DENIED),
+            // The plugin's own install folder: read only, no feature.
+            2 => {}
             _ => return Err(ERR_UNSUPPORTED),
         }
         if flags & !COLOUR != 0 {
@@ -134,9 +137,40 @@ pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i3
     }
 }
 
-/// Resolves a plugin's root 0 or 1 to a card path.
+/// The card path of `path` in the install folder of the plugin `plugin`
+/// (root 2), as `core.files` resolves it: `plugins/<plugin>/<path>`, the
+/// room taken fallibly. The folder is read only here (a picture is only
+/// read) and a built-in plugin's is empty, so its paths are not found when
+/// the picture is read.
+///
+/// # Errors
+/// `ERR_INVALID` for a plugin id that is not one folder name or leaves no
+/// room for the path, `ERR_NO_MEMORY`.
+pub(crate) fn bundle_source(plugin: &str, path: &str) -> Result<String, i32> {
+    use crate::native_host::storage::{MAX_FOLDER, relative_path};
+    const KIND: &str = "plugins/";
+    if KIND.len() + plugin.len() + 1 > MAX_FOLDER
+        || plugin.contains('/')
+        || relative_path(plugin.as_bytes()).is_err()
+        || !path_ok(path)
+    {
+        return Err(ERR_INVALID);
+    }
+    let mut source = String::new();
+    source
+        .try_reserve_exact(KIND.len() + plugin.len() + 1 + path.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    source.push_str(KIND);
+    source.push_str(plugin);
+    source.push('/');
+    source.push_str(path);
+    Ok(source)
+}
+
+/// Resolves a plugin's root 0, 1 or 2 to a card path.
 pub(crate) trait ImageRoots {
-    /// `ERR_DENIED`, `ERR_NOT_FOUND`, ... where the plugin has no such root.
+    /// `ERR_DENIED`, `ERR_NOT_FOUND`, ... where the plugin has no such root;
+    /// root 2 is [`bundle_source`] of the plugin's id.
     fn resolve(&self, owner: u64, root: u32, path: &str) -> Result<String, i32>;
 }
 
@@ -180,6 +214,10 @@ impl ImageTable {
                 let source = match roots.resolve(owner, *root, path) {
                     Ok(source) => source,
                     Err(ERR_NO_MEMORY) => return Err(ERR_NO_MEMORY),
+                    // A path that names nothing is a missing file, on every root.
+                    Err(ERR_NOT_FOUND) => {
+                        return self.refuse(owner, *cookie, prepare::NOT_FOUND);
+                    }
                     Err(_) => return self.refuse(owner, *cookie, prepare::CARD),
                 };
                 match self.prepare(owner, &source, side, *cookie, *colour) {
