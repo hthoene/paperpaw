@@ -281,12 +281,10 @@ fn the_screens_actions_menu_entry_and_icons_are_as_interface_6_registered_them()
     assert_eq!(dicons, icons);
 }
 
-/// Every record is well formed for the host; the ones it does not admit yet
-/// fail only with `ERR_UNSUPPORTED` (`native_host/declarations.rs`), and these
-/// are the only ones that do.
-/// The host admits every one of them now, so none waits.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let (mut count, mut waiting) = (0, Vec::new());

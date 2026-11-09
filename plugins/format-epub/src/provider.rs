@@ -409,12 +409,19 @@ impl FormatProvider {
                 Self::picture(image, cache, u32::MAX, out)
             }
             op::IMAGE => {
-                // The picture of the block that starts at `index` (the
-                // number of a picture until the parsers number them).
+                // The picture numbered `index`: a page of a whole-page
+                // document (its section), else the block that starts there
+                // (until the parsers number their pictures).
+                let whole = document.whole_pages();
+                let at = if whole {
+                    Locator::new(call.index, 0)
+                } else {
+                    Locator::new(call.section, call.index)
+                };
                 let block = document
-                    .block_at(io, Locator::new(call.section, call.index))
+                    .block_at(io, at)
                     .map_err(|e| document_error(&e))?
-                    .filter(|b| b.start == call.index)
+                    .filter(|b| whole || b.start == call.index)
                     .ok_or(Error::NotFound)?;
                 Self::picture(block.image, cache, call.index, out)
             }
@@ -576,7 +583,12 @@ impl FormatProvider {
             }
         }
         let mut list = Vec::new();
-        records(&block, cache, &weights, &mut tag, &mut list)?;
+        let image_index = if document.whole_pages() {
+            call.section
+        } else {
+            block.start
+        };
+        records(&block, cache, &weights, &mut tag, image_index, &mut list)?;
         let last = document
             .block_at(io, Locator::new(call.section, block.end))
             .map_err(|e| document_error(&e))?
@@ -635,6 +647,7 @@ fn records<'a>(
     cache: &'a str,
     weights: &'a [u8],
     tag: &'a mut [u8; 16],
+    image_index: u32,
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (kind, level) = match block.kind {
@@ -715,7 +728,7 @@ fn records<'a>(
         let (path, image) = path;
         list.push(Record::FmtImage(stage::FmtImage::new(
             path,
-            block.start,
+            image_index,
             image.width,
             image.height,
             0,
