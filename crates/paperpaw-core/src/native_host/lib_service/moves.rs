@@ -42,7 +42,9 @@
 //! bounded.
 use alloc::string::String;
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
 
 /// What an operation does to a path, for [`Moves::busy`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +105,13 @@ pub(crate) trait MoveHost {
     /// same before and after a rename and different for another entry;
     /// `None` when there is none.
     fn identity(&self, path: &str) -> Result<Option<u64>, i32>;
+    /// Whether anything is at `path` (a file or a folder). Not the same as
+    /// [`Self::identity`] being `Some`: an entry may have no identity (an
+    /// empty FAT file) and still be there. The default is for a host whose
+    /// entries all have one.
+    fn exists(&self, path: &str) -> Result<bool, i32> {
+        Ok(self.identity(path)?.is_some())
+    }
     /// Whether `path` names a folder.
     fn is_folder(&self, path: &str) -> Result<bool, i32>;
     /// Whether both paths name the same directory entry by the storage's own
@@ -208,16 +217,23 @@ impl Moves {
         if slot.is_some() {
             return Err(ERR_BUSY);
         }
-        let identity = host.identity(from)?.ok_or(ERR_NOT_FOUND)?;
-        // A case-only rename is the one entry under another spelling.
-        let same = host.same_entry(from, to)?;
+        // An entry that is there without an identity cannot be told from
+        // another after a cut: refused, nothing written.
+        let Some(identity) = host.identity(from)? else {
+            return Err(if host.exists(from)? {
+                ERR_UNSUPPORTED
+            } else {
+                ERR_NOT_FOUND
+            });
+        };
+        // A case-only rename is the one entry under another spelling; the
+        // storage is asked only then (same name to the card).
+        let same = host.within(from, to) && host.within(to, from) && host.same_entry(from, to)?;
         if !same {
             if host.within(to, from) {
                 return Err(ERR_INVALID);
             }
-            if host.identity(to)?.is_some()
-                && (!replace || host.is_folder(to)? || host.is_folder(from)?)
-            {
+            if host.exists(to)? && (!replace || host.is_folder(to)? || host.is_folder(from)?) {
                 return Err(ERR_STATE);
             }
         }
@@ -312,9 +328,12 @@ impl Moves {
             host.settle()?;
             return Ok(Verdict::Finish);
         }
-        if host.same_entry(&job.from, &job.to)? {
-            // A case-only rename: one entry; the stored spelling says whether
-            // the rename ran. A cut may have left both spellings; settle.
+        // A case-only rename (the names are one name to the card): one entry;
+        // the stored spelling says whether the rename ran. A cut may have
+        // left both spellings; settle. The storage is not asked whether two
+        // entries are one: names tell here, and an entry without an
+        // identity (an empty file replaced) must never make the decision fail.
+        if host.within(&job.from, &job.to) && host.within(&job.to, &job.from) {
             return if host.spelled_as(&job.to)? {
                 host.settle()?;
                 Ok(Verdict::Finish)

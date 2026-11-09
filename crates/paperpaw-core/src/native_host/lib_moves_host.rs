@@ -6,9 +6,11 @@
 //! - **Identity.** The state machine decides a half-done job by the storage's
 //!   identity of the moved entry, never by names: `Storage::entry_identity`
 //!   (FAT: the first cluster; a folder storage: the file id, no link
-//!   followed), `None` for a path that names nothing. A storage or entry that
-//!   has none (the trait default, an empty FAT file) makes the move refuse
-//!   (`ERR_UNSUPPORTED`): there is nothing to decide a cut by.
+//!   followed), `None` for a path that names nothing. A source that is there
+//!   without one (the trait default, an empty FAT file) makes the move refuse
+//!   (`ERR_UNSUPPORTED`): there is nothing to decide a cut by. Such an entry
+//!   at the target is just an existing file (`ERR_STATE`, or replaced when
+//!   asked); and after a cut it is simply not the moved entry.
 //! - **Same entry.** `Storage::same_entry`; a storage that cannot tell
 //!   (`None`) makes the move refuse, since a case-only rename and a move
 //!   onto another entry look alike then.
@@ -163,13 +165,18 @@ impl MoveHost for CardMoves {
     fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
         match self.storage.entry_identity(path) {
             Ok(Some(identity)) => Ok(Some(identity)),
-            // The entry is there but has none to decide a cut by (an empty
-            // FAT file, a storage that cannot tell): refused, before
-            // anything is written, never taken for "nothing there".
-            Ok(None) => Err(ERR_UNSUPPORTED),
+            // No identity (an empty FAT file, a storage that cannot tell, or
+            // nothing there): never the moved entry. `begin` refuses a
+            // source like that (`exists`), and a decision after a cut treats
+            // it as not the entry, so it never fails on it.
+            Ok(None) => Ok(None),
             Err(StorageError::NotFound) => Ok(None),
             Err(error) => Err(status(error)),
         }
+    }
+
+    fn exists(&self, path: &str) -> Result<bool, i32> {
+        Ok(self.storage.exists(path) || self.is_folder(path)?)
     }
 
     fn is_folder(&self, path: &str) -> Result<bool, i32> {
@@ -279,6 +286,9 @@ impl MoveHost for StepHost<'_> {
     }
     fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
         self.card.identity(path)
+    }
+    fn exists(&self, path: &str) -> Result<bool, i32> {
+        self.card.exists(path)
     }
     fn is_folder(&self, path: &str) -> Result<bool, i32> {
         self.card.is_folder(path)

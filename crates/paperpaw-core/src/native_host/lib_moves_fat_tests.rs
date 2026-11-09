@@ -14,6 +14,7 @@ use paperpaw_fat::{
     BLOCK, BlockDisk, Blocks, DiskError, FatStorage, SharedDisk,
     fatfs::{FileSystem, FormatVolumeOptions, FsOptions, Seek, SeekFrom, Write},
 };
+use paperpaw_native::host_glue::ERR_STATE;
 use std::{rc::Rc, string::String, vec, vec::Vec};
 
 /// A block written to the card: its index and bytes.
@@ -284,10 +285,11 @@ fn a_replacing_move_is_old_or_new_and_discards_at_most_once_after_any_cut() {
 }
 
 #[test]
-fn an_empty_file_has_no_identity_so_a_move_of_or_onto_it_is_refused_unchanged() {
+fn an_empty_file_has_no_identity_so_moving_it_is_refused_but_replacing_it_is_fine() {
     let files = [
         ("Books/empty.epub", Vec::new()),
         ("Books/b.epub", book(6)),
+        ("Books/c.epub", book(8)),
         ("Books/e2.epub", Vec::new()),
     ];
     let ram = Ram::formatted();
@@ -305,13 +307,30 @@ fn an_empty_file_has_no_identity_so_a_move_of_or_onto_it_is_refused_unchanged() 
         moves.begin(&host, "Books/empty.epub", "Books/new.epub", false),
         Err(ERR_UNSUPPORTED)
     );
-    // Onto it: never taken for "nothing there".
+    // Onto it, without `replace`: it is an existing file, not "nothing".
     assert_eq!(
-        moves.begin(&host, "Books/b.epub", "Books/e2.epub", true),
-        Err(ERR_UNSUPPORTED)
+        moves.begin(&host, "Books/b.epub", "Books/e2.epub", false),
+        Err(ERR_STATE)
     );
     assert!(!s.exists(JOURNAL));
     assert!(holds(&s, "Books/b.epub", &book(6)));
     assert!(s.exists("Books/empty.epub") && s.exists("Books/e2.epub"));
     assert!(!moves.active());
+    // With `replace`, cut off after every block: whole in one place, the
+    // decision never fails on the entry without an identity, no job stays
+    // open and nothing blocks the next move.
+    let named: Vec<(&str, Vec<u8>)> = files.iter().map(|(p, d)| (*p, d.clone())).collect();
+    let cuts = cuts(&named, |host, _, moves| {
+        moves
+            .begin(host, "Books/c.epub", "Books/e2.epub", true)
+            .unwrap();
+    });
+    for (n, image) in cuts.into_iter().enumerate() {
+        let (s, _) = restart(image);
+        assert!(!s.exists(JOURNAL), "{n}: the job is done or dropped");
+        let moved = holds(&s, "Books/e2.epub", &book(8)) && !s.exists("Books/c.epub");
+        let stayed = holds(&s, "Books/c.epub", &book(8)) && s.exists("Books/e2.epub");
+        assert!(moved || stayed, "{n}");
+        assert!(holds(&s, "Books/b.epub", &book(6)), "{n}: a neighbour");
+    }
 }
