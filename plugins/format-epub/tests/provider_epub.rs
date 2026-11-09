@@ -368,5 +368,7 @@ fn the_first_bytes_tell_an_epub_from_another_zip() {
 #[test]
 #[ignore = "waits for Core todo 208 (fallible shared parser): a refused allocation aborts the process while the parser allocates infallibly"]
 fn every_allocation_of_a_read_may_be_refused() {
-    panic!("acceptance case: refuse each allocation of open, meta, sections and block; NoMemory, never a panic");
+    panic!(
+        "acceptance case: refuse each allocation of open, meta, sections and block; NoMemory, never a panic"
+    );
 }
