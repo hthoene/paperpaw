@@ -160,7 +160,9 @@ pub enum InstallFailure {
     /// kind. Codes given so far: 1, the device is shared with another
     /// firmware (`dual-boot`) and nothing is installed here; 2, the memory has no
     /// room for the install's buffers (nothing was written; a later try may
-    /// find room).
+    /// find room); 3, a firmware job of the kernel (`core.device`) is open
+    /// and nothing else installs meanwhile (nothing was written; a later
+    /// try finds it ended).
     Other(u16),
 }
 

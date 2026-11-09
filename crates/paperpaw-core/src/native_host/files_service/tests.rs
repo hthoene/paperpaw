@@ -479,7 +479,7 @@ impl FilesHost for TestHost {
         self.built_in.borrow().contains(&plugin)
     }
 
-    fn excluded(&self, root: u32, first: &str) -> bool {
+    fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {
         self.aliases
             .borrow()
             .iter()
@@ -533,6 +533,7 @@ impl MoveHost for Library<'_> {
                     to: t,
                     replace: *r,
                     identity: *i,
+                    renamed: false,
                 });
                 true
             }))

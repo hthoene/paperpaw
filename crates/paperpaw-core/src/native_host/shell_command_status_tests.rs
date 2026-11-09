@@ -7,6 +7,9 @@ std::thread_local! {
     static CHAIN_TEST: Cell<bool> = const { Cell::new(false) };
     static RETURN_STATUS: Cell<i32> = const { Cell::new(OK) };
     static SUBMIT_STATUS: Cell<i32> = const { Cell::new(ERR_INVALID) };
+    /// A picture request to submit instead of the usual commands: 1 for the
+    /// plugin's folder (root 0), 2 for the card (root 1).
+    static IMAGE_ROOT: Cell<u32> = const { Cell::new(0) };
 }
 
 unsafe extern "C" fn make_commands(
@@ -42,7 +45,19 @@ fn submit(state: *mut c_void) {
         },
     ];
     let count = if CHAIN_TEST.with(Cell::get) { 3 } else { 2 };
-    let len = commands_encode(&commands[..count], &mut bytes).unwrap();
+    let image = [WireCommand::ImagePrepare {
+        root: IMAGE_ROOT.with(Cell::get).saturating_sub(1),
+        path: "p.png",
+        side: 0,
+        cookie: 1,
+        flags: 0,
+    }];
+    let len = if IMAGE_ROOT.with(Cell::get) == 0 {
+        commands_encode(&commands[..count], &mut bytes)
+    } else {
+        commands_encode(&image, &mut bytes)
+    }
+    .unwrap();
     // SAFETY: owner admission keeps the fixture and table alive. Encoded bytes
     // are readable until the synchronous submit returns and do not alias host state.
     let status = unsafe {
@@ -245,6 +260,39 @@ fn input_forwards_incoming_chain_hop_and_refuses_hop_eight_atomically() {
         assert_eq!(SUBMIT_STATUS.with(Cell::get), expected);
         assert!(!kernel.shared.settings.bool("fake.toggle"));
         assert!(!kernel.output.redraw);
+        drop(batch);
+        finish(&hosted);
+    }
+}
+
+#[test]
+fn picture_commands_are_admitted_by_the_plugins_own_features() {
+    // Root 0 (its folder) is open to every plugin; root 1 (the card) needs
+    // `uses.storage`, which this one did not ask for.
+    for (root, expected) in [(1, OK), (2, host_glue::ERR_DENIED)] {
+        reset(NORMAL);
+        IMAGE_ROOT.with(|value| value.set(root));
+        RETURN_STATUS.with(|value| value.set(OK));
+        let mut kernel = kernel();
+        let hosted = hosted_commands();
+        let batch = hosted
+            .make_registered(hosted.begin().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert_eq!(
+            kernel.input_native_for_test(
+                &batch,
+                TOKEN,
+                &DispatchDepth::new(),
+                &[],
+                paperpaw_platform::Instant(0),
+                0,
+            ),
+            Ok(OK)
+        );
+        IMAGE_ROOT.with(|value| value.set(0));
+        assert_eq!(SUBMIT_STATUS.with(Cell::get), expected);
         drop(batch);
         finish(&hosted);
     }

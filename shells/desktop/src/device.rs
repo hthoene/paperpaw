@@ -151,6 +151,9 @@ impl Storage for Card {
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         self.on(|s| s.rename(from, to))
     }
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.on(|s| s.entry_identity(path))
+    }
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.on(|s| s.create_dir(path))
     }
@@ -168,6 +171,9 @@ impl Storage for Card {
     }
     fn ignores_case(&self) -> bool {
         self.on(|s| s.ignores_case())
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.on(|s| s.same_entry(a, b))
     }
     fn free_space(&self) -> Option<u64> {
         self.on(|s| s.free_space())
@@ -1149,6 +1155,25 @@ mod tests {
         // The new kernel's radio starts off: nothing of the old is due.
         assert_eq!(device.wifi.next_due(), None);
         drop(device);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The library's moves tell a book by its identity: a card in a
+    /// folder of the computer passes on its folder's (#228).
+    #[cfg(unix)]
+    #[test]
+    fn a_card_in_a_folder_passes_on_identity() {
+        let root = std::env::temp_dir().join(format!("paperpaw-card-id-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let card = Card::Dir(DirStorage::new(&root).unwrap());
+        card.write("a.txt", b"x").unwrap();
+        let before = card.entry_identity("a.txt").unwrap();
+        assert!(before.is_some());
+        card.rename("a.txt", "b.txt").unwrap();
+        assert_eq!(card.entry_identity("b.txt").unwrap(), before);
+        assert_eq!(card.entry_identity("a.txt"), Err(StorageError::NotFound));
+        card.write("c.txt", b"y").unwrap();
+        assert_ne!(card.entry_identity("c.txt").unwrap(), before);
         let _ = std::fs::remove_dir_all(root);
     }
 }

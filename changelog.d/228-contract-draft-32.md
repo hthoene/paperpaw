@@ -1,0 +1,3 @@
+### Changed
+
+- **Plugin interface 7, draft 32** (#228): one bless for the approved SDK pieces of the carrier: what a firmware update leaves out (`core.device` op 16), widgets that preview a group of settings found through the registry (`previews`), the formats the reader knows (`Documents::formats`, `format_for`), metadata other plugins provide for books (`Library::provide`, as Beta 3: the book's own metadata wins where it names a field), pictures from a plugin's own install folder and a "not found" status for missing pictures, and replies written straight into the host's buffer (`Reply::write_with`). Plugins built for draft 31 must be rebuilt.

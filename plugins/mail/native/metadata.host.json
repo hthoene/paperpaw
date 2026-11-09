@@ -23,14 +23,136 @@
       "name": "registrations.submit"
     },
     {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
     {
       "kind": "callback",
       "name": "dispatch_event"
+    },
+    {
+      "kind": "callback",
+      "name": "draw"
+    },
+    {
+      "kind": "callback",
+      "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.clip"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_line"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_rect"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_round"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.stroke_round"
+    },
+    {
+      "kind": "host",
+      "name": "clock.micros"
+    },
+    {
+      "kind": "host",
+      "name": "commands.submit"
+    },
+    {
+      "kind": "host",
+      "name": "env.snapshot"
+    },
+    {
+      "kind": "host",
+      "name": "font.acquire"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.format"
+    },
+    {
+      "kind": "host",
+      "name": "text.draw"
+    },
+    {
+      "kind": "host",
+      "name": "text.ink"
+    },
+    {
+      "kind": "host",
+      "name": "text.measure"
+    },
+    {
+      "kind": "host",
+      "name": "text.metrics"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.secrets",
+    "core.sockets",
+    "core.ui"
+  ],
+  "features": [
+    "uses.network"
+  ]
 }

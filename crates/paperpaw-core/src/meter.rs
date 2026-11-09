@@ -342,6 +342,14 @@ impl Storage for Metered {
         self.inner.ignores_case()
     }
 
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.inner.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.inner.entry_identity(path)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.inner.free_space()
     }

@@ -34,10 +34,8 @@ store-plugins = [
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-browser",
-    "dep:paperpaw-plugin-readwise",
     "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-mail",
-    "dep:paperpaw-plugin-wallabag",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
 # Kept so builds that name it still work: the diagnostics plugin is a native
@@ -55,6 +53,7 @@ native-linked = [
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
+    "dep:paperpaw-plugin-files",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-plugin-manager",
@@ -82,7 +81,7 @@ paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-plugin-dictionary.workspace = true
-paperpaw-plugin-files.workspace = true
+paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
@@ -114,10 +113,8 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
-paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true

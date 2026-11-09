@@ -7,9 +7,12 @@
 battery status=complete   # no PORTING-7.md (its notes are plugins/battery/PORTING.md)
 end-of-book
 file-manager
+files
 joplin
 keys
 menu-editor
 profiles
+notes-overview
+readwise
 rules
 weather

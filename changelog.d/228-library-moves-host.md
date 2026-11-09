@@ -1,0 +1,2 @@
+### Added
+- The card's side of the library's moves: `MoveHost` over the shell's storage with the journal, the shell's identity of entries (`EntryIdentity`, a host-only seam: the shared `Storage` trait is unchanged; where the shell gives none every move is refused as unsupported), `Storage::same_entry` (a storage that cannot tell refuses the move) and `Storage::rename`. What follows a move in the catalog is the `MoveCarry` the library host composes. Second slice of the production library moves.

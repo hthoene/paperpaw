@@ -64,3 +64,32 @@ fn the_host_does_not_admit_a_lookup_provider_yet() {
         );
     }
 }
+
+#[test]
+fn the_host_admits_the_about_subscription_and_the_image_has_it() {
+    let built = batches!(declarations::about);
+    assert_eq!(built.len(), image::ABOUT.len());
+    for (built, image) in built.iter().zip(image::ABOUT) {
+        assert_eq!(built.as_slice(), *image);
+        let records = records_decode(built).unwrap();
+        assert_eq!(records.iter().count(), 1);
+        validate_batch("wikipedia", &records).unwrap();
+    }
+}
+
+/// The schema is a copy of the owner's: `about.lines@1` never changes once
+/// published, so the copy cannot drift legitimately.
+#[test]
+fn the_about_schema_is_byte_for_byte_the_owners() {
+    let mine = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/stages/subscribed/about.lines@1.def"
+    ))
+    .unwrap();
+    let owners = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../about/stages/about.lines@1.def"
+    ))
+    .unwrap();
+    assert_eq!(mine, owners);
+}
