@@ -114,8 +114,9 @@ fn hold_edge(queue: &mut Pending, tag: u32, now_ms: u64, params: &Params) -> Res
 
 impl Kernel {
     /// Queues the kernel event `event` for the running native plugins that
-    /// subscribed to it and `hears` allows, and tells it now where no
-
+    /// subscribed to it and `hears` allows. Suspend and stopping are told
+    /// at once (see the module); the pump tells the others. Any other event
+    /// is left alone.
     pub(crate) fn native_core_event(
         &mut self,
         event: &Id,
