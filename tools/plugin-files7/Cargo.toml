@@ -244,6 +244,12 @@ path = "src/bin/sleep.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "translate"
+path = "src/bin/translate.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
@@ -284,6 +290,7 @@ paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features
 paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
 paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
+paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

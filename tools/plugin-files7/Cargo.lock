@@ -218,6 +218,7 @@ dependencies = [
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-transfer",
+ "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wallabag",
@@ -416,6 +417,14 @@ name = "paperpaw-plugin-transfer"
 version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-translate"
+version = "1.0.6"
+dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

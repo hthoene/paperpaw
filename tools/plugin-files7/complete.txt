@@ -15,3 +15,5 @@ notes-overview
 readwise
 rules
 weather
+reading-goal
+translate
