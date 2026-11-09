@@ -38,8 +38,16 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), item_states, presets, hints) =
-            {
+        let (
+            status,
+            owner,
+            owner_key,
+            images,
+            (commands, redraw, _hop),
+            item_states,
+            presets,
+            hints,
+        ) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
