@@ -236,6 +236,7 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod wifi_events;
 mod work_pump;
 
 const REGISTRATIONS: usize = 8;
