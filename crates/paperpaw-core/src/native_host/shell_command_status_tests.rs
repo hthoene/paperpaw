@@ -46,7 +46,7 @@ fn submit(state: *mut c_void) {
     ];
     let count = if CHAIN_TEST.with(Cell::get) { 3 } else { 2 };
     let image = [WireCommand::ImagePrepare {
-        root: IMAGE_ROOT.with(Cell::get) - 1,
+        root: IMAGE_ROOT.with(Cell::get).saturating_sub(1),
         path: "p.png",
         side: 0,
         cookie: 1,
