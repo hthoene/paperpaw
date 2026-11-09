@@ -157,14 +157,18 @@ pub(crate) struct Cable {
 
 impl Cable {
     /// A request numbered `n` by the computer, with `len` bytes of body to
-    /// come: the kernel's number for it, and the request whose body was
-    /// still coming, cut short by it (its computer's number and the
-    /// kernel's), if any.
-    pub(crate) fn begin(&mut self, n: u32, len: u64) -> (u32, Option<(u32, u32)>) {
+    /// come: the kernel's number for it, the request whose body was still
+    /// coming, cut short by it (its computer's number and the kernel's), if
+    /// any, and the kernel's number of an earlier request `n` still open
+    /// without a body coming, if any: the computer gave that one up, so it
+    /// ends (its plugin told) without an answer of its own, since an answer
+    /// numbered `n` is the new request's.
+    pub(crate) fn begin(&mut self, n: u32, len: u64) -> (u32, Option<(u32, u32)>, Option<u32>) {
         let cut = self.body.take().map(|(m, request, _)| (m, request));
         if let Some((m, _)) = cut {
             self.open.retain(|(o, _)| *o != m);
         }
+        let replaced = self.request(n);
         self.forget(n);
         let request = FIRST_REQUEST | (self.next & !FIRST_REQUEST);
         self.next = self.next.wrapping_add(1);
@@ -175,7 +179,7 @@ impl Cable {
         self.body = (len > 0).then_some((n, request, len));
         // A new request ends what was being passed over.
         self.swallow = None;
-        (request, cut)
+        (request, cut, replaced)
     }
 
     /// Whether the `len` bytes of a data line of `n` belong to a refused
@@ -284,12 +288,20 @@ impl Cable {
         }
     }
 
-    /// Queues an answer; `false` (nothing queued) past [`OUT_MAX`] or
-    /// [`OUT_BYTES_MAX`] or without memory. Every allocation is fallible:
-    /// the computer at the cable is an outside party.
+    /// Whether an answer with `len` bytes of body is queued now: fewer than
+    /// [`OUT_MAX`] wait and their bodies stay within [`OUT_BYTES_MAX`]; one
+    /// alone is queued at any size (an interface-6 listing can be longer).
+    pub(crate) fn has_room(&self, len: usize) -> bool {
+        self.out.len() < OUT_MAX
+            && (self.out.is_empty() || self.out_bytes.saturating_add(len) <= OUT_BYTES_MAX)
+    }
+
+    /// Queues an answer; `false` (nothing queued) without room
+    /// ([`Self::has_room`]) or memory. Every allocation is fallible: the
+    /// computer at the cable is an outside party.
     fn send(&mut self, n: u32, status: u16, content_type: &str, body: Vec<u8>) -> bool {
         use core::fmt::Write;
-        if self.out.len() >= OUT_MAX || self.out_bytes + body.len() > OUT_BYTES_MAX {
+        if !self.has_room(body.len()) {
             return false;
         }
         let mut head = String::new();
@@ -369,7 +381,7 @@ mod tests {
         }
         assert!(!cable.swallowed(1, 1), "all of it came");
         // A body refused after it began (the server's limit) too.
-        let (request, _) = cable.begin(2, 1_000);
+        let (request, _, _) = cable.begin(2, 1_000);
         assert_eq!(cable.data(2, 100), Some((request, false)));
         cable.refuse_request(request, 413, "");
         let _ = take(&mut cable);
@@ -388,7 +400,7 @@ mod tests {
             cable.refuse(n, 400, "bad");
         }
         assert_eq!(cable.out.len(), OUT_MAX);
-        let (request, _) = cable.begin(200, 0);
+        let (request, _, _) = cable.begin(200, 0);
         let big = vec![0u8; OUT_BYTES_MAX];
         assert!(!cable.answer(request, 200, "text/plain", big, false));
         let sent = take(&mut cable);
@@ -396,15 +408,52 @@ mod tests {
         assert_eq!(cable.out_bytes, 0);
     }
 
+    /// Alone, an answer of any size is sent (a long interface-6 listing);
+    /// behind another, one past the bytes waits for room.
+    #[test]
+    fn one_answer_alone_is_sent_at_any_size() {
+        let mut cable = Cable::default();
+        let (first, _, _) = cable.begin(1, 0);
+        let (second, _, _) = cable.begin(2, 0);
+        assert!(cable.has_room(OUT_BYTES_MAX + 1));
+        let big = vec![b'x'; OUT_BYTES_MAX + 1];
+        assert!(cable.answer(first, 200, "application/json", big, false));
+        assert!(!cable.has_room(1), "the bytes are taken");
+        let lines = take(&mut cable);
+        assert_eq!(lines.len(), 2 + (OUT_BYTES_MAX + 1).div_ceil(DATA));
+        assert_eq!(lines.last().map(String::as_str), Some("PPT/1 1 end"));
+        assert!(cable.has_room(OUT_BYTES_MAX));
+        assert!(cable.answer(second, 200, "text/plain", vec![b'y'; 10], false));
+    }
+
+    /// A request number the computer uses again ends the earlier request
+    /// still open by it: it is reported, and not answered (an answer by that
+    /// number is the new one's).
+    #[test]
+    fn a_number_used_again_ends_the_earlier_request() {
+        let mut cable = Cable::default();
+        let (first, _, replaced) = cable.begin(5, 0);
+        assert_eq!(replaced, None);
+        let (second, cut, replaced) = cable.begin(5, 0);
+        assert_eq!((cut, replaced), (None, Some(first)));
+        assert!(!cable.answer(first, 200, "text/plain", b"old".to_vec(), false));
+        assert!(cable.answer(second, 200, "text/plain", b"new".to_vec(), false));
+        assert_eq!(take(&mut cable)[1], "PPT/1 5 data 6e6577");
+        // One whose body still comes is the cut one, not reported twice.
+        let (third, _, _) = cable.begin(6, 10);
+        let (_, cut, replaced) = cable.begin(6, 0);
+        assert_eq!((cut, replaced), (Some((6, third)), None));
+    }
+
     /// A request coming while another's body still comes cuts that one
     /// short (it is told, its body let go), even one without a body.
     #[test]
     fn a_new_request_cuts_a_body_still_coming() {
         let mut cable = Cable::default();
-        let (first, cut) = cable.begin(1, 100);
+        let (first, cut, _) = cable.begin(1, 100);
         assert_eq!(cut, None);
         assert_eq!(cable.data(1, 10), Some((first, false)));
-        let (_, cut) = cable.begin(2, 0);
+        let (_, cut, _) = cable.begin(2, 0);
         assert_eq!(cut, Some((1, first)));
         assert_eq!(cable.data(1, 10), None);
     }
@@ -468,7 +517,7 @@ mod tests {
     #[test]
     fn bodies_come_and_answers_go_in_parts() {
         let mut cable = Cable::default();
-        let (request, _) = cable.begin(3, 5);
+        let (request, _, _) = cable.begin(3, 5);
         assert!(request >= FIRST_REQUEST);
         assert_eq!(cable.data(3, 3), Some((request, false)));
         assert_eq!(cable.data(4, 1), None);
@@ -490,7 +539,7 @@ mod tests {
         // Answered once only.
         cable.answer(request, 200, "text/plain", b"again".to_vec(), false);
         assert!(take(&mut cable).is_empty());
-        let (request, _) = cable.begin(4, 0);
+        let (request, _, _) = cable.begin(4, 0);
         cable.answer(request, 200, "application/octet-stream", Vec::new(), true);
         let lines = take(&mut cable);
         assert_eq!(lines[0], "PPT/1 4 500 text/plain;charset=utf-8");

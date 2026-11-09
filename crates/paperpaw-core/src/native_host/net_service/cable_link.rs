@@ -134,8 +134,10 @@ impl CableLink {
     /// `ERR_UNSUPPORTED`.
     ///
     /// # Errors
-    /// `ERR_UNSUPPORTED` for a file; `ERR_NO_MEMORY` when the body cannot be
-    /// kept to send; `ERR_BUSY` when the link is borrowed.
+    /// `ERR_UNSUPPORTED` for a file; `ERR_BUSY` while the answers waiting
+    /// for the computer leave no room (`Cable::has_room`; the request stays
+    /// open, so the plugin may answer again) or the link is borrowed;
+    /// `ERR_NO_MEMORY` when the body cannot be kept to send.
     pub(crate) fn answer(
         &self,
         request: u32,
@@ -146,6 +148,15 @@ impl CableLink {
     ) -> Result<(), i32> {
         self.with(|link| {
             let at = link.open.iter().position(|o| o.request == request)?;
+            // A full queue empties as the computer reads: the plugin retries.
+            let len = if file {
+                64
+            } else {
+                body.map_or(0, <[u8]>::len)
+            };
+            if !link.proto.has_room(len) {
+                return Some(Err(ERR_BUSY));
+            }
             let open = link.open.remove(at);
             // Room reserved when it was kept (`keep`): no allocation here.
             link.gone.push(request);
@@ -160,7 +171,7 @@ impl CableLink {
                     .answer(open.link, status, content_type, Vec::new(), true);
                 Err(ERR_UNSUPPORTED)
             } else if fits {
-                // A full queue (a computer that does not read) or no memory.
+                // No memory for the answer's lines (room was checked above).
                 if link
                     .proto
                     .answer(open.link, status, content_type, kept, false)

@@ -291,7 +291,7 @@ impl Kernel {
                         .refuse_upload(n, len, 507, "not enough room");
                     return self.finish();
                 }
-                let (request, cut) = self.io.servers.cable.begin(n, len);
+                let (request, cut, replaced) = self.io.servers.cable.begin(n, len);
                 // A body still coming, cut short by this request: let go,
                 // and told, unless the computer gave this request its
                 // number (it gave the other up): the answer is the new one's.
@@ -299,6 +299,10 @@ impl Kernel {
                     Some((m, cut)) if m == n => self.cable_close(cut),
                     Some((m, cut)) => self.cable_cut(m, cut, "cut short by another request"),
                     None => {}
+                }
+                // An earlier request by this number, given up by the computer.
+                if let Some(replaced) = replaced {
+                    self.cable_close(replaced);
                 }
                 let storage = &*self.shared.storage;
                 let event = ServerEvent::Request {
