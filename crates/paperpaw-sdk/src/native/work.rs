@@ -592,6 +592,10 @@ impl Work {
     /// `input` holds the encoded record (256 bytes are enough); the reply is
     /// empty, so `out` may be empty.
     ///
+    /// The plugin must have subscribed to
+    /// [`EventKind::WorkDue`](super::declare::EventKind::WorkDue) with its
+    /// registration first; without it the host answers `State` (`work.md` 3).
+    ///
     /// Declared while work is delivered (in a `work_due` callback or any other
     /// callback of that pass), the work is due at the next pass at the
     /// earliest, never in the same one. Any work declared from a run's
@@ -604,7 +608,7 @@ impl Work {
     /// refusals: `Denied` for network work without `uses.network` or with the
     /// plugin's network turned off, `Full` above the plugin's or the device's
     /// limits, `NoMemory`, `Unsupported` for a bit this host does not know,
-    /// `State` outside a callback.
+    /// `State` outside a callback or without the `WorkDue` subscription.
     pub fn declare(
         &self,
         host: &Host<'_>,

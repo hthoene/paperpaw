@@ -424,7 +424,13 @@ pub enum Event<'a> {
     Socket(super::sockets::SocketEvent),
     /// Something happened to a broadcast of this plugin.
     Broadcast(super::sockets::BroadcastEvent<'a>),
-    /// Work of this plugin came due (`core.work`): opens a run.
+    /// Work of this plugin came due (`core.work`): opens a run. Requests and sockets
+    /// started in this callback belong to the run (background, `work.md` 2.3); the
+    /// run ends when this callback has returned and its last request and socket
+    /// have ended, so its sockets must have an idle time. It lasts at most 10
+    /// minutes. The run is quiet: UI calls that would ask the user answer
+    /// `Error::State` in this callback and in the events of the run's requests and
+    /// sockets, and notices go to the plugin's work note.
     WorkDue(super::work::WorkDue<'a>),
     /// Work was taken out for good (the user turned the network off).
     WorkRefused(super::work::WorkRefused<'a>),
