@@ -37,7 +37,8 @@ const SAVING_BODY: usize = 4096;
 /// What the requests came to in one step, before it is reported.
 pub(super) enum NetOut {
     /// The request ended.
-    Finished(u32, paperpaw_core::HttpResponse),
+    /// With the most body bytes it reserved, once taken (kept over a retry).
+    Finished(u32, paperpaw_core::HttpResponse, Option<usize>),
     /// Bytes of a 2xx answer arrived.
     Progress(u32, u64, Option<u64>),
     /// The request was redirected to `https` and parked.
@@ -71,7 +72,7 @@ impl Inner {
         };
         let answers = self.http.poll(Some(net), storage.as_ref(), clock_ready);
         for answer in answers {
-            let item = Out::Net(NetOut::Finished(answer.id, answer));
+            let item = Out::Net(NetOut::Finished(answer.id, answer, None));
             push_out(out, item, &mut self.oom);
         }
         for (id, received, total) in self.http.progress() {
@@ -122,15 +123,29 @@ impl Bridge {
                 }
                 Ok(()) => Ok(()),
             },
-            NetOut::Finished(id, response) => {
-                let cap = self.take_cap(id);
-                let result = finish(net, id, response, cap);
-                if result == Err(ERR_BUSY) {
-                    // The answer is spent; core's own timeout ends the request.
-                    log::warn!("http: the answer of request {id} was not taken (busy)");
+            NetOut::Finished(id, mut response, cap) => {
+                let cap = cap.unwrap_or_else(|| self.take_cap(id));
+                match finish(net, id, &mut response, cap) {
+                    // Core is busy: the answer is told again at the next step.
+                    Told::Again => Err(NetOut::Finished(id, response, Some(cap))),
+                    Told::Spent => {
+                        // The body went with the refused report: counted
+                        // (logged again once idle); core's own timeout ends
+                        // the request.
+                        log::warn!("http: the answer of request {id} was lost (core busy)");
+                        self.count_lost_answer();
+                        Ok(())
+                    }
+                    Told::Done => Ok(()),
                 }
-                Ok(())
             }
+        }
+    }
+
+    /// An answer that could not be told, counted (logged once idle).
+    fn count_lost_answer(&self) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.lost_answers = inner.lost_answers.saturating_add(1);
         }
     }
 
@@ -162,47 +177,55 @@ fn again(result: Result<(), i32>, item: NetOut) -> Result<(), NetOut> {
     }
 }
 
+/// How the report of an answer went.
+enum Told {
+    /// Core took it (or does not know the request: a late report).
+    Done,
+    /// Core was busy and the answer has no body: tell it again.
+    Again,
+    /// Core was busy and the answer's body went with the report: lost.
+    Spent,
+}
+
 /// Tells core how request `id` ended; the body is cut to what it reserved.
+/// An answer without a body is told again where core is busy; one with a
+/// body goes with the report, so a busy refusal loses it ([`Told::Spent`]).
 fn finish(
     net: &NetReports,
     id: u32,
-    response: paperpaw_core::HttpResponse,
+    response: &mut paperpaw_core::HttpResponse,
     cap: usize,
-) -> Result<(), i32> {
-    let paperpaw_core::HttpResponse {
-        status,
-        mut body,
-        etag,
-        content_type,
-        url,
-        saved,
-        truncated,
-        error,
-        ..
-    } = response;
-    let reason = match error {
+) -> Told {
+    let reason = match response.error {
         None => HttpReason::Ok,
         Some(HttpError::NoNetwork) => HttpReason::NoNetwork,
         Some(HttpError::Dns) => HttpReason::Dns,
         Some(HttpError::Timeout) => HttpReason::Timeout,
-        Some(HttpError::Refused) if too_large(&body) => HttpReason::TooLarge,
+        Some(HttpError::Refused) if too_large(&response.body) => HttpReason::TooLarge,
         Some(HttpError::Refused) => HttpReason::Refused,
         Some(_) => HttpReason::Io,
     };
-    let mut done = HttpDone::new(u32::from(status), reason);
-    done.saved = saved;
-    done.truncated = truncated;
-    done.etag = etag.as_deref().unwrap_or_default();
-    done.content_type = content_type.as_deref().unwrap_or_default();
-    done.final_url = url.as_deref().unwrap_or_default();
     // A failure's text is for the shell's log, not a body.
-    if status == 0 {
-        body = Vec::new();
-    } else {
-        body.shrink_to(cap);
+    if response.status == 0 {
+        response.body = Vec::new();
     }
-    done.body = body;
-    net.finished(id, done)
+    let mut done = HttpDone::new(u32::from(response.status), reason);
+    done.saved = response.saved;
+    done.truncated = response.truncated;
+    done.etag = response.etag.as_deref().unwrap_or_default();
+    done.content_type = response.content_type.as_deref().unwrap_or_default();
+    done.final_url = response.url.as_deref().unwrap_or_default();
+    // The body goes once, as it is: no copy of up to `max_body` bytes is
+    // made for a retry (it costs heap on every request, for a refusal that
+    // cannot happen between the kernel's calls).
+    let kept = response.body.is_empty();
+    done.body = core::mem::take(&mut response.body);
+    done.body.shrink_to(cap);
+    match net.finished(id, done) {
+        Err(ERR_BUSY) if kept => Told::Again,
+        Err(ERR_BUSY) => Told::Spent,
+        _ => Told::Done,
+    }
 }
 
 /// Whether a failure's text says the answer was too large.

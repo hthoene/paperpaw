@@ -847,11 +847,16 @@ fn keep(
     *got += piece.len() as u64;
     match sink {
         Sink::Memory(body, limit) => {
-            let room = limit.saturating_sub(body.len());
-            let piece = &piece[..piece.len().min(room)];
-            // Growing as it comes, without failing hard where memory ends.
-            if body.try_reserve(piece.len()).is_err()
-                && body.try_reserve_exact(piece.len()).is_err()
+            let piece = &piece[..paperpaw_x4::body_room::fit(body.len(), piece.len(), *limit)];
+            // The room is taken once (what the request reserved), or in exact
+            // steps: never doubled, never past the limit, and without failing
+            // hard where memory ends.
+            if let Some(capacity) = paperpaw_x4::body_room::capacity_for(
+                body.capacity(),
+                body.len(),
+                piece.len(),
+                *limit,
+            ) && body.try_reserve_exact(capacity - body.len()).is_err()
             {
                 return Err("the answer is too large for the memory of this device");
             }
