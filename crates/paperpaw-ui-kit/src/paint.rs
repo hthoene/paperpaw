@@ -118,6 +118,55 @@ pub fn replay<'a>(
     replay_with(frame, font, None, ops)
 }
 
+/// Draws the QR code `code`, black on white with the four modules of quiet
+/// zone the standard asks for, as large as a whole number of pixels per
+/// module allows in `area` and centred in it: each run of dark modules in a
+/// row is one rectangle. Nothing is drawn where not even one pixel a module
+/// fits.
+///
+/// # Errors
+/// Propagates canvas errors.
+pub fn draw_code(
+    frame: &mut DrawFrame<'_>,
+    code: &paperpaw_sdk::qr::QrCode,
+    area: Rect,
+) -> Result<(), Error> {
+    let Some(modules) = u16::try_from(code.size())
+        .ok()
+        .and_then(|size| size.checked_add(8))
+    else {
+        return Ok(());
+    };
+    let scale = area.width.min(area.height) / modules;
+    if scale == 0 {
+        return Ok(());
+    }
+    let side = scale * modules;
+    let x = area.x.saturating_add((area.width - side) / 2);
+    let y = area.y.saturating_add((area.height - side) / 2);
+    let canvas = frame.draw_canvas()?;
+    canvas.fill_rectangle(frame_rect(Rect::new(x, y, side, side)), Color::WHITE)?;
+    let (x0, y0) = (x + 4 * scale, y + 4 * scale);
+    for row in 0..code.size() {
+        let mut at = 0;
+        while at < code.size() {
+            if !code.dark(at, row) {
+                at += 1;
+                continue;
+            }
+            let start = at;
+            while at < code.size() && code.dark(at, row) {
+                at += 1;
+            }
+            // Both fit a `u16`: the code is at most 57 modules a side.
+            let (left, top) = (x0 + start as u16 * scale, y0 + row as u16 * scale);
+            let width = (at - start) as u16 * scale;
+            canvas.fill_rectangle(frame_rect(Rect::new(left, top, width, scale)), Color::BLACK)?;
+        }
+    }
+    Ok(())
+}
+
 /// [`replay`] with a bold font for [`Paint::Bold`] runs.
 ///
 /// # Errors

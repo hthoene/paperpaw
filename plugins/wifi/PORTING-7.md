@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 to 5: the radio policy, the declarations, the phone setup, the own network, the kept networks, the screens and the file on the card)
+# Interface-7 port (slices 1 to 6: the radio policy, the declarations, the phone setup, the own network, the kept networks, the screens, the file on the card and the page served)
 
 Version 1.0.4. Partial: the decisions of the plugin, what it declares, the screens and the file on the card, up to what the
 host cannot do yet. The native plugin (`native_plugin::NativeWifi`) has a `NATIVE_ENTRY` (feature
@@ -127,8 +127,8 @@ until the host activates native plugins (then it goes together, no shim).
 - The scripted host does not answer `i18n.copy`/`i18n.format` (`SCRIPTED-i18n`), so the rows' texts,
   the drawing and the answers to the password question are not run; the status item's value (H1) and
   the first-run row's badge.
-- The phone setup serves a page on port 80 of the device's own network: the SDK has no `serve` or
-  `respond` yet (`NET-serve`); the decisions and pages are ported (`native_phone`).
+- The phone setup screen drawn with its join and page codes (`Footer::Code` of the ui kit) is the
+  host's compose (H3); the rows and the answers are run in `tests/scripted_phone.rs`.
 - Wi-Fi commands cannot be staged by the scripted host (it has no `core.device` context): a callback that
   sends one ends with `ERR_UNSUPPORTED` there, so `tests/scripted_radio.rs` reads what was sent from the
   bytes of the batches (`commands_decode`) and asserts it exactly; staging them and the radio really
@@ -172,3 +172,26 @@ until the host activates native plugins (then it goes together, no shim).
 - Passwords are wiped by `paperpaw_ui_kit::mem::wipe_text`, the helper the keyboard uses too (one
   volatile wipe, not a copy per plugin). `Step::Join` carries the password in a `Password`, so the
   buffer is wiped when the shell has built the `wifi_join` command from it and drops the step.
+
+## The phone setup served (slice 6, `src/native_plugin/phone.rs`)
+
+- The screen `wifi.phone` opens the own network (`Own::draw` from a fully random `core.secrets`
+  `random` draw, none otherwise: "cannot make a safe password"), asks the radio to scan and to host,
+  and once it is open serves the page on port 80 with `Net::serve` (`core.net`, `uses.network`):
+  every request is answered with `Net::respond` through `native_phone::Phone::request`, a form is
+  read from the request's body file (at most 1,024 bytes) and that file is removed at once (the
+  plugin cannot overwrite the host's folder), and the password typed on the page is wiped.
+- The server cap: the X4 has one server. A refused `serve` (`ERR_BUSY`) is shown on the screen
+  ("another page is already served") and is not a failure of the callback. Closing the screen
+  (`ScreenClosed`) stops serving (`stop_serving`) and leaves the own network; so does the idle time
+  (ten minutes, a `core.work` wake).
+- The codes: the join code and the page address are QR codes drawn under the rows by the ui kit's
+  new `Footer::Code`; the codes are made with the new fallible `QrCode::try_new` (`paperpaw-qr`), a
+  short heap is an error, never an abort; where a code cannot be made the name, the password and the
+  address are on the screen to be typed.
+- Every buffer of a host call is at least the op's reply bound (secrets `random` 1,280, `core.net` 1,536).
+- Tests: `tests/scripted_phone.rs` (seven cases on the production loader: scan and host asked, the page
+  served at port 80, the page lists the networks and carries the token, a form without it chooses nothing,
+  404, a busy server, a weak draw makes no network, closing stops serving). A callback that sends a
+  command ends refused there (`DEV-staging`), so what was sent is read from the batches. Version stays
+  1.0.4 (above Beta 3).

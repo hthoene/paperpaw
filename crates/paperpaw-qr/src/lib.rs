@@ -9,7 +9,6 @@
 
 extern crate alloc;
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 /// Error correction codewords per block and blocks, for level M, by
@@ -17,6 +16,31 @@ use alloc::vec::Vec;
 const ECC_PER_BLOCK: [usize; 11] = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
 const BLOCKS: [usize; 11] = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
 const MAX_VERSION: u8 = 10;
+
+/// Why a code could not be made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum QrError {
+    /// The data is longer than version 10 holds.
+    TooLong,
+    /// The heap could not give the room the code needs.
+    NoMemory,
+}
+
+/// `len` copies of `value`, with the room reserved first.
+fn filled<T: Copy>(len: usize, value: T) -> Result<Vec<T>, QrError> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(len).map_err(|_| QrError::NoMemory)?;
+    out.resize(len, value);
+    Ok(out)
+}
+
+/// An empty list with room for exactly `len` items.
+fn room<T>(len: usize) -> Result<Vec<T>, QrError> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(len).map_err(|_| QrError::NoMemory)?;
+    Ok(out)
+}
 
 /// A QR code: a square of dark and light modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,38 +52,62 @@ pub struct QrCode {
 impl QrCode {
     /// The code for `data`, in the smallest version it fits; `None` if
     /// it is longer than version 10 holds.
+    ///
+    /// `None` also where the heap has no room; [`Self::try_new`] tells which.
     pub fn new(data: &[u8]) -> Option<QrCode> {
-        let version = (1..=MAX_VERSION).find(|&v| data.len() <= capacity(v))?;
-        Some(Self::encode(data, version, None))
+        Self::try_new(data).ok()
+    }
+
+    /// As [`Self::new`], with every allocation fallible: nothing aborts where
+    /// the heap is short.
+    ///
+    /// # Errors
+    /// [`QrError::TooLong`] for data version 10 does not hold,
+    /// [`QrError::NoMemory`] where the heap cannot give the room.
+    pub fn try_new(data: &[u8]) -> Result<QrCode, QrError> {
+        let version = (1..=MAX_VERSION)
+            .find(|&v| data.len() <= capacity(v))
+            .ok_or(QrError::TooLong)?;
+        Self::encode(data, version, None)
     }
 
     /// The code in `version` with mask `mask` (or the best one).
-    fn encode(data: &[u8], version: u8, mask: Option<u8>) -> QrCode {
+    fn encode(data: &[u8], version: u8, mask: Option<u8>) -> Result<QrCode, QrError> {
         let size = usize::from(version) * 4 + 17;
         let mut code = Builder {
             size,
-            modules: vec![false; size * size],
-            function: vec![false; size * size],
+            modules: filled(size * size, false)?,
+            function: filled(size * size, false)?,
         };
-        code.function_patterns(version);
-        let codewords = codewords(data, version);
+        code.function_patterns(version)?;
+        let codewords = codewords(data, version)?;
         code.place(&codewords);
-        let mask = mask.unwrap_or_else(|| {
-            (0..8)
-                .min_by_key(|&m| {
-                    let mut trial = code.clone();
+        drop(codewords);
+        let mask = match mask {
+            Some(mask) => mask,
+            None => {
+                // One trial copy, laid over again for each mask (the pattern
+                // modules are the same in all of them).
+                let mut trial = code.try_clone()?;
+                let mut best = (u32::MAX, 0u8);
+                for m in 0..8 {
+                    trial.modules.copy_from_slice(&code.modules);
                     trial.mask(m);
                     trial.format(m);
-                    trial.penalty()
-                })
-                .unwrap_or(0)
-        });
+                    let penalty = trial.penalty();
+                    if penalty < best.0 {
+                        best = (penalty, m);
+                    }
+                }
+                best.1
+            }
+        };
         code.mask(mask);
         code.format(mask);
-        QrCode {
+        Ok(QrCode {
             size,
             modules: code.modules,
-        }
+        })
     }
 
     /// Modules per side.
@@ -101,8 +149,9 @@ fn data_codewords(version: u8) -> usize {
 
 /// The data bits and padding, split into blocks with their error
 /// correction, interleaved.
-fn codewords(data: &[u8], version: u8) -> Vec<u8> {
-    let mut bits: Vec<bool> = Vec::new();
+fn codewords(data: &[u8], version: u8) -> Result<Vec<u8>, QrError> {
+    // Never more than the version's data bits: the room is reserved once.
+    let mut bits: Vec<bool> = room(data_codewords(version) * 8)?;
     fn push(bits: &mut Vec<bool>, value: u32, count: u32) {
         for i in (0..count).rev() {
             bits.push((value >> i) & 1 == 1);
@@ -128,10 +177,11 @@ fn codewords(data: &[u8], version: u8) -> Vec<u8> {
     while bits.len() < capacity {
         push(&mut bits, pad.next().unwrap_or(0xEC), 8);
     }
-    let bytes: Vec<u8> = bits
-        .chunks(8)
-        .map(|c| c.iter().fold(0u8, |acc, &b| (acc << 1) | u8::from(b)))
-        .collect();
+    let mut bytes: Vec<u8> = room(bits.len() / 8)?;
+    for chunk in bits.chunks(8) {
+        bytes.push(chunk.iter().fold(0u8, |acc, &b| (acc << 1) | u8::from(b)));
+    }
+    drop(bits);
 
     let v = usize::from(version);
     let blocks = BLOCKS[v];
@@ -139,18 +189,18 @@ fn codewords(data: &[u8], version: u8) -> Vec<u8> {
     let raw = raw_codewords(version);
     let short_blocks = blocks - raw % blocks;
     let short_len = raw / blocks - ecc_len;
-    let divisor = rs_divisor(ecc_len);
-    let mut data_blocks: Vec<&[u8]> = Vec::new();
-    let mut ecc_blocks: Vec<Vec<u8>> = Vec::new();
+    let divisor = rs_divisor(ecc_len)?;
+    let mut data_blocks: Vec<&[u8]> = room(blocks)?;
+    let mut ecc_blocks: Vec<Vec<u8>> = room(blocks)?;
     let mut at = 0;
     for i in 0..blocks {
         let len = short_len + usize::from(i >= short_blocks);
         let block = &bytes[at..at + len];
         at += len;
-        ecc_blocks.push(rs_remainder(block, &divisor));
+        ecc_blocks.push(rs_remainder(block, &divisor)?);
         data_blocks.push(block);
     }
-    let mut out = Vec::with_capacity(raw);
+    let mut out = room(raw)?;
     for i in 0..=short_len {
         for block in &data_blocks {
             if let Some(&b) = block.get(i) {
@@ -163,7 +213,7 @@ fn codewords(data: &[u8], version: u8) -> Vec<u8> {
             out.push(ecc[i]);
         }
     }
-    out
+    Ok(out)
 }
 
 /// Multiplies in GF(256) modulo x⁸ + x⁴ + x³ + x² + 1.
@@ -178,8 +228,8 @@ fn gf_mul(x: u8, y: u8) -> u8 {
 
 /// The Reed-Solomon generator polynomial of `degree` (highest term
 /// first, the leading 1 left out).
-fn rs_divisor(degree: usize) -> Vec<u8> {
-    let mut result = vec![0u8; degree];
+fn rs_divisor(degree: usize) -> Result<Vec<u8>, QrError> {
+    let mut result = filled(degree, 0u8)?;
     result[degree - 1] = 1;
     let mut root = 1u8;
     for _ in 0..degree {
@@ -191,11 +241,11 @@ fn rs_divisor(degree: usize) -> Vec<u8> {
         }
         root = gf_mul(root, 0x02);
     }
-    result
+    Ok(result)
 }
 
-fn rs_remainder(data: &[u8], divisor: &[u8]) -> Vec<u8> {
-    let mut result = vec![0u8; divisor.len()];
+fn rs_remainder(data: &[u8], divisor: &[u8]) -> Result<Vec<u8>, QrError> {
+    let mut result = filled(divisor.len(), 0u8)?;
     for &b in data {
         let factor = b ^ result[0];
         result.remove(0);
@@ -204,10 +254,9 @@ fn rs_remainder(data: &[u8], divisor: &[u8]) -> Vec<u8> {
             *r ^= gf_mul(d, factor);
         }
     }
-    result
+    Ok(result)
 }
 
-#[derive(Clone)]
 struct Builder {
     size: usize,
     modules: Vec<bool>,
@@ -216,13 +265,25 @@ struct Builder {
 }
 
 impl Builder {
+    fn try_clone(&self) -> Result<Self, QrError> {
+        let mut modules = room(self.modules.len())?;
+        modules.extend_from_slice(&self.modules);
+        let mut function = room(self.function.len())?;
+        function.extend_from_slice(&self.function);
+        Ok(Self {
+            size: self.size,
+            modules,
+            function,
+        })
+    }
+
     fn set(&mut self, x: usize, y: usize, dark: bool) {
         let i = y * self.size + x;
         self.modules[i] = dark;
         self.function[i] = true;
     }
 
-    fn function_patterns(&mut self, version: u8) {
+    fn function_patterns(&mut self, version: u8) -> Result<(), QrError> {
         let size = self.size;
         for i in 0..size {
             self.set(6, i, i % 2 == 0);
@@ -239,7 +300,7 @@ impl Builder {
                 }
             }
         }
-        let positions = alignment_positions(version, size);
+        let positions = alignment_positions(version, size)?;
         let last = positions.len().saturating_sub(1);
         for (i, &x) in positions.iter().enumerate() {
             for (j, &y) in positions.iter().enumerate() {
@@ -274,6 +335,7 @@ impl Builder {
                 self.set(b, a, dark);
             }
         }
+        Ok(())
     }
 
     /// The format bits: level M (00) and the mask, twice.
@@ -410,21 +472,21 @@ impl Builder {
     }
 }
 
-fn alignment_positions(version: u8, size: usize) -> Vec<usize> {
+fn alignment_positions(version: u8, size: usize) -> Result<Vec<usize>, QrError> {
     if version == 1 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let v = usize::from(version);
     let count = v / 7 + 2;
     let step = (v * 4 + count * 2 + 1) / (count * 2 - 2) * 2;
-    let mut positions = vec![0usize; count];
+    let mut positions = filled(count, 0usize)?;
     positions[0] = 6;
     let mut position = size - 7;
     for i in (1..count).rev() {
         positions[i] = position;
         position -= step;
     }
-    positions
+    Ok(positions)
 }
 
 #[cfg(test)]
@@ -440,7 +502,7 @@ mod tests {
         }
         assert_eq!(raw_codewords(1), 26);
         assert_eq!(raw_codewords(7), 196);
-        assert_eq!(alignment_positions(7, 45), [6, 22, 38]);
+        assert_eq!(alignment_positions(7, 45).unwrap(), [6, 22, 38]);
     }
 
     #[test]
@@ -450,7 +512,7 @@ mod tests {
             0x20, 0x5B, 0x0B, 0x78, 0xD1, 0x72, 0xDC, 0x4D, 0x43, 0x40, 0xEC, 0x11, 0xEC, 0x11,
             0xEC, 0x11,
         ];
-        let ecc = rs_remainder(&data, &rs_divisor(10));
+        let ecc = rs_remainder(&data, &rs_divisor(10).unwrap()).unwrap();
         assert_eq!(
             ecc,
             [0xC4, 0x23, 0x27, 0x77, 0xEB, 0xD7, 0xE7, 0xE2, 0x5D, 0x17]
@@ -470,5 +532,6 @@ mod tests {
         // The dark module beside the lower finder.
         assert!(code.dark(8, 29 - 8));
         assert!(QrCode::new(&[b'a'; 214]).is_none());
+        assert_eq!(QrCode::try_new(&[b'a'; 214]), Err(QrError::TooLong));
     }
 }

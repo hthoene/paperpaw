@@ -21,12 +21,13 @@ const CASES: [Case; 5] = [
     },
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
-    // `native_phone` (compared with the old screen); serving them, the codes
-    // and the screen are what waits.
+    // `native_phone` (compared with the old screen); serving them and
+    // answering are run in `tests/scripted_phone.rs`. Drawing the screen with
+    // its codes (the ui kit's `Footer::Code`) waits for the host's compose.
     Case {
         name: "wifi-phone",
         golden: None,
-        blocked_by: &["NET-serve"],
+        blocked_by: &["H3"],
     },
     // Networks and passwords kept and forgotten through `core.secrets`, and a
     // `wifi.ini` on the card read once at a start. What the plugin keeps and
@@ -43,11 +44,13 @@ const CASES: [Case; 5] = [
     // The own network opened for the phone: its name and drawn password, the
     // token of its page, the join code (`native_own`), with the bytes from
     // `core.secrets` `random`. The setup screen prepares them from a fully
-    // random draw only; opening the network and the served page wait.
+    // random draw only; the radio opening the network for real waits for the
+    // host (the scripted one cannot stage Wi-Fi commands; what is sent is read
+    // from the bytes in `tests/scripted_phone.rs`).
     Case {
         name: "wifi-own-network",
         golden: None,
-        blocked_by: &["NET-serve"],
+        blocked_by: &["H4"],
     },
     // The status item shows the sign while the device is in a network.
     Case {
@@ -74,7 +77,7 @@ fn wifi_pages() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: core.net serve/respond has no SDK side"]
+#[ignore = "BLOCKED H3: the screen with its join and page codes is drawn by the host's compose"]
 fn wifi_phone() {
     CASES[1].refuse().unwrap();
 }
@@ -86,7 +89,7 @@ fn wifi_passwords() {
 }
 
 #[test]
-#[ignore = "BLOCKED NET-serve: opening the own network and the served page"]
+#[ignore = "BLOCKED H4: the radio opening the own network for real; the scripted host cannot stage Wi-Fi commands"]
 fn wifi_own_network() {
     CASES[3].refuse().unwrap();
 }

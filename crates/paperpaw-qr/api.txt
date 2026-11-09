@@ -1,6 +1,10 @@
 pub mod paperpaw_qr
+#[non_exhaustive] pub enum paperpaw_qr::QrError
+pub paperpaw_qr::QrError::NoMemory
+pub paperpaw_qr::QrError::TooLong
 pub struct paperpaw_qr::QrCode
 impl paperpaw_qr::QrCode
 pub fn paperpaw_qr::QrCode::dark(&self, usize, usize) -> bool
 pub fn paperpaw_qr::QrCode::new(&[u8]) -> core::option::Option<paperpaw_qr::QrCode>
 pub fn paperpaw_qr::QrCode::size(&self) -> usize
+pub fn paperpaw_qr::QrCode::try_new(&[u8]) -> core::result::Result<paperpaw_qr::QrCode, paperpaw_qr::QrError>
