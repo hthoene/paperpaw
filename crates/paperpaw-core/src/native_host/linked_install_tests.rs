@@ -159,6 +159,17 @@ fn install_on(
     host: &Host<'static>,
     id: &str,
 ) -> Result<(), shell::Error> {
+    install_with(kernel, entry, metadata, host, id, HostResources::try_new().unwrap())
+}
+
+fn install_with(
+    kernel: &mut crate::Kernel,
+    entry: &'static PpEntry,
+    metadata: &'static [u8],
+    host: &Host<'static>,
+    id: &str,
+    resources: HostResources,
+) -> Result<(), shell::Error> {
     // SAFETY: the test factory obeys the contract and its code is static.
     unsafe {
         kernel.register_linked(
@@ -167,7 +178,7 @@ fn install_on(
             host,
             id,
             Heap,
-            HostResources::try_new().unwrap(),
+            resources,
             &FlatDepth::try_new().unwrap(),
             |_, _, _, _| {},
             |_, _, _| {},
@@ -202,6 +213,31 @@ fn a_good_entry_runs_make_once_and_its_id_is_taken() {
     assert_eq!(MAKES.with(Cell::get), 1);
     drop(kernel);
     assert_eq!(DROPS.with(Cell::get), 1);
+}
+
+#[test]
+fn a_linked_id_is_known_to_core_files_only_while_the_plugin_is_registered() {
+    let mut kernel = kernel();
+    let resources = HostResources::try_new().unwrap();
+    let linked = resources.hosts().linked().clone();
+    let host = shell_host(&[]);
+    // A refused entry leaves no id behind.
+    let bad = entry(|entry| entry.abi_major += 1);
+    let refused = install_with(&mut kernel, bad, METADATA, &host, "linked", resources);
+    assert_eq!(status(refused), ERR_INVALID);
+    assert!(!linked.contains("linked"));
+    // A good one records its id, and only its id.
+    let resources = HostResources::try_new().unwrap();
+    let linked = resources.hosts().linked().clone();
+    install_with(&mut kernel, entry(|_| {}), METADATA, &host, "linked", resources).unwrap();
+    assert!(linked.contains("linked"));
+    assert!(!linked.contains("other"));
+    // A taken id is refused before it is recorded again anywhere.
+    let resources = HostResources::try_new().unwrap();
+    let other = resources.hosts().linked().clone();
+    let again = install_with(&mut kernel, entry(|_| {}), METADATA, &host, "linked", resources);
+    assert_eq!(status(again), ERR_INVALID);
+    assert!(!other.contains("linked"));
 }
 
 #[test]

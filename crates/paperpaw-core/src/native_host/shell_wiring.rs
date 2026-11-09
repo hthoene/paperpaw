@@ -342,6 +342,7 @@ impl HostResources {
             hosts.wire_files(Rc::new(StorageFiles::new(
                 storage,
                 hosts.busy_sources().clone(),
+                hosts.linked().clone(),
             )))?;
         }
         if let Some(x4) = wiring.ui {

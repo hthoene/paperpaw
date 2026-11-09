@@ -18,7 +18,10 @@
 //!   busy would be a wrong answer for state the host does hold.
 //! - `rename`: the storage's rename (the library's journal and job follow a
 //!   move of the user's files when the library host is wired).
-use super::files_service::{Access, FilesHost};
+use super::{
+    files_service::{Access, FilesHost},
+    linked_plugins::LinkedPlugins,
+};
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
@@ -117,11 +120,26 @@ const JOINED: usize = 384;
 pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
+    linked: Rc<LinkedPlugins>,
 }
 
 impl StorageFiles {
-    pub(crate) fn new(storage: Rc<dyn Storage>, sources: Rc<BusySources>) -> Self {
-        Self { storage, sources }
+    pub(crate) fn new(
+        storage: Rc<dyn Storage>,
+        sources: Rc<BusySources>,
+        linked: Rc<LinkedPlugins>,
+    ) -> Self {
+        Self {
+            storage,
+            sources,
+            linked,
+        }
+    }
+
+    /// Whether `plugin` is linked into the firmware (the answer of
+    /// `FilesHost::built_in`): a loaded plugin never is.
+    pub(crate) fn is_linked(&self, plugin: &str) -> bool {
+        self.linked.contains(plugin)
     }
 
     /// Whether the file or folder `parent/name` exists.

@@ -53,6 +53,9 @@ pub(crate) struct HostServices {
     secrets: OnceCell<SecretsServices>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
+    /// The ids of the plugins linked into the firmware (root 2 of the file
+    /// service has no install folder for them).
+    linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
@@ -119,6 +122,7 @@ impl HostServices {
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             busy: OnceCell::new(),
+            linked: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
             pool: OnceCell::new(),
@@ -326,6 +330,11 @@ impl HostServices {
     pub(crate) fn policy(&self) -> &Rc<super::net_policy::NetPolicy> {
         self.policy
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
+    }
+
+    /// The linked plugin ids, made on first use.
+    pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
+        self.linked.get_or_init(Default::default)
     }
 
     /// The paths in use by host writers (shared with `core.files`' busy check).
