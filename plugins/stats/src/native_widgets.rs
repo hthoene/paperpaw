@@ -27,7 +27,7 @@ use paperpaw_ui_kit::widget::text::{Wrapped, largest_size};
 use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
-use crate::declarations::{TODAY_TOKEN, WEEK_TOKEN};
+use crate::declarations::{RING_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
 
 /// The most bytes of a stage reply (a size, or one target).
 const REPLY: usize = 256;
@@ -52,11 +52,17 @@ static WEEK: Behaviour = Behaviour {
     draw: crate::native_widget_week::draw,
 };
 
+static RING: Behaviour = Behaviour {
+    height: crate::native_widget_ring::height,
+    draw: crate::native_widget_ring::draw,
+};
+
 /// The behaviour of the widget declared with `token`.
 fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
         TODAY_TOKEN => Some(&TODAY),
         WEEK_TOKEN => Some(&WEEK),
+        RING_TOKEN => Some(&RING),
         _ => None,
     }
 }
@@ -66,8 +72,18 @@ fn token_of(widget: &str) -> Option<u32> {
     match paperpaw_ui_kit::widget::settings::base(widget) {
         "stats.widget.today" => Some(TODAY_TOKEN),
         "stats.widget.week" => Some(WEEK_TOKEN),
+        "stats.widget.goal" => Some(RING_TOKEN),
         _ => None,
     }
+}
+
+/// What a tap on a widget does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tap {
+    /// Opens the statistics.
+    Statistics,
+    /// Opens the statistics' settings, where the goal is set.
+    Goal,
 }
 
 /// One widget made for a screen.
@@ -162,13 +178,28 @@ impl Widgets {
         paint::replay_with(&mut frame, &cx.font, None, &out)
     }
 
-    /// Whether `input` is a tap on one of the widgets.
-    pub(crate) fn tapped(&self, input: &Input<'_>) -> bool {
-        matches!(
-            input,
-            Input::Widget { instance, kind: WidgetInputKind::Tap, .. }
-                if self.find(instance.get()).is_some()
-        )
+    /// What `input` is, if a tap on one of the widgets: the ring asks for a
+    /// goal where there is none, the others open the statistics.
+    ///
+    /// # Errors
+    /// Host refusals.
+    pub(crate) fn tapped(&self, host: &Host<'_>, input: &Input<'_>) -> Result<Option<Tap>, Error> {
+        let Input::Widget {
+            instance,
+            kind: WidgetInputKind::Tap,
+            ..
+        } = input
+        else {
+            return Ok(None);
+        };
+        let Some(item) = self.find(instance.get()) else {
+            return Ok(None);
+        };
+        Ok(Some(if item.token == RING_TOKEN && goal(host)?.is_none() {
+            Tap::Goal
+        } else {
+            Tap::Statistics
+        }))
     }
 
     /// Tells the makers whose widget shows something new since the last
@@ -462,6 +493,31 @@ pub(crate) fn note_lines(
     )?))
 }
 
+/// `text`, or where it is wider than `width` at `size`, the number it begins
+/// with alone ("5 days": "5").
+///
+/// # Errors
+/// Font refusals.
+pub(crate) fn number_if_narrow<'t>(
+    cx: &Cx<'_>,
+    size: f32,
+    text: &'t str,
+    width: u16,
+) -> Result<&'t str, Error> {
+    if cx.font.measure_text(size, text)? <= f32::from(width) {
+        return Ok(text);
+    }
+    let digits = text
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit())
+        .map_or(text.len(), |(at, _)| at);
+    Ok(if digits == 0 {
+        text
+    } else {
+        text.get(..digits).unwrap_or(text)
+    })
+}
+
 /// `height` pixels in the middle of `area`, top to bottom.
 pub(crate) fn middle(area: Rect, height: u16) -> Rect {
     let height = height.min(area.height);
@@ -596,12 +652,7 @@ pub(crate) fn offer_today(host: &Host<'_>) -> Result<(), Error> {
             first = Some(paperpaw_ui_kit::text::copy(list)?);
         }
     }
-    // Nothing to offer it on (another home screen), or not kept as offered (it
-    // would come back at every change of the goal).
-    if (first.is_none() && !shown) || paperpaw_sdk::Storage::write(&storage, OFFERED, b"").is_err()
-    {
-        return Ok(());
-    }
+    // Nothing to offer it on (another home screen), or it is shown already.
     let Some(list) = first.filter(|_| !shown) else {
         return Ok(());
     };
@@ -628,7 +679,13 @@ pub(crate) fn offer_today(host: &Host<'_>) -> Result<(), Error> {
     paperpaw_sdk::native::commands::CommandSender::new(host, &mut bytes).set_setting(
         HOME_PAGES[0],
         paperpaw_sdk::native::settings::SettingValue::Text(&joined),
-    )
+    )?;
+    // Kept as offered only once the change is staged, so that a refused one
+    // is tried again at the next change of the goal. A marker that cannot be
+    // written costs a second offer at most, and none while the widget is on
+    // the page (`shown`).
+    paperpaw_sdk::Storage::write(&storage, OFFERED, b"").unwrap_or(());
+    Ok(())
 }
 
 #[cfg(test)]

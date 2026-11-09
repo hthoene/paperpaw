@@ -226,7 +226,7 @@ events) is still in place. It is removed in the PR that finishes the port.
   the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
   slice 2); days are UTC days until draft 25.
 
-## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal)
+## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal) and the ring
 
 - `src/native_widgets.rs`: the widgets on the `core.widget` stage and the draw callback, as the widget
   pack does it (`plugins/widgets`): the host makes an instance (`event.widget_made`) for a screen,
@@ -262,9 +262,32 @@ events) is still in place. It is removed in the PR that finishes the port.
   is not the plugin's is left alone, that a goal with no home screen to offer on does nothing, the
   shades and the dashed line, the goal's minutes.
 
+- **The minute tick is allowed (Kernel's ruling, todo 255).** The plugin subscribes to `Tick` and `SettingChanged` for
+  good (interface 7 has no unsubscribe). The host does not filter ticks by live widgets: at most one a minute, only
+  while awake, riding the wake the shell already makes, never an extra wake. The idle tick must stay cheap: it reads
+  the stamp (the day and the sizes of two files), writes nothing to storage and sends `command.widget_changed` only
+  for an instance whose stamp changed.
+- **`offer_today`** keeps `goal-widget-offered` only after the change of the page is staged, so a refused change is
+  offered again at the next change of the goal; a marker that cannot be written costs at most a second offer, and none
+  while the widget is on the page.
+
+## Ported: *Daily goal* (the ring)
+
+- `src/native_widget_ring.rs`, token 42 (`stats.widget.goal`), declared with `Opt::PartHelp` (new in the kit: a
+  switch with a help text of its own, for "streak or time left"). Same layout rules as interface 6: the ring beside
+  its time and note where the place is much wider than high, else the ring above the note, else the time as text; the
+  minutes inside, the unit below them, round ends on the share, a gauge (270 degrees open at the bottom) or a whole
+  ring, three thicknesses. Without a goal the ring is empty, the note asks for one and a tap opens
+  `core.settings` on `stats.group` (a hand-over `id`), not the statistics.
+- **Difference from interface 6, on purpose:** the canvas has no arc. A ring is made of short thick segments along the
+  circle (at most 120 a arc, each about half a line's thickness long) with a disc at each end of the share; the sine
+  is an integer approximation (within 0.003). The track is a solid gray (`shade`), as for the other widgets.
+- Tested: settings parity with the interface-6 registration (`widgets_parity.rs`, now three widgets), host admission,
+  the sine, the clockwise degrees, and the arc's segment count. Not pixel-tested (see above).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The widgets *Daily goal* (ring), *Reading streak*, *Reading calendar* and *Books this year*, and the
+- The widgets *Reading streak*, *Reading calendar* and *Books this year*, and the
   status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).

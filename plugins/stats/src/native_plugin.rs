@@ -20,7 +20,7 @@ use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
-use crate::native_widgets::Widgets;
+use crate::native_widgets::{Tap, Widgets};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
 /// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
@@ -209,9 +209,16 @@ impl Plugin for NativeStats {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         // A tap on a widget opens the statistics.
-        if self.widgets.tapped(&input) {
-            self.open_overview(host)?;
-            return Ok(Handled::Yes);
+        match self.widgets.tapped(host, &input)? {
+            Some(Tap::Statistics) => {
+                self.open_overview(host)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Goal) => {
+                native_screens::open_settings(host, self.ui(host)?)?;
+                return Ok(Handled::Yes);
+            }
+            None => {}
         }
         self.ui(host)?;
         let Some(view) = self.screens.top(token) else {
