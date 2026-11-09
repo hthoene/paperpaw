@@ -321,17 +321,21 @@ fn decoder_accepts_trailing_fields_of_a_future_minor() {
 
 #[test]
 fn only_suspend_and_stopping_bypass_the_queue() {
-    for tag in TAGS.into_iter().chain([EVENT_TICK_TAG]) {
+    for tag in TAGS
+        .into_iter()
+        .chain([EVENT_TICK_TAG, registrations::EVENT_SETTING_CHANGED_TAG])
+    {
         assert!(events::is_event_tag(tag));
         assert_eq!(
             events::bypasses_queue(tag),
             tag == EVENT_SUSPEND_TAG || tag == EVENT_STOPPING_TAG
         );
     }
-    // Family 1b (64-74) stays refused until Core wires its producers.
+    // 64 has its delivery (`setting_events`); the hints 65-74 stay refused
+    // until Core wires their producers.
     for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX]
         .into_iter()
-        .chain(64..=74)
+        .chain(65..=74)
     {
         assert!(!events::is_event_tag(tag));
     }
@@ -377,10 +381,13 @@ fn submit_one(tag: u32) -> (i32, bool) {
 
 #[test]
 fn registration_admits_tick_and_every_event_kind_and_refuses_the_rest() {
-    for tag in TAGS.into_iter().chain([EVENT_TICK_TAG]) {
+    for tag in TAGS
+        .into_iter()
+        .chain([EVENT_TICK_TAG, registrations::EVENT_SETTING_CHANGED_TAG])
+    {
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
     }
-    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(64..=74) {
+    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(65..=74) {
         assert_eq!(submit_one(tag), (ERR_UNSUPPORTED, false), "tag {tag}");
     }
 }
