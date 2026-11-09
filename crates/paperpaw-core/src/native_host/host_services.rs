@@ -47,6 +47,9 @@ pub(crate) struct HostServices {
     images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
+    /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
+    /// and the kernel's pump drives. One per device.
+    firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
@@ -93,6 +96,7 @@ impl core::fmt::Debug for HostServices {
             .field("hyphen", &self.hyphen.get().is_some())
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
+            .field("firmware", &self.firmware.get().is_some())
             .field("net", &self.net.get().is_some())
             .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
@@ -112,6 +116,7 @@ impl HostServices {
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
+            firmware: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
@@ -286,6 +291,18 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
+    /// Wire the firmware install machine once.
+    #[allow(
+        dead_code,
+        reason = "the kernel's pump wires it (slice B2); tests do today"
+    )]
+    pub(crate) fn wire_firmware_install(
+        &self,
+        machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
+    ) -> Result<(), i32> {
+        self.firmware.set(machine).map_err(|_| ERR_STATE)
+    }
+
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.net` once.
     pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
@@ -445,6 +462,11 @@ impl HostServices {
     }
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
+    }
+    pub(crate) fn firmware_install(
+        &self,
+    ) -> Option<&Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
+        self.firmware.get()
     }
 
     /// The owner is retired (its callbacks are revoked and its handles
