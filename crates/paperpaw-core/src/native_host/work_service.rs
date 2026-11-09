@@ -18,7 +18,7 @@ use super::{
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED};
 
 /// `uses.network`: the feature a network work needs.
 const USES_NETWORK: &str = "uses.network";
@@ -53,6 +53,15 @@ pub(crate) fn backend(
                 key: spec.key,
             };
             WorkSched::check_form(&spec)?;
+            // Work whose `event.work_due` the plugin could not take is never
+            // declared (`work.md` section 3, as `core.net` asks for `http_done`).
+            if !who
+                .hosts
+                .owners()?
+                .subscribed(who.owner, wire::EVENT_WORK_DUE_TAG)
+            {
+                return Err(ERR_STATE);
+            }
             if spec.needs & 1 != 0 {
                 who.features.feature(USES_NETWORK)?;
                 if !work.env.network_allowed(who.owner) {

@@ -98,6 +98,23 @@ fn a_grant_is_never_written_whoever_asks_and_the_whole_batch_is_refused() {
     }
 }
 
+/// A grant late in a larger batch refuses the batch whole: the ordinary
+/// commands before it are not staged either.
+#[test]
+fn a_grant_late_in_a_larger_batch_stages_nothing() {
+    let settings = settings();
+    let owner = Id::new_static("probe");
+    let mut stage = CommandStage::new(&owner, &settings, None, 64, 4096);
+    let ordinary = set("probe.flag");
+    let mut batch = alloc::vec![ordinary; 7];
+    batch.push(set("core.grant.install.probe"));
+    assert_eq!(submit(&mut stage, &batch), ERR_DENIED);
+    assert!(stage.staged().is_empty());
+    // Without it the same seven are admitted.
+    assert_eq!(submit(&mut stage, &batch[..7]), OK);
+    assert_eq!(stage.staged().len(), 7);
+}
+
 #[test]
 fn a_key_that_only_looks_like_a_grant_is_no_grant() {
     let settings = settings();
@@ -106,4 +123,35 @@ fn a_key_that_only_looks_like_a_grant_is_no_grant() {
     // Not under `core.grant.`: the ordinary rules, here an unknown key.
     assert_ne!(submit(&mut stage, &[set("probe.core.grant.x")]), ERR_DENIED);
     assert_ne!(submit(&mut stage, &[set("core.grants.x")]), ERR_DENIED);
+}
+
+/// A preset is named by its id (`command.apply_preset` carries nothing else),
+/// so a batch cannot name a grant through it here: the host has no preset
+/// catalog yet, and what a preset sets is checked where presets resolve (REG),
+/// where a `core.grant.*` key must be dropped like a direct write. Until then
+/// it is staged or refused for its own reasons, never as a grant write, and it
+/// never lets a grant through next to it.
+#[test]
+fn a_preset_named_in_a_batch_is_no_grant_write_and_a_grant_beside_it_still_refuses() {
+    let settings = settings();
+    let owner = Id::new_static("probe");
+    let mut stage = CommandStage::new(&owner, &settings, None, 64, 4096);
+    let preset = WireCommand::ApplyPreset {
+        preset: "core.grant.install.probe",
+        flags: 0,
+    };
+    // The id is not a setting key: the grant rule does not read it.
+    assert_ne!(submit(&mut stage, &[preset]), ERR_DENIED);
+    assert!(
+        stage
+            .staged()
+            .iter()
+            .all(|command| !matches!(command, paperpaw_sdk::Command::SetSetting(..))),
+        "no setting was staged by a preset"
+    );
+    // A grant write next to a preset still refuses the whole batch.
+    assert_eq!(
+        submit(&mut stage, &[preset, set("core.grant.install.probe")]),
+        ERR_DENIED
+    );
 }

@@ -6,11 +6,12 @@ use super::*;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
+use crate::native_host::event_tags::EventTags;
 use crate::native_host::work_sched::{Limits, Power};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Settings};
@@ -109,6 +110,17 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
     });
     let sched = Rc::new(WorkSched::new(Limits::X4));
     let hosts = crate::native_host::host_services::HostServices::new();
+    // Owners 1 and 2 are plugins that subscribed to `work_due`; 3 did not.
+    let owners = hosts.owners().unwrap();
+    for owner in 1..=3 {
+        owners.admit(owner, "p").unwrap();
+    }
+    for owner in 1..=2 {
+        owners.subscribe(
+            owner,
+            EventTags::collect(|tag| tag == wire::EVENT_WORK_DUE_TAG),
+        );
+    }
     if wire_it {
         hosts
             .wire_work(WorkServices {
@@ -146,6 +158,34 @@ fn an_unwired_family_is_unsupported() {
         assert_eq!(
             v.call(1, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
             Some(ERR_UNSUPPORTED)
+        );
+    });
+}
+
+#[test]
+fn declare_needs_a_subscription_to_work_due() {
+    with_view(true, |v| {
+        // Owner 3 never subscribed: its work is refused, nothing is kept.
+        assert_eq!(
+            v.call(3, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
+            Some(ERR_STATE)
+        );
+        assert_eq!(v.sched.counts(), (0, 0));
+        // A form that is wrong is still the form's status first.
+        let mut bad = spec("a");
+        bad.needs = 8;
+        assert_eq!(
+            v.call(3, NONE, 1, Record::ServiceWorkSpec(bad)).err(),
+            Some(ERR_UNSUPPORTED)
+        );
+        // Subscribed: declared.
+        v.call(1, NONE, 1, Record::ServiceWorkSpec(spec("a")))
+            .unwrap();
+        assert_eq!(v.sched.counts(), (1, 0));
+        // A plugin the host does not know is not subscribed either.
+        assert_eq!(
+            v.call(9, NONE, 1, Record::ServiceWorkSpec(spec("a"))).err(),
+            Some(ERR_STATE)
         );
     });
 }

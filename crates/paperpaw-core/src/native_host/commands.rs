@@ -519,7 +519,9 @@ fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
         .then_some(ERR_DENIED)
 }
 
-/// Whether `command` writes a user grant (`core.grant.*`).
+/// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
+/// a preset by id only and writes nothing here; what a preset sets is checked
+/// where presets resolve (REG), where a grant key must be dropped as well.
 fn touches_grant(command: WireCommand<'_>) -> bool {
     match command {
         WireCommand::SetSetting { key, .. }
