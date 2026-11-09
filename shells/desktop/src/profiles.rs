@@ -689,6 +689,27 @@ mod tests {
         assert_eq!(side(buttons::PAGE_FORWARD), Place::Right);
     }
 
+    /// Slot 35 (`ui.compose`) is blocked by the memory class until the X4's
+    /// stack gate passes (`ui.md` 5.1, `ui_store::is_x4`): every profile with a
+    /// small ESP32-C3 heap (X4, X3, a later one) must declare `Small`, and a
+    /// profile that declares `Large` must not have that heap.
+    #[test]
+    fn a_small_esp32_c3_profile_has_the_memory_class_that_blocks_compose() {
+        use paperpaw_platform::MemoryClass;
+        for id in ["xteink-x4", "xteink-x3"] {
+            assert_eq!(find(id).unwrap().device.memory, MemoryClass::Small, "{id}");
+        }
+        for profile in PROFILES {
+            let small_heap = profile.heap_budget.is_some_and(|heap| heap <= 256 * KIB);
+            assert_eq!(
+                small_heap,
+                profile.device.memory == MemoryClass::Small,
+                "{}: a heap of 256 KiB or less is the small class, and only it",
+                profile.device.id
+            );
+        }
+    }
+
     #[test]
     fn a_body_is_given_as_json() {
         let json = find("xteink-x4").unwrap().body.json();
