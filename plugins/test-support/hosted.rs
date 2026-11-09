@@ -147,6 +147,17 @@ impl Drop for Installed {
     }
 }
 
+/// Every button of the X4, as `paperpaw_x4::buttons::ALL` lists them.
+const X4_BUTTONS: [&str; 7] = [
+    "back",
+    "confirm",
+    "left",
+    "right",
+    "page-back",
+    "page-forward",
+    "power",
+];
+
 /// What the kernel a plugin is installed in is like: its device, and the user's
 /// configuration text (`language = de`, `help.show = false`, ...).
 #[derive(Clone)]
@@ -180,7 +191,7 @@ impl Setup {
                 "xteink-x4",
                 "Xteink X4",
                 DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
-                InputCaps::new(true, false, false, &["page-forward", "page-back", "back"]),
+                InputCaps::new(true, false, false, &X4_BUTTONS),
                 MemoryClass::Small,
             ),
             config: String::new(),

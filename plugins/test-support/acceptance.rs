@@ -15,7 +15,7 @@
 //!     "x",
 //!     &["core.ui"],
 //! )?;
-//! run.open("x.screen")?.keys(&["page-forward", "back"]);
+//! run.open("x.screen")?.keys(&["page-forward", "back"])?;
 //! run.frame().matches_golden(&golden_path)?;
 //! ```
 //!
@@ -36,9 +36,17 @@ pub struct Frame {
 #[allow(dead_code, reason = "each including test crate uses part of the kit")]
 impl Frame {
     /// Compare with the PNG `golden` exactly (a color golden by its luma, as the desktop
-    /// snapshots read them). A difference writes `actual.png` and `diff.png` into
-    /// `$PAPERPAW_ACCEPTANCE_EVIDENCE` (default: the system temp folder) and names them.
+    /// snapshots read them; a golden with an alpha channel is refused). A difference writes
+    /// `<name>.actual.png` and `<name>.diff.png` into `$PAPERPAW_ACCEPTANCE_EVIDENCE`
+    /// (default: the system temp folder) and names them.
     pub fn matches_golden(&self, golden: &Path) -> Result<(), String> {
+        let folder = std::env::var_os("PAPERPAW_ACCEPTANCE_EVIDENCE")
+            .map_or_else(std::env::temp_dir, PathBuf::from);
+        self.matches_golden_in(golden, &folder)
+    }
+
+    /// [`Self::matches_golden`] with the folder for the evidence given.
+    pub fn matches_golden_in(&self, golden: &Path, folder: &Path) -> Result<(), String> {
         let (width, height, expected) = read_png(golden)?;
         if (width, height) != (self.width, self.height) {
             return Err(format!(
@@ -58,15 +66,13 @@ impl Frame {
         if differing == 0 {
             return Ok(());
         }
-        let folder = std::env::var_os("PAPERPAW_ACCEPTANCE_EVIDENCE")
-            .map_or_else(std::env::temp_dir, PathBuf::from);
         let stem = golden
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("frame");
         let actual = folder.join(format!("{stem}.actual.png"));
         let marked = folder.join(format!("{stem}.diff.png"));
-        let _ = std::fs::create_dir_all(&folder);
+        let _ = std::fs::create_dir_all(folder);
         write_png(&actual, self.width, self.height, &self.gray);
         write_png(&marked, self.width, self.height, &diff);
         Err(format!(
@@ -80,7 +86,10 @@ impl Frame {
 
 fn read_png(path: &Path) -> Result<(usize, usize, Vec<u8>), String> {
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut reader = png::Decoder::new(std::io::BufReader::new(file))
+    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    // Palettes and grays below 8 bits widen to 8-bit color or gray; 16 bits narrow to 8.
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder
         .read_info()
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let mut data = vec![0; reader.output_buffer_size().ok_or("a golden too large")?];
@@ -88,13 +97,17 @@ fn read_png(path: &Path) -> Result<(usize, usize, Vec<u8>), String> {
         .next_frame(&mut data)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let data = &data[..info.buffer_size()];
+    if info.bit_depth != png::BitDepth::Eight {
+        return Err(format!("{}: {:?} after widening", path.display(), info.bit_depth));
+    }
     let gray = match info.color_type {
         png::ColorType::Grayscale => data.to_vec(),
+        // As `Pixel::luma` rounds.
         png::ColorType::Rgb => data
             .chunks_exact(3)
             .map(|p| {
-                ((u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114) / 1000)
-                    as u8
+                ((u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114 + 500)
+                    / 1000) as u8
             })
             .collect(),
         other => return Err(format!("{}: unexpected {other:?}", path.display())),
@@ -165,8 +178,16 @@ impl Session {
         }
     }
 
-    /// Press and release each button in turn (a name the device's profile has), and draw.
-    pub fn keys(&mut self, keys: &[&'static str]) -> &mut Self {
+    /// Press and release each button in turn, and draw. `Err` naming a button the device does
+    /// not have (nothing is pressed then, not even the buttons before it).
+    pub fn keys(&mut self, keys: &[&'static str]) -> Result<&mut Self, String> {
+        let known = self.installed.kernel().device().input.keys;
+        if let Some(name) = keys
+            .iter()
+            .find(|name| !known.is_empty() && !known.contains(name))
+        {
+            return Err(format!("{name}: the device has no such button ({known:?})"));
+        }
         for &name in keys {
             for state in [ButtonState::Pressed, ButtonState::Released] {
                 self.now += 100;
@@ -176,7 +197,7 @@ impl Session {
                 self.draw();
             }
         }
-        self
+        Ok(self)
     }
 
     /// The id of the screen on top of the kernel's stack, if any.
