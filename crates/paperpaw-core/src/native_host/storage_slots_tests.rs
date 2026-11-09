@@ -99,10 +99,10 @@ fn scoped(backend: &Backend, call: impl FnOnce(&EnvironmentScope, &crate::Kernel
 fn raw_signatures_match_generated_slot_arguments_after_scope_and_owner() {
     let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes, *mut u64) -> i32 = size;
     let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes, u64, PpBuffer) -> i32 = read_at;
-    let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes, PpBytes) -> i32 = write;
-    let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes, PpBytes) -> i32 = append;
-    let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes, PpBytes) -> i32 = rename;
-    let _: unsafe fn(&EnvironmentScope, &str, u32, PpBytes) -> i32 = remove;
+    let _: unsafe fn(&EnvironmentScope, &str, &PathsInUse, u32, PpBytes, PpBytes) -> i32 = write;
+    let _: unsafe fn(&EnvironmentScope, &str, &PathsInUse, u32, PpBytes, PpBytes) -> i32 = append;
+    let _: unsafe fn(&EnvironmentScope, &str, &PathsInUse, u32, PpBytes, PpBytes) -> i32 = rename;
+    let _: unsafe fn(&EnvironmentScope, &str, &PathsInUse, u32, PpBytes) -> i32 = remove;
     let _: fn(&EnvironmentScope, &str) -> i32 = sync;
 }
 
@@ -120,8 +120,28 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 ERR_NOT_FOUND
             );
             assert_eq!(len, 91);
-            assert_eq!(write(scope, OWNER, 0, bytes(b"state"), bytes(b"abc")), OK);
-            assert_eq!(append(scope, OWNER, 0, bytes(b"state"), bytes(b"def")), OK);
+            assert_eq!(
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"abc")
+                ),
+                OK
+            );
+            assert_eq!(
+                append(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"def")
+                ),
+                OK
+            );
             assert_eq!(size(scope, OWNER, 0, bytes(b"state"), &mut len), OK);
             assert_eq!(len, 6);
             let mut out = [0xa5; 8];
@@ -135,12 +155,35 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 0
             );
             assert_eq!(
-                rename(scope, OWNER, 0, bytes(b"state"), bytes(b"moved")),
+                rename(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"moved")
+                ),
                 OK
             );
-            assert_eq!(remove(scope, OWNER, 0, bytes(b"moved")), OK);
-            assert_eq!(remove(scope, OWNER, 0, bytes(b"moved")), OK);
-            assert_eq!(write(scope, OWNER, 0, bytes(b"state"), bytes(b"")), OK);
+            assert_eq!(
+                remove(scope, OWNER, &PathsInUse::default(), 0, bytes(b"moved")),
+                OK
+            );
+            assert_eq!(
+                remove(scope, OWNER, &PathsInUse::default(), 0, bytes(b"moved")),
+                OK
+            );
+            assert_eq!(
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"")
+                ),
+                OK
+            );
         }
         assert_eq!(sync(scope, OWNER), OK);
         let rows = kernel.shared.meter.table.borrow();
@@ -156,6 +199,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table of refusals")]
 fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
@@ -175,20 +219,51 @@ fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
             // SAFETY: inputs are live; malformed text is rejected before storage.
             unsafe {
                 assert_eq!(
-                    write(scope, OWNER, 0, bytes(bad), bytes(b"new")),
+                    write(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        0,
+                        bytes(bad),
+                        bytes(b"new")
+                    ),
                     ERR_INVALID
                 );
                 assert_eq!(
-                    append(scope, OWNER, 0, bytes(bad), bytes(b"new")),
+                    append(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        0,
+                        bytes(bad),
+                        bytes(b"new")
+                    ),
                     ERR_INVALID
                 );
-                assert_eq!(remove(scope, OWNER, 0, bytes(bad)), ERR_INVALID);
                 assert_eq!(
-                    rename(scope, OWNER, 0, bytes(b"state"), bytes(bad)),
+                    remove(scope, OWNER, &PathsInUse::default(), 0, bytes(bad)),
                     ERR_INVALID
                 );
                 assert_eq!(
-                    rename(scope, OWNER, 0, bytes(bad), bytes(b"state")),
+                    rename(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        0,
+                        bytes(b"state"),
+                        bytes(bad)
+                    ),
+                    ERR_INVALID
+                );
+                assert_eq!(
+                    rename(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        0,
+                        bytes(bad),
+                        bytes(b"state")
+                    ),
                     ERR_INVALID
                 );
             }
@@ -198,7 +273,14 @@ fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
             let mut len = 91;
             assert_eq!(size(scope, OWNER, 0, bytes(&[0xff]), &mut len), ERR_UTF8);
             assert_eq!(
-                write(scope, OWNER, 0, bytes(&[0xff]), bytes(b"new")),
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(&[0xff]),
+                    bytes(b"new")
+                ),
                 ERR_UTF8
             );
             assert_eq!(len, 91);
@@ -213,18 +295,42 @@ fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
                     ERR_UNSUPPORTED
                 );
                 assert_eq!(
-                    write(scope, OWNER, root, bytes(b"state"), bytes(b"new")),
+                    write(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        root,
+                        bytes(b"state"),
+                        bytes(b"new")
+                    ),
                     ERR_UNSUPPORTED
                 );
                 assert_eq!(
-                    append(scope, OWNER, root, bytes(b"state"), bytes(b"new")),
+                    append(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        root,
+                        bytes(b"state"),
+                        bytes(b"new")
+                    ),
                     ERR_UNSUPPORTED
                 );
                 assert_eq!(
-                    rename(scope, OWNER, root, bytes(b"state"), bytes(b"new")),
+                    rename(
+                        scope,
+                        OWNER,
+                        &PathsInUse::default(),
+                        root,
+                        bytes(b"state"),
+                        bytes(b"new")
+                    ),
                     ERR_UNSUPPORTED
                 );
-                assert_eq!(remove(scope, OWNER, root, bytes(b"state")), ERR_UNSUPPORTED);
+                assert_eq!(
+                    remove(scope, OWNER, &PathsInUse::default(), root, bytes(b"state")),
+                    ERR_UNSUPPORTED
+                );
                 assert_eq!(out, [0xa5]);
             }
         }
@@ -233,6 +339,7 @@ fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table of refusals")]
 fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
@@ -259,12 +366,48 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
         // deliberately checked before dereferencing their invalid pointers.
         unsafe {
             for bad in [null, overflow] {
-                assert_eq!(write(scope, OWNER, 0, bad, bytes(b"new")), ERR_INVALID);
+                assert_eq!(
+                    write(scope, OWNER, &PathsInUse::default(), 0, bad, bytes(b"new")),
+                    ERR_INVALID
+                );
             }
-            assert_eq!(write(scope, OWNER, 0, long, bytes(b"new")), ERR_NO_SPACE);
-            assert_eq!(write(scope, OWNER, 0, bytes(b"state"), big), ERR_NO_SPACE);
-            assert_eq!(append(scope, OWNER, 0, bytes(b"state"), big), ERR_NO_SPACE);
-            assert_eq!(write(scope, OWNER, 0, bytes(b"state"), null), ERR_INVALID);
+            assert_eq!(
+                write(scope, OWNER, &PathsInUse::default(), 0, long, bytes(b"new")),
+                ERR_NO_SPACE
+            );
+            assert_eq!(
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    big
+                ),
+                ERR_NO_SPACE
+            );
+            assert_eq!(
+                append(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    big
+                ),
+                ERR_NO_SPACE
+            );
+            assert_eq!(
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    null
+                ),
+                ERR_INVALID
+            );
             assert_eq!(
                 size(scope, OWNER, 0, bytes(b"state"), core::ptr::null_mut()),
                 ERR_INVALID
@@ -328,11 +471,25 @@ fn reserve_and_read_errors_preserve_files_and_output() {
         // SAFETY: live inputs and exclusive outputs are disjoint.
         unsafe {
             assert_eq!(
-                write(scope, OWNER, 0, bytes(b"state"), bytes(b"new")),
+                write(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"new")
+                ),
                 ERR_FULL
             );
             assert_eq!(
-                append(scope, OWNER, 0, bytes(b"state"), bytes(b"new")),
+                append(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"new")
+                ),
                 ERR_FULL
             );
             backend.fail.set(Some(StorageError::Io));
@@ -341,9 +498,19 @@ fn reserve_and_read_errors_preserve_files_and_output() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
-            assert_eq!(remove(scope, OWNER, 0, bytes(b"state")), ERR_IO);
             assert_eq!(
-                rename(scope, OWNER, 0, bytes(b"state"), bytes(b"other")),
+                remove(scope, OWNER, &PathsInUse::default(), 0, bytes(b"state")),
+                ERR_IO
+            );
+            assert_eq!(
+                rename(
+                    scope,
+                    OWNER,
+                    &PathsInUse::default(),
+                    0,
+                    bytes(b"state"),
+                    bytes(b"other")
+                ),
                 ERR_IO
             );
             assert_eq!(sync(scope, OWNER), ERR_IO);
@@ -439,18 +606,42 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
             ERR_STATE
         );
         assert_eq!(
-            write(&scope, OWNER, 0, bytes(b"state"), bytes(b"new")),
+            write(
+                &scope,
+                OWNER,
+                &PathsInUse::default(),
+                0,
+                bytes(b"state"),
+                bytes(b"new")
+            ),
             ERR_STATE
         );
         assert_eq!(
-            append(&scope, OWNER, 0, bytes(b"state"), bytes(b"new")),
+            append(
+                &scope,
+                OWNER,
+                &PathsInUse::default(),
+                0,
+                bytes(b"state"),
+                bytes(b"new")
+            ),
             ERR_STATE
         );
         assert_eq!(
-            rename(&scope, OWNER, 0, bytes(b"state"), bytes(b"new")),
+            rename(
+                &scope,
+                OWNER,
+                &PathsInUse::default(),
+                0,
+                bytes(b"state"),
+                bytes(b"new")
+            ),
             ERR_STATE
         );
-        assert_eq!(remove(&scope, OWNER, 0, bytes(b"state")), ERR_STATE);
+        assert_eq!(
+            remove(&scope, OWNER, &PathsInUse::default(), 0, bytes(b"state")),
+            ERR_STATE
+        );
     }
     assert_eq!(sync(&scope, OWNER), ERR_STATE);
     assert_eq!(len, 91);
@@ -460,14 +651,23 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
         for owner in ["", "..", "../other", "a/b", "a\\b", "a:", "con"] {
             // SAFETY: inputs are live; invalid owner routes never reach storage.
             assert_eq!(
-                unsafe { write(scope, owner, 0, bytes(b"state"), bytes(b"new")) },
+                unsafe {
+                    write(
+                        scope,
+                        owner,
+                        &PathsInUse::default(),
+                        0,
+                        bytes(b"state"),
+                        bytes(b"new"),
+                    )
+                },
                 ERR_INVALID
             );
         }
         let long_owner = "a".repeat(MAX_FOLDER);
         assert_eq!(sync(scope, &long_owner), ERR_INVALID);
-        assert!(StorageAdapter::borrowed_folder(&backend, ".paperpaw/plugins/../").is_none());
-        assert!(StorageAdapter::borrowed_folder(&backend, "plugins/battery/").is_none());
+        assert!(StorageAdapter::borrowed_folder(&backend, ".paperpaw/plugins/../", None).is_none());
+        assert!(StorageAdapter::borrowed_folder(&backend, "plugins/battery/", None).is_none());
     });
     assert_eq!(backend.files.get(FILE), None);
 }
