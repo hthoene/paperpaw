@@ -533,16 +533,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        // The power button: the sleep screen, the device asleep.
-        name: "x4-sleep",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "power,wait:500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-main-menu",
         profile: "boox-go-7",
         book: None,

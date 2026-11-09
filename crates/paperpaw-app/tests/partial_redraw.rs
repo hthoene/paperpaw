@@ -440,13 +440,9 @@ fn widget_editors() {
     app.run(Id::new_static("home.edit-pages"));
     app.opened("home, edited");
     app.walk_grid(6, "home, edited");
-    app.run(actions::BACK);
-    app.open_slot(
-        slots::EDIT_WIDGETS,
-        Params::new().with(params::ID, "sleep.widgets"),
-    );
-    app.opened("the sleep screen's widgets");
-    app.walk(6, "sleep screen's widgets");
+    // The list of widgets of the sleep screen (the slot `core.edit-widgets` for
+    // `sleep.widgets`) was the second part: the sleep plugin is native only, and
+    // no place of widgets left in this app is a list.
 }
 
 #[test]

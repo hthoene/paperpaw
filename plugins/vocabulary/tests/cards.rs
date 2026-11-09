@@ -81,7 +81,7 @@ impl Plugin for SleepsOnTheCard {
             static SETTINGS: [SettingSpec; 1] = [SettingSpec::choice(
                 "sleep.show",
                 "sleep.setting.show",
-                &["sleep.show.cat"],
+                &["sleep.show.cat", paperpaw_plugin_vocabulary::SLEEP_CARD],
                 "sleep.show.cat",
                 Id::new_static("sleep.group"),
             )];
