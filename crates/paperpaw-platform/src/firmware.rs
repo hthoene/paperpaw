@@ -248,7 +248,9 @@ pub trait FirmwareHost {
     /// Begins pass 2 for the image at `path`, bound to `digest` (the one
     /// confirmed). `key` is the signing key the user accepted, `None` for
     /// PaperPaw's keys only; `foreign` uses the boot loader's checks and no
-    /// signature. Nothing is installed where the device is shared with
+    /// signature, and the image is final at the switch: another firmware
+    /// never runs PaperPaw's trial, so nothing brings the old one back
+    /// by itself (the confirmation says so). Nothing is installed where the device is shared with
     /// another firmware: `Err(Reason::NOT_HERE)`. An install waiting for its
     /// restart is given up before another is written.
     fn begin_write(

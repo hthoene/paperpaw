@@ -32,7 +32,7 @@ use paperpaw_sdk::firmware::{
 };
 
 use super::{PIECE, Partition, Updates, owned, zeroed};
-use crate::ota::{Flash, Image, OtaData, State};
+use crate::ota::{Flash, Image, State};
 
 /// Pieces a check or a read-back handles in one step.
 const STEP_PIECES: usize = 4;
@@ -42,10 +42,42 @@ const LINE: usize = 128;
 /// What a PaperPaw key is called in a check's answer.
 const KEY_NAME: &str = "PaperPaw";
 
-/// The job open, one at a time.
+/// The job open, one at a time. Its state is held on the heap only while it
+/// runs (a job is about a kilobyte, which `Updates` would otherwise carry on
+/// every stack it is passed over): what a check or write needs and cannot
+/// have is a refusal, never a crash.
 pub(super) enum Job {
-    Check(CheckJob),
-    Write(WriteJob),
+    Check(Held<CheckJob>),
+    Write(Held<WriteJob>),
+}
+
+/// One value on the heap, got fallibly.
+pub(super) struct Held<T>(Box<[T; 1]>);
+
+impl<T> Held<T> {
+    /// `value` moved to the heap; no room is `Reason::OTHER`.
+    fn new(value: T) -> Result<Self, Reason> {
+        let mut one = alloc::vec::Vec::new();
+        one.try_reserve_exact(1).map_err(|_| Reason::OTHER)?;
+        one.push(value);
+        one.into_boxed_slice()
+            .try_into()
+            .map(Self)
+            .map_err(|_| Reason::OTHER)
+    }
+}
+
+impl<T> core::ops::Deref for Held<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0[0]
+    }
+}
+
+impl<T> core::ops::DerefMut for Held<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0[0]
+    }
 }
 
 /// The firmware's own answer to why a step could not go on.
@@ -532,11 +564,12 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         }
         let buf = zeroed(PIECE).map_err(|_| Reason::OTHER)?;
         let path = owned(path).map_err(|_| Reason::OTHER)?;
-        self.job = Some(Job::Check(CheckJob {
+        let job = Held::new(CheckJob {
             path,
             buf,
             phase: Phase::Head,
-        }));
+        })?;
+        self.job = Some(Job::Check(job));
         Ok(())
     }
 
@@ -583,15 +616,11 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         // OTA data as they were.
         let buf = zeroed(PIECE).map_err(|_| Reason::OTHER)?;
         let path = owned(path).map_err(|_| Reason::OTHER)?;
-        let running = self.running;
-        let data = &mut self.data_partition();
         // An update chosen and not started is given up before this writes
         // over its partition.
-        let slot = OtaData::read(data)
-            .and_then(|mut ota| ota.prepare_install(data, running))
-            .map_err(|_| Reason::OTHER)?;
+        let slot = self.prepare_slot().map_err(|_| Reason::OTHER)?;
         let offset = self.apps[slot as usize].0;
-        self.job = Some(Job::Write(WriteJob {
+        let job = Held::new(WriteJob {
             path,
             digest,
             key,
@@ -600,7 +629,8 @@ impl<F: Flash> FirmwareHost for Updates<F> {
             offset,
             slot,
             stage: Stage::Start,
-        }));
+        })?;
+        self.job = Some(Job::Write(job));
         Ok(())
     }
 
@@ -641,19 +671,13 @@ impl<F: Flash> FirmwareHost for Updates<F> {
     fn commit(&mut self) -> Result<(), Reason> {
         // Ok or Err, the job is over: a commit that fails leaves the slot
         // without its first word and nothing chosen.
-        let Some(Job::Write(mut job)) = self.job.take() else {
+        let Some(Job::Write(mut held)) = self.job.take() else {
             return Err(Reason::OTHER);
         };
+        let job = &mut *held;
         let Stage::Written { image } = &job.stage else {
             return Err(Reason::OTHER);
         };
-        let partition = &mut Partition {
-            flash: &mut self.flash,
-            offset: job.offset,
-        };
-        image
-            .finish(partition, &mut job.buf[..])
-            .map_err(|_| Reason::OTHER)?;
         // State and choice in one entry, written whole: on trial for a
         // PaperPaw image, valid for another firmware's (it never runs the
         // trial).
@@ -662,9 +686,7 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         } else {
             State::New
         };
-        let data = &mut self.data_partition();
-        OtaData::read(data)
-            .and_then(|mut ota| ota.choose(data, job.slot, state, 0))
+        self.make_whole_and_choose(image, job.offset, job.slot, state, &mut job.buf[..])
             .map_err(|_| Reason::OTHER)
     }
 
