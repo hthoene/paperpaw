@@ -9,11 +9,12 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
 const EDGES: usize = 16;
 const PLUGIN_BYTES: usize = 4096;
 const DEVICE_BYTES: usize = 8192;
-/// Pending bits: five hints, the reread bit, then the coalesced lifecycle
-/// events (tick, resume, suspend, stopping; see [`CORE_TAGS`]).
-const BITS: u8 = 10;
+/// Pending bits: five hints, the reread bit, the registry bit, then the
+/// coalesced lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]).
+const BITS: u8 = 11;
 const REREAD: u8 = 5;
-const CORE_FIRST: u8 = 6;
+const REGISTRY: u8 = 6;
+const CORE_FIRST: u8 = 7;
 /// The events that keep a pending bit, in bit order from `CORE_FIRST`: a
 /// second one before the first was told is one (tick, resume) or, for suspend
 /// and stopping, never lost to a full store (`events::bypasses_queue`).
@@ -47,6 +48,7 @@ impl EventBudget {
             order: [0; ORDER],
             len: 0,
             drop_logged: false,
+            registry: 0,
         })
     }
     #[cfg(test)]
@@ -58,10 +60,12 @@ impl EventBudget {
 pub(crate) struct Pending {
     budget: Shared<PluginBudget>,
     edges: Vec<HeldEdge>,
-    // IDs 0..9 are hint, overflow and lifecycle bits; IDs 10..25 name dense held-edge slots.
+    // IDs 0..10 are hint, overflow, registry and lifecycle bits; IDs 11..26 name dense held-edge slots.
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
+    /// `event.registry_changed.what` bits raised and not yet delivered.
+    registry: u32,
     /// A dropped event was logged since the queue was last empty.
     drop_logged: bool,
 }
@@ -99,6 +103,8 @@ pub(crate) enum Ready {
     /// A coalesced lifecycle event (tick, resume, suspend, stopping), encoded
     /// from the clock at delivery.
     Core(u32),
+    /// `event.registry_changed` with the `what` bits raised since the last one.
+    Registry(u32),
     Reread,
 }
 impl Ready {
@@ -129,7 +135,7 @@ impl Ready {
                 wire::Record::EventSettingChanged(event) => event,
                 _ => return Err(ERR_INVALID),
             },
-            Self::Hint(_) | Self::Core(_) => return Err(ERR_INVALID),
+            Self::Hint(_) | Self::Registry(_) | Self::Core(_) => return Err(ERR_INVALID),
         };
         if event.key.is_empty() {
             return Ok(Some(wire::Record::EventSettingChanged(event)));
@@ -247,6 +253,15 @@ impl Pending {
         Ok(())
     }
 
+    /// Raises `what` bits of `event.registry_changed`: pending bits are
+    /// OR-ed together until the event is delivered, so none is lost.
+    pub(crate) fn registry(&mut self, what: u32) {
+        if what != 0 {
+            self.registry |= what;
+            self.touch(REGISTRY);
+        }
+    }
+
     fn touch(&mut self, id: u8) {
         let len = usize::from(self.len);
         if let Some(at) = self.order[..len].iter().position(|entry| *entry == id) {
@@ -271,6 +286,9 @@ impl Pending {
         if id == REREAD {
             return Some(Ready::Reread);
         }
+        if id == REGISTRY {
+            return Some(Ready::Registry(core::mem::take(&mut self.registry)));
+        }
         if id < REREAD {
             return Some(Ready::Hint(wire::EVENT_PLUGINS_CHANGED_TAG + u32::from(id)));
         }
@@ -291,6 +309,7 @@ impl Pending {
         self.edges.clear();
         self.len = 0;
         self.drop_logged = false;
+        self.registry = 0;
     }
 }
 impl Drop for Pending {

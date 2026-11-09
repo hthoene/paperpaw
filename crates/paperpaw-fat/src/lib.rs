@@ -1264,6 +1264,25 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         }
     }
 
+    /// The entry's first cluster, its own as long as it lives: a rename or a
+    /// move gives the entry a new place in a folder but keeps its clusters.
+    /// A move cut off by a power loss is settled first, so no two entries
+    /// answer the same. An empty file holds no cluster and has no stable
+    /// identity (`None`), nor has the root folder, which has no entry.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let path = path.trim_matches('/');
+        if path.is_empty() {
+            return Ok(None);
+        }
+        check(path)?;
+        self.settle_moves()?;
+        let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let entry = lookup(&self.dir(dir)?, name, false)?
+            .entry
+            .ok_or(StorageError::NotFound)?;
+        Ok(entry.first_cluster().map(u64::from))
+    }
+
     /// With the disk shared ([`FatStorage::with_disk`], as on the
     /// devices): unknown until the FAT is counted, a part of it at each
     /// ask, then followed by the clusters the file system marks taken and

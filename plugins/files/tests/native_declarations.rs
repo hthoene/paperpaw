@@ -43,6 +43,8 @@ fn the_image_is_what_the_builder_makes() {
             batches!(declarations::navigation),
             image::NAVIGATION,
         ),
+        ("events", batches!(declarations::events), image::EVENTS),
+        ("help", batches!(declarations::help), image::HELP),
     ] {
         assert_eq!(built.len(), image.len(), "{name}");
         for (built, image) in built.iter().zip(image) {
@@ -63,7 +65,10 @@ fn the_host_admits_every_declaration() {
         validate_batch("files", &records).unwrap();
     }
     let mut refused = Vec::new();
-    for batch in batches!(declarations::navigation) {
+    for batch in batches!(declarations::navigation)
+        .into_iter()
+        .chain(batches!(declarations::events))
+    {
         let records = records_decode(&batch).unwrap();
         for record in records.iter() {
             match validate_record("files", &record) {
@@ -78,5 +83,33 @@ fn the_host_admits_every_declaration() {
     assert!(
         refused.is_empty(),
         "the host admits every record now: {refused:?}"
+    );
+}
+
+/// The library subscribes to its changes (books, status, the walk, a ready
+/// cover) and tells how to use its list in five hints.
+#[test]
+fn the_library_listens_for_changes_and_helps() {
+    let events = batches!(declarations::events);
+    assert_eq!(events.len(), 1);
+    let records = records_decode(&events[0]).unwrap();
+    assert_eq!(records.iter().count(), 1);
+    // The host takes a help hint when it can (`validate_record`); until then it
+    // refuses it as unsupported, and the plugin goes on without hints.
+    let hints = batches!(declarations::help);
+    for batch in &hints {
+        for record in records_decode(batch).unwrap().iter() {
+            let admitted = validate_record("files", &record);
+            assert!(
+                admitted.is_ok() || admitted == Err(ERR_UNSUPPORTED),
+                "{admitted:?}"
+            );
+        }
+    }
+    let records = records_decode(&hints[0]).unwrap();
+    assert_eq!(records.iter().count(), 5);
+    assert!(
+        format!("{:?}", records.iter().collect::<Vec<_>>()).contains("files.browser"),
+        "the hints are of the library's screen"
     );
 }
