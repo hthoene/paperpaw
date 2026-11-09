@@ -442,6 +442,9 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
 }
 
 mod annotations;
-
+#[path = "tests/facets.rs"]
+mod facets;
 #[path = "tests/fields.rs"]
 mod fields;
+#[path = "tests/position.rs"]
+mod position;

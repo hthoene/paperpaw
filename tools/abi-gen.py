@@ -181,8 +181,8 @@ def validate_record(record, minor):
     names, ordinals = set(), set()
     for field in record['fields']:
         # `list` (str fields only) bounds a separated list inside the text;
-        # `secret` (true: str fields of commands, str or bytes fields of service
-        # records) keeps the value out of Debug.
+        # `secret` (true: str fields of commands and events, str or bytes fields
+        # of service records) keeps the value out of Debug.
         keys(field, 'name type since optional ordinal default max_bytes' +
              (' list' if type(field) is dict and 'list' in field else '') +
              (' secret' if type(field) is dict and 'secret' in field else ''))
@@ -254,7 +254,10 @@ def compatible(old, new, released_minor=None):
                         {k: v for k, v in after.items() if k != 'fields'},
                         'changed/reordered record')
                 fields = before['fields']
-                require(after['fields'][:len(fields)] == fields, 'changed record field')
+                require(len(after['fields']) >= len(fields)
+                        and all(same_field(old_field, new_field)
+                                for old_field, new_field in zip(fields, after['fields'])),
+                        'changed record field')
                 for field in after['fields'][len(fields):]:
                     require(field['optional'], 'appended required field')
                     require(field['since'] >= minimum_since, 'backdated appended field')
@@ -407,6 +410,16 @@ def lock_checks(prior, schema, version):
     yield 'compatible', lambda: compatible(prior['schema'], schema, prior['released_minor'])
 
 
+def same_field(before, after):
+    """Whether a record field kept its contract. `secret` only keeps a value
+    out of Debug and changes no byte on the wire, so marking a field secret
+    later keeps it; dropping the mark does not (the value would show again)."""
+    if before.get('secret') is True:
+        return after == before
+    return {k: v for k, v in after.items() if k != 'secret'} == before \
+        and after.get('secret', True) is True
+
+
 def check_lock(prior, schema, waives=frozenset()):
     """Every check of the prior lock; `waives` names checks a reviewed baseline
     replacement lets fail. A waived check that passes is refused: the waiver
@@ -428,20 +441,24 @@ def baseline_replaced(folder, baseline_path, baseline):
 
     `abi/baseline-replacement.json` lets one reviewed pull request replace the
     trusted lock while nothing is released: it names the SHA-256 of the exact
-    baseline lock it replaces, why, and the checks it waives (`waives`, from
-    WAIVABLE). The lock's shape, format and major are never waived. A marker
-    naming another baseline is an error: it must be removed once it was used,
-    so it is single-use. Empty when there is no marker.
+    baseline lock it replaces, the SHA-256 of the one candidate lock that was
+    reviewed to replace it (`lock_sha256`, checked by `run` against
+    `abi/abi.lock`, so a lock changed after the review needs a new one), why,
+    and the checks it waives (`waives`, from WAIVABLE). The lock's shape,
+    format and major are never waived. A marker naming another baseline is an
+    error: it must be removed once it was used, so it is single-use. Returns
+    the waived checks and `lock_sha256`; nothing waived and None without a
+    marker.
     """
     path = folder / 'baseline-replacement.json'
     if not path.exists():
-        return frozenset()
+        return frozenset(), None
     marker = load(path)
     require(type(marker) is dict
-            and set(marker) == {'replaces_sha256', 'reason', 'ticket', 'waives'}
+            and set(marker) == {'replaces_sha256', 'lock_sha256', 'reason', 'ticket', 'waives'}
             and all(type(marker[key]) is str and marker[key]
-                    for key in ('replaces_sha256', 'reason', 'ticket')),
-            'baseline replacement needs replaces_sha256, reason, ticket and waives')
+                    for key in ('replaces_sha256', 'lock_sha256', 'reason', 'ticket')),
+            'baseline replacement needs replaces_sha256, lock_sha256, reason, ticket and waives')
     waives = marker['waives']
     require(type(waives) is list and waives and all(type(item) is str for item in waives)
             and len(set(waives)) == len(waives) and set(waives) <= WAIVABLE,
@@ -457,7 +474,16 @@ def baseline_replaced(folder, baseline_path, baseline):
             f"{', '.join(waives)}: {marker['reason']}")
     print(('::warning::abi-gen: ' if os.environ.get('GITHUB_ACTIONS') else 'abi-gen: ') + note,
           file=sys.stderr)
-    return frozenset(waives)
+    return frozenset(waives), marker['lock_sha256']
+
+
+def reviewed_lock(lock, reviewed):
+    """A baseline replacement holds only for the candidate lock it was reviewed
+    with: `lock` must have the SHA-256 `reviewed` (its `lock_sha256`)."""
+    digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+    require(digest == reviewed,
+            f'the baseline replacement was reviewed for another lock: abi/abi.lock has '
+            f'sha256 {digest}; set lock_sha256 to it and have the replacement reviewed again')
 
 
 def with_services(schema, folder):
@@ -489,9 +515,10 @@ def run(argv=None):
                                   folder / 'stages'))
     lock = folder / 'abi.lock'
     release_floor = 0
+    reviewed = None
     if args.baseline:
         baseline = load(args.baseline)
-        waives = baseline_replaced(folder, args.baseline, baseline)
+        waives, reviewed = baseline_replaced(folder, args.baseline, baseline)
         if waives:
             lock_shape(baseline, schema)
             require(schema['minor'] == baseline['schema']['minor'],
@@ -565,6 +592,8 @@ def run(argv=None):
             path.write_text(content)
         if args.write_lock:
             lock.write_text(canonical(lock_record(schema, released_minor)))
+    if reviewed is not None:
+        reviewed_lock(lock, reviewed)
     return 0
 
 

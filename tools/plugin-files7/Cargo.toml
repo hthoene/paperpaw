@@ -59,6 +59,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-xtc"
+path = "src/bin/format-xtc.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "help"
 path = "src/bin/help.rs"
 test = false
@@ -185,6 +191,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "picture-home"
+path = "src/bin/picture-home.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "setup"
 path = "src/bin/setup.rs"
 test = false
@@ -193,6 +205,12 @@ bench = false
 [[bin]]
 name = "wikipedia"
 path = "src/bin/wikipedia.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "fonts-browser"
+path = "src/bin/fonts-browser.rs"
 test = false
 bench = false
 
@@ -205,6 +223,7 @@ paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = [
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }
+paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
 paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
 paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
@@ -226,8 +245,10 @@ paperpaw-plugin-dictionary = { path = "../../plugins/dictionary", features = ["n
 paperpaw-plugin-file-manager = { path = "../../plugins/file-manager", features = ["native-entry"] }
 paperpaw-plugin-koreader = { path = "../../plugins/koreader", features = ["native-entry"] }
 paperpaw-plugin-lock = { path = "../../plugins/lock", features = ["native-entry"] }
+paperpaw-plugin-picture-home = { path = "../../plugins/picture-home", features = ["native-entry"] }
 paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entry"] }
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
+paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

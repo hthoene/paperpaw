@@ -142,3 +142,45 @@ fn a_flat_gray_is_diffused_not_a_grid() {
             .any(|(tx, ty)| tile(tx, ty) != first)
     );
 }
+
+/// The least `scratch_max` (in steps of 64 bytes) with which `picture`
+/// is drawn dithered over `area` on a `width` × 4 frame.
+fn least_budget(storage: &MemoryStorage, image: &ImageRef, width: u16, area: Rect) -> usize {
+    (0..1024)
+        .map(|step| step * 64)
+        .find(|&budget| {
+            let picture = ui::Picture::new(
+                &image.path,
+                ui::PictureKind::Color,
+                image.width,
+                image.height,
+                budget,
+            );
+            let mut frame = Framebuffer::new(width, 4, PixelFormat::Mono1).unwrap();
+            ui::try_draw_picture(&mut frame.canvas(), storage, &picture, area, 255).is_ok()
+        })
+        .expect("a budget that draws")
+}
+
+#[test]
+fn a_dithered_part_falls_back_to_its_visible_columns_where_the_full_width_does_not_fit() {
+    let storage = MemoryStorage::new();
+    // Enlarged to 1,600 pixels from 1,590: the full width takes a little over
+    // 32 KiB of buffers, the 40 columns of a narrow frame far less.
+    let image = picture(&storage, 1590, 2, true);
+    let area = Rect::new(0, 0, 1600, 4);
+    let narrow = least_budget(&storage, &image, 40, area);
+    let wide = least_budget(&storage, &image, 1600, area);
+    assert!(
+        wide > 32 * 1024,
+        "{wide}: the full width needs more than the X4 has"
+    );
+    assert!(narrow < 32 * 1024, "{narrow}: the visible columns fit");
+    // So on the X4's cap the part is drawn rather than refused.
+    let picture = ui::Picture::new("p.rgb", ui::PictureKind::Color, 1590, 2, 32 * 1024);
+    let mut frame = Framebuffer::new(40, 4, PixelFormat::Mono1).unwrap();
+    assert_eq!(
+        ui::try_draw_picture(&mut frame.canvas(), &storage, &picture, area, 255),
+        Ok(())
+    );
+}

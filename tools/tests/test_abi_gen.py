@@ -239,18 +239,20 @@ class SchemaTests(unittest.TestCase):
                 ABI.run(check)
             marker = root / 'abi/baseline-replacement.json'
             digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
+            candidate = ABI.hashlib.sha256((root / 'abi/abi.lock').read_bytes()).hexdigest()
 
             def write(**fields):
                 marker.write_text(json.dumps(dict(dict(
-                    replaces_sha256=digest, reason='r', ticket='#1', waives=['compatible']),
-                    **fields)))
-            for bad in [dict(replaces_sha256=digest, reason='r', ticket='#1'),
-                        dict(replaces_sha256=digest, reason='', ticket='#1', waives=['compatible']),
-                        dict(replaces_sha256=digest, reason='r', ticket='#1', waives=[]),
+                    replaces_sha256=digest, lock_sha256=candidate, reason='r', ticket='#1',
+                    waives=['compatible']), **fields)))
+            ok = dict(replaces_sha256=digest, lock_sha256=candidate, ticket='#1')
+            for bad in [dict(ok, reason='r'),
+                        dict(ok, reason='', waives=['compatible']),
+                        dict(ok, reason='r', waives=[]),
+                        dict(ok, reason='r', waives=['compatible', 'compatible']),
+                        dict(ok, reason='r', waives=['lock_format']),
                         dict(replaces_sha256=digest, reason='r', ticket='#1',
-                             waives=['compatible', 'compatible']),
-                        dict(replaces_sha256=digest, reason='r', ticket='#1',
-                             waives=['lock_format'])]:
+                             waives=['compatible'])]:
                 with self.subTest(bad=bad):
                     marker.write_text(json.dumps(bad))
                     with self.assertRaisesRegex(ValueError, 'needs replaces_sha256|waives a non'):
@@ -261,6 +263,14 @@ class SchemaTests(unittest.TestCase):
                 ABI.run(check)
             write()
             ABI.run(check)
+            # Only for the candidate lock it was reviewed with: a lock changed
+            # after the review needs the replacement reviewed again.
+            write(lock_sha256='0' * 64)
+            with self.assertRaisesRegex(ValueError, 'reviewed for another lock'):
+                ABI.run(check)
+            with self.assertRaisesRegex(ValueError, 'reviewed for another lock'):
+                ABI.run(['--root', str(root), '--baseline', str(trusted), '--write-lock'])
+            write()
             # A waiver must be exactly what is needed.
             write(waives=['compatible', 'emitted_c'])
             with self.assertRaisesRegex(ValueError, 'waives emitted_c, which passes'):
@@ -283,7 +293,8 @@ class SchemaTests(unittest.TestCase):
             trusted.write_bytes((root / 'abi/abi.lock').read_bytes())
             marker = root / 'abi/baseline-replacement.json'
             digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
-            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1',
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, lock_sha256='0' * 64,
+                                              reason='r', ticket='#1',
                                               waives=sorted(ABI.WAIVABLE))))
             check = ['--root', str(root), '--baseline', str(trusted), '--check']
             reached = []
@@ -312,7 +323,8 @@ class SchemaTests(unittest.TestCase):
             del broken['emitted_c']
             trusted.write_text(ABI.canonical(broken))
             digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
-            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1',
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, lock_sha256='0' * 64,
+                                              reason='r', ticket='#1',
                                               waives=sorted(ABI.WAIVABLE))))
             with self.assertRaises(ValueError):
                 ABI.run(check)
@@ -370,6 +382,23 @@ class SchemaTests(unittest.TestCase):
         field['optional'] = False
         field['ordinal'] = field['default'] = None
         self.reject(new)
+
+    def test_marking_a_field_secret_keeps_it_and_unmarking_breaks(self):
+        # `secret` keeps a value out of Debug and changes no wire byte (#228,
+        # draft 30): adding the mark is compatible, dropping it is not.
+        record = next(r for r in self.base['records'] if r['name'] == 'event.text_typed')
+        text = next(f for f in record['fields'] if f['name'] == 'text')
+        marked = text.pop('secret', None)
+        self.assertIs(marked, True)
+        unmarked = copy.deepcopy(self.base)
+        text['secret'] = True
+        ABI.compatible(unmarked, self.base)
+        self.reject(unmarked)
+        # Any other change to the field still breaks, mark or not.
+        resized = copy.deepcopy(self.base)
+        next(f for f in next(r for r in resized['records'] if r['name'] == 'event.text_typed')
+             ['fields'] if f['name'] == 'text')['max_bytes'] = 512
+        self.reject(resized)
 
     def test_required_fields_and_defaults_cannot_change(self):
         self.base.pop('record_codec', None)

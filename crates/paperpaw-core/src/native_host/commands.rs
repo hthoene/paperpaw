@@ -4,6 +4,10 @@
 //! the callback; the kernel applies them, so the next callback reads them back.
 
 use super::Error;
+use super::image_service::{
+    self,
+    commands::{ImageAdmit, ImageCommand},
+};
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
     Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
@@ -23,6 +27,10 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 )]
 #[path = "commands_ui.rs"]
 mod ui;
+
+#[path = "commands_open.rs"]
+mod open;
+pub(crate) use open::Opens;
 
 #[allow(
     dead_code,
@@ -90,8 +98,14 @@ pub struct CommandStage<'a> {
     bytes: usize,
     ui: Option<ui::UiContext<'a>>,
     dev: Option<dev::DevStage<'a>>,
+    handovers: Option<open::Handovers<'a>>,
+    opens: Opens,
     redraw: Option<u32>,
     accepted: usize,
+    /// `image_prepare` / `image_release` admission, once the host gave it.
+    images: Option<ImageAdmit>,
+    /// The admitted image commands, applied by the host after the callback.
+    staged_images: Vec<ImageCommand>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -119,9 +133,38 @@ impl<'a> CommandStage<'a> {
             bytes: 0,
             ui: None,
             dev: None,
+            handovers: None,
+            opens: Opens::default(),
             redraw: None,
             accepted: 0,
+            images: None,
+            staged_images: Vec::new(),
         }
+    }
+
+    /// Admits `command.image_prepare` and `command.image_release` for this
+    /// callback (otherwise they are `ERR_UNSUPPORTED`): see
+    /// [`ImageAdmit`]. The admitted ones come back from
+    /// [`Self::take_image_commands`].
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
+        self.images = Some(images);
+        self
+    }
+
+    /// The admitted image commands, in order, for the host to apply after
+    /// the callback (call it before [`Self::into_commands`]).
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn take_image_commands(&mut self) -> Vec<ImageCommand> {
+        core::mem::take(&mut self.staged_images)
     }
 
     /// Commands accepted so far, in submission order.
@@ -132,8 +175,8 @@ impl<'a> CommandStage<'a> {
 
     /// Hand accepted commands to the host's queue after the callback returns.
     #[must_use]
-    pub fn into_commands(self) -> Vec<Command> {
-        self.staged
+    pub fn into_commands(mut self) -> Vec<Command> {
+        core::mem::take(&mut self.staged)
     }
 
     /// The setting's spec, if this plugin may set it through slot 15.
@@ -158,17 +201,13 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // `answer_plugin` needs the install feature (`uses.install`, DEV,
-        // `docs/abi/device.md` section 1). Until command staging checks
-        // features (DEV host side), it is refused for every plugin, wherever it
-        // sits in the batch.
-        if batch
-            .iter()
-            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
-        {
-            return ERR_DENIED;
+        if let Some(status) = refused_outright(batch) {
+            return status;
         }
-        if let Err(status) = self.validate_open_budget(batch) {
+        if let Err(status) = self
+            .validate_open_budget(batch)
+            .and_then(|()| self.validate_handovers(batch))
+        {
             return status;
         }
         // Wi-Fi and power commands (`commands_dev.rs`): features, limits,
@@ -182,7 +221,16 @@ impl<'a> CommandStage<'a> {
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
+        let mut images = self.images;
         for command in batch.iter() {
+            if let Some(admit) = images.as_mut()
+                && let Some(result) = admit.admit_counted(&command, &mut bytes, self.byte_limit)
+            {
+                if let Err(error) = result {
+                    return error;
+                }
+                continue;
+            }
             let WireCommand::SetSetting { key, value } = command else {
                 let checked = if dev::is_dev(&command) {
                     Ok(0)
@@ -198,45 +246,46 @@ impl<'a> CommandStage<'a> {
                 }
                 continue;
             };
-            let text = match value {
-                SettingValueRef::Text(text) => text.len(),
-                _ => 0,
-            };
-            bytes = bytes.saturating_add(key.len()).saturating_add(text);
-            if bytes > self.byte_limit {
-                return ERR_NO_SPACE;
-            }
-            let spec = match self.admitted(key) {
-                Ok(spec) => spec,
-                Err(error) => return error,
-            };
-            let scalar = match value {
-                SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
-                SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
-                _ => None,
-            };
-            if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
-                return ERR_INVALID;
+            if let Err(error) = self.validate_setting(key, value, &mut bytes) {
+                return error;
             }
         }
+        let image_commands = self.image_count(batch, images.is_some());
         let stored = batch
             .iter()
             .filter(|command| {
                 !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
             })
-            .count();
-        if self.staged.try_reserve(stored).is_err() {
+            .count()
+            - image_commands;
+        if self.staged.try_reserve(stored).is_err()
+            || self.staged_images.try_reserve(image_commands).is_err()
+        {
             return ERR_NO_MEMORY;
         }
-        if let Err(error) = self.dev_reserve(batch) {
+        if let Err(error) = self
+            .dev_reserve(batch)
+            .and_then(|()| self.reserve_opens(batch))
+        {
             return error;
         }
+        // Everything fallible is reserved: the opens' hand-overs are claimed.
+        let claims = match self.claim_handovers(batch) {
+            Ok(claims) => claims,
+            Err(error) => return error,
+        };
         let (start, dev_start) = (self.staged.len(), self.dev_len());
-        if let Err(error) = self.push_batch(batch, dev_start) {
+        let opens = self.opens.at.len();
+        let start_images = self.staged_images.len();
+        if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
+            self.staged_images.truncate(start_images);
+            self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
+            self.unclaim(claims);
             return error;
         }
+        self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
                 self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
@@ -244,12 +293,57 @@ impl<'a> CommandStage<'a> {
         }
         self.accepted += batch.len();
         self.bytes = bytes;
+        self.images = images;
         OK
+    }
+
+    /// One `set_setting` of a batch: its bytes counted against the budget, the
+    /// setting registered and this plugin's to set, a scalar in its range.
+    fn validate_setting(
+        &self,
+        key: &str,
+        value: SettingValueRef<'_>,
+        bytes: &mut usize,
+    ) -> Result<(), i32> {
+        let text = match value {
+            SettingValueRef::Text(text) => text.len(),
+            _ => 0,
+        };
+        *bytes = bytes.saturating_add(key.len()).saturating_add(text);
+        if *bytes > self.byte_limit {
+            return Err(ERR_NO_SPACE);
+        }
+        let spec = self.admitted(key)?;
+        let scalar = match value {
+            SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
+            SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
+            _ => None,
+        };
+        if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
+            return Err(ERR_INVALID);
+        }
+        Ok(())
+    }
+
+    /// How many of `batch` are image commands the host admitted.
+    fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
+        if !images {
+            return 0;
+        }
+        batch
+            .iter()
+            .filter(|command| image_service::commands::owned_kind(command))
+            .count()
     }
 
     /// Keep every command of a validated batch in order (capacity is reserved)
     /// and reserve the request entries of its DEV commands, last.
-    fn push_batch(&mut self, batch: &CommandBatch<'_>, dev_start: usize) -> Result<(), i32> {
+    fn push_batch(
+        &mut self,
+        batch: &CommandBatch<'_>,
+        dev_start: usize,
+        images: bool,
+    ) -> Result<(), i32> {
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
                 continue;
@@ -258,7 +352,15 @@ impl<'a> CommandStage<'a> {
                 self.dev_push(command)?;
                 continue;
             }
+            if images && let Some(image) = image_service::commands::owned(&command) {
+                // Capacity is reserved, so this push cannot reallocate.
+                self.staged_images.push(image?);
+                continue;
+            }
             let owned = self.owned(command)?;
+            if let WireCommand::Open { mode, handover, .. } = command {
+                self.record_open(self.staged.len(), mode, handover)?;
+            }
             // Capacity is reserved, so this push cannot reallocate.
             self.staged.push(owned);
         }
@@ -398,6 +500,35 @@ impl CommandScope {
     }
 }
 
+/// A batch no plugin may send: `ERR_DENIED` for the whole of it.
+///
+/// `answer_plugin` needs the install feature (`uses.install`, DEV,
+/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
+/// host side), it is refused for every plugin, wherever it sits in the batch.
+///
+/// User grants are the host's alone (`screens-input.md`, guarded grants): a
+/// command that sets, resets or previews a `core.grant.*` setting refuses the
+/// whole batch, for every plugin, the one the grant names and the settings
+/// editor included.
+fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
+    batch
+        .iter()
+        .any(|command| {
+            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
+        })
+        .then_some(ERR_DENIED)
+}
+
+/// Whether `command` writes a user grant (`core.grant.*`).
+fn touches_grant(command: WireCommand<'_>) -> bool {
+    match command {
+        WireCommand::SetSetting { key, .. }
+        | WireCommand::ResetSetting { key, .. }
+        | WireCommand::PreviewSetting { key, .. } => key.starts_with("core.grant."),
+        _ => false,
+    }
+}
+
 impl Default for CommandScope {
     fn default() -> Self {
         Self::new()
@@ -413,6 +544,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_grant_tests.rs"]
+mod grant_tests;
 
 #[cfg(test)]
 mod tests {

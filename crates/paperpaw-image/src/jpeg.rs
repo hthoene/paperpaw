@@ -35,6 +35,36 @@ pub(crate) struct Huffman {
     fast: Vec<u16>,
 }
 
+/// The quantization tables and Huffman tables (four of each kind, by the
+/// number a segment gives) a frame header and its segments set. On the
+/// heap, in three lists of four: kept in `decode`'s frame (and moved whole
+/// into the progressive decoder's), they took 3.8 KB of the stack. The
+/// heap they take, besides the tables' own codes and lookups (as before):
+/// 512 B of quantization tables and four DC and four AC slots of 164 B on
+/// a 32-bit target (656 B each list), 1,824 B in all, freed with the decode.
+pub(crate) struct Tables {
+    pub quant: Vec<[u16; 64]>,
+    pub dc: Vec<Option<Huffman>>,
+    pub ac: Vec<Option<Huffman>>,
+}
+
+impl Tables {
+    // Not inlined: its zeros are its own frame's, not `decode`'s.
+    #[inline(never)]
+    pub(crate) fn new() -> Result<Self, ImageError> {
+        let mut quant: Vec<[u16; 64]> = Vec::new();
+        quant
+            .try_reserve_exact(4)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        quant.resize(4, [0u16; 64]);
+        Ok(Self {
+            quant,
+            dc: zeroed(4)?,
+            ac: zeroed(4)?,
+        })
+    }
+}
+
 /// Bits of the codes looked up at once.
 const FAST_BITS: u32 = 8;
 
@@ -413,9 +443,7 @@ pub(crate) fn decode(
     if reader.byte()? != 0xff || reader.byte()? != 0xd8 {
         return Err(ImageError::Invalid("not a JPEG"));
     }
-    let mut quant = [[0u16; 64]; 4];
-    let mut dc_tables: [Option<Huffman>; 4] = [None, None, None, None];
-    let mut ac_tables: [Option<Huffman>; 4] = [None, None, None, None];
+    let mut tables = Tables::new()?;
     let mut components: Vec<Component> = Vec::new();
     let (mut width, mut height) = (0u32, 0u32);
     let mut restart_interval = 0u32;
@@ -439,7 +467,7 @@ pub(crate) fn decode(
             .checked_sub(2)
             .ok_or(ImageError::Invalid("bad segment length"))?;
         match marker {
-            0xdb => read_quant(reader, len, &mut quant)?,
+            0xdb => read_quant(reader, len, &mut tables.quant)?,
             0xc0..=0xc2 => {
                 progressive = marker == 0xc2;
                 if reader.byte()? != 8 {
@@ -452,6 +480,11 @@ pub(crate) fn decode(
                     return Err(ImageError::Unsupported("JPEG components"));
                 }
                 components.clear();
+                // The room for all of them first: a refusal is an error
+                // here, and `push` never grows the list.
+                components
+                    .try_reserve_exact(usize::from(count))
+                    .map_err(|_| ImageError::OutOfMemory)?;
                 for _ in 0..count {
                     let id = reader.byte()?;
                     let hv = reader.byte()?;
@@ -473,7 +506,7 @@ pub(crate) fn decode(
             0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf => {
                 return Err(ImageError::Unsupported("lossless or arithmetic-coded JPEG"));
             }
-            0xc4 => read_huffman(reader, len, &mut dc_tables, &mut ac_tables)?,
+            0xc4 => read_huffman(reader, len, &mut tables.dc, &mut tables.ac)?,
             0xdd => {
                 restart_interval = u32::from(reader.u16_be()?);
                 reader.skip(len.saturating_sub(2))?;
@@ -486,9 +519,7 @@ pub(crate) fn decode(
                     width,
                     height,
                     components,
-                    quant,
-                    dc_tables,
-                    ac_tables,
+                    tables,
                     restart_interval,
                 };
                 return crate::progressive::decode(reader, frame, fit, sink);
@@ -512,9 +543,7 @@ pub(crate) fn decode(
                 return scan(
                     reader,
                     &mut components,
-                    &quant,
-                    &dc_tables,
-                    &ac_tables,
+                    &tables,
                     (width, height, restart_interval),
                     fit,
                     sink,
@@ -529,7 +558,7 @@ pub(crate) fn decode(
 pub(crate) fn read_quant(
     reader: &mut Reader<'_>,
     len: usize,
-    quant: &mut [[u16; 64]; 4],
+    quant: &mut [[u16; 64]],
 ) -> Result<(), ImageError> {
     let mut left = len;
     while left > 0 {
@@ -554,8 +583,8 @@ pub(crate) fn read_quant(
 pub(crate) fn read_huffman(
     reader: &mut Reader<'_>,
     len: usize,
-    dc_tables: &mut [Option<Huffman>; 4],
-    ac_tables: &mut [Option<Huffman>; 4],
+    dc_tables: &mut [Option<Huffman>],
+    ac_tables: &mut [Option<Huffman>],
 ) -> Result<(), ImageError> {
     let mut left = len;
     while left >= 17 {
@@ -570,11 +599,14 @@ pub(crate) fn read_huffman(
         reader.fill(&mut values)?;
         let table = Some(Huffman::new(&counts, values)?);
         let index = usize::from(tc_th & 3);
-        if tc_th >> 4 == 0 {
-            dc_tables[index] = table;
+        let tables = if tc_th >> 4 == 0 {
+            &mut *dc_tables
         } else {
-            ac_tables[index] = table;
-        }
+            &mut *ac_tables
+        };
+        *tables
+            .get_mut(index)
+            .ok_or(ImageError::Invalid("bad Huffman table"))? = table;
         left = left
             .checked_sub(17 + total)
             .ok_or(ImageError::Invalid("bad Huffman table"))?;
@@ -593,13 +625,12 @@ pub(crate) fn read_huffman(
 fn scan(
     reader: &mut Reader<'_>,
     components: &mut [Component],
-    quant: &[[u16; 64]; 4],
-    dc_tables: &[Option<Huffman>; 4],
-    ac_tables: &[Option<Huffman>; 4],
+    tables: &Tables,
     (width, height, restart_interval): (u32, u32, u32),
     fit: Fit,
     sink: &mut dyn ImageSink,
 ) -> Result<(), ImageError> {
+    let (quant, dc_tables, ac_tables) = (&tables.quant, &tables.dc, &tables.ac);
     for c in components.iter() {
         if dc_tables[c.dc].is_none() || ac_tables[c.ac].is_none() {
             return Err(ImageError::Invalid("missing Huffman table"));

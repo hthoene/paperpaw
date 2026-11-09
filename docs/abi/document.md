@@ -1,6 +1,6 @@
-# Interface 7 family DOC: formats, documents, images, lookup (draft)
+# Interface 7 family DOC: formats, documents, images, lookup
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, DOC section and coverage ledger), the C-family proposals
 (#890, `c-families-228.md` 2.6 DOC and the IMG wave), the reader extensibility notes (#241, N2,
@@ -8,8 +8,7 @@ N4-N7),
 `stages-services.md` (stages, services, depth), `ui.md` (host texts, depth and stack rules, the X4
 nested-callback gate), `screens-input.md` (N5 pages and progress, tag blocks), `core-events.md`
 (book events 65-69) and the storage contract (`proposals/interface-7-events-storage-services.md` D2,
-owner decision 125). Doc-only: records, schemas and generator follow once this is approved, as for
-EVT, REG and UIX. Tags below are proposed; the records step numbers them without gaps after UIX.
+owner decision 125). Records: `abi/services/core.document@1.def`.
 
 ## 0. Scope and principles
 
@@ -82,6 +81,18 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
+- [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
+  annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
+  and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
+  text coordinates as in `lib_position` and `lib_annotation`'s start) and
+  optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
+  opens the book there instead of at its last position, as if the user had jumped there (the place
+  is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
+  is not the document's (the book was prepared again since), or the place is past the section's end,
+  the reader opens at the last position as without them: never an error, never a wrong place. A
+  `section` without `offset` (or the reverse), or a value that is not a decimal number, is ignored
+  the same way. The host passes the params through unchecked (`ui.md` section 1); the readers read
+  them (Plugin's reader ports). No host change, no new record.
 
 ## 2. The service `core.document` (major 1)
 
@@ -139,8 +150,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 1080 | `service.doc_reader` | `id: str 128`, `screen: str 128`, `formats: str 1032`, `title: str 128` |
 | 1081 | `service.doc_progress` | `progress_ppm: u32` |
 
-- [D] `doc_page.scope` is op 21's format filter, else empty; `doc_path.flags` bit 0: sniff when no
-  extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
+- [D] `doc_page.scope` is op 21's format filter, else empty. Ops 19 and 21 name no document: their
+  `doc_page.document` is 0 and ignored (the host accepts any value there). `doc_path.flags` bit 0:
+  sniff when no extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
   `doc_format.title` and `doc_reader.title` are translated by the host as REG rows are. Two-way
   records (plugin and host send them; never `HOST_ONLY`): `doc_state` and the block, meta, toc,
   link, font and image rows, because a format plugin answers them in its `core.format` reply and the
@@ -225,13 +237,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `doc_meta` (interface 6 `Metadata`): `title: str 512`, `language: str 35`, `series: str 512`,
   `series_index: str 32`, `direction` (0 left to right, 1 right to left), `writing_mode` (0
-  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `authors`, `subjects`
-  (their counts, no cap), `description_bytes`, `flags` (bit 0 the title was cut, bit 1 the series).
-  Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`, `kind` 0 title, 1 author, 2
-  subject, 3 description, 4 series; `index` below the count, else `ERR_NOT_FOUND`; `offset`) answers
-  one `doc_text` (`kind`, `index`, `total` its whole length, `text` at most 1,024 bytes from
-  `offset`, cut at a UTF-8 boundary): an opener lists every author and subject by index and reads
-  any text whole by offsets. Nothing is cut for good and nothing is left out.
+  horizontal, 1 vertical right to left, 2 vertical left to right, 3 and 4 sideways, section 4),
+  `sections`, `authors`, `subjects` (their counts, no cap), `description_bytes`, `flags` (bit 0 the
+  title was cut, bit 1 the series). Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`,
+  `kind` 0 title, 1 author, 2 subject, 3 description, 4 series; `index` below the count, else
+  `ERR_NOT_FOUND`; `offset`) answers one `doc_text` (`kind`, `index`, `total` its whole length,
+  `text` at most 1,024 bytes from `offset`, cut at a UTF-8 boundary): an opener lists every author
+  and subject by index and reads any text whole by offsets. Nothing is cut for good and nothing is
+  left out.
 
 ### 2.3 Navigation and links
 
@@ -289,6 +302,12 @@ host passes them on after checking them.
   of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
   conversion key is made, so an open with 0 and one with the same sides spelled out share one
   cache; ops 2, 17 and 18 always carry both sides, set by the host.
+- [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
+  `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
+  `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for
+  this document (never 0; a call whose `generation` is not it is `ERR_STATE`, start again at 0).
+  The host forwards `cursor` and `generation` as the caller gave them. Op 8's blocks end as
+  section 4 says (bit 1 `more`).
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -383,6 +402,24 @@ meaning (the format's own split of a very long paragraph).
   `i32::MIN` / `u32::MAX` for "the reader's" (interface 6 `None`); `style` the interface-6
   `TextStyle` bits unchanged (they are already a stable `u32`); `lang` a BCP 47 tag, empty for
   unknown.
+- [D] **Direction, writing mode, language** (interface 6 `Block.dir`, `writing_mode`, `lang`,
+  `inline_langs`; the SDK's `lang::Direction`, `lang::WritingMode`, `Lang`): `dir` 0 auto (the first
+  strong letter, UAX #9 P2/P3), 1 left to right, 2 right to left; `writing_mode` 0 horizontal top to
+  bottom, 1 vertical right to left, 2 vertical left to right, 3 sideways right to left, 4 sideways
+  left to right (`doc_meta.writing_mode` uses the same numbers). A later value the reader does not
+  know reads as 0 (auto, horizontal), never an error, so a newer format still opens in an older
+  reader; the reader lays out horizontal lines only, as interface 6. `lang` is interface 6's
+  `Block.lang` as a BCP 47 tag (language, script, region; `Lang`'s text form): the element's own
+  (`lang`, `xml:lang`, inherited), else the book's (`doc_meta.language`), as the format resolves it;
+  empty only when neither is known (`Lang::NONE`). The `doc_inline_lang`s are `inline_langs` in
+  order: a run's `TextStyle::lang_index` n names the n-th (from 1), 0 the block's `lang`; an index
+  past the list reads as the block's `lang`.
+- [D] **Annotations** (`doc_ruby`, interface 6 `Annotation`, now re-exported as
+  `paperpaw_sdk::document::{Annotation, AnnotationKind}`): `kind` 0 ruby, 1 phonetic, 2 gloss, 3+n
+  `Other(n)` (n at most 65,535); a value the reader does not know reads as a gloss, as
+  `AnnotationKind::Other` says. `size` is the percent of the text below, 0 for the reader's. A
+  footnote or note text is **not** an annotation: it stays a link to its target (`doc_link`, section
+  2.3) as in interface 6; a format sends a gloss only for a text meant to stand above the words.
 - [D] Inserted blocks and `leading_above` are the reader's (its text filters, #964); formats answer
   none, as in interface 6.
 
@@ -418,16 +455,21 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
   **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
   by a `doc_image` for the opener: it checks the path (root 6 rules, the cache file's header against
   `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
-  the id it already has for that path in this document), and passes `width`, `height` and `flags`
-  bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
-  counted as a failed read) and never fails the whole stream. Over the 8 image ids per plugin, the
+  the id it already has for that path in this document), and passes `width` and `height` on;
+  `doc_image.flags` (the same bits as `image.info`'s) is bit 0 colour, set when the cache file's
+  header says the picture is in colour (the header is read for the check anyway; never on a screen
+  without colour), and bit 1 not decoded yet, `fmt.image`'s bit 0. Other `fmt.image` bits are
+  dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
+  older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
+  fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
+  and never fails the whole stream. Over the 8 image ids per plugin, the
   host ends the opener's least recently drawn document image first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
@@ -447,7 +489,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
   is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
   `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
-  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
+  resumable decoder replaces this rule if it fails. A `side` above 1,600 is clamped to 1,600, not
+  refused (`image_prepare` and op 16 alike); `event.image_ready` reports the width and height
+  actually made. `event.image_ready` (to the
   caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
@@ -455,7 +499,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
   (where the screen has it).
-- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
+- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
+  not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
   centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
   `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
@@ -478,7 +523,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
   when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
   or another picture holds it), dithers each call on its own (Atkinson within the call), never an
-  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
+  columns, so a part redrawn alone matches the whole; for a wider rectangle, or where the device's
+  draw scratch does not hold the full width, only the visible columns are dithered and a redrawn
+  part may differ slightly (never an error). These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
   spends its own heap under its own budget.
   Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
   not flags.
@@ -497,13 +545,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
-  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
-  MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
-  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the
-  document's opener: for any other plugin `ERR_NOT_FOUND`), which the host
-  resolves to that cache file and renders from the card like a card font. A damaged font is
-  `ERR_INVALID` at `font.acquire` (the reader falls back to the user's font and counts it, interface
-  6 `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
+  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16 MiB,
+  interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a font
+  handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the document's
+  opener: for any other plugin `ERR_NOT_FOUND`), which the host resolves to that cache file and
+  renders from the card like a card font. Face `index` i is the root-6 file `fonts/<i>` (decimal, no
+  extension), the format's to write; the host opens nothing else, and a file whose size is not the
+  row's `bytes` is `ERR_INVALID` at `font.acquire`. A damaged font is `ERR_INVALID` at
+  `font.acquire` (the reader falls back to the user's font and counts it, interface 6
+  `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
   text call) and are released as usual.
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
