@@ -96,3 +96,23 @@ fn flags(menu: &str, user_defined: &dyn Fn(&str) -> bool) -> u32 {
         0
     }
 }
+
+impl crate::Kernel {
+    /// Op 11 as the host serves it: the menus plugins declared and those the
+    /// user defined, each once, with bit 5 where the user has a
+    /// `command.set_menu` definition for the menu: also an empty one, or one
+    /// equal to the declared rows (interface 6 `is_customized`); a reset
+    /// (`set_menu` with no entries) clears it. `ERR_STATE` before the
+    /// declarations exist.
+    pub(crate) fn native_menu_ids(&self, visit: &mut dyn FnMut(&str, u32)) -> Result<(), i32> {
+        let menus = &self.shared.menus;
+        let Some(declarations) = &self.shared.registry.native_declarations else {
+            return Err(paperpaw_native::host_glue::ERR_STATE);
+        };
+        declarations.menu_ids(
+            &mut menus.customized().map(|id| id.as_str()),
+            &|menu| menus.is_customized(menu),
+            visit,
+        )
+    }
+}

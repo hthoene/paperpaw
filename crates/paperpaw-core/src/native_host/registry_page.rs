@@ -2,6 +2,7 @@
 //! The caller visits ordered rows starting at the requested cursor. A stopped
 //! row stays unconsumed for the next page. Nothing is retained between calls.
 use super::registrations::{self as wire, Record};
+use crate::abi7::context::registry_views::Row;
 use crate::abi7::services_wire::core_registry_v1;
 use crate::native_host::codec;
 use core::ops::ControlFlow;
@@ -49,14 +50,16 @@ impl<'a> RegistryPage<'a> {
     }
 
     /// Continue consumes the row; Break leaves it for the next page.
-    pub(crate) fn push(&mut self, record: &Record<'_>) -> Result<ControlFlow<()>, i32> {
+    pub(crate) fn push(&mut self, record: &dyn Row) -> Result<ControlFlow<()>, i32> {
+        // A row past `total`: the tables changed between the counting walk
+        // and this one.
         if self.cursor == self.total {
-            return Err(ERR_INVALID);
+            return Err(ERR_STATE);
         }
         if self.rows == core_registry_v1::PAGE_MAX_ROWS {
             return Ok(ControlFlow::Break(()));
         }
-        let length = codec::framed_len(record)?;
+        let length = record.framed_len()?;
         let available = self.out.len() - self.used - self.end_bytes;
         if length > available {
             return if self.rows == 0 {
@@ -65,7 +68,7 @@ impl<'a> RegistryPage<'a> {
                 Ok(ControlFlow::Break(()))
             };
         }
-        let written = codec::encode_one(record, &mut self.out[self.used..])?;
+        let written = record.encode(&mut self.out[self.used..])?;
         self.used += written;
         self.rows += 1;
         self.cursor += 1;
@@ -181,6 +184,14 @@ mod tests {
         assert_eq!(page_end(&out[..length]).0, 1);
         let mut page = RegistryPage::new(&query(0, 0), 1, 1, &mut out[..end_bytes]).unwrap();
         assert_eq!(page.push(&row()), Err(ERR_NO_SPACE));
+    }
+
+    #[test]
+    fn a_row_past_the_total_is_a_state_error() {
+        let mut out = [0; 256];
+        let mut page = RegistryPage::new(&query(0, 0), 1, 1, &mut out).unwrap();
+        assert_eq!(page.push(&row()).unwrap(), ControlFlow::Continue(()));
+        assert_eq!(page.push(&row()), Err(ERR_STATE));
     }
 
     #[test]

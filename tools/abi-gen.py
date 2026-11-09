@@ -181,8 +181,8 @@ def validate_record(record, minor):
     names, ordinals = set(), set()
     for field in record['fields']:
         # `list` (str fields only) bounds a separated list inside the text;
-        # `secret` (true: str fields of commands, str or bytes fields of service
-        # records) keeps the value out of Debug.
+        # `secret` (true: str fields of commands and events, str or bytes fields
+        # of service records) keeps the value out of Debug.
         keys(field, 'name type since optional ordinal default max_bytes' +
              (' list' if type(field) is dict and 'list' in field else '') +
              (' secret' if type(field) is dict and 'secret' in field else ''))
@@ -254,7 +254,10 @@ def compatible(old, new, released_minor=None):
                         {k: v for k, v in after.items() if k != 'fields'},
                         'changed/reordered record')
                 fields = before['fields']
-                require(after['fields'][:len(fields)] == fields, 'changed record field')
+                require(len(after['fields']) >= len(fields)
+                        and all(same_field(old_field, new_field)
+                                for old_field, new_field in zip(fields, after['fields'])),
+                        'changed record field')
                 for field in after['fields'][len(fields):]:
                     require(field['optional'], 'appended required field')
                     require(field['since'] >= minimum_since, 'backdated appended field')
@@ -405,6 +408,16 @@ def lock_checks(prior, schema, version):
                 require(prior[key] == globals()[render](prior['schema']), message)
             yield key, same
     yield 'compatible', lambda: compatible(prior['schema'], schema, prior['released_minor'])
+
+
+def same_field(before, after):
+    """Whether a record field kept its contract. `secret` only keeps a value
+    out of Debug and changes no byte on the wire, so marking a field secret
+    later keeps it; dropping the mark does not (the value would show again)."""
+    if before.get('secret') is True:
+        return after == before
+    return {k: v for k, v in after.items() if k != 'secret'} == before \
+        and after.get('secret', True) is True
 
 
 def check_lock(prior, schema, waives=frozenset()):

@@ -970,6 +970,14 @@ impl Settings {
         !self.preview.is_empty()
     }
 
+    /// Whether `id` is in the active preview set, also where the value shown
+    /// equals the one kept (`reg_setting` flag `preview`).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn is_previewed(&self, id: &str) -> bool {
+        self.preview.contains_key(id)
+    }
+
     /// Whether a value is kept for `id` (it is not at its default).
     pub fn is_set(&self, id: &str) -> bool {
         self.values.contains_key(id)
