@@ -314,12 +314,6 @@ dependencies = [
 ]
 
 [[package]]
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-mail"
 version = "1.0.4"
 dependencies = [

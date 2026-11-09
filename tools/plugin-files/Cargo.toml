@@ -47,10 +47,6 @@ test = false
 bench = false
 
 [[bin]]
-test = false
-bench = false
-
-[[bin]]
 name = "news"
 path = "src/bin/news.rs"
 test = false
