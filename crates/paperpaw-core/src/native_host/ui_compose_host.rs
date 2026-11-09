@@ -115,9 +115,9 @@ impl ChildDraw for RegistryDraw<'_, '_> {
 /// The stack's guard as the handle table asks for it, read from the frame.
 /// A stack the frame cannot read fails closed: guarded by no one's plugin,
 /// everything below it.
-pub(crate) struct StackGuard<'a, 'f>(pub(crate) &'a CoreFrame<'f>);
+pub(crate) struct StackGuard<'a>(pub(crate) &'a dyn Frame);
 
-impl GuardState for StackGuard<'_, '_> {
+impl GuardState for StackGuard<'_> {
     fn guard_plugin(&self) -> Option<u64> {
         let mut guard = None;
         match self

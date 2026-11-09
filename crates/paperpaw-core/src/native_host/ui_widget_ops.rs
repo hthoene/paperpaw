@@ -164,6 +164,8 @@ impl StatusCache {
 pub(crate) struct WidgetState {
     pub(crate) handles: RefCell<UiHandles>,
     pub(crate) cache: RefCell<StatusCache>,
+    /// Taps and long presses op 6 queued for their owners (`ui_widget_layout`).
+    pub(crate) inputs: RefCell<super::ui_widget_layout::WidgetInputs>,
     /// The minute (of the monotonic clock) the cache last saw; `u64::MAX` before.
     minute: core::cell::Cell<u64>,
 }
@@ -173,6 +175,7 @@ impl WidgetState {
         Self {
             handles: RefCell::new(UiHandles::new(x4)),
             cache: RefCell::new(StatusCache::default()),
+            inputs: RefCell::new(super::ui_widget_layout::WidgetInputs::new(x4)),
             minute: core::cell::Cell::new(u64::MAX),
         }
     }
@@ -309,6 +312,12 @@ impl UiServices {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .drop_plugin(plugin);
+        // Taps still waiting for it would reach a plugin that is gone.
+        self.widgets
+            .inputs
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .drop_owner(plugin);
         // Values of the owner's items would answer for a plugin that is gone.
         self.widgets
             .cache
