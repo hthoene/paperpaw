@@ -378,7 +378,6 @@ fn a_step_costs_its_books_not_the_folder_on_a_big_library() {
             total <= 2 * (1000 + layout) + steps * (per + 2),
             "{layout}: {total}"
         );
-        drop(carry);
         assert_eq!(moved_events(&sent).len(), 1000);
     }
 }
