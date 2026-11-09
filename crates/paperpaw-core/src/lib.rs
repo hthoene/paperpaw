@@ -296,9 +296,6 @@ pub struct Kernel {
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
     /// Firmware requests, queue and pump; none without a firmware host.
     firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
-    /// The plugins were told PaperPaw stops for a restart into the new
-    /// firmware; the restart itself comes on the next pass.
-    firmware_stopping: bool,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -1240,8 +1237,7 @@ impl Kernel {
         self.bluetooth_suspend();
         self.firmware_suspend();
         let effects = self.finish();
-        // Asleep, no word is hyphenated: the tables open give their heap
-        // back (and the card may be another on waking).
+        // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.

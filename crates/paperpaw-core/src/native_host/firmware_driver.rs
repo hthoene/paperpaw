@@ -101,6 +101,8 @@ pub(crate) struct Driver {
     shown: Option<(u128, Question)>,
     /// A yes to the restart came: the kernel restarts the device.
     restart_wanted: bool,
+    /// The plugins were told PaperPaw stops for a restart; it comes next pass.
+    stopping: bool,
 }
 
 impl Driver {
@@ -119,6 +121,7 @@ impl Driver {
             ask: None,
             shown: None,
             restart_wanted: false,
+            stopping: false,
         }
     }
 
@@ -376,6 +379,11 @@ impl Driver {
     /// A yes to the restart waits for the kernel to restart the device.
     pub(crate) fn restart_wanted(&self) -> bool {
         self.restart_wanted
+    }
+
+    /// Whether the plugins were told to stop for the restart; `now` sets it.
+    pub(crate) fn stopping(&mut self, now: bool) -> bool {
+        core::mem::replace(&mut self.stopping, now)
     }
 
     /// Restarts into the chosen image. It returns only where it cannot (then
@@ -672,6 +680,7 @@ impl Driver {
     pub(crate) fn abort_all(&mut self) {
         // A restart that waited for the next pass does not come.
         self.restart_wanted = false;
+        self.stopping = false;
         let mut got = true;
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),

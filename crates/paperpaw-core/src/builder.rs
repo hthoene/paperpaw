@@ -802,7 +802,6 @@ impl BuilderParts {
                     ),
                 ))
             }),
-            firmware_stopping: false,
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,

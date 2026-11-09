@@ -420,8 +420,6 @@ impl Kernel {
     /// The device goes to sleep: a confirmation that shows is dismissed, and
     /// the jobs that run or wait end with reason 20.
     pub(crate) fn firmware_suspend(&mut self) {
-        // A restart that waited for its next pass does not come.
-        self.firmware_stopping = false;
         let Some(driver) = self.firmware.clone() else {
             return;
         };
@@ -498,14 +496,18 @@ impl Kernel {
         if !wanted {
             return;
         }
-        if !self.firmware_stopping {
-            self.firmware_stopping = true;
+        let told = driver
+            .try_borrow_mut()
+            .is_ok_and(|mut driver| driver.stopping(true));
+        if !told {
             self.output
                 .commands
                 .push(paperpaw_sdk::builtin::events::STOPPING.emit(()));
             return;
         }
-        self.firmware_stopping = false;
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.stopping(false);
+        }
         // What PaperPaw's own stop writes (`Kernel::stop`), then the device.
         self.keep_timing();
         let _ = self.shared.storage.sync();
