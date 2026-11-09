@@ -95,7 +95,6 @@ impl StackRows {
     ///
     /// `None` elsewhere, also for a stale, missing or overflowed snapshot (fail
     /// closed). No allocation.
-    #[allow(dead_code, reason = "the core.net adapter reads it; tests do today")]
     pub(crate) fn showing_screen(&self, owner: u64) -> Option<u64> {
         let (running_owner, instance) = self.running.get();
         if owner == 0
