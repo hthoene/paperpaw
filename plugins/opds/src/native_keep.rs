@@ -229,7 +229,6 @@ mod tests {
 
     #[test]
     fn basic_authorization_is_the_base64_of_user_and_password() {
-        let pw = Secret::copy("Aladdin:open sesame").unwrap();
         // The classic example is "Aladdin" and "open sesame".
         let header = Secret::basic("Aladdin", &Secret::copy("open sesame").unwrap()).unwrap();
         assert_eq!(header.as_str(), "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
@@ -241,7 +240,6 @@ mod tests {
             let header = Secret::basic(user, &Secret::copy(password).unwrap()).unwrap();
             assert_eq!(header.as_str(), expected);
         }
-        drop(pw);
     }
 
     #[test]

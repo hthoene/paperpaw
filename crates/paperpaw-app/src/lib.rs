@@ -179,7 +179,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "joplin",
     "mail",
     "news",
-    "opds",
     "read-later-cloud",
     "readwise",
     "stats",

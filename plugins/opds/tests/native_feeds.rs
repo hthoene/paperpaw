@@ -361,12 +361,10 @@ fn a_failed_read_is_an_error_not_a_short_feed() {
 #[test]
 fn file_types_are_told_by_type_then_by_name() {
     let kind = |mime: &str, url: &str| {
-        Book {
-            mime: mime.into(),
-            url: url.into(),
-            title: String::new(),
-        }
-        .extension()
+        let mut book = Book::default();
+        book.mime = mime.into();
+        book.url = url.into();
+        book.extension()
     };
     assert_eq!(kind("application/epub+zip", "/x"), Some("epub"));
     assert_eq!(kind("application/epub+zip; charset=x", "/x"), Some("epub"));

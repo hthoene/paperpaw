@@ -194,7 +194,7 @@ pub fn record_path(url: &str) -> Result<String, Error> {
 }
 
 /// How the book with `id` is written in the record: as it is, on one line; an
-/// id longer than [`MAX_ID`] by its digest.
+/// id longer than 512 bytes by its digest.
 ///
 /// # Errors
 /// `NoMemory`.

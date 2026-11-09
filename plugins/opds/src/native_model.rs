@@ -80,6 +80,7 @@ impl Default for Limits {
 
 /// A feed's kept parts.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Feed {
     pub title: String,
     pub entries: Vec<Entry>,
@@ -93,6 +94,7 @@ pub struct Feed {
 
 /// Where a catalog is searched.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Search {
     /// An OpenSearch description, which names the address to use.
     Description(String),
@@ -101,6 +103,7 @@ pub enum Search {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     pub id: String,
     pub title: String,
@@ -116,7 +119,8 @@ pub struct Entry {
 }
 
 /// A file of a book to download.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Book {
     /// Its content type, e.g. `application/epub+zip`.
     pub mime: String,

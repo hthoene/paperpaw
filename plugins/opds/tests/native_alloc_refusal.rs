@@ -157,11 +157,9 @@ fn the_password_and_the_names_survive_refused_allocations() {
         name_of("https://a.example")?;
         Ok(())
     });
-    let entry = Entry {
-        title: "A title".into(),
-        authors: "Austen, Jane".into(),
-        ..Entry::default()
-    };
+    let mut entry = Entry::default();
+    entry.title = "A title".into();
+    entry.authors = "Austen, Jane".into();
     fail_alloc::sweep(|| {
         download::book_name(&entry, "https://a.example/x", "epub")?;
         download::book_name(&Entry::default(), "https://a.example/get/x", "epub")?;
