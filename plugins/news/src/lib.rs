@@ -16,9 +16,16 @@ extern crate alloc;
 extern crate std;
 
 mod convert;
+#[path = "../declarations.rs"]
+pub mod declarations;
 pub mod native_book;
 pub mod native_convert;
+mod native_entry;
+pub mod native_fetch;
 pub mod native_news;
+pub mod native_plugin;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod widget;
 
 /// Test-only: refuses chosen allocations to prove the fallible paths.
@@ -963,4 +970,8 @@ mod native_book_tests;
 #[cfg(test)]
 mod native_convert_tests;
 #[cfg(test)]
+mod native_fetch_tests;
+#[cfg(test)]
 mod native_parity_tests;
+#[cfg(test)]
+mod test_volume;

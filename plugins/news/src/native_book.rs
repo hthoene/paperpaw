@@ -34,7 +34,11 @@ impl From<Error> for Failure {
 }
 
 /// Writes what the converter has taken to `page`, in calls the storage takes.
-fn write_out(volume: &impl Volume, page: &str, converter: &mut Converter<'_>) -> Result<(), Error> {
+fn write_out(
+    volume: &(impl Volume + ?Sized),
+    page: &str,
+    converter: &mut Converter<'_>,
+) -> Result<(), Error> {
     for part in converter.taken().chunks(MAX_DATA) {
         volume.append(page, part)?;
     }
@@ -51,7 +55,7 @@ fn write_out(volume: &impl Volume, page: &str, converter: &mut Converter<'_>) ->
 /// [`Failure::Failed`] for no feed, a feed of more than 4 MiB or a card that
 /// does not read or write; [`Failure::Memory`] for a refused allocation.
 pub fn make_page(
-    volume: &impl Volume,
+    volume: &(impl Volume + ?Sized),
     (from, page): (&str, &str),
     (max_articles, max_text): (usize, usize),
     date_text: DateText<'_>,
@@ -64,7 +68,7 @@ pub fn make_page(
 }
 
 fn convert(
-    volume: &impl Volume,
+    volume: &(impl Volume + ?Sized),
     from: &str,
     page: &str,
     (max_articles, max_text): (usize, usize),

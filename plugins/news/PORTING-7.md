@@ -1,4 +1,4 @@
-# Interface-7 port (slice 3: the decisions, the declarations, the feed converter and the page)
+# Interface-7 port (slice 4: the decisions, the declarations, the converter, the page and the fetch)
 
 Version 1.0.10. Partial: what the plugin decides and what it declares, without the host. No native
 list screen and no `NATIVE_ENTRY` yet; the interface-6 `News` and everything of it stays until the
@@ -48,8 +48,38 @@ host activates native plugins (then it goes together, no shim).
   `convert::convert` on the corpus of the converter's tests and sweeps refusals. Next: the
   fetch over `core.net` (saved with `save_to`, at most 4 MiB with `max_file`), the book put in the
   library with `core.library` `import` (name `Title (mark).html` in the folder `News`; needs
-  `Library::import`, SDK PR #668), the headlines file, the work declaration; then the list
-  screen and the widget.
+  `Library::import`, SDK PR #668), the headlines file; then the list screen and the widget.
+- `src/native_fetch.rs`, `src/native_plugin.rs`, `src/native_entry.rs` (slice 4): the fetch. A
+  `Fetcher` asks for one feed after the other (`GET`, the answer saved to `feed-<mark>.tmp` in the
+  data folder with `max_file` 4 MiB, the plugin's `User-Agent`), and when a request ends reads the
+  list again, makes the answer into its page and hands it to a `Shelf` (`feed`, `name`, `page`,
+  `converted`), keeps the name a feed brought, asks for the next one (`all`) or ends with the counts;
+  a feed removed meanwhile is left out, a feed that failed (no 2xx answer, no article, the shelf
+  refused) does not stop the others, a refused allocation stops the fetch. It sees the world only
+  through `Wire` (the data folder as a `Volume`, `get`, `cancel`, `declare_work`), so it is tested
+  without a host (`src/native_fetch_tests.rs`: a volume in memory, a recording network, a recording
+  shelf); `native_plugin.rs` is the glue (`HostWire` over `core.net`, `core.work` and the storage
+  calls), the notices (`news.fetching`, `news.fetched` with its plural, ...) and the `date_text`.
+  `tests/native_flow.rs` drives the linked plugin: what it registers (the setting, `HttpDone` and
+  `WorkDue`), the work the action `news.fetch` declares (network, optional, at the wake and when
+  online, an hour on: interface 6's `Work::when_cheap(.., 3600 s)`), a work that cannot be declared
+  costs that fetch only, a due work where the list cannot be read says so.
+  The image holds the setting and the two subscriptions only: the action, the screen, the menu
+  entry and the icons are not in it (`declarations::navigation` and `screens` are built when the
+  slices that implement them are), so nothing is offered that opens nothing.
+
+### Differences from interface 6, on purpose, and gaps
+
+- The action `news.fetch` always declares the background work: a native action cannot tell a
+  rule's run from the reader's (interface 6's `env.reader()`); the reader's own fetch is the screen's
+  *Fetch the news* (next slice).
+- The shelf is `Unshelved` until `Library::import` is in the SDK (#668): no book is made, every
+  feed counts as failed. The plugin is not listed as complete and is not in the app yet.
+- An article's text is cut at 8 KiB (`MAX_TEXT_SMALL`) on every device: the native snapshot has no
+  memory class, and interface 6 gave 64 KiB to the larger ones. An open question for Kernel (the
+  memory class in the snapshot or `core.device`).
+- A feed's name is not yet cleaned for a file name (`web::try_clean_name` is there; the library's
+  import names the book, next slice).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
