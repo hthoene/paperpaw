@@ -42,6 +42,13 @@ mod kept;
 mod locks;
 mod markdown;
 pub mod native_joplin;
+pub mod native_kept;
+#[cfg(test)]
+mod native_kept_tests;
+pub mod native_locks;
+pub mod native_note;
+#[cfg(test)]
+mod native_note_tests;
 #[cfg(test)]
 mod native_parity_tests;
 #[cfg(test)]
@@ -49,6 +56,8 @@ mod native_read_tests;
 mod send;
 mod service;
 mod setup;
+#[cfg(test)]
+mod test_volume;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

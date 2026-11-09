@@ -313,6 +313,7 @@ name = "paperpaw-plugin-joplin"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-xml",
 ]
 

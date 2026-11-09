@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 and 2: the decisions, the declarations and the readers)
+# Interface-7 port (slices 1 to 3: the decisions, the declarations, the readers and the files)
 
 Version 1.0.7. Partial: what the plugin decides and what it declares, without the host. No native
 set-up screen and no `NATIVE_ENTRY` yet; the interface-6 `Joplin` and everything of it stays until the
@@ -28,12 +28,28 @@ host activates native plugins (then it goes together, no shim).
   icons. `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each with
   the interface-6 registration, including the screen's instance policy from the decoded flags.
 
+- The files over a `paperpaw_ui_kit::files::Volume` (slice 3; the card's notes and the plugin's data
+  folder), each compared with interface 6 on the same input (`src/native_kept_tests.rs`,
+  `src/native_note_tests.rs`) and swept for refused memory:
+  - `src/native_kept.rs`: `sent.txt`, `sending.txt`, `waiting.txt`, `notebook.txt` (same lines, same
+    files; the files of version 1 in `testdata/` still read; a list is rewritten through a copy
+    and a failure leaves it as it was). **`waiting()` holds at most 32 paths** (`MOST_WAITING`),
+    oldest first; the rest stay in the file and come with the next sending.
+  - `src/native_note.rs`: `write_note` (the title, the body copied from the notes in 1 KiB pieces,
+    the properties; returns the MD5 of the text; byte for byte as `Note::write`), `read_props`,
+    `text_hash` and `head` over volumes, and the body copy (`Body`). One deviation: the line
+    breaks held back at the end of a piece until text follows are **at most 4,096** in a row (a
+    body with more blank lines in a row between two texts keeps 4,096 of them); interface 6 held
+    them all.
+  - `src/native_locks.rs`: whether an exclusive lock is held (WebDAV listing read with the XML
+    tokenizer, Joplin Server's list with the JSON parser), in pieces, `NoMemory` as an error so
+    nothing is written then. The request for the list is the sending's (next slice).
+  - `for_each_line_on` (new, `paperpaw_ui_kit::files`) reads a text file a line at a time (lines cut
+    at 4 KiB, as interface 6's `for_each_line`).
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- Writing a note (`Note::write`: the title, the body copied from the notes file in pieces, the
-  properties, the MD5 of the text) and the reading of the files themselves (`text_hash`): files.
-- The sending itself: sign-in, the locks (`locks.rs`, WebDAV and server, read with the XML reader),
-  the notebook and note lookups, the waiting and sent lists (`kept.rs`), the retries (network, files,
-  declared work).
+- The sending itself: sign-in, the request for the locks,
+  the notebook and note lookups, the retries (network, declared work).
 - The set-up screen (H1, H2), the password (secrets, #367), the keyboard slot.
 - The events it hears: `core.notes-exported`, `setting.changed`, `started` and its own answers.
