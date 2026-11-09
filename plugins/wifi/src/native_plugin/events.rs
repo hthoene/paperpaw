@@ -200,7 +200,7 @@ impl NativeWifi {
     }
 
     /// A setting that is text, `None` where it is something else.
-    fn text(host: &Host<'_>, key: &str) -> Result<Option<String>, Error> {
+    pub(super) fn text(host: &Host<'_>, key: &str) -> Result<Option<String>, Error> {
         use paperpaw_sdk::native::settings::{SettingValue, read_setting};
         let mut scratch = [0; 64];
         match read_setting(host, key, &mut scratch)? {
@@ -299,7 +299,7 @@ impl NativeWifi {
     }
 
     /// The work service, `None` where the device has none.
-    fn work(&mut self, host: &Host<'_>) -> Result<Option<&Work>, Error> {
+    pub(super) fn work(&mut self, host: &Host<'_>) -> Result<Option<&Work>, Error> {
         if self.work.is_none() {
             match Work::open(host) {
                 Ok(work) => self.work = Some(work),
@@ -330,6 +330,7 @@ impl NativeWifi {
         let seen = self.seen(host, now_ms, BOTH)?;
         let actions = self.policy.on_scanned(&seen.facts())?;
         self.act(host, actions)?;
+        self.phone_scanned(host)?;
         self.reread(host)
     }
 
@@ -345,6 +346,7 @@ impl NativeWifi {
             .policy
             .on_failed(&seen.facts(), done.ssid(), Failure::from(failure))?;
         self.act(host, actions)?;
+        self.phone_failed(host, done.now_ms(), done.ssid(), failure)?;
         self.reread(host)
     }
 
@@ -360,6 +362,7 @@ impl NativeWifi {
         let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_changed(&seen.facts())?;
         self.act(host, actions)?;
+        self.phone_changed(host, now_ms)?;
         self.reread(host)
     }
 
@@ -399,6 +402,9 @@ impl NativeWifi {
     /// A timer came due: the radio goes off, or another round is tried, if
     /// nothing was wanted since it was set.
     pub(super) fn work_due(&mut self, host: &Host<'_>, due: &WorkDue<'_>) -> Result<(), Error> {
+        if due.key() == super::phone::WAKE_KEY {
+            return self.phone_wake(host, due.now_ms());
+        }
         let (idle, generation) = match due.key() {
             IDLE_KEY => (true, self.idle_generation.take()),
             RETRY_KEY => (false, self.retry_generation.take()),

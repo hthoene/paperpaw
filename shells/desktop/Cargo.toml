@@ -23,6 +23,7 @@ paperpaw-fs.workspace = true
 paperpaw-serve.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-platform.workspace = true
+paperpaw-default-packs.workspace = true
 png = "0.18"
 softbuffer = { version = "0.4", optional = true }
 # Without client-side decorations on Wayland: they pull in the unmaintained
@@ -55,6 +56,9 @@ paperpaw-text.workspace = true
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # And a language of an Arabic interface's size, compiled (ADR 0033).
 paperpaw-i18n.workspace = true
+# The German pack of the snapshot with hyphenated German names, built from the
+# same sources as the shipped one.
+paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }
 
 [build-dependencies]
 serde_json = "1"

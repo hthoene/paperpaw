@@ -239,6 +239,23 @@
       "bound": "none",
       "paged": false,
       "reply_rows": 32
+    },
+    {
+      "id": 16,
+      "name": "leaves_out",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.dev_builtin",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
     }
   ]
 }

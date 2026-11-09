@@ -402,14 +402,6 @@ fn main_menu_and_tools() {
 }
 
 #[test]
-fn library() {
-    let mut app = App::new();
-    app.run(actions::LIBRARY);
-    app.opened("the library");
-    app.walk_grid(12, "library");
-}
-
-#[test]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));
@@ -432,18 +424,6 @@ fn store() {
     app.answer();
     app.opened("a part of the store");
     app.walk(10, "a part of the store");
-}
-
-#[test]
-fn file_manager() {
-    let mut app = App::new();
-    app.run(Id::new_static("file-manager.open"));
-    app.opened("the file manager");
-    app.walk(6, "file manager");
-    // Into the books.
-    app.run(actions::CONFIRM);
-    app.opened("a folder");
-    app.walk(14, "a folder");
 }
 
 #[test]

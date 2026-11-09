@@ -447,6 +447,8 @@ pub(super) struct TestHost {
     pub(super) aliases: RefCell<Vec<(u32, &'static str)>>,
     pub(super) journal: RefCell<Option<(std::string::String, std::string::String, bool, u64)>>,
     pub(super) library_moves: Cell<u32>,
+    /// Plugins built into the firmware.
+    pub(super) built_in: RefCell<Vec<&'static str>>,
 }
 
 impl TestHost {
@@ -458,6 +460,7 @@ impl TestHost {
             aliases: RefCell::default(),
             journal: RefCell::default(),
             library_moves: Cell::new(0),
+            built_in: RefCell::default(),
         })
     }
 
@@ -472,7 +475,11 @@ impl TestHost {
 }
 
 impl FilesHost for TestHost {
-    fn excluded(&self, root: u32, first: &str) -> bool {
+    fn built_in(&self, plugin: &str) -> bool {
+        self.built_in.borrow().contains(&plugin)
+    }
+
+    fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {
         self.aliases
             .borrow()
             .iter()
@@ -526,6 +533,7 @@ impl MoveHost for Library<'_> {
                     to: t,
                     replace: *r,
                     identity: *i,
+                    renamed: false,
                 });
                 true
             }))

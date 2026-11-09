@@ -1,4 +1,4 @@
-//! The native declarations name what the interface-6 registration names: the
+//! The native declarations name what the interface-6 registration named: the
 //! four settings (kinds, defaults, flags, titles, help, the set-up screen as
 //! their editor), the screen and its instance policy, the actions, the place
 //! in the tools and the icons; and the host's rules accept or refuse them as
@@ -10,15 +10,7 @@ mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
-use paperpaw_plugin_joplin::Joplin;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("joplin"));
-    Joplin.register(&mut r).unwrap();
-    r.into_contributions()
-}
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
@@ -36,48 +28,48 @@ fn batches(
 }
 
 /// What the batches say, decoded and checked by the host's rules, is what the
-/// interface-6 registration says.
+/// interface-6 registration said (pinned here since it was removed).
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+fn the_decoded_batches_say_what_interface_6_registered() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::settings(d).unwrap()));
     all.extend(batches(|d| declarations::screens(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::events(d).unwrap()));
     let native = declared::native("joplin", &all);
-    let old = declared::legacy("joplin", "core.group.library", legacy());
     assert!(native.groups.is_empty());
-    assert_eq!(native.specs.len(), 4);
-    assert_eq!(native.specs, old.specs);
-    assert_eq!(native.extras, old.extras);
-    assert_eq!(native.extras.len(), 4);
-    assert!(native.extras.iter().all(|e| e.contains("setup")));
-    assert_eq!(native.screens, old.screens);
-    assert_eq!(native.actions, old.actions);
-    assert_eq!(native.menu_entries, old.menu_entries);
+    assert_eq!(
+        native.specs,
+        [
+            "service|2|4|core.group.library|joplin.service|joplin.service.help|t:joplin.service.cloud|0|0|\"joplin.service.cloud\\njoplin.service.server\\njoplin.service.webdav\"",
+            "address|3|20|core.group.library|joplin.address|joplin.address.help|t:|0|0|\"\"",
+            "user|3|20|core.group.library|joplin.user|joplin.user.help|t:|0|0|\"\"",
+            "notebook|3|20|core.group.library|joplin.notebook|joplin.notebook.help|t:PaperPaw|0|0|\"\"",
+        ]
+    );
+    assert_eq!(
+        native.extras,
+        [
+            "service||||=|1:setup|0|0",
+            "address||||=|1:setup|0|0",
+            "user||||=|1:setup|0|0",
+            "notebook||||=|1:setup|0|0",
+        ]
+    );
+    assert_eq!(native.screens, ["setup|joplin.title"]);
+    assert_eq!(native.actions, ["open|joplin.title", "send|joplin.send"]);
     assert_eq!(native.menu_entries, ["core.tools|joplin.open|49"]);
-    assert_eq!(native.icons, old.icons);
-    assert_eq!(native.icons.len(), 2);
-    assert!(native.others.is_empty(), "{:?}", native.others);
+    assert_eq!(native.icons, ["joplin.open|note", "joplin.send|upload"]);
+    // Started, the end of a request, the work due and a setting changed.
+    assert_eq!(native.events, ["103:5", "32:3", "64:6", "99:4"]);
+    // And the subscription to the reader's export stage (interface 6: an event).
+    assert_eq!(native.others, ["RegistrationStage"]);
 }
 
 /// The set-up opens one at a time: the decoded `screen.spec` flags (bits 6 and
-/// 7: 0 per parameters, 1 single, 2 many) say what the registration says.
+/// 7: 0 per parameters, 1 single, 2 many).
 #[test]
 fn the_set_up_opens_one_at_a_time() {
-    let mut old = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for s in list.iter() {
-                let policy = match s.how_many() {
-                    i if i == paperpaw_sdk::Instances::PER_PARAMS => 0,
-                    i if i == paperpaw_sdk::Instances::SINGLE => 1,
-                    i if i == paperpaw_sdk::Instances::MANY => 2,
-                    other => panic!("{other:?}"),
-                };
-                old.push((s.id().as_str().to_string(), policy));
-            }
-        }
-    }
     let mut new = Vec::new();
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
@@ -86,6 +78,5 @@ fn the_set_up_opens_one_at_a_time() {
             }
         }
     }
-    assert_eq!(new, old);
     assert_eq!(new, [("joplin.setup".to_string(), 1)]);
 }

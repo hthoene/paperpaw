@@ -1,13 +1,25 @@
-//! The flat library plugin (slice 1): the library with its filters, a list
-//! of books of one scope and the shelves. What is not here yet is in
+//! The flat library plugin: the library with its filters, a list of books
+//! of one scope (the favourites, an author, a series, a tag, a folder, a
+//! search, the next books of the series begun), the shelves with their
+//! lists of names, and book information. What is not here yet is in
 //! `PORTING-7.md`.
 use crate::{
     declarations::{
-        BROWSER_TOKEN, FAVOURITES_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN, SHELVES_TOKEN, SORT,
+        BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, CHOOSE_TOKEN, EVENTS_TOKEN,
+        FAVOURITES_TOKEN, INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN,
+        SHELVES_TOKEN, SORT, VIEW, VIEW_COVERS,
     },
+    native_covers::{Covers, MOST, MOST_SMALL},
+    native_draw::Said,
+    native_info,
+    native_list::{BookList, ListStep, Row},
     native_model::{
         self, BookLine, Filter, MOST_BOOKS, Order, Replied, Say, Scope, Selection, Source, Window,
     },
+    native_shelves::{
+        self, Begun, MOST_SERIES, NameLine, SeriesNames, SeriesSource, Shelf, collect_next,
+    },
+    native_states::Condition,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -16,13 +28,17 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::{Event, Incoming, kinds},
+        device::{Device, DeviceClass},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+        files::Files,
         formatting::Arg,
-        library::{BookRef, CatalogCursor, CatalogPhase, Library},
+        image::ImageId,
+        library::{BookRef, CatalogCursor, Facet, Library, Query, Show},
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
-        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
+        storage::Root,
+        ui::{HandoverId, Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -30,6 +46,7 @@ use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
     text::copy,
+    uitext,
 };
 
 mod image {
@@ -39,68 +56,57 @@ mod image {
 /// The parameters that open a list of one scope.
 const KIND: &str = "kind";
 const VALUE: &str = "value";
+/// The parameter that names a book's path (`core.book-info`).
+const PATH: &str = "path";
 
 /// Where the library keeps books unless the setting says otherwise.
 const DEFAULT_FOLDER: &str = "books";
 /// The kernel's setting of it.
 const FOLDER_SETTING: &str = "core.library-folder";
+/// The archive folder's setting.
+const ARCHIVE_SETTING: &str = "files.archive";
+/// The most bytes of words a search takes (the host's cap, never cut).
+const SEARCH_LIMIT: usize = 256;
 
-/// What a row of a list of books does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Row {
-    /// Steps the filter.
-    Filter,
-    /// Says the books are still being found.
-    Note,
-    /// Opens the book at this index of the window.
-    Book(usize),
-    /// Slides back to the window before this one.
-    Previous,
-    /// Reads more books: the window grows, or slides on when it is full.
-    More,
-}
+mod books;
+mod choose;
+mod find;
+mod names;
+mod open;
+mod plan;
+mod sheet;
+mod sources;
 
-/// Where a list is read from: its window's first reply, and the starts of
-/// the windows before it.
+use find::LETTER;
+use plan::{Plan, Reading, Then, cursors, step_back, step_on};
+use sources::{NameReplies, Replies, Speaker};
+
+/// What a question that was asked is for.
 #[derive(Debug)]
-struct Reading {
-    start: CatalogCursor,
-    starts: Vec<CatalogCursor>,
+enum Asked {
+    /// The words of a search.
+    Search,
+    /// What to do with a book held: its path and what the sheet offered.
+    Sheet {
+        path: String,
+        actions: Vec<crate::native_sheet::Action>,
+    },
+    /// Whether to delete the book at this path.
+    Delete { path: String },
+    /// The name of a new folder in the chooser.
+    NewFolder,
 }
 
-impl Reading {
-    const fn from(start: CatalogCursor, starts: Vec<CatalogCursor>) -> Self {
-        Self { start, starts }
-    }
-}
-
-/// Where the focus goes once a window is read.
-#[derive(Debug, Clone, Copy)]
-enum Then {
-    Keep,
-    FirstBook,
-    LastRow,
-}
-
-/// What to read for a list and where to leave the focus.
+/// The folder chooser of a setting: the folder on show, its folders and rows.
 #[derive(Debug)]
-struct Plan {
-    selection: Selection,
-    reading: Reading,
-    at_least: usize,
-    focus: usize,
-    then: Then,
-}
-
-/// A copy of window starts, fallibly.
-fn cursors(from: &[CatalogCursor]) -> Result<Vec<CatalogCursor>, Error> {
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(from.len())
-        .map_err(|_| Error::NoMemory)?;
-    for cursor in from {
-        push(&mut copy, *cursor)?;
-    }
-    Ok(copy)
+struct Chooser {
+    /// The setting the folder is written to; empty for none.
+    setting: String,
+    /// The folder on show; empty for the top of the card.
+    dir: String,
+    names: Vec<String>,
+    picks: Vec<crate::native_choose::Pick>,
+    list: ItemList,
 }
 
 #[derive(Debug)]
@@ -110,17 +116,51 @@ struct Browser {
     window: Window,
     /// Where the windows before this one began, the nearest last.
     starts: Vec<CatalogCursor>,
-    rows: Vec<Row>,
-    list: ItemList,
+    list: BookList,
+    /// The covers of the window's books.
+    covers: Covers,
     /// What an empty list says; empty when it is not empty.
     empty: String,
     /// What it says below the title when it is empty (the folder to copy to).
     empty_text: String,
 }
 
+/// A row of the shelves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShelfRow {
+    /// The next book of each series begun.
+    Next,
+    Favourites,
+    /// The names of one list.
+    By(Shelf),
+}
+
 #[derive(Debug)]
 struct Shelves {
+    rows: Vec<ShelfRow>,
     list: ItemList,
+}
+
+/// The names of one shelf, a window of them.
+#[derive(Debug)]
+struct Names {
+    shelf: Shelf,
+    window: Window<CatalogCursor, NameLine>,
+    starts: Vec<CatalogCursor>,
+    /// `Row::Book(at)` is the name at `at` of the window.
+    rows: Vec<Row>,
+    list: ItemList,
+    /// What an empty list says; empty when it is not empty.
+    empty: String,
+}
+
+/// Book information: the book as a card with its cover above the rows.
+#[derive(Debug)]
+struct Info {
+    list: BookList,
+    covers: Covers,
+    /// The book's catalog key and generation, for its cover.
+    cover: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -132,6 +172,9 @@ enum View {
     /// The library (`Scope::Library`) or a list of one scope.
     Books(Browser),
     Shelves(Shelves),
+    Names(Names),
+    Info(Info),
+    Chooser(Chooser),
 }
 
 /// The interface-7 library plugin.
@@ -140,6 +183,10 @@ pub struct NativeFiles {
     library: Option<Library>,
     ui: Option<Ui>,
     screens: Screens<View>,
+    /// The question that is open, and what it is for.
+    asked: Option<(RequestId, Asked)>,
+    /// Covers held at once (fewer on a device of the small class); 0 until learned.
+    covers_most: usize,
 }
 
 impl Plugin for NativeFiles {
@@ -148,8 +195,14 @@ impl Plugin for NativeFiles {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
         {
             registrations::submit(host, batch)?;
+        }
+        // Help hints are a help: a host that takes none (yet) must not stop the
+        // library from loading.
+        for batch in image::HELP {
+            registrations::submit(host, batch).ok();
         }
         // The services are opened by the first callback: opening needs a live frame.
         Ok(Self::default())
@@ -162,7 +215,7 @@ impl Plugin for NativeFiles {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::LibraryChanged)
         else {
             return Ok(());
         };
@@ -174,6 +227,15 @@ impl Plugin for NativeFiles {
             Event::ActionRun { .. } if token == FAVOURITES_TOKEN => {
                 self.open_shelf(host, &Scope::Favourites)
             }
+            Event::ActionRun { .. } if token == BY_AUTHOR_TOKEN => {
+                self.open_names(host, Shelf::Authors)
+            }
+            Event::ActionRun { .. } if token == BY_SERIES_TOKEN => {
+                self.open_names(host, Shelf::Series)
+            }
+            Event::ActionRun { .. } if token == BY_TAG_TOKEN => self.open_names(host, Shelf::Tags),
+            Event::ActionRun { .. } if token == SEARCH_TOKEN => self.ask_search(host),
+            Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened {
                 instance, handover, ..
             } if is_screen(token) => self.opened(host, token, instance, handover),
@@ -185,8 +247,11 @@ impl Plugin for NativeFiles {
                 self.reread(host)
             }
             Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
+                self.close(host, instance);
                 Ok(())
+            }
+            Event::LibraryChanged { what, .. } if token == EVENTS_TOKEN => {
+                self.library_changed(host, what)
             }
             _ => Ok(()),
         }
@@ -196,21 +261,72 @@ impl Plugin for NativeFiles {
         let mut messages = Messages::new()?;
         match self.screens.top(token).ok_or(Error::State)? {
             View::Books(view) => {
-                let footer = if view.empty.is_empty() {
-                    Footer::None
-                } else {
-                    Footer::Empty {
-                        title: &view.empty,
-                        text: &view.empty_text,
-                    }
+                let said = Said {
+                    title: &view.empty,
+                    text: &view.empty_text,
                 };
-                view.list
-                    .draw_with(host, &mut frame, &view.title, true, footer)
+                let mut asker = sources::Asker::new(
+                    host,
+                    self.library.as_ref(),
+                    sources::Keys::Books(&view.window.books),
+                    view.window.generation,
+                );
+                view.list.draw(
+                    host,
+                    &mut frame,
+                    &view.title,
+                    &mut view.covers,
+                    &mut asker,
+                    said,
+                )
             }
             View::Shelves(view) => {
                 let title = messages.copy(host, "files.shelves")?;
                 view.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+            View::Names(view) => {
+                let title = messages.copy(host, view.shelf.title_key())?;
+                let footer = if view.empty.is_empty() {
+                    Footer::None
+                } else {
+                    Footer::Empty {
+                        title: &view.empty,
+                        text: "",
+                    }
+                };
+                view.list.draw_with(host, &mut frame, &title, true, footer)
+            }
+            View::Chooser(view) => {
+                let title = if view.dir.is_empty() {
+                    messages.copy(host, "files.choose.top")?
+                } else {
+                    copy(&view.dir)?
+                };
+                view.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+            View::Info(view) => {
+                let (key, generation) = view.cover.unwrap_or((0, 0));
+                let mut asker = sources::Asker::new(
+                    host,
+                    self.library.as_ref(),
+                    // A book the catalog does not know has no cover to ask for.
+                    if view.cover.is_some() {
+                        sources::Keys::One(key)
+                    } else {
+                        sources::Keys::Books(&[])
+                    },
+                    generation,
+                );
+                view.list.draw(
+                    host,
+                    &mut frame,
+                    "files.info",
+                    &mut view.covers,
+                    &mut asker,
+                    Said::default(),
+                )
             }
         }
     }
@@ -220,8 +336,42 @@ impl Plugin for NativeFiles {
             return Ok(Handled::No);
         };
         let list = match view {
-            View::Books(view) => &mut view.list,
+            View::Books(view) => {
+                let step = view.list.input(host, &input)?;
+                self.books_step(host, token, step)?;
+                return Ok(if step == ListStep::Ignored {
+                    Handled::No
+                } else {
+                    Handled::Yes
+                });
+            }
+            View::Info(view) => {
+                // A card and rows: the focus moves, nothing is chosen.
+                let step = view.list.input(host, &input)?;
+                return Ok(if step == ListStep::Ignored {
+                    Handled::No
+                } else {
+                    Handled::Yes
+                });
+            }
+            View::Chooser(view) => {
+                // Back goes up a folder before it leaves.
+                if matches!(
+                    input,
+                    Input::Action {
+                        action: "core.back",
+                        ..
+                    }
+                ) && !view.dir.is_empty()
+                {
+                    return self
+                        .chooser_back(host, token)
+                        .map(|up| if up { Handled::Yes } else { Handled::No });
+                }
+                &mut view.list
+            }
             View::Shelves(view) => &mut view.list,
+            View::Names(view) => &mut view.list,
         };
         let step = list.input(host, &input)?;
         if let ItemStep::Chosen(index) = step {
@@ -232,499 +382,117 @@ impl Plugin for NativeFiles {
 }
 
 const fn is_screen(token: u32) -> bool {
-    token == BROWSER_TOKEN || token == SHELF_TOKEN || token == SHELVES_TOKEN
-}
-
-/// The replies of the host's library query for one selection.
-struct Replies<'a, 'h> {
-    host: &'a Host<'h>,
-    library: &'a Library,
-    selection: &'a Selection,
-    input: &'a mut [u8],
-    out: &'a mut [u8],
-}
-
-impl Source<CatalogCursor> for Replies<'_, '_> {
-    fn read(&mut self, from: CatalogCursor) -> Result<Replied<CatalogCursor>, Error> {
-        let query = self.selection.query(from)?;
-        let page = self
-            .library
-            .query(self.host, &query, self.input, self.out)?;
-        let mut books = Vec::new();
-        for entry in page.rows() {
-            push(&mut books, BookLine::from_entry(entry?)?)?;
-        }
-        let end = page.end();
-        Ok(Replied {
-            books,
-            generation: end.generation(),
-            total: end.total(),
-            next: end.next(),
-        })
-    }
-}
-
-/// The catalog's words for the model, in the reader's language.
-struct Speaker<'h, 'a> {
-    host: &'h Host<'a>,
-    messages: Messages,
-}
-
-impl Say for Speaker<'_, '_> {
-    fn say(&mut self, key: &str) -> Result<String, Error> {
-        self.messages.copy(self.host, key)
-    }
+    token == BROWSER_TOKEN
+        || token == SHELF_TOKEN
+        || token == SHELVES_TOKEN
+        || token == NAMES_TOKEN
+        || token == INFO_TOKEN
+        || token == CHOOSE_TOKEN
 }
 
 impl NativeFiles {
-    fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if self.library.is_none() {
-            self.library = Some(Library::open(host)?);
-        }
-        if self.ui.is_none() {
-            self.ui = Some(Ui::open(host)?);
-        }
-        Ok(())
-    }
-
-    /// The order the user chose (`files.sort`).
-    fn order(host: &Host<'_>) -> Result<Order, Error> {
-        let mut scratch = [0; 64];
-        Ok(match settings::read_setting(host, SORT, &mut scratch)? {
-            SettingValue::Text(key) => Order::from_key(key),
-            _ => Order::default(),
-        })
-    }
-
-    /// The library folder the user chose (`core.library-folder`), without
-    /// slashes around it; the default when the setting says nothing.
-    fn folder(host: &Host<'_>) -> Result<String, Error> {
-        let mut scratch = [0; 512];
-        match settings::read_setting(host, FOLDER_SETTING, &mut scratch) {
-            Ok(SettingValue::Text(text)) if !text.trim_matches('/').is_empty() => {
-                copy(text.trim_matches('/'))
-            }
-            Ok(_) | Err(Error::Denied | Error::NotFound | Error::NoSpace) => copy(DEFAULT_FOLDER),
-            Err(error) => Err(error),
-        }
-    }
-
-    /// Opens a list of books of `scope`.
-    fn open_shelf(&mut self, host: &Host<'_>, scope: &Scope) -> Result<(), Error> {
-        self.ensure(host)?;
-        let (kind, value) = scope.params();
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let params = [Param::new(KIND, kind)?, Param::new(VALUE, value)?];
-        let handover = self
-            .ui
-            .as_ref()
-            .ok_or(Error::State)?
-            .handover(host, &params, &mut input, &mut out)?;
-        let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch).open(Open::screen("files.shelf")?.handover(handover))
-    }
-
-    /// The scope a list was opened for; the library for none.
-    fn scope_of(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<Scope, Error> {
-        let Some(handover) = handover else {
-            return Ok(Scope::Library);
-        };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let (mut kind, mut value) = (String::new(), String::new());
-        for param in ui.params(host, handover, &mut input, &mut out)? {
-            let param = param?;
-            match param.key() {
-                KIND => kind = copy(param.value())?,
-                VALUE => value = copy(param.value())?,
-                _ => {}
-            }
-        }
-        Scope::from_params(&kind, &value)
-    }
-
-    fn opened(
-        &mut self,
-        host: &Host<'_>,
-        token: u32,
-        instance: Instance,
-        handover: Option<HandoverId>,
-    ) -> Result<(), Error> {
-        self.ensure(host)?;
-        let view = if token == SHELVES_TOKEN {
-            View::Shelves(self.read_shelves(host)?)
-        } else {
-            let scope = if token == BROWSER_TOKEN {
-                Scope::Library
-            } else {
-                self.scope_of(host, handover)?
-            };
-            let selection = Selection {
-                filter: Filter::All,
-                order: Self::order(host)?,
-                scope,
-            };
-            View::Books(self.read_browser(
-                host,
-                selection,
-                Reading::from(CatalogCursor::start(), Vec::new()),
-                0,
-                0,
-            )?)
-        };
-        self.screens.open(instance, view)
-    }
-
     /// Every top screen read again, its focus kept: books come and go.
     fn reread(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if let Some(View::Names(old)) = self.screens.top(NAMES_TOKEN) {
+            let (shelf, held, focus) = (old.shelf, old.window.books.len(), old.list.focus());
+            let reading = Reading::from(old.window.start, cursors(&old.starts)?);
+            let fresh = self.read_names(host, shelf, reading, held, focus)?;
+            if let Some(View::Names(old)) = self.screens.top(NAMES_TOKEN) {
+                *old = fresh;
+            }
+        }
         for token in [BROWSER_TOKEN, SHELF_TOKEN] {
             let Some(View::Books(old)) = self.screens.top(token) else {
                 continue;
             };
+            // A list found by letter keeps its order: its cursors are by title.
+            let order = if old.selection.fixed {
+                old.selection.order
+            } else {
+                Self::order(host)?
+            };
             let selection = Selection {
-                order: Self::order(host)?,
-                ..old.selection.clone()
+                order,
+                ..old.selection.try_clone()?
             };
             let (held, focus) = (old.window.books.len(), old.list.focus());
             let reading = Reading::from(old.window.start, cursors(&old.starts)?);
             let fresh = self.read_browser(host, selection, reading, held, focus)?;
-            if let Some(View::Books(old)) = self.screens.top(token) {
-                *old = fresh;
-            }
+            Self::put_browser(host, self.screens.top(token), fresh);
         }
         redraw(host)
     }
 
-    fn read_shelves(&self, host: &Host<'_>) -> Result<Shelves, Error> {
-        let mut say = Messages::new()?;
-        let mut items = Vec::new();
-        let favourites = say.copy(host, "files.favourites")?;
-        push(&mut items, Item::noted(&favourites, "›", "")?)?;
-        // BLOCKED (#228): authors, series, tags and folders list their names
-        // with the host's `facets` (LIB op 5), which has no SDK facade yet
-        // (`PORTING-7.md`, `sdk-library-facets`).
-        Ok(Shelves {
-            list: ItemList::new(items),
-        })
-    }
-
-    /// The books of `selection`, `at_least` of them at once (a window read
-    /// again keeps its size) and the focus on row `focus`.
-    fn read_browser(
-        &self,
-        host: &Host<'_>,
-        selection: Selection,
-        reading: Reading,
-        at_least: usize,
-        focus: usize,
-    ) -> Result<Browser, Error> {
-        let library = self.library.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let mut say = Messages::new()?;
-        let title = Self::title(host, &mut say, &selection.scope)?;
-        let Reading { start, mut starts } = reading;
-        let (window, restarted) = {
-            let mut source = Replies {
-                host,
-                library,
-                selection: &selection,
-                input: &mut input,
-                out: &mut out,
-            };
-            native_model::read_window(&mut source, start, CatalogCursor::start(), at_least.max(1))?
-        };
-        if restarted {
-            // The windows before were read in another generation.
-            starts.clear();
-        }
-        // The books are still being found: the rows so far say so.
-        let walking = matches!(
-            library.state(host, &mut input, &mut out)?.phase(),
-            CatalogPhase::Walking | CatalogPhase::Empty
-        ) && selection.scope == Scope::Library;
-        let mut browser = Browser {
-            title,
-            selection,
-            window,
-            starts,
-            rows: Vec::new(),
-            list: ItemList::default(),
-            empty: String::new(),
-            empty_text: String::new(),
-        };
-        self.layout(host, &mut browser, walking)?;
-        browser.list.set_focus(focus);
-        Ok(browser)
-    }
-
-    fn title(host: &Host<'_>, say: &mut Messages, scope: &Scope) -> Result<String, Error> {
-        match scope {
-            Scope::Library | Scope::Folder(_) => say.copy(host, "files.title"),
-            Scope::Favourites => say.copy(host, "files.favourites"),
-            Scope::Author(name) | Scope::Series(name) | Scope::Tag(name) => copy(name),
-            Scope::Search(text) => say.format(
-                host,
-                "files.search.title",
-                &[Arg::Text {
-                    name: "text",
-                    value: text,
-                }],
-            ),
-        }
-    }
-
-    /// The rows and items of `browser`'s books.
-    fn layout(&self, host: &Host<'_>, browser: &mut Browser, walking: bool) -> Result<(), Error> {
-        let mut say = Speaker {
-            host,
-            messages: Messages::new()?,
-        };
-        let mut rows = Vec::new();
-        let mut items = Vec::new();
-        if browser.selection.scope == Scope::Library {
-            let show = say.say("files.list.show")?;
-            let name = say.say(browser.selection.filter.key())?;
-            let count = if browser.selection.filter == Filter::Shelves {
-                String::new()
-            } else {
-                say.messages.format(
-                    host,
-                    "files.books",
-                    &[Arg::Count(i64::from(browser.window.total))],
-                )?
-            };
-            push(&mut rows, Row::Filter)?;
-            push(&mut items, Item::noted(&show, &name, &count)?)?;
-        }
-        if walking {
-            let note = say.say("files.list.collecting")?;
-            push(&mut rows, Row::Note)?;
-            push(&mut items, Item::heading(&note)?)?;
-        }
-        if !browser.starts.is_empty() {
-            let previous = say.say("files.list.previous")?;
-            push(&mut rows, Row::Previous)?;
-            push(&mut items, Item::noted(&previous, "‹", "")?)?;
-        }
-        for (at, book) in browser.window.books.iter().enumerate() {
-            let line = native_model::line(&mut say, book)?;
-            push(&mut rows, Row::Book(at))?;
-            push(
-                &mut items,
-                Item::noted(&line.title, &line.value, &line.note)?,
-            )?;
-        }
-        if browser.window.has_more() {
-            let more = say.say("files.list.more")?;
-            push(&mut rows, Row::More)?;
-            push(&mut items, Item::noted(&more, "›", "")?)?;
-        }
-        browser.empty = String::new();
-        browser.empty_text = String::new();
-        if browser.window.books.is_empty() && !walking {
-            let library = browser.selection.scope == Scope::Library;
-            match browser.selection.filter.none_key() {
-                Some(key) if library => browser.empty = say.say(key)?,
-                _ if library => {
-                    browser.empty = say.say("files.empty.title")?;
-                    let folder = Self::folder(host)?;
-                    browser.empty_text = say.messages.format(
-                        host,
-                        "files.empty",
-                        &[Arg::Text {
-                            name: "dir",
-                            value: &folder,
-                        }],
-                    )?;
-                }
-                _ => browser.empty = say.say("files.search.none")?,
-            }
-        }
-        browser.rows = rows;
-        browser.list = ItemList::new(items);
-        Ok(())
-    }
-
-    /// Reads the books of `token`'s screen as `plan` says, and shows them.
-    fn replace_books(
+    /// The host says the library changed: books, their status and the walk
+    /// read the lists again; a cover that is ready is asked for again.
+    fn library_changed(
         &mut self,
         host: &Host<'_>,
-        token: u32,
-        plan: impl FnOnce(&Browser) -> Result<Option<Plan>, Error>,
+        what: paperpaw_sdk::native::events::LibraryChanges,
     ) -> Result<(), Error> {
-        let Some(View::Books(view)) = self.screens.top(token) else {
-            return Ok(());
-        };
-        let Some(plan) = plan(view)? else {
-            return Ok(());
-        };
-        let mut fresh = self.read_browser(
-            host,
-            plan.selection,
-            plan.reading,
-            plan.at_least,
-            plan.focus,
-        )?;
-        match plan.then {
-            Then::Keep => {}
-            Then::FirstBook => fresh.focus_first_book(),
-            Then::LastRow => fresh.list.set_focus(fresh.rows.len().saturating_sub(1)),
+        let mut redraw_now = false;
+        if what.cover() {
+            for token in [BROWSER_TOKEN, SHELF_TOKEN] {
+                if let Some(View::Books(view)) = self.screens.top(token) {
+                    redraw_now |= view.covers.ready_somewhere();
+                }
+            }
         }
-        if let Some(View::Books(old)) = self.screens.top(token) {
+        if what.books() || what.status() || what.fields() || what.walk() {
+            // A list that cannot be read again now stays as it is: the next
+            // change or the next show reads it.
+            return match self.reread(host) {
+                Err(Error::NoMemory | Error::State) => Ok(()),
+                other => other,
+            };
+        }
+        if redraw_now { redraw(host) } else { Ok(()) }
+    }
+
+    /// Gives the host back the images of covers (best effort: an id that is
+    /// already gone is no error to the host).
+    fn give_back(host: &Host<'_>, covers: &mut Covers, keep: &[usize]) {
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        covers.drop_outside(keep, |id: ImageId| {
+            sender.image_release(id).ok();
+        });
+    }
+
+    /// `fresh` takes the place of the list on show; the old one's covers go back.
+    fn put_browser(host: &Host<'_>, old: Option<&mut View>, fresh: Browser) {
+        if let Some(View::Books(old)) = old {
+            Self::give_back(host, &mut old.covers, &[]);
             *old = fresh;
         }
-        redraw(host)
     }
 
-    /// "More books": a window with room grows, a full one slides on to the
-    /// books after it (the starts of the ones before are kept for "Previous").
-    fn slide_on(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
-        self.replace_books(host, token, |view| {
-            let selection = view.selection.clone();
-            let (held, focus) = (view.window.books.len(), view.list.focus());
-            let mut starts = cursors(&view.starts)?;
-            if view.window.can_grow() {
-                return Ok(Some(Plan {
-                    selection,
-                    reading: Reading::from(view.window.start, starts),
-                    at_least: held + 32,
-                    focus,
-                    then: Then::Keep,
-                }));
-            }
-            let next = view.window.next.ok_or(Error::State)?;
-            push(&mut starts, view.window.start)?;
-            Ok(Some(Plan {
-                selection,
-                reading: Reading::from(next, starts),
-                at_least: 0,
-                focus: 0,
-                then: Then::FirstBook,
-            }))
-        })
+    /// A screen left: its covers go back to the host.
+    fn close(&mut self, host: &Host<'_>, instance: Instance) {
+        match self.screens.get(instance) {
+            Some(View::Books(view)) => Self::give_back(host, &mut view.covers, &[]),
+            Some(View::Info(view)) => Self::give_back(host, &mut view.covers, &[]),
+            _ => {}
+        }
+        self.screens.close(instance);
     }
 
-    /// "Previous books": the window before, read in full, on the row that
-    /// goes on again.
-    fn slide_back(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
-        self.replace_books(host, token, |view| {
-            let selection = view.selection.clone();
-            let mut starts = cursors(&view.starts)?;
-            let Some(start) = starts.pop() else {
-                return Ok(None);
-            };
-            Ok(Some(Plan {
-                selection,
-                reading: Reading::from(start, starts),
-                at_least: MOST_BOOKS,
-                focus: 0,
-                then: Then::LastRow,
-            }))
-        })
-    }
-
-    fn chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
-        self.ensure(host)?;
-        match self.screens.top(token) {
-            Some(View::Shelves(_)) => {
-                // Only the favourites have a list until the host's facets have an SDK.
-                if index == 0 {
-                    return self.open_shelf(host, &Scope::Favourites);
+    /// What a step on the list of books does besides moving the focus.
+    fn books_step(&mut self, host: &Host<'_>, token: u32, step: ListStep) -> Result<(), Error> {
+        match step {
+            ListStep::Focus(_) => {
+                // The page may have changed: covers of rows that left it go back.
+                if let Some(View::Books(view)) = self.screens.top(token) {
+                    let visible = view.list.visible_books()?;
+                    Self::give_back(host, &mut view.covers, &visible);
                 }
                 Ok(())
             }
-            Some(View::Books(view)) => {
-                let Some(row) = view.rows.get(index).copied() else {
-                    return Ok(());
-                };
-                match row {
-                    Row::Note => Ok(()),
-                    Row::Filter => {
-                        let next = view.selection.filter.next();
-                        let mut selection = view.selection.clone();
-                        selection.filter = if next == Filter::Shelves {
-                            Filter::All
-                        } else {
-                            next
-                        };
-                        let fresh = self.read_browser(
-                            host,
-                            selection,
-                            Reading::from(CatalogCursor::start(), Vec::new()),
-                            0,
-                            index,
-                        )?;
-                        if let Some(View::Books(old)) = self.screens.top(token) {
-                            *old = fresh;
-                        }
-                        if next == Filter::Shelves {
-                            let mut scratch = [0; 128];
-                            CommandSender::new(host, &mut scratch)
-                                .open(Open::screen("files.shelves")?)?;
-                        }
-                        redraw(host)
-                    }
-                    Row::More => self.slide_on(host, token),
-                    Row::Previous => self.slide_back(host, token),
-                    Row::Book(at) => {
-                        let Some(book) = view.window.books.get(at) else {
-                            return Ok(());
-                        };
-                        let reference = BookRef::catalog(book.key, view.window.generation)?;
-                        if self.open_book(host, reference)? {
-                            return Ok(());
-                        }
-                        // The book is gone (deleted on a computer, say): the
-                        // list is read again and the user is told.
-                        self.reread(host)?;
-                        let mut scratch = [0; 256];
-                        let mut say = Messages::new()?;
-                        let text = say.copy(host, "files.list.gone")?;
-                        // A notice is best effort: the list is already right.
-                        CommandSender::new(host, &mut scratch)
-                            .notify(Notify::new(&text)?)
-                            .ok();
-                        Ok(())
-                    }
-                }
-            }
-            None => Ok(()),
+            ListStep::Chosen(index) => self.chosen(host, token, index),
+            ListStep::Held(index) => self.offer(host, token, index),
+            ListStep::Menu => self.open_menu(host, "files.menu"),
+            ListStep::Header(_) | ListStep::Ignored => Ok(()),
         }
-    }
-
-    /// Opens the book in the reader the user bound to `core.reader`: a
-    /// hand-over with its path (`document.md` section 1).
-    /// `false` when the book is no longer in the catalog.
-    fn open_book(&self, host: &Host<'_>, reference: BookRef<'_>) -> Result<bool, Error> {
-        let library = self.library.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let path = match library.book(host, reference, &mut input, &mut out) {
-            Ok(book) => copy(book.path())?,
-            Err(Error::State | Error::NotFound) => return Ok(false),
-            Err(error) => return Err(error),
-        };
-        let params = [Param::new("path", &path)?];
-        let handover = self
-            .ui
-            .as_ref()
-            .ok_or(Error::State)?
-            .handover(host, &params, &mut input, &mut out)?;
-        let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch)
-            .open(Open::slot("core.reader")?.handover(handover))?;
-        Ok(true)
-    }
-}
-
-impl Browser {
-    /// Focus on the first book (after the filter row and the way back).
-    fn focus_first_book(&mut self) {
-        let at = self
-            .rows
-            .iter()
-            .position(|row| matches!(row, Row::Book(_)))
-            .unwrap_or(0);
-        self.list.set_focus(at);
     }
 }
 

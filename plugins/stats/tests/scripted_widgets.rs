@@ -12,6 +12,7 @@ use paperpaw_scripted_host::{ScriptedHost, event_batch};
 
 const TODAY: u32 = 40;
 const WEEK: u32 = 41;
+const YEAR: u32 = 45;
 const EVENTS: u32 = 1;
 
 fn made(widget: &str, instance: u32) -> Vec<u8> {
@@ -43,6 +44,8 @@ fn the_widgets_are_declared_and_a_screens_widgets_come_and_go() {
         (TODAY, "stats.widget.today", 5),
         (TODAY, "stats.widget.today@home.page-1/0", 6),
         (WEEK, "stats.widget.week", 7),
+        (YEAR, "stats.widget.year", 10),
+        (YEAR, "stats.widget.year@home.page-2/1", 11),
         // Not one of its widgets: nothing is kept, nothing refused.
         (WEEK, "other.widget", 8),
     ] {
@@ -50,7 +53,7 @@ fn the_widgets_are_declared_and_a_screens_widgets_come_and_go() {
         assert_eq!(done.status, 0, "{widget}");
         assert!(done.commands.is_empty());
     }
-    for instance in [5, 6, 7, 8, 9] {
+    for instance in [5, 6, 7, 8, 9, 10, 11] {
         let done = plugin.event(TODAY, &dropped(instance)).unwrap();
         assert_eq!(done.status, 0, "{instance}");
     }

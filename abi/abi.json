@@ -5728,6 +5728,15 @@
           "ordinal": 0,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 128,
+          "name": "previews",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "str"
         }
       ],
       "id": 1040,
@@ -15569,6 +15578,23 @@
             "service.end"
           ],
           "reply_rows": 32,
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 16,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "leaves_out",
+          "reply": [
+            "service.dev_builtin",
+            "service.end"
+          ],
           "since": 0
         }
       ],

@@ -48,7 +48,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-drawer",
         golden: None,
-        blocked_by: &["HOME-dashboard-slice", "H1", "H4", "517"],
+        blocked_by: &["H1", "H4"],
     },
     // The first-time hints on the dashboard.
     Case {
@@ -70,11 +70,13 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1", "HOME-status-line-slice"],
     },
-    // The icons of tools and of the footer's buttons (the pencil, the actions).
+    // The icons of tools (above their names, on or faint as their plugins show
+    // them) and of the footer's buttons (the pencil, the actions): laid out and
+    // drawn through the host.
     Case {
         name: "home-tool-icons",
         golden: None,
-        blocked_by: &["517"],
+        blocked_by: &["H1"],
     },
     // The widgets show new content: the minute tick and `widget_changed` lay
     // the page out anew and draw it (not subscribed to yet), and the screen
@@ -90,17 +92,15 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "517", "H1", "H4", "KERNEL-cell-hints"],
+        blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
     // the item, by its corner), and the options' *Settings* entry. Moving,
-    // sizing and removing with the buttons are done (unit-tested). A widget's
-    // least width and square hint (`KERNEL-cell-hints`, draft 29) have no ABI
-    // field yet, so sizing may make a widget narrower than it wants.
+    // sizing and removing with the buttons are done (unit-tested).
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["H4", "HOME-item-settings", "KERNEL-cell-hints"],
+        blocked_by: &["H4", "HOME-item-settings"],
     },
 ];
 
@@ -145,7 +145,7 @@ fn home_grid_reflow() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-dashboard-slice: the drawer shares the dashboard's tool cells; icons wait for #517"]
+#[ignore = "BLOCKED H1/H4: the drawer is native (native_drawer.rs) but nothing is drawn or taken through a host yet"]
 fn home_drawer() {
     CASES[5].refuse().unwrap();
 }
@@ -169,7 +169,7 @@ fn home_status_line() {
 }
 
 #[test]
-#[ignore = "BLOCKED 517: icons are not admitted in the native host yet"]
+#[ignore = "BLOCKED H1: native screen commands are not qualified"]
 fn home_tool_icons() {
     CASES[9].refuse().unwrap();
 }
@@ -181,13 +181,13 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported; KERNEL-cell-hints (draft 29): a widget's least width and square hint have no ABI field"]
+#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs the pointer input; the options' Settings entry is not ported; KERNEL-cell-hints (draft 29): a widget's least width and square hint have no ABI field"]
+#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs the pointer input; the options' Settings entry is not ported"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

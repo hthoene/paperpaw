@@ -334,6 +334,14 @@ impl<S: Storage> Storage for Traced<S> {
         self.0.ignores_case()
     }
 
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.0.free_space()
     }
@@ -344,5 +352,48 @@ impl<S: Storage> Storage for Traced<S> {
 
     fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
         self.0.local_path(path, with);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paperpaw_sdk::MemoryStorage;
+
+    /// A storage that tells whether two spellings are one entry.
+    struct Twin(MemoryStorage);
+
+    impl Storage for Twin {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+            Some(a.eq_ignore_ascii_case(b))
+        }
+    }
+
+    /// The tracing wrapper says what the storage under it says (the default,
+    /// "cannot tell", would send every caller to its slow path).
+    #[test]
+    fn a_traced_storage_forwards_same_entry() {
+        let traced = Traced(Twin(MemoryStorage::new()));
+        assert_eq!(traced.same_entry("Books", "books"), Some(true));
+        assert_eq!(traced.same_entry("books", "books2"), Some(false));
+        assert_eq!(Traced(MemoryStorage::new()).same_entry("a", "A"), None);
     }
 }

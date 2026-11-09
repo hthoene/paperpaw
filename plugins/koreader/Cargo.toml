@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
-include = ["src", "how", "i18n", "native"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native"]
 
 [features]
 linked = []
@@ -19,13 +19,11 @@ native-entry = []
 paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
+[build-dependencies]
+paperpaw-sdk.workspace = true
+
 [dev-dependencies]
 paperpaw-core.workspace = true
-paperpaw-native.workspace = true
-paperpaw-i18n.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-format-epub.workspace = true
-paperpaw-zip = { workspace = true, features = ["testing"] }
 proptest.workspace = true
 
 [lints]
