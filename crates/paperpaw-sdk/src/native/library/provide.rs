@@ -46,10 +46,11 @@ impl<'a> Provided<'a> {
     /// The title (at most 512 bytes).
     ///
     /// # Errors
-    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value never clears: leave
-    /// the field out instead); `NoSpace` for a longer one.
+    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value
+    /// never clears: leave the field out instead) or one with a control character
+    /// (a tab or line break too); `NoSpace` for a longer one.
     pub fn title(mut self, title: &'a str) -> Result<Self, Error> {
-        if title.trim().is_empty() {
+        if title.trim().is_empty() || title.chars().any(char::is_control) {
             return Err(Error::Invalid);
         }
         if title.len() > wire::SERVICE_LIB_PROVIDED_TITLE_MAX_BYTES {
@@ -63,10 +64,11 @@ impl<'a> Provided<'a> {
     /// The author (at most 512 bytes).
     ///
     /// # Errors
-    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value never clears: leave
-    /// the field out instead); `NoSpace` for a longer one.
+    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value
+    /// never clears: leave the field out instead) or one with a control character
+    /// (a tab or line break too); `NoSpace` for a longer one.
     pub fn author(mut self, author: &'a str) -> Result<Self, Error> {
-        if author.trim().is_empty() {
+        if author.trim().is_empty() || author.chars().any(char::is_control) {
             return Err(Error::Invalid);
         }
         if author.len() > wire::SERVICE_LIB_PROVIDED_AUTHOR_MAX_BYTES {
@@ -80,10 +82,11 @@ impl<'a> Provided<'a> {
     /// The series (at most 256 bytes).
     ///
     /// # Errors
-    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value never clears: leave
-    /// the field out instead); `NoSpace` for a longer one.
+    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value
+    /// never clears: leave the field out instead) or one with a control character
+    /// (a tab or line break too); `NoSpace` for a longer one.
     pub fn series(mut self, series: &'a str) -> Result<Self, Error> {
-        if series.trim().is_empty() {
+        if series.trim().is_empty() || series.chars().any(char::is_control) {
             return Err(Error::Invalid);
         }
         if series.len() > wire::SERVICE_LIB_PROVIDED_SERIES_MAX_BYTES {
@@ -97,10 +100,11 @@ impl<'a> Provided<'a> {
     /// The number in the series, as text (at most 32 bytes).
     ///
     /// # Errors
-    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value never clears: leave
-    /// the field out instead); `NoSpace` for a longer one.
+    /// `Invalid` for an empty or blank one (Unicode whitespace only; a provided value
+    /// never clears: leave the field out instead) or one with a control character
+    /// (a tab or line break too); `NoSpace` for a longer one.
     pub fn number(mut self, number: &'a str) -> Result<Self, Error> {
-        if number.trim().is_empty() {
+        if number.trim().is_empty() || number.chars().any(char::is_control) {
             return Err(Error::Invalid);
         }
         if number.len() > wire::SERVICE_LIB_PROVIDED_NUMBER_MAX_BYTES {
@@ -115,7 +119,7 @@ impl<'a> Provided<'a> {
     /// They replace this provider's whole tag list.
     ///
     /// # Errors
-    /// `Invalid` for no tags, or an empty or blank tag; `NoSpace` for more than 32
+    /// `Invalid` for no tags, an empty or blank tag or one with a control character; `NoSpace` for more than 32
     /// tags, a tag over 128 bytes or a text over 2,048 bytes.
     pub fn tags(mut self, tags: &'a str) -> Result<Self, Error> {
         if tags.len() > wire::SERVICE_LIB_PROVIDED_TAGS_MAX_BYTES {
@@ -124,7 +128,7 @@ impl<'a> Provided<'a> {
         let mut count = 0;
         for tag in tags.split(wire::SERVICE_LIB_PROVIDED_TAGS_SEPARATOR) {
             count += 1;
-            if tag.trim().is_empty() {
+            if tag.trim().is_empty() || tag.chars().any(char::is_control) {
                 return Err(Error::Invalid);
             }
             if count > TAGS_MAX || tag.len() > TAG_MAX_BYTES {

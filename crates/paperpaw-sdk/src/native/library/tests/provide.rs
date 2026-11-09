@@ -111,6 +111,20 @@ fn provided_fields_are_checked_before_the_host_and_an_empty_one_sends_nothing() 
     assert_eq!(Provided::new().tags(""), Err(Error::Invalid));
     assert_eq!(Provided::new().tags("a\n \nb"), Err(Error::Invalid));
     assert!(Provided::new().title(" Dune ").is_ok());
+    // A control character (tab and line break too) is refused; the catalog is
+    // tab-separated.
+    for bad in ["a\tb", "a\nb", "a\rb", "a\0b", "a\u{7f}b", "a\u{1f}b"] {
+        assert_eq!(Provided::new().title(bad), Err(Error::Invalid), "{bad:?}");
+        assert_eq!(Provided::new().author(bad), Err(Error::Invalid));
+        assert_eq!(Provided::new().series(bad), Err(Error::Invalid));
+        assert_eq!(Provided::new().number(bad), Err(Error::Invalid));
+    }
+    // In tags only the line break separates; another control character in a tag
+    // is refused.
+    assert!(Provided::new().tags("a\nb").is_ok());
+    for bad in ["a\tb", "a\rb\nc", "a\0", "a\u{7f}"] {
+        assert_eq!(Provided::new().tags(bad), Err(Error::Invalid), "{bad:?}");
+    }
 }
 
 #[test]
