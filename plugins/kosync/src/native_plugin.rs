@@ -133,10 +133,10 @@ impl Plugin for NativeKosync {
                     engine.page_turned(ctx, position(&reading)?, out)
                 })
             }
-            Event::Suspend { now_ms } if token == SUSPEND => {
+            Event::Suspend { now_ms, .. } if token == SUSPEND => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.send_now(ctx, out))
             }
-            Event::Resume { now_ms } if token == RESUME => {
+            Event::Resume { now_ms, .. } if token == RESUME => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.resumed(ctx, out))
             }
             Event::WorkDue(due) if token == WORK_DUE && due.key() == PUSH_WORK => {
@@ -144,12 +144,12 @@ impl Plugin for NativeKosync {
                     engine.send_now(ctx, out)
                 })
             }
-            Event::WorkAllowed { now_ms } if token == WORK_ALLOWED => {
+            Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
             Event::HttpDone(done) if token == HTTP_DONE => self.http_done(host, &done),
-            Event::Answered { answer, now_ms } => self.answered(host, now_ms, answer),
+            Event::Answered { answer, now_ms, .. } => self.answered(host, now_ms, answer),
             Event::ScreenOpened { instance, .. } if token == ACCOUNT => {
                 self.opened_account(host, instance)
             }
