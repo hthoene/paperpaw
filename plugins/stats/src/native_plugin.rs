@@ -18,9 +18,12 @@ use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
+use crate::native_left::Left;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
-use crate::native_widgets::Widgets;
+use crate::native_sync_screen::SyncView;
+use crate::native_sync_shell::SyncShell;
+use crate::native_widgets::{Tap, Widgets};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
 
 /// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
@@ -56,6 +59,7 @@ enum View {
     Books(BooksView),
     Book(BookView),
     Calendar(CalendarView),
+    Sync(SyncView),
 }
 
 /// Stats' interface-7 entry state.
@@ -67,6 +71,10 @@ pub struct NativeStats {
     screens: Screens<View>,
     /// The widgets screens show.
     widgets: Widgets,
+    /// The sync with the WebDAV folder.
+    sync: SyncShell,
+    /// The reading speed for the status items "time left".
+    left: Left,
 }
 
 impl core::fmt::Debug for NativeStats {
@@ -103,7 +111,7 @@ impl Plugin for NativeStats {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::Answered)
         else {
             return Ok(());
         };
@@ -114,16 +122,13 @@ impl Plugin for NativeStats {
             stage: READ_TODAY, ..
         } = event
         {
-            let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-            if let Some((day, seconds)) = today {
-                let mut bytes = [0u8; 8];
-                bytes[..4].copy_from_slice(&day.to_le_bytes());
-                bytes[4..].copy_from_slice(&seconds.to_le_bytes());
-                reply.write(&bytes)?;
-            }
-            return Ok(());
+            return self.tell_today(host, reply);
         }
         match event {
+            Event::HttpDone(_) if token == crate::declarations::HTTP_TOKEN => {
+                return self.sync_event(host, &event);
+            }
+            Event::Answered { .. } => return self.sync_event(host, &event),
             Event::ActionRun {
                 action: "stats.open",
                 ..
@@ -148,7 +153,10 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         let told = match event {
-            Event::Started { now_ms, .. } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
+            Event::Started { now_ms, .. } => {
+                self.sync.started(host);
+                with_cx(host, now_ms, |cx| self.recorder.started(cx))
+            }
             Event::Resume { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
                 return Ok(());
@@ -157,16 +165,24 @@ impl Plugin for NativeStats {
                 with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
                 return Ok(());
             }
-            Event::PageTurned(view) => with_cx(host, view.now_ms(), |cx| {
-                self.recorder.page_turned(cx, &reading(&view))
-            }),
+            Event::PageTurned(view) => {
+                // The speed first, as interface 6 registered it ahead of the
+                // recording.
+                self.left.page_turned(host);
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.page_turned(cx, &reading(&view))
+                })
+            }
             Event::Book {
                 kind: paperpaw_sdk::native::events::BookKind::Opened,
                 reading: view,
                 ..
-            } => with_cx(host, view.now_ms(), |cx| {
-                self.recorder.book_opened(cx, &reading(&view))
-            }),
+            } => {
+                self.left.book_opened(host, view.path());
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.book_opened(cx, &reading(&view))
+                })
+            }
             Event::Book {
                 kind: paperpaw_sdk::native::events::BookKind::Closed,
                 reading: view,
@@ -204,14 +220,27 @@ impl Plugin for NativeStats {
             View::Books(view) => view.draw(host, &mut frame),
             View::Book(view) => view.draw(host, &mut frame),
             View::Calendar(view) => view.draw(host, &mut frame),
+            View::Sync(view) => view.draw(host, &mut frame),
         }
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        // A tap on a widget opens the statistics.
-        if self.widgets.tapped(&input) {
-            self.open_overview(host)?;
-            return Ok(Handled::Yes);
+        // A tap on a widget opens the statistics (the year's, the books).
+        match self.widgets.tapped(host, &input)? {
+            Some(Tap::Statistics) => {
+                self.open_overview(host)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Goal) => {
+                native_screens::open_settings(host, self.ui(host)?)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Books) => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.books")?)?;
+                return Ok(Handled::Yes);
+            }
+            None => {}
         }
         self.ui(host)?;
         let Some(view) = self.screens.top(token) else {
@@ -228,12 +257,21 @@ impl Plugin for NativeStats {
             }
             View::Book(view) => view.input(host, &input),
             View::Calendar(view) => view.input(host, &input),
+            View::Sync(view) => {
+                let (handled, row) = view.input(host, &input)?;
+                if let Some(row) = row {
+                    let ui = self.ui.as_ref().ok_or(Error::State)?;
+                    self.sync.activate(host, ui, view, row)?;
+                }
+                Ok(handled)
+            }
         }
     }
 }
 
 impl NativeStats {
-    /// What the widgets make of an event: `None` where it is none of theirs.
+    /// What the widgets and the status items make of an event: `None` where it
+    /// is none of theirs.
     fn widget_event(
         &mut self,
         host: &Host<'_>,
@@ -254,6 +292,14 @@ impl NativeStats {
                 payload,
                 ..
             } => self.widgets.stage(host, payload, reply),
+            // The reader asks for the time left (the status items).
+            Event::StageCall {
+                stage: "core.status",
+                payload,
+                ..
+            } if token == crate::declarations::STATUS_TOKEN => {
+                self.left.status(host, payload, reply)
+            }
             Event::Tick { .. } => {
                 if token == crate::declarations::TICK_TOKEN {
                     self.widgets.tick(host);
@@ -273,6 +319,34 @@ impl NativeStats {
 }
 
 impl NativeStats {
+    /// The answer of the stage `stats.read-today`: the day and the seconds
+    /// read on it.
+    fn tell_today(&mut self, host: &Host<'_>, reply: &mut Reply<'_>) -> Result<(), Error> {
+        let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+        if let Some((day, seconds)) = today {
+            let mut bytes = [0u8; 8];
+            bytes[..4].copy_from_slice(&day.to_le_bytes());
+            bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+            reply.write(&bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Hands a net or answer event to the WebDAV sync with its screen.
+    fn sync_event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
+        self.ui(host)?;
+        let view = match self.screens.top(crate::declarations::SYNC_TOKEN) {
+            Some(View::Sync(view)) => Some(view),
+            _ => None,
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        match event {
+            Event::HttpDone(done) => self.sync.http_done(host, ui, view, done),
+            Event::Answered { answer, .. } => self.sync.answered(host, ui, view, answer),
+            _ => Ok(()),
+        }
+    }
+
     fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
@@ -319,6 +393,7 @@ impl NativeStats {
             }
             "stats.calendar" => View::Calendar(CalendarView::new(host, &data, today_of(host)?)?),
             "stats.books" => View::Books(BooksView::new(host, &data)?),
+            "stats.sync" => View::Sync(self.sync.view(host)?),
             "stats.book" => {
                 let id = match handover {
                     Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
