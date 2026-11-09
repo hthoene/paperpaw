@@ -167,6 +167,11 @@ file's size, 2.1).
   `If-Modified-Since`, `If-None-Match`, `If-Unmodified-Since`, `Range`, `User-Agent`), so
   `Authorization`, cookies and key headers never leave the origin the plugin named. `final_url` is
   where the answer came from.
+- [D] **A redirect from `http` to `https`** is followed like any other: the request closes its
+  plain connection first, then waits for the TLS session (3.4) as if it were an `https` request,
+  in its original start order and with its `timeout_ms` still counting from its start. It never
+  holds a connection while it waits (no deadlock with SOCK); while the session stays taken (a SOCK
+  TLS socket) it ends with reason `timeout`, never `refused` (interface 6 followed such redirects).
 - [D] **TLS:** 1.2 and 1.3; the chain must lead to a root of the host's store (on the X4, Mozilla's
   roots, ADR 0017) and the name must match; dates are checked against network time once it is
   known (ADR 0017). No pinning, no trust override and no client certificate over HTTP (mail pins
