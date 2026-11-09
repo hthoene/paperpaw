@@ -3104,6 +3104,8 @@ impl paperpaw_sdk::native::callbacks::FrameRect
 pub const fn paperpaw_sdk::native::callbacks::FrameRect::new(i32, i32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::canvas
 pub struct paperpaw_sdk::native::canvas::Canvas<'cb>
+impl paperpaw_sdk::native::canvas::Canvas<'_>
+pub fn paperpaw_sdk::native::canvas::Canvas<'_>::draw_image(&self, paperpaw_sdk::native::image::ImageId, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_sdk::native::image::ImageStyle) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
 pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::clip_region(&mut self, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>, paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
@@ -3212,6 +3214,9 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_off(&mut self
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_on(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::wifi_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_prepare(&mut self, &paperpaw_sdk::native::image::PrepareImage<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_release(&mut self, paperpaw_sdk::native::image::ImageId) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::lookup_ready(&mut self, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -3261,6 +3266,7 @@ pub paperpaw_sdk::native::declare::EventKind::ChargeChanged
 pub paperpaw_sdk::native::declare::EventKind::FirmwareChanged
 pub paperpaw_sdk::native::declare::EventKind::HttpDone
 pub paperpaw_sdk::native::declare::EventKind::HttpProgress
+pub paperpaw_sdk::native::declare::EventKind::ImageReady
 pub paperpaw_sdk::native::declare::EventKind::InstallDone
 pub paperpaw_sdk::native::declare::EventKind::LibraryChanged
 pub paperpaw_sdk::native::declare::EventKind::LookupReady
@@ -3904,6 +3910,9 @@ pub const paperpaw_sdk::native::events::kinds::HttpDone::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::HttpProgress
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpProgress
 pub const paperpaw_sdk::native::events::kinds::HttpProgress::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ImageReady
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ImageReady
+pub const paperpaw_sdk::native::events::kinds::ImageReady::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::InstallDone
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::InstallDone
 pub const paperpaw_sdk::native::events::kinds::InstallDone::TAG: u32
@@ -4051,6 +4060,8 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::HttpDone::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpProgress
 pub const paperpaw_sdk::native::events::kinds::HttpProgress::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ImageReady
+pub const paperpaw_sdk::native::events::kinds::ImageReady::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::InstallDone
 pub const paperpaw_sdk::native::events::kinds::InstallDone::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::LibraryChanged
@@ -4196,6 +4207,7 @@ pub paperpaw_sdk::native::events::Event::FirmwareChanged::request: core::option:
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::state: paperpaw_sdk::native::device::FirmwareState
 pub paperpaw_sdk::native::events::Event::HttpDone(paperpaw_sdk::native::net::HttpDone)
 pub paperpaw_sdk::native::events::Event::HttpProgress(paperpaw_sdk::native::net::HttpProgress)
+pub paperpaw_sdk::native::events::Event::ImageReady(paperpaw_sdk::native::image::ImageReady)
 pub paperpaw_sdk::native::events::Event::InstallDone(paperpaw_sdk::native::events::InstallDone<'a>)
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::LibraryChanged
 pub paperpaw_sdk::native::events::Event::LibraryChanged::generation: u32
@@ -4637,6 +4649,50 @@ pub fn paperpaw_sdk::native::formatting::digits(&paperpaw_sdk::native::Host<'_>,
 pub fn paperpaw_sdk::native::formatting::format_message(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &[paperpaw_sdk::native::formatting::Arg<'_>], &mut paperpaw_sdk::native::formatting::FormatBuffers<'_, '_>) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::i18n
 pub fn paperpaw_sdk::native::i18n::language<'a>(&paperpaw_sdk::native::Host<'_>, &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::image
+#[non_exhaustive] pub enum paperpaw_sdk::native::image::ImageStatus
+pub paperpaw_sdk::native::image::ImageStatus::CardFailure
+pub paperpaw_sdk::native::image::ImageStatus::Damaged
+pub paperpaw_sdk::native::image::ImageStatus::NoMemory
+pub paperpaw_sdk::native::image::ImageStatus::Ready
+pub paperpaw_sdk::native::image::ImageStatus::TooLarge
+pub paperpaw_sdk::native::image::ImageStatus::Unsupported
+#[non_exhaustive] pub enum paperpaw_sdk::native::image::PrepareRoot
+pub paperpaw_sdk::native::image::PrepareRoot::Data
+pub paperpaw_sdk::native::image::PrepareRoot::Library
+pub struct paperpaw_sdk::native::image::ImageId(_)
+impl paperpaw_sdk::native::image::ImageId
+pub const fn paperpaw_sdk::native::image::ImageId::get(self) -> u32
+pub const fn paperpaw_sdk::native::image::ImageId::new(u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+#[non_exhaustive] pub struct paperpaw_sdk::native::image::ImageInfo
+impl paperpaw_sdk::native::image::ImageInfo
+pub const fn paperpaw_sdk::native::image::ImageInfo::colour(&self) -> bool
+pub const fn paperpaw_sdk::native::image::ImageInfo::height(&self) -> u32
+pub const fn paperpaw_sdk::native::image::ImageInfo::not_decoded(&self) -> bool
+pub fn paperpaw_sdk::native::image::ImageInfo::read(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::image::ImageId) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::image::ImageInfo::width(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::image::ImageReady
+impl paperpaw_sdk::native::image::ImageReady
+pub const fn paperpaw_sdk::native::image::ImageReady::cookie(&self) -> u32
+pub const fn paperpaw_sdk::native::image::ImageReady::height(&self) -> u32
+pub const fn paperpaw_sdk::native::image::ImageReady::image(&self) -> core::option::Option<paperpaw_sdk::native::image::ImageId>
+pub const fn paperpaw_sdk::native::image::ImageReady::now_ms(&self) -> u64
+pub const fn paperpaw_sdk::native::image::ImageReady::status(&self) -> paperpaw_sdk::native::image::ImageStatus
+pub const fn paperpaw_sdk::native::image::ImageReady::width(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::image::ImageStyle
+impl paperpaw_sdk::native::image::ImageStyle
+pub const fn paperpaw_sdk::native::image::ImageStyle::fill(self) -> Self
+pub const fn paperpaw_sdk::native::image::ImageStyle::new() -> Self
+pub const fn paperpaw_sdk::native::image::ImageStyle::small(self) -> Self
+pub const fn paperpaw_sdk::native::image::ImageStyle::transparency(self, u8) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::image::PrepareImage<'a>
+impl<'a> paperpaw_sdk::native::image::PrepareImage<'a>
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::colour(self) -> Self
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::new(paperpaw_sdk::native::image::PrepareRoot, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::side(self, u32) -> Self
+pub const paperpaw_sdk::native::image::PREPARED_MAX: usize
+pub const paperpaw_sdk::native::image::SIDE_MAX: u32
+pub const paperpaw_sdk::native::image::WAITING_MAX: usize
 pub mod paperpaw_sdk::native::keys
 #[non_exhaustive] pub enum paperpaw_sdk::native::keys::RevokedError
 pub paperpaw_sdk::native::keys::RevokedError::Full
