@@ -683,7 +683,7 @@ impl Kernel {
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {
-        self.guard().is_some() || self.stack.iter().any(|s| s.screen.secret())
+        self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
 
     /// The plugin of the screen that guards the device, else of the one a
@@ -691,7 +691,7 @@ impl Kernel {
     fn secret_owner(&self) -> Option<alloc::string::String> {
         let guard = self.guard().map(|at| &self.stack[at]);
         guard
-            .or_else(|| self.stack.iter().rev().find(|s| s.screen.secret()))
+            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
             .map(|s| alloc::string::String::from(s.id.namespace()))
     }
 

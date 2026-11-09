@@ -252,6 +252,35 @@ pub(crate) fn guard_on_allowed(
     }
 }
 
+/// `command.screen_policy` for a non-zero `instance` (section 1.2): the
+/// submitter's own instance only (another plugin's is `ERR_DENIED`, one not on
+/// the stack `ERR_NOT_FOUND`); `guards` on only as [`guard_on_allowed`] says,
+/// where the instance does not guard already. Everything else, turning
+/// `guards` off and `secret` or `holds_edges` either way, is allowed.
+#[allow(
+    dead_code,
+    reason = "the stage uses it; test crates that include this file by path do not"
+)]
+pub(crate) fn policy_allowed(
+    view: &dyn UiStackView,
+    submitter: u64,
+    instance: u32,
+    guards_on: bool,
+) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
+    let index = find(view, instance).ok_or(ERR_NOT_FOUND)?;
+    let row = view.row(index).ok_or(ERR_NOT_FOUND)?;
+    if row.owner != submitter {
+        return Err(ERR_DENIED);
+    }
+    if guards_on && !row.guards {
+        return guard_on_allowed(view, submitter, instance);
+    }
+    Ok(())
+}
+
 fn find(view: &dyn UiStackView, instance: u32) -> Option<usize> {
     (0..view.len()).find(|&i| view.row(i).is_some_and(|r| r.instance == instance))
 }
