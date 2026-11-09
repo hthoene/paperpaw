@@ -417,6 +417,30 @@ fn keeps_what_waits() {
 }
 
 #[test]
+fn a_long_list_is_taken_a_few_at_a_time_and_none_is_lost() {
+    let mut w = World::new();
+    for i in 0..40 {
+        w.notes(&alloc::format!("n{i}.md"), NOTES);
+        add_waiting(&w.data, &alloc::format!("n{i}.md")).unwrap();
+    }
+    assert_eq!(w.waiting().len(), crate::native_send::MOST_WAITING);
+    let mut s = Sender::new();
+    let mut rounds = 0;
+    while !w.waiting().is_empty() {
+        rounds += 1;
+        assert!(rounds <= 3, "every sending takes its share");
+        s.start(&mut w, Start::Retry, None).unwrap();
+        while s.busy() {
+            let done = w.done(200);
+            s.done(&mut w, &done).unwrap();
+        }
+    }
+    assert_eq!(rounds, 2);
+    assert!(w.waiting().is_empty());
+    assert_eq!(w.posts.len(), 40);
+}
+
+#[test]
 fn a_list_that_cannot_be_written_is_left_as_it_was() {
     let w = World::new();
     add_waiting(&w.data, "a.md").unwrap();

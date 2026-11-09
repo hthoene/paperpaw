@@ -42,6 +42,15 @@ missing is that the plugin does not yet *hear* the export (see "Open").
 - **Readwise's answer is not kept.** Interface 6 saved it to a file unread; the request now asks
   for at most 256 bytes of it in memory (`max_body`), cut and ignored, so a long list of what
   Readwise took costs no file and no `too_large` end.
+- **The list is read in pieces.** `waiting()` holds at most 32 paths (`MOST_WAITING`), oldest first; the
+  rest stay in `waiting.txt` and are read at the next sending (the retry is declared while the
+  file is not empty). A list rewrite goes line by line through a copy, so it is never held whole.
+- **The token is migrated, not asked again.** Beta 3 kept it as `readwise.token`; the secret store
+  reads that line as owner `readwise`, name `token` (interface 6's "first segment is the plugin",
+  `secrets.md` §0), which is the name this port keeps it under, as translate's key. A device
+  that cannot read the old line asks for it again with the next export. Not tried on a device.
+- **A body Readwise refuses for good (400) is tried again** at each sending (every 30 minutes by the
+  retry), as in Beta 3; a cap on the tries would need a count kept per file, left out.
 - The notes are on the card (root 1), so the plugin declares `uses.storage`; the data folder
   (root 0) holds the list and the body.
 - A sending the work run began ends when the run ends (`Reason::WorkEnded`), quietly, and the

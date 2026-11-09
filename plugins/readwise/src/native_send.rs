@@ -38,6 +38,9 @@ const PIECE: usize = 512;
 const MAX_LINE: usize = 4096;
 /// The longest token that is kept and sent; Readwise's are far shorter.
 pub const MAX_TOKEN: usize = 512;
+/// The most notes files held at a time: the list is read in pieces, so a long
+/// one costs a few sendings, not the heap.
+pub const MOST_WAITING: usize = 32;
 /// A write to a file is at most this long (`storage::MAX_DATA`).
 const MAX_WRITE: usize = paperpaw_sdk::native::storage::MAX_DATA;
 
@@ -292,7 +295,8 @@ pub fn for_each_line(
     Ok(())
 }
 
-/// The notes files waiting, the oldest first.
+/// The notes files waiting, the oldest first: at most [`MOST_WAITING`] at a
+/// time (the rest stay in the file and come with the next sending).
 ///
 /// # Errors
 /// `NoMemory`; what the card says, except that there is no list.
@@ -303,7 +307,11 @@ pub fn waiting(volume: &dyn Volume) -> Result<Vec<String>, Error> {
             paths.try_reserve(1).map_err(|_| Error::NoMemory)?;
             paths.push(text::copy(line)?);
         }
-        Ok(ControlFlow::Continue(()))
+        Ok(if paths.len() >= MOST_WAITING {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        })
     });
     match read {
         Ok(()) | Err(Error::NotFound) => Ok(paths),
