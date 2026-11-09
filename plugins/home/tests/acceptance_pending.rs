@@ -70,11 +70,13 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1", "HOME-status-line-slice"],
     },
-    // The icons of tools and of the footer's buttons (the pencil, the actions).
+    // The icons of tools (above their names, on or faint as their plugins show
+    // them) and of the footer's buttons (the pencil, the actions): laid out and
+    // drawn through the host.
     Case {
         name: "home-tool-icons",
         golden: None,
-        blocked_by: &["517"],
+        blocked_by: &["H1"],
     },
     // The widgets show new content: the minute tick and `widget_changed` lay
     // the page out anew and draw it (not subscribed to yet), and the screen
@@ -169,7 +171,7 @@ fn home_status_line() {
 }
 
 #[test]
-#[ignore = "BLOCKED 517: icons are not admitted in the native host yet"]
+#[ignore = "BLOCKED H1: native screen commands are not qualified"]
 fn home_tool_icons() {
     CASES[9].refuse().unwrap();
 }

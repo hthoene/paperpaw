@@ -58,6 +58,7 @@ pub mod native_dash;
 pub mod native_dashboard;
 pub mod native_focus;
 pub mod native_grid;
+pub mod native_icons;
 pub mod native_measure;
 pub mod native_pages;
 pub mod native_plugin;

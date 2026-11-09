@@ -194,9 +194,18 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
 - At a show the focus is drawn only if `home.focus-at-once` is on; interface 6 also asks whether the
   last input was by keys (`ui::focus_shown`), which waits for the input mode (H4): `home-dashboard`.
 - The status line above the grid is made room for but not drawn (`home-status-line`).
-- Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
-  admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
-  apart yet.
+- Icons (slice 3e): a tool shows its icon above its name, the icon in the same frame for every tool (the
+  ink of a circle) so that names side by side line up, names of tools in a row keeping to the most lines
+  any of them takes; a tool its plugin shows on is drawn light on a dark ground and one it shows not
+  enabled in the faint ink. The footer's actions show their icons (the puzzle piece where the menu row
+  names none) and the pencil its icon (*Done* stays a word). The characters come from the host
+  (`icon.glyph`, slot 40, `paperpaw_sdk::native::fonts::IconGlyph`) when the page is laid out; the icon
+  font is the one bound to `role:icons`. Where the host has none (no icon font bound, a name its set lacks)
+  a tool shows its name alone and the pencil its word, a footer action nothing. Nothing is drawn through a
+  host yet: `home-tool-icons` (H1). Differences from interface 6: the focus ring goes round the whole cell,
+  not only round the icon and name's ink; a tool's label or badge as its plugin shows it now is not shown
+  (only its name). Drawing uses `paperpaw_ui_kit::icons` and `Paint::Icon` (new, with `replay_icons`).
+  The icons of *Add*'s rows and the drawer's tools follow with their screens.
 - The widgets' updates (the minute tick, `widget_changed`) and a screen that turned are not
   subscribed to: the page is laid out when it shows and when the page turns (`home-widget-updates`).
   A widget that pages itself (a list, a calendar) is not told the page buttons.
