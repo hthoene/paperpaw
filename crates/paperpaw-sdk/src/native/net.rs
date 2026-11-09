@@ -8,8 +8,9 @@
 //! which [`Net::answer`] and [`Net::body`] read what came. The host frees the
 //! answer after that callback.
 //!
-//! This is the client side only: servers and sockets (SOCK) are not part of it,
-//! and a request is never written to a log, `Debug` included.
+//! Serving HTTP (ops 5-7, [`Server`], [`Response`]) is in the `serve` module here;
+//! sockets (SOCK) are not part of it. A request is never written to a log, `Debug`
+//! included.
 use super::wire::services_wire::core_net_v1 as schema;
 use super::{
     Error, Host,
@@ -516,6 +517,158 @@ impl HttpProgress {
     }
 }
 
+/// What happened to a server of this plugin: `event.server` (`network.md` 5.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServerEvent<'a> {
+    now_ms: u64,
+    server: u32,
+    state: ServerState<'a>,
+}
+
+/// The state a [`ServerEvent`] tells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ServerState<'a> {
+    /// The server runs. `address` is where it can be reached, such as
+    /// `192.168.1.20:8080`, or empty for the cable (served over USB).
+    Started {
+        /// The address, empty for the cable.
+        address: &'a str,
+    },
+    /// The server could not start; `reason` says why (`NoNetwork`, `Offline`,
+    /// `Saving`, `NetworkOff`, or `Refused` for a port that could not be had).
+    Failed {
+        /// Why it failed.
+        reason: Reason,
+    },
+    /// The server stopped: by `stop_serving`, by a newer `serve`, because its
+    /// screen closed, or because the network went away (`reason` is then
+    /// `NoNetwork`).
+    Stopped {
+        /// Why it stopped; `Ok` when the plugin asked.
+        reason: Reason,
+    },
+    /// A state a newer host added.
+    Other(u32),
+}
+
+impl<'a> ServerEvent<'a> {
+    pub(crate) fn decode(r: wire::EventServer<'a>) -> Result<Self, Error> {
+        let reason = Reason::from_wire(r.reason);
+        Ok(Self {
+            now_ms: r.now_ms,
+            server: r.server,
+            state: match r.state {
+                0 => ServerState::Started { address: r.address },
+                1 => ServerState::Failed { reason },
+                2 => ServerState::Stopped { reason },
+                other => ServerState::Other(other),
+            },
+        })
+    }
+
+    /// The host's clock.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    /// The plugin's own number of the server (the token it passed to `serve`).
+    #[must_use]
+    pub const fn server(&self) -> u32 {
+        self.server
+    }
+
+    /// What happened.
+    #[must_use]
+    pub const fn state(&self) -> ServerState<'a> {
+        self.state
+    }
+}
+
+/// A request a server of this plugin got: `event.served_request`
+/// (`network.md` 5.2), borrowed from the event's record. Headers are not given.
+/// The body, when there is one, is a file in the plugin's data folder that is
+/// readable only in the callback that gets this event.
+///
+/// `Debug` shows the method and the target's length only: the target's query may
+/// carry the server's access key (`served::key`). Flag bits other than the body
+/// bit are ignored, as for [`HttpDone`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ServedRequest<'a> {
+    now_ms: u64,
+    server: u32,
+    request: u32,
+    method: &'a str,
+    target: &'a str,
+    body_len: Option<u64>,
+}
+
+impl core::fmt::Debug for ServedRequest<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ServedRequest")
+            .field("now_ms", &self.now_ms)
+            .field("server", &self.server)
+            .field("request", &self.request)
+            .field("method", &self.method)
+            .field("target_len", &self.target.len())
+            .field("body_len", &self.body_len)
+            .finish()
+    }
+}
+
+impl<'a> ServedRequest<'a> {
+    pub(crate) fn decode(r: wire::EventServedRequest<'a>) -> Result<Self, Error> {
+        Ok(Self {
+            now_ms: r.now_ms,
+            server: r.server,
+            request: r.request,
+            method: r.method,
+            target: r.target,
+            body_len: (r.flags & 1 != 0).then_some(r.body_len),
+        })
+    }
+
+    /// The host's clock.
+    #[must_use]
+    pub const fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+
+    /// The plugin's own number of the server that got it.
+    #[must_use]
+    pub const fn server(&self) -> u32 {
+        self.server
+    }
+
+    /// The host's number of the request, unique while the device runs. The
+    /// contract does not exclude 0; the SDK passes the number on as it is.
+    #[must_use]
+    pub const fn request(&self) -> u32 {
+        self.request
+    }
+
+    /// The HTTP method, at most 16 bytes.
+    #[must_use]
+    pub const fn method(&self) -> &'a str {
+        self.method
+    }
+
+    /// The path and query, at most 1,024 bytes. The query may carry the server's
+    /// access key: do not log it.
+    #[must_use]
+    pub const fn target(&self) -> &'a str {
+        self.target
+    }
+
+    /// The length of the body, when the request has one: it is whole in the
+    /// data folder at `.received/<server>/<request>`.
+    #[must_use]
+    pub const fn body_len(&self) -> Option<u64> {
+        self.body_len
+    }
+}
+
 /// A finished request's status and head, borrowed from the reply buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Answer<'a>(wire::ServiceNetAnswer<'a>);
@@ -747,6 +900,8 @@ enum Row<'a> {
     Token(wire::ServiceNetToken),
     Id(wire::ServiceNetId),
     Read(wire::ServiceNetRead),
+    Serve(wire::ServiceNetServe),
+    Response(wire::ServiceNetResponse<'a>),
 }
 impl AsWire for Row<'_> {
     fn wire(&self) -> &dyn WireEncode {
@@ -758,9 +913,14 @@ impl AsWire for Row<'_> {
             Self::Token(row) => row,
             Self::Id(row) => row,
             Self::Read(row) => row,
+            Self::Serve(row) => row,
+            Self::Response(row) => row,
         }
     }
 }
+
+mod serve;
+pub use serve::{MAX_RESPONSE_BODY, MAX_RESPONSE_HEADERS, MAX_SERVED_BODY, Response, Server};
 
 #[cfg(test)]
 mod tests;
