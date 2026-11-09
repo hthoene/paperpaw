@@ -3,13 +3,21 @@
 //! all edited on the set-up screen, the screen, the two actions, the place in
 //! the tools and the icons.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, ExtraDecl, Instances, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Instances, Kind,
+    MenuEntryDecl, ScreenDecl, SpecDecl,
 };
 
 /// Callback tokens: stable within this plugin.
 pub const OPEN_TOKEN: u32 = 1;
 pub const SEND_TOKEN: u32 = 2;
+/// The start: declares the retry of what waits.
+pub const STARTED_TOKEN: u32 = 3;
+/// The end of a request (`core.net`).
+pub const HTTP_TOKEN: u32 = 4;
+/// The work that sends what waits, when it is due.
+pub const WORK_TOKEN: u32 = 5;
+/// A setting changed: the account's, so signed in anew.
+pub const SETTING_TOKEN: u32 = 6;
 pub const SCREEN: u32 = 10;
 
 /// The kinds of sync target (the setting's values), and the notebook the
@@ -84,6 +92,20 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.menu_entry(entry)?;
     d.icon("joplin.open", "note")?;
     d.icon("joplin.send", "upload")?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The events the plugin reads: the start, the end of a request, the work
+/// that is due and a setting changed. The notes an export writes arrive with
+/// the reader's export stage (`PORTING-7.md`).
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::Started, STARTED_TOKEN)?;
+    d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_TOKEN)?;
     d.submit()?;
     Ok(())
 }

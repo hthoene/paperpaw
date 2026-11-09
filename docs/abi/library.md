@@ -334,6 +334,13 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
+- [D] **End of a transaction:** `edit_commit` on a live transaction of the caller ends it whatever
+  it answers: `OK`, a refusal of the book (`ERR_STATE`, `ERR_NOT_FOUND`, `ERR_INVALID`), parts that
+  did not arrive whole, or a reply too small for `lib_committed`. Nothing of a refused commit is
+  applied, and a later `edit_add`, `edit_text`, `edit_commit` or `edit_abort` on that `transaction`
+  answers `ERR_NOT_FOUND` (begin again; op 26 still reads a committed one's receipt). A highlight
+  (`kind` 1) whose start (`start_section`, `start_offset`) comes after its end is refused by
+  `edit_add` with `ERR_INVALID`.
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
   3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
   it by the annotation file alone); each part of `edit_text` at most 3,072

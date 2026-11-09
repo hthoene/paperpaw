@@ -435,18 +435,6 @@ fn store() {
 }
 
 #[test]
-fn file_manager() {
-    let mut app = App::new();
-    app.run(Id::new_static("file-manager.open"));
-    app.opened("the file manager");
-    app.walk(6, "file manager");
-    // Into the books.
-    app.run(actions::CONFIRM);
-    app.opened("a folder");
-    app.walk(14, "a folder");
-}
-
-#[test]
 fn quick_panel() {
     let mut app = App::new();
     app.run(actions::QUICK_PANEL);

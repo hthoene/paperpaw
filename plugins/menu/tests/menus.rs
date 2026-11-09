@@ -110,7 +110,7 @@ fn every_entry_of_the_main_menu_opens_what_it_says() {
             choose(&mut app, entry);
             assert_eq!(app.screen(), screen, "{entry}: {}", app.described());
             if entry == "Tools" {
-                assert!(app.shows("Files"), "{}", app.described());
+                assert!(app.shows("Plugin store"), "{}", app.described());
             }
         }
     }
@@ -193,8 +193,8 @@ fn an_action_from_a_submenu_reaches_the_screen_below_all_menus() {
     for device in DEVICES {
         let mut app = main_menu(device);
         choose(&mut app, "Tools");
-        choose(&mut app, "Files");
-        assert_eq!(app.screen(), "file-manager.browser");
+        choose(&mut app, "Plugin store");
+        assert_eq!(app.screen(), "store.list");
         // The menus are closed: back leads home.
         app.run(actions::BACK);
         assert_eq!(app.screen(), "home.dashboard");

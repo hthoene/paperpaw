@@ -22,7 +22,7 @@ The fonts of the plugins with the letters of other scripts (tools/fonts, which t
 
 Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
 
-Hyphenation patterns (plugins/hyphenation/patterns, built in, and plugins/hyphenation-de/patterns, a plugin of the store) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
+Hyphenation patterns (plugins/hyphenation*/patterns: the data packs of the store, English and twelve other languages; none is built in) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
 
 - German, reformed spelling, Copyright (c) 2013-2024 Stephan Hennig, Werner Lemberg, Günter Milde, Sander van Geloven, Georg Pfeiffer, Gisbert W. Selke, Tobias Wendorf, Keno Wehr, licensed under the MIT License.
 

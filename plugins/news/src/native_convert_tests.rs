@@ -14,7 +14,7 @@ use paperpaw_sdk::{MemoryStorage, Storage};
 
 /// The date as the plugin's own text would be, kept fallibly: the sweeps
 /// must see a refusal here as one, not as an abort.
-fn day_text(year: i32, month: u8, day: u8) -> Result<String, Error> {
+pub(crate) fn day_text(year: i32, month: u8, day: u8) -> Result<String, Error> {
     use core::fmt::Write;
     let mut out = String::new();
     out.try_reserve_exact(24).map_err(|_| Error::NoMemory)?;
@@ -22,7 +22,7 @@ fn day_text(year: i32, month: u8, day: u8) -> Result<String, Error> {
     Ok(out)
 }
 
-fn old(
+pub(crate) fn old(
     feed: &[u8],
     max_articles: usize,
     max_text: usize,
@@ -65,7 +65,7 @@ fn new(
     Ok((converted, page))
 }
 
-fn feeds() -> Vec<String> {
+pub(crate) fn feeds() -> Vec<String> {
     let items: String = (0..30)
         .map(|n| {
             format!(

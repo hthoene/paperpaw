@@ -1,4 +1,4 @@
-//! Writing a package from the interface-6 plugin's sources.
+//! Writing a package from the sources in `plugins/<id>/`.
 
 use std::fs;
 use std::io;
