@@ -109,6 +109,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     ] {
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }
+    // The picture of the sleep screen is asked for at the start.
+    declarations.subscribe_event(EventKind::Started, EVENTS_TOKEN)?;
     // A new day makes the cat sad again; the figure is asked for each minute.
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     // The answer to a picture asked for, and a change of the folder of one's own.

@@ -63,6 +63,8 @@ const STATISTICS_ID: &str = "stats";
 const GOAL: &str = "stats.goal";
 /// The setting that names the folder of one's own pictures.
 const PICTURES: &str = "reading-goal.pictures";
+/// The sleep plugin's setting that chooses what the sleep screen shows.
+const SLEEP_SHOW: &str = "sleep.show";
 /// The most pages of plugins read to find the statistics.
 const MOST_PAGES: usize = 16;
 /// The most bytes of a stage reply (sizes and up to 32 targets).
@@ -139,7 +141,7 @@ impl Plugin for NativeReadingGoal {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::ScreenOpened)
+        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::ScreenOpened, kinds::Started)
         else {
             return Ok(());
         };
@@ -149,8 +151,10 @@ impl Plugin for NativeReadingGoal {
             } => self.made(host, widget, instance),
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
-                // The last widget gone: the picture is given back.
+                // The last widget gone: the picture is given back, unless the
+                // sleep screen is chosen (it is wanted there).
                 if self.items.is_empty()
+                    && !sleep_chosen(host)
                     && let Some(old) = self.pictures.forget()
                 {
                     release_image(host, old);
@@ -173,10 +177,20 @@ impl Plugin for NativeReadingGoal {
                 self.want_picture(host);
                 Ok(())
             }
+            // The picture of the sleep screen is asked for before the device
+            // sleeps: at the start and when a book closes, where that screen
+            // is chosen, so that the first sleep shows the cat.
+            Event::Started { .. } if token == EVENTS => {
+                self.want_picture_for_sleep(host);
+                Ok(())
+            }
             _ => {
                 let Some(edge) = edge(token, &event) else {
                     return Ok(());
                 };
+                if matches!(edge, Edge::BookClosed) {
+                    self.want_picture_for_sleep(host);
+                }
                 // Asked when the figure is about to be written, not at every page.
                 if matches!(edge, Edge::BookClosed | Edge::Sleeping)
                     && let Some((day, seconds)) = ask(host)
@@ -351,11 +365,22 @@ impl Kept {
 }
 
 impl NativeReadingGoal {
+    /// Asks for the picture where the sleep screen is the one chosen.
+    fn want_picture_for_sleep(&mut self, host: &Host<'_>) {
+        if sleep_chosen(host) {
+            self.want_picture(host);
+        }
+    }
+
     /// The sleep screen: the cat of today's mood and the minutes.
     fn draw_sleep(&self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         let mut cx = Cx::open(host, crate::declarations::WIDGET_GROUP)?;
         let today = native_widget::facts(host, &self.kept, self.statistics)?;
-        native_sleep::draw(&mut cx, frame, &today, self.pictures.of(today.mood))
+        let picture = self
+            .pictures
+            .of(today.mood)
+            .zip(self.pictures.size_of(today.mood));
+        native_sleep::draw(&mut cx, frame, &today, picture)
     }
 
     /// Asks for the picture of the mood shown, where there is none yet and
@@ -405,7 +430,8 @@ impl NativeReadingGoal {
     fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
         let mut bytes = [0u8; 256];
         let own = !picture_folder(host, &mut bytes).is_empty();
-        let answer = (ready.cookie(), ready.status(), ready.image());
+        let size = (ready.width(), ready.height());
+        let answer = (ready.cookie(), ready.status(), ready.image(), size);
         match self.pictures.ready(answer, own) {
             // An answer nobody waits for (the folder changed meanwhile) still
             // holds a picture: given back.
@@ -454,6 +480,17 @@ fn picture_folder<'a>(host: &Host<'_>, bytes: &'a mut [u8]) -> &'a str {
         Ok(settings::SettingValue::Text(folder)) => folder.trim_matches('/'),
         _ => "",
     }
+}
+
+/// Whether the sleep screen's setting chooses this plugin's screen.
+fn sleep_chosen(host: &Host<'_>) -> bool {
+    let mut bytes = [0u8; 64];
+    matches!(
+        settings::read_setting(host, SLEEP_SHOW, &mut bytes),
+        Ok(settings::SettingValue::Text(
+            crate::declarations::SLEEP_SCREEN
+        ))
+    )
 }
 
 /// Where the host reads a candidate from. The plugin's install folder (the

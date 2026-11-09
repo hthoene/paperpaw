@@ -107,7 +107,7 @@ pub(crate) enum Next {
 #[derive(Debug, Default)]
 pub(crate) struct Pictures {
     /// The mood the held picture is of.
-    held: Option<(Mood, ImageId)>,
+    held: Option<(Mood, ImageId, (u32, u32))>,
     /// The request open: the mood and the step.
     open: Option<(Mood, usize)>,
     /// The mood nothing was found for (until the folder setting changes).
@@ -118,8 +118,15 @@ impl Pictures {
     /// The picture to draw for `mood`, if the held one is of it.
     pub(crate) fn of(&self, mood: Mood) -> Option<ImageId> {
         self.held
-            .filter(|(held, _)| *held == mood)
-            .map(|(_, image)| image)
+            .filter(|(held, ..)| *held == mood)
+            .map(|(_, image, _)| image)
+    }
+
+    /// The size in pixels of the picture held for `mood`, as the host made it.
+    pub(crate) fn size_of(&self, mood: Mood) -> Option<(u32, u32)> {
+        self.held
+            .filter(|(held, ..)| *held == mood)
+            .map(|(_, _, size)| size)
     }
 
     /// Whether to start asking for the picture of `mood`: not when it is held,
@@ -139,7 +146,7 @@ impl Pictures {
         self.none = None;
         // An answer to a request made before is no longer the one waited for.
         self.open = None;
-        self.held.take().map(|(_, image)| image)
+        self.held.take().map(|(_, image, _)| image)
     }
 
     /// No file is left to ask for: the mood stays in words.
@@ -150,7 +157,7 @@ impl Pictures {
     /// The host's answer.
     pub(crate) fn ready(
         &mut self,
-        (cookie_of, status, image): (u32, ImageStatus, Option<ImageId>),
+        (cookie_of, status, image, size): (u32, ImageStatus, Option<ImageId>, (u32, u32)),
         own: bool,
     ) -> Next {
         let Some((mood, step)) = self.open else {
@@ -162,8 +169,8 @@ impl Pictures {
         self.open = None;
         match (status, image) {
             (ImageStatus::Ready, Some(image)) => {
-                let release = self.held.map(|(_, held)| held);
-                self.held = Some((mood, image));
+                let release = self.held.map(|(_, held, _)| held);
+                self.held = Some((mood, image, size));
                 Next::Ready { image, release }
             }
             (ImageStatus::NoMemory | ImageStatus::CardFailure, _) => Next::Retry,

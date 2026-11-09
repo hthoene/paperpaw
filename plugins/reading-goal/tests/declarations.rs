@@ -92,9 +92,10 @@ fn the_events_are_the_ones_the_figure_is_written_at() {
     for batch in batches(|sink| declarations::events(sink)) {
         count += records_decode(&batch).unwrap().len();
     }
-    // A book opened and closed, suspend and stopping, the minute tick, the
-    // end of a picture asked for and a changed setting (the pictures' folder).
-    assert_eq!(count, 7);
+    // The start, a book opened and closed, suspend and stopping, the minute
+    // tick, the end of a picture asked for and a changed setting (the pictures'
+    // folder).
+    assert_eq!(count, 8);
 }
 
 #[test]

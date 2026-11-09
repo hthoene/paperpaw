@@ -140,12 +140,18 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
   `core.sleep` to this screen when `sleep.show` is `reading-goal.sleep` (at start and when it changes) if it is a
   current candidate, else it falls back to the cover or the cat. The screen gets no input while asleep and does
   not close itself: the host replaces it on wake (Kernel's ruling, as Port F put it).
-- It draws (`DrawPurpose::Screen`): paper, the cat large and centred (as wide as the room leaves, a square, the
-  minutes below it), or the mood in words above the minutes where there is no picture (yet). The layout is
-  `native_sleep::layout` (tested without a host).
-- **Limit:** the picture is asked for when the screen opens (and at each tick while a widget is there) and comes
-  back later, so a sleep screen that opens with no widget on the home screen and no picture held draws the
-  words that time; the picture is held afterwards while a widget lives.
+- It draws (`DrawPurpose::Screen`): paper, the cat as large as the room leaves with its shape kept and centred,
+  the minutes right under it as it is fitted (not under a box), or the mood in words above the minutes where
+  there is no picture (yet). The layout is `native_sleep::layout` (tested without a host).
+- **Asking early:** where `sleep.show` is this screen, the picture is asked for at the start (`event.started`),
+  when a book closes, when the screen opens and at each tick while a widget is there, so the first sleep shows
+  the cat as in Beta 3 once the picture is held. It is held while a widget lives **or** the screen is chosen;
+  the last widget dropping with this screen chosen keeps it. **Limit:** a sleep screen that opens with no
+  picture held yet (a first start straight into sleep) draws the words that time.
+- **Known gap (gray view):** interface 6 drew white paper and black ink and said `grays()` so the panel showed the
+  picture in grays. The native screen uses the theme's paper and ink (`Style`) and gives the host no grays hint,
+  so on a panel with grays the picture may show in black and white only. Left for the host's screen flags to
+  carry (no SDK flag for it yet).
 
 ## Blocked (each is an ignored case in `tests/acceptance_pending.rs` or `src/native_picture/tests.rs`)
 

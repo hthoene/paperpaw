@@ -46,7 +46,12 @@ fn an_answer_of_the_open_request_holds_the_picture_and_releases_the_old_one() {
     pictures.asked(Mood::Sad, 0);
     assert!(!pictures.wants(Mood::Sad), "asked for already");
     let next = pictures.ready(
-        (cookie(Mood::Sad, 0), ImageStatus::Ready, Some(id(1))),
+        (
+            cookie(Mood::Sad, 0),
+            ImageStatus::Ready,
+            Some(id(1)),
+            (200, 100),
+        ),
         false,
     );
     assert_eq!(
@@ -62,7 +67,12 @@ fn an_answer_of_the_open_request_holds_the_picture_and_releases_the_old_one() {
     assert!(pictures.wants(Mood::Happy));
     pictures.asked(Mood::Happy, 0);
     let next = pictures.ready(
-        (cookie(Mood::Happy, 0), ImageStatus::Ready, Some(id(2))),
+        (
+            cookie(Mood::Happy, 0),
+            ImageStatus::Ready,
+            Some(id(2)),
+            (200, 100),
+        ),
         false,
     );
     assert_eq!(
@@ -78,7 +88,12 @@ fn an_answer_of_the_open_request_holds_the_picture_and_releases_the_old_one() {
 #[test]
 fn an_answer_that_is_not_the_open_one_is_ignored() {
     let mut pictures = Pictures::default();
-    let stray = (cookie(Mood::Sad, 0), ImageStatus::Ready, Some(id(1)));
+    let stray = (
+        cookie(Mood::Sad, 0),
+        ImageStatus::Ready,
+        Some(id(1)),
+        (200, 100),
+    );
     assert_eq!(pictures.ready(stray, false), Next::Ignore);
     pictures.asked(Mood::Meh, 2);
     assert_eq!(pictures.ready(stray, false), Next::Ignore);
@@ -91,7 +106,12 @@ fn a_file_that_cannot_be_used_leads_to_the_next_and_at_last_to_words() {
     pictures.asked(Mood::Content, 0);
     for step in 0..steps(true) - 1 {
         let next = pictures.ready(
-            (cookie(Mood::Content, step), ImageStatus::Damaged, None),
+            (
+                cookie(Mood::Content, step),
+                ImageStatus::Damaged,
+                None,
+                (0, 0),
+            ),
             true,
         );
         assert_eq!(
@@ -105,7 +125,12 @@ fn a_file_that_cannot_be_used_leads_to_the_next_and_at_last_to_words() {
     }
     let last = steps(true) - 1;
     let next = pictures.ready(
-        (cookie(Mood::Content, last), ImageStatus::Unsupported, None),
+        (
+            cookie(Mood::Content, last),
+            ImageStatus::Unsupported,
+            None,
+            (0, 0),
+        ),
         true,
     );
     assert_eq!(next, Next::Words);
@@ -122,7 +147,7 @@ fn a_refusal_for_memory_is_tried_again_later_not_given_up() {
     for status in [ImageStatus::NoMemory, ImageStatus::CardFailure] {
         pictures.asked(Mood::Sad, 0);
         assert_eq!(
-            pictures.ready((cookie(Mood::Sad, 0), status, None), false),
+            pictures.ready((cookie(Mood::Sad, 0), status, None, (0, 0)), false),
             Next::Retry
         );
         assert!(pictures.wants(Mood::Sad));
@@ -134,7 +159,12 @@ fn a_changed_folder_gives_the_held_picture_back() {
     let mut pictures = Pictures::default();
     pictures.asked(Mood::Sad, 0);
     pictures.ready(
-        (cookie(Mood::Sad, 0), ImageStatus::Ready, Some(id(7))),
+        (
+            cookie(Mood::Sad, 0),
+            ImageStatus::Ready,
+            Some(id(7)),
+            (200, 100),
+        ),
         false,
     );
     assert_eq!(pictures.forget(), Some(id(7)));
@@ -169,7 +199,12 @@ fn a_changed_folder_drops_the_request_open_and_its_answer_is_ignored() {
     pictures.asked(Mood::Sad, 1);
     assert_eq!(pictures.forget(), None);
     assert!(pictures.wants(Mood::Sad), "asked anew");
-    let late = (cookie(Mood::Sad, 1), ImageStatus::Ready, Some(id(3)));
+    let late = (
+        cookie(Mood::Sad, 1),
+        ImageStatus::Ready,
+        Some(id(3)),
+        (200, 100),
+    );
     assert_eq!(pictures.ready(late, true), Next::Ignore);
     assert_eq!(pictures.of(Mood::Sad), None);
 }
