@@ -41,11 +41,13 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets, and the books family except the battery (see below):
+The words family's picture and logo widgets and the books family except the battery and the
+library in numbers: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, the
+picture and the logo draw pictures, all of which wait for the image slots 36/37 (draft 22, Services'
+SDK facade). The interface-6 pack stays in `src/` until every widget is ported; then the last
+commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
-note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
-every widget is ported; then the last commit deletes it, its app wiring and
-its tests together (no shim).
+note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
 
 ## Gaps and differences
 
@@ -184,3 +186,34 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   `widgets-battery-draws-each-style` (H1/H3).
 - Differences: the bolt and the rounded battery are made of rounded rectangles and span
   fills (no smooth edges); the low charge is a plain gray (110), not a dither.
+
+## Library in numbers (widget)
+
+- `widgets.library` (token 114, category books): the books, those finished, being read and not read
+  yet as numbers in a row (as many columns as make them largest, the bar kept where it costs little,
+  else each number beside its name on a line), a bar of the share read, a caption. The settings are
+  the interface-6 ones (`settings_parity`). A tap runs `core.library`.
+- Where the numbers come from (`native_numbers::read`): `core.library` op 1 (`books` of the catalog)
+  and two queries (`Show::Finished`, `Show::Reading`) of which only `end.total` is used, three calls
+  with two 4,096-byte buffers, the service released in every case (`native_books::with_library`).
+  The counts are kept in the plugin (`native_numbers::Cache`) for the catalog's generation, so a redraw
+  asks the library for its state only (one call). Where a query is refused the widget shows the books
+  of the catalog alone (tried again at the next draw), and where the library is not there at all it
+  shows nothing counted; only a refused allocation fails the draw.
+  `shows` (the minute tick) reads the catalog's generation and book count only: the generation moves
+  when books come or go and when one is first opened or finished (`library.md` 2), so the widget
+  follows within a minute.
+- **Differences from interface 6** (all without a loss for the reader): interface 6 counted the
+  finished and the reading books among the hundred opened last, from the progress each held; the
+  library's totals cover every book, so a library of more than a hundred opened books is counted
+  whole. "Reading" is the library's (`Show::Reading`), and a book opened outside the library folder
+  counts as a book only if the catalog lists it (interface 6 added it). The books being read shaded
+  in the bar are a plain gray (150, or 140 on dark paper), not a dither (the canvas has none). The
+  accessibility text of the numbers (`canvas.describe`) has no native operation.
+- Memory: two buffers of 4,096 bytes while the three calls run and the parts of the widget (four
+  short texts and the paint list), about 10 KiB; nothing is kept between callbacks. Not measured on a
+  device.
+- `native/metadata*.json|bin` list `core.library` (and the optional feature `uses.library`).
+- The pure part (`Numbers::count`, `of`) is unit-tested; the layout and the calls need a host (no
+  refusal sweep until a mock host exists; every allocation is fallible by reading). Ignored case
+  `widgets-library-draws-its-numbers` (H1/H3/H4).

@@ -20,6 +20,9 @@ pub enum Tap {
     TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
+    /// It runs the action with this id (the library's numbers open the
+    /// library).
+    Run(&'static str),
     /// It asks for the text of the setting `key` on the keyboard.
     Text {
         key: &'static str,
@@ -129,10 +132,18 @@ static BATTERY: Behaviour = Behaviour {
     tap: Tap::None,
 };
 
+static LIBRARY: Behaviour = Behaviour {
+    height: crate::native_numbers::height,
+    draw: crate::native_numbers::draw,
+    shows: crate::native_numbers::shows,
+    tap: Tap::Run("core.library"),
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
+        114 => Some(&LIBRARY),
         113 => Some(&BATTERY),
         112 => Some(&TODO),
         111 => Some(&QUOTE),
