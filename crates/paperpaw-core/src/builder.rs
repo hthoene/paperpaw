@@ -609,6 +609,10 @@ impl BuilderParts {
             shared: Shared {
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
+                native_input: crate::native_host::ui_input::InputFilters::new(),
+                native_filters: None,
+                native_input_refused: false,
+                native_depth: None,
                 registry: Registry::default(),
                 meter,
                 device: self.device,
@@ -617,6 +621,7 @@ impl BuilderParts {
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
                 stack_rows: alloc::rc::Rc::new(Default::default()),
+                key_guard_warned: Default::default(),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
