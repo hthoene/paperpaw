@@ -32,15 +32,24 @@ mod folders;
 mod info;
 mod list;
 mod names;
+#[doc(hidden)]
+pub mod native_covers;
+mod native_draw;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_info;
+#[doc(hidden)]
+pub mod native_list;
 #[doc(hidden)]
 pub mod native_model;
 /// The interface-7 library plugin (see `PORTING-7.md`).
 pub mod native_plugin;
 #[doc(hidden)]
+pub mod native_sheet;
+#[doc(hidden)]
 pub mod native_shelves;
+#[doc(hidden)]
+pub mod native_states;
 mod shelves;
 
 #[cfg(feature = "linked")]

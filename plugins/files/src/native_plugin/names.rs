@@ -121,7 +121,8 @@ impl NativeFiles {
         for (at, name) in names.window.books.iter().enumerate() {
             let (title, note) = native_shelves::name_row(&mut say, names.shelf, name)?;
             push(&mut rows, Row::Book(at))?;
-            push(&mut items, Item::noted(&title, "›", &note)?)?;
+            // The count is at the row's end.
+            push(&mut items, Item::noted(&title, &note, "")?)?;
         }
         if names.window.has_more() {
             let more = say.say("files.list.more")?;
@@ -174,5 +175,49 @@ impl NativeFiles {
             *old = fresh;
         }
         redraw(host)
+    }
+
+    /// The row at `index` of the screen on `token` was chosen.
+    pub(super) fn chosen(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        index: usize,
+    ) -> Result<(), Error> {
+        self.ensure(host)?;
+        match self.screens.top(token) {
+            Some(View::Shelves(view)) => match view.rows.get(index).copied() {
+                Some(ShelfRow::Next) => self.open_shelf(host, &Scope::Next),
+                Some(ShelfRow::Favourites) => self.open_shelf(host, &Scope::Favourites),
+                Some(ShelfRow::By(shelf)) => self.open_names(host, shelf),
+                None => Ok(()),
+            },
+            Some(View::Names(view)) => {
+                let Some(row) = view.rows.get(index).copied() else {
+                    return Ok(());
+                };
+                match row {
+                    Row::More => self.slide_names(host, token, false),
+                    Row::Previous => self.slide_names(host, token, true),
+                    Row::Book(at) => {
+                        let Some(name) = view.window.books.get(at) else {
+                            return Ok(());
+                        };
+                        let (shelf, start) = (view.shelf, view.window.start);
+                        let scope = if name.cut {
+                            // Held cut: the host has the whole name.
+                            let whole = self.whole_name(host, shelf, start, at)?;
+                            shelf.scope(&whole)?
+                        } else {
+                            shelf.scope(&name.text)?
+                        };
+                        self.open_shelf(host, &scope)
+                    }
+                    Row::Filter | Row::Note => Ok(()),
+                }
+            }
+            Some(View::Books(_)) => self.chosen_book(host, token, index),
+            Some(View::Info(_)) | None => Ok(()),
+        }
     }
 }

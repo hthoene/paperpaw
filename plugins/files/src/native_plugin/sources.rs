@@ -1,4 +1,5 @@
 use super::*;
+use crate::native_covers::Slot;
 
 /// The replies of the host's library query for one selection.
 pub(super) struct Replies<'a, 'h> {
@@ -179,5 +180,65 @@ impl Say for Speaker<'_, '_> {
 
     fn count(&mut self, key: &str, count: i64) -> Result<String, Error> {
         self.messages.format(self.host, key, &[Arg::Count(count)])
+    }
+}
+
+/// Asks the host for covers while a page is drawn: one buffer pair for the
+/// page, taken when the first cover is asked for.
+pub(super) struct Asker<'a, 'h> {
+    host: &'a Host<'h>,
+    library: Option<&'a Library>,
+    books: &'a [BookLine],
+    generation: u32,
+    buffers: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+impl<'a, 'h> Asker<'a, 'h> {
+    pub(super) const fn new(
+        host: &'a Host<'h>,
+        library: Option<&'a Library>,
+        books: &'a [BookLine],
+        generation: u32,
+    ) -> Self {
+        Self {
+            host,
+            library,
+            books,
+            generation,
+            buffers: None,
+        }
+    }
+}
+
+/// The ask for a cover is `input` of 1,024 bytes and `out` of 4,096 (`library.md`).
+const COVER_INPUT: usize = 1024;
+const COVER_OUT: usize = 4096;
+
+impl crate::native_draw::Covering for Asker<'_, '_> {
+    fn ask(&mut self, at: usize) -> Slot {
+        let (Some(library), Some(book)) = (self.library, self.books.get(at)) else {
+            return Slot::Missing;
+        };
+        let Ok(reference) = BookRef::catalog(book.key, self.generation) else {
+            return Slot::Missing;
+        };
+        if self.buffers.is_none() {
+            let (Ok(input), Ok(out)) = (buffer(COVER_INPUT), buffer(COVER_OUT)) else {
+                // No memory now: asked again by a later frame.
+                return Slot::Idle;
+            };
+            self.buffers = Some((input, out));
+        }
+        let Some((input, out)) = self.buffers.as_mut() else {
+            return Slot::Idle;
+        };
+        match library.cover(self.host, reference, 0, input, out) {
+            Ok(cover) => Slot::Ready(cover.image()),
+            // Being made: asked again when the host says one is ready.
+            Err(Error::Busy) => Slot::Busy,
+            Err(Error::NoMemory) => Slot::Idle,
+            // None, or none can be had: the outline shows.
+            Err(_) => Slot::Missing,
+        }
     }
 }

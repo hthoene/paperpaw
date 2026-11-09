@@ -8,6 +8,29 @@ impl NativeFiles {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
+        if self.covers_most == 0 {
+            self.learn(host)?;
+        }
+        Ok(())
+    }
+
+    /// The device's class: a small one (the X4) holds fewer covers at once.
+    fn learn(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.covers_most = MOST_SMALL;
+        let device = match Device::open(host) {
+            Ok(device) => device,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // No device service: the smaller number stays.
+            Err(_) => return Ok(()),
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        if let Ok(row) = device.device(host, &mut input, &mut out)
+            && matches!(row.class(), DeviceClass::Medium | DeviceClass::Large)
+        {
+            self.covers_most = MOST;
+        }
+        // A handle that cannot be released is no reason to lose the facts.
+        device.release(host).ok();
         Ok(())
     }
 
@@ -145,21 +168,42 @@ impl NativeFiles {
             &mut input,
             &mut out,
         )?;
-        self.asked = Some(request);
+        self.asked = Some((request, Asked::Search));
         Ok(())
     }
 
-    /// The words typed: the books that have them, as a list of their own.
+    /// An answer to the question that was asked.
     pub(super) fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
-        if self.asked != Some(answer.request()) || answer.outcome() == AnswerOutcome::Typing {
+        let Some((request, _)) = &self.asked else {
+            return Ok(());
+        };
+        if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some(request) = self.asked.take() else {
+        let Some((request, asked)) = self.asked.take() else {
             return Ok(());
         };
         if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
         }
+        match asked {
+            Asked::Search => self.searched(host, request),
+            Asked::Sheet { path, actions } => {
+                let chosen = usize::try_from(answer.choice())
+                    .ok()
+                    .and_then(|at| actions.get(at).copied());
+                match chosen {
+                    Some(action) => self.act(host, &path, action),
+                    None => Ok(()),
+                }
+            }
+            Asked::Delete { path } if answer.choice() == 1 => self.delete_book(host, &path),
+            Asked::Delete { .. } => Ok(()),
+        }
+    }
+
+    /// The words typed: the books that have them, as a list of their own.
+    fn searched(&mut self, host: &Host<'_>, request: RequestId) -> Result<(), Error> {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         let typed = match uitext::read_all(ui, host, request.text(), SEARCH_LIMIT) {
             Ok(typed) => typed,
@@ -195,15 +239,47 @@ impl NativeFiles {
             Err(Error::State | Error::NotFound) => return Ok(false),
             Err(error) => return Err(error),
         };
-        let params = [Param::new("path", &path)?];
+        self.open_path(host, &path)?;
+        Ok(true)
+    }
+
+    /// Opens the book at `path` in the reader.
+    pub(super) fn open_path(&self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let params = [Param::new(PATH, path)?];
         let handover = self
             .ui
             .as_ref()
             .ok_or(Error::State)?
             .handover(host, &params, &mut input, &mut out)?;
         let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch)
-            .open(Open::slot("core.reader")?.handover(handover))?;
-        Ok(true)
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    }
+
+    /// Opens the book information of the book at `path`.
+    pub(super) fn open_info(&self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let params = [Param::new(PATH, path)?];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::screen("files.info")?.handover(handover))
+    }
+
+    /// Opens the menu `menu` (the library's) in the slot `core.menu`.
+    pub(super) fn open_menu(&mut self, host: &Host<'_>, menu: &str) -> Result<(), Error> {
+        self.ensure(host)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let params = [Param::new("menu", menu)?];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.menu")?.handover(handover))
     }
 }

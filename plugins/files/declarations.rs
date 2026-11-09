@@ -5,9 +5,10 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, ExtraDecl, Instances, Kind, MenuEntryDecl,
-    ScreenDecl, SlotOfferDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, HelpHintDecl,
+    Instances, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
 
 /// The library: books of the card, filtered by how far they are read.
 pub const BROWSER_TOKEN: u32 = 10;
@@ -29,6 +30,8 @@ pub const BY_SERIES_TOKEN: u32 = 23;
 pub const BY_TAG_TOKEN: u32 = 24;
 /// Asks for words and lists the books that have them.
 pub const SEARCH_TOKEN: u32 = 25;
+/// The subscription to the library's changes.
+pub const EVENTS_TOKEN: u32 = 3;
 
 /// The library's setting values, each its name's key.
 pub const SORT_RECENT: &str = "files.sort.recent";
@@ -172,9 +175,20 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.menu_entry(entry)?;
     }
     // The library's own menu: where interface 6 offered the search.
-    let mut search = MenuEntryDecl::new("files.menu", "files.search");
-    search.order = 21;
-    d.menu_entry(search)?;
+    // Only what is about the library: night mode and home are the device's.
+    for (order, item) in [
+        (10, SORT),
+        (11, VIEW),
+        (21, "files.search"),
+        (30, "files.shelves"),
+        (80, "core.library-folder"),
+        (90, "core.settings"),
+    ] {
+        let mut entry = MenuEntryDecl::new("files.menu", item);
+        entry.order = order;
+        d.menu_entry(entry)?;
+    }
+    d.icon("core.library-folder", "folder")?;
     d.slot_offer(SlotOfferDecl::new("core.library", "files.browser"))?;
     d.slot_offer(SlotOfferDecl::new("core.book-info", "files.info"))?;
     let mut home = SlotOfferDecl::new("core.home", "files.browser");
@@ -182,4 +196,32 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.slot_offer(home)?;
     d.submit()?;
     Ok(())
+}
+
+/// The library changing (books, their status, the walk, a cover that is
+/// ready) is read again by the lists on show.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::LibraryChanged, EVENTS_TOKEN)?;
+    d.submit()
+}
+
+/// What the library tells in the help: how to open a book and what holding
+/// one does, by touch and with the buttons.
+pub fn help<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for (text, input) in [
+        ("files.help.open", HintInput::Touch),
+        ("files.help.hold", HintInput::Touch),
+        ("files.help.pages", HintInput::Touch),
+        ("files.help.choose", HintInput::Buttons),
+        ("files.help.more", HintInput::Buttons),
+    ] {
+        let hint = HelpHintDecl::new("files.browser", text, input)
+            .map_err(|_| DeclareError::Empty("help hint"))?;
+        d.help_hint(hint)?;
+    }
+    d.submit()
 }

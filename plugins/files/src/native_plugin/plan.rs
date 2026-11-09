@@ -1,20 +1,5 @@
 use super::*;
 
-/// What a row of a list of books does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Row {
-    /// Steps the filter.
-    Filter,
-    /// Says the books are still being found.
-    Note,
-    /// Opens the book at this index of the window.
-    Book(usize),
-    /// Slides back to the window before this one.
-    Previous,
-    /// Reads more books: the window grows, or slides on when it is full.
-    More,
-}
-
 /// Where a list is read from: its window's first reply, and the starts of
 /// the windows before it.
 #[derive(Debug)]

@@ -5,17 +5,21 @@
 //! `PORTING-7.md`.
 use crate::{
     declarations::{
-        BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, FAVOURITES_TOKEN,
-        INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN, SHELVES_TOKEN,
-        SORT,
+        BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, EVENTS_TOKEN,
+        FAVOURITES_TOKEN, INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN,
+        SHELVES_TOKEN, SORT, VIEW, VIEW_COVERS,
     },
+    native_covers::{Covers, MOST, MOST_SMALL},
+    native_draw::Said,
     native_info,
+    native_list::{BookList, ListStep, Row},
     native_model::{
         self, BookLine, Filter, MOST_BOOKS, Order, Replied, Say, Scope, Selection, Source, Window,
     },
     native_shelves::{
         self, Begun, MOST_SERIES, NameLine, SeriesNames, SeriesSource, Shelf, collect_next,
     },
+    native_states::Condition,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -24,12 +28,16 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
+        device::{Device, DeviceClass},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+        files::Files,
         formatting::Arg,
-        library::{BookRef, CatalogCursor, CatalogPhase, Facet, Library, Query, Show},
+        image::ImageId,
+        library::{BookRef, CatalogCursor, Facet, Library, Query, Show},
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
+        storage::Root,
         ui::{HandoverId, Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
@@ -55,6 +63,8 @@ const PATH: &str = "path";
 const DEFAULT_FOLDER: &str = "books";
 /// The kernel's setting of it.
 const FOLDER_SETTING: &str = "core.library-folder";
+/// The archive folder's setting.
+const ARCHIVE_SETTING: &str = "files.archive";
 /// The most bytes of words a search takes (the host's cap, never cut).
 const SEARCH_LIMIT: usize = 256;
 
@@ -62,10 +72,25 @@ mod books;
 mod names;
 mod open;
 mod plan;
+mod sheet;
 mod sources;
 
-use plan::{Plan, Reading, Row, Then, cursors, step_back, step_on};
+use plan::{Plan, Reading, Then, cursors, step_back, step_on};
 use sources::{NameReplies, Replies, Speaker};
+
+/// What a question that was asked is for.
+#[derive(Debug)]
+enum Asked {
+    /// The words of a search.
+    Search,
+    /// What to do with a book held: its path and what the sheet offered.
+    Sheet {
+        path: String,
+        actions: Vec<crate::native_sheet::Action>,
+    },
+    /// Whether to delete the book at this path.
+    Delete { path: String },
+}
 
 #[derive(Debug)]
 struct Browser {
@@ -74,8 +99,9 @@ struct Browser {
     window: Window,
     /// Where the windows before this one began, the nearest last.
     starts: Vec<CatalogCursor>,
-    rows: Vec<Row>,
-    list: ItemList,
+    list: BookList,
+    /// The covers of the window's books.
+    covers: Covers,
     /// What an empty list says; empty when it is not empty.
     empty: String,
     /// What it says below the title when it is empty (the folder to copy to).
@@ -136,8 +162,10 @@ pub struct NativeFiles {
     library: Option<Library>,
     ui: Option<Ui>,
     screens: Screens<View>,
-    /// The question for the words of a search, while it is open.
-    asked: Option<RequestId>,
+    /// The question that is open, and what it is for.
+    asked: Option<(RequestId, Asked)>,
+    /// Covers held at once (fewer on a device of the small class); 0 until learned.
+    covers_most: usize,
 }
 
 impl Plugin for NativeFiles {
@@ -146,6 +174,8 @@ impl Plugin for NativeFiles {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
         }
@@ -160,7 +190,7 @@ impl Plugin for NativeFiles {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::LibraryChanged)
         else {
             return Ok(());
         };
@@ -192,8 +222,11 @@ impl Plugin for NativeFiles {
                 self.reread(host)
             }
             Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
+                self.close(host, instance);
                 Ok(())
+            }
+            Event::LibraryChanged { what, .. } if token == EVENTS_TOKEN => {
+                self.library_changed(host, what)
             }
             _ => Ok(()),
         }
@@ -203,16 +236,24 @@ impl Plugin for NativeFiles {
         let mut messages = Messages::new()?;
         match self.screens.top(token).ok_or(Error::State)? {
             View::Books(view) => {
-                let footer = if view.empty.is_empty() {
-                    Footer::None
-                } else {
-                    Footer::Empty {
-                        title: &view.empty,
-                        text: &view.empty_text,
-                    }
+                let said = Said {
+                    title: &view.empty,
+                    text: &view.empty_text,
                 };
-                view.list
-                    .draw_with(host, &mut frame, &view.title, true, footer)
+                let mut asker = sources::Asker::new(
+                    host,
+                    self.library.as_ref(),
+                    &view.window.books,
+                    view.window.generation,
+                );
+                view.list.draw(
+                    host,
+                    &mut frame,
+                    &view.title,
+                    &mut view.covers,
+                    &mut asker,
+                    said,
+                )
             }
             View::Shelves(view) => {
                 let title = messages.copy(host, "files.shelves")?;
@@ -244,7 +285,15 @@ impl Plugin for NativeFiles {
             return Ok(Handled::No);
         };
         let list = match view {
-            View::Books(view) => &mut view.list,
+            View::Books(view) => {
+                let step = view.list.input(host, &input)?;
+                self.books_step(host, token, step)?;
+                return Ok(if step == ListStep::Ignored {
+                    Handled::No
+                } else {
+                    Handled::Yes
+                });
+            }
             View::Shelves(view) => &mut view.list,
             View::Names(view) => &mut view.list,
             View::Info(view) => &mut view.list,
@@ -287,11 +336,79 @@ impl NativeFiles {
             let (held, focus) = (old.window.books.len(), old.list.focus());
             let reading = Reading::from(old.window.start, cursors(&old.starts)?);
             let fresh = self.read_browser(host, selection, reading, held, focus)?;
-            if let Some(View::Books(old)) = self.screens.top(token) {
-                *old = fresh;
-            }
+            Self::put_browser(host, self.screens.top(token), fresh);
         }
         redraw(host)
+    }
+
+    /// The host says the library changed: books, their status and the walk
+    /// read the lists again; a cover that is ready is asked for again.
+    fn library_changed(
+        &mut self,
+        host: &Host<'_>,
+        what: paperpaw_sdk::native::events::LibraryChanges,
+    ) -> Result<(), Error> {
+        let mut redraw_now = false;
+        if what.cover() {
+            for token in [BROWSER_TOKEN, SHELF_TOKEN] {
+                if let Some(View::Books(view)) = self.screens.top(token) {
+                    redraw_now |= view.covers.ready_somewhere();
+                }
+            }
+        }
+        if what.books() || what.status() || what.fields() || what.walk() {
+            // A list that cannot be read again now stays as it is: the next
+            // change or the next show reads it.
+            return match self.reread(host) {
+                Err(Error::NoMemory | Error::State) => Ok(()),
+                other => other,
+            };
+        }
+        if redraw_now { redraw(host) } else { Ok(()) }
+    }
+
+    /// Gives the host back the images of covers (best effort: an id that is
+    /// already gone is no error to the host).
+    fn give_back(host: &Host<'_>, covers: &mut Covers, keep: &[usize]) {
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        covers.drop_outside(keep, |id: ImageId| {
+            sender.image_release(id).ok();
+        });
+    }
+
+    /// `fresh` takes the place of the list on show; the old one's covers go back.
+    fn put_browser(host: &Host<'_>, old: Option<&mut View>, fresh: Browser) {
+        if let Some(View::Books(old)) = old {
+            Self::give_back(host, &mut old.covers, &[]);
+            *old = fresh;
+        }
+    }
+
+    /// A screen left: its covers go back to the host.
+    fn close(&mut self, host: &Host<'_>, instance: Instance) {
+        if let Some(View::Books(view)) = self.screens.get(instance) {
+            Self::give_back(host, &mut view.covers, &[]);
+        }
+        self.screens.close(instance);
+    }
+
+    /// What a step on the list of books does besides moving the focus.
+    fn books_step(&mut self, host: &Host<'_>, token: u32, step: ListStep) -> Result<(), Error> {
+        match step {
+            ListStep::Focus(_) => {
+                // The page may have changed: covers of rows that left it go back.
+                if let Some(View::Books(view)) = self.screens.top(token) {
+                    let visible = view.list.visible_books()?;
+                    Self::give_back(host, &mut view.covers, &visible);
+                }
+                Ok(())
+            }
+            ListStep::Chosen(index) => self.chosen(host, token, index),
+            ListStep::Held(index) => self.offer(host, token, index),
+            ListStep::Menu => self.open_menu(host, "files.menu"),
+            ListStep::Header(_) | ListStep::Ignored => Ok(()),
+        }
     }
 }
 

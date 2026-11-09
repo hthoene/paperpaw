@@ -386,7 +386,8 @@ pub trait Say {
 }
 
 /// A book's row: its title, how far it is read (or *Finished*, or *New*)
-/// and, below, its author, series with number and badges.
+/// and, below, its author and series with number. The badges plugins put
+/// on it are [`chips`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     pub title: String,
@@ -430,14 +431,26 @@ pub fn line(say: &mut impl Say, book: &BookLine) -> Result<Line, Error> {
         };
         part(&numbered)?;
     }
-    for badge in &book.badges {
-        part(badge)?;
-    }
     Ok(Line {
         title: copy(&book.title)?,
         value,
         note,
     })
+}
+
+/// The badges plugins put on `book`, copied for its row's chips.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn chips(book: &BookLine) -> Result<Vec<String>, Error> {
+    let mut chips = Vec::new();
+    chips
+        .try_reserve_exact(book.badges.len())
+        .map_err(|_| Error::NoMemory)?;
+    for badge in &book.badges {
+        push(&mut chips, copy(badge)?)?;
+    }
+    Ok(chips)
 }
 
 #[cfg(test)]
@@ -564,10 +577,12 @@ mod tests {
         b.series = "Saga".into();
         b.number = "2".into();
         b.badges = alloc::vec!["On loan".into()];
-        assert_eq!(line(&mut Words, &b).unwrap().note, "A · Saga #2 · On loan");
+        // The badges are chips of their own, not words of the note.
+        assert_eq!(line(&mut Words, &b).unwrap().note, "A · Saga #2");
+        assert_eq!(chips(&b).unwrap(), ["On loan"]);
         b.author = String::new();
         b.number = String::new();
-        assert_eq!(line(&mut Words, &b).unwrap().note, "Saga · On loan");
+        assert_eq!(line(&mut Words, &b).unwrap().note, "Saga");
     }
 
     /// A list of `len` books read 32 at a time; cursors are the offsets.
