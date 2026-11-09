@@ -75,13 +75,17 @@ fn metadata_reads_every_field_borrowed_from_the_reply() {
 fn metadata_refuses_what_the_contract_does_not_name_and_passes_host_refusals() {
     setup!(table, state, host, docs);
     let (mut input, mut out) = ([0; 64], [0; 4096]);
-    for bad in [meta(2, 0, 0), meta(0, 0, 0b100)] {
-        reply(&state, &[bad]);
-        assert_eq!(
-            docs.metadata(&host, DocId(4), &mut input, &mut out),
-            Err(Error::Invalid)
-        );
-    }
+    reply(&state, &[meta(2, 0, 0)]);
+    assert_eq!(
+        docs.metadata(&host, DocId(4), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    // A flag bit a newer host sets is ignored; the bits this SDK knows still read.
+    reply(&state, &[meta(0, 0, 0b101)]);
+    let m = docs
+        .metadata(&host, DocId(4), &mut input, &mut out)
+        .unwrap();
+    assert!(m.title_cut() && !m.series_cut());
     reply(&state, &[]);
     assert_eq!(
         docs.metadata(&host, DocId(4), &mut input, &mut out),
@@ -218,4 +222,50 @@ fn a_text_that_is_not_the_one_asked_for_or_is_cut_wrongly_is_invalid() {
         .is_err()
     );
     assert_eq!(state.calls.get(), calls);
+}
+
+#[test]
+fn the_edges_of_a_part_offset_at_the_end_and_a_shortfall_of_three_or_four_bytes() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 64], [0; 4096]);
+    let ask = |query: DocTextQuery, input: &mut [u8; 64], out: &mut [u8; 4096]| {
+        docs.text(&host, DocId(4), query, input, out)
+            .map(|part| (part.text().len(), part.next_offset()))
+    };
+    // An offset at the end of the text answers an empty part and no next.
+    reply(&state, &[text(3, 0, 5, "")]);
+    assert_eq!(
+        ask(DocTextQuery::description().from(5), &mut input, &mut out),
+        Ok((0, None))
+    );
+    // ... and a part with text there, or an offset past the end, is refused.
+    reply(&state, &[text(3, 0, 5, "a")]);
+    assert_eq!(
+        ask(DocTextQuery::description().from(5), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    reply(&state, &[text(3, 0, 5, "")]);
+    assert_eq!(
+        ask(DocTextQuery::description().from(6), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    // A part may stop up to three bytes short of the cap, not four.
+    let short3: &'static str = alloc::boxed::Box::leak("a".repeat(1021).into_boxed_str());
+    reply(&state, &[text(3, 0, 2000, short3)]);
+    assert_eq!(
+        ask(DocTextQuery::description(), &mut input, &mut out),
+        Ok((1021, Some(1021)))
+    );
+    let short4: &'static str = alloc::boxed::Box::leak("a".repeat(1020).into_boxed_str());
+    reply(&state, &[text(3, 0, 2000, short4)]);
+    assert_eq!(
+        ask(DocTextQuery::description(), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+    // The host's "no room" comes back as it is.
+    state.error.set(abi::ERR_NO_SPACE);
+    assert_eq!(
+        ask(DocTextQuery::description(), &mut input, &mut out),
+        Err(Error::NoSpace)
+    );
 }

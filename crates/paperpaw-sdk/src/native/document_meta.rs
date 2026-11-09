@@ -1,12 +1,11 @@
 //! A document's metadata (`docs/abi/document.md` 2.2, ops 3 and 4): title, language, series,
 //! direction, the counts of authors and subjects, and every text whole, by parts.
 use super::*;
+use crate::native::text_part;
 
 /// Highest `writing_mode` the contract names (`document.md` 2.2): 0 horizontal, 1 vertical
 /// right to left, 2 vertical left to right, 3 and 4 sideways.
 const WRITING_MODE_MAX: u32 = 4;
-/// `doc_meta.flags`: bit 0 the title was cut, bit 1 the series was cut.
-const FLAGS: u32 = 0b11;
 
 /// What a book's format says about it, borrowed from the caller's reply buffer. The title and
 /// the series are cut at their caps (see [`title_cut`](Self::title_cut)); every text is read
@@ -19,7 +18,7 @@ impl<'a> Metadata<'a> {
         let row = one(bytes)?
             .decode::<wire::ServiceDocMeta<'a>>()
             .map_err(|_| Error::Invalid)?;
-        if row.direction > 1 || row.flags & !FLAGS != 0 {
+        if row.direction > 1 {
             return Err(Error::Invalid);
         }
         Ok(Self(row))
@@ -172,7 +171,7 @@ impl Documents {
     ///
     /// # Errors
     /// `Busy` while the document is preparing; `Cancelled` for a document the host closed;
-    /// `Invalid` for a malformed reply (a direction above 1 or an unknown flag); otherwise the host's refusals.
+    /// `Invalid` for a malformed reply (a direction above 1; a flag bit this SDK does not know is ignored); otherwise the host's refusals.
     pub fn metadata<'a>(
         &self,
         host: &Host<'_>,
@@ -215,22 +214,19 @@ impl Documents {
         let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceDocText<'a>>()
             .map_err(|_| Error::Invalid)?;
-        let remaining = row.total.checked_sub(offset).ok_or(Error::Invalid)?;
-        let len = u32::try_from(row.text.len()).map_err(|_| Error::Invalid)?;
-        let want = remaining.min(1024);
-        let next = offset.checked_add(len).ok_or(Error::Invalid)?;
-        if row.kind != kind
-            || row.index != index
-            || len > want
-            || len + 3 < want
-            || remaining <= 1024 && len != remaining
-        {
-            return Err(Error::Invalid);
-        }
+        let next = text_part::next_offset(
+            (kind, index, offset),
+            text_part::Answer {
+                kind: row.kind,
+                index: row.index,
+                total: row.total,
+            },
+            row.text.len(),
+        )?;
         Ok(DocTextPart {
             text: row.text,
             total: row.total,
-            next: (next < row.total).then_some(next),
+            next,
         })
     }
 }

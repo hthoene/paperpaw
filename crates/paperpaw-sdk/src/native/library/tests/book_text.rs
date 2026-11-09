@@ -203,3 +203,58 @@ fn book_text_refuses_a_reply_that_is_not_the_text_asked_for() {
     );
     assert_eq!(state.calls.get(), calls);
 }
+
+#[test]
+fn the_edges_of_a_part_offset_at_the_end_and_a_shortfall_of_three_or_four_bytes() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let lib = Library::open(&host).unwrap();
+    let (mut input, mut out) = ([0; 1024], [0; 4096]);
+    let book = BookRef::path("books/a.epub").unwrap();
+    // An offset at the end of the text answers an empty part and no next.
+    reply(&state, &[text(0, 0, 5, "")]);
+    let part = lib
+        .book_text(
+            &host,
+            book,
+            BookTextQuery::title().from(5),
+            &mut input,
+            &mut out,
+        )
+        .unwrap();
+    assert_eq!((part.text(), part.next_offset()), ("", None));
+    // ... and a part with text there, or an offset past the end, is refused.
+    for (body, offset) in [("a", 5), ("", 6)] {
+        reply(&state, &[text(0, 0, 5, body)]);
+        assert_eq!(
+            lib.book_text(
+                &host,
+                book,
+                BookTextQuery::title().from(offset),
+                &mut input,
+                &mut out
+            ),
+            Err(Error::Invalid)
+        );
+    }
+    // A part may stop up to three bytes short of the cap, not four.
+    for (len, ok) in [(1021, true), (1020, false)] {
+        let body: &'static str = alloc::boxed::Box::leak("a".repeat(len).into_boxed_str());
+        reply(&state, &[text(0, 0, 2000, body)]);
+        let got = lib.book_text(&host, book, BookTextQuery::title(), &mut input, &mut out);
+        assert_eq!(got.is_ok(), ok, "{len}");
+        if !ok {
+            assert_eq!(got, Err(Error::Invalid));
+        }
+    }
+    // The host's "no room" comes back as it is.
+    state.error.set(abi::ERR_NO_SPACE);
+    assert_eq!(
+        lib.book_text(&host, book, BookTextQuery::title(), &mut input, &mut out),
+        Err(Error::NoSpace)
+    );
+}
