@@ -471,6 +471,7 @@ fn copy(text: &str) -> Result<String, StorageError> {
 
 /// The books, by id, to show them: none where `books.ini` cannot be read.
 /// Never to be saved back: changes go through [`update_books`].
+#[cfg(test)]
 pub(crate) fn books(storage: &dyn Storage) -> Vec<Book> {
     load_books(storage).unwrap_or_default()
 }

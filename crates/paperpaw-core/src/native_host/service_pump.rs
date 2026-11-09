@@ -145,7 +145,11 @@ impl crate::Kernel {
             .retry_run_closes(self.now.millis());
         // A batch left waiting (a callback outside the pumps staged it) runs
         // first: no event is called while one waits, and none is lost for it.
-        self.native_outbox_run();
+        // Never inside a callback (as the work and picture pumps): the pump
+        // below asks for another pass instead.
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         let more = {
             let env = self.shared.env(self.now);
             let instances = &self.shared.native_instances;
@@ -163,7 +167,9 @@ impl crate::Kernel {
                 },
             )
         };
-        self.native_outbox_run();
+        if self.shared.native_instances.depth() == 0 {
+            self.native_outbox_run();
+        }
         // Declared work comes due on the same tick (`work_pump`).
         let work_more = self.native_work_pump();
         // Pictures a plugin asked for decode one a turn (`image_pump`).

@@ -230,13 +230,14 @@ fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
 fn what_cannot_be_kept_fails_to_its_plugin_and_nothing_grows() {
     let mut w = world(true);
     w.apply((0..40).map(|cookie| prepare(0, "p.png", cookie)).collect());
-    // 4 queued, 16 kept (the bound); of the other 20 the first eight are told
-    // they failed, in the room the failures have of their own.
+    // 4 queued, 16 kept (the bound); of the other 20 the failures have room
+    // for eight, and the oldest give way: the last eight are told.
     assert_eq!(w.pending(), PENDING_MAX);
     w.kernel.native_image_pump();
     let told = w.told();
-    let failed: Vec<_> = told.iter().filter(|t| t.1 == 5).map(|t| t.0).collect();
-    assert_eq!(failed, (20..28).collect::<Vec<_>>());
+    let mut failed: Vec<_> = told.iter().filter(|t| t.1 == 5).map(|t| t.0).collect();
+    failed.sort_unstable();
+    assert_eq!(failed, (32..40).collect::<Vec<_>>());
 }
 
 #[test]
@@ -305,4 +306,61 @@ fn the_cache_folder_is_swept_once_before_the_first_decode() {
     assert!(!storage.exists(".paperpaw/cache/images/1-1.img"));
     assert!(storage.exists(".paperpaw/cache/images/notes.txt"));
     assert_eq!(w.told().len(), 1, "the request was decoded after the sweep");
+}
+
+#[test]
+fn a_lasting_refusal_at_apply_is_told_as_unsupported() {
+    let mut w = world(true);
+    // The submit said yes; the table finds the source too long for good.
+    let long = "x".repeat(2_000);
+    w.apply(std::vec![prepare(0, &long, 9)]);
+    assert_eq!(w.pending(), 0);
+    while w.kernel.native_image_pump() {}
+    assert_eq!(w.told(), [(9, 1, 0, 0)]);
+}
+
+#[test]
+fn when_every_failure_place_is_taken_the_oldest_gives_way() {
+    let mut w = world(true);
+    let long = "x".repeat(2_000);
+    // Ten failures, eight places: the first two give way to the last two.
+    w.apply((0..10).map(|cookie| prepare(0, &long, cookie)).collect());
+    assert_eq!(w.kernel.image_held(w.owner), 8);
+    while w.kernel.native_image_pump() {}
+    let mut cookies: Vec<u32> = w.told().iter().map(|t| t.0).collect();
+    cookies.sort_unstable();
+    assert_eq!(cookies, (2..10).collect::<Vec<_>>());
+    assert_eq!(w.kernel.image_held(w.owner), 0);
+}
+
+#[test]
+fn requests_held_outside_the_table_count_against_the_plugins_room() {
+    use crate::native_host::{
+        commands::{CommandStage, WireCommand, commands_decode, commands_encode},
+        image_service::commands::ImageAdmit,
+    };
+    let owner = Id::new_static("a");
+    let settings = paperpaw_sdk::Settings::new();
+    let mut stage = CommandStage::new(&owner, &settings, None, 8, 4096);
+    stage.set_images_held(3);
+    stage.admit_images(ImageAdmit {
+        storage_root: false,
+        room: 4,
+    });
+    let command = WireCommand::ImagePrepare {
+        root: 0,
+        path: "p.png",
+        side: 0,
+        cookie: 1,
+        flags: 0,
+    };
+    let mut bytes = [0; 256];
+    let two = commands_encode(&[command, command], &mut bytes).unwrap();
+    // Room 4 less 3 held: one more only.
+    assert_eq!(
+        stage.stage(&commands_decode(&bytes[..two]).unwrap()),
+        paperpaw_native::host_glue::ERR_FULL
+    );
+    let one = commands_encode(&[command], &mut bytes).unwrap();
+    assert_eq!(stage.stage(&commands_decode(&bytes[..one]).unwrap()), OK);
 }

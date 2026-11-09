@@ -1,12 +1,13 @@
 //! The thirteen hyphenation data plugins: what each holds.
 //!
-//! The pattern sources stay in the interface-6 plugins (`plugins/<id>/patterns/`)
-//! until those are removed; a package takes its patterns, catalogs and
-//! texts from there and compiles the table (`paperpaw_hyphen::compile`).
+//! The pattern sources, catalogs and texts live in `plugins/<id>/` (`patterns/`,
+//! `i18n/`, `how/`; no code is left there, the interface-6 crates are gone); a
+//! package takes them from there and compiles the table
+//! (`paperpaw_hyphen::compile`).
 
 /// The version every package starts at. Devices update a plugin only to a
 /// newer version than the one installed, and the code plugins these replace
-/// are at 1.0.3 (the English one at 1.1.1).
+/// were at 1.0.3 (the English one at 1.1.1) in Beta 3.
 pub const VERSION: &str = "2.0.0";
 
 /// The data formats version of the `[hyphenation]` file kind (contract:
@@ -16,7 +17,7 @@ pub const FORMATS: u32 = 5;
 /// One hyphenation data plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Package {
-    /// The plugin id and the folder's name; also the source plugin in `plugins/`.
+    /// The plugin id and the folder's name; also the source folder in `plugins/`.
     pub id: &'static str,
     /// The language tags it provides, and the table (a file stem) each names.
     pub languages: &'static [(&'static str, &'static str)],

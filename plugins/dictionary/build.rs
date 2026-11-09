@@ -38,6 +38,7 @@ fn main() -> Result<(), String> {
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
     emit!(source, "PROVIDERS", declarations::providers);
+    emit!(source, "SCREENS", declarations::screens);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("dictionary_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))
