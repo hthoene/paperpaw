@@ -151,9 +151,6 @@ impl Storage for Card {
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         self.on(|s| s.rename(from, to))
     }
-    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
-        self.on(|s| s.same_entry(a, b))
-    }
     fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
         self.on(|s| s.entry_identity(path))
     }
