@@ -2,11 +2,12 @@
 //! native host. `make` there has no live frame, so it must not open services
 //! (it registers its declarations; `core.ui` opens in the first callback).
 //!
-//! The plugin brings hyphenation files, and a linked built-in has no folder
-//! they could be read from, so the host refuses the whole install with
-//! `Unsupported` (-1) before `make` runs (`Kernel::register_native_in`). The
-//! positive case stays ignored until the host serves a built-in's files; the
-//! second test pins that refusal.
+//! The plugin declares a key binding (`key.bind`: layer `keyboard.screen`, input
+//! `long.back`, action `keyboard.done`). The host checks it, but
+//! `native_install::map_record` has no mapping for the record yet, so the whole
+//! install is refused with `Unsupported` (-1) after `make` (`Status(-1)`). The
+//! positive case stays ignored until the host maps `key.bind`; the second test
+//! pins that refusal.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -25,16 +26,16 @@ fn construct() -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "BLOCKED: the host refuses a linked built-in with hyphenation files (no folder)"]
+#[ignore = "BLOCKED: the host install has no mapping for the key.bind record (keyboard.screen / long.back)"]
 fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
 }
 
 #[test]
-fn a_linked_built_in_with_hyphenation_files_is_refused_as_unsupported() {
+fn the_key_binding_is_refused_as_unsupported_until_the_host_maps_it() {
     let refused = construct().unwrap_err();
     assert_eq!(
         refused, "Status(-1)",
-        "refused before `make` runs: font or hyphenation files need a folder"
+        "`make` ran; the install refuses the key.bind record (`map_record`)"
     );
 }
