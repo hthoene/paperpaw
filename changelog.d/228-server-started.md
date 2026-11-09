@@ -1,0 +1,3 @@
+### Changed
+- `core.net` servers: the plugin is told `event.server` `started` (with the address) only when the shell reports that the listener opened (`NetReports::server_started`), not when its `listen` returns. A listener that cannot open is reported with `NetReports::server_failed`: the plugin gets `failed` with reason `refused` and the server slot is free again.
+- `core.net` has a device-wide cap of servers open at once over all plugins (`SERVERS`, from the resource profile: 1 on the X4, 2 on the X4 Pro and Classic, 8 elsewhere; `NetLimits::servers`). A `serve` past it, or past the plugin's two, answers `ERR_BUSY` at once and opens nothing; the place is free again after the server stops, fails or ends.

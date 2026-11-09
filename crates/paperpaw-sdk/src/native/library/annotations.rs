@@ -213,64 +213,77 @@ impl<'a> AnnotationPage<'a> {
         })
     }
     pub(super) fn decode(bytes: &'a [u8], cursor: AnnotationCursor) -> Result<Self, Error> {
-        let mut rest = bytes;
-        let mut count = 0;
         // The schema bounds this temporary id set to 128 bytes, with no heap use.
         let mut ids = [0; schema::PAGE_MAX_ROWS];
         let mut previous_start = None;
-        let end = loop {
-            let (raw, n) = wire::RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
-            rest = rest.get(n..).ok_or(Error::Invalid)?;
-            if raw.tag() == wire::SERVICE_END_TAG {
-                break raw
-                    .decode::<wire::ServiceEnd>()
-                    .map_err(|_| Error::Invalid)?;
-            }
-            count += 1;
-            if count > schema::PAGE_MAX_ROWS {
-                return Err(Error::Invalid);
-            }
+        let (count, end) = scan(bytes, cursor, |raw, at| {
             let row = Annotation::decode(raw)?;
             let start = (row.start_section(), row.start_offset());
-            if ids[..count - 1].contains(&row.id())
+            if ids[..at].contains(&row.id())
                 || previous_start.is_some_and(|previous| previous > start)
             {
                 return Err(Error::Invalid);
             }
-            ids[count - 1] = row.id();
+            ids[at] = row.id();
             previous_start = Some(start);
-        };
-        if !rest.is_empty() || end.flags > 1 || end.cursor.is_some() || end.generation == 0 {
-            return Err(Error::Invalid);
-        }
-        if cursor.generation != 0 && cursor.generation != end.generation {
-            return Err(Error::State);
-        }
-        let expected = cursor
-            .offset
-            .checked_add(u32::try_from(count).map_err(|_| Error::Invalid)?)
-            .ok_or(Error::Invalid)?;
-        let last = end.flags == 1;
-        if end.next != expected
-            || end.next > end.total
-            || last != (end.next == end.total)
-            || !last && count == 0
-        {
-            return Err(Error::Invalid);
-        }
-        Ok(Self {
-            bytes,
-            count,
-            end: AnnotationPageEnd {
-                total: end.total,
-                generation: end.generation,
-                next: (!last).then_some(AnnotationCursor {
-                    offset: end.next,
-                    generation: end.generation,
-                }),
-            },
-        })
+            Ok(())
+        })?;
+        Ok(Self { bytes, count, end })
     }
+}
+/// Walk a page of rows and its closing `end`, checking the paging of one book's
+/// annotation rows (`library.md` 2): rows are handed to `row` with their index;
+/// the end, its generation and its continuation are validated here.
+pub(super) fn scan<'a>(
+    bytes: &'a [u8],
+    cursor: AnnotationCursor,
+    mut row: impl FnMut(wire::RawRecord<'a>, usize) -> Result<(), Error>,
+) -> Result<(usize, AnnotationPageEnd), Error> {
+    let mut rest = bytes;
+    let mut count = 0;
+    let end = loop {
+        let (raw, n) = wire::RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
+        rest = rest.get(n..).ok_or(Error::Invalid)?;
+        if raw.tag() == wire::SERVICE_END_TAG {
+            break raw
+                .decode::<wire::ServiceEnd>()
+                .map_err(|_| Error::Invalid)?;
+        }
+        count += 1;
+        if count > schema::PAGE_MAX_ROWS {
+            return Err(Error::Invalid);
+        }
+        row(raw, count - 1)?;
+    };
+    if !rest.is_empty() || end.flags > 1 || end.cursor.is_some() || end.generation == 0 {
+        return Err(Error::Invalid);
+    }
+    if cursor.generation != 0 && cursor.generation != end.generation {
+        return Err(Error::State);
+    }
+    let expected = cursor
+        .offset
+        .checked_add(u32::try_from(count).map_err(|_| Error::Invalid)?)
+        .ok_or(Error::Invalid)?;
+    let last = end.flags == 1;
+    if end.next != expected
+        || end.next > end.total
+        || last != (end.next == end.total)
+        || !last && count == 0
+    {
+        return Err(Error::Invalid);
+    }
+    Ok((
+        count,
+        AnnotationPageEnd {
+            total: end.total,
+            generation: end.generation,
+            next: (!last).then_some(AnnotationCursor {
+                offset: end.next,
+                generation: end.generation,
+            }),
+        },
+    ))
 }
 impl Library {
     pub(super) fn annotation_call(
@@ -281,9 +294,31 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
+        let (cap, n) = self.annotation_encode(op, records, input)?;
+        self.annotation_send(host, op, cap, &input[..n], out)
+    }
+    /// Encode a call's records: the reply cap of the op and the input's length.
+    /// Nothing reaches the host, so a failure here changes nothing there.
+    pub(super) fn annotation_encode(
+        &self,
+        op: u32,
+        records: &[&dyn wire::WireEncode],
+        input: &mut [u8],
+    ) -> Result<(usize, usize), Error> {
         let cap = self.service.max_reply(op).ok_or(Error::Unsupported)?;
         let n = wire::records_encode_of(records, input).map_err(Error::from_status)?;
-        let n = self.service.call(host, op, &input[..n], out)?;
+        Ok((cap, n))
+    }
+    /// Send encoded records and check the reply's size against the op's cap.
+    pub(super) fn annotation_send(
+        &self,
+        host: &Host<'_>,
+        op: u32,
+        cap: usize,
+        input: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, Error> {
+        let n = self.service.call(host, op, input, out)?;
         if n > cap {
             return Err(Error::Invalid);
         }

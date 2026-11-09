@@ -373,3 +373,27 @@ fn core_ui_reads_the_stack_through_a_live_frame_only() {
     }
     assert_eq!(frame.close_dialog(17), Err(ERR_STATE));
 }
+
+/// The S3 frame scan's budgets (`shells/xteink/frame-budget-s3*.txt`) name the
+/// `Frame` trait by its path in an `absent trait` line (todo 252): the day the
+/// trait is renamed or moved, this fails, so the line cannot keep passing by
+/// matching nothing.
+#[test]
+fn the_frame_trait_path_is_the_one_the_s3_budgets_name() {
+    let path = core::any::type_name::<dyn crate::abi7::context::Frame>();
+    assert_eq!(path, "dyn paperpaw_core::abi7::context::Frame");
+    let name = path.strip_prefix("dyn ").unwrap_or(path);
+    for budget in [
+        include_str!("../../../../shells/xteink/frame-budget-s3.txt"),
+        include_str!("../../../../shells/xteink/frame-budget-s3-classic.txt"),
+    ] {
+        let line = alloc::format!("absent trait {name} ");
+        let root = alloc::format!("root trait {name}\n");
+        assert!(
+            budget
+                .lines()
+                .any(|l| l.starts_with(&line) || l == root.trim_end()),
+            "a budget has neither `absent trait {name}` nor `root trait {name}`"
+        );
+    }
+}
