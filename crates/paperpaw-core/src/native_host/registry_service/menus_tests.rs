@@ -919,6 +919,39 @@ fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
 }
 
 #[test]
+fn op_14_lists_the_natively_declared_inputs_the_device_meets() {
+    let kernel = kernel();
+    let spec = |name, kind, need| {
+        Record::InputSpec(wire::InputSpec {
+            name,
+            title: "nat.input.title",
+            kind,
+            need,
+            capability: 0,
+            flags: u32::from(need != 0),
+        })
+    };
+    // Touch (4) and no touch (3): the device meets one of them, never both.
+    let directory = declarations(&[
+        spec("chord", 0, 0),
+        spec("shake", 1, 0),
+        spec("with-touch", 0, 4),
+        spec("without-touch", 0, 3),
+    ]);
+    let all = rows_of(&kernel, Some(&directory), schema::OP_INPUTS, "", 0);
+    // Declared (bit 4); a gesture also bit 2.
+    assert!(all.contains(&"item input.nat.chord nat 16 nat.input.title".into()));
+    assert!(all.contains(&"item gesture.nat.shake nat 20 nat.input.title".into()));
+    let touch = all.iter().any(|row| row.contains("input.nat.with-touch"));
+    let no_touch = all
+        .iter()
+        .any(|row| row.contains("input.nat.without-touch"));
+    assert_ne!(touch, no_touch, "{all:?}");
+    // The device's own inputs come first.
+    assert!(all[0].starts_with("item ") && !all[0].contains(".nat."));
+}
+
+#[test]
 fn a_borrowed_declaration_store_is_busy_not_a_panic() {
     let kernel = kernel();
     let directory = native_menus();
