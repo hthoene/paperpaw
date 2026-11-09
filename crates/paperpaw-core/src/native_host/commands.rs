@@ -201,15 +201,8 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // `answer_plugin` needs the install feature (`uses.install`, DEV,
-        // `docs/abi/device.md` section 1). Until command staging checks
-        // features (DEV host side), it is refused for every plugin, wherever it
-        // sits in the batch.
-        if batch
-            .iter()
-            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
-        {
-            return ERR_DENIED;
+        if let Some(status) = refused_outright(batch) {
+            return status;
         }
         if let Err(status) = self
             .validate_open_budget(batch)
@@ -507,6 +500,35 @@ impl CommandScope {
     }
 }
 
+/// A batch no plugin may send: `ERR_DENIED` for the whole of it.
+///
+/// `answer_plugin` needs the install feature (`uses.install`, DEV,
+/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
+/// host side), it is refused for every plugin, wherever it sits in the batch.
+///
+/// User grants are the host's alone (`screens-input.md`, guarded grants): a
+/// command that sets, resets or previews a `core.grant.*` setting refuses the
+/// whole batch, for every plugin, the one the grant names and the settings
+/// editor included.
+fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
+    batch
+        .iter()
+        .any(|command| {
+            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
+        })
+        .then_some(ERR_DENIED)
+}
+
+/// Whether `command` writes a user grant (`core.grant.*`).
+fn touches_grant(command: WireCommand<'_>) -> bool {
+    match command {
+        WireCommand::SetSetting { key, .. }
+        | WireCommand::ResetSetting { key, .. }
+        | WireCommand::PreviewSetting { key, .. } => key.starts_with("core.grant."),
+        _ => false,
+    }
+}
+
 impl Default for CommandScope {
     fn default() -> Self {
         Self::new()
@@ -522,6 +544,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_grant_tests.rs"]
+mod grant_tests;
 
 #[cfg(test)]
 mod tests {
