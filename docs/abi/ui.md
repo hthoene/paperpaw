@@ -33,8 +33,8 @@ events 83, 88 and 90 are free).
 - [D] **No interface-6 shapes.** `Params`, `ScreenKey`, `Emit`-based replies and `Env::stack` have
   no interface-7 copies; what they carried is in the records below.
 - Out of 1.0 (no first-party plugin uses them; additive later): chrome bars (`ChromeSpec`),
-  refresh filters (`RefreshFilterSpec`), sound playback, task switching (`SwitchTask`).
-  [Q] Plugin: confirm none of these is needed by a port.
+  refresh filters (`RefreshFilterSpec`), sound playback, task switching (`SwitchTask`). Plugin
+  confirmed none is needed by a port (todo 262; vocabulary only strips Anki `[sound:…]` text).
 
 ## 1. Screen instances and parameters
 
