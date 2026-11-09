@@ -2655,7 +2655,7 @@ and the eight-per-plugin subscription limit are checked by the host at commit.
 A subscription's `order` controls its position and its `signature` contributes to
 layout invalidation when the stage changes layout.
 
-A subscriber receives `native::events::Event::StageCall { stage, schema, payload }`
+A subscriber receives `native::events::Event::StageCall { stage, schema, payload, .. }`
 at its declared token. Check the stage and schema, decode `payload` with the
 stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
@@ -2782,7 +2782,7 @@ Subscribe with `Declarations::subscribe_event(kind, token)`. A host returns
 never start a stopped plugin.
 
 The matching `native::events::Event` variants borrow callback bytes. Book session
-edges use `Event::Book { kind, reason, reading }`; page turns and book edges share
+edges use `Event::Book { kind, reason, reading, .. }`; page turns and book edges share
 `ReadingView`, whose accessors expose the complete path, reading position, titles
 and optional page counters. Reason 1 denotes a restored open or a sleep/shutdown
 close; reserved reasons become 0. Book-finished reason is always 0.

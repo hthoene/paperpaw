@@ -574,7 +574,7 @@ impl<'a> Event<'a> {
 /// use paperpaw_sdk::native::{Error, events::{Event, Incoming, kinds}};
 /// fn on_tick(event: Incoming<'_>) -> Result<Option<u64>, Error> {
 ///     Ok(match event.decode_as::<kinds::Tick>()? {
-///         Some(Event::Tick { now_ms }) => Some(now_ms),
+///         Some(Event::Tick { now_ms, .. }) => Some(now_ms),
 ///         _ => None,
 ///     })
 /// }

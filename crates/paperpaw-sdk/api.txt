@@ -4154,75 +4154,75 @@ pub paperpaw_sdk::native::events::BookKind::Closed
 pub paperpaw_sdk::native::events::BookKind::Finished
 pub paperpaw_sdk::native::events::BookKind::Opened
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
-pub paperpaw_sdk::native::events::Event::ActionRun
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ActionRun
 pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
 pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Answered
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Answered
 pub paperpaw_sdk::native::events::Event::Answered::answer: paperpaw_sdk::native::events::Answered
 pub paperpaw_sdk::native::events::Event::Answered::now_ms: u64
-pub paperpaw_sdk::native::events::Event::BatteryMeasured
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BatteryMeasured
 pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Bluetooth(paperpaw_sdk::native::events::BluetoothChange<'a>)
-pub paperpaw_sdk::native::events::Event::Book
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Book
 pub paperpaw_sdk::native::events::Event::Book::kind: paperpaw_sdk::native::events::BookKind
 pub paperpaw_sdk::native::events::Event::Book::reading: paperpaw_sdk::native::events::ReadingView<'a>
 pub paperpaw_sdk::native::events::Event::Book::reason: u32
-pub paperpaw_sdk::native::events::Event::BookMoved
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BookMoved
 pub paperpaw_sdk::native::events::Event::BookMoved::from: &'a str
 pub paperpaw_sdk::native::events::Event::BookMoved::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BookMoved::path: &'a str
-pub paperpaw_sdk::native::events::Event::BookRemoved
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::BookRemoved
 pub paperpaw_sdk::native::events::Event::BookRemoved::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BookRemoved::path: &'a str
 pub paperpaw_sdk::native::events::Event::Broadcast(paperpaw_sdk::native::sockets::BroadcastEvent<'a>)
-pub paperpaw_sdk::native::events::Event::ChargeChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::FirmwareChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::FirmwareChanged
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::request: core::option::Option<paperpaw_sdk::native::device::DeviceRequest>
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::state: paperpaw_sdk::native::device::FirmwareState
 pub paperpaw_sdk::native::events::Event::HttpDone(paperpaw_sdk::native::net::HttpDone)
 pub paperpaw_sdk::native::events::Event::HttpProgress(paperpaw_sdk::native::net::HttpProgress)
 pub paperpaw_sdk::native::events::Event::InstallDone(paperpaw_sdk::native::events::InstallDone<'a>)
-pub paperpaw_sdk::native::events::Event::LibraryChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::LibraryChanged
 pub paperpaw_sdk::native::events::Event::LibraryChanged::generation: u32
 pub paperpaw_sdk::native::events::Event::LibraryChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::LibraryChanged::path: &'a str
 pub paperpaw_sdk::native::events::Event::LibraryChanged::what: paperpaw_sdk::native::events::LibraryChanges
-pub paperpaw_sdk::native::events::Event::LookupReady
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::LookupReady
 pub paperpaw_sdk::native::events::Event::LookupReady::now_ms: u64
 pub paperpaw_sdk::native::events::Event::LookupReady::provider: &'a str
-pub paperpaw_sdk::native::events::Event::NetworkIdle
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::NetworkIdle
 pub paperpaw_sdk::native::events::Event::NetworkIdle::now_ms: u64
-pub paperpaw_sdk::native::events::Event::NetworkWanted
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::NetworkWanted
 pub paperpaw_sdk::native::events::Event::NetworkWanted::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::ReadingView<'a>)
-pub paperpaw_sdk::native::events::Event::PluginAnswered
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginAnswered
 pub paperpaw_sdk::native::events::Event::PluginAnswered::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PluginAnswered::outcome: paperpaw_sdk::native::commands::PluginOutcome
 pub paperpaw_sdk::native::events::Event::PluginAnswered::plugin: &'a str
 pub paperpaw_sdk::native::events::Event::PluginAnswered::request: paperpaw_sdk::native::events::PluginRequestId
-pub paperpaw_sdk::native::events::Event::PluginsChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginsChanged
 pub paperpaw_sdk::native::events::Event::PluginsChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::PluginsRequested
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PluginsRequested
 pub paperpaw_sdk::native::events::Event::PluginsRequested::by: &'a str
 pub paperpaw_sdk::native::events::Event::PluginsRequested::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PluginsRequested::plugins: paperpaw_sdk::native::events::RequestedPlugins<'a>
 pub paperpaw_sdk::native::events::Event::PluginsRequested::request: paperpaw_sdk::native::events::PluginRequestId
 pub paperpaw_sdk::native::events::Event::PowerChanged(paperpaw_sdk::native::events::PowerChange<'a>)
-pub paperpaw_sdk::native::events::Event::PreviewChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::PreviewChanged
 pub paperpaw_sdk::native::events::Event::PreviewChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::RegistryChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::RegistryChanged
 pub paperpaw_sdk::native::events::Event::RegistryChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::RegistryChanged::what: paperpaw_sdk::native::events::RegistryChanges
-pub paperpaw_sdk::native::events::Event::Resume
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Resume
 pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
-pub paperpaw_sdk::native::events::Event::ScreenClosed
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenClosed
 pub paperpaw_sdk::native::events::Event::ScreenClosed::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::ScreenClosed::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenClosed::screen: &'a str
-pub paperpaw_sdk::native::events::Event::ScreenOpened
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenOpened
 pub paperpaw_sdk::native::events::Event::ScreenOpened::again: bool
 pub paperpaw_sdk::native::events::Event::ScreenOpened::handover: core::option::Option<paperpaw_sdk::native::ui::HandoverId>
 pub paperpaw_sdk::native::events::Event::ScreenOpened::instance: paperpaw_sdk::native::ui::Instance
@@ -4232,65 +4232,65 @@ pub paperpaw_sdk::native::events::Event::ScreenOpened::restored: bool
 pub paperpaw_sdk::native::events::Event::ScreenOpened::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenOpened::slot: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenOpened::text_bytes: u32
-pub paperpaw_sdk::native::events::Event::ScreenReady
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenReady
 pub paperpaw_sdk::native::events::Event::ScreenReady::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::ScreenReady::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenReady::screen: &'a str
-pub paperpaw_sdk::native::events::Event::ScreenShown
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenShown
 pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
 pub paperpaw_sdk::native::events::Event::ScreenShown::instance: core::option::Option<paperpaw_sdk::native::ui::Instance>
 pub paperpaw_sdk::native::events::Event::ScreenShown::last_input: core::option::Option<paperpaw_sdk::keys::InputMode>
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
-pub paperpaw_sdk::native::events::Event::SettingChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::SettingChanged
 pub paperpaw_sdk::native::events::Event::SettingChanged::key: &'a str
 pub paperpaw_sdk::native::events::Event::SettingChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::SettingChanged::old: core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
 pub paperpaw_sdk::native::events::Event::Socket(paperpaw_sdk::native::sockets::SocketEvent)
-pub paperpaw_sdk::native::events::Event::Spoken
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Spoken
 pub paperpaw_sdk::native::events::Event::Spoken::cookie: u32
 pub paperpaw_sdk::native::events::Event::Spoken::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Spoken::status: paperpaw_sdk::native::events::SpeechStatus
-pub paperpaw_sdk::native::events::Event::StackChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StackChanged
 pub paperpaw_sdk::native::events::Event::StackChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::StageCall
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StageCall
 pub paperpaw_sdk::native::events::Event::StageCall::payload: &'a [u8]
 pub paperpaw_sdk::native::events::Event::StageCall::schema: u32
 pub paperpaw_sdk::native::events::Event::StageCall::stage: &'a str
-pub paperpaw_sdk::native::events::Event::Started
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Started
 pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
-pub paperpaw_sdk::native::events::Event::StatusChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::StatusChanged
 pub paperpaw_sdk::native::events::Event::StatusChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Stopping
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Stopping
 pub paperpaw_sdk::native::events::Event::Stopping::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Suspend
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Suspend
 pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
-pub paperpaw_sdk::native::events::Event::TextTyped
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::TextTyped
 pub paperpaw_sdk::native::events::Event::TextTyped::done: bool
 pub paperpaw_sdk::native::events::Event::TextTyped::now_ms: u64
 pub paperpaw_sdk::native::events::Event::TextTyped::text: paperpaw_sdk::native::events::TypedText<'a>
-pub paperpaw_sdk::native::events::Event::Tick
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::Tick
 pub paperpaw_sdk::native::events::Event::Tick::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetChanged
 pub paperpaw_sdk::native::events::Event::WidgetChanged::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetChanged::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetDropped
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetDropped
 pub paperpaw_sdk::native::events::Event::WidgetDropped::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetDropped::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WidgetMade
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WidgetMade
 pub paperpaw_sdk::native::events::Event::WidgetMade::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::WidgetMade::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WidgetMade::place: &'a str
 pub paperpaw_sdk::native::events::Event::WidgetMade::widget: &'a str
-pub paperpaw_sdk::native::events::Event::WifiChanged
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WifiChanged
 pub paperpaw_sdk::native::events::Event::WifiChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WifiChanged::state: paperpaw_sdk::native::events::WifiLinkState
 pub paperpaw_sdk::native::events::Event::WifiDone(paperpaw_sdk::native::events::WifiDone<'a>)
-pub paperpaw_sdk::native::events::Event::WifiScanned
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WifiScanned
 pub paperpaw_sdk::native::events::Event::WifiScanned::networks: u32
 pub paperpaw_sdk::native::events::Event::WifiScanned::now_ms: u64
-pub paperpaw_sdk::native::events::Event::WorkAllowed
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::WorkAllowed
 pub paperpaw_sdk::native::events::Event::WorkAllowed::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WorkDue(paperpaw_sdk::native::work::WorkDue<'a>)
 pub paperpaw_sdk::native::events::Event::WorkRefused(paperpaw_sdk::native::work::WorkRefused<'a>)
@@ -10193,6 +10193,7 @@ pub fn paperpaw_sdk::Env<'a>::work(&self) -> &'a paperpaw_sdk::work::WorkStates
 impl<'a> paperpaw_sdk::Env<'a>
 pub fn paperpaw_sdk::Env<'a>::device_name(&self) -> alloc::string::String
 pub fn paperpaw_sdk::Env<'a>::device_within(&self, paperpaw_platform::geometry::Rect) -> paperpaw_platform::DeviceInfo
+pub fn paperpaw_sdk::Env<'a>::each_slot_screen(&self, &str, &mut dyn core::ops::function::FnMut(&'a paperpaw_sdk::Id) -> bool)
 pub fn paperpaw_sdk::Env<'a>::screen_title(&self, &paperpaw_sdk::Id) -> core::option::Option<&'a str>
 pub fn paperpaw_sdk::Env<'a>::slot_choice(&self, &str) -> core::option::Option<&'a paperpaw_sdk::Id>
 pub fn paperpaw_sdk::Env<'a>::slot_screen(&self, &str) -> core::option::Option<&'a paperpaw_sdk::Id>

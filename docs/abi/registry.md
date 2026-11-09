@@ -76,7 +76,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 1 | `settings` | `reg_query` (`scope`: group id, plugin id or empty for all) | `reg_setting`*, `end` | registry order |
 | 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`? | one setting in full (help text) |
 | 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
-| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
+| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | a group's children; empty: every group, each row with its `parent` |
 | 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
 | 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`? | description; requirements are op 20 |
 | 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
