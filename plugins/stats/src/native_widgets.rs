@@ -27,7 +27,7 @@ use paperpaw_ui_kit::widget::text::{Wrapped, largest_size};
 use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
-use crate::declarations::{RING_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
+use crate::declarations::{RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
 
 /// The most bytes of a stage reply (a size, or one target).
 const REPLY: usize = 256;
@@ -57,12 +57,18 @@ static RING: Behaviour = Behaviour {
     draw: crate::native_widget_ring::draw,
 };
 
+static STREAK: Behaviour = Behaviour {
+    height: crate::native_widget_streak::height,
+    draw: crate::native_widget_streak::draw,
+};
+
 /// The behaviour of the widget declared with `token`.
 fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
         TODAY_TOKEN => Some(&TODAY),
         WEEK_TOKEN => Some(&WEEK),
         RING_TOKEN => Some(&RING),
+        STREAK_TOKEN => Some(&STREAK),
         _ => None,
     }
 }
@@ -73,6 +79,7 @@ fn token_of(widget: &str) -> Option<u32> {
         "stats.widget.today" => Some(TODAY_TOKEN),
         "stats.widget.week" => Some(WEEK_TOKEN),
         "stats.widget.goal" => Some(RING_TOKEN),
+        "stats.widget.streak" => Some(STREAK_TOKEN),
         _ => None,
     }
 }

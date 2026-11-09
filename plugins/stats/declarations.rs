@@ -22,6 +22,7 @@ pub const TICK_TOKEN: u32 = 2;
 pub const TODAY_TOKEN: u32 = 40;
 pub const WEEK_TOKEN: u32 = 41;
 pub const RING_TOKEN: u32 = 42;
+pub const STREAK_TOKEN: u32 = 43;
 
 pub const GROUP: &str = "stats.group";
 
@@ -142,6 +143,13 @@ pub const RING_STYLES: [&str; 2] = ["stats.ring.full", "stats.ring.gauge"];
 /// How thick the ring is.
 pub const RING_LINES: [&str; 3] = ["stats.line.thin", "stats.line.medium", "stats.line.thick"];
 
+/// Which days count for the streak: any reading, or the daily goal reached.
+pub const STREAK_COUNTS: [&str; 2] = ["stats.streak.any", "stats.streak.goal"];
+/// How the marks show: dots, or dots with a check.
+pub const STREAK_MARKS: [&str; 2] = ["stats.marks.dots", "stats.marks.checks"];
+/// How many days the marks show.
+pub const STREAK_DAYS: [&str; 2] = ["stats.marks.7", "stats.marks.14"];
+
 /// A widget of the plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Def {
@@ -225,8 +233,38 @@ const RING_OWN: &[Opt] = &[
     ),
 ];
 
+const STREAK_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.center"),
+    Opt::Choice(
+        "counts",
+        "stats.setting.counts",
+        &STREAK_COUNTS,
+        "stats.streak.any",
+        "stats.setting.counts.help",
+    ),
+    Opt::Choice(
+        "style",
+        "stats.setting.marks",
+        &STREAK_MARKS,
+        "stats.marks.checks",
+        "stats.setting.marks.help",
+    ),
+    Opt::Choice(
+        "days",
+        "stats.setting.days",
+        &STREAK_DAYS,
+        "stats.marks.7",
+        "stats.setting.days.help",
+    ),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::Part("longest", "stats.part.longest", true),
+    Opt::PartHelp("marks", "stats.part.marks", true, "stats.part.marks.help"),
+    Opt::Part("weekdays", "stats.part.weekdays", true),
+];
+
 /// The widgets, with their own settings (the shared look comes first).
-pub const WIDGETS: [Def; 3] = [
+pub const WIDGETS: [Def; 4] = [
     Def {
         name: "widget.today",
         token: TODAY_TOKEN,
@@ -241,6 +279,11 @@ pub const WIDGETS: [Def; 3] = [
         name: "widget.goal",
         token: RING_TOKEN,
         options: RING_OWN,
+    },
+    Def {
+        name: "widget.streak",
+        token: STREAK_TOKEN,
+        options: STREAK_OWN,
     },
 ];
 

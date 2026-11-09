@@ -17,9 +17,9 @@ fn the_screens_show_time_streaks_calendar_and_books() {
 }
 
 #[test]
-#[ignore = "the widgets of today, the week and the daily goal are native (tests/scripted_widgets.rs, widgets_parity.rs); their pixels need a kernel-backed harness, and the streak, calendar and year widgets and the status item are not ported yet"]
+#[ignore = "the widgets of today, the week, the daily goal and the streak are native (tests/scripted_widgets.rs, widgets_parity.rs); their pixels need a kernel-backed harness, and the calendar and year widgets and the status item are not ported yet"]
 fn the_widgets_and_the_status_item_show_todays_reading() {
-    unreachable!("streak, calendar, year widgets; left.rs status item");
+    unreachable!("calendar, year widgets; left.rs status item");
 }
 
 #[test]
