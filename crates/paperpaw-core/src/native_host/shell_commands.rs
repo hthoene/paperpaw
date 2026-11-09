@@ -23,6 +23,9 @@ pub(crate) struct CommandTarget {
     pub(crate) result: CommandResult,
 }
 
+/// `event.registry_changed.what` bit 0: menus and the item states they show.
+const REGISTRY_MENUS: u32 = 1;
+
 impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
@@ -88,24 +91,14 @@ impl Kernel {
                 }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
-                let ran = (|| {
-                    let status = scope.scope(&mut stage, || invoke(context, &frame))??;
-                    let valid = status == 0
-                        || (matches!(target.result, CommandResult::Input) && status == 1);
-                    if valid {
-                        Ok(status)
-                    } else {
-                        Err(Error::Status(if status < 0 { status } else { ERR_INVALID }))
-                    }
-                })();
-                let status = match ran {
-                    Ok(status) => status,
-                    Err(error) => {
-                        // Nothing is applied: the room and the slot go back.
-                        stage.drop_item_states();
-                        return Err(error);
-                    }
-                };
+                // A failed callback applies nothing: the stage's room guard
+                // gives its room and slot back when the stage drops.
+                let status = scope.scope(&mut stage, || invoke(context, &frame))??;
+                let valid =
+                    status == 0 || (matches!(target.result, CommandResult::Input) && status == 1);
+                if !valid {
+                    return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
+                }
                 let item_states = stage.take_item_states();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
@@ -144,28 +137,35 @@ impl Kernel {
     fn apply_item_states(
         &mut self,
         owner: &Id,
-        (pushes, held): (
+        (pushes, room): (
             alloc::vec::Vec<crate::native_host::item_state::ItemPush>,
-            usize,
+            Option<crate::native_host::commands::ItemRoom>,
         ),
     ) {
         let Some(directory) = self.shared.registry.native_declarations.as_ref() else {
             return;
         };
-        if pushes.is_empty() {
-            crate::native_host::commands::ItemAdmit { directory }.finish(owner.as_str(), held);
-            return;
-        }
-        let mut failed = false;
+        let (mut failed, mut changed) = (false, false);
         match directory.items.try_borrow_mut() {
             Ok(mut states) => {
                 for push in pushes {
-                    failed |= states.apply(owner.as_str(), push).is_err();
+                    match states.apply(owner.as_str(), push) {
+                        Ok(did) => changed |= did,
+                        Err(_) => failed = true,
+                    }
                 }
+                // A plugin that cleared its last state needs no slot (a batch
+                // of defaults holds no room guard that would free it).
+                states.settle(owner.as_str());
             }
-            Err(_) => failed = true,
+            Err(_) => failed = !pushes.is_empty(),
         }
-        crate::native_host::commands::ItemAdmit { directory }.finish(owner.as_str(), held);
+        // The room and a slot no state needs go back (nothing is borrowed).
+        drop(room);
+        if changed {
+            // Menus show item states: bit 0 of `event.registry_changed`.
+            self.native_registry_changed(REGISTRY_MENUS);
+        }
         if failed {
             self.warn_runtime("item state dropped: the host could not keep it");
         }
