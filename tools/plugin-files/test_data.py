@@ -9,17 +9,50 @@ import tomllib
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import catalogue  # noqa: E402
 import data  # noqa: E402
 
 # The versions they are at now: a change of a pack bumps it here too.
 PACKS = {
-    "script-arabic": "1.1.2",
-    "script-hebrew": "1.1.2",
+    "script-arabic": "1.1.3",
+    "script-hebrew": "1.1.3",
     "script-greek": "1.0.2",
     "script-cyrillic": "1.0.2",
     "script-korean": "1.1.3",
     "script-korean-extra": "1.0.2",
 }
+
+HYPHENATION = ["hyphenation"] + [
+    f"hyphenation-{lang}"
+    for lang in "da de es fr it nb nl pl pt ru sv uk".split()
+]
+
+
+class Hyphenation(unittest.TestCase):
+    """The thirteen hyphenation plugins are data plugins (interface 7)."""
+
+    def test_each_is_offered_once_as_a_data_plugin(self):
+        listed = data.plugins()
+        with_code = {plugin for plugin, _ in catalogue.plugins()}
+        for pack in HYPHENATION:
+            self.assertIn(pack, listed)
+            # One catalogue entry per id: not also a plugin with code.
+            self.assertNotIn(pack, with_code, pack)
+
+    def test_they_are_chosen_at_first_and_newer_than_beta_3(self):
+        # English hyphenates out of the box; the languages were chosen at
+        # first as code plugins and stay so. Beta 3 had them at 1.0.x, so the
+        # store offers 2.0.0 as an update and no language is lost.
+        for pack in HYPHENATION:
+            fields = data.plugins()[pack]
+            self.assertFalse(fields.get("off_by_default"), pack)
+            self.assertEqual(fields["version"], "2.0.0", pack)
+            self.assertEqual(fields["formats"], 5, pack)
+            self.assertEqual(fields["build"], "tools/hyphenation-data.py", pack)
+            for key in ["name", "description"]:
+                self.assertTrue(fields[key] and fields["de"][key], (pack, key))
+            for path in fields["inputs"]:
+                self.assertTrue((data.ROOT / path).exists(), (pack, path))
 
 
 def ready():

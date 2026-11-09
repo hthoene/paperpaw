@@ -185,6 +185,11 @@ impl NativeInstances {
         self.pool.as_ref()?.ui_store()
     }
 
+    /// The `core.ui` service of the device pool (widget and status tables).
+    pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
+        self.pool.as_ref()?.ui()
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -242,6 +247,18 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .map(|entry| &entry.id)
+    }
+
+    /// Whether the running instance of `key` subscribed to the event `tag`,
+    /// asked of the instance itself (tests; production reads the owner
+    /// directory, which the install keeps).
+    #[cfg(test)]
+    pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.live().ok())
+            .is_some_and(|instance| instance.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -333,6 +350,9 @@ impl NativeInstances {
         Ok(NativeIdentity {
             owner,
             callbacks: self.callbacks.runtime()?,
+            // No allocation: a refused share just leaves the handles to the
+            // next grant or the plugin's stop (see `NativeCallbackEpoch`).
+            pool: self.pool.as_ref().and_then(OwnerResourceView::try_clone),
         })
     }
 
@@ -504,13 +524,21 @@ impl NativeInstances {
 pub(crate) struct NativeIdentity {
     owner: u64,
     callbacks: CallbackRuntime,
+    /// The device pool, to end the callback's status handles with it.
+    pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
-        self.callbacks.enter()
+        let epoch = self.callbacks.enter()?;
+        Ok(
+            match self.pool.as_ref().and_then(OwnerResourceView::try_clone) {
+                Some(pool) => epoch.ending_status_handles(pool, self.owner),
+                None => epoch,
+            },
+        )
     }
 }
 

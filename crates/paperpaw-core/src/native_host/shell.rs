@@ -126,7 +126,9 @@ pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
-    table: PpHost,
+    /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
+    /// a static, never a copy per plugin (152 bytes on the X4).
+    table: &'static PpHost,
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
@@ -214,13 +216,14 @@ pub struct Hosted<S, M> {
 /// The host table with this shell's entries in it, as a plugin of `S` sees it.
 /// The shell's preflight may read it before anything is hosted.
 #[must_use]
-pub fn host_table<S: Services>() -> PpHost {
+pub const fn host_table<S: Services>() -> PpHost {
     let mut table = host_glue::host_table();
     table.heap_alloc = heap_alloc::<S>;
     table.heap_dealloc = heap_dealloc::<S>;
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.stage_run = stage_slot::run::<S>;
+    table.text_covers = text_covers::covers::<S>;
     table.ui_compose = super::ui_compose::compose::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
@@ -308,7 +311,7 @@ impl<S: Services, M> Hosted<S, M> {
             .map_err(|_| Error::Allocation)?;
         owned.push_str(id);
         let context = Context {
-            table: host_table::<S>(),
+            table: SharedTable::<S>::TABLE,
             id: owned.into_boxed_str(),
             report,
             resources,
@@ -429,7 +432,7 @@ impl<S: Services, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = unsafe { (self.make)(&context.table, ctx, &mut out) };
+        let status = unsafe { (self.make)(context.table, ctx, &mut out) };
         (status, out)
     }
 
@@ -1416,6 +1419,8 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
 
 #[path = "shell_stage_slot.rs"]
 mod stage_slot;
+#[path = "shell_text_covers.rs"]
+mod text_covers;
 unsafe extern "C" fn service_open<S>(
     ctx: *mut c_void,
     key: PpBytes,
@@ -1480,3 +1485,7 @@ pub(crate) use stage::dispatch_stage;
 
 #[path = "shell/native_commit.rs"]
 mod native_commit;
+
+#[path = "shell/shared_table.rs"]
+mod shared_table;
+use shared_table::SharedTable;

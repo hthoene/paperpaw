@@ -15,6 +15,7 @@ use super::{
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
+    sock_service::{self, SockHost, SockServices},
     ui_service::UiServices,
     work_service::WorkServices,
 };
@@ -47,6 +48,7 @@ pub(crate) struct HostServices {
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
     net: OnceCell<NetServices>,
+    sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
     /// The storage paths host writers hold (`core.net` saves), which
@@ -86,6 +88,7 @@ impl core::fmt::Debug for HostServices {
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
             .field("net", &self.net.get().is_some())
+            .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
             .field("secrets", &self.secrets.get().is_some())
             .finish()
@@ -104,6 +107,7 @@ impl HostServices {
             ui: OnceCell::new(),
             device: OnceCell::new(),
             net: OnceCell::new(),
+            sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -303,6 +307,16 @@ impl HostServices {
         self.net.get()
     }
 
+    #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
+    /// Wire `core.sockets` once.
+    pub(crate) fn wire_sockets(&self, host: Rc<dyn SockHost>) -> Result<(), i32> {
+        self.sockets.set(SockServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn sockets(&self) -> Option<&SockServices> {
+        self.sockets.get()
+    }
+
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
@@ -381,9 +395,13 @@ impl HostServices {
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
+            result = result.and(ui.plugin_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));
+        }
+        if let Some(sockets) = self.sockets.get() {
+            result = result.and(sock_service::owner_stopped(&*sockets.0, owner));
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {

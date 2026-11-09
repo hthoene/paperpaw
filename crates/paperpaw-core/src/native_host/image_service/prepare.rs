@@ -107,6 +107,143 @@ fn png_row_over(storage: &dyn Storage, path: &str, max: usize) -> bool {
     (width * depth * channels).div_ceil(8) > max as u64
 }
 
+/// The most pixels a source picture may have (8 Mpx, `document.md` 5).
+pub(crate) const SOURCE_PIXELS_MAX: u64 = 8_000_000;
+
+/// Frame headers a JPEG's size is looked for in before it is no picture.
+const JPEG_SEGMENTS_MAX: usize = 256;
+
+/// The pixel count the header of the JPEG, PNG or GIF at `path` declares,
+/// from a few small reads and no allocation: `Ok(None)` for a format this
+/// does not read (the decoder refuses it), `Err(status)` for a header that
+/// cannot be read or has no size (`DAMAGED`; `CARD` where the card fails).
+fn source_pixels(storage: &dyn Storage, path: &str) -> Result<Option<u64>, u32> {
+    let mut head = [0_u8; 33];
+    let n = storage.read_at(path, 0, &mut head).map_err(|_| CARD)?;
+    let head = &head[..n];
+    let size = match Format::detect(head) {
+        Some(Format::Png) => {
+            if head.len() < 24 || &head[12..16] != b"IHDR" {
+                return Err(DAMAGED);
+            }
+            paperpaw_sdk::image::dimensions(head)
+        }
+        Some(Format::Gif) => {
+            if head.len() < 10 {
+                return Err(DAMAGED);
+            }
+            // The decoder makes the first frame at the frame's own size, so
+            // that is counted too, and a frame outside its screen is no GIF.
+            let (frame_w, frame_h) = gif_frame(storage, path)?;
+            let screen = paperpaw_sdk::image::dimensions(head).ok_or(DAMAGED)?;
+            if frame_w > screen.0 || frame_h > screen.1 {
+                return Err(DAMAGED);
+            }
+            let pixels = (u64::from(screen.0) * u64::from(screen.1))
+                .max(u64::from(frame_w) * u64::from(frame_h));
+            return Ok(Some(pixels));
+        }
+        Some(Format::Jpeg) => jpeg_size(storage, path)?,
+        _ => return Ok(None),
+    };
+    let (width, height) = size.ok_or(DAMAGED)?;
+    Ok(Some(u64::from(width) * u64::from(height)))
+}
+
+/// Blocks (and extension sub-blocks) walked to a GIF's first frame.
+const GIF_BLOCKS_MAX: usize = 1024;
+
+/// The size of a GIF's first frame, from its image descriptor, found by
+/// walking the blocks before it with small reads; `DAMAGED` where the walk
+/// ends first, goes on too long, or the frame has no size.
+fn gif_frame(storage: &dyn Storage, path: &str) -> Result<(u32, u32), u32> {
+    let mut flags = [0_u8; 1];
+    if storage.read_at(path, 10, &mut flags).map_err(|_| CARD)? != 1 {
+        return Err(DAMAGED);
+    }
+    // The header, the screen descriptor and the global colour table.
+    let mut at = 13_u64;
+    if flags[0] & 0x80 != 0 {
+        at += 3 << ((flags[0] & 7) + 1);
+    }
+    let mut steps = 0;
+    while steps < GIF_BLOCKS_MAX {
+        steps += 1;
+        let mut block = [0_u8; 9];
+        let n = storage.read_at(path, at, &mut block).map_err(|_| CARD)?;
+        match block.first() {
+            // An image descriptor: `2C left(2) top(2) width(2) height(2)`.
+            Some(0x2c) if n == 9 => {
+                let width = u32::from(u16::from_le_bytes([block[5], block[6]]));
+                let height = u32::from(u16::from_le_bytes([block[7], block[8]]));
+                return if width > 0 && height > 0 {
+                    Ok((width, height))
+                } else {
+                    Err(DAMAGED)
+                };
+            }
+            // An extension: `21 label`, then sub-blocks of a length byte
+            // and that many bytes, ended by a length of 0.
+            Some(0x21) if n >= 2 => {
+                at += 2;
+                loop {
+                    steps += 1;
+                    let mut len = [0_u8; 1];
+                    if steps > GIF_BLOCKS_MAX
+                        || storage.read_at(path, at, &mut len).map_err(|_| CARD)? != 1
+                    {
+                        return Err(DAMAGED);
+                    }
+                    at += 1 + u64::from(len[0]);
+                    if len[0] == 0 {
+                        break;
+                    }
+                }
+            }
+            _ => return Err(DAMAGED),
+        }
+    }
+    Err(DAMAGED)
+}
+
+/// A JPEG's size from its first frame header, walking the segments before
+/// it by small reads (a file with a long EXIF block puts it far from the
+/// start); `DAMAGED` where the walk ends first or goes on too long.
+fn jpeg_size(storage: &dyn Storage, path: &str) -> Result<Option<(u32, u32)>, u32> {
+    let mut at = 2_u64;
+    for _ in 0..JPEG_SEGMENTS_MAX {
+        let mut seg = [0_u8; 9];
+        let n = storage.read_at(path, at, &mut seg).map_err(|_| CARD)?;
+        if n < 2 || seg[0] != 0xff {
+            return Err(DAMAGED);
+        }
+        match seg[1] {
+            // Fill byte: the next byte may be the marker.
+            0xff => at += 1,
+            // Markers with no length.
+            0x01 | 0xd0..=0xd8 => at += 2,
+            // A frame header: `FF Cn len(2) precision height(2) width(2)`.
+            0xc0..=0xcf if !matches!(seg[1], 0xc4 | 0xc8 | 0xcc) => {
+                if n < 9 {
+                    return Err(DAMAGED);
+                }
+                let height = u32::from(u16::from_be_bytes([seg[5], seg[6]]));
+                let width = u32::from(u16::from_be_bytes([seg[7], seg[8]]));
+                return Ok((width > 0 && height > 0).then_some((width, height)));
+            }
+            // Start of scan or end: no frame header came first.
+            0xd9 | 0xda => return Err(DAMAGED),
+            _ => {
+                if n < 4 {
+                    return Err(DAMAGED);
+                }
+                at += 2 + u64::from(u16::from_be_bytes([seg[2], seg[3]]));
+            }
+        }
+    }
+    Err(DAMAGED)
+}
+
 /// A request not yet decoded.
 pub(crate) struct Waiting {
     pub(crate) owner: u64,
@@ -365,19 +502,16 @@ impl ImageTable {
     /// left alone.
     ///
     /// `cursor` (start at the default, keep it between calls) is where the
-    /// listing goes on ([`Storage::list_from`]: the folder is read a piece at
-    /// a time, not once a call). Files removed between pieces may move the
+    /// listing goes on (the folder is read a piece at a time, not once a
+    /// call). Files removed between pieces may move the
     /// places of the entries behind them, so a pass that removed anything is
     /// followed by another, and the sweep ends with a pass that removed
     /// nothing: no file it can delete is left behind a false end.
     /// `Ok(true)`: call again. `Ok(false)`: done. A `max` of 0 is `ERR_INVALID`:
     /// with no budget the cursor would never move.
-    /// INTERIM: each call hands out at most `SWEEP_SCAN` entries, but
-    /// `Storage::list_from` is not a bounded read on this head (the FAT card
-    /// reads the folder at place 0 and a stale place; the default
-    /// `list_counted` rereads it every call). The read bound comes with
-    /// `Storage::list_bounded` (#339), which this call switches to; until
-    /// then the sweep is not activated for large folders.
+    /// The listing is read with [`Storage::list_bounded`]: no entry past the
+    /// one the call stops at, and a place that no longer holds starts at the
+    /// folder's start (the pass that follows a removal finds what is left).
     ///
     /// # Errors
     /// `ERR_INVALID` (`max` is 0), `ERR_IO` (the card cannot list the folder; a
@@ -395,7 +529,7 @@ impl ImageTable {
         let mut names: Vec<String> = Vec::new();
         let mut failure = None;
         let mut looked = 0_usize;
-        let listed = storage.list_from(DIR, cursor.place, &mut |entry| {
+        let listed = storage.list_bounded(DIR, cursor.place, &mut |entry| {
             if failure.is_some() || looked >= SWEEP_SCAN || names.len() >= max {
                 return false;
             }
@@ -482,6 +616,14 @@ impl ImageTable {
             return fail(NO_MEMORY);
         };
         let colour = job.colour && env.colour;
+        // A source over 8 Mpx is refused from its header, before a decoder
+        // reads a byte of its data; a header that cannot be read is no
+        // picture (`document.md` 5).
+        match source_pixels(storage, &job.source) {
+            Ok(Some(pixels)) if pixels > SOURCE_PIXELS_MAX => return fail(TOO_LARGE),
+            Ok(_) => {}
+            Err(status) => return fail(status),
+        }
         // A PNG whose source row is over the device's cap is not decoded.
         if png_row_over(storage, &job.source, env.png_row_max) {
             return fail(TOO_LARGE);

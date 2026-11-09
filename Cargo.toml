@@ -30,10 +30,12 @@ members = [
     "crates/paperpaw-update",
     "crates/paperpaw-digest",
     "crates/paperpaw-native",
+    "crates/paperpaw-scripted-host",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
     "crates/paperpaw-ui-kit",
     "crates/paperpaw-hid",
+    "crates/paperpaw-sort",
     "plugins/diagnostics",
     "plugins/dictionary",
     "plugins/fonts-default",
@@ -137,6 +139,7 @@ paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.6.0-beta.3" }
 paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.6.0-beta.3" }
 paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.6.0-beta.3" }
 paperpaw-table = { path = "crates/paperpaw-table", version = "0.6.0-beta.3" }
+paperpaw-sort = { path = "crates/paperpaw-sort", version = "0.6.0-beta.3" }
 paperpaw-text = { path = "crates/paperpaw-text", version = "0.6.0-beta.3" }
 paperpaw-document = { path = "crates/paperpaw-document", version = "0.6.0-beta.3" }
 paperpaw-zip = { path = "crates/paperpaw-zip", version = "0.6.0-beta.3" }
@@ -202,7 +205,7 @@ paperpaw-plugin-joplin = { path = "plugins/joplin", version = "1.0.2" }
 paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
-paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.2" }
+paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }

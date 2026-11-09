@@ -8,7 +8,7 @@ use alloc::string::String;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input, InputGestureKind};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
-use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event};
+use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming};
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::settings::{self, SettingValue};
 use paperpaw_sdk::native::ui::{Open, Question, RequestId, TextWrite, Ui};
@@ -89,9 +89,10 @@ impl Plugin for NativeFileManager {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let event = incoming.decode()?;
         self.ensure_ui(host)?;
         match event {
             Event::ActionRun {

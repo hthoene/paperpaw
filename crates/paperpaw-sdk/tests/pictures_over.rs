@@ -279,13 +279,7 @@ fn a_wide_colour_picture_stretched_taller_is_still_drawn_for_plugins() {
     );
     // The native draw refuses the same picture before drawing anything.
     let mut native = self::frame(40, 40);
-    let picture = ui::Picture {
-        path: "wide.rgb",
-        kind: ui::PictureKind::Color,
-        width,
-        height,
-        scratch_max: 32 * 1024,
-    };
+    let picture = ui::Picture::new("wide.rgb", ui::PictureKind::Color, width, height, 32 * 1024);
     assert_eq!(
         ui::try_draw_picture(
             &mut native.canvas(),
@@ -298,10 +292,7 @@ fn a_wide_colour_picture_stretched_taller_is_still_drawn_for_plugins() {
     );
     assert_eq!(pixel(&native, 20, 20), PAPER);
     // Where the device has the memory (a larger cap) the native draw draws it.
-    let roomy = ui::Picture {
-        scratch_max: 1 << 20,
-        ..picture
-    };
+    let roomy = ui::Picture::new("wide.rgb", ui::PictureKind::Color, width, height, 1 << 20);
     let mut native = self::frame(40, 40);
     ui::try_draw_picture(
         &mut native.canvas(),

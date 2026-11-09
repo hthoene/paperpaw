@@ -1,5 +1,7 @@
 use super::*;
 use crate::MemoryStorage;
+use alloc::rc::Rc;
+use paperpaw_platform::Storage;
 use paperpaw_text::{Glyph, PackBuilder};
 
 /// A pack holding `chars`, with empty glyphs.
@@ -895,3 +897,31 @@ fn hangul_in_jamo_is_set_by_the_syllables_pack() {
 
 mod ink;
 mod interface;
+
+#[test]
+fn a_family_chosen_can_be_given_back_and_a_registered_one_is_known() {
+    let mut fonts = Fonts::new(4096);
+    fonts
+        .add_face(FontFace::new(
+            Id::new_static("t.serif"),
+            "t/serif.ppfp",
+            "Serif",
+            false,
+            false,
+        ))
+        .unwrap();
+    assert!(fonts.has_family("Serif"));
+    assert!(!fonts.has_family("Sans"));
+    assert_eq!(fonts.try_families().unwrap(), ["Serif"]);
+    assert_eq!(fonts.try_set_family(Some("Serif")).unwrap(), None);
+    let before = fonts.try_set_family(None).unwrap();
+    assert_eq!(before.as_deref(), Some("Serif"));
+    assert_eq!(fonts.family(), None);
+    fonts.restore_family(before);
+    assert_eq!(fonts.family(), Some("Serif"));
+    assert_eq!(fonts.try_set_status("Serif").unwrap(), None);
+    let status = fonts.try_set_status("book").unwrap();
+    assert_eq!(status.as_deref(), Some("Serif"));
+    fonts.restore_status(status);
+    assert_eq!(fonts.status.as_deref(), Some("Serif"));
+}

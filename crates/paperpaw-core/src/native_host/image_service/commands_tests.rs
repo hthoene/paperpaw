@@ -228,6 +228,60 @@ fn the_stage_admits_image_commands_atomically_and_hands_them_over() {
 }
 
 #[test]
+fn image_paths_count_against_the_callbacks_byte_budget() {
+    use crate::native_host::commands::{CommandScope, CommandStage, commands_encode};
+    use paperpaw_native::host_glue::ERR_NO_SPACE;
+    use paperpaw_sdk::Id;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_sdk::Instant(0));
+    let owner = Id::new_static("probe");
+    let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
+        let scope = core::pin::pin!(CommandScope::new());
+        let mut bytes = [0; 512];
+        let len = commands_encode(commands, &mut bytes).unwrap();
+        scope
+            .as_ref()
+            .scope(stage, || {
+                // SAFETY: the encoded input stays readable until the call ends.
+                unsafe { scope.submit(bytes.as_ptr(), len) }
+            })
+            .unwrap()
+    };
+    let long = std::format!("{}.png", "a".repeat(60));
+    // A budget of 100 bytes holds one 64-byte path, not two.
+    let mut stage =
+        CommandStage::new(&owner, env.settings(), None, 8, 100).with_images(admit(false, 9));
+    assert_eq!(submit(&mut stage, &[prepare_cmd(0, &long, 0)]), 0);
+    assert_eq!(
+        submit(&mut stage, &[prepare_cmd(0, &long, 0)]),
+        ERR_NO_SPACE
+    );
+    assert_eq!(
+        stage.take_image_commands().len(),
+        1,
+        "the refused took no place"
+    );
+    // A release carries no text and costs no bytes.
+    assert_eq!(
+        submit(&mut stage, &[WireCommand::ImageRelease { image: 1 }]),
+        0
+    );
+    // Several in one batch count together.
+    let mut stage =
+        CommandStage::new(&owner, env.settings(), None, 8, 100).with_images(admit(false, 9));
+    assert_eq!(
+        submit(
+            &mut stage,
+            &[prepare_cmd(0, &long, 0), prepare_cmd(0, &long, 0)]
+        ),
+        ERR_NO_SPACE
+    );
+    assert!(stage.take_image_commands().is_empty());
+}
+
+#[test]
 fn an_apply_that_cannot_allocate_keeps_its_command_and_never_loses_its_answer() {
     use crate::native_host::shell::tests::FAIL_NTH;
     let storage = MemoryStorage::new();

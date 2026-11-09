@@ -303,6 +303,15 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   its `reason`; `flags` bit 0 the plugin's data was kept (removal), bit 1 takes effect at the next
   start; `id` the plugin. `kind` 3 ends a `check_file` (5.1). A removal or install is reported
   **only once done** (5.2), never when queued. 98 goes to the plugin bound to `core.bluetooth`.
+- [D] **98's values.** `kind`: 1 `changed` (radio state or bonded list: read again; no other field),
+  2 `found` (a scan result: `device`, `name`, `device_kind`, `signal`), 3 `scan_ended`, 4
+  `connected` (`device`), 5 `disconnected` (`device`, `reason`; 0 when the plugin asked for it), 6
+  `paired` (bonded and given to the plugin that asked: `device`, `name`, `device_kind`), 7 `done` (a
+  command without a result of its own: `device`), 8 `failed` (`device`, 0 for none, and `reason`).
+  `device_kind`: 0 other, 1 keyboard, 2 remote, 3 sensor, 4 phone. `reason`: 0 other or none, 1
+  radio off, 2 not allowed, 3 not found, 4 busy, 5 timeout, 6 declined (pairing confirmation), 7
+  link lost, 8 attribute error (not used in 1.0), 9 held by another plugin, 10 unsupported here.
+  A plugin treats a value it does not know as 0, never as an error.
   `firmware_changed` comes at most every 250 ms while installing (at most once per written block,
   5.3).
 

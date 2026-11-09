@@ -8,9 +8,17 @@ use super::*;
 /// entry of the host table a plugin can call, called once with empty
 /// arguments, announces its host slot (and ends it) before it does or
 /// refuses anything. The allocator and the clock are exempt (hot,
-/// bounded), and so are entries this shell has not wired (the default
-/// stubs of `host_glue`, which return at once): the one list below names
-/// every field of the table: a new entry fails the count until added.
+/// bounded), and so are the entries this shell leaves to the default stubs
+/// of `host_glue` ([`UNWIRED`]), which must answer `ERR_UNSUPPORTED` at once
+/// and open no slot: wiring one fails here until it leaves the list. The
+/// one list below names every field of the table: a new entry fails the
+/// count until added.
+/// The entries the core host table leaves to `host_glue`'s stubs: none
+/// (slots 36 to 40 are wired). Named, not found by comparing function
+/// pointers: the compiler may give one small function a copy per codegen
+/// unit, so the same stub can have two addresses.
+const UNWIRED: &[&str] = &[];
+
 #[allow(
     clippy::too_many_lines,
     reason = "one flat list: a call per entry of the host table"
@@ -24,7 +32,6 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
     let table = &context.table;
-    let stubs = host_glue::host_table();
     let none = PpBytes {
         ptr: ptr::null(),
         len: 0,
@@ -36,14 +43,15 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
     let (mut word, mut long, mut floats, mut ints) = (0_u32, 0_u64, [0_f32; 3], [0_i32; 4]);
     let (mut wired, mut unwired) = (0_usize, 0_usize);
     let mut silent = Vec::new();
+    let mut stale = Vec::new();
     // One entry: its name, whether the shell wired it, the call.
     macro_rules! entry {
         ($name:ident, $call:expr) => {{
-            let is_wired = table.$name as usize != stubs.$name as usize;
+            let is_wired = !UNWIRED.contains(&stringify!($name));
             let before = SLOTS.with(Cell::get);
             // SAFETY: a live owner's context; empty or null arguments
             // that every entry must refuse, never read.
-            let _status = unsafe { $call };
+            let status = unsafe { $call };
             if is_wired {
                 wired += 1;
                 if SLOTS.with(Cell::get) != before + 1 {
@@ -51,6 +59,9 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
                 }
             } else {
                 unwired += 1;
+                if status != host_glue::ERR_UNSUPPORTED || SLOTS.with(Cell::get) != before {
+                    stale.push(stringify!($name));
+                }
             }
             assert_eq!(
                 SLOTS_OPEN.with(Cell::get),
@@ -157,6 +168,15 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
     assert!(
         silent.is_empty(),
         "host entries that did not announce one host slot: {silent:?}"
+    );
+    assert_eq!(
+        unwired,
+        UNWIRED.len(),
+        "every UNWIRED name is a called entry"
+    );
+    assert!(
+        stale.is_empty(),
+        "entries in UNWIRED that are wired now (take them off the list): {stale:?}"
     );
     drop(hosted);
 }

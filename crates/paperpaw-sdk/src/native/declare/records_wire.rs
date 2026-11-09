@@ -361,7 +361,7 @@ pub const SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1024;
 /// Separator of the list in `setting.spec.choices`.
 pub const SETTING_SPEC_CHOICES_SEPARATOR: char = '\n';
 /// Most items in `setting.spec.choices`.
-pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 32;
+pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 64;
 /// Longest item of `setting.spec.choices` in bytes.
 pub const SETTING_SPEC_CHOICES_ITEM_MAX_BYTES: usize = 96;
 
@@ -6404,6 +6404,8 @@ pub struct ServiceRegWidget<'a> {
     pub flags: u32,
     /// UTF-8 text of at most 128 bytes.
     pub title: &'a str,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub cells: u32,
 }
 
 impl<'a> ServiceRegWidget<'a> {
@@ -6412,7 +6414,7 @@ impl<'a> ServiceRegWidget<'a> {
     }
 
     fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             id: body.string(SERVICE_REG_WIDGET_ID_MAX_BYTES)?,
             plugin: body.string(SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?,
@@ -6420,27 +6422,45 @@ impl<'a> ServiceRegWidget<'a> {
             icon: body.string(SERVICE_REG_WIDGET_ICON_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?,
+            cells: body.opt_u32(bits, 0x01, 0)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.cells != 0 {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += blob_len(self.id.len(), SERVICE_REG_WIDGET_ID_MAX_BYTES)?;
         len += blob_len(self.plugin.len(), SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?;
         len += blob_len(self.kind.len(), SERVICE_REG_WIDGET_KIND_MAX_BYTES)?;
         len += blob_len(self.icon.len(), SERVICE_REG_WIDGET_ICON_MAX_BYTES)?;
         len += 4;
         len += blob_len(self.title.len(), SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.plugin.as_bytes(), out, offset);
         write_blob(self.kind.as_bytes(), out, offset);
         write_blob(self.icon.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_bytes(&self.cells.to_le_bytes(), out, offset);
+        }
     }
 }
 
@@ -6454,7 +6474,11 @@ impl<'a> WireEncode for ServiceRegWidget<'a> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
@@ -20142,46 +20166,6 @@ impl ServiceLibFieldPage {
         write_bytes(&self.generation.to_le_bytes(), out, offset);
     }
 }
-/// Wire tag of the `event.text_typed` record.
-pub const EVENT_TEXT_TYPED_TAG: u32 = 109;
-/// Maximum bytes of `event.text_typed.text`.
-pub const EVENT_TEXT_TYPED_TEXT_MAX_BYTES: usize = 1024;
-
-/// The `event.text_typed` record, borrowed from its batch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventTextTyped<'a> {
-    /// Little-endian u64.
-    pub now_ms: u64,
-    /// UTF-8 text of at most 1024 bytes.
-    pub text: &'a str,
-    /// Little-endian u32.
-    pub flags: u32,
-}
-
-impl<'a> EventTextTyped<'a> {
-    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
-        body.bitmap()?;
-        Ok(Record::EventTextTyped(Self {
-            now_ms: u64::from_le_bytes(body.scalar()?),
-            text: body.string(EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?,
-            flags: u32::from_le_bytes(body.scalar()?),
-        }))
-    }
-
-    fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.text.len(), EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
-    }
-
-    fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-    }
-}
 
 impl WireEncode for ServiceLibFieldPage {
     fn wire_tag(&self) -> u32 {
@@ -20200,6 +20184,135 @@ impl WireEncode for ServiceLibFieldPage {
 
 impl<'a> WireRecord<'a> for ServiceLibFieldPage {
     const TAG: u32 = SERVICE_LIB_FIELD_PAGE_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
+/// Wire tag of the `event.text_typed` record.
+pub const EVENT_TEXT_TYPED_TAG: u32 = 109;
+/// Maximum bytes of `event.text_typed.text`.
+pub const EVENT_TEXT_TYPED_TEXT_MAX_BYTES: usize = 1024;
+
+/// The `event.text_typed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventTextTyped<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 1024 bytes.
+    pub text: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> EventTextTyped<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventTextTyped)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        body.bitmap()?;
+        Ok(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            text: body.string(EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+        })
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.text.len(), EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventTextTyped<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_TEXT_TYPED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventTextTyped<'a> {
+    const TAG: u32 = EVENT_TEXT_TYPED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
+/// Wire tag of the `event.lookup_ready` record.
+pub const EVENT_LOOKUP_READY_TAG: u32 = 110;
+/// Maximum bytes of `event.lookup_ready.provider`.
+pub const EVENT_LOOKUP_READY_PROVIDER_MAX_BYTES: usize = 64;
+
+/// The `event.lookup_ready` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventLookupReady<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 64 bytes.
+    pub provider: &'a str,
+}
+
+impl<'a> EventLookupReady<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventLookupReady)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        body.bitmap()?;
+        Ok(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            provider: body.string(EVENT_LOOKUP_READY_PROVIDER_MAX_BYTES)?,
+        })
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.provider.len(), EVENT_LOOKUP_READY_PROVIDER_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.provider.as_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventLookupReady<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_LOOKUP_READY_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventLookupReady<'a> {
+    const TAG: u32 = EVENT_LOOKUP_READY_TAG;
 
     fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
         Self::decode_fields(&mut Reader { remaining: body })
@@ -20740,6 +20853,8 @@ pub enum Record<'a> {
     ServiceLibFieldPage(ServiceLibFieldPage),
     /// A `EventTextTyped` record.
     EventTextTyped(EventTextTyped<'a>),
+    /// A `EventLookupReady` record.
+    EventLookupReady(EventLookupReady<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -20773,6 +20888,13 @@ impl<'a> Reader<'a> {
             return Ok(None);
         }
         Ok(Some(u64::from_le_bytes(self.scalar()?)))
+    }
+
+    fn opt_u32(&mut self, bits: u8, mask: u8, default: u32) -> Result<u32, i32> {
+        if bits & mask == 0 {
+            return Ok(default);
+        }
+        Ok(u32::from_le_bytes(self.scalar()?))
     }
 
     fn opt_blob(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a [u8], i32> {
@@ -21062,6 +21184,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_DOCUMENT_CLOSED_TAG => EventDocumentClosed::decode(body)?,
         SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         EVENT_TEXT_TYPED_TAG => EventTextTyped::decode(body)?,
+        EVENT_LOOKUP_READY_TAG => EventLookupReady::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -21417,6 +21540,7 @@ impl Record<'_> {
             Record::EventDocumentClosed(_) => EVENT_DOCUMENT_CLOSED_TAG,
             Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
             Record::EventTextTyped(_) => EVENT_TEXT_TYPED_TAG,
+            Record::EventLookupReady(_) => EVENT_LOOKUP_READY_TAG,
         }
     }
 
@@ -21688,6 +21812,7 @@ impl Record<'_> {
             Record::EventDocumentClosed(record) => record.body_len(),
             Record::ServiceLibFieldPage(record) => record.body_len(),
             Record::EventTextTyped(record) => record.body_len(),
+            Record::EventLookupReady(record) => record.body_len(),
         }
     }
 
@@ -21964,6 +22089,7 @@ impl Record<'_> {
             Record::EventDocumentClosed(record) => record.write(out, offset),
             Record::ServiceLibFieldPage(record) => record.write(out, offset),
             Record::EventTextTyped(record) => record.write(out, offset),
+            Record::EventLookupReady(record) => record.write(out, offset),
         }
     }
 
@@ -21976,6 +22102,7 @@ impl Record<'_> {
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
+            Record::ServiceRegWidget(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
             Record::ServiceDevCheck(record) => record.bits(),
             Record::ServiceFsEntry(record) => record.bits(),
@@ -22265,22 +22392,22 @@ where
 }
 
 /// The tags of the declared records, ascending (registrations are named by their constants).
-const RECORD_TAGS: [u16; 263] = [
+const RECORD_TAGS: [u16; 265] = [
     5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
     30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 64, 65,
     66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 89, 90, 91,
-    92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 192, 193, 224,
-    225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027, 1028, 1029,
-    1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043, 1044, 1045,
-    1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060, 1061,
-    1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1077,
-    1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091, 1092, 1093,
-    1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109,
-    1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123, 1124, 1125,
-    1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140, 1141,
-    1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156, 1157,
-    1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171, 1172, 1173,
-    1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182,
+    92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 192,
+    193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027, 1028,
+    1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043, 1044,
+    1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060,
+    1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076,
+    1077, 1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091, 1092,
+    1093, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108,
+    1109, 1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123, 1124,
+    1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140,
+    1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156,
+    1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171, 1172,
+    1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182,
 ];
 
 /// Whether `tag` names a record of this codec ([`Record`]), without decoding anything: a
@@ -22850,7 +22977,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_SOCK_BYTES_TAG
         | SERVICE_SOCK_PEER_TAG
         | EVENT_DOCUMENT_CLOSED_TAG
-        | EVENT_TEXT_TYPED_TAG => return Err(-2),
+        | EVENT_TEXT_TYPED_TAG
+        | EVENT_LOOKUP_READY_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

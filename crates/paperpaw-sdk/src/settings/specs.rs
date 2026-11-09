@@ -85,16 +85,18 @@ impl Specs {
     /// Adds `spec`, whose id is not there yet; `false` when no place is
     /// left.
     pub(super) fn insert(&mut self, spec: SettingSpec) -> bool {
-        if self.find(spec.id.as_str()).is_ok() {
+        // The place in the index is found before the spec moves in, so that
+        // its id need not be copied.
+        let Err(at) = self.find(spec.id.as_str()) else {
             return true;
-        }
+        };
         if self.owned.len() >= PLACES {
             return false;
         }
         let place = self.owned.len() as u16;
-        let id = spec.id.clone();
         self.owned.push(spec);
-        self.index(id.as_str(), place);
+        self.by_id.insert(at, place);
+        self.order.push(place);
         true
     }
 
@@ -121,6 +123,60 @@ impl Specs {
         };
         self.index(spec.id.as_str(), (first + at as u16) | FIXED);
         true
+    }
+
+    /// Whether `additional` more made specs find a place.
+    pub(super) fn has_room_for(&self, additional: usize) -> bool {
+        self.owned
+            .len()
+            .checked_add(additional)
+            .is_some_and(|total| total <= PLACES)
+    }
+
+    /// Makes room for `additional` more made specs; nothing changes when the
+    /// heap refuses.
+    pub(super) fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.owned.try_reserve(additional)?;
+        self.order.try_reserve(additional)?;
+        self.by_id.try_reserve(additional)
+    }
+
+    /// Forgets every spec whose id belongs to `plugin`; the places of the
+    /// others move down over the gaps. Allocates nothing.
+    pub(super) fn remove_plugin(&mut self, plugin: &str) {
+        let Self {
+            owned,
+            lists,
+            order,
+            by_id,
+        } = self;
+        let belongs = |owned: &[SettingSpec], place: u16| {
+            let spec = if place & FIXED == 0 {
+                &owned[usize::from(place)]
+            } else {
+                let place = place & !FIXED;
+                let list = lists.partition_point(|(_, first)| *first <= place) - 1;
+                let (specs, first) = lists[list];
+                &specs[usize::from(place - first)]
+            };
+            spec.id.namespace() == plugin
+        };
+        order.retain(|&place| !belongs(owned, place));
+        by_id.retain(|&place| !belongs(owned, place));
+        // A made spec's place drops by the gaps before it.
+        for place in order.iter_mut().chain(by_id.iter_mut()) {
+            if *place & FIXED == 0 {
+                let gaps = owned[..usize::from(*place)]
+                    .iter()
+                    .filter(|spec| spec.id.namespace() == plugin)
+                    .count();
+                *place -= gaps as u16;
+            }
+        }
+        owned.retain(|spec| spec.id.namespace() != plugin);
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = &SettingSpec> {

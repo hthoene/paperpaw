@@ -1,7 +1,7 @@
 //! The request table of `core.net`: ids, tokens, the queue, the pool, the
 //! held answers and the routing of events 99 and 100.
 use super::super::host_services::Caller;
-use super::super::net_pool::NetPool;
+use super::super::net_pool::{DEMAND_NET, NetPool};
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
@@ -226,7 +226,10 @@ impl Inner {
         let active = self.reqs.iter().any(Self::live) || self.serving.any();
         if active != self.demand {
             self.demand = active;
-            host.network_demand(active);
+            // The shell hears the OR of NET and SOCK, once per change.
+            if let Some(wanted) = host.table().pool().demand(DEMAND_NET, active) {
+                host.network_demand(wanted);
+            }
         }
     }
 

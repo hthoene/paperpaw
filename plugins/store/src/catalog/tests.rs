@@ -634,6 +634,7 @@ fn needing(abi: &str, needs: &str) -> String {
 fn with_table() -> Device<'static> {
     Device {
         provides: Some(Provides {
+            minor: Some(2),
             api: 400,
             families: [3, 2, 0, 0, 0, 0, 0, 0],
             oldest: [2, 1, 0, 0, 0, 0, 0, 0],
@@ -724,6 +725,7 @@ fn a_page_of_a_plugin_made_for_a_newer_paperpaw_has_no_code_to_install() {
     // The same build for a firmware with the room: code to install.
     let roomy = Device {
         provides: Some(Provides {
+            minor: Some(2),
             api: 500,
             families: [3, 2, 0, 0, 0, 0, 0, 0],
             oldest: [2, 1, 0, 0, 0, 0, 0, 0],
@@ -833,4 +835,58 @@ fn a_build_for_this_paperpaw_repairs_an_installed_one_built_for_an_older_one() {
     assert!(!stats.repairs(None));
     // Nothing to offer where the library has no build for this PaperPaw.
     assert!(!waits.repairs(Some(&installed(Some(Problem::OtherBuild)))));
+}
+
+/// Format 5 names a build's `abi` as `<major>.<needs_minor>`: the device is
+/// the target, the major is 7 (below: built for an older PaperPaw, above:
+/// needs a newer one) and the minor at most the host's (here 2); no draft.
+#[test]
+fn a_dotted_abi_is_judged_by_major_and_minor() {
+    let storage = list(&[
+        code("fits", &[build_of("x4", "7.2")]),
+        code("fits-zero", &[build_of("x4", "7.0")]),
+        code("newer-minor", &[build_of("x4", "7.3")]),
+        code("newer-major", &[build_of("x4", "8.0")]),
+        code("older-major", &[build_of("x4", "6.9")]),
+        code("other-device", &[build_of("x4-pro", "7.1")]),
+        code("odd-words", &[build_of("x4", "7.x")]),
+        code("odd-three", &[build_of("x4", "7.1.2")]),
+        code("odd-empty", &[build_of("x4", "7.")]),
+        code("odd-zeros", &[build_of("x4", "07.1")]),
+        code("odd-wide", &[build_of("x4", "7.65536")]),
+        // The old form still works beside it.
+        code("old-form", &[build_of("x4", &abi())]),
+    ]);
+    let (entries, _) = entries_for(&storage, &with_table());
+    // A plugin none of whose builds is for this device and PaperPaw is not
+    // listed (an older one is not offered, as another fingerprint is not).
+    assert_eq!(
+        ids(&entries),
+        [
+            "fits",
+            "fits-zero",
+            "newer-minor",
+            "newer-major",
+            "old-form"
+        ]
+    );
+    let by = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
+    for id in ["fits", "fits-zero", "old-form"] {
+        assert!(by(id).code && !by(id).needs_newer, "{id}: {:?}", by(id));
+    }
+    for id in ["newer-minor", "newer-major"] {
+        assert!(by(id).code && by(id).needs_newer, "{id}: {:?}", by(id));
+    }
+    // A host whose minor is not known yet (`Provides::minor`) skips the
+    // minor check.
+    let unknown = Device {
+        provides: with_table().provides.map(|p| Provides { minor: None, ..p }),
+        ..X4
+    };
+    let (entries, _) = entries_for(&storage, &unknown);
+    assert!(
+        entries
+            .iter()
+            .all(|e| !e.needs_newer || e.id == "newer-major")
+    );
 }

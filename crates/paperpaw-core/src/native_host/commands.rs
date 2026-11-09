@@ -67,7 +67,7 @@ impl crate::Kernel {
         reason = "the production command path takes it with the shell wiring"
     )
 )]
-pub(crate) const CALLBACK_COMMANDS: usize = 64;
+pub const CALLBACK_COMMANDS: usize = 64;
 /// The most bytes of copied keys and text one callback may stage.
 #[cfg_attr(
     not(test),
@@ -76,7 +76,7 @@ pub(crate) const CALLBACK_COMMANDS: usize = 64;
         reason = "the production command path takes it with the shell wiring"
     )
 )]
-pub(crate) const CALLBACK_COMMAND_BYTES: usize = 4096;
+pub const CALLBACK_COMMAND_BYTES: usize = 4096;
 
 /// Host staging for one callback: the submitting plugin's identity, the live
 /// settings registry used for validation, at most `limit` accepted commands,
@@ -220,7 +220,7 @@ impl<'a> CommandStage<'a> {
         let mut images = self.images;
         for command in batch.iter() {
             if let Some(admit) = images.as_mut()
-                && let Some(result) = admit.admit(&command)
+                && let Some(result) = admit.admit_counted(&command, &mut bytes, self.byte_limit)
             {
                 if let Err(error) = result {
                     return error;

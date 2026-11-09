@@ -51,7 +51,9 @@ settings registry, and a limit on accepted commands.
    status (or a value its family does not allow) loses everything it staged,
    even commands `submit` accepted with `OK` (`screens-input.md` 2.1).
 2. Codec statuses as above. Nothing is staged.
-3. If the batch would exceed the stage's command limit: `ERR_NO_SPACE`.
+3. If the batch would exceed the stage's command limit: `ERR_NO_SPACE`. One callback stages at
+   most 64 commands and 4,096 bytes of keys and text over all its batches (the host's
+   `CALLBACK_COMMANDS` and `CALLBACK_COMMAND_BYTES`, the same on every device).
 4. For every command, without allocating: the setting must be registered, and
    Boolean and integer values must be accepted by its spec
    (kind and range). An unregistered or unaccepted setting returns

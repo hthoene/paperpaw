@@ -1,21 +1,40 @@
 //! The interface-7 Stats plugin: what the host tells it about reading goes to
 //! the `Recorder`, over the plugin's data folder and the user's files.
+use paperpaw_sdk::native::callbacks::{DrawFrame, Input};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
-    events::{Event, ReadingView},
+    events::{Event, Incoming, ReadingView, kinds},
     formatting::copy_message,
     registrations,
     reply::Reply,
     settings::{self, SettingValue},
     snapshot::{Snapshot, capture_snapshot},
     storage::{self as host_storage, DataStorage, Root},
-    ui::Notify,
+    ui::{Notify, Open, Ui},
 };
-use paperpaw_sdk::{DirEntry, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
+use paperpaw_ui_kit::Screens;
 
 use crate::files::DataFolder;
+use crate::native_calendar::CalendarView;
+use crate::native_overview::OverviewView;
+use crate::native_screens::{self, BookView, BooksView};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+
+/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
+macro_rules! read_event {
+    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
+        let incoming = &$incoming;
+        let mut found = ::core::option::Option::None;
+        $(
+            if found.is_none() {
+                found = incoming.decode_as::<$kind>()?;
+            }
+        )+
+        found
+    }};
+}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -26,10 +45,31 @@ const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 /// The stage that tells today's reading.
 const READ_TODAY: &str = "stats.read-today";
 
+/// An open screen's view.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one view per open screen, in a list that grows fallibly; a box would allocate infallibly"
+)]
+enum View {
+    Overview(OverviewView),
+    Books(BooksView),
+    Book(BookView),
+    Calendar(CalendarView),
+}
+
 /// Stats' interface-7 entry state.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct NativeStats {
     recorder: Recorder,
+    /// `core.ui`, opened by the first callback (opening needs a live frame).
+    ui: Option<Ui>,
+    screens: Screens<View>,
+}
+
+impl core::fmt::Debug for NativeStats {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeStats").finish_non_exhaustive()
+    }
 }
 
 impl Plugin for NativeStats {
@@ -52,9 +92,13 @@ impl Plugin for NativeStats {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged)
+        else {
+            return Ok(());
+        };
         if let Event::StageCall {
             stage: READ_TODAY, ..
         } = event
@@ -67,6 +111,27 @@ impl Plugin for NativeStats {
                 reply.write(&bytes)?;
             }
             return Ok(());
+        }
+        match event {
+            Event::ActionRun {
+                action: "stats.open",
+                ..
+            } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
+            Event::ScreenOpened {
+                screen,
+                instance,
+                handover,
+                ..
+            } => return self.opened(host, screen, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => return self.screens.shown(token, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                return Ok(());
+            }
+            _ => {}
         }
         if token != EVENTS {
             return Ok(());
@@ -118,6 +183,102 @@ impl Plugin for NativeStats {
         };
         tell(host, told)
     }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        match self.screens.top(token).ok_or(Error::State)? {
+            View::Overview(view) => view.draw(host, &mut frame),
+            View::Books(view) => view.draw(host, &mut frame),
+            View::Book(view) => view.draw(host, &mut frame),
+            View::Calendar(view) => view.draw(host, &mut frame),
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.ui(host)?;
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        match view {
+            View::Overview(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
+            View::Books(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
+            View::Book(view) => view.input(host, &input),
+            View::Calendar(view) => view.input(host, &input),
+        }
+    }
+}
+
+impl NativeStats {
+    fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// Opens the overview, on the book being read where there is one (the page
+    /// being read is recorded first, so that the figures include it).
+    fn open_overview(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let current = with_cx(host, 0, |cx| {
+            self.recorder.settle(cx);
+            self.recorder.current_book()
+        });
+        match current {
+            Some(book) => {
+                native_screens::open_with_book(host, self.ui(host)?, "stats.overview", book)
+            }
+            None => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.overview")?)
+            }
+        }
+    }
+
+    /// Builds the view of an opened screen over the data folder.
+    fn opened(
+        &mut self,
+        host: &Host<'_>,
+        screen: &str,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let data = DataFolder(&storage);
+        let view = match screen {
+            "stats.overview" => {
+                let current = match handover {
+                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+                    None => None,
+                };
+                let today = today_of(host)?;
+                View::Overview(OverviewView::new(host, &data, today, current)?)
+            }
+            "stats.calendar" => View::Calendar(CalendarView::new(host, &data, today_of(host)?)?),
+            "stats.books" => View::Books(BooksView::new(host, &data)?),
+            "stats.book" => {
+                let id = match handover {
+                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+                    None => None,
+                };
+                View::Book(BookView::new(host, &data, id)?)
+            }
+            _ => return Ok(()),
+        };
+        self.screens.open(instance, view)
+    }
+}
+
+/// The local day (UTC until draft 25), none until the device knows the time.
+fn today_of(host: &Host<'_>) -> Result<Option<i32>, Error> {
+    Ok(capture_snapshot(host)?
+        .unix_seconds()
+        .and_then(|unix| u32::try_from(unix).ok())
+        .map(native_screens::utc_day))
 }
 
 /// What the recorder has to say: the card could not be written to, once.

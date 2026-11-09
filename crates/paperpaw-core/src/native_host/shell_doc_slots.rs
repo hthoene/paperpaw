@@ -5,7 +5,7 @@ use crate::native_host::{fonts, host_slot, hyphen_service, image_service};
 use paperpaw_native::host_glue::Services;
 
 /// Names the four entry points in the host table.
-pub(super) fn install<S: Services>(table: &mut PpHost) {
+pub(super) const fn install<S: Services>(table: &mut PpHost) {
     table.text_hyphenate = text_hyphenate::<S>;
     table.icon_glyph = icon_glyph::<S>;
     table.image_info = image_info::<S>;

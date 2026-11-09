@@ -1,5 +1,5 @@
 //! Typed views retain only borrowed generated rows, never raw public records.
-use super::{DeviceRequest, Error, Record, wire};
+use super::{DeviceRequest, Error, RawRecord, wire};
 
 macro_rules! values {
     ($name:ident, $doc:literal, $($variant:ident = $value:literal => $word:literal),+ $(,)?) => {
@@ -12,7 +12,7 @@ macro_rules! values {
             Unknown(u32),
         }
         impl $name {
-            const fn decode(value:u32)->Self { match value { $($value=>Self::$variant,)+ value=>Self::Unknown(value) } }
+            pub(crate) const fn decode(value:u32)->Self { match value { $($value=>Self::$variant,)+ value=>Self::Unknown(value) } }
         }
     };
 }
@@ -102,7 +102,7 @@ pub enum DeviceOutcome {
     RestartPending,
 }
 impl DeviceOutcome {
-    const fn decode(value: u32) -> Self {
+    pub(crate) const fn decode(value: u32) -> Self {
         match value {
             0 => Self::Ok,
             2 => Self::Declined,
@@ -213,9 +213,9 @@ macro_rules! row {
         #[derive(Clone,Copy,Debug,PartialEq,Eq)]
         pub struct $name<'a> { row:wire::$wire<'a> }
         impl<'a> $name<'a> {
-            pub(super) fn decode(record:Record<'a>)->Result<Self,Error> {
-                let Record::$wire(row)=record else { return Err(Error::Invalid); };
-                validate(record)?;
+            pub(super) fn decode(record:RawRecord<'a>)->Result<Self,Error> {
+                let row=record.decode::<wire::$wire<'a>>().map_err(|_| Error::Invalid)?;
+                if !row.valid() { return Err(Error::Invalid); }
                 Ok(Self { row })
             }
             $(#[doc=$word] #[must_use] pub const fn $field(self)->$ty { self.row.$field })*
@@ -246,9 +246,9 @@ macro_rules! plain_row {
         #[derive(Clone,Copy,Debug,PartialEq,Eq)]
         pub struct $name { row:wire::$wire }
         impl $name {
-            pub(super) fn decode(record:Record<'_>)->Result<Self,Error> {
-                let Record::$wire(row)=record else { return Err(Error::Invalid); };
-                validate(record)?;
+            pub(super) fn decode(record:RawRecord<'_>)->Result<Self,Error> {
+                let row=record.decode::<wire::$wire>().map_err(|_| Error::Invalid)?;
+                if !row.valid() { return Err(Error::Invalid); }
                 Ok(Self { row })
             }
             $(#[doc=$word] #[must_use] pub const fn $field(self)->$ty { self.row.$field })*
@@ -439,27 +439,60 @@ impl MemoryInfo {
     }
 }
 
-fn validate(record: Record<'_>) -> Result<(), Error> {
-    match record {
-        Record::ServiceDevDevice(row) if row.id.is_empty() => Err(Error::Invalid),
-        Record::ServiceDevValue(row)
-            if row.name.is_empty()
-                || !row
-                    .name
-                    .bytes()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') =>
-        {
-            Err(Error::Invalid)
-        }
-        Record::ServiceDevBuiltin(row) if row.id.is_empty() => Err(Error::Invalid),
-        Record::ServiceDevCheck(row)
-            if !matches!(row.key.len(), 0 | 32) || !matches!(row.sha256.len(), 0 | 32) =>
-        {
-            Err(Error::Invalid)
-        }
-        Record::ServiceDevInstall(row) if row.request == 0 => Err(Error::Invalid),
-        Record::ServiceDevNotInstalled(row) if row.plugin.is_empty() => Err(Error::Invalid),
-        Record::ServiceDevKey(row) if row.name.is_empty() => Err(Error::Invalid),
-        _ => Ok(()),
+/// What the SDK checks of a decoded row before it is exposed. Per record type, so that a
+/// plugin links the check of the rows it reads only.
+trait Valid {
+    fn valid(&self) -> bool;
+}
+impl Valid for wire::ServiceDevDevice<'_> {
+    fn valid(&self) -> bool {
+        !self.id.is_empty()
     }
 }
+impl Valid for wire::ServiceDevValue<'_> {
+    fn valid(&self) -> bool {
+        !self.name.is_empty()
+            && self
+                .name
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    }
+}
+impl Valid for wire::ServiceDevBuiltin<'_> {
+    fn valid(&self) -> bool {
+        !self.id.is_empty()
+    }
+}
+impl Valid for wire::ServiceDevCheck<'_> {
+    fn valid(&self) -> bool {
+        matches!(self.key.len(), 0 | 32) && matches!(self.sha256.len(), 0 | 32)
+    }
+}
+impl Valid for wire::ServiceDevInstall<'_> {
+    fn valid(&self) -> bool {
+        self.request != 0
+    }
+}
+impl Valid for wire::ServiceDevNotInstalled<'_> {
+    fn valid(&self) -> bool {
+        !self.plugin.is_empty()
+    }
+}
+impl Valid for wire::ServiceDevKey<'_> {
+    fn valid(&self) -> bool {
+        !self.name.is_empty()
+    }
+}
+macro_rules! always_valid {
+    ($($ty:ty),+ $(,)?) => {$(impl Valid for $ty { fn valid(&self) -> bool { true } })+};
+}
+always_valid!(
+    wire::ServiceDevFirmware<'_>,
+    wire::ServiceDevNative<'_>,
+    wire::ServiceDevWifi<'_>,
+    wire::ServiceDevNetwork<'_>,
+    wire::ServiceDevBonded<'_>,
+    wire::ServiceDevPower<'_>,
+    wire::ServiceDevMemory,
+    wire::ServiceDevBluetooth,
+);

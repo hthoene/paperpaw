@@ -185,7 +185,7 @@ fn find_dictionaries(storage: &dyn Storage, folder: &str) -> Result<Vec<String>,
         }
     }
     top?;
-    found.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut found);
     Ok(found)
 }
 

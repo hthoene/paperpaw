@@ -10,6 +10,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 pub(crate) struct Counts {
     pub(crate) enabled: bool,
     pub(crate) refuse: bool,
+    /// Allocations let through before the refusal.
+    pub(crate) skip: usize,
     pub(crate) refused: bool,
     pub(crate) live: usize,
     pub(crate) peak: usize,
@@ -23,7 +25,11 @@ unsafe impl GlobalAlloc for Counting {
         let refuse = COUNTS
             .try_with(|cell| {
                 let mut count = cell.get();
-                if count.enabled && count.refuse {
+                if count.enabled && count.refuse && count.skip > 0 {
+                    count.skip -= 1;
+                    cell.set(count);
+                    false
+                } else if count.enabled && count.refuse {
                     count.refuse = false;
                     count.refused = true;
                     cell.set(count);
@@ -57,7 +63,7 @@ unsafe impl GlobalAlloc for Counting {
             .try_with(|cell| {
                 let mut count = cell.get();
                 if count.enabled {
-                    count.live -= layout.size();
+                    count.live = count.live.saturating_sub(layout.size());
                     cell.set(count);
                 }
             })
@@ -68,6 +74,30 @@ unsafe impl GlobalAlloc for Counting {
 }
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
+
+/// Runs `operation` with its `number`-th allocation (1 is the first)
+/// refused; says whether one was.
+pub(crate) fn refuse_nth<T>(number: usize, operation: impl FnOnce() -> T) -> (T, bool) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            COUNTS.with(|cell| cell.set(Counts::default()));
+        }
+    }
+    COUNTS.with(|cell| {
+        cell.set(Counts {
+            enabled: true,
+            refuse: true,
+            skip: number - 1,
+            ..Counts::default()
+        })
+    });
+    let reset = Reset;
+    let result = operation();
+    let refused = COUNTS.with(|cell| cell.get().refused);
+    drop(reset);
+    (result, refused)
+}
 
 pub(crate) fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Counts) {
     struct Reset;
@@ -88,6 +118,13 @@ pub(crate) fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Count
     let counts = COUNTS.with(Cell::get);
     drop(reset);
     (result, counts)
+}
+
+/// Share the existing thread-local allocator probe with other SDK unit tests.
+pub(crate) fn no_alloc<T>(operation: impl FnOnce() -> T) -> T {
+    let (value, count) = track(false, operation);
+    assert_eq!(count.peak, 0);
+    value
 }
 
 unsafe extern "C" fn submit(ctx: *mut c_void, _: PpBytes) -> i32 {

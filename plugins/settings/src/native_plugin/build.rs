@@ -213,6 +213,7 @@ pub(super) fn build_list(
     let held = holding(reader, &groups, cx, &all, false)?;
     let widgets = reader.widget_ids()?;
     let pages = reader.menu(model::PAGES_MENU)?;
+    let secrets_kept = crate::native_secrets::shown(host, &pages)?;
     let mut messages = Messages::new()?;
     // (order, headings before entries of the same order, link or heading, title)
     let mut placed: Vec<(i32, bool, Option<Link>, String)> = Vec::new();
@@ -224,6 +225,10 @@ pub(super) fn build_list(
         ..
     } in pages
     {
+        // Passwords and keys show once there are some.
+        if action == crate::native_secrets::OPEN && !secrets_kept {
+            continue;
+        }
         let link = (!section).then_some(Link::Page(action));
         push(&mut placed, (order, !section, link, title))?;
     }

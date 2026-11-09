@@ -17,9 +17,9 @@ use crate::totals::BookTotals;
 use crate::{book_list, book_rows};
 
 /// The plugin's catalog in one language, as the host would resolve it.
-struct Catalogued(Translator);
+pub(crate) struct Catalogued(Translator);
 
-fn words(language: &str) -> Catalogued {
+pub(crate) fn words(language: &str) -> Catalogued {
     let source = match language {
         "de" => include_str!("../i18n/de.ini"),
         _ => include_str!("../i18n/en.ini"),
@@ -74,14 +74,18 @@ fn book(id: u16, title: &str, authors: &str, last_open: i64, pages: u32) -> Book
 /// 2025-10-14 12:00 UTC, a Tuesday.
 const NOON: i64 = 1_760_443_200;
 
-fn shelf() -> (Vec<Book>, Vec<u64>) {
+fn shelf() -> (Vec<book_list::Row>, Vec<u64>) {
+    let books = [
+        book(1, "Old", "N/A", NOON - 86_400 * 40, 100),
+        book(2, "Unread", "Someone", NOON, 100),
+        book(3, "New", "A\nB", NOON, 0),
+        book(4, "Same time", "", NOON, 10),
+    ];
     (
-        alloc::vec![
-            book(1, "Old", "N/A", NOON - 86_400 * 40, 100),
-            book(2, "Unread", "Someone", NOON, 100),
-            book(3, "New", "A\nB", NOON, 0),
-            book(4, "Same time", "", NOON, 10),
-        ],
+        books
+            .iter()
+            .map(|b| book_list::Row::of(b).unwrap())
+            .collect(),
         alloc::vec![3_600 + 5 * 60, 0, 59, 42 * 60],
     )
 }
@@ -223,7 +227,7 @@ fn a_book_without_pages_known_has_no_time_left_and_a_single_day_no_last_day() {
 
 /// Refuses each allocation of `run` in turn: it must come back as
 /// `NoMemory` (or be unaffected), never abort.
-fn sweep(run: &dyn Fn() -> Result<usize, Error>) {
+pub(crate) fn sweep(run: &dyn Fn() -> Result<usize, Error>) {
     let (whole, count) = armed(usize::MAX, run);
     assert!(whole.is_ok());
     assert!(count > 0, "allocates nothing: the sweep proves nothing");
@@ -257,7 +261,7 @@ fn the_books_rows_refuse_cleanly() {
 
 #[test]
 fn a_books_numbers_refuse_cleanly() {
-    let (books, _) = shelf();
+    let books = [book(1, "Old", "N/A", NOON - 86_400 * 40, 100)];
     let catalog = RefCell::new(fixture(|| words("en")));
     let totals = fixture(totals);
     sweep(&|| {
@@ -267,7 +271,7 @@ fn a_books_numbers_refuse_cleanly() {
 }
 
 /// The host's catalog allocates on the host's side: nothing of it is refused.
-struct QuietWords<'a>(&'a RefCell<Catalogued>);
+pub(crate) struct QuietWords<'a>(pub(crate) &'a RefCell<Catalogued>);
 
 impl Words for QuietWords<'_> {
     fn copy(&mut self, key: &str) -> Result<String, Error> {
@@ -316,7 +320,6 @@ mod overview_and_calendar {
             days,
             books: 3,
             today_pages: 12,
-            current_book: Some(7),
         }
     }
 
@@ -434,6 +437,7 @@ mod overview_and_calendar {
     fn pages_and_books_of_a_day() {
         let storage = MemoryStorage::new();
         let books = alloc::vec![book(1, "First", "", 0, 100), book(2, "Second", "", 0, 100)];
+        store::save_books(&storage, &books).unwrap();
         let other = TODAY - 1;
         log_of(&storage, other, &[(1, 5, 0, 30)]);
         // Page 5 twice and page 6; book 2 longer than book 1.
@@ -449,7 +453,7 @@ mod overview_and_calendar {
         );
         assert_eq!(over::distinct_pages(&storage, TODAY, utc_day).unwrap(), 3);
         let days = alloc::vec![day(30)(other), day(150)(TODAY)];
-        let detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        let detail = cal::detail(&storage, &days, TODAY, utc_day).unwrap();
         assert_eq!(
             detail,
             cal::Detail {
@@ -468,7 +472,7 @@ mod overview_and_calendar {
             ]
         );
         // A day with no reading says so; a book that has no entry is `?`.
-        let none = cal::detail(&storage, &books, &days, TODAY - 5, utc_day).unwrap();
+        let none = cal::detail(&storage, &days, TODAY - 5, utc_day).unwrap();
         assert_eq!(none, cal::Detail::default());
         assert_eq!(
             cal::day_text(&mut words("de"), TODAY - 5, &none)
@@ -476,8 +480,10 @@ mod overview_and_calendar {
                 .summary,
             "Nicht gelesen"
         );
-        let unknown = cal::detail(&storage, &[], &days, TODAY, utc_day).unwrap();
+        store::save_books(&storage, &books[..1]).unwrap();
+        let unknown = cal::detail(&storage, &days, TODAY, utc_day).unwrap();
         assert_eq!(unknown.books[0].0, "?");
+        assert_eq!(unknown.books[1].0, "First");
     }
 
     #[test]
@@ -626,19 +632,19 @@ mod overview_and_calendar {
         assert_eq!(over::distinct_pages(&storage, day - 1, berlin).unwrap(), 0);
         assert_eq!(over::distinct_pages(&storage, day, berlin).unwrap(), 1);
         assert_eq!(over::distinct_pages(&storage, day + 1, berlin).unwrap(), 1);
-        let books = alloc::vec![book(1, "First", "", 0, 100)];
+        store::save_books(&storage, &[book(1, "First", "", 0, 100)]).unwrap();
         let days = alloc::vec![day_row(day, 30), day_row(day + 1, 50)];
-        let first = cal::detail(&storage, &books, &days, day, berlin).unwrap();
+        let first = cal::detail(&storage, &days, day, berlin).unwrap();
         assert_eq!((first.seconds, first.pages), (30, 1));
-        let second = cal::detail(&storage, &books, &days, day + 1, berlin).unwrap();
+        let second = cal::detail(&storage, &days, day + 1, berlin).unwrap();
         assert_eq!((second.seconds, second.pages), (50, 1));
         assert_eq!(
-            cal::detail(&storage, &books, &days, day - 1, berlin).unwrap(),
+            cal::detail(&storage, &days, day - 1, berlin).unwrap(),
             cal::Detail::default()
         );
         // Read as UTC the stays are on the days before.
         let utc_days = alloc::vec![day_row(day - 1, 30), day_row(day, 50)];
-        let utc = cal::detail(&storage, &books, &utc_days, day, utc_day).unwrap();
+        let utc = cal::detail(&storage, &utc_days, day, utc_day).unwrap();
         assert_eq!(utc.seconds, 50);
     }
 
@@ -667,8 +673,9 @@ mod overview_and_calendar {
             book(3, "C", "", 0, 100),
             book(4, "D", "", 0, 100),
         ];
+        store::save_books(&storage, &books).unwrap();
         let days = alloc::vec![day_row(TODAY, 245)];
-        let detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        let detail = cal::detail(&storage, &days, TODAY, utc_day).unwrap();
         // B has two stays (120 s) and leads; the others tie at 60 s and come
         // in the order they were first read; D (5 s) is cut at three books.
         let titles: Vec<&str> = detail.books.iter().map(|(t, _)| t.as_str()).collect();
@@ -685,9 +692,9 @@ mod overview_and_calendar {
         for n in 0..3 {
             log_at(&storage, start + n * 70_000, 1, n + 1, u16::MAX);
         }
-        let books = alloc::vec![book(1, "A", "", 0, 100)];
+        store::save_books(&storage, &[book(1, "A", "", 0, 100)]).unwrap();
         let days = alloc::vec![day_row(TODAY, 3 * 65_535)];
-        let mut detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        let mut detail = cal::detail(&storage, &days, TODAY, utc_day).unwrap();
         assert!(detail.books.len() <= 1);
         // The words say it too.
         detail.seconds = u32::MAX;
@@ -699,16 +706,19 @@ mod overview_and_calendar {
         let days = days();
         let catalog = RefCell::new(fixture(|| words("en")));
         let storage = Quiet(MemoryStorage::new());
-        let books =
-            fixture(|| alloc::vec![book(1, "First", "", 0, 100), book(2, "Second", "", 0, 100)]);
         fixture(|| {
+            store::save_books(
+                &storage.0,
+                &[book(1, "First", "", 0, 100), book(2, "Second", "", 0, 100)],
+            )
+            .unwrap();
             log_of(
                 &storage.0,
                 TODAY,
                 &[(1, 5, 0, 30), (1, 6, 200, 10), (2, 1, 300, 90)],
             );
         });
-        let detail = fixture(|| cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap());
+        let detail = fixture(|| cal::detail(&storage, &days, TODAY, utc_day).unwrap());
         sweep(&|| {
             let mut w = QuietWords(&catalog);
             let f = facts(&days, Some(TODAY));
@@ -718,7 +728,7 @@ mod overview_and_calendar {
             Ok(tiles + chart + totals + over::ways(Some(7))?.len())
         });
         sweep(&|| over::distinct_pages(&storage, TODAY, utc_day).map(|n| n as usize));
-        sweep(&|| cal::detail(&storage, &books, &days, TODAY, utc_day).map(|d| d.books.len()));
+        sweep(&|| cal::detail(&storage, &days, TODAY, utc_day).map(|d| d.books.len()));
         sweep(&|| {
             let mut w = QuietWords(&catalog);
             let text = cal::day_text(&mut w, TODAY, &detail)?;

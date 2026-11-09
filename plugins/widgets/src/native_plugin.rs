@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -21,6 +21,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::paint;
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::widget::Cx;
 
 mod image {
@@ -54,6 +55,8 @@ pub struct NativeWidgets {
     asked: Option<(RequestId, String)>,
     /// The to-do list as last read.
     todo: crate::native_todo::Cache,
+    /// How often a quote was shown.
+    showings: crate::native_quote::Showings,
 }
 
 impl NativeWidgets {
@@ -161,6 +164,8 @@ impl NativeWidgets {
             let instance = item.instance;
             let shown = if item.token == crate::native_todo::TOKEN {
                 crate::native_todo::shows_with(host, &item.widget, &self.todo)
+            } else if item.token == crate::native_quote::TOKEN {
+                crate::native_quote::shows_with(host, &item.widget, &self.showings)
             } else {
                 (behaviour.shows)(host, &item.widget)
             };
@@ -200,9 +205,13 @@ impl Plugin for NativeWidgets {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::WidgetMade {
                 widget,
@@ -211,7 +220,7 @@ impl Plugin for NativeWidgets {
                 ..
             } => {
                 if paperpaw_ui_kit::widget::settings::base(widget) == "widgets.quote" {
-                    crate::native_quote::made(now_ms);
+                    self.showings.made(now_ms);
                 }
                 self.made(widget, instance)
             }
@@ -251,6 +260,8 @@ impl Plugin for NativeWidgets {
         let mut out = Vec::new();
         if item.token == crate::native_todo::TOKEN {
             crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
+        } else if item.token == crate::native_quote::TOKEN {
+            crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
         } else {
             (behaviour.draw)(&mut cx, &mut out, area)?;
         }

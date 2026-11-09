@@ -46,6 +46,7 @@ pub mod host_slot;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
+pub use ui_service::check_ask;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -76,6 +77,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_ops.rs"]
+pub(crate) mod ui_widget_ops;
+
 #[path = "native_host/ui_compose_host.rs"]
 #[allow(
     dead_code,
@@ -91,7 +95,7 @@ pub(crate) mod ui_compose_host;
 pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
-mod shared;
+pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
@@ -130,7 +134,7 @@ pub(crate) mod format_index;
 )]
 pub(crate) mod format_scope;
 #[path = "native_host/formatting.rs"]
-mod formatting;
+pub mod formatting;
 pub(crate) mod host_services;
 #[allow(
     dead_code,
@@ -156,11 +160,18 @@ pub(crate) mod net_pool;
 pub(crate) mod net_service;
 pub(crate) mod paths_in_use;
 mod service_slots;
+#[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
+pub(crate) mod sock_service;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
+#[allow(
+    dead_code,
+    reason = "the NET and SOCK adapters name their staged file by it"
+)]
+pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
@@ -269,12 +280,21 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_menus.rs"]
+#[allow(
+    dead_code,
+    reason = "core.registry op 11 (Core) reads the declared menus through it"
+)]
+pub(crate) mod native_menus;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+mod native_resources;
 
+#[path = "native_host/native_action.rs"]
+pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
 
@@ -312,6 +332,8 @@ pub(crate) mod native_instances;
 )]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
+#[path = "native_host/linked_install.rs"]
+mod linked_install;
 
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
@@ -1142,3 +1164,7 @@ mod native_ui_cleanup_tests;
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 #[path = "native_host/native_image_declarations_tests.rs"]
 mod native_image_declarations_tests;
+
+#[cfg(test)]
+#[path = "native_host/ui_hooks_tests.rs"]
+mod ui_hooks_tests;

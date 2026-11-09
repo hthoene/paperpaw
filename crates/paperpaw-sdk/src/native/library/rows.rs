@@ -18,10 +18,10 @@ pub enum CatalogPhase {
 #[derive(Clone, Copy, Debug)]
 pub struct CatalogState(wire::ServiceLibState);
 impl CatalogState {
-    pub(super) fn decode(record: Record<'_>) -> Result<Self, Error> {
-        let Record::ServiceLibState(row) = record else {
-            return Err(Error::Invalid);
-        };
+    pub(super) fn decode(record: RawRecord<'_>) -> Result<Self, Error> {
+        let row = record
+            .decode::<wire::ServiceLibState>()
+            .map_err(|_| Error::Invalid)?;
         if row.generation == 0 || row.walk_ppm > 1_000_000 {
             return Err(Error::Invalid);
         }
@@ -54,16 +54,16 @@ impl CatalogState {
     }
 }
 macro_rules! row {
-    ($name:ident,$wire:ident,$doc:literal) => {
+    ($name:ident,$wire:ident,$validate:ident,$doc:literal) => {
         #[doc=$doc]
         #[derive(Clone, Copy, Debug)]
         pub struct $name<'a>(wire::$wire<'a>);
         impl<'a> $name<'a> {
-            pub(super) fn decode(record: Record<'a>) -> Result<Self, Error> {
-                let Record::$wire(row) = record else {
-                    return Err(Error::Invalid);
-                };
-                validate_row(record)?;
+            pub(super) fn decode(record: RawRecord<'a>) -> Result<Self, Error> {
+                let row = record
+                    .decode::<wire::$wire<'a>>()
+                    .map_err(|_| Error::Invalid)?;
+                $validate(row)?;
                 Ok(Self(row))
             }
         }
@@ -72,32 +72,27 @@ macro_rules! row {
 row!(
     Entry,
     ServiceLibEntry,
+    validate_entry,
     "A borrowed catalog query row, including book badges."
 );
 row!(
     Book,
     ServiceLibBook,
+    validate_book,
     "Borrowed book metadata; long text is available separately."
 );
-fn validate_row(record: Record<'_>) -> Result<(), Error> {
-    match record {
-        Record::ServiceLibEntry(row) => {
-            if row.progress > 100 && row.progress != 255
-                || !row.badges.is_empty()
-                    && (row.badges.split('\n').count() > 2
-                        || row.badges.split('\n').any(str::is_empty))
-            {
-                return Err(Error::Invalid);
-            }
-        }
-        Record::ServiceLibBook(row)
-            if row.generation == 0
-                || row.path.is_empty()
-                || row.progress > 100 && row.progress != 255 =>
-        {
-            return Err(Error::Invalid);
-        }
-        _ => {}
+fn validate_entry(row: wire::ServiceLibEntry<'_>) -> Result<(), Error> {
+    if row.progress > 100 && row.progress != 255
+        || !row.badges.is_empty()
+            && (row.badges.split('\n').count() > 2 || row.badges.split('\n').any(str::is_empty))
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(())
+}
+fn validate_book(row: wire::ServiceLibBook<'_>) -> Result<(), Error> {
+    if row.generation == 0 || row.path.is_empty() || row.progress > 100 && row.progress != 255 {
+        return Err(Error::Invalid);
     }
     Ok(())
 }
@@ -217,7 +212,7 @@ impl LibraryPageEnd {
         self.next
     }
 }
-type Decode<'a, T> = fn(Record<'a>) -> Result<T, Error>;
+type Decode<'a, T> = fn(RawRecord<'a>) -> Result<T, Error>;
 /// A completely checked list borrowing the caller's reply buffer.
 pub struct LibraryPage<'a, T> {
     bytes: &'a [u8],
@@ -260,7 +255,7 @@ impl<'a, T: 'a> LibraryPage<'a, T> {
             }
             left -= 1;
             Some(
-                wire::record_decode_prefix(bytes)
+                RawRecord::prefix(bytes)
                     .map_err(|_| Error::Invalid)
                     .and_then(|(row, n)| {
                         bytes = bytes.get(n..).ok_or(Error::Invalid)?;
@@ -279,10 +274,12 @@ pub(super) fn page<'a, T>(
     let mut rest = bytes;
     let mut count = 0;
     let end = loop {
-        let (record, n) = wire::record_decode_prefix(rest).map_err(|_| Error::Invalid)?;
+        let (record, n) = RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
         rest = rest.get(n..).ok_or(Error::Invalid)?;
-        if let Record::ServiceEnd(end) = record {
-            break end;
+        if record.tag() == wire::ServiceEnd::TAG {
+            break record
+                .decode::<wire::ServiceEnd>()
+                .map_err(|_| Error::Invalid)?;
         }
         count += 1;
         if count > cap {

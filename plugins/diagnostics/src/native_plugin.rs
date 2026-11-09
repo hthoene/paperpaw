@@ -9,7 +9,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        events::Event,
+        events::{Event, Incoming},
         registrations,
         reply::Reply,
     },
@@ -54,9 +54,11 @@ impl Plugin for NativeDiagnostics {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        // The whole event: the check screens are told every event at `EVENTS_TOKEN`.
+        let event = incoming.decode()?;
         match (token, event) {
             (
                 OPEN_CHECK_TOKEN,
@@ -134,6 +136,8 @@ impl Plugin for NativeDiagnostics {
 
 impl NativeDiagnostics {
     /// A screen shows: its view is made the first time, resized after.
+    // Not inlined: the frames would add up past what the X4's stack watch allows.
+    #[inline(never)]
     fn shown(
         &mut self,
         host: &Host<'_>,
