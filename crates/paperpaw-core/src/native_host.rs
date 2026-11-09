@@ -154,7 +154,12 @@ pub(crate) mod image_pump;
 pub(crate) mod image_service;
 #[allow(
     dead_code,
-    reason = "the library host composes it with the catalog carry (library moves, next slice)"
+    reason = "the library moves owner runs it from the kernel's pump (next slice)"
+)]
+pub(crate) mod lib_moves_carry;
+#[allow(
+    dead_code,
+    reason = "the library moves owner composes it with the catalog carry (next slice)"
 )]
 pub(crate) mod lib_moves_host;
 #[allow(
