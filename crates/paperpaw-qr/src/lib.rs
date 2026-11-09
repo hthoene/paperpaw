@@ -115,6 +115,13 @@ impl QrCode {
         self.size
     }
 
+    /// Clears the modules, for a code that carried a secret: all light, and
+    /// the writes are not left out.
+    pub fn wipe(&mut self) {
+        self.modules.fill(false);
+        core::hint::black_box(&mut self.modules);
+    }
+
     /// Whether the module at column `x`, row `y` is dark.
     pub fn dark(&self, x: usize, y: usize) -> bool {
         x < self.size && y < self.size && self.modules[y * self.size + x]
@@ -492,6 +499,15 @@ fn alignment_positions(version: u8, size: usize) -> Result<Vec<usize>, QrError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wiped_code_is_all_light() {
+        let mut code = QrCode::new(b"WIFI:T:WPA;S:name;P:secret;;").unwrap();
+        let size = code.size();
+        assert!((0..size).any(|y| (0..size).any(|x| code.dark(x, y))));
+        code.wipe();
+        assert!((0..size).all(|y| (0..size).all(|x| !code.dark(x, y))));
+    }
 
     #[test]
     fn capacities_match_the_standard() {

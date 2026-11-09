@@ -577,7 +577,15 @@ impl NativeWifi {
         } else if token == NETWORKS_TOKEN {
             View::Networks(self.read_networks_view(host)?)
         } else {
-            View::Phone(self.phone_view(host, now)?)
+            match self.phone_view(host, now) {
+                Ok(view) => View::Phone(view),
+                Err(_) => {
+                    // The setup could not be made (no memory, no device): said,
+                    // and the screen closed, not a failed callback.
+                    native_model::best_effort(Self::notice(host, "wifi.phone.not-opened"));
+                    return CommandSender::new(host, &mut [0; 64]).back();
+                }
+            }
         };
         self.screens.open(instance, view)
     }

@@ -195,3 +195,15 @@ until the host activates native plugins (then it goes together, no shim).
   404, a busy server, a weak draw makes no network, closing stops serving). A callback that sends a
   command ends refused there (`DEV-staging`), so what was sent is read from the batches. Version stays
   1.0.4 (above Beta 3).
+- The page the phone gets is at most 4,096 bytes (`choose_page_fit`: the weakest networks are left out,
+  the host lists them strongest first), the one write of the data folder it is sent from when it is over
+  2,048 bytes (`MOST_PAGE`; unit test with 64 networks). The address is a row of words whenever the
+  step shows it (no code where one could not be made or the rows take pages); a refused code is no
+  failure of the callback, which would drop the redraw. The join code is wiped (`QrCode::wipe`) when the
+  screen closes. A setup that cannot be made (no memory) says so and closes the screen. A body file is
+  removed even where no buffer is had for it.
+- `serve` is called from the radio's event (the own network opens asynchronously); network.md 5.1 is
+  relaxed to any callback while one of the plugin's screens is showing and not covered (Kernel). Until the
+  host does so (`net_service/serving.rs`) it answers `ERR_STATE`, which the plugin takes as "not on
+  screen" and does not fail on; the end-to-end case is the ignored `wifi_phone_serve_from_event`
+  (`BLOCKED NET-serve-event`).

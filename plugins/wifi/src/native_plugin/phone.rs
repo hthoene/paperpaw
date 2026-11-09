@@ -37,7 +37,7 @@ use super::{Info, NativeWifi, PHONE_TOKEN, View};
 use crate::native_own::{self, Own};
 use crate::native_phone::{
     Action, Effect, Failed, MAX_FORM, PORT, Page, Phone, Radio as PhoneRadio, Stage, Step,
-    page::{Found, Texts, choose_page, line_page, not_found_page},
+    page::{Found, MOST_PAGE, Texts, choose_page_fit, line_page, not_found_page},
 };
 use crate::native_policy::{Goal, Password, Radio};
 
@@ -55,6 +55,14 @@ const SERVE_OUT: usize = 1_536;
 /// that is longer counts as none (as in interface 6), not as a refusal.
 const MAX_BODY: u64 = 4_096;
 
+/// What asking the host to serve came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Serving {
+    Started,
+    Busy,
+    Hidden,
+}
+
 /// The setup screen's state.
 #[derive(Debug)]
 pub(super) struct PhoneView {
@@ -65,8 +73,6 @@ pub(super) struct PhoneView {
     join_qr: Option<QrCode>,
     /// The code that opens the page, once it is served.
     page_qr: Option<QrCode>,
-    /// What is said under the code of the page.
-    caption: String,
 }
 
 impl PhoneView {
@@ -78,10 +84,7 @@ impl PhoneView {
                 None => Footer::None,
             },
             (Stage::Hosting { page: Some(_) }, Step::Open) => match &self.page_qr {
-                Some(code) => Footer::Code {
-                    code,
-                    caption: &self.caption,
-                },
+                Some(code) => Footer::Code { code, caption: "" },
                 None => Footer::None,
             },
             _ => Footer::None,
@@ -92,7 +95,11 @@ impl PhoneView {
     /// The password and the token are wiped, not only dropped.
     pub(super) fn wipe(&mut self) {
         self.list.wipe();
-        self.caption.clear();
+        if let Some(code) = &mut self.join_qr {
+            // The join code carries the password of the own network.
+            code.wipe();
+        }
+        self.join_qr = None;
     }
 }
 
@@ -172,7 +179,6 @@ impl NativeWifi {
             own,
             join_qr,
             page_qr: None,
-            caption: String::new(),
         };
         Self::phone_build(host, &mut view)?;
         Ok(view)
@@ -222,7 +228,14 @@ impl NativeWifi {
                 let text = say.copy(host, "wifi.phone.opening")?;
                 push(items, Item::noted(&text, "", "")?)?;
             }
-            Step::Open => {}
+            // The address in words, whether or not a code is drawn for it (none
+            // where it could not be made, or the rows take several pages).
+            Step::Open => {
+                if let Some(url) = phone.page_address() {
+                    let text = concat(&[&say.copy(host, "wifi.phone.type-address")?, " ", url])?;
+                    push(items, Item::noted(&text, "", "")?)?;
+                }
+            }
         }
         let label = say.copy(host, button)?;
         let next = items.len();
@@ -290,10 +303,6 @@ impl NativeWifi {
                 push(&mut items, Item::noted(&text, "", "")?)?;
             }
         }
-        view.caption = match phone.page_address() {
-            Some(url) => concat(&[&say.copy(host, "wifi.phone.type-address")?, " ", url])?,
-            None => String::new(),
-        };
         view.list.wipe();
         view.list = ItemList::new(items);
         if let Some(next) = next {
@@ -435,12 +444,10 @@ impl NativeWifi {
         let Some(url) = view.phone.page_address() else {
             return Ok(());
         };
-        let code = match QrCode::try_new(url.as_bytes()) {
-            Ok(code) => Some(code),
-            Err(QrError::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => None,
-        };
-        view.page_qr = code;
+        // No code where it cannot be made (the address is in words on the
+        // screen): a short heap is not a failure of the callback, which would
+        // drop the redraw already staged.
+        view.page_qr = QrCode::try_new(url.as_bytes()).ok();
         Ok(())
     }
 
@@ -480,7 +487,7 @@ impl NativeWifi {
                 Effect::Scan => CommandSender::new(host, &mut [0; 64]).wifi_scan()?,
                 Effect::Leave => CommandSender::new(host, &mut [0; 64]).wifi_leave()?,
                 Effect::Host => self.phone_host(host)?,
-                Effect::Serve => server_failed |= !self.phone_serve(host)?,
+                Effect::Serve => server_failed |= self.phone_serve(host)? == Serving::Busy,
                 Effect::StopServing => self.phone_stop(host)?,
                 Effect::Respond {
                     request,
@@ -542,8 +549,9 @@ impl NativeWifi {
         result
     }
 
-    /// Starts serving the page; `false` where the device serves one already.
-    fn phone_serve(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+    /// Starts serving the page. `Busy` where the device serves one already;
+    /// `Hidden` where the host takes no screen of the plugin to be showing.
+    fn phone_serve(&mut self, host: &Host<'_>) -> Result<Serving, Error> {
         if self.net.is_none() {
             self.net = Some(Net::open(host)?);
         }
@@ -551,8 +559,9 @@ impl NativeWifi {
         let server = Server::new(SERVER, PORT)?.max_body(MAX_BODY)?;
         let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
         match net.serve(host, &server, &mut input, &mut out) {
-            Ok(()) => Ok(true),
-            Err(Error::Busy) => Ok(false),
+            Ok(()) => Ok(Serving::Started),
+            Err(Error::Busy) => Ok(Serving::Busy),
+            Err(Error::State) => Ok(Serving::Hidden),
             Err(error) => Err(error),
         }
     }
@@ -612,7 +621,14 @@ impl NativeWifi {
                 "/",
                 decimal(request.request(), &mut b),
             ])?;
-            form = buffer(MAX_FORM + 1)?;
+            form = match buffer(MAX_FORM + 1) {
+                Ok(form) => form,
+                Err(error) => {
+                    // The body is not kept for want of a buffer.
+                    let _ = storage.remove(&path);
+                    return Err(error);
+                }
+            };
             let read = storage.read_at(&path, 0, &mut form).unwrap_or(0);
             form.truncate(read);
         }
@@ -690,7 +706,7 @@ impl NativeWifi {
                     Some(View::Phone(view)) => copy(view.phone.token())?,
                     _ => return Ok(()),
                 };
-                choose_page(&texts, &found, *again, &token)?
+                choose_page_fit(&texts, &found, *again, &token, MOST_PAGE)?
             }
             Page::Joining(ssid) => {
                 let line = say.format(

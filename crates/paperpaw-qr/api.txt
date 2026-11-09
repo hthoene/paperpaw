@@ -8,3 +8,4 @@ pub fn paperpaw_qr::QrCode::dark(&self, usize, usize) -> bool
 pub fn paperpaw_qr::QrCode::new(&[u8]) -> core::option::Option<paperpaw_qr::QrCode>
 pub fn paperpaw_qr::QrCode::size(&self) -> usize
 pub fn paperpaw_qr::QrCode::try_new(&[u8]) -> core::result::Result<paperpaw_qr::QrCode, paperpaw_qr::QrError>
+pub fn paperpaw_qr::QrCode::wipe(&mut self)

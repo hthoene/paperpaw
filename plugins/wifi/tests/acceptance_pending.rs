@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The Wi-Fi page and the networks in reach draw as before; choosing a
     // network, typing its password and forgetting one work. The screens are
     // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
@@ -52,6 +52,16 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["H4"],
     },
+    // `serve` from the callback of the radio's event (the own network opens
+    // asynchronously): network.md 5.1 is relaxed to any callback while one of
+    // the plugin's screens is showing; the host still answers `ERR_STATE`
+    // there (`net_service/serving.rs`). The plugin treats `ERR_STATE` as "not
+    // on screen" and does not fail.
+    Case {
+        name: "wifi-phone-serve-from-event",
+        golden: None,
+        blocked_by: &["NET-serve-event"],
+    },
     // The status item shows the sign while the device is in a network.
     Case {
         name: "wifi-status-item",
@@ -95,7 +105,13 @@ fn wifi_own_network() {
 }
 
 #[test]
+#[ignore = "BLOCKED NET-serve-event: the host takes `serve` only from a screen callback, not yet from the radio's event"]
+fn wifi_phone_serve_from_event() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
 #[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn wifi_status_item() {
-    CASES[4].refuse().unwrap();
+    CASES[5].refuse().unwrap();
 }
