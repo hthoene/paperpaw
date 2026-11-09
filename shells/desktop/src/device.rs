@@ -169,6 +169,9 @@ impl Storage for Card {
     fn ignores_case(&self) -> bool {
         self.on(|s| s.ignores_case())
     }
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.on(|s| s.same_entry(a, b))
+    }
     fn free_space(&self) -> Option<u64> {
         self.on(|s| s.free_space())
     }
