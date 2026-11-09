@@ -2820,6 +2820,15 @@ bytes) back. An answer for another document is `Invalid`. Reading blocks and the
 table of contents are not in this client yet. The host answers `Busy` while a
 document is preparing.
 
+`Documents::metadata(host, document, input, out)` reads what the format says about the book:
+`title()`, `language()` (a BCP 47 tag, empty for none), `series()`, `series_index()`,
+`right_to_left()`, `writing_mode()`, `sections()`, the counts `authors()` and `subjects()` and
+`description_bytes()`, with `title_cut()` and `series_cut()` where a text was cut for the
+reply. `Documents::text(host, document, DocTextQuery::description(), input, out)` reads any
+text whole in parts of at most 1,024 bytes (`title()`, `author(index)`, `subject(index)`,
+`description()`, `series()`; `.from(offset)` and `DocTextPart::next_offset()` continue; an
+index past the count is `NotFound`). `input` of 64 and `out` of 4,096 bytes suffice.
+
 `Documents::readers(host, scope, cursor, input, out)` lists the reading apps for "Open with" and
 the default reader, in pages of at most 64 rows: `scope` keeps the readers that show the format
 with that id (empty for all), `ReaderPage::rows()` gives each `Reader` (`id()`, `screen()`,
@@ -3034,7 +3043,14 @@ A stale generation returns `State`; start the query again instead of skipping ro
 `Entry::badges()` exposes the host's badge texts without a second lookup.
 
 Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
-`set_finished(host, book, true, input, out)` changes only the finished status.
+`set_finished(host, book, true, input, out)` changes only the finished status and
+`set_favourite(host, book, true, input, out)` only the favourite status; both are idempotent.
+`Library::book_text(host, book, BookTextQuery::title(), input, out)` reads a whole title,
+`author()`, `series()`, the tag at `tag(index)` or the plugin field at `field(index)` (as
+`id=value`), the lists' lengths being `Book::tags()` and `Book::fields()`, in parts of at most
+1,024 bytes: continue with `BookTextPart::next_offset()` (`.from(offset)`) until it is `None`
+(`input` of 1,024 and `out` of 4,096 bytes suffice; an index past the count is `NotFound`).
+The catalog rows and `Library::book` cut long values; this does not.
 `set_field` takes the full `plugin.name` field id owned by the caller; an empty
 value removes it.
 The SDK leaves field enumeration out until the host contract supports lossless
