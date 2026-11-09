@@ -357,6 +357,10 @@ impl Plugin for NativeWidgets {
         }
         match tap {
             Some(Tap::Settings) => open_settings(host, base)?,
+            Some(Tap::Run(action)) => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).run_action(action)?;
+            }
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
                 CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
