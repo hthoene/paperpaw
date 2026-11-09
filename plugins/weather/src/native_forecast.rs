@@ -37,6 +37,27 @@ mod tests;
 
 use layout::{Parts, Row, Setup, Texts, Wants};
 
+/// The keys of the weekdays' names, from Sunday: short (this plugin's) and
+/// long (the core's).
+const SHORT: [&str; 7] = [
+    "weather.weekday.0",
+    "weather.weekday.1",
+    "weather.weekday.2",
+    "weather.weekday.3",
+    "weather.weekday.4",
+    "weather.weekday.5",
+    "weather.weekday.6",
+];
+const LONG: [&str; 7] = [
+    "core.weekday.0",
+    "core.weekday.1",
+    "core.weekday.2",
+    "core.weekday.3",
+    "core.weekday.4",
+    "core.weekday.5",
+    "core.weekday.6",
+];
+
 /// What the style and the settings say about the layout of the widget `cx`.
 fn setup(cx: &Cx<'_>) -> Result<Setup, Error> {
     let style = cx.style();
@@ -102,10 +123,11 @@ fn day_name(
     if today == Some(day.date) && cx.settings.shows("today")? && !initial {
         return cx.tr("weather.today");
     }
+    let at = usize::from(weekday).min(6);
     if long {
-        return cx.tr(&text::format(format_args!("core.weekday.{weekday}"))?);
+        return cx.tr(LONG.get(at).copied().unwrap_or(LONG[0]));
     }
-    let short = cx.tr(&text::format(format_args!("weather.weekday.{weekday}"))?)?;
+    let short = cx.tr(SHORT.get(at).copied().unwrap_or(SHORT[0]))?;
     if initial {
         let mut first = String::new();
         if let Some(c) = short.chars().next() {
