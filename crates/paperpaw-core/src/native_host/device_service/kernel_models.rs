@@ -33,6 +33,50 @@ use paperpaw_sdk::wifi::WifiState;
 pub(super) struct KernelHost<'a> {
     pub(super) inner: &'a dyn DeviceHost,
     pub(super) env: &'a Env<'a>,
+    /// The plugin that called the service (its namespace), from the service
+    /// dispatch: the kernel's tracker of the running plugin is updated by the
+    /// top-level callback only, so in a nested call it names the caller's
+    /// caller.
+    pub(super) caller: &'a str,
+}
+
+/// Who asks, for the views of Bluetooth.
+struct Asker<'a>(&'a str);
+
+impl paperpaw_sdk::secrets::Running for Asker<'_> {
+    fn runs(&self, plugin: &str) -> bool {
+        plugin == self.0
+    }
+}
+
+impl KernelHost<'_> {
+    /// Bluetooth as the plugin that asks sees it.
+    fn view<'v>(
+        &'v self,
+        asker: &'v Asker<'v>,
+    ) -> Option<paperpaw_sdk::bluetooth::BluetoothView<'v>> {
+        self.env.bluetooth().map(|view| view.seen_by(asker))
+    }
+}
+
+impl crate::Kernel {
+    /// Checks a shell's [`DeviceHost`] the way `core.device` answers with it:
+    /// the kernel's models over the shell's host, so a shell that advertises
+    /// Wi-Fi or Bluetooth caps the kernel has no model of (it would answer
+    /// "not found") is found out. For host tests of any shell
+    /// ([`check_caps_agree`](super::check_caps_agree) on the shell's host alone
+    /// cannot see the kernel's side).
+    ///
+    /// # Errors
+    /// The first disagreement, in words.
+    pub fn check_device_host(&self, host: &dyn DeviceHost) -> Result<(), &'static str> {
+        let env = self.shared.env(paperpaw_platform::Instant(0));
+        super::check_caps_agree(&KernelHost {
+            inner: host,
+            env: &env,
+            caller: "",
+        })
+    }
 }
 
 /// `dev_bonded.kind`: 0 other, 1 keyboard, 2 remote, 3 sensor, 4 phone.
@@ -118,7 +162,8 @@ impl DeviceHost for KernelHost<'_> {
 
     /// Op 10 from the kernel's Bluetooth.
     fn bluetooth(&self) -> Result<BluetoothFacts, i32> {
-        let view = self.env.bluetooth().ok_or(ERR_NOT_FOUND)?;
+        let asker = Asker(self.caller);
+        let view = self.view(&asker).ok_or(ERR_NOT_FOUND)?;
         Ok(BluetoothFacts {
             radio: u32::from(view.state() == RadioState::On),
             max_links: u32::from(view.max_links()),
@@ -127,7 +172,8 @@ impl DeviceHost for KernelHost<'_> {
     /// Op 11 from the kernel's bonded devices, as the plugin that asks may use
     /// them.
     fn bonded(&self, visit: &mut dyn FnMut(&BondedRow<'_>) -> ControlFlow<()>) -> Result<(), i32> {
-        let view = self.env.bluetooth().ok_or(ERR_NOT_FOUND)?;
+        let asker = Asker(self.caller);
+        let view = self.view(&asker).ok_or(ERR_NOT_FOUND)?;
         for bonded in view.bonded() {
             let given = view
                 .given(bonded.id)
@@ -172,13 +218,15 @@ impl DeviceHost for KernelHost<'_> {
     /// read across a change is `ERR_STATE`, as with the shell's own lists.
     fn generation(&self) -> u32 {
         let mut hash: u32 = 0x811c_9dc5;
-        if let Some(view) = self.env.bluetooth() {
+        let asker = Asker(self.caller);
+        if let Some(view) = self.view(&asker) {
             for bonded in view.bonded() {
                 for byte in bonded.id.number().to_le_bytes() {
                     hash = (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193);
                 }
             }
         }
-        self.inner.generation().wrapping_add(hash)
+        // 0 is never sent (the service reads it as 1, and the contract keeps it).
+        self.inner.generation().wrapping_add(hash).max(1)
     }
 }
