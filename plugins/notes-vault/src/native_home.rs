@@ -112,6 +112,8 @@ pub struct Home {
     state: Option<State>,
     run: Run,
     failed: bool,
+    /// The card access is not allowed: said instead of an index failure.
+    denied: bool,
 }
 
 impl Home {
@@ -127,6 +129,7 @@ impl Home {
             state: None,
             run: Run::Idle,
             failed: false,
+            denied: false,
         };
         home.refresh(host)?;
         Ok(home)
@@ -159,6 +162,7 @@ impl Home {
             self.vault = now;
             self.run = Run::Idle;
             self.failed = false;
+            self.denied = false;
         }
         if matches!(self.run, Run::Idle) && !self.vault.is_empty() {
             if self.due(host)? {
@@ -185,6 +189,7 @@ impl Home {
     fn index_now(&mut self) -> Result<(), Error> {
         self.run = Run::Indexing(Indexer::new(&self.vault)?);
         self.failed = false;
+        self.denied = false;
         Ok(())
     }
 
@@ -264,9 +269,11 @@ impl Home {
         });
         // A refusal ends the work: what was being made is dropped, the index
         // kept stays, and the page says the index could not be made.
-        Ok(stepped.unwrap_or_else(|_| {
+        Ok(stepped.unwrap_or_else(|error| {
             self.run = Run::Idle;
-            self.failed = true;
+            // A card that may not be read is not an index that failed.
+            self.denied = error == Error::Denied;
+            self.failed = !self.denied;
             Slice::Over
         }))
     }
@@ -359,6 +366,7 @@ impl Home {
                     },
                 ],
             ),
+            _ if self.denied => messages.copy(host, "notes-vault.status.denied"),
             _ if self.failed => messages.copy(host, "notes-vault.status.failed"),
             (_, None) => messages.copy(host, "notes-vault.status.none"),
             (_, Some(state)) => self.ready(host, messages, state),
@@ -473,6 +481,7 @@ mod tests {
             }),
             run: Run::Idle,
             failed: false,
+            denied: false,
         }
     }
 

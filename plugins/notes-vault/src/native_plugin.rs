@@ -7,7 +7,7 @@ use alloc::string::String;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, Input};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
-use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming};
+use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming, kinds};
 use paperpaw_sdk::native::settings::SettingValue;
 use paperpaw_sdk::native::ui::{
     HandoverId, Instance, Notify, Open, Param, Question, RequestId, TextWrite, Ui,
@@ -15,11 +15,12 @@ use paperpaw_sdk::native::ui::{
 use paperpaw_sdk::native::work::{Work, WorkSpec};
 use paperpaw_sdk::native::{Error, Host, Plugin, registrations, reply::Reply};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
-use paperpaw_ui_kit::{Messages, Screens, uitext};
+use paperpaw_ui_kit::{Messages, Screens, read_event, uitext};
 
 use crate::declarations::{HOME, LIST, OPEN, TAGS, WORK_DUE};
 use crate::native_home::{self, Home, Next as HomeNext, Slice};
 use crate::native_list::{self, List, MODE, Next as ListNext, WHAT};
+use crate::native_notice::{Notice, Why};
 use crate::native_tags::Tags;
 
 mod image {
@@ -45,6 +46,8 @@ enum Slot {
     Home(Home),
     List(List),
     Tags(Tags),
+    /// A screen whose first read of the card was refused.
+    Notice(Notice),
 }
 
 /// What an open question is for.
@@ -81,7 +84,10 @@ impl Plugin for NativeNotesVault {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let event = incoming.decode()?;
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::WorkDue, kinds::Answered)
+        else {
+            return Ok(());
+        };
         self.ensure_ui(host)?;
         match event {
             Event::ActionRun { .. } if token == OPEN => {
@@ -113,6 +119,10 @@ impl Plugin for NativeNotesVault {
                         tags.shown(last_input);
                         Ok(())
                     }
+                    Some(Slot::Notice(notice)) => {
+                        notice.shown(last_input);
+                        Ok(())
+                    }
                     None => Ok(()),
                 }
             }
@@ -136,6 +146,7 @@ impl Plugin for NativeNotesVault {
             Slot::Home(home) => home.draw(host, &mut frame),
             Slot::List(list) => list.draw(host, &mut frame),
             Slot::Tags(tags) => tags.draw(host, &mut frame),
+            Slot::Notice(notice) => notice.draw(host, &mut frame),
         }
     }
 
@@ -163,6 +174,7 @@ impl Plugin for NativeNotesVault {
                 }
                 Ok(handled)
             }
+            Some(Slot::Notice(notice)) => notice.input(host, &input),
             None => Ok(Handled::No),
         }
     }
@@ -188,17 +200,8 @@ impl NativeNotesVault {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        let slot = match token {
-            HOME => {
-                let home = Home::new(host)?;
-                let work = home.running();
-                let slot = Slot::Home(home);
-                self.screens.open(instance, slot)?;
-                if work {
-                    self.declare_work(host)?;
-                }
-                return Ok(());
-            }
+        let made = match token {
+            HOME => Home::new(host).map(Slot::Home),
             LIST => {
                 let (mode, what) = match handover {
                     Some(handover) => {
@@ -212,12 +215,23 @@ impl NativeNotesVault {
                     }
                     None => (None, String::new()),
                 };
-                Slot::List(List::new(host, mode.as_deref(), what)?)
+                List::new(host, mode.as_deref(), what).map(Slot::List)
             }
-            TAGS => Slot::Tags(Tags::new(host)?),
+            TAGS => Tags::new(host).map(Slot::Tags),
             _ => return Err(Error::Invalid),
         };
-        self.screens.open(instance, slot)
+        // A refused first read leaves a screen that says why and goes back,
+        // not a dead one; a refused allocation is the host's to handle.
+        let slot = match made {
+            Ok(slot) => slot,
+            Err(error) => Slot::Notice(Notice::new(Why::of(&error).ok_or(error)?)),
+        };
+        let work = matches!(&slot, Slot::Home(home) if home.running());
+        self.screens.open(instance, slot)?;
+        if work {
+            self.declare_work(host)?;
+        }
+        Ok(())
     }
 
     /// What the page's chosen row asks for.

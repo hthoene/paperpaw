@@ -82,6 +82,12 @@ one; the screens are native since slice 2, the format and the widgets are not. I
   thousands of entries is listed again from its start for each index step (the model asks
   `Storage::list_from`, whose default counts places: an X4 timing gate); a vault index of 50,000
   notes at about one step in each slice is slow, also to be measured on the device.
+- A refused first read of the card (opening a screen) leaves a one-line screen (`native_notice.rs`)
+  that says why and goes back, not a dead screen: "allow card access" where `uses.storage` is denied,
+  "the card could not be read" for any other refusal; a refused allocation is the host's. The page
+  says the same where the work finds the card denied. No hosted test yet (the scripted host has no
+  `core.files`): the notice's mapping is unit-tested.
+- X4 checklist (not measured): the two 4 KiB `core.files` buffers of `Card`, and the index timing.
 - Worst-case memory: one window of 100 rows (path, title) and the stack of folders being walked (at
   most 24 deep), the tags (400), the two 4 KiB `core.files` buffers while the card is read.
 

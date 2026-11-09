@@ -37,6 +37,7 @@ mod native_home;
 mod native_list;
 #[doc(hidden)]
 pub mod native_model;
+mod native_notice;
 mod native_paged;
 /// The interface-7 notes vault (see `PORTING-7.md`).
 pub mod native_plugin;
