@@ -242,15 +242,14 @@ fn provide(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {
         require(provided.tags.is_empty())?;
     } else {
         // Tags one per line: at least one, at most 32, each 1..=128 bytes
-        // (a line that is empty or blank is no tag). Over 32 is
-        // `ERR_NO_SPACE`, as every cap past its count.
-        let mut count = 0;
-        for tag in provided.tags.split('\n') {
-            count += 1;
-            require(is_text(tag) && tag.len() <= 128)?;
-        }
-        if count > 32 {
-            return Err(ERR_NO_SPACE);
+        // (a line that is empty or blank is no tag, `ERR_INVALID`). Over 32
+        // tags or over 128 bytes is `ERR_NO_SPACE`, as every cap past its
+        // count or size, tag by tag as the SDK's `Provided::tags` checks.
+        for (count, tag) in provided.tags.split('\n').enumerate() {
+            require(is_text(tag))?;
+            if count >= 32 || tag.len() > 128 {
+                return Err(ERR_NO_SPACE);
+            }
         }
     }
     host.provide(book, &provided)?;

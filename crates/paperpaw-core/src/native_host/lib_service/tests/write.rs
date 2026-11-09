@@ -1080,5 +1080,5 @@ fn provided_tags_are_one_to_32_lines_of_1_to_128_bytes() {
     }
     let tag = |n: usize| -> &'static str { std::boxed::Box::leak("x".repeat(n).into_boxed_str()) };
     assert!(provide(provided(0b10000, "", tag(128))).is_ok());
-    assert_eq!(provide(provided(0b10000, "", tag(129))), Err(ERR_INVALID));
+    assert_eq!(provide(provided(0b10000, "", tag(129))), Err(ERR_NO_SPACE));
 }
