@@ -419,7 +419,12 @@ fn one_scan_reads_the_numbers_and_the_three_texts_as_the_separate_reads_do() {
         assert!(seen);
         let (title_bytes, author_bytes, filled) = got.unwrap();
         for (column, whole, bytes, kept) in [
-            (catalog::TextColumn::Title, title_bytes, &title, filled.title),
+            (
+                catalog::TextColumn::Title,
+                title_bytes,
+                &title,
+                filled.title,
+            ),
             (
                 catalog::TextColumn::Author,
                 author_bytes,
@@ -428,9 +433,10 @@ fn one_scan_reads_the_numbers_and_the_three_texts_as_the_separate_reads_do() {
             ),
         ] {
             let mut alone = [0_u8; 5];
-            let text = catalog::try_text_at_with(&storage, &changes, offset, column, 0, 0, &mut alone)
-                .unwrap()
-                .unwrap();
+            let text =
+                catalog::try_text_at_with(&storage, &changes, offset, column, 0, 0, &mut alone)
+                    .unwrap()
+                    .unwrap();
             assert_eq!((text.total, text.filled), (whole, kept), "{column:?}");
             assert_eq!(&alone[..kept], &bytes[..kept], "{column:?}");
         }

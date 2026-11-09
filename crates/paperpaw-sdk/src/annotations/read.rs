@@ -162,6 +162,7 @@ fn checked_sum(mut sizes: impl Iterator<Item = usize>) -> Option<usize> {
 /// A text read through a window: what was read (a character cut at its
 /// end is left out) and the text's whole length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Part<'a> {
     pub text: &'a str,
     pub whole: u32,
