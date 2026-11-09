@@ -39,6 +39,8 @@ std::thread_local! {
     static ZERO_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
     /// `make` registers the one event only (the flat adapter routes no draw).
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
+    /// `make` also registers for `event.tick`.
+    static TICKS_TOO: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -143,6 +145,7 @@ fn reset(mode: u8) {
     OPEN.with(|o| o.set(0));
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
+    TICKS_TOO.with(|e| e.set(false));
 }
 
 /// The shell's heap and clock.
@@ -231,7 +234,13 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
         event_tag: registrations::EVENT_STARTED_TAG,
         token: TOKEN,
     };
-    let len = if EVENT_ONLY.with(Cell::get) {
+    let tick = Registration::Event {
+        event_tag: registrations::EVENT_TICK_TAG,
+        token: TOKEN,
+    };
+    let len = if TICKS_TOO.with(Cell::get) {
+        registrations::registrations_encode(&[started, tick], &mut bytes)
+    } else if EVENT_ONLY.with(Cell::get) {
         registrations::registrations_encode(&[started], &mut bytes)
     } else {
         registrations::registrations_encode(
@@ -717,6 +726,24 @@ mod instance_tests {
         assert_eq!(SLOTS_OPEN.with(Cell::get), 0, "and ended");
         drop(instance);
         assert_eq!(SLOTS_OPEN.with(Cell::get), 0);
+    }
+
+    #[test]
+    fn a_tick_goes_to_the_tick_registrations_only() {
+        // Registered for `event.started` (and a draw) only: no tick record is
+        // dispatched to it, whatever its other event registrations.
+        reset(NORMAL);
+        let instance = load().unwrap();
+        assert!(instance.tick(60_000).is_empty());
+        assert_eq!(CALLS.with(Cell::get), 1, "only `make` ran plugin code");
+        drop(instance);
+        // Registered for `event.tick` too: that one registration, once a tick.
+        reset(NORMAL);
+        TICKS_TOO.with(|value| value.set(true));
+        let instance = load().unwrap();
+        let before = CALLS.with(Cell::get);
+        assert_eq!(instance.tick(60_000).len(), 1);
+        assert_eq!(CALLS.with(Cell::get), before + 1);
     }
 
     #[test]
@@ -1415,6 +1442,8 @@ mod fmt_call_oom;
 mod format_call_oom;
 #[path = "format_scope_oom_tests.rs"]
 mod format_scope_oom;
+#[path = "lib_reads_oom_tests.rs"]
+mod lib_reads_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
 

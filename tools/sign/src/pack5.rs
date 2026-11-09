@@ -333,6 +333,10 @@ fn exports(image: &Image<'_>, symbols: &[Symbol]) -> Result<(), String> {
     let mut extra: Vec<&str> = symbols
         .iter()
         .filter(|s| s.info >> 4 != 0 && s.kind() != STT_SECTION && s.kind() != STT_FILE)
+        // Hidden: no name another object can bind to (the Xtensa linker leaves
+        // such a symbol global in the output; `compiler_builtins`'s
+        // functions and the heap word's alias are).
+        .filter(|s| !s.hidden())
         .filter(|s| image.place(Some(s)) == Place::Image)
         .map(|s| s.name.as_str())
         .filter(|name| {

@@ -18,6 +18,8 @@ pub(crate) mod codec;
 
 #[path = "native_host/event_tags.rs"]
 pub(crate) mod event_tags;
+#[path = "native_host/owner_directory.rs"]
+pub(crate) mod owner_directory;
 
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
@@ -147,6 +149,8 @@ pub(crate) mod hyphen_service;
 )]
 pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
+pub(crate) mod lib_reads;
+#[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
@@ -154,9 +158,16 @@ pub(crate) mod lookup_service;
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
 )]
+pub(crate) mod net_policy;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+mod network_demand;
+pub(crate) mod owner_paths;
+pub(crate) mod paths_in_use;
+pub(crate) mod save_files;
+pub(crate) mod service_events;
+mod service_pump;
 mod service_slots;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
@@ -172,6 +183,7 @@ mod stage_wire;
 pub(crate) mod staged_name;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod work_pump;
 
 const REGISTRATIONS: usize = 8;
 
@@ -284,6 +296,8 @@ pub(crate) mod native_status;
     reason = "core.registry op 11 (Core) reads the declared menus through it"
 )]
 pub(crate) mod native_menus;
+#[path = "native_host/native_tick.rs"]
+pub(crate) mod native_tick;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
 
