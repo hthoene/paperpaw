@@ -56,6 +56,29 @@ impl Asked {
     }
 }
 
+impl Asked {
+    /// The dialog screen for this question: the choice sheet (kind 1) or the
+    /// confirm box (kind 2), answering through `answer`.
+    pub(crate) fn into_screen(
+        self,
+        env: &paperpaw_sdk::Env<'_>,
+        answer: Answerer,
+    ) -> alloc::boxed::Box<dyn paperpaw_sdk::Screen> {
+        if self.kind == 1 {
+            return alloc::boxed::Box::new(Choice::new(env, self.title, self.lines, answer));
+        }
+        let word = |at: usize| self.lines.get(at).map_or("", String::as_str);
+        alloc::boxed::Box::new(Confirm::new(
+            env,
+            &self.title,
+            &self.text,
+            (word(0), word(1)),
+            self.flags,
+            answer,
+        ))
+    }
+}
+
 /// `text` copied without aborting when memory is short.
 fn try_string(text: &str) -> Option<String> {
     let mut copy = String::new();

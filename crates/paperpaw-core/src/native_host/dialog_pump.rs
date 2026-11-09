@@ -227,29 +227,7 @@ impl crate::Kernel {
                     let answer =
                         super::dialogs::Answerer::new(shared, dialog.serial, start.request);
                     let env = self.shared.env(self.now);
-                    dialog.screen = if asked.kind == 1 {
-                        alloc::boxed::Box::new(super::dialogs::Choice::new(
-                            &env,
-                            asked.title,
-                            asked.lines,
-                            answer,
-                        ))
-                    } else {
-                        let word = |at: usize| {
-                            asked
-                                .lines
-                                .get(at)
-                                .map_or("", alloc::string::String::as_str)
-                        };
-                        alloc::boxed::Box::new(super::dialogs::Confirm::new(
-                            &env,
-                            &asked.title,
-                            &asked.text,
-                            (word(0), word(1)),
-                            asked.flags,
-                            answer,
-                        ))
-                    };
+                    dialog.screen = asked.into_screen(&env, answer);
                 }
                 dialog.serial
             });
