@@ -5,7 +5,7 @@
   and OPDS can fetch at once for a press and as declared work for a rule, as in Beta 3.
 - **The store can name the code's expected digest** (#228). `command.install_author` carries the
   `sha256` that `device.md` 5.2 describes, for the host's install check (an install whose code
-  differs ends with reason 18 once the install handler lands). Interface 7 draft 35.
+  differs ends with reason 18 once the install handler lands). Interface 7 draft 34.
 
 ### Changed
 
