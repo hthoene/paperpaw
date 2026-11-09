@@ -432,6 +432,18 @@ pub(crate) fn compose(
     canvas: &mut Canvas<'_>,
 ) -> Result<(), i32> {
     let target = handles.resolve(caller, request.kind, request.handle, guard)?;
+    draw_target(host, target, request, canvas)
+}
+
+/// The second half of [`compose`]: draw the resolved `target` if anything is
+/// visible, and log a child's failure. Callers that must not hold the table
+/// across the child's `draw` resolve first and call this after releasing it.
+pub(crate) fn draw_target(
+    host: &dyn ChildDraw,
+    target: Target,
+    request: &ComposeRequest,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), i32> {
     let Some(frame) = request.draw_frame() else {
         return Ok(());
     };

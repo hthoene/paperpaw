@@ -571,6 +571,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   caller's own plugin `ERR_BUSY`** (the host's per-plugin re-entry guard: a plugin is never
   re-entered while its `draw` runs; it draws its own widgets itself); a call from depth 2
   `ERR_BUSY`.
+- [D] **Status items and lines are never hidden by compose.** The guard and private rules above
+  apply to widget instances only. The privacy of a status item or line under a guard rests on
+  the filter applied when its handle is granted (ops 14 and 15, section 4.3); the handle lasts
+  only for the callback that asked, so compose has nothing more to judge.
 - [D] **Depth.** The caller's `draw` runs at depth 1, the child's at depth 2. A child cannot
   compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 4, 7 and 12-15
   are depth 1 only. Only widgets and status values are children, and they hold no widgets

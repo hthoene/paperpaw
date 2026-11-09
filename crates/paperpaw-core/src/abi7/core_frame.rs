@@ -39,6 +39,8 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
+    /// The device's `core.ui` service: the widget handles slot 35 resolves.
+    pub(crate) ui: Option<&'a crate::native_host::ui_service::UiServices>,
 }
 
 impl Frame for CoreFrame<'_> {
@@ -122,6 +124,15 @@ impl Frame for CoreFrame<'_> {
             directory,
         }
         .ask(owner, token, items, context, out)
+    }
+
+    fn compose(
+        &self,
+        _caller_id: &str,
+        request: &super::context::ComposeRequest,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<(), i32> {
+        crate::native_host::ui_compose_host::compose_in(self, request, canvas)
     }
 
     fn settings(&self) -> &Settings {

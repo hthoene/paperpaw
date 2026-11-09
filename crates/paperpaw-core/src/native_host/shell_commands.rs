@@ -63,6 +63,7 @@ impl Kernel {
                 usage: &self.shared.usage,
                 plugins: &self.shared.plugins,
                 work: &self.shared.work_states,
+                ui: None,
             };
             batch.dispatch_owner(depth, |context| {
                 let owner = Id::try_parse(&context.id).map_err(|error| match error {

@@ -240,6 +240,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        ui: None,
     });
 }
 
