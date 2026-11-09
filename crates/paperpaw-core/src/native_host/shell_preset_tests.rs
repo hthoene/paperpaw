@@ -2,7 +2,9 @@
 //! submit, applied after the callback, with the covered set of each kind.
 use super::item_state::run;
 use super::*;
-use crate::native_host::commands::{WireCommand, preset_covers, preset_walk};
+use crate::native_host::commands::{
+    WireCommand, preset_covers, preset_plan as presets_plan, preset_walk,
+};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::builtin::groups::{LOOK, OTHER};
 use paperpaw_sdk::presets::{self, Preset};
@@ -313,5 +315,147 @@ fn a_theme_of_many_settings_applies_all_of_them_a_chunk_at_a_time() {
             n % 2 == 0,
             "{n}"
         );
+    }
+}
+
+/// The kernel of the memory tests: every kind of value a preset gives.
+fn kernel_of_kinds() -> crate::Kernel {
+    let mut kernel = kernel(3);
+    let settings = &mut kernel.shared.settings;
+    settings
+        .define(SettingSpec::text("fake.lookt", "text", "", LOOK))
+        .unwrap();
+    settings
+        .define(SettingSpec::choice(
+            "fake.lookc",
+            "choice",
+            &["fake.one", "fake.two", "fake.three"],
+            "fake.one",
+            LOOK,
+        ))
+        .unwrap();
+    add(
+        &mut kernel,
+        preset(
+            "fake.kinds",
+            presets::THEME,
+            "fake.look0 = on\nfake.lookt = some text of the preset\nfake.lookc = fake.three\nfake.lookc = fake.two\n",
+        ),
+    );
+    kernel
+}
+
+/// Every allocation of a chunk's planning refused in turn is the memory
+/// error and nothing more (never an abort); the first call that is not
+/// refused plans what an unrefused one does.
+#[test]
+fn planning_a_chunk_refuses_every_allocation_and_never_aborts() {
+    let kernel = kernel_of_kinds();
+    let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
+    let found = settings.presets().get("fake.kinds").unwrap();
+    // The chunks of the whole walk (the theme has several), each then planned
+    // with every allocation refused in turn.
+    let mut whole = std::vec::Vec::new();
+    let mut starts = std::vec::Vec::new();
+    for from in (0..).step_by(16) {
+        starts.push(from);
+        if !presets_plan(settings, widgets, found, from, &mut whole).unwrap() {
+            break;
+        }
+    }
+    // Three settings get a new value: look0, the text, the choice.
+    assert_eq!(whole.len(), 3, "{whole:?}");
+    assert!(starts.len() > 1, "more than one chunk");
+    let mut most = 0;
+    for from in starts {
+        let mut expected = std::vec::Vec::new();
+        let more = presets_plan(settings, widgets, found, from, &mut expected).unwrap();
+        for nth in 1_u32.. {
+            let mut out = std::vec::Vec::new();
+            super::arm_failure(nth);
+            let planned = presets_plan(settings, widgets, found, from, &mut out);
+            super::arm_failure(0);
+            match planned {
+                Err(status) => {
+                    assert_eq!(status, paperpaw_native::host_glue::ERR_NO_MEMORY, "{nth}");
+                    assert!(nth < 20, "refused past any plausible last allocation");
+                }
+                Ok(again) => {
+                    assert_eq!(again, more);
+                    assert_eq!(std::format!("{out:?}"), std::format!("{expected:?}"));
+                    most = most.max(nth);
+                    break;
+                }
+            }
+        }
+    }
+    assert!(most >= 3, "only {most} allocation sites");
+}
+
+/// A guarded setting of another plugin that the preset's kind covers by the
+/// time it is applied drops the preset whole: submit-time checks do not hold
+/// for what an earlier command of the callback changed.
+#[test]
+fn a_preset_is_checked_again_when_it_is_applied() {
+    let mut kernel = kernel(2);
+    add(
+        &mut kernel,
+        preset("fake.dark", presets::THEME, "fake.look0 = on\n"),
+    );
+    // Passes at submit: nothing guarded is covered yet.
+    let owner = Id::parse("fake").unwrap();
+    let authority = kernel.command_settings_authority(&owner);
+    guarded_look(&mut kernel);
+    kernel.apply_native_presets(
+        &owner,
+        authority,
+        std::vec![std::boxed::Box::from("fake.dark")],
+    );
+    assert!(!on(&kernel, "fake.look0"), "dropped whole, nothing applied");
+    // The plugin's own guarded setting, or the editor's authority, may.
+    let own = Id::parse("other").unwrap();
+    let authority = kernel.command_settings_authority(&own);
+    kernel.apply_native_presets(
+        &own,
+        authority,
+        std::vec![std::boxed::Box::from("fake.dark")],
+    );
+    assert!(on(&kernel, "fake.look0"));
+}
+
+/// What the walk tells of a value is what `SettingKind::parse` accepts.
+#[test]
+fn a_value_fits_a_kind_as_the_sdk_parses_it() {
+    let kernel = kernel_of_kinds();
+    let settings = &kernel.shared.settings;
+    for spec in settings
+        .specs()
+        .filter(|s| !s.id.as_str().starts_with("core.grant.") && !s.extra().secret)
+    {
+        for text in [
+            "", "on", "off", "1", "-5", "99999", "x", "en", "en-US", "-", "fake.two", "a b",
+        ] {
+            let mut fits = None;
+            let line: &'static str = std::boxed::Box::leak(
+                std::format!("{} = {text}\n", spec.id.as_str()).into_boxed_str(),
+            );
+            let one = preset("fake.probe", "fake.kind", line);
+            preset_walk(
+                settings,
+                &kernel.shared.widgets,
+                &one,
+                &mut |_, _, given| {
+                    fits = Some(given.is_some());
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                fits.unwrap_or(false),
+                spec.kind.parse(text.trim()).is_some(),
+                "{}: {text:?}",
+                spec.id.as_str()
+            );
+        }
     }
 }

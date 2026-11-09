@@ -43,7 +43,7 @@ pub(crate) use items::ItemRoom;
 #[path = "commands_presets.rs"]
 mod preset;
 #[cfg(test)]
-pub(crate) use preset::{covers as preset_covers, walk as preset_walk};
+pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
 
 #[path = "commands_open.rs"]
 mod open;

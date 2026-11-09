@@ -95,7 +95,8 @@ impl Kernel {
         };
         self.drain_native_ui(&owner, commands, redraw);
         self.apply_item_states(&owner, item_states);
-        self.apply_native_presets(presets);
+        let authority = self.command_settings_authority(&owner);
+        self.apply_native_presets(&owner, authority, presets);
         Ok(status)
     }
 
