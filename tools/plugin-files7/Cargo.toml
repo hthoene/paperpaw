@@ -173,6 +173,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "picture-home"
+path = "src/bin/picture-home.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "setup"
 path = "src/bin/setup.rs"
 test = false
@@ -218,6 +224,7 @@ paperpaw-plugin-dictionary = { path = "../../plugins/dictionary", features = ["n
 paperpaw-plugin-file-manager = { path = "../../plugins/file-manager", features = ["native-entry"] }
 paperpaw-plugin-koreader = { path = "../../plugins/koreader", features = ["native-entry"] }
 paperpaw-plugin-lock = { path = "../../plugins/lock", features = ["native-entry"] }
+paperpaw-plugin-picture-home = { path = "../../plugins/picture-home", features = ["native-entry"] }
 paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entry"] }
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
