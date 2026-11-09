@@ -9,7 +9,6 @@
 //! each with the cache name, the size they are decoded to and their path
 //! in the archive, for pages to be laid out meanwhile.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
