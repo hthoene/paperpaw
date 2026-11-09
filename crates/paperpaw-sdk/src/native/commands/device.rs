@@ -30,7 +30,8 @@ impl PowerAction {
     }
 }
 
-/// Where the plugin to install is, in the folder the host reads it from.
+/// Where the plugin or firmware image to install is, in the folder the host
+/// reads it from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InstallRoot {
@@ -46,6 +47,53 @@ impl InstallRoot {
             Self::Data => 0,
             Self::Files => 1,
         }
+    }
+}
+
+/// How a firmware image is installed: the options of
+/// [`CommandSender::install_firmware`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct FirmwareOptions<'a> {
+    allow_older: bool,
+    foreign: bool,
+    key: Option<&'a [u8; 32]>,
+}
+
+impl<'a> FirmwareOptions<'a> {
+    /// A PaperPaw image, newer than the running one, signed by a PaperPaw key.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            allow_older: false,
+            foreign: false,
+            key: None,
+        }
+    }
+
+    /// Also take an older or the same version.
+    #[must_use]
+    pub const fn allow_older(mut self) -> Self {
+        self.allow_older = true;
+        self
+    }
+
+    /// The image is another firmware than PaperPaw: unsigned, checked as the boot
+    /// loader would start it. The host always asks, and tells the user that
+    /// PaperPaw does not start again by itself.
+    #[must_use]
+    pub const fn foreign(mut self) -> Self {
+        self.foreign = true;
+        self
+    }
+
+    /// The signing key (32 bytes) of an image signed by another key than
+    /// PaperPaw's, which installs only when this names exactly that key and the
+    /// user accepts it in the host's confirmation.
+    #[must_use]
+    pub const fn key(mut self, key: &'a [u8; 32]) -> Self {
+        self.key = Some(key);
+        self
     }
 }
 
@@ -246,5 +294,47 @@ impl CommandSender<'_, '_> {
             plugin,
             flags: 0,
         })
+    }
+
+    /// Ask the host to install the firmware image in `path` of `root`
+    /// (`uses.firmware`, `docs/abi/device.md` 5.3); `root` [`InstallRoot::Files`]
+    /// also needs `uses.storage`. The host checks the image, **always asks the
+    /// user** (whatever grant the plugin has) and writes the other flash slot
+    /// in bounded steps. `request` is the caller's own non-zero number: the end
+    /// is `install_done` (kind 1) and `Device::install` its state. Installing
+    /// does not restart: [`firmware_restart`](Self::firmware_restart) starts
+    /// the installed image.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, buffer limits or
+    /// the host's refusal (`Denied` without `uses.firmware`, `Full` when four
+    /// install, removal, firmware or check requests wait already).
+    pub fn install_firmware(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        options: FirmwareOptions<'_>,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.submit(wire::Command::InstallFirmware {
+            request,
+            root: root.wire(),
+            path,
+            key: options.key.map_or(&[][..], |key| &key[..]),
+            flags: u32::from(options.allow_older) | (u32::from(options.foreign) << 1),
+        })
+    }
+
+    /// Start the firmware image installed before (`uses.firmware`); the host
+    /// asks nothing more, the user said yes at the install.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal (`Denied` without
+    /// `uses.firmware`).
+    pub fn firmware_restart(&mut self) -> Result<(), Error> {
+        self.submit(wire::Command::FirmwareRestart {})
     }
 }
