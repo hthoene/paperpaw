@@ -82,6 +82,7 @@ impl SettingEvents {
     fn listens(instances: &NativeInstances, owner: u64) -> bool {
         instances.subscribed(owner, TAG)
             || HINTS.iter().any(|&tag| instances.subscribed(owner, tag))
+            || super::core_events::listens(instances, owner)
     }
 
     /// The queue of `owner`, made on first use.
@@ -112,6 +113,19 @@ impl SettingEvents {
         queues.push((owner, pending));
         let last = queues.len() - 1;
         Ok(&mut queues[last].1)
+    }
+
+    /// Runs `visit` on the queue of `owner` (made on first use).
+    pub(super) fn with_queue<R>(
+        &self,
+        owner: u64,
+        visit: impl FnOnce(&mut Pending) -> R,
+    ) -> Result<R, i32> {
+        let mut queues = self
+            .queues
+            .try_borrow_mut()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        Ok(visit(self.queue_of(&mut queues, owner)?))
     }
 
     /// Announces one change (an empty `key`: read everything again) to every
@@ -190,6 +204,15 @@ impl SettingEvents {
         {
             let _ = queue.setting(now_ms, "", Ok(&[]), Visibility::Readable);
         }
+    }
+
+    /// Whether `owner` has something waiting.
+    pub(super) fn has_waiting(&self, owner: u64) -> bool {
+        self.queues.try_borrow().is_ok_and(|queues| {
+            queues
+                .iter()
+                .any(|(key, queue)| *key == owner && !queue.is_empty())
+        })
     }
 
     /// The owners with something waiting, in the pump's order.
@@ -315,7 +338,7 @@ impl crate::Kernel {
     }
 
     /// Tells `owner` its oldest event; `false` when it had none.
-    fn setting_tell(&self, owner: u64) -> bool {
+    pub(super) fn setting_tell(&self, owner: u64) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ready) = instances.setting_events.take(owner) else {
             return false;
@@ -327,6 +350,14 @@ impl crate::Kernel {
         let Some(id) = instances.id(owner) else {
             return true;
         };
+        // A held lifecycle or reading edge was encoded when it was held.
+        if let Some((tag, held)) = ready.event_bytes() {
+            if instances.subscribed(owner, tag) {
+                // A failing callback does not get the event again.
+                let _ = self.native_event_call(owner, &lease, held);
+            }
+            return true;
+        }
         let mut bytes = Vec::new();
         let encoded = match &ready {
             Ready::Hint(tag) => {
@@ -335,6 +366,13 @@ impl crate::Kernel {
                     return true;
                 }
                 self.hint_bytes(*tag, now, &mut bytes)
+            }
+            Ready::Core(tag) => {
+                // Revoked since it was queued: nothing to tell.
+                if !instances.subscribed(owner, *tag) {
+                    return true;
+                }
+                super::core_events::scalar(*tag, now, &mut bytes)
             }
             _ => {
                 let settings = &self.shared.settings;
