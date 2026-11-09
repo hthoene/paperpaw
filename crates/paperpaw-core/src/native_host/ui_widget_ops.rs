@@ -197,7 +197,6 @@ impl UiServices {
     /// outcome (`ui.md` 8.2); then it gives it back, even when the callback
     /// failed or trapped. An owner that stops, is unloaded, switched off or in
     /// safe mode loses its notices without a delivery (`plugin_stopped`).
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn next_widget_dropped(
         &self,
         owner: u64,
@@ -221,9 +220,18 @@ impl UiServices {
         Ok(Some((notice, len)))
     }
 
+    /// The owner of the oldest drop not yet told (`None`: nothing waits).
+    pub(crate) fn next_dropped_owner(&self) -> Result<Option<u64>, i32> {
+        Ok(self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_dropped_owner())
+    }
+
     /// The first delivery attempt of the notice is over, whatever its
     /// outcome: it is not listed any more.
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
         self.widgets
             .handles

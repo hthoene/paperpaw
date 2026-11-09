@@ -245,6 +245,11 @@ impl UiHandles {
         self.dropped.iter().find(|d| d.owner == owner).copied()
     }
 
+    /// The owner of the oldest drop not yet told: the next to hear of one.
+    pub(crate) fn next_dropped_owner(&self) -> Option<u64> {
+        self.dropped.first().map(|d| d.owner)
+    }
+
     /// `notice` was attempted (not "succeeded"): it leaves the list.
     pub(crate) fn dropped_delivered(&mut self, notice: &Dropped) {
         if let Some(at) = self.dropped.iter().position(|d| d == notice) {
