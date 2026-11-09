@@ -103,6 +103,8 @@ fn an_export_the_plugin_cannot_read_is_answered_and_sends_nothing() {
     // A card file the scripted host cannot read is taken as nothing to send:
     // nothing is said. The scripted host gives an event no reply buffer, so the
     // answer itself is refused with `ERR_NO_SPACE` (-3), which the reader ignores.
+    // A real host lends a 16-byte reply buffer (the schema's `max_reply`), which
+    // holds the answer.
     let card = export(&p, EXPORT_STAGE, &export_input(1, "Notes/book.md"));
     assert_eq!(card.status, -3);
     assert!(card.batches.is_empty());
