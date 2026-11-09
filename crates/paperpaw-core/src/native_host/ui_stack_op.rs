@@ -69,6 +69,8 @@ pub(crate) fn stack(
     result
 }
 
+// `covered` counts the LISTED rows only: what a viewer is not shown (rows above a
+// guard it does not own, `service.end.flags` bit 2) must not leak through it.
 fn page(
     view: &dyn UiStackView,
     entries: &[paperpaw_sdk::StackEntry],
@@ -116,7 +118,7 @@ fn page(
         };
         let flags = (u32::from(row.overlay) * OVERLAY)
             | (u32::from(row.guards) * GUARDS)
-            | (u32::from(index + 1 < view.len()) * COVERED)
+            | (u32::from(index + 1 < visible.end) * COVERED)
             | (u32::from(ui_guard::is_secret(view, index)) * SECRET);
         let record = Record::ServiceUiScreen(wire::ServiceUiScreen {
             screen: clip(

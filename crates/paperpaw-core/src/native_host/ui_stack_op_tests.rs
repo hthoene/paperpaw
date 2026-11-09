@@ -218,12 +218,15 @@ fn a_guard_hides_the_stack_from_other_plugins() {
         (rows[0].0.as_str(), rows[0].1, rows[0].3.as_str()),
         ("lock.screen", 4, "lock")
     );
-    // Guards (bit 1), covered (bit 2), secret (bit 4).
-    assert_eq!(rows[0].4, 0b10110);
+    // Guards (bit 1) and secret (bit 4); covered (bit 2) counts the listed rows
+    // only, so the keyboard above the lock does not show through it.
+    assert_eq!(rows[0].4, 0b10010);
     assert_eq!((end.total, end.flags), (1, 1 | 4));
     let (rows, end) = ask(&kernel, LOCK, 0, 0).unwrap();
     assert_eq!(rows.iter().map(|row| row.1).collect::<Vec<_>>(), [5, 4]);
     assert_eq!(end.flags, 1 | 4);
+    // The guard's own plugin lists the keyboard above it: covered.
+    assert_eq!(rows[1].4, 0b10110);
     // Above the guard: secret, not covered.
     assert_eq!(rows[0].4, 1 << 4);
     // No guard: nothing is left out.
