@@ -74,7 +74,7 @@ impl Insn {
     /// edge from its end back to its body that no instruction names.
     pub fn is_loop(self) -> bool {
         let w = self.word;
-        self.wide && w & 0x3F == 0x76 && matches!((w >> 12) & 0xF, 8..=10)
+        self.wide && w & 0xFF == 0x76 && matches!((w >> 12) & 0xF, 8..=10)
     }
 
     /// Whether this is a `jx`: a jump through a register.

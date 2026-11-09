@@ -341,17 +341,17 @@ fn a_form_the_scan_does_not_classify_fails_wide_or_narrow() {
     let report = run(&[("root", narrow)], &["root"], "");
     assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
     assert!(report.problems[0].contains("does not classify"));
-    // `rotw`, `l32e` (RST0, op1 = 0, op2 = 4 `rotw`; RST0 `l32e` is op1 = 9).
+    // `rotw` rotates the window: a change of what `a1` names (`allow sp`).
     let rotw = f(&[&entry(32), &[0x20, 0x80, 0x40], &RETW_N]);
-    let report = run(&[("root", rotw)], &["root"], "");
-    assert!(
-        report
-            .problems
-            .iter()
-            .any(|p| p.contains("does not classify")),
-        "{:?}",
-        report.problems
+    let report = run(&[("root", rotw.clone())], &["root"], "");
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("stack pointer"));
+    let listed = run(
+        &[("root", rotw)],
+        &["root"],
+        "allow sp root spills the windows\n",
     );
+    assert!(listed.problems.is_empty(), "{:?}", listed.problems);
     // The ordinary forms still pass: `nop.n`, `mov.n a2, a3`, `l32i.n`.
     let plain = f(&[
         &entry(32),
@@ -571,13 +571,8 @@ fn an_allow_form_line_that_matches_nothing_or_names_the_wrong_form_fails() {
 
 #[test]
 fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
-    // `rotw 2`, `rfe`, `rfi 3` and `rfwo` have no line.
-    for word in [
-        [0x20u8, 0x80, 0x40],
-        [0x00, 0x30, 0x00],
-        [0x10, 0x33, 0x00],
-        [0x00, 0x34, 0x00],
-    ] {
+    // `rfe`, `rfi 3` and `rfwo` have no line.
+    for word in [[0x00u8, 0x30, 0x00], [0x10, 0x33, 0x00], [0x00, 0x34, 0x00]] {
         let root = f(&[&entry(32), &word, &RETW_N]);
         let report = run(&[("root", root)], &["root"], "");
         assert!(
@@ -904,6 +899,11 @@ fn a_backward_bf_or_bt_is_a_label_and_an_unmodelled_branch_form_fails_closed() {
         .targets(),
         Some([Some(3), None])
     );
+    // A hardware loop (`loopnez a2` to the `retw.n`, 0x039276 as the assembler
+    // makes it): its back edge is no instruction's, so no call is resolved.
+    let (lits, funcs) =
+        root_with_tail(&|_| f(&[&[0x76, 0x92, 0x03], &[0x3d, 0xf0], &[0x3d, 0xf0]]));
+    assert_eq!(outcome(&lits, &funcs, &[]), (0, 1), "a loop");
     // B1 with an `r` that is no `bf`, `bt` or `loop*`: not modelled, so the
     // function's calls are not resolved at all, wherever the form is.
     let (lits, funcs) = root_with_tail(&|_| vec![0x76, 0x30, 0x00]);

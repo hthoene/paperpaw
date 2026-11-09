@@ -75,7 +75,7 @@
 //!
 //! **Every instruction form must be classified** (default deny, as the
 //! packer's): a function with a form `wide_class` or `narrow_class` of
-//! `frames_xtensa` does not know (`l32e`, `rotw`, the MAC16 forms, the S3's
+//! `frames_xtensa` does not know (`rf*`, the MAC16 forms, the S3's
 //! `ee.*`) fails, as does an `entry` of a register other than `a1`. A `jx` is
 //! counted with the indirect calls.
 //!
@@ -90,8 +90,10 @@
 //! the register window, which is what `a1` names (`allow sp` only). A `wsr` or
 //! `xsr` of `PS` (230, which holds the window's own enable and increment)
 //! is its own form, `wsr.ps` or `xsr.ps`: the generic `wsr` and `xsr` lines
-//! cover the other special registers. `rotw`, the `rf*` returns,
-//! MAC16 and the S3's `ee.*` forms stay unknown: no line can allow them.
+//! cover the other special registers. `rotw` rotates the window, so it is a
+//! change of the stack pointer too (`allow sp`, e.g. esp-backtrace's spill of
+//! the windows on the panic path). The `rf*` returns, MAC16 and the S3's
+//! `ee.*` forms stay unknown: no line can allow them.
 //!
 //! **Assumption: literals lie outside the functions.** A function's bytes are
 //! decoded from its symbol's start for its size; the linker script puts the
@@ -268,7 +270,7 @@ struct Reads {
     /// An instruction this scan does not know how long it is.
     unreadable: Option<u32>,
     /// An instruction of a form this scan does not classify (default deny, as
-    /// the packer's): `rotw`, `rf*`, MAC16, the S3's `ee.*` and the rest.
+    /// the packer's): `rf*`, MAC16, the S3's `ee.*` and the rest.
     unknown: Option<u32>,
     /// The named privileged forms (see [`named_form`]) with the first address
     /// of each: they leave `a1` alone, and the budget must allow each.
@@ -327,6 +329,9 @@ fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
         // `s32e at, as, imm` (op2 = 4) writes memory.
         (9, 0) => Some(("l32e", Some(t), false)),
         (9, 4) => Some(("s32e", None, false)),
+        // RST0 `st1` `rotw` (op1 = 0, op2 = 4, `r` = 8): the window rotates by
+        // the immediate, so `a1` names another frame (`allow sp`, never a form).
+        (0, 4) if r == 8 => Some(("rotw", None, true)),
         _ => None,
     }
 }
