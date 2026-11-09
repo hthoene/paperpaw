@@ -84,3 +84,6 @@ mod abi_status;
 
 #[path = "shell_item_state_tests.rs"]
 mod item_state;
+
+#[path = "shell_preset_tests.rs"]
+mod preset;

@@ -42,6 +42,11 @@ pub(crate) use items::ItemAdmit;
 )]
 pub(crate) use items::ItemRoom;
 
+#[path = "commands_presets.rs"]
+mod preset;
+#[cfg(test)]
+pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
+
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
@@ -130,6 +135,8 @@ pub struct CommandStage<'a> {
     /// and the admitted states, applied by the host after the callback.
     items: Option<ItemAdmit<'a>>,
     staged_items: Vec<super::item_state::ItemPush>,
+    /// The presets to apply after the callback (`commands_presets.rs`).
+    staged_presets: Vec<alloc::boxed::Box<str>>,
     /// Entries of room this callback holds in the item-state table.
     room: core::cell::RefCell<Option<items::ItemRoom>>,
     /// The checked `command.set_hint` copies, applied after the callback.
@@ -171,6 +178,7 @@ impl<'a> CommandStage<'a> {
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
+            staged_presets: Vec::new(),
             room: core::cell::RefCell::new(None),
             staged_hints: Vec::new(),
         }
@@ -269,11 +277,17 @@ impl<'a> CommandStage<'a> {
             Ok(checked) => checked,
             Err(status) => return status,
         };
+        // Presets (`commands_presets.rs`): checked, their names copied.
+        let (presets, preset_bytes) = match self.validate_presets(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self
             .bytes
             .saturating_add(dev_bytes)
-            .saturating_add(item_bytes);
+            .saturating_add(item_bytes)
+            .saturating_add(preset_bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
@@ -286,6 +300,7 @@ impl<'a> CommandStage<'a> {
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
             || self.staged_items.try_reserve(item_states.len()).is_err()
+            || self.staged_presets.try_reserve(presets.len()).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -318,6 +333,7 @@ impl<'a> CommandStage<'a> {
         }
         // Capacity is reserved, so this cannot reallocate.
         self.staged_items.extend(item_states);
+        self.staged_presets.extend(presets);
         self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -346,7 +362,10 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             let WireCommand::SetSetting { key, value } = command else {
-                let checked = if dev::is_dev(&command) || Self::is_item_state(&command) {
+                let checked = if dev::is_dev(&command)
+                    || Self::is_item_state(&command)
+                    || Self::is_preset(&command)
+                {
                     Ok(0)
                 } else {
                     self.validate_ui(command)
@@ -384,6 +403,7 @@ impl<'a> CommandStage<'a> {
                     WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
+                    && !Self::is_preset(command)
             })
             .count()
     }
@@ -436,7 +456,10 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. }) || Self::is_item_state(&command) {
+            if matches!(command, WireCommand::Redraw { .. })
+                || Self::is_item_state(&command)
+                || Self::is_preset(&command)
+            {
                 continue;
             }
             // Copied and listed ahead (`reserve_hints`).

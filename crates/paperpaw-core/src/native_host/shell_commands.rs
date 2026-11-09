@@ -38,7 +38,16 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), item_states, hints) = {
+        let (
+            status,
+            owner,
+            owner_key,
+            images,
+            (commands, redraw, _hop),
+            item_states,
+            presets,
+            hints,
+        ) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -100,6 +109,7 @@ impl Kernel {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
                 let item_states = stage.take_item_states();
+                let presets = stage.take_presets();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
@@ -110,6 +120,7 @@ impl Kernel {
                     images,
                     output,
                     item_states,
+                    presets,
                     hints,
                 ))
             })??
@@ -118,6 +129,8 @@ impl Kernel {
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);
         self.apply_item_states(&owner, item_states);
+        let authority = self.command_settings_authority(&owner);
+        self.apply_native_presets(&owner, authority, presets);
         // The labels the callback set; room was taken when they were checked.
         // Nothing holds the table across a callback, so a failed borrow is a
         // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
