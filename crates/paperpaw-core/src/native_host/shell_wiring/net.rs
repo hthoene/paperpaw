@@ -554,7 +554,7 @@ impl NetReports {
 
     /// The listener of `server` is open at `address` (the host and port a
     /// client reaches it at, `""` for the cable). The plugin is told
-    /// `event.server` `started` now, not when [`NetTransport::listen`]
+    /// `event.server` `started` now, not when [`ShellHttp::listen`]
     /// returned: `listen` only says what the shell knows, the listener opens
     /// at the shell's next step.
     ///
@@ -568,7 +568,7 @@ impl NetReports {
     /// The listener of `server` could not be opened (or went away). The
     /// plugin is told `event.server` `failed` with reason `refused`, whatever
     /// the `reason` (it is for the shell's log), and the server's slot is
-    /// free for a new `serve`. Core calls [`NetTransport::unlisten`] for it
+    /// free for a new `serve`. Core calls [`ShellHttp::unlisten`] for it
     /// too: a shell treats that as a no-op for a listener that never opened.
     ///
     /// # Errors
