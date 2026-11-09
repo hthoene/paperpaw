@@ -283,6 +283,7 @@ fn with_kernel_frame<R>(
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        ui: None,
     };
     let guards: Vec<_> = (0..levels)
         .map(|_| crate::abi7::calls::Instance::new())
