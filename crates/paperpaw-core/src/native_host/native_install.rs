@@ -254,6 +254,7 @@ impl crate::Kernel {
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
+        let mut forgot_states = false;
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -267,7 +268,11 @@ impl crate::Kernel {
             let Ok(mut states) = declarations.items.try_borrow_mut() else {
                 return None;
             };
-            states.forget(owner.as_str());
+            forgot_states = states.forget(owner.as_str());
+        }
+        if forgot_states {
+            // The menus lose the states the plugin pushed (bit 0).
+            self.native_registry_changed(1);
         }
         if self.native_owner_stopped(key).is_err() {
             return None;

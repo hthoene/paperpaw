@@ -287,3 +287,34 @@ fn repeated_take_and_retain_cannot_bypass_the_held_edge_limit() {
     drop(held);
     assert_eq!(budget.used(), 0);
 }
+
+#[test]
+fn registry_changed_bits_are_or_ed_until_delivered_and_keep_their_place() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    queue.registry(0);
+    assert!(queue.take().is_none(), "no bit, no event");
+    queue.registry(1);
+    queue.hint(wire::EVENT_STATUS_CHANGED_TAG).unwrap();
+    queue.registry(1 << 4);
+    // Coalesced: one event with both bits, behind the hint raised before the
+    // second bit.
+    assert!(matches!(
+        queue.take(),
+        Some(Ready::Hint(wire::EVENT_STATUS_CHANGED_TAG))
+    ));
+    assert!(matches!(queue.take(), Some(Ready::Registry(0b1_0001))));
+    assert!(queue.take().is_none());
+    // Delivered: the next one starts from none.
+    queue.registry(1 << 2);
+    assert!(matches!(queue.take(), Some(Ready::Registry(0b100))));
+    // Edges and registry bits share the order without clashing.
+    for at in 0..16 {
+        raise(&mut queue, at);
+    }
+    queue.registry(1);
+    queue.clear();
+    assert!(queue.take().is_none());
+    queue.registry(2);
+    assert!(matches!(queue.take(), Some(Ready::Registry(2))));
+}

@@ -256,3 +256,70 @@ fn a_host_without_the_store_refuses_the_record_as_unsupported() {
     let (submitted, _) = run(&mut kernel, &[state("s0", HIDDEN)], OK);
     assert_eq!(submitted, ERR_UNSUPPORTED);
 }
+
+struct Recorder(alloc::rc::Rc<core::cell::RefCell<alloc::vec::Vec<u32>>>);
+impl crate::native_host::event_producers::EventSink for Recorder {
+    fn setting(&self, _: u64, _: &str, _: Result<&[u8], i32>) {}
+    fn hint(&self, _: u32) {}
+    fn registry(&self, what: u32) {
+        self.0.borrow_mut().push(what);
+    }
+}
+
+#[test]
+fn a_changed_state_raises_registry_changed_bit_0_and_an_unchanged_one_does_not() {
+    let mut kernel = kernel(3, true);
+    let seen = alloc::rc::Rc::new(core::cell::RefCell::new(alloc::vec::Vec::new()));
+    kernel
+        .install_native_event_sink(Recorder(seen.clone()))
+        .unwrap();
+    // Two states in one batch: one event for the drain.
+    let (submitted, _) = run(&mut kernel, &[state("s0", HIDDEN), state("s1", FAINT)], OK);
+    assert_eq!(submitted, OK);
+    assert_eq!(*seen.borrow(), [1]);
+    // The same states again change nothing: no event.
+    let (submitted, _) = run(&mut kernel, &[state("s0", HIDDEN), state("s1", FAINT)], OK);
+    assert_eq!(submitted, OK);
+    assert_eq!(seen.borrow().len(), 1);
+    // A change, and the clearing of one, each raise it.
+    let (submitted, _) = run(&mut kernel, &[state("s0", FAINT)], OK);
+    assert_eq!((submitted, seen.borrow().len()), (OK, 2));
+    let (submitted, _) = run(&mut kernel, &[state("s1", 0)], OK);
+    assert_eq!((submitted, seen.borrow().len()), (OK, 3));
+    // Clearing what was never set, and a callback that fails, do not.
+    let (submitted, _) = run(&mut kernel, &[state("s2", 0)], OK);
+    assert_eq!((submitted, seen.borrow().len()), (OK, 3));
+    let (submitted, _) = run(&mut kernel, &[state("s2", HIDDEN)], ERR_INVALID);
+    assert_eq!((submitted, seen.borrow().len()), (OK, 3));
+    // A refused batch applies nothing and raises nothing.
+    let (submitted, _) = run(&mut kernel, &[state("nobody", HIDDEN)], OK);
+    assert_eq!((submitted, seen.borrow().len()), (ERR_NOT_FOUND, 3));
+}
+
+#[test]
+fn the_room_is_back_after_every_kind_of_callback() {
+    let mut kernel = kernel(2, true);
+    let room = |kernel: &crate::Kernel| {
+        kernel
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .unwrap()
+            .item_room
+            .get()
+    };
+    // Applied, a failed callback, a refused batch, a batch of defaults.
+    for (commands, returned) in [
+        (alloc::vec![state("s0", HIDDEN)], OK),
+        (alloc::vec![state("s1", HIDDEN)], ERR_INVALID),
+        (
+            alloc::vec![state("s0", HIDDEN), state("nobody", HIDDEN)],
+            OK,
+        ),
+        (alloc::vec![state("s0", 0)], OK),
+    ] {
+        let _ = run(&mut kernel, &commands, returned);
+        assert_eq!(room(&kernel), 0, "{commands:?}");
+    }
+}

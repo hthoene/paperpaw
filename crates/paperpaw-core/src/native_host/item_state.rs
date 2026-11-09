@@ -29,9 +29,11 @@
 //! the two callbacks a nesting allows (about 0.8 KiB), plus a slot (up to 80
 //! bytes) each: the X4 budget for item states is the 6 KiB above and that.
 //!
+//! A change of the table raises `event.registry_changed` bit 0 (the caller
+//! does, from what [`ItemStates::apply`] and [`ItemStates::forget`] answer).
+//!
 //! Not here yet: the kept file (`keep` states surviving a stop or a restart,
-//! written at most once a minute and restored at boot) and
-//! `event.registry_changed` bit 0. Until the kept file exists the `keep` flag
+//! written at most once a minute and restored at boot). Until the kept file exists the `keep` flag
 //! changes nothing beyond what it must: every state of a plugin ends when the
 //! plugin is unloaded (stopped, updated or removed), the kept ones included.
 use alloc::{boxed::Box, string::String, vec::Vec};
@@ -324,10 +326,11 @@ impl ItemStates {
 
     /// Replaces `plugin`'s state of the item (the default state removes it).
     /// With the room [`reserve`](Self::reserve) made it allocates nothing.
+    /// Answers whether the table changed (the same state again does not).
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` when there was no room (the table is unchanged).
-    pub(crate) fn apply(&mut self, plugin: &str, mut push: ItemPush) -> Result<(), i32> {
+    pub(crate) fn apply(&mut self, plugin: &str, mut push: ItemPush) -> Result<bool, i32> {
         let slot = self.slot_of(plugin);
         let at = slot.and_then(|slot| {
             self.entries
@@ -335,18 +338,23 @@ impl ItemStates {
                 .position(|e| e.plugin == slot && e.item() == push.item())
         });
         if push.is_default() {
-            if let Some(at) = at {
-                self.entries.remove(at);
-                if self.entries.is_empty() {
-                    self.entries = Vec::new();
-                }
+            let Some(at) = at else {
+                return Ok(false);
+            };
+            self.entries.remove(at);
+            if self.entries.is_empty() {
+                self.entries = Vec::new();
             }
-            return Ok(());
+            return Ok(true);
         }
         let slot = slot.ok_or(ERR_NO_MEMORY)?;
         push.plugin = slot;
         match at {
-            Some(at) => self.entries[at] = push,
+            Some(at) if self.entries[at] == push => Ok(false),
+            Some(at) => {
+                self.entries[at] = push;
+                Ok(true)
+            }
             None => {
                 if self.entries.len() == self.entries.capacity() {
                     self.entries
@@ -354,17 +362,20 @@ impl ItemStates {
                         .map_err(|_| ERR_NO_MEMORY)?;
                 }
                 self.entries.push(push);
+                Ok(true)
             }
         }
-        Ok(())
     }
 
-    /// The plugin was updated or removed: every state of it ends.
-    pub(crate) fn forget(&mut self, plugin: &str) {
+    /// The plugin was updated or removed: every state of it ends. Answers
+    /// whether it had any.
+    pub(crate) fn forget(&mut self, plugin: &str) -> bool {
         let Some(slot) = self.slot_of(plugin) else {
-            return;
+            return false;
         };
+        let before = self.entries.len();
         self.entries.retain(|e| e.plugin != slot);
+        let had = self.entries.len() != before;
         if self.entries.is_empty() {
             self.entries = Vec::new();
         }
@@ -375,6 +386,7 @@ impl ItemStates {
         if self.plugins.is_empty() {
             self.plugins = Vec::new();
         }
+        had
     }
 
     /// Plugins holding a slot.

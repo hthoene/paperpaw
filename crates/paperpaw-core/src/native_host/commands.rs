@@ -31,6 +31,14 @@ mod ui;
 #[path = "commands_items.rs"]
 mod items;
 pub(crate) use items::ItemAdmit;
+#[cfg_attr(
+    not(test),
+    allow(
+        unused_imports,
+        reason = "the shell's command runner names it; that runner is wired with the shell"
+    )
+)]
+pub(crate) use items::ItemRoom;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -115,7 +123,7 @@ pub struct CommandStage<'a> {
     items: Option<ItemAdmit<'a>>,
     staged_items: Vec<super::item_state::ItemPush>,
     /// Entries of room this callback holds in the item-state table.
-    held_room: core::cell::Cell<usize>,
+    room: core::cell::RefCell<Option<items::ItemRoom>>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -151,7 +159,7 @@ impl<'a> CommandStage<'a> {
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
-            held_room: core::cell::Cell::new(0),
+            room: core::cell::RefCell::new(None),
         }
     }
 
