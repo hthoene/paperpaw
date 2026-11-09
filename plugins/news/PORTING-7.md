@@ -80,11 +80,11 @@ host activates native plugins (then it goes together, no shim).
   *Fetch the news* (next slice).
 - The shelf is `Unshelved` until `Library::import` is in the SDK (#668): no book is made, every
   feed counts as failed. The plugin is not listed as complete and is not in the app yet.
-- An article's text is cut at 8 KiB (`MAX_TEXT_SMALL`) on every device: the native snapshot has no
-  memory class, and interface 6 gave 64 KiB to the larger ones. An open question for Kernel (the
-  memory class in the snapshot or `core.device`). The fetch passes `MAX_TEXT_SMALL` to `make_page`
-  on the X4 because the peak is about 4 × `max_text` per article (the converter's field, the
-  paragraphs, the escaped text and the page piece); 64 KiB would be ~256 KiB, the whole heap.
+- An article's text is cut by the device's memory class (`core.device` op 1 `dev_device.class`,
+  read once at the first finished request, `native_plugin::text_cap`): 64 KiB (`MAX_TEXT`) on a
+  medium or large device as in interface 6, 8 KiB (`MAX_TEXT_SMALL`) on a small one (the X4: the
+  peak is about 4 × `max_text` per article, the converter's field, the paragraphs, the escaped text
+  and the page piece; 64 KiB would be ~256 KiB, the whole heap) and wherever the class cannot be read.
 - A feed's name is not yet cleaned for a file name (`web::try_clean_name` is there; the library's
   import names the book, next slice).
 

@@ -104,6 +104,7 @@
     }
   ],
   "services": [
+    "core.device",
     "core.net",
     "core.work"
   ],

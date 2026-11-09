@@ -9,6 +9,7 @@ use core::cell::RefCell;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     commands::CommandSender,
+    device::{Device, DeviceClass},
     events::{Event, Incoming, kinds},
     formatting::Arg,
     net::{FileRoot, Header, HttpDone, Net, REPLY, REQUEST_INPUT, Request, RequestId},
@@ -31,7 +32,7 @@ const BACKGROUND_AFTER_MS: u32 = 3_600_000;
 use crate::native_book::Failure;
 use crate::native_convert::Converted;
 use crate::native_fetch::{Done, Ended, FEED_REQUEST, Fetcher, Shelf, Started, Wire};
-use crate::native_news::{Feed, MAX_FEED_FILE, MAX_TEXT_SMALL};
+use crate::native_news::{Feed, MAX_FEED_FILE, MAX_TEXT, MAX_TEXT_SMALL};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/news_declarations.rs"));
@@ -61,6 +62,37 @@ pub struct NativeNews {
 struct Handles {
     net: Option<Net>,
     work: Option<Work>,
+    /// The text kept of an article, read from the device's memory class once.
+    text_cap: Option<usize>,
+}
+
+/// The text kept of an article: [`MAX_TEXT`] on a medium or large device, as
+/// in interface 6; [`MAX_TEXT_SMALL`] on a small one (the X4: the peak is about
+/// four times it) and wherever the class cannot be read.
+fn text_cap(host: &Host<'_>, handles: &mut Handles) -> usize {
+    if let Some(cap) = handles.text_cap {
+        return cap;
+    }
+    let cap = read_cap(host).unwrap_or(MAX_TEXT_SMALL);
+    handles.text_cap = Some(cap);
+    cap
+}
+
+fn read_cap(host: &Host<'_>) -> Result<usize, Error> {
+    let device = Device::open(host)?;
+    let class = read_class(host, &device);
+    // A handle that cannot be released is no reason to lose the class.
+    let _ = device.release(host);
+    Ok(match class? {
+        DeviceClass::Medium | DeviceClass::Large => MAX_TEXT,
+        _ => MAX_TEXT_SMALL,
+    })
+}
+
+fn read_class(host: &Host<'_>, device: &Device) -> Result<DeviceClass, Error> {
+    let mut input = mem::buffer(mem::SERVICE_BUFFER)?;
+    let mut out = mem::buffer(mem::SERVICE_BUFFER)?;
+    Ok(device.device(host, &mut input, &mut out)?.class())
 }
 
 /// The host as the fetch uses it.
@@ -218,15 +250,12 @@ impl NativeNews {
         let articles = usize::try_from(settings.int("articles", 30)?.clamp(1, 200)).unwrap_or(30);
         let messages = RefCell::new(Messages::new()?);
         let date = |year: i32, month: u8, day: u8| date_text(host, &messages, year, month, day);
+        let cap = text_cap(host, &mut self.handles);
         let mut wire = HostWire::new(host, &mut self.handles);
         let end = Done::new(done.id(), done.token(), done.reason(), done.saved());
-        let ended = self.fetcher.ended(
-            &mut wire,
-            &mut self.shelf,
-            &end,
-            (articles, MAX_TEXT_SMALL),
-            &date,
-        )?;
+        let ended = self
+            .fetcher
+            .ended(&mut wire, &mut self.shelf, &end, (articles, cap), &date)?;
         match ended {
             Ended::Ignored | Ended::Next => Ok(()),
             Ended::Unreadable => notice(host, "news.unreadable"),
