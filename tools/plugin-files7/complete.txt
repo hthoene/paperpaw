@@ -5,6 +5,7 @@
 # no `status=complete` after its id. A partial port (a native stub beside the
 # interface-6 plugin) is not listed: its file is not the plugin.
 battery status=complete   # no PORTING-7.md (its notes are plugins/battery/PORTING.md)
+calibre
 end-of-book
 file-manager
 joplin
