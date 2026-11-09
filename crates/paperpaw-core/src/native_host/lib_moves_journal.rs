@@ -3,7 +3,8 @@
 //! move and cleared when the job has carried everything.
 //!
 //! ```text
-//! "PPLJ"  version u8 (1)  flags u8 (bit 0: replace)  identity u64 LE
+//! "PPLJ"  version u8 (1)  kind u8 (0 move)  flags u8 (bit 0: replace)
+//! identity u64 LE
 //! from_len u16 LE  to_len u16 LE  from  to  check u64 LE
 //! ```
 //!
@@ -15,7 +16,9 @@
 //! cannot be read (bad magic, version, length, check, UTF-8) is an error, so
 //! the entry is never overwritten blind (`Moves::begin` refuses, the job
 //! stays as it is). Phase cursors are not kept: a replay starts from the
-//! first phase, and every phase is idempotent.
+//! first phase, and every phase is idempotent. `kind` is 0 for a move; 1
+//! (delete) and 2 (import) are reserved for the library's other journalled
+//! steps, which reuse the format, and read as an error until they exist.
 use super::{lib_service::moves::Entry, storage::status};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};
@@ -27,7 +30,9 @@ pub(crate) const JOURNAL: &str = ".paperpaw/library/journal";
 const TEMP: &str = ".paperpaw/library/journal.tmp";
 const MAGIC: &[u8; 4] = b"PPLJ";
 const VERSION: u8 = 1;
-const HEAD: usize = 4 + 1 + 1 + 8 + 2 + 2;
+const HEAD: usize = 4 + 1 + 1 + 1 + 8 + 2 + 2;
+/// The kind of a move (the only one written today).
+const KIND_MOVE: u8 = 0;
 /// A path of the library, as `core.files` takes it (`MAX_JOINED`).
 const MAX_PATH: usize = 640;
 /// The most a record holds: the head, two paths and the check.
@@ -55,6 +60,7 @@ fn encode(entry: &Entry<'_>) -> Result<Vec<u8>, i32> {
     let mut out = room(HEAD + from.len() + to.len() + 8)?;
     out.extend_from_slice(MAGIC);
     out.push(VERSION);
+    out.push(KIND_MOVE);
     out.push(u8::from(entry.replace));
     out.extend_from_slice(&entry.identity.to_le_bytes());
     // The lengths fit: they are at most `MAX_PATH`.
@@ -76,10 +82,14 @@ fn decode(record: &[u8]) -> Result<Entry<'_>, i32> {
     }
     let flags = *head.get(5).ok_or(ERR_IO)?;
     let identity = u64::from_le_bytes(word(6, 8)?.try_into().map_err(|_| ERR_IO)?);
-    let from_len = usize::from(u16::from_le_bytes(word(14, 2)?.try_into().map_err(|_| ERR_IO)?));
-    let to_len = usize::from(u16::from_le_bytes(word(16, 2)?.try_into().map_err(|_| ERR_IO)?));
+    let from_len = usize::from(u16::from_le_bytes(
+        word(14, 2)?.try_into().map_err(|_| ERR_IO)?,
+    ));
+    let to_len = usize::from(u16::from_le_bytes(
+        word(16, 2)?.try_into().map_err(|_| ERR_IO)?,
+    ));
     let total = HEAD + from_len + to_len + 8;
-    if flags > 1 || from_len > MAX_PATH || to_len > MAX_PATH || record.len() != total {
+    if kind != KIND_MOVE || flags > 1 || from_len > MAX_PATH || to_len > MAX_PATH || record.len() != total {
         return Err(ERR_IO);
     }
     let (body, sum) = record.split_at(total - 8);
