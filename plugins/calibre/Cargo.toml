@@ -27,7 +27,10 @@ paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 proptest.workspace = true
+# Books of a format read, for the sessions.
+paperpaw-plugin-format-epub.workspace = true
 
 [lints]
 workspace = true

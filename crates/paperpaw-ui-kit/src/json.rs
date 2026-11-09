@@ -46,7 +46,7 @@ pub fn unquote(literal: &str) -> Result<Option<String>, Error> {
 
 /// The JSON text of member `key` of `text`, as it is written; `None` where
 /// the object is malformed before the member or has none. Allocates nothing.
-pub fn raw_member<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+fn raw_member<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let bytes = text.as_bytes();
     let mut i = skip_space(bytes, 0);
     if bytes.get(i) != Some(&b'{') {
