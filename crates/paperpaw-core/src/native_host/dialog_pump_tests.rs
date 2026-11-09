@@ -54,8 +54,14 @@ impl Plugin for Serves {
             Box::new(|_, params| {
                 OPENED.with(|opened| {
                     opened.borrow_mut().push((
-                        params.get("core.request").map(String::from).unwrap_or_default(),
-                        params.get("core.kind").map(String::from).unwrap_or_default(),
+                        params
+                            .get("core.request")
+                            .map(String::from)
+                            .unwrap_or_default(),
+                        params
+                            .get("core.kind")
+                            .map(String::from)
+                            .unwrap_or_default(),
                     ));
                 });
                 Box::new(Dialog)
@@ -172,7 +178,10 @@ fn ask(w: &World, kind: u32, epoch: u64) -> u32 {
         choices: if kind == 1 { "one\ntwo" } else { "" },
     };
     let who = Stamp::new(w.owner, epoch).unwrap();
-    w.store.ask(who, None, &question, false, None, false).unwrap().0
+    w.store
+        .ask(who, None, &question, false, None, false)
+        .unwrap()
+        .0
 }
 
 #[test]
@@ -183,7 +192,10 @@ fn the_dialog_opens_in_its_slot_after_the_asking_callback_returned() {
     assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
     // The params are ASCII decimal: the request and the kind.
     OPENED.with(|opened| {
-        assert_eq!(*opened.borrow(), [(std::format!("{id}"), String::from("0"))]);
+        assert_eq!(
+            *opened.borrow(),
+            [(std::format!("{id}"), String::from("0"))]
+        );
     });
     let top = w.kernel.stack.last().unwrap().serial;
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
@@ -211,12 +223,21 @@ fn a_failed_asking_callback_opens_no_dialog() {
     let mut w = world(Ok(OK));
     let before = w.kernel.active_screen().cloned();
     let id = ask(&w, 0, 5);
-    w.store.callback_failed(Stamp::new(w.owner, 5).unwrap()).unwrap();
+    w.store
+        .callback_failed(Stamp::new(w.owner, 5).unwrap())
+        .unwrap();
     w.kernel.native_dialog_pump();
     assert_eq!(w.kernel.active_screen().cloned(), before);
     OPENED.with(|opened| assert!(opened.borrow().is_empty()));
     let answered = w.seen.borrow().clone();
-    assert_eq!((answered[0].request, answered[0].outcome, answered[0].flags & 2), (id, 1, 2));
+    assert_eq!(
+        (
+            answered[0].request,
+            answered[0].outcome,
+            answered[0].flags & 2
+        ),
+        (id, 1, 2)
+    );
 }
 
 #[test]
@@ -235,7 +256,12 @@ fn an_answer_reaches_the_asker_and_frees_the_request_whatever_the_callback_says(
     let answered = w.seen.borrow().clone();
     assert_eq!(answered.len(), 1);
     assert_eq!(
-        (answered[0].request, answered[0].kind, answered[0].outcome, answered[0].length),
+        (
+            answered[0].request,
+            answered[0].kind,
+            answered[0].outcome,
+            answered[0].length
+        ),
         (id, 0, 0, 5)
     );
     // The callback failed: the request is freed all the same.

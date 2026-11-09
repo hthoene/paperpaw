@@ -703,9 +703,12 @@ impl UiStore {
 
     /// Whether an answer waits for `asker`.
     pub(crate) fn has_delivery(&self, asker: u64) -> bool {
-        self.inner
-            .try_borrow()
-            .is_ok_and(|inner| inner.requests.iter().any(|r| r.asker == asker && r.pending.is_some() && !r.delivering))
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| r.asker == asker && r.pending.is_some() && !r.delivering)
+        })
     }
 
     /// The callback that delivered `request` returned: a final answer frees the

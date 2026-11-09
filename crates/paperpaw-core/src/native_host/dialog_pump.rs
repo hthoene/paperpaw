@@ -96,7 +96,8 @@ impl crate::Kernel {
                     flags: delivery.flags,
                 };
                 let mut bytes = [0u8; 64];
-                let Ok(len) = wire::records_encode(&[wire::Record::EventAnswered(record)], &mut bytes)
+                let Ok(len) =
+                    wire::records_encode(&[wire::Record::EventAnswered(record)], &mut bytes)
                 else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);
@@ -126,7 +127,9 @@ impl crate::Kernel {
         let params = Params::new()
             .with("core.request", decimal(start.request))
             .with("core.kind", decimal(start.kind));
-        self.output.commands.push(Command::OpenSlot(slot.clone(), params));
+        self.output
+            .commands
+            .push(Command::OpenSlot(slot.clone(), params));
         self.run_commands();
         let opened = self
             .stack
