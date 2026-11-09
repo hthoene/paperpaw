@@ -107,7 +107,7 @@ fn a_whole_install_asks_first_binds_the_digest_and_waits_for_its_restart() {
             .any(|call| matches!(call, Call::BeginWrite { .. }))
     );
     assert_eq!(
-        machine.answer(install_q(OWNER, 1), Answer::Yes, &mut fw),
+        machine.answer(ask.question(), Answer::Yes, &mut fw),
         Event::Quiet
     );
     assert_eq!(machine.state(), State::Installing);
