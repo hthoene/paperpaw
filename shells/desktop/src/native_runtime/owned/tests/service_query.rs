@@ -91,11 +91,14 @@ fn real_loaded_library_usage_query_matches_kernel_view() {
     let storage = crate::device::library(&fixture.root).unwrap();
     let mut device = crate::device::Device::new(profile, None, storage, true).unwrap();
     device.kernel.panel_busy(37);
-    let expected = encoded_usage(device.kernel.usage());
-    // STARTED reads this usage view through the actual loaded callback and
-    // CoreFrame. Startup counts its initial refresh after delivering the event.
+    // STARTED is queued by the kernel and told by the pump between callbacks:
+    // the library reads this usage view through the actual loaded callback and
+    // CoreFrame when the first tick pump tells it. Startup counts its initial
+    // refresh before that.
     let _effects = device.kernel.start(Instant(0));
     assert_eq!(device.kernel.plugins().get(ID).unwrap().problem, None);
+    let expected = encoded_usage(device.kernel.usage());
+    let _effects = device.kernel.tick(Instant(1));
     let actual = std::fs::read(data.join("snapshot")).unwrap();
     assert_eq!(actual, expected);
 }

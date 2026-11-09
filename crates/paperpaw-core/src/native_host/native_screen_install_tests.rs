@@ -1220,10 +1220,13 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
     {
         let _busy = documents.table().hold().unwrap();
-        EMPTY.with(|value| value.set(true));
+        UNSUPPORTED.with(|value| value.set(true));
         let result = kernel.register_native(hosted, &depth, |_, _, _| {});
-        EMPTY.with(|value| value.set(false));
-        assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
+        UNSUPPORTED.with(|value| value.set(false));
+        assert!(matches!(
+            result,
+            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        ));
         assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
         assert!(pool.hosts().retirements_pending());
         assert!(kernel.native_unload_due().is_some());

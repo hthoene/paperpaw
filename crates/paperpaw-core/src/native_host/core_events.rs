@@ -47,10 +47,13 @@ use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 const QUEUE_MAX: usize = 26;
 
 /// The lifecycle events that are edges, held encoded.
-const EDGE_TAGS: [u32; 3] = [
+const EDGE_TAGS: [u32; 6] = [
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
     wire::EVENT_PAGE_TURNED_TAG,
+    wire::EVENT_BOOK_OPENED_TAG,
+    wire::EVENT_BOOK_CLOSED_TAG,
+    wire::EVENT_BOOK_FINISHED_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -67,6 +70,12 @@ fn tag_of(event: &Id) -> Option<u32> {
         wire::EVENT_BATTERY_MEASURED_TAG
     } else if *event == builtin::PAGE_TURNED {
         wire::EVENT_PAGE_TURNED_TAG
+    } else if *event == builtin::BOOK_OPENED {
+        wire::EVENT_BOOK_OPENED_TAG
+    } else if *event == builtin::BOOK_CLOSED {
+        wire::EVENT_BOOK_CLOSED_TAG
+    } else if *event == builtin::BOOK_FINISHED {
+        wire::EVENT_BOOK_FINISHED_TAG
     } else if *event == super::native_tick::TICK {
         wire::EVENT_TICK_TAG
     } else {
@@ -106,8 +115,30 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BATTERY_MEASURED_TAG => {
             "a native plugin lost event.battery_measured; not retried"
         }
+        wire::EVENT_BOOK_OPENED_TAG => "a native plugin lost event.book_opened; not retried",
+        wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
+        wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
         _ => "a native plugin lost event.page_turned; not retried",
     }
+}
+
+/// A book event record (65 to 67) with the fields of the page turn `$page`.
+macro_rules! book {
+    ($record:ident, $page:ident, $reason:ident) => {
+        wire::$record {
+            now_ms: $page.now_ms,
+            section: $page.section,
+            offset: $page.offset,
+            progress_ppm: $page.progress_ppm,
+            path: $page.path,
+            title: $page.title,
+            chapter: $page.chapter,
+            reason: $reason,
+            page: $page.page,
+            pages: $page.pages,
+            insert: None,
+        }
+    };
 }
 
 /// Holds one edge in `queue`. Its own function: the page turn's record is the
@@ -126,7 +157,25 @@ fn hold_edge(queue: &mut Pending, tag: u32, now_ms: u64, params: &Params) -> Res
         }
         _ => {
             let turn = super::flat::page::turn(now_ms, params).ok_or(ERR_INVALID)?;
-            let record = wire::Record::EventPageTurned(events::page_turned_record(&turn)?);
+            let page = events::page_turned_record(&turn)?;
+            // The book events carry the location of a page turn and a
+            // `reason` (0 when the producer names none).
+            let reason = params
+                .get("reason")
+                .and_then(|text| text.parse::<u32>().ok())
+                .unwrap_or(0);
+            let record = match tag {
+                wire::EVENT_BOOK_OPENED_TAG => {
+                    wire::Record::EventBookOpened(book!(EventBookOpened, page, reason))
+                }
+                wire::EVENT_BOOK_CLOSED_TAG => {
+                    wire::Record::EventBookClosed(book!(EventBookClosed, page, reason))
+                }
+                wire::EVENT_BOOK_FINISHED_TAG => {
+                    wire::Record::EventBookFinished(book!(EventBookFinished, page, reason))
+                }
+                _ => wire::Record::EventPageTurned(page),
+            };
             queue.push_record(tag, &record)
         }
     }
