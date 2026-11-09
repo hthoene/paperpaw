@@ -16,9 +16,9 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
-        image::ImageStyle,
         commands::CommandSender,
         fonts::{Font, FontRole},
+        image::ImageStyle,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
         ui::{Compose, HandoverId, Ui, UiCursor, WidgetHandle},
@@ -220,10 +220,10 @@ impl Sleeping {
         // The message where no picture shows; the logo above it where there is one.
         let message = content == Content::Message
             || held.is_none()
-            && matches!(
-                content,
-                Content::Cat | Content::Cover | Content::Picture | Content::Other
-            );
+                && matches!(
+                    content,
+                    Content::Cat | Content::Cover | Content::Picture | Content::Other
+                );
         let mut logo = None;
         if message {
             // PaperPaw's logo, a third of the screen across, above the message.
@@ -239,9 +239,7 @@ impl Sleeping {
             let (rect, picture) = match (content, logo) {
                 (Content::Message, Some(rect)) => (rect, ImageStyle::new().small()),
                 (Content::Overlay, _) => match self.over_rect(&font, &style, screen, held)? {
-                    Some((rect, opacity)) => {
-                        (rect, ImageStyle::new().transparency(255 - opacity))
-                    }
+                    Some((rect, opacity)) => (rect, ImageStyle::new().transparency(255 - opacity)),
                     None => (Rect::new(0, 0, 0, 0), ImageStyle::new()),
                 },
                 _ => (images::centred(held, room), ImageStyle::new()),

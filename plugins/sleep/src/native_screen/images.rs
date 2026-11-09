@@ -128,7 +128,8 @@ impl Sleeping {
             width: screen.width,
             height: screen.height,
             margin: style.margin,
-            status: paperpaw_ui_kit::geometry::line_px(font, style.small)?.saturating_add(style.gap),
+            status: paperpaw_ui_kit::geometry::line_px(font, style.small)?
+                .saturating_add(style.gap),
         };
         let (box_w, box_h) = model::box_size(measures, setup.percent);
         let size = |side: u32| u16::try_from(side).unwrap_or(u16::MAX);
@@ -187,7 +188,10 @@ impl Sleeping {
 
     /// Gives the pictures back: the screen closes.
     pub fn release(&mut self, host: &Host<'_>) {
-        let held = [self.pics.main.take().map(|(_, held)| held), self.pics.cover.take()];
+        let held = [
+            self.pics.main.take().map(|(_, held)| held),
+            self.pics.cover.take(),
+        ];
         for held in held.into_iter().flatten() {
             let mut scratch = [0; 64];
             // A refusal leaves it to the host, which ends it with the plugin.
@@ -366,7 +370,11 @@ pub(super) fn room(content: Content, screen: Rect, margin: u16) -> Rect {
 /// `held` as large as fits in `room`, in its middle, its proportions kept.
 pub(super) fn centred(held: Held, room: Rect) -> Rect {
     let size = |side: u32| u16::try_from(side).unwrap_or(u16::MAX);
-    let (w, h) = model::fit((size(held.width), size(held.height)), room.width, room.height);
+    let (w, h) = model::fit(
+        (size(held.width), size(held.height)),
+        room.width,
+        room.height,
+    );
     Rect::new(
         room.x + room.width.saturating_sub(w) / 2,
         room.y + room.height.saturating_sub(h) / 2,
@@ -478,7 +486,13 @@ fn next_in_folder(host: &Host<'_>) -> Result<Option<String>, Error> {
     }
     path.push_str(name);
     // A failed write is not told: the same picture comes again.
-    storage::write(host, Root::Data, NEXT, decimal(count, &mut [0; 20]).as_bytes()).ok();
+    storage::write(
+        host,
+        Root::Data,
+        NEXT,
+        decimal(count, &mut [0; 20]).as_bytes(),
+    )
+    .ok();
     Ok(Some(path))
 }
 
@@ -561,7 +575,10 @@ mod tests {
         assert_eq!(cat, Rect::new(20, 20 + (760 - 290) / 2, 440, 290));
         // A cover is as wide as the screen unless it is taller (then as high).
         assert_eq!(centred(held(600, 800), screen), Rect::new(0, 80, 480, 640));
-        assert_eq!(centred(held(600, 800), room(Content::Cover, screen, 20)).x, 0);
+        assert_eq!(
+            centred(held(600, 800), room(Content::Cover, screen, 20)).x,
+            0
+        );
         assert_eq!(centred(held(800, 400), screen), Rect::new(0, 280, 480, 240));
         // A picture of no size is nowhere.
         assert_eq!(centred(held(0, 0), screen).width, 0);
