@@ -203,7 +203,9 @@ fn drain(f: &Fixture) -> Vec<(u32, u32)> {
     let mut seen = Vec::new();
     let mut out = std::vec![0; 256];
     while let Ok(Some(used)) = next_event(&f.device, OWNER, &mut out) {
-        if let Record::EventSocket(e) = wire::record_decode_one(&out[..used]).unwrap() {
+        if let Record::EventSocket(e) =
+            crate::native_host::codec::decode_any_single(&out[..used]).unwrap()
+        {
             seen.push((e.kind, e.reason));
         }
         event_delivered(&f.device, OWNER).unwrap();

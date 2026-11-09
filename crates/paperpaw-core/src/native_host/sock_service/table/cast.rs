@@ -440,7 +440,7 @@ pub(super) fn encode(
                 .get(..usize::from(a.from_len))
                 .and_then(|b| core::str::from_utf8(b).ok())
                 .ok_or(ERR_INVALID)?;
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventBroadcast(wire::EventBroadcast {
                     now_ms: a.slot.map_or(0, |s| s.at),
                     socket: c.id,
@@ -455,7 +455,7 @@ pub(super) fn encode(
         }
         Pick::End => {
             let (slot, kind, why) = c.end.ok_or(ERR_NOT_FOUND)?;
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventBroadcast(wire::EventBroadcast {
                     now_ms: slot.at,
                     socket: c.id,
