@@ -285,9 +285,26 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Tested: settings parity with the interface-6 registration (`widgets_parity.rs`, now three widgets), host admission,
   the sine, the clockwise degrees, and the arc's segment count. Not pixel-tested (see above).
 
+## Ported: *Reading streak*
+
+- `src/native_widget_streak.rs`, token 43 (`stats.widget.streak`): the days in a row (any reading, or the daily
+  goal reached by the choice `counts`), the longest streak or how to begin one, and the last 7 or 14 days as
+  marks (filled, with a check if chosen; an outline for the others, today's darker; the weekdays below where their
+  letters fit). Same layout rules as interface 6: marks beside the text where the place is wide and low, else
+  below it, the weekdays and then the caption left out before the marks. Settings in declaration order with
+  `Opt::PartHelp` for the marks' help; `widgets_parity.rs` compares all four widgets with interface 6.
+- The streak and the marks are cached per widget instance (`Slot.streak`, as interface 6 kept its figures per
+  widget): the day log (up to 4,096 days, 48 KiB) is read again only when the stamp (the day and the sizes of the
+  log and the books), the least seconds that count or the number of days shown changed, not at each draw. The cache
+  itself is a streak and at most 14 marks. The cache is not unit-tested (it needs the host's `Cx`).
+- Difference on purpose: the marks are the kit's rounded rectangles (a disc is a rectangle with half its side
+  as radius; an outline is a stroked one), the check two segments in the paper's colour. Not pixel-tested.
+- `paperpaw_ui_kit::widget::Opt` is `#[non_exhaustive]` now (a new kind of setting is no break for outside
+  matchers).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- The widgets *Reading streak*, *Reading calendar* and *Books this year*, and the
+- The widgets *Reading calendar* and *Books this year*, and the
   status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
 - Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
   (Services todo 79).

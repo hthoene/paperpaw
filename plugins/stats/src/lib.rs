@@ -36,6 +36,7 @@ mod native_entry;
 mod native_overview;
 mod native_screens;
 mod native_widget_ring;
+mod native_widget_streak;
 mod native_widget_today;
 mod native_widget_week;
 mod native_widgets;

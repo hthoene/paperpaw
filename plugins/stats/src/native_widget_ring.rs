@@ -165,7 +165,12 @@ fn least_ring(cx: &Cx<'_>) -> Result<u16, Error> {
 ///
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
-pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+pub fn draw(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    _slot: &crate::native_widgets::Slot,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let goal = goal(cx.host)?;
     let Some(numbers) = numbers(cx, goal)? else {

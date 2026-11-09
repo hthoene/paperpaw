@@ -27,7 +27,7 @@ use paperpaw_ui_kit::widget::text::{Wrapped, largest_size};
 use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
-use crate::declarations::{RING_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
+use crate::declarations::{RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
 
 /// The most bytes of a stage reply (a size, or one target).
 const REPLY: usize = 256;
@@ -40,7 +40,7 @@ pub(crate) struct Behaviour {
     /// The natural height at a width; 0 shows nothing.
     pub height: fn(&mut Cx<'_>, u16) -> Result<u16, Error>,
     /// Lays the widget out in a rectangle.
-    pub draw: fn(&mut Cx<'_>, &mut Vec<Paint>, Rect) -> Result<(), Error>,
+    pub draw: fn(&mut Cx<'_>, &mut Vec<Paint>, Rect, &Slot) -> Result<(), Error>,
 }
 
 static TODAY: Behaviour = Behaviour {
@@ -57,12 +57,18 @@ static RING: Behaviour = Behaviour {
     draw: crate::native_widget_ring::draw,
 };
 
+static STREAK: Behaviour = Behaviour {
+    height: crate::native_widget_streak::height,
+    draw: crate::native_widget_streak::draw,
+};
+
 /// The behaviour of the widget declared with `token`.
 fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
         TODAY_TOKEN => Some(&TODAY),
         WEEK_TOKEN => Some(&WEEK),
         RING_TOKEN => Some(&RING),
+        STREAK_TOKEN => Some(&STREAK),
         _ => None,
     }
 }
@@ -73,6 +79,7 @@ fn token_of(widget: &str) -> Option<u32> {
         "stats.widget.today" => Some(TODAY_TOKEN),
         "stats.widget.week" => Some(WEEK_TOKEN),
         "stats.widget.goal" => Some(RING_TOKEN),
+        "stats.widget.streak" => Some(STREAK_TOKEN),
         _ => None,
     }
 }
@@ -95,6 +102,15 @@ struct Item {
     widget: String,
     /// What it showed when it was last asked about, for the tick.
     shown: Option<u64>,
+    /// What a widget keeps between its draws.
+    slot: Slot,
+}
+
+/// What a widget keeps between its draws (the figures it worked out, as
+/// interface 6 kept them per widget, not the log they come from).
+#[derive(Debug, Default)]
+pub(crate) struct Slot {
+    pub streak: crate::native_widget_streak::Cache,
 }
 
 /// The widgets made for screens, by the host's instance.
@@ -123,6 +139,7 @@ impl Widgets {
             token,
             widget: paperpaw_ui_kit::text::copy(widget)?,
             shown: None,
+            slot: Slot::default(),
         });
         Ok(())
     }
@@ -174,7 +191,7 @@ impl Widgets {
         let mut cx = Cx::open(host, &item.widget)?;
         let area = area_of(frame.rect);
         let mut out = Vec::new();
-        (behaviour.draw)(&mut cx, &mut out, area)?;
+        (behaviour.draw)(&mut cx, &mut out, area, &item.slot)?;
         paint::replay_with(&mut frame, &cx.font, None, &out)
     }
 

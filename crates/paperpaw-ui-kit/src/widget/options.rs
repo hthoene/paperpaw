@@ -66,6 +66,7 @@ pub const DATE_FORMATS: &[&str] = &[
 
 /// One setting of a widget's group; the key is relative to the widget.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Opt {
     /// Where the text sits; the default is one of the alignments.
     Align(&'static str),
