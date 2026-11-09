@@ -182,13 +182,17 @@ impl crate::Kernel {
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
         let wifi_more = self.native_wifi_pump();
+        // A firmware install or check takes a step and tells its plugin
+        // (`firmware_events`).
+        let firmware_more = self.native_firmware_pump();
         self.shared.native_instances.set_service_more(
             more || work_more
                 || image_more
                 || setting_more
                 || widget_more
                 || dialog_more
-                || wifi_more,
+                || wifi_more
+                || firmware_more,
         );
     }
 
@@ -211,6 +215,7 @@ impl crate::Kernel {
             .chain(instances.image_pump.retry_at())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
+            .chain(self.firmware_due())
             .min()
             .map(Instant)
     }
