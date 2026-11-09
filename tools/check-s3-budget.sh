@@ -35,9 +35,11 @@
 # one run at a time on a machine), and builds there into `shells/xteink/target`,
 # as CI does (the length of that path is in the image too). The sync copies
 # only files whose content differs and removes the ones the worktree no longer
-# has, so modification times and directory times stay (a build script that
-# watches a directory would otherwise rebuild everything): a run after a change
-# rebuilds only what the change touched. It REPLACES everything in that
+# has; a file it copies gets the time of the copy (cargo compares times, so a
+# changed file that kept an old time would look unchanged), one it leaves alone
+# keeps its time, and so do the directories (a build script that watches a
+# directory would otherwise rebuild everything): a run after a change rebuilds
+# only what the change touched. It REPLACES everything in that
 # directory except `.git` and `shells/xteink/target`: do not keep anything else
 # there. There is ONE such copy and ONE target directory on the machine (every
 # run reuses them, never one per worktree); the script prints the size of the
@@ -119,7 +121,7 @@ for name in sorted(want):
     if not same:
         os.makedirs(os.path.dirname(d), exist_ok=True)
         shutil.copyfile(s, d)
-        shutil.copystat(s, d)
+        shutil.copymode(s, d)
 for root, dirs, files in os.walk(dst, topdown=True):
     rel = os.path.relpath(root, dst)
     dirs[:] = [x for x in dirs if os.path.normpath(os.path.join(rel, x)) not in keep]
