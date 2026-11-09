@@ -87,6 +87,34 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -103,6 +131,21 @@
       "name": "input"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.device",
+    "core.net",
+    "core.secrets",
+    "core.ui",
+    "core.work"
+  ],
+  "features": [
+    {
+      "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.wifi",
+      "required": false
+    }
+  ]
 }

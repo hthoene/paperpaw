@@ -18,9 +18,12 @@ pub const EVENTS_TOKEN: u32 = 1;
 pub const CARDS_TOKEN: u32 = 2;
 /// The minute tick.
 pub const TICK_TOKEN: u32 = 3;
-/// The screen of the decks, and the review's.
+/// The action that opens the list of words.
+pub const OPEN_TOKEN: u32 = 4;
+/// The screen of the decks, the review's, and the list of words.
 pub const DECKS_TOKEN: u32 = 10;
 pub const REVIEW_TOKEN: u32 = 11;
+pub const WORDS_TOKEN: u32 = 12;
 
 /// The reading settings' group, where the settings are.
 pub const GROUP: &str = "core.group.reading";
@@ -130,8 +133,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// *Flash cards* in the Tools menu (order 36, as on interface 6), its icon, and
-/// its two screens: the decks, and the review (one for each deck named).
+/// *Vocabulary* (the list of words) and *Flash cards* in the Tools menu (order
+/// 36, as on interface 6), their icons, and the screens: the list, the decks,
+/// and the review (one for each deck named).
 pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.screen(ScreenDecl::new(
@@ -144,6 +148,12 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         "vocabulary.review.title",
         REVIEW_TOKEN,
     ))?;
+    declarations.screen(ScreenDecl::new("list", "vocabulary.title", WORDS_TOKEN))?;
+    declarations.action(ActionDecl::new("open", "vocabulary.title", OPEN_TOKEN))?;
+    let mut entry = MenuEntryDecl::new("core.tools", "vocabulary.open");
+    entry.order = 36;
+    declarations.menu_entry(entry)?;
+    declarations.icon("vocabulary.open", "vocabulary")?;
     declarations.action(ActionDecl::new(
         "flash-cards",
         "vocabulary.cards.title",
