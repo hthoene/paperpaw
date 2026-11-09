@@ -873,7 +873,12 @@ fn keep(
             if let Some(capacity) = capacity
                 && body.try_reserve_exact(capacity - body.len()).is_err()
             {
-                return Err("the answer is too large for the memory of this device");
+                // Where doubling fails (interface 6), the exact size is tried
+                // before giving up, as in Beta 3.
+                let need = body.len() + piece.len();
+                if *once || need == capacity || body.try_reserve_exact(piece.len()).is_err() {
+                    return Err("the answer is too large for the memory of this device");
+                }
             }
             body.extend_from_slice(piece);
         }
