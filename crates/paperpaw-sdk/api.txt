@@ -3196,7 +3196,9 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_scan(&mut self,
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_stop_scan(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bt_take_back(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::firmware_restart(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::go_online(&mut self, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::install_firmware(&mut self, u32, paperpaw_sdk::native::commands::InstallRoot, &str, paperpaw_sdk::native::commands::FirmwareOptions<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::install_plugin(&mut self, u32, paperpaw_sdk::native::commands::InstallRoot, &str, bool, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::network_none(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::power_off(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -3222,6 +3224,12 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::set_setting(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl core::fmt::Debug for paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::FirmwareOptions<'a>
+impl<'a> paperpaw_sdk::native::commands::FirmwareOptions<'a>
+pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::allow_older(self) -> Self
+pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::foreign(self) -> Self
+pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::key(self, &'a [u8; 32]) -> Self
+pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::new() -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::PreviewSetting<'a>
 impl<'a> paperpaw_sdk::native::commands::PreviewSetting<'a>
 pub const fn paperpaw_sdk::native::commands::PreviewSetting<'a>::new(&'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self

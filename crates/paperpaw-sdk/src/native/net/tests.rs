@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
 use super::*;
 use crate::native::declare::records_wire::Record;
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     ffi::c_void,
@@ -455,4 +455,209 @@ fn a_request_with_the_most_rows_still_encodes_without_an_array_of_records() {
             Error::NoSpace
         );
     });
+}
+
+fn sent_rows(state: &State) -> Vec<String> {
+    let bytes = state.input.borrow();
+    wire::records_decode(&bytes)
+        .unwrap()
+        .iter()
+        .map(|row| alloc::format!("{row:?}"))
+        .collect()
+}
+
+#[test]
+fn serve_sends_the_token_port_and_cap_and_stop_serving_the_token() {
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let (mut input, mut out) = ([0; 256], [0; 1536]);
+        reply(state, &[]);
+        let server = Server::new(4, 8080).unwrap().max_body(1 << 20).unwrap();
+        net.serve(host, &server, &mut input, &mut out).unwrap();
+        assert_eq!(state.op.get(), schema::OP_SERVE);
+        assert!(matches!(
+            wire::records_decode(&state.input.borrow()).unwrap().iter().next(),
+            Some(Record::ServiceNetServe(s))
+                if (s.token, s.port, s.flags, s.max_body) == (4, 8080, 0, 1 << 20)
+        ));
+        // The cable is port 0; the default cap is 0.
+        net.serve(host, &Server::cable(5), &mut input, &mut out)
+            .unwrap();
+        assert!(matches!(
+            wire::records_decode(&state.input.borrow()).unwrap().iter().next(),
+            Some(Record::ServiceNetServe(s)) if (s.token, s.port, s.max_body) == (5, 0, 0)
+        ));
+        net.stop_serving(host, 4, &mut input, &mut out).unwrap();
+        assert_eq!(state.op.get(), schema::OP_STOP_SERVING);
+        assert!(matches!(
+            wire::records_decode(&state.input.borrow()).unwrap().iter().next(),
+            Some(Record::ServiceNetToken(t)) if t.token == 4
+        ));
+        // A reply that is not empty is not from these ops.
+        reply(state, &[started(1)]);
+        assert_eq!(
+            net.serve(host, &server, &mut input, &mut out),
+            Err(Error::Invalid)
+        );
+        assert_eq!(
+            net.stop_serving(host, 4, &mut input, &mut out),
+            Err(Error::Invalid)
+        );
+    });
+}
+
+#[test]
+fn a_server_is_checked_before_the_host_and_the_hosts_refusals_come_back() {
+    assert_eq!(Server::new(1, 0), Err(Error::Invalid));
+    assert!(Server::new(1, 65535).is_ok());
+    let server = Server::new(1, 80).unwrap();
+    assert!(server.max_body(MAX_SERVED_BODY).is_ok());
+    assert_eq!(server.max_body(MAX_SERVED_BODY + 1), Err(Error::NoSpace));
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let (mut input, mut out) = ([0; 256], [0; 1536]);
+        for (status, error) in [
+            (abi::ERR_STATE, Error::State),
+            (abi::ERR_BUSY, Error::Busy),
+            (abi::ERR_UNSUPPORTED, Error::Unsupported),
+            (abi::ERR_NO_SPACE, Error::NoSpace),
+        ] {
+            state.error.set(status);
+            assert_eq!(net.serve(host, &server, &mut input, &mut out), Err(error));
+        }
+        assert_eq!(
+            net.serve(host, &server, &mut [0; 4], &mut out),
+            Err(Error::NoSpace)
+        );
+    });
+}
+
+#[test]
+fn a_response_goes_out_as_head_headers_file_or_body_in_order() {
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let headers = [
+            Header::new("X-One", "1").unwrap(),
+            Header::new("Cache", "none").unwrap(),
+        ];
+        let response = Response::new(31, 200)
+            .unwrap()
+            .content_type("text/html; charset=utf-8")
+            .unwrap()
+            .headers(&headers)
+            .unwrap()
+            .body(b"<p>hi</p>")
+            .unwrap();
+        reply(state, &[]);
+        let (mut input, mut out) = ([0; REQUEST_INPUT], [0; 1536]);
+        net.respond(host, &response, &mut input, &mut out).unwrap();
+        assert_eq!(state.op.get(), schema::OP_RESPOND);
+        {
+            let bytes = state.input.borrow();
+            let rows = wire::records_decode(&bytes).unwrap();
+            let rows: Vec<_> = rows.iter().collect();
+            assert_eq!(rows.len(), 4);
+            assert!(matches!(rows[0], Record::ServiceNetResponse(r)
+                if (r.request, r.status, r.content_type) == (31, 200, "text/html; charset=utf-8")));
+            assert!(matches!(rows[1], Record::ServiceNetHeader(h) if h.name == "X-One"));
+            assert!(matches!(rows[2], Record::ServiceNetHeader(h) if h.name == "Cache"));
+            assert!(matches!(rows[3], Record::ServiceNetBody(b) if b.data == b"<p>hi</p>"));
+        }
+        // A file is role 0 and may come from the install root.
+        let page = Response::new(32, 404)
+            .unwrap()
+            .send_file(FileRoot::Install, "page.html")
+            .unwrap();
+        net.respond(host, &page, &mut input, &mut out).unwrap();
+        assert_eq!(sent_rows(state).len(), 2);
+        assert!(matches!(
+            wire::records_decode(&state.input.borrow()).unwrap().iter().nth(1),
+            Some(Record::ServiceNetFile(f)) if (f.role, f.root, f.path) == (0, 2, "page.html")
+        ));
+        // No body, no file: the head alone.
+        net.respond(host, &Response::new(33, 204).unwrap(), &mut input, &mut out)
+            .unwrap();
+        assert_eq!(sent_rows(state).len(), 1);
+    });
+}
+
+#[test]
+fn responses_are_checked_as_the_host_checks_them() {
+    assert_eq!(Response::new(1, 99).unwrap_err(), Error::Invalid);
+    assert_eq!(Response::new(1, 600).unwrap_err(), Error::Invalid);
+    assert!(Response::new(1, 100).is_ok() && Response::new(1, 599).is_ok());
+    let base = Response::new(1, 200).unwrap();
+    assert!(base.content_type(&"t".repeat(128)).is_ok());
+    assert_eq!(
+        base.content_type(&"t".repeat(129)).unwrap_err(),
+        Error::NoSpace
+    );
+    let ok = Header::new("X", "1").unwrap();
+    let nine = [ok; 9];
+    assert!(base.headers(&nine[..8]).is_ok());
+    assert_eq!(base.headers(&nine).unwrap_err(), Error::NoSpace);
+    let own = [Header::new("content-TYPE", "text/plain").unwrap()];
+    assert_eq!(base.headers(&own).unwrap_err(), Error::Invalid);
+    let body = [0_u8; MAX_RESPONSE_BODY + 1];
+    assert!(base.body(&body[..MAX_RESPONSE_BODY]).is_ok());
+    assert_eq!(base.body(&body).unwrap_err(), Error::NoSpace);
+    // One of a body and a file.
+    let with_body = base.body(b"x").unwrap();
+    assert_eq!(
+        with_body.send_file(FileRoot::Data, "a").unwrap_err(),
+        Error::Invalid
+    );
+    let with_file = base.send_file(FileRoot::Data, "a").unwrap();
+    assert_eq!(with_file.body(b"x").unwrap_err(), Error::Invalid);
+    assert_eq!(
+        base.send_file(FileRoot::Data, "").unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(
+        base.send_file(FileRoot::Data, &"p".repeat(513))
+            .unwrap_err(),
+        Error::NoSpace
+    );
+}
+
+#[test]
+fn a_response_that_does_not_fit_or_is_refused_comes_back_as_an_error() {
+    with_host(|host, state| {
+        let net = Net::open(host).unwrap();
+        let headers = [Header::new("X", &"v".repeat(1024)).unwrap(); 4];
+        let response = Response::new(1, 200)
+            .unwrap()
+            .headers(&headers)
+            .unwrap()
+            .body(&[7; MAX_RESPONSE_BODY])
+            .unwrap();
+        let (mut input, mut out) = ([0; REQUEST_INPUT], [0; 1536]);
+        // Four long headers and a 2 KiB body together are over the host's input.
+        assert_eq!(
+            net.respond(host, &response, &mut input, &mut out),
+            Err(Error::NoSpace)
+        );
+        assert_eq!(state.calls.get(), 0);
+        let small = Response::new(1, 200).unwrap();
+        for (status, error) in [
+            (abi::ERR_NOT_FOUND, Error::NotFound),
+            (abi::ERR_NO_MEMORY, Error::NoMemory),
+        ] {
+            state.error.set(status);
+            assert_eq!(net.respond(host, &small, &mut input, &mut out), Err(error));
+        }
+    });
+}
+
+#[test]
+fn a_response_hides_its_headers_and_body_in_debug() {
+    let secret = [Header::new("Set-Cookie", "SECRET-VALUE").unwrap()];
+    let response = Response::new(1, 200)
+        .unwrap()
+        .headers(&secret)
+        .unwrap()
+        .body(b"SECRET-BODY")
+        .unwrap();
+    let debug = alloc::format!("{response:?}");
+    assert!(!debug.contains("SECRET") && debug.contains("body_len: 11"));
 }
