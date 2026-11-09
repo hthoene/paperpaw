@@ -1,0 +1,191 @@
+//! The firmware request table, queue and pump against the scripted device.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
+use super::*;
+use crate::native_host::firmware_install::Answer;
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_STATE};
+use paperpaw_platform::{
+    NoStorage,
+    firmware::{Reason, WRITE_BLOCK},
+    firmware_fake::{FakeFirmware, Stage, paperpaw_facts},
+};
+
+struct Names;
+impl BuiltIns for Names {
+    fn count(&self) -> usize {
+        1
+    }
+    fn index_of(&self, _: &str) -> Option<usize> {
+        None
+    }
+}
+
+fn driver() -> Driver {
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    Driver::new(
+        Box::new(fake),
+        Rc::new(RefCell::new(FirmwareInstall::new())),
+    )
+}
+
+/// Pumps until something other than a quiet step or progress comes.
+fn run(driver: &mut Driver) -> Event {
+    for now in (100..20_000).step_by(100) {
+        match driver.pump(&NoStorage, &Names, now) {
+            Event::Quiet | Event::Progress { .. } => {}
+            other => return other,
+        }
+    }
+    panic!("never ended");
+}
+
+#[test]
+fn a_request_is_accepted_whole_or_refused_with_nothing_changed() {
+    let mut d = driver();
+    // Request 0, a flag beyond bits 0 and 1, and a request that waits.
+    assert_eq!(d.submit_install(1, 0, "a.ppu", None, 0), Err(ERR_INVALID));
+    assert_eq!(d.submit_install(1, 1, "a.ppu", None, 4), Err(ERR_INVALID));
+    assert_eq!(d.waiting(), 0);
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    assert_eq!(d.submit_install(1, 1, "b.ppu", None, 0), Err(ERR_INVALID));
+    assert_eq!(d.waiting(), 1);
+    assert!(d.holds(1, 1));
+}
+
+#[test]
+fn four_requests_wait_device_wide_and_the_fifth_is_full() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    d.submit_check(3, 1, "c.ppu").unwrap();
+    d.submit_install(4, 1, "d.ppu", None, 0).unwrap();
+    assert_eq!(d.submit_install(5, 1, "e.ppu", None, 0), Err(ERR_FULL));
+    assert_eq!(d.submit_check(5, 2, "e.ppu"), Err(ERR_FULL));
+    assert_eq!(d.waiting(), 4);
+}
+
+#[test]
+fn a_second_firmware_request_waits_in_the_queue_and_runs_after_the_first() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    // The first check ends; the second one has not started.
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 1));
+    assert!(d.holds(2, 1));
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2));
+    assert_eq!(d.waiting(), 0);
+    assert_eq!(d.take_ready().unwrap().owner, 1);
+    assert_eq!(d.take_ready().unwrap().owner, 2);
+    assert!(d.take_ready().is_none());
+}
+
+#[test]
+fn an_outcome_is_kept_for_op_13_once_delivered_until_the_next_request_of_its_kind() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    let Event::Ended(outcome) = run(&mut d) else {
+        panic!("a check ends");
+    };
+    assert_eq!(
+        d.kept(1, KIND_CHECK),
+        None,
+        "not before the edge reached it"
+    );
+    assert_eq!(d.take_ready(), Some(outcome));
+    d.delivered(outcome);
+    assert_eq!(d.kept(1, KIND_CHECK), Some(outcome));
+    // Another kind is another slot; the next check replaces this one.
+    assert_eq!(d.kept(1, KIND_FIRMWARE), None);
+    d.submit_check(1, 2, "a.ppu").unwrap();
+    assert_eq!(d.kept(1, KIND_CHECK), None);
+}
+
+#[test]
+fn an_install_asks_then_a_yes_writes_and_state_three_waits_for_its_asker() {
+    let mut d = driver();
+    d.submit_install(1, 5, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    assert_eq!((ask.owner, ask.request), (1, 5));
+    d.answer(ask.question(), Answer::Yes);
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == 0 && o.kind == KIND_FIRMWARE));
+    // Only the plugin whose install waits may restart; the host asks again.
+    assert_eq!(d.request_restart(2).err(), Some(ERR_DENIED));
+    let ask = d.request_restart(1).unwrap();
+    assert!(ask.restart);
+    let mut idle = driver();
+    assert_eq!(idle.request_restart(1).err(), Some(ERR_STATE));
+}
+
+#[test]
+fn a_no_ends_the_job_with_reason_two_and_the_slot_never_starts() {
+    let mut d = driver();
+    d.submit_install(1, 5, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    let Event::Ended(outcome) = d.answer(ask.question(), Answer::No) else {
+        panic!("a no ends it");
+    };
+    assert_eq!(outcome.reason, 2);
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn a_stop_ends_the_running_and_every_waiting_job_with_reason_twenty() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    // The first job runs (pass 1) before the stop.
+    assert_eq!(d.pump(&NoStorage, &Names, 100), Event::Quiet);
+    d.abort_all();
+    assert_eq!(d.waiting(), 0);
+    let first = d.take_ready().unwrap();
+    let second = d.take_ready().unwrap();
+    assert_eq!((first.owner, first.reason), (1, 20));
+    assert_eq!(
+        (second.owner, second.kind, second.reason),
+        (2, KIND_CHECK, 20)
+    );
+}
+
+#[test]
+fn a_sender_that_stopped_leaves_no_request_outcome_or_result() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    d.sender_stopped(1);
+    d.sender_stopped(2);
+    assert_eq!(d.waiting(), 0);
+    assert!(d.take_ready().is_none());
+    assert_eq!(d.kept(1, KIND_CHECK), None);
+    // Their places are free again.
+    for owner in 1..=4 {
+        d.submit_check(owner, 1, "a.ppu").unwrap();
+    }
+}
+
+#[test]
+fn a_failed_start_ends_the_request_at_once_with_the_devices_reason() {
+    let mut fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", WRITE_BLOCK),
+    );
+    fake.fail = Some((Stage::BeginCheck, 0, Reason::OTHER));
+    let mut d = Driver::new(
+        Box::new(fake),
+        Rc::new(RefCell::new(FirmwareInstall::new())),
+    );
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    let event = d.pump(&NoStorage, &Names, 100);
+    assert!(matches!(event, Event::Ended(o) if o.reason == Reason::OTHER.0));
+    assert_eq!(d.waiting(), 0);
+}
