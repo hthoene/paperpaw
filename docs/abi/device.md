@@ -207,7 +207,9 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **Requests:** `request` is the sender's own non-zero number; a request number the plugin
   already has waiting is `ERR_INVALID` at submit. The host reserves the request's table entry and
   its kept outcome **at submit** (fallibly; device-wide at most 4 install, removal, firmware or
-  check requests and 4 radio requests waiting, else `ERR_FULL` for the batch), so an accepted
+  check requests and 4 radio requests waiting, and at most 2 open install, removal, firmware or
+  check requests per plugin, waiting or not yet told, a restart included, so one plugin never
+  takes every place; else `ERR_FULL` for the batch), so an accepted
   request always has room for its outcome and is never dropped later. Outcomes are kept until
   delivered; an install, removal, firmware or check outcome is then readable with op 13 until the
   plugin's next request of the same kind or its stop. A radio outcome (`wifi_done`, 93) is not kept
@@ -291,6 +293,11 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 
 - [D] 92, 94-96 are hints (coalesced per kind; read again with section 2). 93 and 97 are **edges
   kept like answers** (`ui.md` 3.2) in the room reserved at submit (section 3).
+- [D] 96 goes only to the plugin whose request it is, at most once every 250 ms while the image is
+  written and at each change of its state; any other plugin reads the state with op 3. 97 is never
+  dropped: it waits in the reserved room until its plugin can be called (not inside one of its
+  batches, not while it is busy), and counts as delivered once that callback was called, whatever
+  it answered, or at once for a plugin that stopped or did not subscribe; op 13 then reads it.
 - [D] 93 ends every `join` and `host` exactly once, success or failure, and goes to the plugin whose
   request it answers (`request`), like 97 for installs. `status` `OK` with `reason` 0 and `state`
   the `dev_wifi` state reached (3 online, 4 hosting) when the network is up; else the error with
@@ -375,8 +382,12 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 ### 5.2 Plugins
 
 - [D] `install_plugin` (interface 6 `InstallPlugin`, `LoadPlugin`, `install::adopt`): the plugin
-  downloaded a `.ppn` or a folder into `path` (its root 0, or root 1 with `uses.storage`); `flags`
-  bit 0 replace an installed plugin of the same id (an update), bit 1 allow an older version.
+  downloaded a plugin folder into `path` (its root 0, or root 1 with `uses.storage`), as
+  interface 6 installs it: the id is the `plugin.ini` id, else the folder's name (`core` is
+  refused), name and version come from `plugin.ini`, the code is the folder's `code.ppn`, and the
+  `uses.*` shown come from that code's native metadata. A bare `.ppn` path is reason 4
+  (`ERR_INVALID`). `flags` bit 0 replace an installed plugin of the same id (an update), bit 1
+  allow an older version.
 - [D] **Trust evidence** (store `trust.rs` `Named`, `expected`, `follow`, `revoked.rs`): the
   catalog's word for a code plugin travels in the same batch as `install_author` (the author key the
   catalog names, the recovery key it names for a first install, empty for none, and the code's
@@ -429,7 +440,8 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **One job at a time:** the host runs install, removal and firmware jobs one after another in
   submit order (one I/O buffer, 6.2). Firmware installs and code-plugin installs both write the code
   flash, so neither starts while the other runs; a request waits its turn (`dev_install.state` 0
-  waiting), it is not refused.
+  waiting), it is not refused. `dev_install.state` (op 13): 0 waiting in the queue, 1 running
+  (checking, asking, writing or reading back), 2 ended, with `status` and `reason` the outcome.
 
 ### 5.3 Firmware
 
@@ -471,8 +483,9 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   nothing is queued (Senior R1). No flag skips or shortens a confirmation: every grant still asks.
 - [D] **Busy and pending:** a second firmware request while one runs waits its turn (5.2); one sent
   while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
-  ends with reason 21
-  restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`.
+  ends with reason 21 restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`. The
+  waiting image is kept with the plugin and request that installed it, so only that plugin may ask
+  for the restart; a check may still run while it waits.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
 

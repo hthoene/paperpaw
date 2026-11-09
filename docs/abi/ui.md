@@ -498,6 +498,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     exception is the screen the host itself shows for a device state, the sleep screen of slot
     `core.sleep`: it shows above the guard, gets no input while the guard is up, and draws over a
     blank area (bit 2 `overlay`, section 1.2).
+  - **Host confirmations.** A screen of the host's own that guards (the confirmation of
+    `device.md` 5.0, e.g. for a firmware install) is the guard itself: it gets the keys and
+    pointers, no plugin's input filter runs for it, no binding to a plugin's action or input
+    applies, and `raise_input` is `ERR_DENIED` for every plugin. The host opens it only while no
+    plugin's instance guards.
   - **Guard dialogs.** Such a dialog belongs to its plugin (the keyboard) but is authorized by
     the host for the guard's question: it is the top instance, so it gets keys and pointers, and
     its own plugin's filters run beside the guard's (section 1.2); it reads and writes its
