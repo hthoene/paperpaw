@@ -315,6 +315,34 @@ mod tests {
         assert!(issues.is_empty(), "{issues:?}");
     }
 
+    /// Every text the native page names is in both languages.
+    #[test]
+    fn the_native_page_names_only_texts_that_exist() {
+        let en = Catalog::parse(include_str!("../i18n/en.ini")).unwrap();
+        let de = Catalog::parse(include_str!("../i18n/de.ini")).unwrap();
+        // Ids of the page and the actions, which are no texts.
+        let ids = ["update.open", "update.check", "update.page"];
+        let mut seen = 0;
+        for source in [
+            include_str!("native_plugin.rs"),
+            include_str!("native_card.rs"),
+        ] {
+            for piece in source.split("\"update.").skip(1) {
+                let Some((name, _)) = piece.split_once('"') else {
+                    continue;
+                };
+                let key = alloc::format!("update.{name}");
+                if ids.contains(&key.as_str()) || key.ends_with('.') || key.contains(' ') {
+                    continue;
+                }
+                seen += 1;
+                assert!(en.get(&key).is_some(), "{key} is not in en.ini");
+                assert!(de.get(&key).is_some(), "{key} is not in de.ini");
+            }
+        }
+        assert!(seen > 20, "{seen}");
+    }
+
     /// What version 1 wrote stays readable (see `docs/data-files.md`).
     #[test]
     fn pairs_of_version_1_are_read() {

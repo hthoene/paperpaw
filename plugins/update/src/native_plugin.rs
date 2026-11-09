@@ -509,122 +509,119 @@ fn row(
     push(&mut page.1, button)
 }
 
-/// The page of `view`: its rows, the large line and the words under it.
-fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
-    let mut messages = Messages::new()?;
+/// The rows of `view`: a button for each file, the way on first where an update
+/// waits for the reader's word; *Not now* or *OK* last.
+fn rows_of(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    view: &View,
+) -> Result<(Vec<Item>, Vec<Button>), Error> {
+    let mut rows = (Vec::new(), Vec::new());
+    match view {
+        View::Files(names) => {
+            for (index, name) in names.iter().enumerate() {
+                let button = Button::Install(index);
+                row(host, messages, &mut rows, "update.install", name, button)?;
+            }
+        }
+        View::NotNewer(_) => row(
+            host,
+            messages,
+            &mut rows,
+            "update.install-older",
+            "",
+            Button::InstallOlder,
+        )?,
+        View::Installed(true) => {
+            row(
+                host,
+                messages,
+                &mut rows,
+                "update.restart",
+                "",
+                Button::Restart,
+            )?;
+        }
+        _ => {}
+    }
+    let close = match view {
+        View::Files(_) | View::NotNewer(_) => "update.later",
+        View::Installing(_) | View::Installed(false) => return Ok(rows),
+        _ => "update.ok",
+    };
+    row(host, messages, &mut rows, close, "", Button::Close)?;
+    Ok(rows)
+}
+
+/// The large line and the words under it.
+fn texts(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    view: &View,
+    current: &str,
+) -> Result<(String, String), Error> {
     let with_current = [Arg::Text {
         name: "current",
         value: current,
     }];
-    let mut rows = (Vec::new(), Vec::new());
-    let (title, help) = match &view {
-        View::Nothing => (
-            messages.copy(host, "update.nothing.title")?,
-            messages.format(host, "update.card.nothing.help", &with_current)?,
-        ),
-        View::Unsupported => (
-            messages.copy(host, "update.unfit.title")?,
-            messages.copy(host, "update.reason.unsupported")?,
-        ),
-        View::Files(names) => {
-            for (index, name) in names.iter().enumerate() {
-                row(
-                    host,
-                    &mut messages,
-                    &mut rows,
-                    "update.install",
-                    name,
-                    Button::Install(index),
-                )?;
-            }
-            (
-                messages.copy(host, "update.card.found.title")?,
-                messages.format(host, "update.card.found.help", &with_current)?,
-            )
+    let (title, help, names_current) = match view {
+        View::Nothing => ("update.nothing.title", "update.card.nothing.help", true),
+        View::Unsupported => ("update.unfit.title", "update.reason.unsupported", false),
+        View::Files(_) => ("update.card.found.title", "update.card.found.help", true),
+        View::NotNewer(_) => ("update.not-newer.title", "update.not-newer.help", true),
+        View::Installing(Some(value)) => {
+            let arguments = [Arg::Int {
+                name: "percent",
+                value: *value,
+            }];
+            return Ok((
+                messages.format(host, "update.installing.percent", &arguments)?,
+                messages.copy(host, "update.installing.help")?,
+            ));
         }
-        View::NotNewer(_) => {
-            row(
-                host,
-                &mut messages,
-                &mut rows,
-                "update.install-older",
-                "",
-                Button::InstallOlder,
-            )?;
-            (
-                messages.copy(host, "update.not-newer.title")?,
-                messages.format(host, "update.not-newer.help", &with_current)?,
-            )
-        }
-        View::Installing(percent) => (
-            match percent {
-                Some(value) => messages.format(
-                    host,
-                    "update.installing.percent",
-                    &[Arg::Int {
-                        name: "percent",
-                        value: *value,
-                    }],
-                )?,
-                None => messages.copy(host, "update.installing.title")?,
-            },
-            messages.copy(host, "update.installing.help")?,
+        View::Installing(None) => ("update.installing.title", "update.installing.help", false),
+        View::Installed(false) => ("update.installed.title", "update.installed.help", false),
+        View::Installed(true) => (
+            "update.installed.title",
+            "update.installed.restart-help",
+            false,
         ),
-        View::Installed(restart) => {
-            if *restart {
-                row(
-                    host,
-                    &mut messages,
-                    &mut rows,
-                    "update.restart",
-                    "",
-                    Button::Restart,
-                )?;
-            }
-            (
-                messages.copy(host, "update.installed.title")?,
-                messages.copy(
-                    host,
-                    if *restart {
-                        "update.installed.restart-help"
-                    } else {
-                        "update.installed.help"
-                    },
-                )?,
-            )
-        }
-        View::Failed(outcome) => (messages.copy(host, "update.failed.title")?, {
+        View::Failed(outcome) => {
             let why = messages.copy(host, reason(*outcome))?;
-            messages.format(
-                host,
-                "update.failed.help",
-                &[
-                    Arg::Text {
-                        name: "reason",
-                        value: &why,
-                    },
-                    Arg::Text {
-                        name: "current",
-                        value: current,
-                    },
-                ],
-            )?
-        }),
+            let arguments = [
+                Arg::Text {
+                    name: "reason",
+                    value: &why,
+                },
+                Arg::Text {
+                    name: "current",
+                    value: current,
+                },
+            ];
+            return Ok((
+                messages.copy(host, "update.failed.title")?,
+                messages.format(host, "update.failed.help", &arguments)?,
+            ));
+        }
     };
-    // The way on first where an update waits for the reader's word; *Not now*
-    // or *OK* last.
-    let later = match view {
-        View::Files(_) | View::NotNewer(_) => "update.later",
-        View::Installing(_) | View::Installed(false) => "",
-        _ => "update.ok",
+    // Only the texts that name the version running take it.
+    let help = if names_current {
+        messages.format(host, help, &with_current)?
+    } else {
+        messages.copy(host, help)?
     };
-    if !later.is_empty() {
-        row(host, &mut messages, &mut rows, later, "", Button::Close)?;
-    }
+    Ok((messages.copy(host, title)?, help))
+}
+
+/// The page of `view`: its rows, the large line and the words under it.
+fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
+    let mut messages = Messages::new()?;
+    let (items, buttons) = rows_of(host, &mut messages, &view)?;
+    let (title, help) = texts(host, &mut messages, &view, current)?;
     Ok(Page {
         view,
-        buttons: rows.1,
-        list: ItemList::new(rows.0),
+        buttons,
+        list: ItemList::new(items),
         title,
         help,
     })
