@@ -167,7 +167,6 @@ dependencies = [
  "paperpaw-plugin-stats",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wallabag",
- "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
 ]
@@ -400,13 +399,6 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-weather"
-version = "1.0.7"
-dependencies = [
- "paperpaw-sdk",
 ]
 
 [[package]]

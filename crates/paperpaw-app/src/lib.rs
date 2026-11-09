@@ -110,7 +110,6 @@ pub const STORE_PLUGINS: [&str; 34] = [
     "stats",
     "vocabulary",
     "wallabag",
-    "weather",
     "widgets",
 ];
 
@@ -188,7 +187,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "update",
     "vocabulary",
     "wallabag",
-    "weather",
     "wifi",
     "wikipedia",
 );
@@ -281,7 +279,6 @@ pub fn install_with(
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
-        b = offered(b, store, paperpaw_plugin_weather::Weather);
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
         b = offer_shipped_off(b, store);
     }

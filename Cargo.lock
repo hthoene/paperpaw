@@ -1590,7 +1590,6 @@ dependencies = [
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wallabag",
- "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
  "paperpaw-plugin-wikipedia",
@@ -2649,13 +2648,14 @@ dependencies = [
 name = "paperpaw-plugin-weather"
 version = "1.0.7"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

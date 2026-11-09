@@ -33,5 +33,5 @@ stats reading
 # translate reading  (no file until the store build moves to interface 7, #228)
 vocabulary learning
 wallabag news
-weather home
+# weather home  (no file until the store build moves to interface 7, #228)
 widgets home

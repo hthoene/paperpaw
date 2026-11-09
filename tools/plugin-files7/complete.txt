@@ -11,3 +11,4 @@ keys
 menu-editor
 profiles
 rules
+weather
