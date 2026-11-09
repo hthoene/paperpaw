@@ -530,7 +530,7 @@ impl Kernel {
                 let long = InputKey::LongButton(Cow::Borrowed(name));
                 let at_once = self.resolve(&long).is_none() && !self.takes_buttons();
                 if let Some(recognized) = self.input.recognizer.button(name, state, now, at_once) {
-                    self.recognized(recognized);
+                    self.recognized_filtered(recognized);
                 }
             }
             InputEvent::Pointer(pointer) => self.pointer(pointer),
@@ -839,7 +839,7 @@ impl Kernel {
         for recognized in self.input.recognizer.tick(now, &thresholds) {
             // A press held long enough: the reader's input too.
             self.shared.reader = true;
-            self.recognized(recognized);
+            self.recognized_filtered(recognized);
         }
         if self
             .input

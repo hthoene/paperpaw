@@ -102,4 +102,42 @@ impl Kernel {
             },
         }
     }
+
+    /// What the recognizer made of the input, through the native filters first
+    /// where it is a gesture an `input.gesture` record can describe (a tap, a
+    /// long press, a swipe): they may pass it, replace it by another gesture,
+    /// take or cancel it, run an action or raise an input of their plugin's.
+    /// A gesture a filter made, or a raised input, goes on without them
+    /// ([`Self::recognized`]), so none can loop.
+    pub(crate) fn recognized_filtered(&mut self, recognized: input::Recognized) {
+        use native_host::input_chain::Native;
+        let input::Recognized::Gesture(gesture) = recognized else {
+            return self.recognized(recognized);
+        };
+        match self.native_gesture(self.now, &gesture) {
+            // A replace that made a key or a finger is refused (counted by the
+            // chain) and passes the original; `Replaced` does not come here.
+            Native::Pass | Native::Replaced(_) => self.recognized(recognized),
+            Native::Gesture(made) => {
+                // As a touch does (see `native_filtered`): the part it is in
+                // and the screen a long press of it belongs to.
+                self.pane_touched(made.start);
+                self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
+                self.recognized(input::Recognized::Gesture(made));
+            }
+            // Taken or cancelled, a recognized gesture is only dropped: the
+            // finger's input was recognized (and passed) already, so unlike a
+            // cancelled key or pointer there is nothing more of it to drop.
+            Native::Taken | Native::Cancelled => {}
+            Native::Run(action) => {
+                if let Ok(action) = Id::parse(&action) {
+                    self.dispatch(action);
+                }
+            }
+            Native::Raise(name) => match InputKey::parse(&name) {
+                Some(key) => self.route_key(key),
+                None => self.warn_runtime(format!("a filter raised unknown input `{name}`")),
+            },
+        }
+    }
 }

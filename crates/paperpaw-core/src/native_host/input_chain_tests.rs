@@ -5,7 +5,7 @@
 use super::*;
 use crate::native_host::codec;
 use alloc::vec;
-use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::{Direction, Gesture, GestureKind};
 
 fn all(_: u64) -> bool {
@@ -236,6 +236,52 @@ fn a_filter_replaces_a_key_with_a_known_one_and_an_unknown_one_passes() {
 }
 
 #[test]
+fn a_gesture_replaced_by_a_key_or_a_finger_is_refused_and_counted() {
+    let gesture = Record::InputGesture(wire::InputGesture {
+        now_ms: 5,
+        kind: 0,
+        x: 10,
+        y: 20,
+    });
+    let key = Record::InputKey(wire::InputKey {
+        now_ms: 5,
+        key: "down",
+        state: 0,
+    });
+    let finger_down = Record::InputPointer(wire::InputPointer {
+        now_ms: 5,
+        x: 10,
+        y: 20,
+        phase: 0,
+        contact: Some(1),
+    });
+    for made in [&key, &finger_down] {
+        let mut chain = InputFilters::new();
+        let mut runner = Scripted {
+            answers: vec![Ok(stage::FilterVerdict::new(4, "", batch(made), ""))],
+            called: 0,
+        };
+        let policy = Policy {
+            touch: true,
+            secret: false,
+            runs: &all,
+            declared: &none,
+        };
+        let original = finger(PointerPhase::Up, 10, 20);
+        let (native, refused) = run_record(
+            &mut chain,
+            &mut runner,
+            &[filter(1)],
+            &policy,
+            &gesture,
+            &original,
+            (5, DISPLAY, &KEYS),
+        );
+        assert_eq!((native, refused), (Native::Pass, 1));
+    }
+}
+
+#[test]
 fn a_filter_replaces_a_pointer_and_it_is_clamped() {
     let record = Record::InputPointer(wire::InputPointer {
         now_ms: 5,
@@ -383,6 +429,9 @@ mod kernel {
         /// What the native filter answers at its next call (one answer; then
         /// pass): [`PASS`] and the modes below.
         static MODE: Cell<u8> = const { Cell::new(PASS) };
+        /// The same, but for every call (not one), and only for gestures.
+        static STICKY: Cell<u8> = const { Cell::new(PASS) };
+        static ON_GESTURE: Cell<u8> = const { Cell::new(PASS) };
         /// How often the action `f.chord` ran, and a screen got a gesture.
         static RAN: Cell<u32> = const { Cell::new(0) };
         static GESTURES: Cell<u32> = const { Cell::new(0) };
@@ -398,6 +447,7 @@ mod kernel {
     /// The callback fails.
     const FAIL: u8 = 4;
     const TAKE: u8 = 5;
+    const CANCEL: u8 = 6;
 
     fn verdict(mode: u8, out: &mut [u8]) -> Result<usize, i32> {
         let mut bytes = [0; 128];
@@ -416,6 +466,7 @@ mod kernel {
             GESTURE => stage::FilterVerdict::new(4, "", &bytes[..length], "").encode(out),
             FAIL => Err(ERR_STATE),
             TAKE => stage::FilterVerdict::new(1, "", &[], "").encode(out),
+            CANCEL => stage::FilterVerdict::new(3, "", &[], "").encode(out),
             _ => stage::FilterVerdict::new(0, "", &[], "").encode(out),
         }
     }
@@ -514,14 +565,29 @@ mod kernel {
             unreachable!()
         }
         fn dropped(&self, _: u32, _: i32) {}
-        fn stage(&self, _: u32, _: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+        fn stage(&self, _: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
             let _guard = self
                 .guard
                 .enter(&self.depth.as_depth().0)
                 .map_err(|_| ERR_BUSY)?;
             self.calls.set(self.calls.get() + 1);
             ORDER.with(|order| order.borrow_mut().push("native"));
-            let length = verdict(MODE.replace(PASS), out)?;
+            // A gesture record gets `ON_GESTURE` (a made gesture is not asked
+            // again: it would loop), any other input the one-shot mode.
+            let gesture = wire::records_decode_single(bytes)
+                .ok()
+                .and_then(|call| match call {
+                    Record::StageCall(call) => stage::FilterInput::decode(call.payload).ok(),
+                    _ => None,
+                })
+                .and_then(|input| wire::records_decode_single(input.input).ok())
+                .is_some_and(|record| matches!(record, Record::InputGesture(_)));
+            let mode = match (gesture, STICKY.get()) {
+                (true, _) => ON_GESTURE.get(),
+                (false, PASS) => MODE.replace(PASS),
+                (false, sticky) => sticky,
+            };
+            let length = verdict(mode, out)?;
             Ok(i32::try_from(length).unwrap())
         }
     }
@@ -544,6 +610,8 @@ mod kernel {
     /// (a PIN screen) and the native plugin `f` filtering `core.input-filter`.
     fn world() -> (crate::Kernel, Rc<Cell<u32>>) {
         MODE.set(PASS);
+        STICKY.set(PASS);
+        ON_GESTURE.set(PASS);
         RAN.set(0);
         GESTURES.set(0);
         ORDER.with(|order| order.borrow_mut().clear());
@@ -820,4 +888,111 @@ mod kernel {
         assert!(!has("f", "f.chord"));
         assert!(!has("f", "button.menu"));
     }
+
+    /// A finger down and up at once: a tap.
+    fn tap(kernel: &mut crate::Kernel, at: u64) {
+        for (phase, at) in [(PointerPhase::Down, at), (PointerPhase::Up, at + 40)] {
+            let event =
+                PointerEvent::new(0, phase, Point::new(100, 100), PointerTool::Finger, 1000);
+            kernel.handle(paperpaw_platform::Instant(at), InputEvent::Pointer(event));
+        }
+    }
+
+    #[test]
+    fn a_gesture_the_kernel_recognized_goes_through_the_filters_as_input_gesture() {
+        // Passed: the screen gets its tap.
+        let (mut kernel, _) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        tap(&mut kernel, 1000);
+        assert_eq!(GESTURES.get(), 1);
+        // Taken or cancelled: it is nobody's.
+        for mode in [TAKE, CANCEL] {
+            let (mut kernel, calls) = world();
+            kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+            ON_GESTURE.set(mode);
+            tap(&mut kernel, 1000);
+            assert_eq!((calls.get(), GESTURES.get()), (3, 0), "{mode}");
+        }
+        // Raised: what the key maps bind runs; the screen's own tap does not.
+        let (mut kernel, _) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        ON_GESTURE.set(RAISE);
+        tap(&mut kernel, 1000);
+        assert_eq!((RAN.get(), GESTURES.get()), (1, 0));
+        // Replaced by a gesture: that one reaches the screen, once, and is
+        // not asked again (it would loop).
+        let (mut kernel, calls) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        ON_GESTURE.set(GESTURE);
+        tap(&mut kernel, 1000);
+        assert_eq!(GESTURES.get(), 1);
+        // Down, up, and the tap: three calls, none for the made gesture.
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn a_filter_that_fails_at_every_input_is_left_out_until_the_declarations_change() {
+        let (mut kernel, calls) = world();
+        STICKY.set(FAIL);
+        let told = |kernel: &mut crate::Kernel| {
+            kernel
+                .take_warnings()
+                .iter()
+                .filter(|warning| warning.message.contains("left out"))
+                .count()
+        };
+        for at in [10, 20, 30] {
+            kernel.handle(paperpaw_platform::Instant(at), press("up"));
+        }
+        assert_eq!(calls.get(), 3);
+        assert_eq!(told(&mut kernel), 1);
+        // Nothing is called any more, and the list is not read again.
+        let revision = kernel.shared.native_filters.as_ref().map(|c| c.revision);
+        for at in [40, 50] {
+            kernel.handle(paperpaw_platform::Instant(at), press("up"));
+        }
+        assert_eq!(calls.get(), 3);
+        assert_eq!(
+            kernel
+                .shared
+                .native_filters
+                .as_ref()
+                .map(|c| (c.revision, c.filters.len())),
+            revision.map(|revision| (revision, 0))
+        );
+        assert_eq!(told(&mut kernel), 0);
+        // One that answers well in between is not given up on.
+        let (mut kernel, calls) = world();
+        for at in [10, 20, 30, 40, 50, 60] {
+            STICKY.set(if at % 20 == 0 { PASS } else { FAIL });
+            kernel.handle(paperpaw_platform::Instant(at), press("up"));
+        }
+        assert_eq!(calls.get(), 6);
+    }
+}
+
+#[test]
+fn a_host_refusal_for_now_does_not_count_against_the_filter() {
+    let given_up = |status: i32| {
+        let mut cache = FilterCache::new(0, vec![filter(1)]).unwrap();
+        for _ in 0..5 {
+            let mut runner = Watching {
+                inner: Scripted {
+                    answers: vec![Err(status)],
+                    called: 0,
+                },
+                failed: [(0, 0); crate::native_host::ui_input::MAX_FILTERS],
+                count: 0,
+            };
+            let _ = runner.call(&filter(1), &[], &mut [0; 64]);
+            let failed = runner.failed.get(..runner.count).unwrap().to_vec();
+            cache.settle(&failed);
+        }
+        cache.filters.is_empty()
+    };
+    // Busy or out of memory for now: kept, however often.
+    assert!(!given_up(ERR_BUSY));
+    assert!(!given_up(ERR_NO_MEMORY));
+    // A failure of the plugin's own: left out after three inputs.
+    assert!(given_up(ERR_STATE));
 }
