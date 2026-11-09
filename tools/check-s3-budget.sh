@@ -19,6 +19,10 @@
 # device's full output is in <worktree>/target-budget/<device>.scan.txt).
 # Exit 2: bad usage or no toolchain.
 #
+# CHECK_S3_BUDGET_KEEP=<dir> in the environment copies each device's ELF to
+# <dir>/<device>.elf (both devices build into one directory, the second
+# overwrites the first; this is how to have both, e.g. to regenerate a budget).
+#
 # Time, measured on this machine (16 cores, the build with -j4): both devices,
 # nothing built before, 6 minutes (4 for one device; the first one builds core for
 # the S3 with `-Zbuild-std`); both again with nothing changed, 4 seconds. After a
@@ -151,6 +155,10 @@ for device in "${devices[@]}"; do
         continue
     fi
     elf="$build_dir/xtensa-esp32s3-none-elf/release/paperpaw-xteink"
+    if [[ -n "${CHECK_S3_BUDGET_KEEP:-}" ]]; then
+        mkdir -p "$CHECK_S3_BUDGET_KEEP" && cp "$elf" "$CHECK_S3_BUDGET_KEEP/$device.elf" \
+            || { echo "check-s3-budget: cannot keep the ELF in $CHECK_S3_BUDGET_KEEP" >&2; exit 2; }
+    fi
     echo "check-s3-budget: scanning $device ($(date +%H:%M:%S))"
     (cd "$ci_path" && "$sign" frames-s3 "$elf" --budget "$budget") > "$out/$device.scan.txt" 2>&1
     code=$?
