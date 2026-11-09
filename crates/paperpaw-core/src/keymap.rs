@@ -711,10 +711,11 @@ mod tests {
             (&["a".into(), "b".into()][..], ControlFlow::Continue(()))
         );
         let mut walked = Vec::new();
-        map.each_binding("a", &mut |input, action, _| {
+        let end = map.each_binding("a", &mut |input, action, _| {
             walked.push((input.to_string(), action.map(|id| id.as_str().to_string())));
             ControlFlow::Continue(())
         });
+        assert!(end.is_continue());
         // The list has both; the walk has the one that can be a row.
         assert_eq!(map.bindings("a").len(), 2);
         assert_eq!(walked, [("swipe.left".to_string(), None)]);
