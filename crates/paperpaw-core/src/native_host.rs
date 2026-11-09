@@ -56,6 +56,9 @@ pub mod host_slot;
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
 
+#[path = "native_host/ui_hints.rs"]
+pub(crate) mod ui_hints;
+
 #[path = "native_host/ui_requests.rs"]
 #[allow(
     dead_code,

@@ -4,7 +4,7 @@ use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
     registrations::{self as wire, StatusItem, StatusLine, WidgetSpec},
 };
-use alloc::rc::Rc;
+use alloc::{rc::Rc, string::String};
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
@@ -237,4 +237,97 @@ fn every_publication_allocation_failure_preserves_previous_rows() {
     // The producer, key collection and each of the three catalog tables reserve.
     assert!(refused >= 5);
     assert!(completed);
+}
+
+fn publish_hints(
+    directory: &NativeDeclarations,
+    plugin: &'static str,
+    owner: u64,
+    live: &Rc<Cell<u32>>,
+    hints: &[(&str, &str)],
+) {
+    let source = Source {
+        plugin,
+        owner,
+        generation: Rc::clone(live),
+    };
+    let mut pending = PendingDeclarations::native(Id::new_static(plugin), source).unwrap();
+    let records: alloc::vec::Vec<Record<'_>> = hints
+        .iter()
+        .map(|(screen, text)| {
+            Record::HelpHint(wire::HelpHint {
+                screen,
+                input: 0,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                text,
+            })
+        })
+        .collect();
+    let mut bytes = [0; 1024];
+    let length = wire::records_encode(&records, &mut bytes).unwrap();
+    pending
+        .stage_batch(&bytes[..length], &mut Allocations::default())
+        .unwrap();
+    directory
+        .stage(pending, owner, &mut Allocations::default())
+        .unwrap()
+        .commit();
+}
+
+fn hints_of(directory: &NativeDeclarations, scope: &str) -> alloc::vec::Vec<(String, String)> {
+    let mut rows = alloc::vec::Vec::new();
+    directory
+        .hints(scope, &mut |hint| {
+            rows.push((hint.owner.into(), hint.text.into()));
+            core::ops::ControlFlow::Continue(())
+        })
+        .unwrap();
+    rows
+}
+
+/// A screen's hints come in plugin order, then in the order each plugin
+/// declared them (the store sorts a kind by name, not by declaration), and
+/// only the screen asked for; a plugin that stopped has none.
+#[test]
+fn hints_of_a_screen_come_in_plugin_then_record_order() {
+    let directory = NativeDeclarations::default();
+    let (first, second) = (Rc::new(Cell::new(1)), Rc::new(Cell::new(1)));
+    publish_hints(
+        &directory,
+        "first",
+        1,
+        &first,
+        &[
+            ("s.main", "first.z"),
+            ("t.main", "first.other"),
+            ("s.main", "first.a"),
+        ],
+    );
+    publish_hints(&directory, "second", 2, &second, &[("s.main", "second.m")]);
+    let want = |rows: &[(&str, &str)]| -> alloc::vec::Vec<(String, String)> {
+        rows.iter()
+            .map(|(a, b)| ((*a).into(), (*b).into()))
+            .collect()
+    };
+    assert_eq!(
+        hints_of(&directory, "s.main"),
+        want(&[
+            ("first", "first.z"),
+            ("first", "first.a"),
+            ("second", "second.m")
+        ])
+    );
+    assert_eq!(
+        hints_of(&directory, "t.main"),
+        want(&[("first", "first.other")])
+    );
+    assert!(hints_of(&directory, "none.main").is_empty());
+    first.set(0);
+    assert_eq!(
+        hints_of(&directory, "s.main"),
+        want(&[("second", "second.m")])
+    );
 }

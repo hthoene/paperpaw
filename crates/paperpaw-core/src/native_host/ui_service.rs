@@ -1,7 +1,8 @@
 //! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the questions and
 //! answers (ops 8 `ask`, 2 `question`, 11 `answer`), the hand-over ops 16
 //! `handover` and 17 `params` and the text ops 9 `text_write` and 10
-//! `text_read`, over the one [`UiStore`]; ops 4, 5, 14 and 15 (widgets and
+//! `text_read`, over the one [`UiStore`]; op 3 `hints` (`ui_hints`) over the
+//! registry's directory; ops 4, 5, 14 and 15 (widgets and
 //! status, `ui_widget_ops`) over the handle table. The other ops answer
 //! `ERR_UNSUPPORTED` until their handlers land.
 //!
@@ -15,6 +16,7 @@ use super::{
     registrations::{self as wire, Record},
     shared::Shared,
     ui_guard::{self, Ask, OpenRequests},
+    ui_hints,
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
     ui_widget_ops,
@@ -82,6 +84,7 @@ pub(crate) fn backend(
     match op.id {
         8 => ask(frame, ui, who, input, out),
         2 => question(frame, ui, input, out),
+        3 => ui_hints::hints(frame, who, op, input, out),
         11 => answer(frame, ui, input).map(|()| 0),
         16 => handover(frame, ui, who, input, out),
         17 => params(frame, ui, input, out),
