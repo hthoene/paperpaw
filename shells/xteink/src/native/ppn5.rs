@@ -104,6 +104,13 @@ pub fn load(
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
     let path = code.path;
+    #[cfg(feature = "esp32s3")]
+    if !scanned_table_is_handed() {
+        warn!(
+            "native: {path} not run: the host table the frame scan read is not the one handed to plugins"
+        );
+        return Err(PluginProblem::Unsupported);
+    }
     let started = crate::micros();
     let size = storage.size(path).map_err(|_| PluginProblem::Damaged)?;
     let mut head = [0u8; HEADER_LEN];
@@ -124,6 +131,8 @@ pub fn load(
 
 #[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use x4::register_linked_probe;
+#[cfg(feature = "esp32s3")]
+pub(super) use x4::scanned_table_is_handed;
 pub(super) use x4::{StorageSource, entry_check_failed};
 
 /// The loader both chips share (the module keeps its first name): the image is
@@ -351,6 +360,19 @@ mod x4 {
     pub static PAPERPAW_HOST_TABLE_ANCHOR: paperpaw_native::host_glue::PpHost =
         shell::host_table::<X4Services>();
 
+    /// Whether the static the S3 scan reads ([`PAPERPAW_HOST_TABLE_ANCHOR`])
+    /// is the table the loader hands plugins (`handed_table`), slot by slot.
+    /// If they ever differed the scan would check the roots of another table
+    /// than the one a plugin calls through; checked before the first file is
+    /// placed, a few words compared.
+    #[cfg(feature = "esp32s3")]
+    pub(in crate::native) fn scanned_table_is_handed() -> bool {
+        shell::same_table(
+            &PAPERPAW_HOST_TABLE_ANCHOR,
+            shell::handed_table::<X4Services>(),
+        )
+    }
+
     impl Services for X4Services {
         fn alloc(&self, size: usize, align: usize) -> *mut u8 {
             match Layout::from_size_align(size, align) {
@@ -415,7 +437,10 @@ mod x4 {
     /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
     #[cfg(all(feature = "static-native", feature = "esp32c3"))]
     #[inline(never)]
-    pub(crate) fn register_linked_probe(kernel: &mut paperpaw_core::Kernel) {
+    pub(crate) fn register_linked_probe(
+        kernel: &mut paperpaw_core::Kernel,
+        table: &crate::native::DeviceTable,
+    ) {
         fn linked_report(_: &X4Services, tag: u32, status: i32) {
             warn!("native: linked: call {tag} ended with {status}");
         }
@@ -426,11 +451,8 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        // NOTE: this probe builds its own pool (and `core.ui` store). Real linked-
-        // plugin registration must share the loader's pool (`try_clone`, one
-        // `UiStore` per device, ui.md 1.1) so the device keeps one UI store; that comes with the stack gate being lifted (todo 150).
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), crate::native::new_resources())
-        else {
+        // The loader's own table of handles (one for the device), not a second.
+        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), table.share()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {

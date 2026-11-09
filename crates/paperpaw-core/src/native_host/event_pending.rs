@@ -171,6 +171,11 @@ impl Pending {
         Ok(())
     }
 
+    /// Whether nothing waits (no edge, no hint, no reread).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Hints keep only an ordered pending bit; encode their current state at delivery.
     pub(crate) fn hint(&mut self, tag: u32) -> Result<(), i32> {
         let id = tag

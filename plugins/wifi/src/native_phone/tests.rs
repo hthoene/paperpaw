@@ -412,3 +412,45 @@ fn a_body_over_the_most_taken_counts_as_none() {
     let over = format!("{exact}p");
     assert_eq!(status(&over), 403);
 }
+
+/// With every network the host lists (strongest first, 32 at most, and more
+/// than that here) the page stays within what one write of the data folder
+/// takes, and it is the weakest that are left out.
+#[test]
+fn many_networks_make_a_page_within_the_most_and_the_weakest_go() {
+    use super::page::{Found, MOST_PAGE, Texts, choose_page, choose_page_fit};
+    let names: Vec<String> = (0..64)
+        .map(|n| format!("A-network-with-a-long-name-{n:02}-xxxxxxxx"))
+        .collect();
+    let found: Vec<Found<'_>> = names
+        .iter()
+        .map(|ssid| Found {
+            ssid,
+            secured: true,
+        })
+        .collect();
+    let texts = Texts {
+        language: "en",
+        title: "Set up",
+        choose_one: "Choose one",
+        other: "Another network",
+        password: "Password",
+        join: "Connect",
+        note: "The reader keeps the password",
+        open: "open",
+    };
+    let all = choose_page(&texts, &found, false, "tok3n").unwrap();
+    assert!(all.len() > MOST_PAGE, "{}", all.len());
+    let page = choose_page_fit(&texts, &found, false, "tok3n", MOST_PAGE).unwrap();
+    assert!(page.len() <= MOST_PAGE, "{}", page.len());
+    assert!(page.contains("-00-") && page.contains("<form"), "{page}");
+    assert!(!page.contains("-63-"));
+    // A few networks are all there.
+    let few = choose_page_fit(&texts, &found[..3], false, "tok3n", MOST_PAGE).unwrap();
+    assert_eq!(
+        few,
+        choose_page(&texts, &found[..3], false, "tok3n").unwrap()
+    );
+    // Allocation is refused in turn.
+    sweep(|| choose_page_fit(&texts, &found, false, "tok3n", MOST_PAGE));
+}

@@ -32,7 +32,7 @@ pub const YEAR_TOKEN: u32 = 45;
 pub const READ_TODAY: &str = "reading-goal.read-today";
 pub const READ_TODAY_TOKEN: u32 = 5;
 /// The status items "Time left in chapter" and "Time left in book".
-pub const STATUS_TOKEN: u32 = 3;
+pub const STATUS_TOKEN: u32 = 4;
 
 pub const GROUP: &str = "stats.group";
 
