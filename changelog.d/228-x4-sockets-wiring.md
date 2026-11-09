@@ -1,0 +1,2 @@
+### Added
+- The X4 wires `core.sockets` for interface-7 plugins over its own TCP, TLS and UDP code: plain and TLS sockets (the device's TLS session is shared with HTTPS and interface-6 sockets) and broadcasts with answers from address and port. Each report to core is followed by the kernel's tick; the counts of dropped and ignored reports are logged once the sockets are idle. `core.net` and network demand follow.
