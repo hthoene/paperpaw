@@ -340,11 +340,17 @@ impl HostResources {
             wired.sockets = Some(SockReports(device));
         }
         if let Some(storage) = wiring.files {
-            hosts.wire_files(Rc::new(StorageFiles::new(
-                storage,
-                hosts.busy_sources().clone(),
-                hosts.linked().clone(),
-            )))?;
+            // The library's move job, a busy source `core.files` needs and
+            // the way a move of the user's files goes.
+            let moves = hosts.wire_library_moves(storage.clone())?;
+            hosts.wire_files(Rc::new(
+                StorageFiles::new(
+                    storage,
+                    hosts.busy_sources().clone(),
+                    hosts.linked().clone(),
+                )
+                .with_moves(moves),
+            ))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

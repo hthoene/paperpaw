@@ -10,7 +10,7 @@
     reason = "shared by several test files; each uses part of the kit"
 )]
 use paperpaw_core::{
-    Kernel,
+    Kernel, KernelBuilder,
     native_host::{HostResources, flat::FlatDepth},
 };
 use paperpaw_native::host_glue::{PpEntry, Services};
@@ -76,6 +76,8 @@ struct Heap(Arc<Counters>);
 struct Counters {
     live: AtomicIsize,
     failures: Mutex<Vec<String>>,
+    /// What the host told the plugin it dropped: (callback token, status).
+    dropped: Mutex<Vec<(u32, i32)>>,
 }
 
 impl Services for Heap {
@@ -101,7 +103,9 @@ impl Services for Heap {
     }
 }
 
-fn report(_: &Heap, _: u32, _: i32) {}
+fn report(heap: &Heap, token: u32, status: i32) {
+    heap.0.dropped.lock().unwrap().push((token, status));
+}
 
 fn teardown(
     heap: &Heap,
@@ -132,6 +136,16 @@ impl Installed {
     )]
     pub fn kernel(&mut self) -> &mut Kernel {
         self.kernel.as_mut().expect("installed")
+    }
+
+    /// The callbacks the host dropped so far, as (token, status): a draw or an event the
+    /// plugin could not finish lands here, not in the kernel's warnings.
+    #[allow(
+        dead_code,
+        reason = "only the cases that go on to use the kernel call it"
+    )]
+    pub fn dropped(&self) -> Vec<(u32, i32)> {
+        self.heap.0.dropped.lock().unwrap().clone()
     }
 }
 
@@ -168,6 +182,8 @@ const X4_BUTTONS: [&str; 7] = [
 pub struct Setup {
     device: DeviceInfo,
     config: String,
+    /// What else the kernel is built with (see [`Setup::with_kernel`]).
+    kernel: Vec<Arc<dyn Fn(KernelBuilder) -> KernelBuilder>>,
 }
 
 impl Default for Setup {
@@ -182,6 +198,7 @@ impl Default for Setup {
                 MemoryClass::Small,
             ),
             config: String::new(),
+            kernel: Vec::new(),
         }
     }
 }
@@ -199,7 +216,16 @@ impl Setup {
                 MemoryClass::Small,
             ),
             config: String::new(),
+            kernel: Vec::new(),
         }
+    }
+
+    /// Builds the kernel further with `step`, e.g. `|b| b.plugin(DefaultFontPacks)` for the
+    /// fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run in the
+    /// order given.
+    pub fn with_kernel(mut self, step: impl Fn(KernelBuilder) -> KernelBuilder + 'static) -> Self {
+        self.kernel.push(Arc::new(step));
+        self
     }
 
     /// The user's configuration, as the file `config.ini` writes it.
@@ -256,8 +282,13 @@ pub fn install_in(
     // Held from here on, so a refused install is checked for leaks as well.
     let mut installed = Installed {
         kernel: Some(
-            Kernel::builder(setup.device)
-                .user_config(setup.config.clone())
+            setup
+                .kernel
+                .iter()
+                .fold(
+                    Kernel::builder(setup.device).user_config(setup.config.clone()),
+                    |builder, step| step(builder),
+                )
                 .build()
                 .map_err(|e| format!("{e:?}"))?,
         ),

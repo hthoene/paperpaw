@@ -73,6 +73,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
+            ui: self.identity.ui_services(),
         }
     }
 
@@ -95,7 +96,13 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
                 .enter_callback(self.identity.owner(), key.serial())
         });
         let frame = self.frame(env, epoch.epoch(), instance, directory.as_deref());
-        match stage {
+        // What the callback froze of the stages it ran ends with it.
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
+        let result = match stage {
             Some(stage) => shell::dispatch_token_staged(
                 batch,
                 token,
@@ -106,7 +113,12 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             ),
             None => shell::dispatch_token(batch, token, self.depth.as_depth(), &frame, invocation),
         }
-        .map_err(status)
+        .map_err(status);
+        // Only 0 and 1 are answers: an error or any other status is a failure.
+        if !matches!(result, Ok(0 | 1)) {
+            epoch.set_failed();
+        }
+        result
     }
     /// A host service's event for the callback registered for its tag, with
     /// the command stage of that callback where the caller has one.
@@ -131,6 +143,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
                 }
             })
             .map_err(|error| status(error.into()))?;
+        // An answer goes to the plugin that asked, with no registration
+        // (`ui.md` 3.2): the SDK takes addressed events by their tag.
+        if tag == super::registrations::EVENT_ANSWERED_TAG {
+            token.get_or_insert(0);
+        }
         let token = token.ok_or(host_glue::ERR_UNSUPPORTED)?;
         self.invoke(
             token,
@@ -151,6 +168,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
         shell::dispatch_token_draw(
             batch,
             token,
@@ -215,6 +237,11 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
+        let _release = super::stage_members::Release::new(
+            directory.as_deref(),
+            epoch.epoch(),
+            self.depth.as_depth().current() == 0,
+        );
         shell::dispatch_stage(
             batch,
             token,

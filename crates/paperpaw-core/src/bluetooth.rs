@@ -25,6 +25,13 @@ const DEVICE: &str = "device";
 const NONCE: &str = "nonce";
 
 impl Kernel {
+    /// Bluetooth as plugins see it (the radio, the bonded devices), for a
+    /// shell that tells its own host services of it (`core.device`, ops 10
+    /// and 11). `None` where the kernel is built without Bluetooth.
+    pub fn bluetooth_model(&self) -> Option<&paperpaw_sdk::bluetooth::Bluetooth> {
+        self.shared.bluetooth.as_ref()
+    }
+
     /// Plugin `request.from()`'s Bluetooth command, answered on its events
     /// where it fails.
     pub(crate) fn apply_bluetooth(&mut self, request: BtRequest) {

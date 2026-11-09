@@ -388,7 +388,9 @@ impl NativeStats {
         }
     }
 
-    /// Builds the view of an opened screen over the data folder.
+    /// Builds the view of an opened screen over the data folder. One function
+    /// for each screen, none inlined: the views are big, and a frame that held
+    /// them all would go over what the X4 allows (2,048 bytes).
     fn opened(
         &mut self,
         host: &Host<'_>,
@@ -396,30 +398,80 @@ impl NativeStats {
         instance: paperpaw_sdk::native::ui::Instance,
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
+        match screen {
+            "stats.overview" => self.opened_overview(host, instance, handover),
+            "stats.calendar" => self.opened_calendar(host, instance),
+            "stats.books" => self.opened_books(host, instance),
+            "stats.sync" => self.opened_sync(host, instance),
+            "stats.book" => self.opened_book(host, instance, handover),
+            _ => Ok(()),
+        }
+    }
+
+    #[inline(never)]
+    fn opened_overview(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         let data = DataFolder(&storage);
-        let view = match screen {
-            "stats.overview" => {
-                let current = match handover {
-                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
-                    None => None,
-                };
-                let today = today_of(host)?;
-                View::Overview(OverviewView::new(host, &data, today, current)?)
-            }
-            "stats.calendar" => View::Calendar(CalendarView::new(host, &data, today_of(host)?)?),
-            "stats.books" => View::Books(BooksView::new(host, &data)?),
-            "stats.sync" => View::Sync(self.sync.view(host)?),
-            "stats.book" => {
-                let id = match handover {
-                    Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
-                    None => None,
-                };
-                View::Book(BookView::new(host, &data, id)?)
-            }
-            _ => return Ok(()),
+        let current = match handover {
+            Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+            None => None,
         };
-        self.screens.open(instance, view)
+        let today = today_of(host)?;
+        let view = OverviewView::new(host, &data, today, current)?;
+        self.screens.open(instance, View::Overview(view))
+    }
+
+    #[inline(never)]
+    fn opened_calendar(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let view = CalendarView::new(host, &DataFolder(&storage), today_of(host)?)?;
+        self.screens.open(instance, View::Calendar(view))
+    }
+
+    #[inline(never)]
+    fn opened_books(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let view = BooksView::new(host, &DataFolder(&storage))?;
+        self.screens.open(instance, View::Books(view))
+    }
+
+    #[inline(never)]
+    fn opened_sync(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let view = self.sync.view(host)?;
+        self.screens.open(instance, View::Sync(view))
+    }
+
+    #[inline(never)]
+    fn opened_book(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let id = match handover {
+            Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+            None => None,
+        };
+        let view = BookView::new(host, &DataFolder(&storage), id)?;
+        self.screens.open(instance, View::Book(view))
     }
 }
 
