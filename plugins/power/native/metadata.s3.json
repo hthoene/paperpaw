@@ -1,0 +1,69 @@
+{
+  "target": "esp32s3-xtensa-lx7-ilp32-windowed-le",
+  "floor": 1,
+  "used": [
+    {
+      "kind": "host",
+      "name": "heap.alloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.dealloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.realloc"
+    },
+    {
+      "kind": "host",
+      "name": "env.snapshot"
+    },
+    {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
+      "kind": "host",
+      "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "commands.submit"
+    },
+    {
+      "kind": "host",
+      "name": "registrations.submit"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "callback",
+      "name": "drop"
+    },
+    {
+      "kind": "callback",
+      "name": "dispatch_event"
+    },
+    {
+      "kind": "callback",
+      "name": "draw"
+    },
+    {
+      "kind": "callback",
+      "name": "input"
+    }
+  ],
+  "services": [
+    "core.device",
+    "core.ui"
+  ],
+  "features": [
+    "uses.power"
+  ]
+}
