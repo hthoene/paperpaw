@@ -323,7 +323,7 @@ impl NativeUpdate {
         }
         let mut messages = Messages::new()?;
         let count = i64::try_from(fetch.failed).unwrap_or(i64::MAX);
-        let text = messages.format(host, "update.fetch-failed", &[Arg::Count(count)])?;
+        let text = messages.format(host, "update.missing", &[Arg::Count(count)])?;
         let mut commands = buffer(COMMANDS)?;
         match CommandSender::new(host, &mut commands).notify(Notify::new(&text)?) {
             Ok(()) | Err(Error::State) => {}

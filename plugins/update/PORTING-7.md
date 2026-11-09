@@ -131,7 +131,7 @@ the dates, the server's address), `src/native_plugin/online.rs` (the page's sear
   SHA-1 or SHA-256 (read in 4 KiB pieces), and the host is asked to install each folder
   (`command.install_plugin`, replace, request 100 and up): **the host checks it and asks the reader** (decision 132;
   a trusted-installer grant skips the question). One plugin at a time; one that fails is counted and said
-  (`update.fetch-failed`), never stops the update. Interface 6's queue in `fetch.txt` and its retries at later
+  (`update.missing`: get it from the store after the update), never stops the update. Interface 6's queue in `fetch.txt` and its retries at later
   checks are **not** carried: a restart loses what was left, which the store gets later. `fetch::comes_back`
   has nothing to filter until `leaves_out` is native (below).
 - **Weekly look and the check a rule asks for** (declared work, `core.work`): at each start, and when the setting
