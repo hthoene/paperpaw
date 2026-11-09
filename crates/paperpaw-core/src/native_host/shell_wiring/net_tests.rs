@@ -116,9 +116,7 @@ fn a_call_naming_the_network_and_core_files_together_wires_both() {
     sources
         .register(BusyKind::LibraryMoves, Rc::new(Quiet))
         .unwrap();
-    sources
-        .register(BusyKind::ReaderBook, Rc::new(Quiet))
-        .unwrap();
+    resources.hosts().register_reader_book_reporting().unwrap();
     let wired = resources
         .wire(
             HostWiring::new()

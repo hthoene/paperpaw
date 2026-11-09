@@ -1,5 +1,0 @@
-screen files.browser
-Heading "Library"
-Button "All books"
-Row "Alice's Adventures in Wonderland, Lewis Carroll" (focused)
-Row "Die Verwandlung, Franz Kafka"

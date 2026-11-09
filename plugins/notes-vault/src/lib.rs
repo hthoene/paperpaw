@@ -26,6 +26,7 @@ extern crate alloc;
     reason = "the build script and the declaration test also use the builders"
 )]
 pub mod declarations;
+mod fallible;
 mod home;
 mod index;
 mod lines;
@@ -33,6 +34,8 @@ mod list;
 mod markdown;
 mod native_card;
 mod native_entry;
+#[doc(hidden)]
+pub mod native_format;
 mod native_home;
 mod native_list;
 #[doc(hidden)]

@@ -533,6 +533,7 @@ impl MoveHost for Library<'_> {
                     to: t,
                     replace: *r,
                     identity: *i,
+                    renamed: false,
                 });
                 true
             }))

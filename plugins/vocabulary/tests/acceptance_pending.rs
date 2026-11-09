@@ -14,8 +14,9 @@ const COLLECT: Case = Case {
     golden: None,
     blocked_by: &["native shell", "H1", "H4"],
 };
-/// The screens: the card files' screens. (The flash cards' decks and review and the list of words are
-/// ported; what they draw is proved by their tests of the rows and the decisions, not on a host.)
+/// The screens on a host. (The flash cards' decks and review, the list of words and the card files'
+/// screens are ported; what they draw is proved by their tests of the rows and the decisions, not on a
+/// host.)
 const SCREENS: Case = Case {
     name: "vocabulary-screens",
     golden: None,
@@ -31,7 +32,7 @@ const LOOKUP: Case = Case {
 const WIDGETS: Case = Case {
     name: "vocabulary-widgets",
     golden: None,
-    blocked_by: &["widget host call (Core todo 76)", "widget toolkit #366"],
+    blocked_by: &["the port of the widgets on the widget stage (Vocabulary's own, as Stats')"],
 };
 /// The words marked in books of their language.
 const MARKS: Case = Case {
@@ -53,11 +54,7 @@ const PHONE: Case = Case {
 const CARD_FILES: Case = Case {
     name: "vocabulary-card-files",
     golden: None,
-    blocked_by: &[
-        "core.files #339",
-        "native::files facade #384",
-        "a Storage over core.files",
-    ],
+    blocked_by: &["scripted host with core.ui, core.files and core.work (hosted construction)"],
 };
 /// A word of the list is gone to in its book, and the list is exported.
 const WORD_LIST_ACTIONS: Case = Case {
@@ -133,7 +130,7 @@ fn the_phone_page_edits_decks_and_cards() {
 }
 
 #[test]
-#[ignore = "BLOCKED #339/#384: a Storage over core.files (native::files) for the card folder (sdcard.rs, sync.rs) and the Notes export folder"]
+#[ignore = "BLOCKED a scripted host with core.ui, core.files and core.work (hosted construction): the card files' screens are native (native_sd*.rs) and their model is tested in native_sd_tests.rs"]
 fn card_files_on_the_card_update_the_decks() {
     CARD_FILES.refuse().unwrap();
 }

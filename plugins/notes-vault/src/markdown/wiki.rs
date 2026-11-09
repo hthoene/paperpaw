@@ -7,12 +7,14 @@
 //! finds the note by its name when it is followed (see the reader's
 //! `follow`), not now, when the note may not be there yet.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use paperpaw_sdk::Storage;
-use paperpaw_sdk::xml::escape;
+use paperpaw_sdk::document::DocumentError;
+
+use crate::fallible::{self, TryPush, TryPushStr};
 
 /// The longest a wikilink is, in bytes, between the brackets.
 const MAX_LINK: usize = 512;
@@ -42,16 +44,16 @@ pub(super) struct Wikilink<'a> {
 impl Wikilink<'_> {
     /// What is shown for the link: its label, else the note's name, with
     /// the heading after it.
-    pub fn shown(&self, out: &mut String) {
+    pub fn shown(&self, out: &mut String) -> Result<(), DocumentError> {
         match (self.label, self.fragment) {
-            (Some(label), _) => out.push_str(label),
-            (None, None) => out.push_str(self.target),
+            (Some(label), _) => out.try_push_str(label),
+            (None, None) => out.try_push_str(self.target),
             (None, Some(fragment)) => {
                 if !self.target.is_empty() {
-                    out.push_str(self.target);
-                    out.push_str(" > ");
+                    out.try_push_str(self.target)?;
+                    out.try_push_str(" > ")?;
                 }
-                out.push_str(fragment);
+                out.try_push_str(fragment)
             }
         }
     }
@@ -60,24 +62,35 @@ impl Wikilink<'_> {
     /// storage's root, where the reader finds it (`pictures` leads from
     /// the HTML to the note's folder): `[[note|heading]]`, the heading as
     /// [`slug`] writes it; this note's heading alone as `#heading`.
-    pub fn href(&self, pictures: &str, out: &mut String) {
+    pub fn href(&self, pictures: &str, out: &mut String) -> Result<(), DocumentError> {
         let mut href = String::new();
-        let fragment = self.fragment.map(slug).filter(|s| !s.is_empty());
+        let fragment = match self.fragment {
+            Some(fragment) => Some(slug(fragment)?).filter(|s| !s.is_empty()),
+            None => None,
+        };
         if self.target.is_empty() {
-            href.push('#');
-            href.push_str(fragment.as_deref().unwrap_or_default());
+            href.try_push('#')?;
+            href.try_push_str(fragment.as_deref().unwrap_or_default())?;
         } else {
-            href.push_str(&"../".repeat(pictures.matches("../").count()));
-            href.push_str("[[");
-            // The converter reads `%20` as a space.
-            href.push_str(&self.target.replace('%', "%25"));
-            if let Some(fragment) = fragment {
-                href.push('|');
-                href.push_str(&fragment);
+            for _ in 0..pictures.matches("../").count() {
+                href.try_push_str("../")?;
             }
-            href.push_str("]]");
+            href.try_push_str("[[")?;
+            // The converter reads `%20` as a space.
+            for c in self.target.chars() {
+                if c == '%' {
+                    href.try_push_str("%25")?;
+                } else {
+                    href.try_push(c)?;
+                }
+            }
+            if let Some(fragment) = fragment {
+                href.try_push('|')?;
+                href.try_push_str(&fragment)?;
+            }
+            href.try_push_str("]]")?;
         }
-        escape(&href, out);
+        fallible::escape(&href, out)
     }
 }
 
@@ -121,21 +134,23 @@ pub(super) fn parse(text: &str) -> Option<(Wikilink<'_>, usize)> {
 
 /// A heading as an anchor: letters and digits in lower case, the rest
 /// between them one `-`.
-pub(super) fn slug(heading: &str) -> String {
+pub(super) fn slug(heading: &str) -> Result<String, DocumentError> {
     let mut slug = String::new();
     let mut apart = false;
     for c in heading.chars().take(200) {
         if c.is_alphanumeric() {
             if apart && !slug.is_empty() {
-                slug.push('-');
+                slug.try_push('-')?;
             }
             apart = false;
-            slug.extend(c.to_lowercase());
+            for lower in c.to_lowercase() {
+                slug.try_push(lower)?;
+            }
         } else {
             apart = true;
         }
     }
-    slug
+    Ok(slug)
 }
 
 /// Whether `name` is a picture that is shown, by its ending.
@@ -156,14 +171,45 @@ pub(super) struct Vault<'a> {
     found: RefCell<Vec<(String, Option<String>)>>,
 }
 
+/// Whether two names are the same with each character lower-cased on its own.
+fn same_name(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
+}
+
+/// What is read of a folder, kept apart from the listing's callback, which
+/// cannot answer a refused allocation.
+#[derive(Default)]
+struct Walk {
+    failed: Option<DocumentError>,
+}
+
+impl Walk {
+    /// `Err` where a step was refused.
+    fn done(self) -> Result<(), DocumentError> {
+        self.failed.map_or(Ok(()), Err)
+    }
+
+    fn keep<T>(&mut self, result: Result<T, DocumentError>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.failed = Some(error);
+                None
+            }
+        }
+    }
+}
+
 impl<'a> Vault<'a> {
-    pub fn new(storage: &'a dyn Storage, note: &str) -> Self {
+    pub fn new(storage: &'a dyn Storage, note: &str) -> Result<Self, DocumentError> {
         let dir = note.rsplit_once('/').map_or("", |(dir, _)| dir);
         let mut root = dir;
         let mut up = dir;
         // The folder with `.obsidian` in it, within a few folders above.
         for _ in 0..8 {
-            let marker = join(up, ".obsidian");
+            let marker = join(up, ".obsidian")?;
             if paperpaw_sdk::files::is_dir(storage, &marker) {
                 root = up;
                 break;
@@ -174,137 +220,189 @@ impl<'a> Vault<'a> {
                 None => up = "",
             }
         }
-        Self {
+        Ok(Self {
             storage,
-            root: root.to_string(),
-            dir: dir.to_string(),
+            root: fallible::string(root)?,
+            dir: fallible::string(dir)?,
             found: RefCell::new(Vec::new()),
-        }
+        })
     }
 
     /// The place on the storage of the file `name` (with its folders, if
     /// it has some): beside the note, else the vault's folder, else the
     /// first of that name in the vault, the one nearest its top.
-    pub fn find(&self, name: &str) -> Option<String> {
+    pub fn find(&self, name: &str) -> Result<Option<String>, DocumentError> {
         if name.is_empty() || name.contains("..") {
-            return None;
+            return Ok(None);
         }
         {
             let found = self.found.borrow();
             if let Some((_, path)) = found.iter().find(|(n, _)| n == name) {
-                return path.clone();
+                return fallible::opt_string(path.as_ref());
             }
             if found.len() >= MAX_LOOKUPS {
-                return None;
+                return Ok(None);
             }
         }
-        let path = self.look(name);
-        self.found
-            .borrow_mut()
-            .push((name.to_string(), path.clone()));
-        path
+        let path = self.look(name)?;
+        let mut found = self.found.borrow_mut();
+        fallible::reserve(&mut found, 1)?;
+        found.push((
+            fallible::string(name)?,
+            fallible::opt_string(path.as_ref())?,
+        ));
+        Ok(path)
     }
 
     /// Looks for the pictures the note at `note` embeds (`![[name]]`) in
     /// one go: those not beside it or at the vault's top are looked for in
     /// one walk of the vault, not one walk each. What was looked for is
     /// kept, as [`find`](Self::find) keeps it.
-    pub fn prefetch(&self, note: &str) {
-        let mut names = embedded_pictures(self.storage, note);
-        names.retain(|n| self.find_here(n).is_none());
-        if names.is_empty() {
-            return;
+    pub fn prefetch(&self, note: &str) -> Result<(), DocumentError> {
+        let mut names = embedded_pictures(self.storage, note)?;
+        // Those not beside the note or at the vault's top, in their order.
+        let mut kept = 0;
+        for at in 0..names.len() {
+            if self.find_here(&names[at])?.is_none() {
+                names.swap(at, kept);
+                kept += 1;
+            }
         }
-        let wanted: Vec<String> = names
-            .iter()
-            .map(|n| n.rsplit('/').next().unwrap_or(n).to_lowercase())
-            .collect();
-        let mut hits: Vec<Option<String>> = alloc::vec![None; names.len()];
-        let (mut folders, mut seen, mut next) = (alloc::vec![self.root.clone()], 0, 0);
-        while let Some(folder) = folders.get(next).cloned() {
+        names.truncate(kept);
+        if names.is_empty() {
+            return Ok(());
+        }
+        let mut hits: Vec<Option<String>> = Vec::new();
+        fallible::reserve_exact(&mut hits, names.len())?;
+        for _ in 0..names.len() {
+            hits.push(None);
+        }
+        let mut folders: Vec<String> = Vec::new();
+        fallible::push(&mut folders, fallible::string(&self.root)?)?;
+        let (mut seen, mut next) = (0, 0);
+        while let Some(folder) = folders.get(next) {
+            let folder = fallible::string(folder)?;
             next += 1;
             let mut below = Vec::new();
+            let mut walk = Walk::default();
             let _ = self.storage.list(&folder, &mut |entry| {
                 seen += 1;
-                if seen > MAX_ENTRIES || entry.name.starts_with('.') {
+                if walk.failed.is_some() || seen > MAX_ENTRIES || entry.name.starts_with('.') {
                     return;
                 }
                 if entry.is_dir {
-                    if folders.len() + below.len() < MAX_FOLDERS {
-                        below.push(join(&folder, entry.name));
+                    if folders.len() + below.len() < MAX_FOLDERS
+                        && let Some(path) = walk.keep(join(&folder, entry.name))
+                    {
+                        walk.keep(fallible::push(&mut below, path));
                     }
                 } else {
-                    let lower = entry.name.to_lowercase();
-                    for (at, w) in wanted.iter().enumerate() {
-                        if hits[at].is_none() && *w == lower {
-                            hits[at] = Some(join(&folder, entry.name));
+                    for (at, wanted) in names.iter().enumerate() {
+                        let name = wanted.rsplit('/').next().unwrap_or(wanted);
+                        if hits[at].is_none()
+                            && same_name(name, entry.name)
+                            && let Some(path) = walk.keep(join(&folder, entry.name))
+                        {
+                            hits[at] = Some(path);
                         }
                     }
                 }
             });
+            walk.done()?;
             if seen > MAX_ENTRIES || hits.iter().all(Option::is_some) {
                 break;
             }
+            fallible::reserve(&mut folders, below.len())?;
             folders.append(&mut below);
         }
         let mut found = self.found.borrow_mut();
         for (name, hit) in names.into_iter().zip(hits) {
             if found.len() < MAX_LOOKUPS {
-                found.push((name, hit));
+                fallible::push(&mut found, (name, hit))?;
             }
         }
+        Ok(())
     }
 
     /// The file `name`, beside the note or at the vault's top.
-    fn find_here(&self, name: &str) -> Option<String> {
-        [self.dir.as_str(), self.root.as_str()]
-            .into_iter()
-            .map(|base| join(base, name))
-            .find(|path| self.storage.exists(path))
+    fn find_here(&self, name: &str) -> Result<Option<String>, DocumentError> {
+        for base in [self.dir.as_str(), self.root.as_str()] {
+            let path = join(base, name)?;
+            if self.storage.exists(&path) {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
     }
 
-    fn look(&self, name: &str) -> Option<String> {
-        if let Some(path) = self.find_here(name) {
-            return Some(path);
+    fn look(&self, name: &str) -> Result<Option<String>, DocumentError> {
+        if let Some(path) = self.find_here(name)? {
+            return Ok(Some(path));
         }
         // By its name, anywhere below the vault's folder.
-        let wanted = name.rsplit('/').next().unwrap_or(name).to_lowercase();
-        let (mut folders, mut seen) = (alloc::vec![self.root.clone()], 0);
-        let mut next = 0;
-        while let Some(folder) = folders.get(next).cloned() {
+        let wanted = name.rsplit('/').next().unwrap_or(name);
+        let mut folders: Vec<String> = Vec::new();
+        fallible::push(&mut folders, fallible::string(&self.root)?)?;
+        let (mut seen, mut next) = (0, 0);
+        while let Some(folder) = folders.get(next) {
+            let folder = fallible::string(folder)?;
             next += 1;
             let mut hit = None;
             let mut below = Vec::new();
+            let mut walk = Walk::default();
             let _ = self.storage.list(&folder, &mut |entry| {
                 seen += 1;
-                if seen > MAX_ENTRIES || entry.name.starts_with('.') {
+                if walk.failed.is_some() || seen > MAX_ENTRIES || entry.name.starts_with('.') {
                     return;
                 }
                 if entry.is_dir {
-                    below.push(join(&folder, entry.name));
-                } else if hit.is_none() && entry.name.to_lowercase() == wanted {
-                    hit = Some(join(&folder, entry.name));
+                    if let Some(path) = walk.keep(join(&folder, entry.name)) {
+                        walk.keep(fallible::push(&mut below, path));
+                    }
+                } else if hit.is_none()
+                    && same_name(entry.name, wanted)
+                    && let Some(path) = walk.keep(join(&folder, entry.name))
+                {
+                    hit = Some(path);
                 }
             });
+            walk.done()?;
             if hit.is_some() {
-                return hit;
+                return Ok(hit);
             }
             if seen > MAX_ENTRIES {
-                return None;
+                return Ok(None);
             }
             for sub in below {
                 if folders.len() < MAX_FOLDERS {
-                    folders.push(sub);
+                    fallible::push(&mut folders, sub)?;
                 }
             }
         }
-        None
+        Ok(None)
     }
+}
+
+/// How much of `bytes` ends on a character: the cut-off beginning of a
+/// UTF-8 sequence at the end is left out.
+fn whole_chars(bytes: &[u8]) -> usize {
+    for back in 1..=bytes.len().min(3) {
+        let at = bytes.len() - back;
+        let need = match bytes[at] {
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
+            0x80..=0xbf => continue,
+            _ => return bytes.len(),
+        };
+        return if need > back { at } else { bytes.len() };
+    }
+    bytes.len()
 }
 
 /// The pictures the file at `path` embeds (`![[name]]`), each once, at
 /// most [`MAX_LOOKUPS`]: read a piece at a time, as the file is converted.
-fn embedded_pictures(storage: &dyn Storage, path: &str) -> Vec<String> {
+fn embedded_pictures(storage: &dyn Storage, path: &str) -> Result<Vec<String>, DocumentError> {
     let mut names: Vec<String> = Vec::new();
     // What of the last piece may be the beginning of an embed.
     let mut window: Vec<u8> = Vec::new();
@@ -317,8 +415,11 @@ fn embedded_pictures(storage: &dyn Storage, path: &str) -> Vec<String> {
             break;
         }
         at += n as u64;
+        fallible::reserve(&mut window, n)?;
         window.extend_from_slice(&chunk[..n]);
-        let text = String::from_utf8_lossy(&window).into_owned();
+        // A character cut by the end of the piece waits for the next one.
+        let whole = whole_chars(&window);
+        let text = fallible::lossy(&window[..whole])?;
         let mut from = 0;
         while let Some(found) = text[from..].find("![[") {
             let start = from + found;
@@ -328,7 +429,7 @@ fn embedded_pictures(storage: &dyn Storage, path: &str) -> Vec<String> {
                         && names.len() < MAX_LOOKUPS
                         && !names.iter().any(|n| n.eq_ignore_ascii_case(link.target))
                     {
-                        names.push(link.target.to_string());
+                        fallible::push(&mut names, fallible::string(link.target)?)?;
                     }
                     from = start + 1 + taken;
                 }
@@ -346,12 +447,16 @@ fn embedded_pictures(storage: &dyn Storage, path: &str) -> Vec<String> {
         while !text.is_char_boundary(keep) {
             keep += 1;
         }
-        window = text.as_bytes()[keep..].to_vec();
+        let mut rest: Vec<u8> = Vec::new();
+        fallible::reserve_exact(&mut rest, text.len() - keep + (window.len() - whole))?;
+        rest.extend_from_slice(&text.as_bytes()[keep..]);
+        rest.extend_from_slice(&window[whole..]);
+        window = rest;
         if window.len() > MAX_LINK + 8 {
             window.clear();
         }
     }
-    names
+    Ok(names)
 }
 
 impl core::fmt::Debug for Vault<'_> {
@@ -363,17 +468,18 @@ impl core::fmt::Debug for Vault<'_> {
     }
 }
 
-fn join(dir: &str, name: &str) -> String {
+fn join(dir: &str, name: &str) -> Result<String, DocumentError> {
     if dir.is_empty() {
-        name.to_string()
+        fallible::string(name)
     } else {
-        alloc::format!("{dir}/{name}")
+        fallible::try_format!("{dir}/{name}")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
     use paperpaw_sdk::MemoryStorage;
 
     #[test]
@@ -410,25 +516,25 @@ mod tests {
     fn what_is_shown_and_where_it_leads() {
         let (link, _) = parse("[[Note#Big Part]]").unwrap();
         let (mut shown, mut href) = (String::new(), String::new());
-        link.shown(&mut shown);
-        link.href("../../notes/", &mut href);
+        link.shown(&mut shown).unwrap();
+        link.href("../../notes/", &mut href).unwrap();
         assert_eq!(
             (shown.as_str(), href.as_str()),
             ("Note > Big Part", "../../[[Note|big-part]]")
         );
         let (link, _) = parse("[[#Big Part|up]]").unwrap();
         let (mut shown, mut href) = (String::new(), String::new());
-        link.shown(&mut shown);
-        link.href("", &mut href);
+        link.shown(&mut shown).unwrap();
+        link.href("", &mut href).unwrap();
         assert_eq!((shown.as_str(), href.as_str()), ("up", "#big-part"));
     }
 
     #[test]
     fn headings_make_anchors() {
-        assert_eq!(slug("A big -- Part, 2!"), "a-big-part-2");
-        assert_eq!(slug("Ärger über Öl"), "ärger-über-öl");
-        assert_eq!(slug("!!!"), "");
-        assert!(slug(&"ab ".repeat(500)).len() <= 200);
+        assert_eq!(slug("A big -- Part, 2!").unwrap(), "a-big-part-2");
+        assert_eq!(slug("Ärger über Öl").unwrap(), "ärger-über-öl");
+        assert_eq!(slug("!!!").unwrap(), "");
+        assert!(slug(&"ab ".repeat(500)).unwrap().len() <= 200);
     }
 
     #[test]
@@ -439,16 +545,19 @@ mod tests {
             .with("v/Files/deep/Cat.PNG", b"x".to_vec())
             .with("v/Notes/dog.png", b"x".to_vec())
             .with("v/top.png", b"x".to_vec());
-        let vault = Vault::new(&storage, "v/Notes/a.md");
-        assert_eq!(vault.find("dog.png").as_deref(), Some("v/Notes/dog.png"));
-        assert_eq!(vault.find("top.png").as_deref(), Some("v/top.png"));
+        let vault = Vault::new(&storage, "v/Notes/a.md").unwrap();
         assert_eq!(
-            vault.find("cat.png").as_deref(),
+            vault.find("dog.png").unwrap().as_deref(),
+            Some("v/Notes/dog.png")
+        );
+        assert_eq!(vault.find("top.png").unwrap().as_deref(), Some("v/top.png"));
+        assert_eq!(
+            vault.find("cat.png").unwrap().as_deref(),
             Some("v/Files/deep/Cat.PNG")
         );
-        assert_eq!(vault.find("none.png"), None);
-        assert_eq!(vault.find("../x.png"), None);
-        assert_eq!(vault.find(""), None);
+        assert_eq!(vault.find("none.png").unwrap(), None);
+        assert_eq!(vault.find("../x.png").unwrap(), None);
+        assert_eq!(vault.find("").unwrap(), None);
     }
 
     /// A storage that counts the folders listed.
@@ -508,22 +617,42 @@ mod tests {
             }
         }
         let storage = Counting(storage.with("v/n.md", note.into_bytes()), 0.into());
-        let vault = Vault::new(&storage, "v/n.md");
-        assert_eq!(embedded_pictures(&storage, "v/n.md").len(), 41);
-        vault.prefetch("v/n.md");
+        let vault = Vault::new(&storage, "v/n.md").unwrap();
+        assert_eq!(embedded_pictures(&storage, "v/n.md").unwrap().len(), 41);
+        vault.prefetch("v/n.md").unwrap();
         // One walk: the vault's folder, then each folder, each level;
         // the 80 embeds did not make 80 walks.
         let listed = storage.1.get();
         assert!(listed <= 1 + 40 + 40 + 1, "{listed} folders listed");
         for n in 0..40 {
             assert_eq!(
-                vault.find(&alloc::format!("p{n}.png")),
+                vault.find(&alloc::format!("p{n}.png")).unwrap(),
                 Some(alloc::format!("v/A{n:02}/deep/p{n}.png"))
             );
         }
-        assert_eq!(vault.find("none.png"), None);
+        assert_eq!(vault.find("none.png").unwrap(), None);
         // Answered from what was kept: nothing more is listed.
         assert_eq!(storage.1.get(), listed);
+    }
+
+    #[test]
+    fn a_name_cut_by_the_end_of_a_piece_is_found_whole() {
+        // The first piece read ends inside the multi-byte character of the
+        // name, at each byte of it.
+        for ch in ['ü', '€', '😀'] {
+            for inside in 1..ch.len_utf8() {
+                let name = alloc::format!("b{ch}.png");
+                let pad = 1024 - "![[b".len() - inside;
+                let note = alloc::format!("{}![[{name}]] ", " ".repeat(pad));
+                let storage = MemoryStorage::new().with("v/n.md", note.into_bytes());
+                let found = embedded_pictures(&storage, "v/n.md").unwrap();
+                assert_eq!(
+                    found.as_slice(),
+                    &[name.as_str()],
+                    "{name}, cut {inside} bytes in"
+                );
+            }
+        }
     }
 
     #[test]
