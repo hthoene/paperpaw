@@ -437,5 +437,16 @@ fn op_11_sets_bit_5_for_a_user_defined_menu_in_all_four_states() {
     kernel.set_menu(Id::new_static("core.main"), None);
     assert_eq!(menu_flag(&kernel, "core.tools"), Some(0));
     assert_eq!(menu_flag(&kernel, "user.empty"), None);
-    assert_eq!(menu_flag(&kernel, "core.main").unwrap_or(0), 0);
+    assert_eq!(menu_flag(&kernel, "core.main"), Some(0));
+}
+
+#[test]
+fn op_11_is_a_state_error_before_the_declarations_exist() {
+    let kernel = fresh();
+    // The store is made by the first native install.
+    assert!(kernel.shared.registry.native_declarations.is_none());
+    assert_eq!(
+        kernel.native_menu_ids(&mut |_, _| panic!("no menu is listed")),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
 }
