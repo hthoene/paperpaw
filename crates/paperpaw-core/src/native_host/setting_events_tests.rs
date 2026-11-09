@@ -20,11 +20,18 @@ use paperpaw_sdk::{
 
 /// What a plugin was told: the key and the old value's bytes.
 type Told = Rc<RefCell<Vec<(String, Vec<u8>)>>>;
+type Hints = Rc<RefCell<Vec<(u32, u32)>>>;
+
+const SETTING: &[u32] = &[wire::EVENT_SETTING_CHANGED_TAG];
+const HINTS: &[u32] = &[70, 71, 72, 73, 74];
 
 struct Probe {
     name: char,
-    subscribed: bool,
+    /// The event tags it registered for.
+    tags: &'static [u32],
     told: Told,
+    /// The hints it was told: tag and the state the record carries.
+    hints: Hints,
     /// Who was called, in order, for all plugins.
     order: Rc<RefCell<Vec<char>>>,
 }
@@ -35,10 +42,26 @@ impl NativeInstance for Probe {
     }
     fn stop(&self) {}
     fn subscribed(&self, tag: u32) -> bool {
-        self.subscribed && tag == wire::EVENT_SETTING_CHANGED_TAG
+        self.tags.contains(&tag)
     }
     fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
-        let wire::Record::EventSettingChanged(event) = codec::decode_single(bytes).unwrap() else {
+        let record = codec::decode_any_single(bytes).unwrap();
+        let (tag, state) = match &record {
+            wire::Record::EventPluginsChanged(_) => (wire::EVENT_PLUGINS_CHANGED_TAG, 0),
+            wire::Record::EventWifiChanged(event) => (wire::EVENT_WIFI_CHANGED_TAG, event.state),
+            wire::Record::EventPowerChanged(event) => (wire::EVENT_POWER_CHANGED_TAG, event.level),
+            wire::Record::EventStatusChanged(_) => (wire::EVENT_STATUS_CHANGED_TAG, 0),
+            wire::Record::EventChargeChanged(event) => {
+                (wire::EVENT_CHARGE_CHANGED_TAG, event.flags)
+            }
+            _ => (wire::EVENT_SETTING_CHANGED_TAG, 0),
+        };
+        if tag != wire::EVENT_SETTING_CHANGED_TAG {
+            self.hints.borrow_mut().push((tag, state));
+            self.order.borrow_mut().push(self.name);
+            return Ok(OK);
+        }
+        let wire::Record::EventSettingChanged(event) = record else {
             return Err(ERR_INVALID);
         };
         self.told
@@ -101,21 +124,30 @@ struct World {
     kernel: crate::Kernel,
     a: (u64, Told),
     b: (u64, Told),
+    /// What `b` was told of the hints.
+    hints: Hints,
     order: Rc<RefCell<Vec<char>>>,
 }
 
 /// Plugins `a` (subscribed) and `b` (subscribed when `b_subscribes`).
 fn world(b_subscribes: bool) -> World {
+    world_with(if b_subscribes { SETTING } else { &[] })
+}
+
+/// Plugins `a` (event 64) and `b` (the tags `b_tags`).
+fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .plugin(Secrets)
         .build()
         .unwrap();
     let order = Rc::new(RefCell::new(Vec::new()));
-    let mut add = |name: char, subscribed: bool| {
+    let hints = Hints::default();
+    let mut add = |name: char, tags: &'static [u32]| {
         let told = Told::default();
         let probe = || Probe {
             name,
-            subscribed,
+            tags,
+            hints: Rc::clone(&hints),
             told: Rc::clone(&told),
             order: Rc::clone(&order),
         };
@@ -130,12 +162,13 @@ fn world(b_subscribes: bool) -> World {
             .unwrap();
         (owner, told)
     };
-    let a = add('a', true);
-    let b = add('b', b_subscribes);
+    let a = add('a', SETTING);
+    let b = add('b', b_tags);
     World {
         kernel,
         a,
         b,
+        hints,
         order,
     }
 }
@@ -301,4 +334,71 @@ fn the_old_value_is_the_kept_one_through_the_real_hooks() {
     w.kernel.native_setting_after("c.size", old.as_ref());
     run(&mut w);
     assert_eq!(*w.a.1.borrow(), [("c.size".into(), Vec::new())]);
+}
+
+#[test]
+fn a_hint_reaches_only_the_plugins_subscribed_to_it() {
+    let mut w = world_with(&[wire::EVENT_PLUGINS_CHANGED_TAG]);
+    w.kernel.native_hint(wire::EVENT_PLUGINS_CHANGED_TAG);
+    w.kernel.native_hint(wire::EVENT_STATUS_CHANGED_TAG);
+    run(&mut w);
+    // `b` asked for 70 only; `a` asked for 64 only.
+    assert_eq!(*w.hints.borrow(), [(70, 0)]);
+    assert_eq!(*w.order.borrow(), ['b']);
+    assert!(w.a.1.borrow().is_empty());
+}
+
+#[test]
+fn hints_raised_before_they_were_told_are_one_event() {
+    let mut w = world_with(HINTS);
+    for _ in 0..5 {
+        w.kernel.native_hint(wire::EVENT_PLUGINS_CHANGED_TAG);
+    }
+    w.kernel.native_hint(wire::EVENT_CHARGE_CHANGED_TAG);
+    w.kernel.native_hint(wire::EVENT_PLUGINS_CHANGED_TAG);
+    run(&mut w);
+    // Each told once, in the order of the last time it was raised.
+    let tags: Vec<u32> = w.hints.borrow().iter().map(|hint| hint.0).collect();
+    assert_eq!(tags, [74, 70]);
+}
+
+#[test]
+fn a_hint_carries_the_state_of_the_time_it_is_told() {
+    let mut w = world_with(HINTS);
+    w.kernel.native_hint(wire::EVENT_POWER_CHANGED_TAG);
+    w.kernel.native_hint(wire::EVENT_WIFI_CHANGED_TAG);
+    w.kernel.native_hint(wire::EVENT_CHARGE_CHANGED_TAG);
+    run(&mut w);
+    // No Wi-Fi in the fixture device: off (0); level 0 normal; no charge.
+    assert_eq!(*w.hints.borrow(), [(72, 0), (71, 0), (74, 0)]);
+}
+
+#[test]
+fn hints_and_setting_edges_share_a_queue_and_its_order() {
+    let mut w = world_with(HINTS);
+    w.kernel.native_hint(wire::EVENT_STATUS_CHANGED_TAG);
+    w.kernel.native_setting_publish("c.size", Ok(&int(1)));
+    run(&mut w);
+    // `a` was told the edge, `b` the hint; `b` never gets an edge.
+    assert_eq!(w.a.1.borrow().len(), 1);
+    assert!(w.b.1.borrow().is_empty());
+    assert_eq!(*w.hints.borrow(), [(73, 0)]);
+}
+
+#[test]
+fn a_hint_for_a_plugin_that_stopped_is_dropped() {
+    let mut w = world_with(HINTS);
+    w.kernel.native_hint(wire::EVENT_PLUGINS_CHANGED_TAG);
+    let owner = w.b.0;
+    w.kernel.shared.native_instances.stop(owner).unwrap();
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
 }
