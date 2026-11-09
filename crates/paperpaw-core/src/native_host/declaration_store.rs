@@ -692,6 +692,15 @@ impl DeclarationStore {
         Ok(keys)
     }
 
+    /// The plugin that owns the record `key` names.
+    pub(crate) fn plugin_of(&self, key: DeclKey) -> Option<&str> {
+        self.owners
+            .get(usize::from(key.owner))
+            .and_then(Option::as_ref)
+            .filter(|owner| owner.incarnation == key.incarnation)
+            .map(|owner| owner.id.as_str())
+    }
+
     pub(crate) fn keys(&self, kind: Kind, visit: &mut dyn FnMut(DeclKey)) {
         for (index, owner) in self.owners.iter().enumerate() {
             let Some(owner) = owner else {

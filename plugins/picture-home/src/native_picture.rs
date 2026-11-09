@@ -561,39 +561,65 @@ fn by_name(a: &str, b: &str) -> core::cmp::Ordering {
 /// # Errors
 /// [`Error::NoMemory`]; nothing is returned then.
 pub fn pictures<'a>(entries: impl Iterator<Item = (&'a str, bool)>) -> Result<Vec<String>, Error> {
-    let mut found: Vec<String> = Vec::new();
-    let mut bytes = 0usize;
-    // The smallest name dropped so far: no name from there on is kept, even
-    // one that would fit, or what is kept would depend on the card's order.
-    let mut cut: Option<String> = None;
+    let mut kept = Pictures::default();
     for (name, is_dir) in entries {
+        kept.add(name, is_dir)?;
+    }
+    Ok(kept.finish())
+}
+
+/// The pictures of a folder as its entries come, page by page: what
+/// [`pictures`] does for a whole listing at once.
+#[derive(Debug, Default)]
+pub struct Pictures {
+    found: Vec<String>,
+    bytes: usize,
+    /// The smallest name dropped so far: no name from there on is kept, even
+    /// one that would fit, or what is kept would depend on the card's order.
+    cut: Option<String>,
+}
+
+impl Pictures {
+    /// Considers one entry of the folder.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`]; what was kept stays.
+    pub fn add(&mut self, name: &str, is_dir: bool) -> Result<(), Error> {
         if !is_picture(name, is_dir)
-            || cut
+            || self
+                .cut
                 .as_deref()
                 .is_some_and(|cut| by_name(name, cut) != core::cmp::Ordering::Less)
         {
-            continue;
+            return Ok(());
         }
-        let at = match found.binary_search_by(|kept| by_name(kept, name)) {
+        let at = match self.found.binary_search_by(|kept| by_name(kept, name)) {
             // The same name twice: once.
-            Ok(_) => continue,
+            Ok(_) => return Ok(()),
             Err(at) => at,
         };
-        found.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        found.insert(at, copy(name)?);
-        bytes += name.len();
-        while found.len() > MOST || bytes > NAMES {
-            let Some(last) = found.pop() else { break };
-            bytes -= last.len();
-            cut = Some(last);
+        self.found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.found.insert(at, copy(name)?);
+        self.bytes += name.len();
+        while self.found.len() > MOST || self.bytes > NAMES {
+            let Some(last) = self.found.pop() else { break };
+            self.bytes -= last.len();
+            self.cut = Some(last);
         }
+        Ok(())
     }
-    Ok(found)
+
+    /// The names kept, sorted.
+    #[must_use]
+    pub fn finish(self) -> Vec<String> {
+        self.found
+    }
 }
 
 /// When a bar shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Visible {
+    #[default]
     Off,
     /// After a press, for a few seconds.
     Auto,

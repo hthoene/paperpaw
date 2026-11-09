@@ -44,6 +44,11 @@ pub(crate) struct Numbers {
     /// The SD card's folder (its name as shown) and what it holds.
     pub folder: String,
     pub pending: Pending,
+    /// Whether the rows of the phone page and of the SD card's menu are
+    /// offered. Their screens wait for their host pieces (`PORTING-7.md`), and
+    /// a row that ends in a refusal is not offered.
+    pub phone: bool,
+    pub files: bool,
 }
 
 impl Numbers {
@@ -74,6 +79,8 @@ impl Numbers {
             decks,
             folder: text::copy(folder).map_err(|_| StorageError::TooLarge)?,
             pending,
+            phone: false,
+            files: false,
         })
     }
 }
@@ -134,7 +141,7 @@ pub(crate) fn rows(
 ) -> Result<(Vec<Item>, Vec<Target>), Error> {
     let mut items = Vec::new();
     let mut targets = Vec::new();
-    let room = 3 + numbers.decks.len();
+    let room = 1 + usize::from(numbers.phone) + usize::from(numbers.files) + numbers.decks.len();
     items.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
     targets
         .try_reserve_exact(room)
@@ -146,20 +153,24 @@ pub(crate) fn rows(
         &due,
     )?);
     targets.push(Target::Review);
-    let phone = if numbers.decks.is_empty() {
-        "vocabulary.cards.phone.first"
-    } else {
-        "vocabulary.cards.phone.help"
-    };
-    items.push(Item::noted(
-        &words.copy("vocabulary.cards.phone")?,
-        "›",
-        &words.copy(phone)?,
-    )?);
-    targets.push(Target::Phone);
-    let files = files_note(words, &numbers.folder, numbers.pending)?;
-    items.push(Item::noted(&words.copy("vocabulary.sd.row")?, "›", &files)?);
-    targets.push(Target::Files);
+    if numbers.phone {
+        let phone = if numbers.decks.is_empty() {
+            "vocabulary.cards.phone.first"
+        } else {
+            "vocabulary.cards.phone.help"
+        };
+        items.push(Item::noted(
+            &words.copy("vocabulary.cards.phone")?,
+            "›",
+            &words.copy(phone)?,
+        )?);
+        targets.push(Target::Phone);
+    }
+    if numbers.files {
+        let files = files_note(words, &numbers.folder, numbers.pending)?;
+        items.push(Item::noted(&words.copy("vocabulary.sd.row")?, "›", &files)?);
+        targets.push(Target::Files);
+    }
     for (id, name, cards) in &numbers.decks {
         let count = words.format("vocabulary.cards.count", &[Arg::Count(*cards as i64)])?;
         items.push(Item::noted(name, "›", &count)?);
@@ -169,6 +180,7 @@ pub(crate) fn rows(
 }
 
 /// The flash cards' screen.
+#[derive(Debug)]
 pub(crate) struct DecksView {
     list: ItemList,
     targets: Vec<Target>,
@@ -193,6 +205,17 @@ impl DecksView {
             list: ItemList::new(items),
             targets,
         })
+    }
+
+    /// The row in focus.
+    pub(crate) fn focus(&self) -> usize {
+        self.list.focus()
+    }
+
+    /// Puts the focus on row `index` (the last one where there are fewer).
+    pub(crate) fn set_focus(&mut self, index: usize) {
+        self.list
+            .set_focus(index.min(self.targets.len().saturating_sub(1)));
     }
 
     /// What the row `index` does.

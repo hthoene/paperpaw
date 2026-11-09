@@ -66,6 +66,7 @@ pub const DATE_FORMATS: &[&str] = &[
 
 /// One setting of a widget's group; the key is relative to the widget.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Opt {
     /// Where the text sits; the default is one of the alignments.
     Align(&'static str),
@@ -81,6 +82,8 @@ pub enum Opt {
     Size(&'static str, bool),
     /// A switch for a part of what the widget shows: key, title, default.
     Part(&'static str, &'static str, bool),
+    /// A switch for a part with a help text of its own: key, title, default, help.
+    PartHelp(&'static str, &'static str, bool, &'static str),
     /// A number: key, title, smallest, largest, default, help.
     Number(&'static str, &'static str, i32, i32, i64, &'static str),
     /// A choice: key, title, values, default, help.
@@ -190,6 +193,13 @@ pub fn row(option: Opt) -> Row<'static> {
             kind: Kind::Bool(default),
             title,
             help: "core.setting.part.help",
+            keeps: false,
+        },
+        Opt::PartHelp(key, title, default, help) => Row {
+            suffix: key,
+            kind: Kind::Bool(default),
+            title,
+            help,
             keeps: false,
         },
         Opt::Number(key, title, min, max, default, help) => Row {

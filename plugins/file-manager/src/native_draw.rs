@@ -128,7 +128,6 @@ fn note_text(host: &Host<'_>, messages: &mut Messages, note: &Note) -> Result<St
         }
         Note::OwnData => "file-manager.error.own-data",
         Note::BadName => "file-manager.error.invalid",
-        Note::NotTold => "file-manager.not-told",
         Note::Failed(error) => match error {
             Error::NotFound => "file-manager.error.not-found",
             Error::Invalid => "file-manager.error.invalid",

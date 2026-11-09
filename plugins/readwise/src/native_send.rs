@@ -20,7 +20,10 @@ use paperpaw_sdk::native::{
     Error,
     net::{Reason, RequestId},
 };
-use paperpaw_ui_kit::{files::Volume, mem, text};
+use paperpaw_ui_kit::{
+    files::{Volume, for_each_line_on as for_each_line},
+    mem, text,
+};
 
 use crate::native_readwise::Parser;
 
@@ -32,10 +35,6 @@ pub const BODY: &str = "body.json";
 const WAITING_NEW: &str = "waiting.txt.new";
 /// The plugin's own number of the request, in its `http_done` event.
 pub const REQUEST_TOKEN: u32 = 1;
-/// Notes are read this much at a time.
-const PIECE: usize = 512;
-/// A line is cut here (as interface 6 cut it).
-const MAX_LINE: usize = 4096;
 /// The longest token that is kept and sent; Readwise's are far shorter.
 pub const MAX_TOKEN: usize = 512;
 /// The most notes files held at a time: the list is read in pieces, so a long
@@ -217,82 +216,6 @@ impl Done {
             status,
         }
     }
-}
-
-/// A line without its break, cut at [`MAX_LINE`] bytes, as text.
-fn lossy(bytes: &[u8]) -> Result<alloc::borrow::Cow<'_, str>, Error> {
-    if let Ok(text) = core::str::from_utf8(bytes) {
-        return Ok(alloc::borrow::Cow::Borrowed(text));
-    }
-    let mut out = String::new();
-    out.try_reserve(bytes.len()).map_err(|_| Error::NoMemory)?;
-    for chunk in bytes.utf8_chunks() {
-        out.push_str(chunk.valid());
-        if !chunk.invalid().is_empty() {
-            out.try_reserve(3).map_err(|_| Error::NoMemory)?;
-            out.push('\u{fffd}');
-        }
-    }
-    Ok(alloc::borrow::Cow::Owned(out))
-}
-
-/// Reads the text file `name` a line at a time as it streams from the card, so
-/// a file of any length is read in little memory: `visit` gets each line
-/// without its line break (`\n` or `\r\n`, invalid UTF-8 replaced, a byte order
-/// mark at the start left out) and says whether to go on. A line is cut at
-/// 4,096 bytes.
-///
-/// # Errors
-/// `NoMemory`, what the card says, or what `visit` says.
-pub fn for_each_line(
-    volume: &dyn Volume,
-    name: &str,
-    visit: &mut dyn FnMut(&str) -> Result<ControlFlow<()>, Error>,
-) -> Result<(), Error> {
-    let mut chunk = [0u8; PIECE];
-    let mut line: Vec<u8> = Vec::new();
-    let mut at = 0u64;
-    let mut first = true;
-    let mut emit = |line: &mut Vec<u8>| -> Result<ControlFlow<()>, Error> {
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-        let mut bytes = line.as_slice();
-        if first {
-            bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
-        }
-        first = false;
-        let flow = visit(&lossy(bytes)?);
-        line.clear();
-        flow
-    };
-    loop {
-        let n = volume.read_at(name, at, &mut chunk)?;
-        if n == 0 {
-            break;
-        }
-        at += n as u64;
-        for piece in chunk
-            .get(..n)
-            .unwrap_or(&[])
-            .split_inclusive(|b| *b == b'\n')
-        {
-            let (body, ends) = match piece.split_last() {
-                Some((b'\n', body)) => (body, true),
-                _ => (piece, false),
-            };
-            let take = body.len().min(MAX_LINE.saturating_sub(line.len()));
-            line.try_reserve(take).map_err(|_| Error::NoMemory)?;
-            line.extend_from_slice(body.get(..take).unwrap_or(&[]));
-            if ends && emit(&mut line)?.is_break() {
-                return Ok(());
-            }
-        }
-    }
-    if !line.is_empty() {
-        let _ = emit(&mut line)?;
-    }
-    Ok(())
 }
 
 /// The notes files waiting, the oldest first: at most [`MOST_WAITING`] at a

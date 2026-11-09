@@ -15,7 +15,7 @@ use crate::sync::tests::heap::{armed, fixture};
 /// A storage whose own allocations are not the plugin's: nothing is refused
 /// or counted while it works.
 #[derive(Debug, Default)]
-struct Quiet(MemoryStorage);
+pub(crate) struct Quiet(pub(crate) MemoryStorage);
 
 impl Quiet {
     fn with(self, path: &str, data: impl Into<Vec<u8>>) -> Self {

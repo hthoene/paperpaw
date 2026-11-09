@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 35] = [
+pub const STORE_PLUGINS: [&str; 15] = [
     "aids",
     "browser",
     "calibre",
@@ -86,33 +86,13 @@ pub const STORE_PLUGINS: [&str; 35] = [
     "format-docx",
     "format-images",
     "format-mobi",
-    "hyphenation-da",
-    "hyphenation-de",
-    "hyphenation-es",
-    "hyphenation-fr",
-    "hyphenation-it",
-    "hyphenation-nb",
-    "hyphenation-nl",
-    "hyphenation-pl",
-    "hyphenation-pt",
-    "hyphenation-ru",
-    "hyphenation-sv",
-    "hyphenation-uk",
-    "joplin",
-    "koreader",
-    "kosync",
     "mail",
     "news",
-    "notes-overview",
     "notes-vault",
     "picture-home",
     "read-later-cloud",
-    "reading-goal",
-    "stats",
-    "translate",
     "vocabulary",
     "wallabag",
-    "weather",
     "widgets",
 ];
 
@@ -151,12 +131,14 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 11] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
+    ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
+    ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
     (
@@ -176,22 +158,16 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "browser",
     "calibre",
     "fonts-browser",
-    "joplin",
-    "kosync",
     "mail",
     "news",
     "opds",
     "read-later-cloud",
-    "stats",
     "store",
     "transfer",
-    "translate",
     "update",
     "vocabulary",
     "wallabag",
-    "weather",
     "wifi",
-    "wikipedia",
 );
 
 /// The indexes of the first-party plugins' translation catalogs, made
@@ -233,7 +209,6 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
-        .plugin(paperpaw_plugin_hyphenation::Hyphenation)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
     // Files, Home and Menu keep their order; Files and Menu are native
@@ -249,22 +224,15 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_kosync::Kosync);
-        b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
-        b = offered(b, store, paperpaw_plugin_stats::Stats);
-        b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
-        b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-        b = offer_hyphenation(b, store);
     }
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_file_manager::FileManager)
         .plugin(paperpaw_plugin_transfer::Transfer);
     #[cfg(not(feature = "native-linked"))]
     {
@@ -275,8 +243,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    b = b.plugin(paperpaw_plugin_lock::Lock);
-    b = b.plugin(paperpaw_plugin_wikipedia::Wikipedia);
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
@@ -285,9 +251,7 @@ pub fn install_with(
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_translate::Translate);
         b = offered(b, store, paperpaw_plugin_news::News);
-        b = offered(b, store, paperpaw_plugin_weather::Weather);
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
         b = offer_shipped_off(b, store);
     }
@@ -314,28 +278,8 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         shipped_off,
         paperpaw_plugin_read_later_cloud::ReadLaterCloud,
     );
-    b = offered(b, shipped_off, paperpaw_plugin_joplin::Joplin);
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b = offered(b, shipped_off, paperpaw_plugin_wallabag::Wallabag);
-    b
-}
-
-/// Adds the hyphenation plugins of the languages the store offers, one
-/// each, as `store` says.
-#[cfg(feature = "store-plugins")]
-fn offer_hyphenation(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBuilder {
-    b = offered(b, store, paperpaw_plugin_hyphenation_da::Danish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_de::German);
-    b = offered(b, store, paperpaw_plugin_hyphenation_es::Spanish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_fr::French);
-    b = offered(b, store, paperpaw_plugin_hyphenation_it::Italian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_nb::Norwegian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_nl::Dutch);
-    b = offered(b, store, paperpaw_plugin_hyphenation_pl::Polish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_pt::Portuguese);
-    b = offered(b, store, paperpaw_plugin_hyphenation_ru::Russian);
-    b = offered(b, store, paperpaw_plugin_hyphenation_sv::Swedish);
-    b = offered(b, store, paperpaw_plugin_hyphenation_uk::Ukrainian);
     b
 }
 

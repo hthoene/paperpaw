@@ -14,24 +14,24 @@ fonts-browser look
 format-mobi reading
 format-docx reading
 format-images reading
-joplin notes
+# joplin notes  (no file until the store build moves to interface 7, #228)
 # keys system  (no file until the store build moves to interface 7, #228)
-koreader sync
-kosync sync
+# kosync sync  (no file until the store build moves to interface 7, #228)
+# koreader sync  (no file until the store build moves to interface 7, #228)
 mail news
 # menu-editor look  (no file until the store build moves to interface 7, #228)
 news news
-notes-overview notes
+# notes-overview notes  (no file until the store build moves to interface 7, #228)
 notes-vault notes
 picture-home look
 # profiles reading  (no file until the store build moves to interface 7, #228)
-reading-goal reading
+# reading-goal reading  (no file until the store build moves to interface 7, #228)
 # readwise notes  (no file until the store build moves to interface 7, #228)
 read-later-cloud news
 # rules system  (no file until the store build moves to interface 7, #228)
-stats reading
-translate reading
+# translate reading  (no file until the store build moves to interface 7, #228)
+# stats reading  (no file until the store build moves to interface 7, #228)
 vocabulary learning
 wallabag news
-weather home
+# weather home  (no file until the store build moves to interface 7, #228)
 widgets home

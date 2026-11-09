@@ -8,6 +8,7 @@
 #[allow(dead_code, reason = "the build script also uses the builders")]
 mod declarations;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
+use paperpaw_sdk::native::declare::Declarations;
 
 type Build = fn(
     &mut dyn FnMut(&[u8]) -> Result<(), i32>,
@@ -91,8 +92,10 @@ fn the_events_are_the_ones_the_figure_is_written_at() {
     for batch in batches(|sink| declarations::events(sink)) {
         count += records_decode(&batch).unwrap().len();
     }
-    // A book opened and closed, suspend and stopping, and the minute tick.
-    assert_eq!(count, 5);
+    // The start, a book opened and closed, suspend and stopping, the minute
+    // tick, the end of a picture asked for and a changed setting (the pictures'
+    // folder).
+    assert_eq!(count, 8);
 }
 
 #[test]
@@ -116,10 +119,16 @@ fn the_figure_is_asked_by_a_stage_of_its_own() {
 fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 3] = [
+    let builders: [(&str, Build); 5] = [
         ("settings", |sink| declarations::settings(sink)),
         ("events", |sink| declarations::events(sink)),
         ("stages", |sink| declarations::stages(sink)),
+        ("screens", |sink| {
+            declarations::screens(&mut Declarations::new(sink))
+        }),
+        ("navigation", |sink| {
+            declarations::navigation(&mut Declarations::new(sink))
+        }),
     ];
     let mut waiting = Vec::new();
     for (name, build) in builders {
@@ -139,5 +148,26 @@ fn every_record_is_valid_for_the_host_and_admitted() {
     assert!(
         waiting.is_empty(),
         "the host admits every record now: {waiting:?}"
+    );
+}
+
+#[test]
+fn the_sleep_screen_is_offered_below_the_sleep_plugins_own_and_chosen_by_sleep_show() {
+    let screens = records(|sink| declarations::screens(&mut Declarations::new(sink)));
+    assert!(
+        screens.contains("reading-goal.sleep") && screens.contains("10"),
+        "{screens}"
+    );
+    let all = records(|sink| declarations::navigation(&mut Declarations::new(sink)));
+    // The sleep plugin offers its own screen at priority 0.
+    assert!(
+        all.contains("SlotOffer") && all.contains("core.sleep") && all.contains("priority: -1"),
+        "{all}"
+    );
+    assert!(
+        all.contains("SettingChoice")
+            && all.contains("sleep.show")
+            && all.contains("reading-goal.sleep"),
+        "{all}"
     );
 }

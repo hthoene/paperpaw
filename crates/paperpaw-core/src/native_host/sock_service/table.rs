@@ -660,8 +660,10 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         file: None,
         tls,
     });
-    inner.sync_demand(host);
+    // After the pump: a request or socket that policy refuses at once never
+    // wanted the network, and the shell is not told that it did.
     inner.pump(host);
+    inner.sync_demand(host);
     Ok(id)
 }
 

@@ -52,11 +52,13 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.extras.len(), 3);
     assert!(native.extras.iter().all(|e| e.contains("setup")));
     assert_eq!(native.screens, old.screens);
-    assert_eq!(native.actions, old.actions);
+    // `wallabag.fetch` comes with the fetch slice.
+    assert_eq!(native.actions.len(), 1);
+    assert!(native.actions.iter().all(|a| old.actions.contains(a)));
     assert_eq!(native.menu_entries, old.menu_entries);
     assert_eq!(native.menu_entries, ["core.tools|wallabag.open|48"]);
-    assert_eq!(native.icons, old.icons);
-    assert_eq!(native.icons.len(), 2);
+    assert_eq!(native.icons.len(), 1);
+    assert!(native.icons.iter().all(|i| old.icons.contains(i)));
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
 

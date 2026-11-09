@@ -35,7 +35,7 @@ together (no shim).
 
 ## Slice 2a: the quick panel's model (`src/native_panel.rs`)
 
-The panel without the host, not yet a screen (the slot `core.panel` stays unbound until slice 2b).
+The panel without the host (slice 2b below is the screen).
 `lines` turns a menu's rows (with the registry's setting facts and a choice's translated options)
 into rows of controls as interface 6 did: switches and buttons several to a row (at most 3, as many
 as stay readable, shared out evenly, never switches with buttons), a number as `−` / `+`, a choice
@@ -50,6 +50,35 @@ right-to-left columns, allocation-refusal sweeps.
 Differences from interface 6, named: no slider rows (the kit has none; a marked number is a
 `−` / `+` stepper on touch screens too, until the kit has a slider: SLIDER); the pager height and
 button size come from the screen's style when the screen (2b) is made.
+
+## Slice 2b: the quick panel's screen (`src/native_panel_screen.rs`)
+
+`menu.panel`, declared `overlay`, fills the slot `core.panel` (parameters `menu`, and `mode=top` for
+the quick panel hanging from the top edge). The rows come from `core.registry` (op 12 and the
+settings' facts; a choice of two to four options also reads its values and their translated labels).
+Drawing is done in the draw callback with the layout of `native_panel` (the layout is kept for the
+taps and the buttons of the last completed frame): switches and buttons as outlined buttons (filled
+while on), numbers as `−` value `+`, choices as segments (the chosen one filled), anything else a
+row with its value and `›`, faint rows drawn in the disabled ink and not chosen, the pager of the
+sheet (`page of pages`, arrows on touch screens), the focus a ring round the control. Input: the
+buttons step the focus over the enabled controls round the ends and across pages, *Select* uses it,
+*Back* and the menu button close, a tap on a control uses it (the focus shown goes), a tap on the
+pager's arrows turns the page, a tap outside closes. Using a control stages `set_setting` (switch,
+`−` / `+` stepped to the number's ends, the chosen option), or closes the panel and runs the action,
+or closes it and opens a submenu as the main menu's slot, or opens the setting's list, editor or page
+(as the menu list does). The panel follows `SettingChanged`, `PluginsChanged` and `RegistryChanged`:
+the top one is read anew and redrawn, the others when they show. The four help hints are declared
+(`menu.help.panel*`, en and de).
+
+Differences from interface 6, named: no sliders (the kit has none: SLIDER; a number is `−` / `+` on
+touch screens too); no icons (ICON: the SDK wrapper for the icon slot and its host wiring); a switch
+has no bullet for "this setting is scoped to the book" (the registry gives none); the focus's
+redraw is the whole sheet, not the two rows (partial redraws of an area wait for the area command);
+a number's `−` and `+` stand at the ends of the row, not by the value; the held tap and the touch
+pointer (slider drags) are not handled (H4); a font that cannot measure a text counts it as no
+width. The panel reads at most 64 rows of a menu (`MAX_ROWS`; interface 6 had no cap). The help hint says only "tap to switch" until the held tap works (H4). Scripted-host cases for what a control stages wait for H1. Memory: one `Part` per row (row, setting facts, up to 4 values and labels), the layout of
+its controls, the paint list of one page, a registry reader (512 + 4,096 B) while reading; the
+X4 peak is not measured.
 
 ## Moved to the host
 
@@ -71,8 +100,7 @@ registration, linked entry, construction in the kernel's registered scope (refus
 
 - Tiles and the reader's bar (`mode=bar`, style *Tiles*): icons and the status font role; the
   canvas has no icon operation. Both open as the list meanwhile.
-- The quick panel (`core.panel`, `menu.panel`): icons, sliders (the kit has none) and its help
-  hints. Declared when it is ported; the slot is unbound in the native plugin meanwhile.
+- The quick panel: sliders (the kit has none), icons and the touch drag (slice 2b lists the rest).
 - A switch that is off: `reg_menu_row.flags` carry "checked" only, so a switch off looks like a
   plain action (shown with no value). Needs a flag for "is a switch" (REG).
 - Icons in rows, row sliders, switches as On/Off text: the kit draws none yet.

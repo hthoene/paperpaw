@@ -87,12 +87,8 @@ fn script(host: &ScriptedHost, log: &Log, answer: Option<i32>) {
                 Ok(stream(&out))
             }
             (SECRETS_KEEP, Some(Record::ServiceSecKeep(keep))) => {
-                seen.borrow_mut().push(format!(
-                    "keep {} {} {}",
-                    keep.plugin,
-                    keep.name,
-                    keep.value.len()
-                ));
+                seen.borrow_mut()
+                    .push(format!("keep {} {} {}", keep.plugin, keep.name, keep.value));
                 Ok(Vec::new())
             }
             (SECRETS_REMOVE, Some(Record::ServiceSecName(name))) => {
@@ -244,6 +240,7 @@ fn secret_screen(host: &ScriptedHost) -> Screen<'_> {
         width: 480,
         height: 800,
         instance: Some(INSTANCE),
+        last_input: 0,
     }))
     .unwrap();
     assert_eq!(plugin.event(SECRET_TOKEN, &shown).unwrap().status, 0);
@@ -333,7 +330,7 @@ fn a_secret_that_is_not_kept_any_more_is_removed_without_asking() {
 
 #[test]
 fn typing_a_secret_anew_keeps_what_was_typed_and_nothing_typed_leaves_it() {
-    for (typed, kept) in [("  hunter2 ", Some("keep wifi Home 7")), ("  ", None)] {
+    for (typed, kept) in [("  hunter2 ", Some("keep wifi Home hunter2")), ("  ", None)] {
         let (host, log) = world(typed, "wifi:Home");
         let plugin = secret_screen(&host);
         assert_eq!(choose_first(&plugin), 1);

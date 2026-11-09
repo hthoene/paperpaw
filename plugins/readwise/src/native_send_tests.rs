@@ -6,7 +6,7 @@
 use crate::fail_alloc::sweep;
 use crate::native_send::{
     BODY, Done, REQUEST_TOKEN, Secret, Sender, Start, Step, Tell, WAITING, Wire, add_waiting,
-    for_each_line, waiting,
+    waiting,
 };
 use crate::test_volume::Mem;
 use alloc::string::{String, ToString};
@@ -16,7 +16,7 @@ use paperpaw_sdk::native::{
     Error,
     net::{Reason, RequestId},
 };
-use paperpaw_ui_kit::files::Volume;
+use paperpaw_ui_kit::files::{Volume, for_each_line_on as for_each_line};
 
 const NOTES: &str = "# Alice's Adventures\n\nLewis Carroll\n\n## Highlights\n\n\
     > Curiouser and curiouser!\n>\n> 12 %\n\n\

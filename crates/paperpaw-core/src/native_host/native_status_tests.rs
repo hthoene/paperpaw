@@ -178,6 +178,7 @@ fn owner_tokens_are_separate_calls_and_failures_leave_output_untouched() {
         stack_generation: kernel.shared.stack_rows.generation(),
         stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,

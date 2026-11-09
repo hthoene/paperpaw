@@ -50,7 +50,9 @@ impl<'a> FacetRow<'a> {
         self.0.count
     }
     /// The index of its first book in the same query sorted by this facet, for
-    /// jumping to it in a [`Library::query`] list with that ordering.
+    /// jumping to it in a [`Library::query`] list with that ordering. It is
+    /// `0xFFFF_FFFF` for tags and folders, where a book can carry several values
+    /// and there is no jump (`library.md`).
     #[must_use]
     pub const fn first(self) -> u32 {
         self.0.first

@@ -67,6 +67,21 @@ fn feature_manifest_matches_the_bounded_reader() {
                 case["expected"]["metadata"] == "accept",
                 "{name}: {result:?}"
             );
+            if let Ok(checked) = &result {
+                // Every available feature is requested; every required one is available.
+                let requested: Vec<_> = checked.requested_features().collect();
+                assert!(requested.len() <= 32, "{name}");
+                for key in checked.available_features() {
+                    assert!(requested.iter().any(|r| r.key == key), "{name}: {key}");
+                }
+                for feature in requested.iter().filter(|r| r.required) {
+                    assert!(
+                        checked.available_features().any(|key| key == feature.key),
+                        "{name}: {}",
+                        feature.key
+                    );
+                }
+            }
             if let Some(expected) = case["expected"]["features"].as_array() {
                 let expected: Vec<_> = expected.iter().map(|s| s.as_str().unwrap()).collect();
                 assert_eq!(
