@@ -12,6 +12,7 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
+    keys::InputMode,
     native::{
         Error, Host,
         callbacks::{DrawFrame, Input, InputGestureKind},
@@ -119,6 +120,8 @@ pub struct Dashboard {
     stale: bool,
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
+    /// What the reader used last before the show (`None`: not known).
+    last_input: Option<InputMode>,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
     /// tapped offers the item's options.
     editing: bool,
@@ -164,10 +167,12 @@ impl Dashboard {
         self.stale = true;
     }
 
-    /// Shown again (above another screen closed, a book left).
-    pub fn shown(&mut self) {
+    /// Shown again (above another screen closed, a book left), after the
+    /// reader used `last_input` last.
+    pub fn shown(&mut self, last_input: Option<InputMode>) {
         self.stale = true;
         self.reshow = true;
+        self.last_input = last_input;
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -196,8 +201,10 @@ impl Dashboard {
         self.focus.clamp(laid.targets.len());
         if self.reshow {
             // As on interface 6: at every show the focus is drawn only if the
-            // reader chose to see it at once.
-            self.focus.show(laid.focus_at_once);
+            // reader chose to see it at once and used buttons last; a finger,
+            // a pen or an input the host does not know of get none.
+            self.focus
+                .show(focus_at_show(laid.focus_at_once, self.last_input));
             self.reshow = false;
         }
         self.laid = Some(laid);
@@ -1025,7 +1032,7 @@ fn dot(paint: &mut Vec<Paint>, dot: &dash::Dot, style: &Style) -> Result<(), Err
 }
 
 /// The focus ring round a target.
-fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error> {
+pub(crate) fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error> {
     let air = style.gap / 2;
     let rect = Rect::new(
         target.x.saturating_sub(air),
@@ -1044,11 +1051,18 @@ fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Result<(), Error
     )
 }
 
+/// Whether the focus is drawn at a show: the reader chose to see it at once and
+/// used buttons last (a finger, a pen or an input the host does not know of
+/// get none).
+fn focus_at_show(at_once: bool, last_input: Option<InputMode>) -> bool {
+    at_once && last_input == Some(InputMode::Buttons)
+}
+
 fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
 }
 
-fn redraw(host: &Host<'_>) -> Result<(), Error> {
+pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
 }
@@ -1193,6 +1207,24 @@ mod tests {
         assert!(dashboard.editing());
         assert!(dashboard.stale);
         assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
+    }
+
+    #[test]
+    fn the_focus_shows_at_once_only_after_buttons() {
+        for (last, shown) in [
+            (Some(InputMode::Buttons), true),
+            (Some(InputMode::Touch), false),
+            (Some(InputMode::Pen), false),
+            (None, false),
+        ] {
+            assert_eq!(focus_at_show(true, last), shown, "{last:?}");
+            // The setting off: never at once.
+            assert!(!focus_at_show(false, last), "{last:?}");
+        }
+        let mut dashboard = Dashboard::new();
+        dashboard.shown(Some(InputMode::Touch));
+        assert!(dashboard.reshow && dashboard.stale);
+        assert_eq!(dashboard.last_input, Some(InputMode::Touch));
     }
 
     #[test]
