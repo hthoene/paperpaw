@@ -276,9 +276,8 @@ fn a_restart_is_for_the_plugin_whose_install_waits_and_the_host_then_asks() {
         .submit_install(OWNER, 1, "a.ppu", None, 0)
         .unwrap();
     let ask = loop {
-        match d.borrow_mut().pump(&NoStorage, &Names, 100) {
-            Event::Ask(ask) => break ask,
-            _ => {}
+        if let Event::Ask(ask) = d.borrow_mut().pump(&NoStorage, &Names, 100) {
+            break ask;
         }
     };
     d.borrow_mut().answer(

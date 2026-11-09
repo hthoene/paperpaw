@@ -337,9 +337,8 @@ fn op_13_tells_a_request_waiting_running_and_ended_and_only_the_askers() {
     // It runs, then ends: kept once its edge was delivered.
     let rows = DeviceBuiltIns(&fake_host);
     let ended = loop {
-        match driver.borrow_mut().pump(&NoStorage, &rows, 100) {
-            Event::Ended(outcome) => break outcome,
-            _ => {}
+        if let Event::Ended(outcome) = driver.borrow_mut().pump(&NoStorage, &rows, 100) {
+            break outcome;
         }
     };
     // Ended: told as such before and after its edge is delivered.
