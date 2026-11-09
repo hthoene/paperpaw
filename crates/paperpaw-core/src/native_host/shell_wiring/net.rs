@@ -60,7 +60,9 @@ impl<'a> Iterator for HttpHeaders<'a> {
 /// core chose (the target's name and `.pp-staged`), in 4 KiB appends; core
 /// renames it over the target when the answer is whole and removes it when the
 /// request ends otherwise or is aborted, so the shell never writes a final
-/// name.
+/// name. Core has **created the staged file empty** before `start` (whatever a
+/// power cut left at that name is gone): the shell only appends, never
+/// truncates and never creates.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct HttpJob<'a> {
@@ -291,7 +293,9 @@ pub trait ShellHttp {
     /// # Errors
     /// An `ERR_*` status when it could not begin.
     fn start(&self, job: &HttpJob<'_>) -> Result<(), i32>;
-    /// Drops the transfer of `id` with no report. Core removes the staged file.
+    /// Drops the transfer of `id` with no report. Core removes the staged file
+    /// right after this returns, so the shell must have **closed** its handle
+    /// on it (and written nothing more) before it returns.
     fn abort(&self, id: u32);
     /// Listens on `port` (0: the cable), trying the next 20 ports when it is
     /// taken; writes the address got (`""` for the cable) into `address` and
@@ -301,7 +305,9 @@ pub trait ShellHttp {
     /// Why it could not: an address that does not fit is
     /// [`ServerReason::Refused`].
     fn listen(&self, server: u32, port: u32, address: &mut [u8]) -> Result<usize, ServerReason>;
-    /// Stops listening; the server's connections end.
+    /// Stops listening; the server's connections end. Core calls it also when
+    /// it refuses an address `listen` returned (one that is not text, or that
+    /// it cannot keep), so a refused server does not go on listening.
     fn unlisten(&self, server: u32);
     /// Sends the answer of a served request and closes it.
     ///

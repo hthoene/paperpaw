@@ -37,6 +37,9 @@ struct Shell {
     started: RefCell<Vec<Started>>,
     aborted: RefCell<Vec<u32>>,
     listen_with: RefCell<Option<Result<&'static str, ServerReason>>>,
+    /// Bytes `listen` hands back instead of a text (a shell's mistake).
+    listen_bytes: RefCell<Option<Vec<u8>>>,
+    unlistened: RefCell<Vec<u32>>,
     demand: RefCell<Vec<bool>>,
 }
 
@@ -53,12 +56,18 @@ impl ShellHttp for Shell {
         self.aborted.borrow_mut().push(id);
     }
     fn listen(&self, _: u32, _: u32, address: &mut [u8]) -> Result<usize, ServerReason> {
+        if let Some(bytes) = &*self.listen_bytes.borrow() {
+            address[..bytes.len()].copy_from_slice(bytes);
+            return Ok(bytes.len());
+        }
         let text = (*self.listen_with.borrow()).unwrap_or(Ok("192.168.1.2:80"))?;
         let room = address.get_mut(..text.len()).ok_or(ServerReason::Refused)?;
         room.copy_from_slice(text.as_bytes());
         Ok(text.len())
     }
-    fn unlisten(&self, _: u32) {}
+    fn unlisten(&self, server: u32) {
+        self.unlistened.borrow_mut().push(server);
+    }
     fn reply(&self, _: u32, _: &ServedReply<'_>) -> Result<(), i32> {
         Ok(())
     }
@@ -507,4 +516,91 @@ fn debug_output_leaves_out_what_the_plugin_sent_and_got() {
     let text = std::format!("{done:?}");
     assert!(!text.contains("secret"), "{text}");
     assert!(text.contains("body_len"));
+}
+
+#[test]
+fn the_staged_file_starts_empty_whatever_a_power_cut_left_at_its_name() {
+    let f = fixture(x4());
+    f.card.write("Books/a.epub", b"old").unwrap();
+    // A download cut off by a power loss left its partial bytes.
+    f.card
+        .write("Books/a.epub.pp-staged", b"old partial bytes")
+        .unwrap();
+    let id = request(&f, &fixtures::save_to(1, 1, "Books/a.epub")).unwrap();
+    assert_eq!(
+        f.card.size("Books/a.epub.pp-staged"),
+        Ok(0),
+        "empty at the start"
+    );
+    // The shell appends the new answer: nothing of the old bytes is in it.
+    f.card.append("Books/a.epub.pp-staged", b"new").unwrap();
+    assert_eq!(finish(&f, id, saved(200)), Ok(()));
+    assert_eq!(f.card.size("Books/a.epub"), Ok(3));
+    let mut got = [0; 8];
+    let n = f.card.read_at("Books/a.epub", 0, &mut got).unwrap();
+    assert_eq!(&got[..n], b"new");
+}
+
+#[test]
+fn an_address_core_refuses_after_the_shell_listens_stops_the_shell_listening() {
+    let f = fixture(x4());
+    // Not text.
+    *f.shell.listen_bytes.borrow_mut() = Some(vec![0xff, 0xfe]);
+    assert_eq!(
+        f.device.listen(4, 8080, &mut String::new()),
+        Err(net_service::reason::REFUSED)
+    );
+    assert_eq!(*f.shell.unlistened.borrow(), [4]);
+    // A copy of the address that cannot be made.
+    *f.shell.listen_bytes.borrow_mut() = None;
+    crate::native_host::net_service::fail_nth(1);
+    assert_eq!(
+        f.device.listen(5, 8080, &mut String::new()),
+        Err(net_service::reason::REFUSED)
+    );
+    crate::native_host::net_service::fail_nth(0);
+    assert_eq!(*f.shell.unlistened.borrow(), [4, 5]);
+    // An address that is kept is not stopped.
+    assert_eq!(f.device.listen(6, 8080, &mut String::new()), Ok(()));
+    assert_eq!(*f.shell.unlistened.borrow(), [4, 5]);
+}
+
+#[test]
+fn a_save_claim_ends_with_the_plugin_even_when_its_id_was_never_kept() {
+    for nth in 1..8 {
+        let f = fixture(x4());
+        crate::native_host::net_service::fail_nth(nth);
+        let claimed = f.device.claim_save(OWNER, 0, "a.txt");
+        crate::native_host::net_service::fail_nth(0);
+        if claimed.is_err() {
+            continue;
+        }
+        f.card
+            .write(".paperpaw/plugins/mail/a.txt.pp-staged", b"x")
+            .unwrap();
+        // The owner is gone from the directory and the id was not kept (for
+        // one of the allocations): the claim still ends, with no memory.
+        f.owners.withdraw(OWNER);
+        crate::native_host::net_service::fail_nth(1);
+        f.device.release_save(OWNER, 0, "a.txt");
+        crate::native_host::net_service::fail_nth(0);
+        assert!(
+            !f.hosts
+                .in_use()
+                .holds(".paperpaw/plugins/mail/a.txt", false),
+            "failure {nth}"
+        );
+        assert!(
+            !f.hosts
+                .in_use()
+                .holds(".paperpaw/plugins/mail/a.txt.pp-staged", false),
+            "failure {nth}"
+        );
+        assert!(
+            f.card
+                .size(".paperpaw/plugins/mail/a.txt.pp-staged")
+                .is_err(),
+            "failure {nth}"
+        );
+    }
 }

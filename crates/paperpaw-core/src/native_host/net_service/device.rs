@@ -423,6 +423,12 @@ impl NetTransport for NetDevice {
                 staged: owned(staged, 0)?,
                 renamed: false,
             })?;
+            // The staged file starts empty: the shell appends, so bytes a
+            // power cut left at that name must not be in front of the answer.
+            if let Err(error) = self.saves.begin(owner, target, staged) {
+                self.drop_staged(id);
+                return Err(storage::status(error));
+            }
         }
         let started = self
             .http
@@ -441,16 +447,23 @@ impl NetTransport for NetDevice {
     fn listen(&self, server: u32, port: u32, address: &mut String) -> Result<(), Refused> {
         let mut buf = [0u8; ADDRESS_MAX];
         let length = self.http.listen(server, port, &mut buf).map_err(why)?;
-        let text = buf
-            .get(..length)
-            .and_then(|b| core::str::from_utf8(b).ok())
-            .ok_or(reason::REFUSED)?;
-        super::gate().map_err(|_| reason::REFUSED)?;
-        address
-            .try_reserve_exact(text.len())
-            .map_err(|_| reason::REFUSED)?;
-        address.push_str(text);
-        Ok(())
+        // The shell is listening now: a refusal from here on stops it.
+        let kept = (|| {
+            let text = buf
+                .get(..length)
+                .and_then(|b| core::str::from_utf8(b).ok())
+                .ok_or(reason::REFUSED)?;
+            super::gate().map_err(|_| reason::REFUSED)?;
+            address
+                .try_reserve_exact(text.len())
+                .map_err(|_| reason::REFUSED)?;
+            address.push_str(text);
+            Ok(())
+        })();
+        if kept.is_err() {
+            self.http.unlisten(server);
+        }
+        kept
     }
 
     fn unlisten(&self, server: u32) {
