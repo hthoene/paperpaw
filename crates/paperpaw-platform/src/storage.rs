@@ -225,8 +225,11 @@ pub trait Storage {
     /// and differs for another entry (FAT: its first cluster; a folder on a
     /// computer: its file id, no link followed), so a move cut off by a
     /// power loss can be told done or not done by the entry, never by its
-    /// names. `Ok(None)` where the entry has none that is stable (an empty
-    /// file on FAT holds no cluster) or the storage cannot tell (the
+    /// names. It is kept by renames and moves only: a file written anew
+    /// (`write`, which may replace it) may come back with another. `Ok(None)`
+    /// where the entry has none that is stable (an empty file on FAT holds
+    /// no cluster; a file on a computer with several hard links shares its
+    /// id) or the storage cannot tell (the
     /// default); `Err(NotFound)` where `path` names nothing; another error
     /// where it could not be read. Storages that wrap another say what it
     /// says.

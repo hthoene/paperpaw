@@ -343,12 +343,16 @@ fn ignores_case(root: &Path) -> bool {
     }
 }
 
-/// The file id of `meta`, if it is on the root's device.
+/// The file id of `meta`, if it is on the root's device and the entry has
+/// one name only: two hard links share an id, so a move from one onto the
+/// other could not be told done by it (a folder's link count counts its
+/// subfolders, so only files are asked).
 #[cfg(unix)]
 fn identity(root: &Path, meta: &fs::Metadata) -> Option<u64> {
     use std::os::unix::fs::MetadataExt;
     let root = fs::metadata(root).ok()?;
-    (root.dev() == meta.dev()).then(|| meta.ino())
+    let one_name = meta.is_dir() || meta.nlink() <= 1;
+    (root.dev() == meta.dev() && one_name).then(|| meta.ino())
 }
 
 /// No file ids in std here: moves decided by identity are refused.

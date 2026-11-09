@@ -465,4 +465,15 @@ fn entry_identity_is_the_file_id_kept_by_a_move() {
     )
     .unwrap();
     assert_ne!(s.entry_identity("link.epub"), Ok(Some(book)));
+    // Two hard links share the id: neither has one to tell a move by.
+    std::fs::hard_link(
+        place.base.join("root/Inbox/a.epub"),
+        place.base.join("root/twin.epub"),
+    )
+    .unwrap();
+    assert_eq!(s.entry_identity("twin.epub"), Ok(None));
+    assert_eq!(s.entry_identity("Inbox/a.epub"), Ok(None));
+    // A folder keeps its own whatever subfolders it holds.
+    s.write("Inbox/Sub/c.epub", b"c").unwrap();
+    assert!(s.entry_identity("Inbox").unwrap().is_some());
 }
