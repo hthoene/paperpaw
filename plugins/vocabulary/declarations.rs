@@ -8,8 +8,8 @@
 //! card and the widget follow with their host pieces (see `PORTING-7.md`): a
 //! screen or an entry that cannot work is not declared.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl, SubscribeDecl, WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
+    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, SubscribeDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -33,6 +33,12 @@ pub const WORK_TOKEN: u32 = 5;
 /// The stage of the words looked up, and its token.
 pub const WORD_TOKEN: u32 = 6;
 pub const WORD_STAGE: &str = "reader.word-looked-up";
+
+/// The sleep card's screen, and the waking (the review may open).
+pub const SLEEP_TOKEN: u32 = 15;
+pub const RESUME_TOKEN: u32 = 7;
+/// The sleep card's screen id and its place among the choices of `sleep.show`.
+pub const SLEEP_CARD: &str = "vocabulary.sleep-card";
 
 /// The widgets' tokens: the word of the day, the words saved, the cards due.
 pub const WORD_WIDGET_TOKEN: u32 = 20;
@@ -146,6 +152,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     // The next step of an update from the card, or of a save to it.
     declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    // Waking: the review opens with the card shown asleep, or where wanted.
+    declarations.subscribe_event(EventKind::Resume, RESUME_TOKEN)?;
     declarations.submit()
 }
 
@@ -174,6 +182,9 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         REVIEW_TOKEN,
     ))?;
     declarations.screen(ScreenDecl::new("list", "vocabulary.title", WORDS_TOKEN))?;
+    declarations.screen(
+        ScreenDecl::new("sleep-card", SLEEP_CARD, SLEEP_TOKEN).instances(Instances::Single),
+    )?;
     declarations.screen(ScreenDecl::new(
         "sd-menu",
         "vocabulary.sd.title",
@@ -308,4 +319,16 @@ pub fn widgets(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declare
         d.submit()?;
     }
     Ok(())
+}
+
+/// The sleep card offered to the slot `core.sleep` below the sleep plugin's own
+/// (priority 0), and its place among the choices of `sleep.show`: *A flash card
+/// due*. The host shows the screen as the sleep screen and replaces it on waking.
+pub fn navigation(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut d = Declarations::new(sink);
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_CARD);
+    offer.priority = -1;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_CARD, SLEEP_CARD)?;
+    d.submit()
 }
