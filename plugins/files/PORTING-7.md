@@ -1,91 +1,127 @@
-# Files on interface 7 (slices 1 and 2, partly ported)
+# Files (the library) on interface 7
 
-Status: **not complete.** The interface-6 plugin is still in place beside the native one. It is
-removed in the PR that finishes the port (no shim, no dual registration shipped).
+Status: **native only.** The interface-6 plugin (`Files`, its list, shelves, names, information and
+folder chooser screens) and its kernel tests are removed; the native plugin is linked
+(`NATIVE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`. Host acceptance of the native
+screens waits for the activation of native plugins (#944, #417; `tests/acceptance_pending.rs`). The
+native code's size on the X4 and its peak memory are **not measured** yet. Version 1.0.7 is above
+Beta 3 (1.0.6): no bump.
 
-## Ported in slice 1 (`declarations.rs`, `src/native_model.rs`, `src/native_plugin.rs`, `src/native_entry.rs`)
+## What is here
 
-- Declarations: five settings, three screens, two actions; `build.rs` and `native/metadata*`
-  generated with `tools/abi-metadata.py`. En/de texts in `i18n/` kept (parity test).
-- Model (host-free, `native_model.rs`): the library list with its filter row, shelf lists and the
-  shelves screen. All allocation is fallible (`mem::push`, `mem::string`, `mem::formatted`);
-  `tests/native_alloc_refusal.rs` refuses each allocation in turn.
-- Native plugin: list, shelves and shelf screens on `core.ui`, books read through the typed
-  `Library` facade, opening through `command.open` (target `core.reader`).
-- Tests: unit tests of the model, declarations, translations, linked entry, refusal sweep.
+- Declarations (`declarations.rs`, built into the image by `build.rs`; `native/metadata*` generated
+  with `tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
+  native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`): five
+  settings, the screens (the library, a list of books of one scope, the shelves, a list of names, book
+  information, the folder chooser), the actions of the shelves and the search, the library menu
+  (`files.menu`: order, view, search, shelves, the library folder, settings), the slots `core.library`,
+  `core.home` (fallback), `core.book-info` and `core.choose-folder`, the subscription to
+  `library_changed`, and five help hints. The plugin uses `core.library`, `core.ui`, `core.files` and
+  `core.device`, and the signed feature `uses.storage` (optional: delete and the archive's move need it).
+- Model, free of the host: `native_model` (filters, order, scopes, the window of at most 96 books),
+  `native_cells` (the cells of the list and the words of every state), `native_states` (preparing,
+  scanning, folder unreadable, card gone), `native_list` (cells, pages of a list or a grid, what a
+  button or a tap means), `native_covers` (which book has its cover, which waits, which has none),
+  `native_sheet` (what holding a book offers, the archive's free name), `native_shelves`,
+  `native_info`, `native_choose`. All allocation is fallible; `tests/native_alloc_refusal.rs`
+  refuses each allocation in turn.
+- The host side: `native_plugin.rs` and `native_plugin/` (books, names and shelves, opening, the
+  sheet, the chooser, the sources of replies), drawing in `native_draw.rs`.
 
-## Long libraries: the window slides
+### Covers
 
-A window holds at most 96 books (three replies). "More books" grows a window that has room, and
-on a full one it starts the next window at the host's cursor; "Previous books" (shown once a window
-came before) reads the earlier window in full again from the start cursor kept for it. A stale
-cursor starts over from the first book and forgets the earlier starts. `native_model::read_window`
-holds the reading, generic over the cursor so `native_model` tests it with a fake source: the 97th
-and the last book of 250, exactly 96 and 97 books, back to the window before, a stale cursor once.
+`Library::cover` (LIB op 7, side 0: the list's size) is asked while a page is drawn, for the books
+on it, and `Canvas::draw_image` draws the image id (list rows, the grid's tiles, the card of the book
+read last, the book information). A book that has none, or a cover that cannot be had, is an outline
+with the title's first letter. `Busy` (being made) is asked again when `library_changed` bit 6 says
+one is ready; an id the host ended (`NotFound` when drawing) is asked for once more. At most 6 ids are
+held (3 on a device of the small class, from `core.device` `.class()`, as opds does) and an id is given
+back (`image_release`) as the page changes and when the screen closes. The covers are not skipped on
+the small class: the plugin holds no picture, only ids; whether the X4 makes covers fast enough is
+unmeasured.
 
-## Slice 2: shelves, search, the next books of a series, book information
+### The list
 
-- **Shelves** (`files.shelves`): rows for *Next in your series* (always there: finding a next
-  book costs host calls for each series, so an empty list says `files.list.none.next`), the favourites, and the lists of authors, series, tags and folders. Each list is a
-  screen of its own (`files.names`, parameter `kind`): the names with their book counts from
-  `Library::facets` (LIB op 5), in windows that slide like the books' (`read_window`, now generic
-  over the row). A name is held up to 128 bytes (cut with an ellipsis for its row, read whole
-  again when chosen). Choosing a name lists its books. `native_shelves.rs` holds the rules, host-free.
-- **Next in your series**: `native_shelves::collect_next`. The series with a book being read, then
-  those with a finished one, from the series facet (`show` reading / finished); for each, one
-  begun book (`query` of the series) and the series' lowest unread book from LIB op 6
-  `next_in_series` (Kernel's ruling on #696, `library.md`: not the book after the given one;
-  `NotFound` when every book of it was opened). At most 48 series found and 96 looked at; the
-  catalog changing meanwhile is `State` and the list is read again.
-- **Search**: the action `files.search` (menu `files.menu`, order 21) asks for words with the
-  system keyboard (`Question::text`) and opens the books that have them (`Scope::Search`); more
-  than 256 bytes says `files.search.long` and searches nothing (never a cut word).
-- **Book information** (`files.info`, offered to `core.book-info`, parameter `path`): title and
-  author, series with number, how far it is read, the fields plugins keep (24 rows at most, a value
-  cut at 256 bytes with an ellipsis), the file (format and
-  size) and the folder. A book the catalog does not know shows its file name and folder.
-- Empty lists say their words: the next books, the favourites.
-- Tests: `tests/scripted_library.rs` (what the plugin asks the scripted `core.library` and
-  `core.ui`, and a refusal sweep of every call), unit tests of the model, `native_alloc_refusal.rs`.
+The library opens with the filter row (steps all, reading, unread, finished, shelves, with the
+count of the books), the book read last as a **card** (the library in the order of reading, its first
+book begun and not finished), then the books: cover, title, how far it is read (or *Finished*, *New*),
+author and series, the badges as **chips** and a **bar** for the progress. The grid view
+(`files.view`) shows tiles of covers, 2 to 4 across by the display's width. Long libraries slide in
+windows of 96 books, "More books" and "Previous books" (`native_model::read_window`).
 
-## Differences from interface 6 in this slice
+### States
 
-- The shelves are one list of categories, not names inline (interface 6 showed the first series
-  and folders on the shelves page itself). The folders list is one level, as Beta 3's: the
-  folders right inside the library folder that hold a book at any depth, by their own name, with
-  the books in and below each (Kernel's ruling on #696, `library.md`). Choosing one lists its books
-  at any depth; there is no walk into sub-folders (Beta 3 had none).
-- *Next in your series* lists series being read first, then those only finished, each in the
-  host's alphabetical order; interface 6 sorted by when the series was read last (the host's
-  query has no such order for a facet). It is capped at 48 series.
-- Search has no 500-books cap (the host has none, `library.md`); `files.search.capped` is unused.
-- Information lacks: the cover, the tags' text (LIB op 4 has no SDK facade), the language and the
-  description (the format's; `native::document` is not on integration yet).
+`Library::state`: *Empty* is "Preparing the library …"; *Walking* leads with **"N books so far …"**
+(`books`, English and German, the books found are listed under it; `walk_ppm` is a rough number and is
+not shown); a refused ask is "Couldn't read the books folder", or, where `core.files` `stat` of the card
+root says `ERR_IO`, "Restart PaperPaw" (card gone); a library with books only in the archive says so
+(`files.list.none.all`). Each opens its list, never fails the screen.
 
-## Still missing (interface 6 had it; each returns with its piece)
+### The book sheet (hold a book, or the menu button)
 
-- **Covers** in the list, the grid and the last-read card: `Library::cover` (LIB op 7, asked of
-  Services, todo 75 is the image facade) and an image blit on the native canvas (`document.md`
-  section 5). Interface 6 stays registered until then.
-- A request for a new catalog and the *look for new books* action: no typed command yet.
-- The book sheet (hold a book: favourite, finished, archive, delete): needs `Library::delete` and
-  `can_delete` (#668, on the draft-30 base) and a `core.files` move for the archive.
-- Find by letter: the `letters` facet gives the letters, but a list cannot start at a facet's
-  `first` index (a cursor is only made by a reply).
-- The states *card gone*, *failed to read the folder*, *preparing the library* and *every book is
-  in the archive*; "How it works" and the help hints; the search gesture on the home screen.
-- The *Library* menu (sort, view, look again, folder, settings): only the shelves entries and the
-  search are declared.
-- The books count in a row's end (it is in the filter row's note); the row's progress bar and chips.
+A choice dialog (`Ui::ask`): open, *Mark as finished* / *Mark as unread* (`Library::set_finished`),
+*Book information*, *Move to the archive* (offered where the archive folder is set and the book is not
+in it) and *Delete …* (offered where `Library::can_delete` answers OK). The move is `core.files`
+`move_entry` into the archive folder, never replacing: a taken name is tried as `name (2)` and on, up
+to 9; the host follows the move itself. Delete asks first and starts on the safe answer, then
+`Library::delete` with notes (the question says so); a refusal is told in a notice.
 
-## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
+### The rest of this slice
 
-- Host acceptance of the native screens: BLOCKED on H1/H3/H4, and the host's catalog behind LIB
-  ops 2, 5 and 6 (the default host trait answers no facets).
-- The typed library-changed event (the lists are read again when a screen is shown).
-- The folder chooser: `core.files` (#339, #384).
+- **Library menu**: order and view are the settings as menu items, then search, shelves, the library
+  folder (`core.library-folder`) and the settings (`core.settings`).
+- **Shelves** list the favourites and the authors, series, tags and folders with their counts at the
+  row's end; the lists of names show the count at the end too.
+- **How it works** is `files.plugin.how` in the catalogs (English and German; `how/` stays in the crate
+  for the store's page); **help hints** are declared for the library screen.
+- **Live catalog**: the lists read again on `library_changed` (books, status, fields, the walk).
+- **Folder chooser** (`files.choose-folder`, the slot `core.choose-folder`, parameter `id`): starts
+  on the folder the setting has (the top where it is gone), the first row uses the shown folder, then
+  the way up and *New folder*, then the folders (at most 256, by name, hidden ones left out), read a
+  page at a time from `core.files`; Back goes up a folder before it leaves.
+- Tests: unit tests of each model module, `tests/scripted_browser.rs` (what the list asks the
+  scripted library, the states, library changes, the sheet's choices, the archive's move, delete asked
+  about first), `tests/scripted_choose.rs`, `tests/scripted_library.rs`, `tests/native_*`, the refusal
+  sweeps. The scripted host has no screens: a redraw, a notice and an open are refused there after the
+  plugin asked the services, so those tests look at what was asked and submitted. Drawing is not tested
+  without a host (`acceptance_pending.rs`).
 
-## Interim
+## Differences from interface 6
 
-The interface-6 code stays registered until covers exist (no shim, no dual registration shipped);
-nothing in it is changed. Version: 1.0.7 is above Beta 3 (1.0.6), so there is no bump.
+- The shelves are one list of categories, not names inline; the folders list is one level (the
+  folders right inside the library folder that hold a book at any depth).
+- *Next in your series* lists series being read first, then finished ones, each in the host's
+  alphabetical order, at most 48 series.
+- Search has no 500-books cap (the host has none).
+- The filter stays one row that steps through the filters; there are no chips for it on large
+  screens (the kit has no chip widget).
+- The library is a list of windows of 96 books; interface 6 showed one list of the whole index.
+- The setting `files.covers` (black and white or gray) has no effect: `Library::cover` and
+  `ImageStyle` have no such flag, the host's drawer chooses.
+- The folder chooser serves the settings' editor only (`id`): the `reply` event and a dialog asked with
+  `Question::folder` (no asker exists in the tree) are not served.
+
+## Still missing (each returns with its piece)
+
+- **Favourites cannot be added or removed.** The facade `Library` has `set_finished` but no
+  `set_favourite` (`lib_status`, bit 1 favourite, in LIB op 8): the sheet has no row for it. The
+  favourites list and its shelf work for books marked elsewhere.
+- **Find by letter.** The `letters` facet gives the letters and each one's `first` index, but a list
+  cannot start at an index: a cursor is only made by a reply.
+- **Look for new books** (a request for a new catalog): no typed command.
+- **The search gesture on the home screen** (`swipe.down`, a keymap fragment): there is no declaration
+  of one in the native contract.
+- **Book information** lacks the tags' text (LIB op 4 has no facade) and the language and the
+  description (the format's, `native::document` metadata).
+- **Gray covers** apart from black and white (see above).
+- **Help hints** are declared but the host's `validate_record` does not admit them yet
+  (`ERR_UNSUPPORTED`); the plugin submits them best effort and loads without them. The menu entries
+  wait for the host's admission like every plugin of this port.
+- `walk_ppm` is not shown while the library scans.
+
+## Pending host acceptance (each is an ignored case in `tests/acceptance_pending.rs`)
+
+- The native screens' drawing, composition and input (H1/H3/H4) and the host's catalog behind LIB
+  ops 2, 5 and 6; the covers on the device (image slots), the sheet, the chooser, the menus and hints
+  (#944, #417).
+- The size of the plugin file on the X4 and its peak memory with covers: not measured.
