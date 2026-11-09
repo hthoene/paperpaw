@@ -24,12 +24,16 @@ const CASES: [Case; 8] = [
         golden: None,
         blocked_by: &["H2", "H4"],
     },
-    // Making the screen-sized gray file of the chosen picture (decode and
-    // scale).
+    // The chosen picture behind the page through the production loader: asked
+    // of the host (`image_prepare`), the notice while it is made, drawn first
+    // and not while editing, given back when the screen closes. The decisions
+    // and the drawing's places are ported and tested without the host
+    // (`native_backdrop`); the turn of a phone's picture, brightness and
+    // contrast, dots by force and stretching are not the host's (`PORTING-7.md`).
     Case {
         name: "picture-home-picture",
         golden: None,
-        blocked_by: &["IMG-slots-36-37"],
+        blocked_by: &["H1", "H4"],
     },
     // Choosing the picture from the folder (the screen `pick`: the rows, the
     // empty folder's words, a choice that sets the picture and closes).
@@ -92,7 +96,7 @@ fn picture_home_edit() {
 }
 
 #[test]
-#[ignore = "BLOCKED IMG-slots-36-37: image decode and scale are not on integration"]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
 fn picture_home_picture() {
     CASES[2].refuse().unwrap();
 }

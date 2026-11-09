@@ -40,7 +40,9 @@ const STRETCH: &str = "picture-home.fit.stretch";
 fn a_chosen_picture_is_asked_for_once_and_made_to_show() {
     let mut back = Backdrop::default();
     let mut cookie = 0;
-    let change = back.want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie).unwrap();
+    let change = back
+        .want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie)
+        .unwrap();
     let (number, side) = change.ask.unwrap();
     assert_eq!(change.release, None);
     assert_eq!(back.path(), "p/a.jpg");
@@ -48,14 +50,16 @@ fn a_chosen_picture_is_asked_for_once_and_made_to_show() {
     assert!(side > 0 && side <= SIDE_MAX);
     // Wanted again while it is made: nothing new is asked.
     assert_eq!(
-        back.want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie).unwrap(),
+        back.want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie)
+            .unwrap(),
         Change::default()
     );
     assert_eq!(ready(&mut back, number, (480, 800)), Landed::Ready);
     assert!(back.held() && !back.making() && !back.waits_for(number));
     // And held: nothing new either.
     assert_eq!(
-        back.want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie).unwrap(),
+        back.want(recipe("p/a.jpg", FILL, 100, 0), &mut cookie)
+            .unwrap(),
         Change::default()
     );
 }
@@ -70,7 +74,9 @@ fn another_picture_or_setting_gives_the_held_one_back_and_asks_again() {
         .ask
         .unwrap();
     ready(&mut back, first, (480, 800));
-    let change = back.want(recipe("a.png", FILL, 150, 0), &mut cookie).unwrap();
+    let change = back
+        .want(recipe("a.png", FILL, 150, 0), &mut cookie)
+        .unwrap();
     assert_eq!(change.release, Some(id(7)));
     let (second, _) = change.ask.unwrap();
     assert_ne!(first, second);
@@ -83,7 +89,13 @@ fn another_picture_or_setting_gives_the_held_one_back_and_asks_again() {
     // No picture chosen: what is held goes, nothing is asked.
     ready(&mut back, second, (480, 800));
     let change = back.want(None, &mut cookie).unwrap();
-    assert_eq!(change, Change { release: Some(id(7)), ask: None });
+    assert_eq!(
+        change,
+        Change {
+            release: Some(id(7)),
+            ask: None
+        }
+    );
     assert!(!back.held() && !back.making());
     assert_eq!(back.path(), "");
 }
@@ -106,11 +118,15 @@ fn a_failure_leaves_the_page_plain_and_is_not_asked_again() {
             .unwrap()
             .ask
             .unwrap();
-        assert_eq!(back.ready(number, status, None, (0, 0)), Landed::Failed(reason));
+        assert_eq!(
+            back.ready(number, status, None, (0, 0)),
+            Landed::Failed(reason)
+        );
         assert!(!back.making() && !back.held());
         assert_eq!(back.drawing().unwrap(), None);
         assert_eq!(
-            back.want(recipe("a.png", FILL, 100, 0), &mut cookie).unwrap(),
+            back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
+                .unwrap(),
             Change::default()
         );
     }
@@ -150,13 +166,15 @@ fn a_ready_answer_without_a_picture_is_a_failure_that_gives_back_what_it_holds()
 fn a_request_the_host_refuses_leaves_the_page_plain() {
     let mut back = Backdrop::default();
     let mut cookie = 0;
-    back.want(recipe("a.png", FILL, 100, 0), &mut cookie).unwrap();
+    back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
+        .unwrap();
     back.refused();
     assert!(!back.making() && !back.held());
     assert_eq!(back.drawing().unwrap(), None);
     // The settings are as they were: not asked again and again.
     assert_eq!(
-        back.want(recipe("a.png", FILL, 100, 0), &mut cookie).unwrap(),
+        back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
+            .unwrap(),
         Change::default()
     );
 }
@@ -200,7 +218,12 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
     assert_eq!(drawing.screen, (480, 800));
     assert_eq!(
         drawing.places,
-        [Place { x: -360, y: 0, width: 1200, height: 800 }]
+        [Place {
+            x: -360,
+            y: 0,
+            width: 1200,
+            height: 800
+        }]
     );
     // Covering the screen and opaque: no paper below it.
     assert!(!drawing.paper && !drawing.fill);
@@ -209,14 +232,27 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
     let zoomed = held(FILL, 200, 0, (600, 400));
     assert_eq!(
         zoomed.places,
-        [Place { x: -960, y: -400, width: 2400, height: 1600 }]
+        [Place {
+            x: -960,
+            y: -400,
+            width: 2400,
+            height: 1600
+        }]
     );
 }
 
 #[test]
 fn a_whole_picture_sits_on_paper_and_a_paler_one_is_blended_with_it() {
     let whole = held(WHOLE, 100, 0, (600, 400));
-    assert_eq!(whole.places, [Place { x: 0, y: 240, width: 480, height: 320 }]);
+    assert_eq!(
+        whole.places,
+        [Place {
+            x: 0,
+            y: 240,
+            width: 480,
+            height: 320
+        }]
+    );
     assert!(whole.paper);
     let pale = held(FILL, 100, 40, (600, 400));
     assert!(pale.paper);
@@ -230,7 +266,15 @@ fn a_whole_picture_sits_on_paper_and_a_paler_one_is_blended_with_it() {
 #[test]
 fn a_stretched_picture_fills_the_screen() {
     let stretch = held(STRETCH, 100, 0, (600, 400));
-    assert_eq!(stretch.places, [Place { x: 0, y: 0, width: 480, height: 800 }]);
+    assert_eq!(
+        stretch.places,
+        [Place {
+            x: 0,
+            y: 0,
+            width: 480,
+            height: 800
+        }]
+    );
     assert!(stretch.fill && !stretch.paper);
 }
 
@@ -254,10 +298,12 @@ fn a_tile_repeats_to_cover_the_screen_or_is_not_drawn() {
         );
     }
     // Tiles on the grid of the first: no gaps, no overlaps.
-    assert!(drawing
-        .places
-        .iter()
-        .all(|p| (i64::from(p.x) - i64::from(drawing.places[0].x)) % width == 0));
+    assert!(
+        drawing
+            .places
+            .iter()
+            .all(|p| (i64::from(p.x) - i64::from(drawing.places[0].x)) % width == 0)
+    );
     // A tiny picture would repeat a thousand times: not drawn.
     assert_eq!(held_tiny(), None);
 }
@@ -291,7 +337,8 @@ fn nothing_is_drawn_before_the_picture_is_made() {
     let mut back = Backdrop::default();
     assert_eq!(back.drawing().unwrap(), None);
     let mut cookie = 0;
-    back.want(recipe("a.png", FILL, 100, 0), &mut cookie).unwrap();
+    back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
+        .unwrap();
     assert_eq!(back.drawing().unwrap(), None);
 }
 

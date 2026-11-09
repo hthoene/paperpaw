@@ -176,7 +176,14 @@ pub fn notice(
     let mut y = u32::from(height).saturating_sub(total) / 2;
     let mut out = Vec::new();
     let fitted = text::fit(font, style.title, &title, room)?;
-    row(&mut out, font, style.title, &fitted, (width, y, head), style)?;
+    row(
+        &mut out,
+        font,
+        style.title,
+        &fitted,
+        (width, y, head),
+        style,
+    )?;
     y = y.saturating_add(u32::from(head) + u32::from(style.gap));
     for text in &lines {
         row(&mut out, font, style.small, text, (width, y, line), style)?;

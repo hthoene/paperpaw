@@ -3,8 +3,8 @@
 //! Here: the picture chooser (the screen `pick`: the pictures of the folder
 //! on the card, read through `core.files`, and what a choice sets), the
 //! editor of the bar's three item settings (the screen `status-items`, the
-//! kit's status items view), the dashboard (`native_dashboard`: the pages on a
-//! plain background, arranged while editing) and the declarations the image
+//! kit's status items view), the dashboard (`native_dashboard`: the pages with
+//! the picture behind them, arranged while editing) and the declarations the image
 //! carries, and *Add* (the screen `add`: the tools and widgets to put on a page,
 //! *Add a page*, *Remove this page*). Nothing opens the screens while the
 //! interface-6 home screen of this plugin is the one the app has
@@ -12,8 +12,9 @@
 use crate::{
     declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS},
     native_add_screen::{self as add_screen, AddScreen},
+    native_backdrop_host,
     native_dashboard::Dashboard,
-    native_backdrop_host, native_pages, native_pick,
+    native_pages, native_pick,
     native_picture::Pictures,
 };
 use alloc::{string::String, vec::Vec};
@@ -25,8 +26,8 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{Event, Incoming, kinds},
         files::Files,
-        image::ImageReady,
         formatting::Arg,
+        image::ImageReady,
         registrations,
         registry::StatusScope,
         reply::Reply,
@@ -125,8 +126,7 @@ impl Plugin for NativePictureHome {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) =
-            read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
         else {
             return Ok(());
         };
