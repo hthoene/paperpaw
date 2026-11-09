@@ -697,3 +697,72 @@ fn a_served_request_borrows_its_text_and_tells_a_body_only_when_flagged() {
         assert!(bytes.as_ptr_range().contains(&got.target().as_ptr()));
     }
 }
+
+#[test]
+fn a_served_request_tells_the_body_by_its_flag_and_never_prints_its_target() {
+    let long = "/".repeat(1024);
+    let mut bytes = [0; 1400];
+    let cases = [(0, 99, None), (1, 0, Some(0)), (1 | 0b110, 12, Some(12))];
+    for (flags, body, want) in cases {
+        let record = Record::EventServedRequest(EventServedRequest {
+            now_ms: 7,
+            server: 3,
+            request: 0,
+            method: "GET",
+            target: &long,
+            flags,
+            body_len: body,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::ServedRequest(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a served request")
+        };
+        assert_eq!(
+            (got.request(), got.target().len(), got.body_len()),
+            (0, 1024, want)
+        );
+        let shown = format!("{got:?}");
+        assert!(
+            shown.contains("target_len: 1024") && !shown.contains("//"),
+            "{shown}"
+        );
+    }
+    let key = Record::EventServedRequest(EventServedRequest {
+        now_ms: 7,
+        server: 3,
+        request: 1,
+        method: "GET",
+        target: "/?k=secretkey",
+        flags: 0,
+        body_len: 0,
+    });
+    let len = records_encode(&[key], &mut bytes).unwrap();
+    let got = decode(&bytes[..len]).unwrap();
+    assert!(!format!("{got:?}").contains("secretkey"));
+}
+
+#[test]
+fn every_failed_reason_of_a_server_is_told_as_the_http_reasons() {
+    use crate::native::net::{Reason, ServerState};
+    let mut bytes = [0; 256];
+    for (code, reason) in [
+        (1, Reason::NoNetwork),
+        (11, Reason::Offline),
+        (12, Reason::Saving),
+        (13, Reason::NetworkOff),
+        (5, Reason::Refused),
+    ] {
+        let record = Record::EventServer(EventServer {
+            now_ms: 7,
+            server: 3,
+            state: 1,
+            reason: code,
+            address: "",
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::Server(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a server event")
+        };
+        assert_eq!(got.state(), ServerState::Failed { reason });
+    }
+}

@@ -5059,6 +5059,8 @@ pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::now_ms(&self) -> u64
 pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::request(&self) -> u32
 pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::server(&self) -> u32
 pub const fn paperpaw_sdk::native::net::ServedRequest<'a>::target(&self) -> &'a str
+impl core::fmt::Debug for paperpaw_sdk::native::net::ServedRequest<'_>
+pub fn paperpaw_sdk::native::net::ServedRequest<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_sdk::native::net::ServerEvent<'a>
 impl<'a> paperpaw_sdk::native::net::ServerEvent<'a>
 pub const fn paperpaw_sdk::native::net::ServerEvent<'a>::now_ms(&self) -> u64

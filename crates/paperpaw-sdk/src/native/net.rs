@@ -589,7 +589,11 @@ impl<'a> ServerEvent<'a> {
 /// (`network.md` 5.2), borrowed from the event's record. Headers are not given.
 /// The body, when there is one, is a file in the plugin's data folder that is
 /// readable only in the callback that gets this event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `Debug` shows the method and the target's length only: the target's query may
+/// carry the server's access key (`served::key`). Flag bits other than the body
+/// bit are ignored, as for [`HttpDone`].
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ServedRequest<'a> {
     now_ms: u64,
     server: u32,
@@ -597,6 +601,19 @@ pub struct ServedRequest<'a> {
     method: &'a str,
     target: &'a str,
     body_len: Option<u64>,
+}
+
+impl core::fmt::Debug for ServedRequest<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ServedRequest")
+            .field("now_ms", &self.now_ms)
+            .field("server", &self.server)
+            .field("request", &self.request)
+            .field("method", &self.method)
+            .field("target_len", &self.target.len())
+            .field("body_len", &self.body_len)
+            .finish()
+    }
 }
 
 impl<'a> ServedRequest<'a> {
@@ -623,7 +640,8 @@ impl<'a> ServedRequest<'a> {
         self.server
     }
 
-    /// The host's number of the request, unique while the device runs.
+    /// The host's number of the request, unique while the device runs. The
+    /// contract does not exclude 0; the SDK passes the number on as it is.
     #[must_use]
     pub const fn request(&self) -> u32 {
         self.request
@@ -635,7 +653,8 @@ impl<'a> ServedRequest<'a> {
         self.method
     }
 
-    /// The path and query, at most 1,024 bytes.
+    /// The path and query, at most 1,024 bytes. The query may carry the server's
+    /// access key: do not log it.
     #[must_use]
     pub const fn target(&self) -> &'a str {
         self.target
