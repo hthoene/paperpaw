@@ -450,18 +450,27 @@ impl FirmwareInstall {
     }
 
     /// The request the state belongs to and the reason of the last end (0
-    /// while none ended).
-    pub(crate) fn last(&self) -> (u32, u8) {
-        match &self.phase {
-            Phase::Checking(job, _)
-            | Phase::Asking(job, _)
-            | Phase::Writing(job, ..)
-            | Phase::Reading(job, _) => (job.request, 0),
-            Phase::RestartAsking(_) | Phase::Idle => match (&self.waiting, &self.failed) {
-                (Some(waiting), _) => (waiting.request, 0),
-                (None, Some(outcome)) => (outcome.request, outcome.reason),
-                (None, None) => (0, 0),
-            },
+    /// while none ended), as `owner` may know them: another plugin's request
+    /// number is not told (`(0, 0)`), and a check is no install, so a check
+    /// that runs is not the state's request either.
+    pub(crate) fn last(&self, owner: u64) -> (u32, u8) {
+        let (of, request, reason) = match &self.phase {
+            Phase::Asking(job, _) | Phase::Writing(job, ..) | Phase::Reading(job, _) => {
+                (job.owner, job.request, 0)
+            }
+            Phase::Checking(job, _) if job.install.is_some() => (job.owner, job.request, 0),
+            Phase::Checking(..) | Phase::RestartAsking(_) | Phase::Idle => {
+                match (&self.waiting, &self.failed) {
+                    (Some(waiting), _) => (waiting.owner, waiting.request, 0),
+                    (None, Some(outcome)) => (outcome.owner, outcome.request, outcome.reason),
+                    (None, None) => return (0, 0),
+                }
+            }
+        };
+        if of == owner {
+            (request, reason)
+        } else {
+            (0, 0)
         }
     }
 
