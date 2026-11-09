@@ -41,6 +41,7 @@ paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
 paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
+paperpaw-platform = { workspace = true, features = ["fake"] }
 paperpaw-text.workspace = true
 paperpaw-table.workspace = true
 # Loads a native plugin built apart (tests/native_plugin.rs).

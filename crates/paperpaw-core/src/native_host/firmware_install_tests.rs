@@ -221,7 +221,11 @@ fn a_foreign_image_is_asked_too_and_is_checked_as_foreign() {
     fw.facts.signer = Signer::Unsigned;
     machine.start(install(OWNER, 1, 0), &mut fw);
     assert!(matches!(run(&mut machine, &mut fw), Event::Ended(o) if o.reason == 4));
-    assert!(!fw.log.iter().any(|call| matches!(call, Call::BeginWrite { .. })));
+    assert!(
+        !fw.log
+            .iter()
+            .any(|call| matches!(call, Call::BeginWrite { .. }))
+    );
 }
 
 #[test]
