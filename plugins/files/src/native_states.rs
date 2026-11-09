@@ -81,7 +81,10 @@ mod tests {
                 ppm: 250_000
             }
         );
-        assert_eq!(of(Ok((CatalogPhase::Empty, 0, 0)), true), Condition::Preparing);
+        assert_eq!(
+            of(Ok((CatalogPhase::Empty, 0, 0)), true),
+            Condition::Preparing
+        );
         assert_eq!(of(Err(Error::Busy), true), Condition::Preparing);
         assert_eq!(
             of(Ok((CatalogPhase::Unknown(9), 0, 0)), true),

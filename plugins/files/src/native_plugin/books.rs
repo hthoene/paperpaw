@@ -217,11 +217,9 @@ impl NativeFiles {
     /// "Previous books": the window before, read in full, on the row that
     /// goes on again.
     pub(super) fn slide_back(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
-        self.replace_books(host, token, |view| {
-            match step_back(&view.starts)? {
-                Some(step) => Ok(Some(Plan::of(view.selection.try_clone()?, step))),
-                None => Ok(None),
-            }
+        self.replace_books(host, token, |view| match step_back(&view.starts)? {
+            Some(step) => Ok(Some(Plan::of(view.selection.try_clone()?, step))),
+            None => Ok(None),
         })
     }
 

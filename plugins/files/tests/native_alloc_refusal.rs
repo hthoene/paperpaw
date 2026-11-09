@@ -177,18 +177,14 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
     let kept = [ImageId::new(1).unwrap()];
     let lone = String::from("books/Crime/a.epub");
     let words = ["Open".to_string(), "Delete".to_string()];
+    let scanning = Condition::Scanning {
+        books: 9,
+        ppm: 300_000,
+    };
     fail_alloc::sweep(|| {
         for (selection, window, starts, condition) in [
             (&selection, &window, &[][..], Condition::Ready),
-            (
-                &selection,
-                &window,
-                &later[..],
-                Condition::Scanning {
-                    books: 9,
-                    ppm: 300_000,
-                },
-            ),
+            (&selection, &window, &later[..], scanning),
             (&selection, &empty, &[][..], Condition::Preparing),
             (&selection, &empty, &[][..], Condition::CardGone),
             (&search, &empty, &[][..], Condition::Ready),
