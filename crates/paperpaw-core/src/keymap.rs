@@ -312,11 +312,7 @@ impl paperpaw_sdk::keys::KeyBindings for Keymap {
     fn each_binding(
         &self,
         layer: &str,
-        visit: &mut dyn FnMut(
-            &str,
-            Option<&Id>,
-            paperpaw_sdk::keys::BindingOrigin,
-        ) -> core::ops::ControlFlow<()>,
+        visit: &mut paperpaw_sdk::keys::BindingVisit<'_>,
     ) -> core::ops::ControlFlow<()> {
         let Some(bindings) = self.layers.get(layer) else {
             return core::ops::ControlFlow::Continue(());

@@ -248,6 +248,12 @@ impl fmt::Debug for GestureSpec {
     }
 }
 
+/// What a walk of one layer's bindings calls: the input's name, the action
+/// (`None`: bound to nothing on purpose) and the origin; `Break` ends it.
+#[cfg(any(test, feature = "kernel"))]
+pub type BindingVisit<'a> =
+    dyn FnMut(&str, Option<&Id>, BindingOrigin) -> core::ops::ControlFlow<()> + 'a;
+
 /// The bindings in effect.
 pub trait KeyBindings {
     /// The action `input` runs, looked up in `layers` from the most
@@ -284,7 +290,7 @@ pub trait KeyBindings {
     fn each_binding(
         &self,
         layer: &str,
-        visit: &mut dyn FnMut(&str, Option<&Id>, BindingOrigin) -> core::ops::ControlFlow<()>,
+        visit: &mut BindingVisit<'_>,
     ) -> core::ops::ControlFlow<()> {
         for (input, action, origin) in self.bindings(layer) {
             visit(&input, action.as_ref(), origin)?;
