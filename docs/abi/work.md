@@ -145,7 +145,11 @@ record.
   starts there (a retry from `http_done`) belongs to the same run: background, held by saving, and
   under the same `RUN_MAX_MS` counted from the first `work_due`, never restarted. Once the 10
   minutes have passed, the run's end events are still delivered inside it, and what the plugin
-  starts in them ends at once with reason 14 (SOCK 27), so a run cannot outlive its limit.
+  starts in them ends at once with reason 14 (SOCK 27), so a run cannot outlive its limit. The
+  host waits for those end events at most `RUN_END_GRACE_MS` (30,000) after the limit; then the
+  run is over whatever it still counts (a plugin that never takes its events cannot hold the radio
+  on). An end event delivered later is still marked with its ended run: what the plugin starts in
+  it ends at once with reason 14 (SOCK 27), never as foreground use.
 - [D] **At most 2 runs of one plugin at once on devices of the small memory class (the X4), 8 on
   others** (`RUNS_PER_PLUGIN`). A work of that plugin that comes due while it has that many runs
   open waits, due, in due order and is never dropped: its `work_due` comes when one of the
