@@ -176,9 +176,11 @@ impl crate::Kernel {
         let image_more = self.native_image_pump();
         // Changed settings reach the plugins that subscribed (`setting_events`).
         let setting_more = self.native_setting_pump();
+        // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
+        let wifi_more = self.native_wifi_pump();
         self.shared
             .native_instances
-            .set_service_more(more || work_more || image_more || setting_more);
+            .set_service_more(more || work_more || image_more || setting_more || wifi_more);
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -199,6 +201,7 @@ impl crate::Kernel {
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
             .chain(self.native_demand_due().map(|at| at.millis()))
+            .chain(self.native_wifi_due())
             .min()
             .map(Instant)
     }

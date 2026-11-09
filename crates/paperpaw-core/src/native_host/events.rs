@@ -32,8 +32,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// delivered when the reader port produces them (`core-events.md` 3.1: the
 /// host never fails a registration for an event a device does not raise, and
 /// until the reading session reports, nothing raises these).
+///
 /// The answers of a plugin's own requests register as well: `event.wifi_done` (93,
-/// ended `join` and `host`) and the work events 103-105 (`work_pump`).
+/// ended `join` and `host`; `wifi_events`) and the work events 103-105
+/// (`work_pump`).
+///
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
