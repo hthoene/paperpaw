@@ -20,10 +20,8 @@ pub(crate) struct FormatDecl<'a, 'b> {
     pub(crate) spec: &'b FormatSpec<'b>,
 }
 
-/// One declared reading app of a live plugin. The contract gives readers no
-/// count of their own (`document.md` section 1 caps formats only): a plugin's
-/// readers are bounded by the store's per-plugin declaration budget, and each
-/// is one small record.
+/// One declared reading app of a live plugin. A plugin declares at most 4 and
+/// the device 16 (`document.md` section 1; checked at commit and in `prepare`).
 pub(crate) struct ReaderDecl<'a, 'b> {
     pub(crate) plugin: &'a str,
     pub(crate) spec: &'b ReaderSpec<'b>,
