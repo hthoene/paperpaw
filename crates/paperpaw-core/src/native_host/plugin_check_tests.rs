@@ -497,10 +497,13 @@ fn set16(code: &mut [u8], at: usize, value: u16) {
     code[at..at + 2].copy_from_slice(&value.to_le_bytes());
 }
 
+/// A name, the reason and the edit that breaks the header.
+type Case = (&'static str, u8, fn(&mut Vec<u8>));
+
 #[test]
 fn a_header_the_loader_refuses_ends_with_the_loaders_reason() {
     let code = good_code();
-    let cases: [(&str, u8, fn(&mut Vec<u8>)); 9] = [
+    let cases: [Case; 9] = [
         ("not a plugin", reason::DAMAGED, |c| c[0] = b'X'),
         ("truncated", reason::DAMAGED, |c| c.truncate(60)),
         ("empty", reason::DAMAGED, |c| c.clear()),
@@ -900,9 +903,7 @@ fn an_allocation_that_fails_ends_the_check_with_reason_1_and_never_panics() {
     for nth in 1..300_u32 {
         FAIL_NTH.with(|n| n.set(nth));
         let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
-            let Some(mut job) = PluginCheck::new(7, 1, SOURCE) else {
-                return None;
-            };
+            let mut job = PluginCheck::new(7, 1, SOURCE)?;
             for _ in 0..10_000 {
                 if let JobStep::Done(finished) = job.step(&env) {
                     return Some(finished);
