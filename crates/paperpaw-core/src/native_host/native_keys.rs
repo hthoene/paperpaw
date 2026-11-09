@@ -16,7 +16,11 @@ use super::{
     declaration_store::Kind, native_declarations::NativeDeclarations, registrations::Record,
     registry_service::rules::value_holds,
 };
-use crate::keymap::Keymap;
+use crate::{
+    Id, WarningSource,
+    keymap::{DeviceInputs, Keymap, Native},
+};
+use alloc::{format, string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Settings;
 
@@ -28,20 +32,21 @@ fn condition_holds(settings: &Settings, key: &str, value: &str) -> bool {
 }
 
 impl NativeDeclarations {
-    /// Each declared binding whose condition holds, as `(layer, input,
+    /// Each declared binding whose condition holds, as `(owner, layer, input,
     /// action)`; `ERR_BUSY` when the store is borrowed (none was visited).
     fn key_bindings(
         &self,
         settings: &Settings,
-        visit: &mut dyn FnMut(&str, &str, &str),
+        visit: &mut dyn FnMut(&str, &str, &str, &str),
     ) -> Result<(), i32> {
         let store = self.store.try_borrow().map_err(|_| ERR_BUSY)?;
         store.keys(Kind::KeyBind, &mut |key| {
+            let owner = store.plugin_of(key).unwrap_or("");
             store.with_record(key, &mut |record| {
                 if let Record::KeyBind(bind) = record
                     && condition_holds(settings, bind.when_key, bind.when_value)
                 {
-                    visit(bind.layer, bind.input, bind.action);
+                    visit(owner, bind.layer, bind.input, bind.action);
                 }
             });
         });
@@ -66,17 +71,39 @@ impl NativeDeclarations {
 }
 
 impl crate::Kernel {
-    /// Binds the native plugins' declared bindings in `keymap`.
-    pub(crate) fn native_keys_into(&self, keymap: &mut Keymap) {
+    /// Binds the native plugins' declared bindings in `keymap`. A binding
+    /// dropped for leaving no input to the main menu is a warning of its plugin
+    /// (once, however often the key map is built).
+    pub(crate) fn native_keys_into(&mut self, keymap: &mut Keymap) {
         let Some(declarations) = &self.shared.registry.native_declarations else {
             return;
         };
+        let has = DeviceInputs::new(&self.shared.device.input);
+        let mut dropped = Vec::new();
         // A store in use (never during a rebuild) leaves the bindings out
         // until the next one.
-        let _ = declarations.key_bindings(&self.shared.settings, &mut |layer, input, action| {
-            // Checked at admission (`native_binding_ok`).
-            keymap.bind_native(layer, input, action);
-        });
+        let _ =
+            declarations.key_bindings(&self.shared.settings, &mut |owner, layer, input, action| {
+                // Checked at admission (`native_binding_ok`).
+                if keymap.bind_native(layer, input, action, &has) == Native::Dropped {
+                    dropped.push((String::from(owner), String::from(input)));
+                }
+            });
+        for (owner, input) in dropped {
+            let message = format!(
+                "a global key binding of {input} was left out: it would leave no input to the main menu"
+            );
+            let Ok(owner) = Id::parse(&owner) else {
+                continue;
+            };
+            let known = self.warnings.iter().any(|warning| {
+                warning.message == message
+                    && matches!(&warning.source, WarningSource::Plugin(id) if *id == owner)
+            });
+            if !known {
+                self.warn(WarningSource::Plugin(owner), None, message);
+            }
+        }
     }
 
     /// How many bindings native plugins declared.
