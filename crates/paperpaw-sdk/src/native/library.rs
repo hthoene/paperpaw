@@ -6,6 +6,8 @@ use super::{
     services::Service,
 };
 
+mod cover;
+pub use cover::Cover;
 mod facets;
 pub use facets::{Facet, FacetPage, FacetRow};
 mod annotations;

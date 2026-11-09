@@ -4854,6 +4854,10 @@ pub const fn paperpaw_sdk::native::library::CatalogState::books(self) -> u32
 pub const fn paperpaw_sdk::native::library::CatalogState::generation(self) -> u32
 pub const fn paperpaw_sdk::native::library::CatalogState::phase(self) -> paperpaw_sdk::native::library::CatalogPhase
 pub const fn paperpaw_sdk::native::library::CatalogState::walk_ppm(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::library::Cover
+impl paperpaw_sdk::native::library::Cover
+pub const fn paperpaw_sdk::native::library::Cover::image(&self) -> paperpaw_sdk::native::image::ImageId
+pub const fn paperpaw_sdk::native::library::Cover::info(&self) -> paperpaw_sdk::native::image::ImageInfo
 pub struct paperpaw_sdk::native::library::Entry<'a>(_)
 impl paperpaw_sdk::native::library::Entry<'_>
 pub const fn paperpaw_sdk::native::library::Entry<'_>::favourite(self) -> bool
@@ -4923,6 +4927,8 @@ impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::book_key<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::BookKey<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::position<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Position<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::set_position(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &paperpaw_sdk::native::library::PositionWrite<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::cover(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Cover, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::facets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, paperpaw_sdk::native::library::Facet, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::FacetPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library

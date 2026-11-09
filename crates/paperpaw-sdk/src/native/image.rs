@@ -90,12 +90,17 @@ impl ImageInfo {
             .map_err(|_| Error::Invalid)?
             .decode::<wire::ServiceDocImage>()
             .map_err(|_| Error::Invalid)?;
-        Ok(Self {
+        Ok(Self::from_row(&row))
+    }
+
+    /// The size and the two defined flag bits of a `doc_image` row.
+    pub(crate) const fn from_row(row: &wire::ServiceDocImage) -> Self {
+        Self {
             width: row.width,
             height: row.height,
             colour: row.flags & COLOUR != 0,
             not_decoded: row.flags & NOT_DECODED != 0,
-        })
+        }
     }
 
     /// The picture's width in pixels.
