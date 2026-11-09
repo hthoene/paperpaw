@@ -137,6 +137,17 @@ impl Kernel {
         self.apply_item_states(&owner, item_states);
         let authority = self.command_settings_authority(&owner);
         self.apply_native_presets(&owner, authority, presets);
+        self.apply_labels_and_widgets(owner_key, hints, widgets)?;
+        Ok(status)
+    }
+
+    /// The labels the callback set, and the widgets it said changed.
+    fn apply_labels_and_widgets(
+        &mut self,
+        owner_key: u64,
+        hints: alloc::vec::Vec<super::hint_labels::HintSet>,
+        widgets: alloc::vec::Vec<u32>,
+    ) -> Result<(), Error> {
         // The labels the callback set; room was taken when they were checked.
         // Nothing holds the table across a callback, so a failed borrow is a
         // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
@@ -154,7 +165,7 @@ impl Kernel {
         {
             return Err(Error::Status(ERR_BUSY));
         }
-        Ok(status)
+        Ok(())
     }
 
     /// The states the callback pushed, applied in submit order after its

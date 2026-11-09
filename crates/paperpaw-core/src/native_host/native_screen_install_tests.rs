@@ -759,21 +759,6 @@ fn a_draw_of_a_token_two_declarations_claim_or_none_refuses_the_install() {
     }
 }
 
-/// A real plugin registers for `event.widget_changed` (86): admitted at the
-/// install, not refused as an event with no delivery.
-#[test]
-fn a_registration_for_widget_changed_is_admitted() {
-    let (kernel, result) = regs_kernel(13);
-    result.unwrap();
-    let key = kernel.shared.native_instances.find("factory").unwrap();
-    assert!(
-        kernel
-            .shared
-            .native_instances
-            .subscribed(key, wire::EVENT_WIDGET_CHANGED_TAG)
-    );
-}
-
 #[test]
 fn event_and_draw_registrations_are_admitted_and_dropped_with_the_owner() {
     for regs in [1, 3, 6, 9] {
@@ -1498,6 +1483,8 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
+#[path = "native_widget_install_tests.rs"]
+mod widget_registered;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
 
