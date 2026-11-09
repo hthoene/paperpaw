@@ -350,6 +350,7 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        ui: None,
     };
     let query = |text: &str, out: &mut u32| {
         // SAFETY: borrowed fixture inputs and scalar output are live and disjoint.
@@ -437,6 +438,7 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        ui: None,
     };
     let query = |scope: &EnvironmentScope,
                  owner: &crate::native_host::resources::OwnerResources,

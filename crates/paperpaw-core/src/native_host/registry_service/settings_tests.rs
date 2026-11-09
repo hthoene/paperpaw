@@ -558,6 +558,32 @@ fn secrets_grants_and_values_follow_slot_five() {
     assert_eq!(flags_of(row(&rows, "zz.key")) & (32 | 64), 32);
 }
 
+/// Whether a secret has a value is told by what the kernel keeps and by who
+/// asks, never by which plugin the kernel's tracker last entered: a nested
+/// call (a stage subscriber, a compose child) reads the same.
+#[test]
+fn the_secret_is_set_flag_does_not_follow_the_running_plugin() {
+    let mut kernel = kernel();
+    kernel
+        .shared
+        .settings
+        .set("cfg.key", SettingValue::Text("hunter2".into()))
+        .unwrap();
+    let flags = |kernel: &crate::Kernel, plugin: &str| {
+        let (rows, _) = page_as(kernel, plugin, schema::OP_SETTINGS, "cfg", 0);
+        flags_of(row(&rows, "cfg.key")) & (32 | 64)
+    };
+    for plugin in ["reader", "cfg", "ed"] {
+        let plain = flags(&kernel, plugin);
+        assert_eq!(plain, 32 | 64, "{plugin}");
+        // Whoever the tracker names, the asker sees the same.
+        for running in ["cfg", "other", "ed"] {
+            let _running = kernel.shared.meter.enter(running);
+            assert_eq!(flags(&kernel, plugin), plain, "{plugin} under {running}");
+        }
+    }
+}
+
 #[test]
 fn a_setting_is_three_records_and_an_unknown_key_is_not_found() {
     let kernel = kernel();

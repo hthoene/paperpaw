@@ -37,14 +37,27 @@ mod op {
 
 /// The `core.device` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.device().ok_or(ERR_UNSUPPORTED)?;
-    let host: &dyn DeviceHost = &*services.0;
+    // The kernel answers Wi-Fi, Bluetooth and power from its own models, where
+    // the frame has them (`kernel_models`).
+    let kernel;
+    let host: &dyn DeviceHost = match frame.kernel_env() {
+        Some(env) => {
+            kernel = super::kernel_models::KernelHost {
+                inner: &*services.0,
+                env,
+                caller: who.plugin,
+            };
+            &kernel
+        }
+        None => &*services.0,
+    };
     match op.id {
         // Op 13 `install` reads the firmware request table (a firmware
         // install or check); plugin installs and removals have no table yet.

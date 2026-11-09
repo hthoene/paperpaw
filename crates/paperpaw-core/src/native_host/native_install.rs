@@ -10,7 +10,9 @@ use super::{
     shell,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
+use paperpaw_native::host_glue::{
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
+};
 use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
@@ -198,10 +200,23 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        // The first plugin's depth is the shell's device-wide one, and every
+        // later plugin brings the same: a host stage run enters it, so a
+        // second counter would let nested dispatch past the budget.
+        match self.shared.native_depth.as_ref() {
+            None => {
+                self.shared.native_depth = Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
+            }
+            Some(first) if !first.is_same_counter(&depth) => {
+                self.warn_runtime("a native plugin brought its own callback depth counter");
+                return Err(shell::Error::Status(ERR_STATE));
+            }
+            Some(_) => {}
+        }
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
-        let (retained, (owner, owned, tokens), raw) =
+        let (retained, (owner, owned, tokens, declared), raw) =
             Retained::make_native_stored(host, map_declarations)?;
         if folder.is_none()
             && owned
@@ -214,6 +229,22 @@ impl crate::Kernel {
         // The callback registrations are admitted whole or the owner is not:
         // none is dropped unrouted.
         let events = check_registrations(&retained, &depth, &tokens)?;
+        // Admitted when it declares OR registers anything (an events-only
+        // plugin is as good as any); a library with nothing at all is no
+        // plugin: invalid, not "needs a newer host".
+        if !declared && events.is_empty() {
+            // Refused before the kernel takes it in. An empty library has run
+            // only `make`, so its cleanup cannot be busy; say so if that
+            // ever stops being true (the owner would stay pinned).
+            let pool = retained.host().resource_identity();
+            drop(retained);
+            if pool.is_some_and(|pool| pool.retirements_pending()) {
+                self.try_warn_runtime(&[
+                    "a library with nothing in it could not be cleaned up; retried later",
+                ]);
+            }
+            return Err(shell::Error::Status(ERR_INVALID));
+        }
         let key = self
             .shared
             .native_instances
@@ -691,7 +722,12 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
-) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
+) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
+    // The host's own id is reserved: no plugin's action passes for a host
+    // one (ui.md 4.3).
+    if view.plugin == crate::RESERVED_PLUGIN_ID {
+        return Err(ERR_DENIED);
+    }
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
@@ -724,10 +760,10 @@ fn map_declarations(
         })();
     })?;
     result?;
-    if !any {
-        return Err(ERR_UNSUPPORTED);
-    }
-    Ok((owner, owned, tokens))
+    // Whether it declared anything is told with the result: a library that only
+    // registers callbacks (an event, a tick) is admitted too; one with neither
+    // is refused where the registrations are known ([`Kernel::admit_native`]).
+    Ok((owner, owned, tokens, any))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

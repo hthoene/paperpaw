@@ -67,6 +67,9 @@ impl NativeInstance for Probe {
             wire::Record::EventBatteryMeasured(event) => {
                 (wire::EVENT_BATTERY_MEASURED_TAG, event.now_ms)
             }
+            wire::Record::EventBookOpened(event) => (wire::EVENT_BOOK_OPENED_TAG, event.now_ms),
+            wire::Record::EventBookClosed(event) => (wire::EVENT_BOOK_CLOSED_TAG, event.now_ms),
+            wire::Record::EventBookFinished(event) => (wire::EVENT_BOOK_FINISHED_TAG, event.now_ms),
             wire::Record::EventPageTurned(event) => {
                 self.titles.borrow_mut().push(event.title.into());
                 (wire::EVENT_PAGE_TURNED_TAG, event.now_ms)
@@ -176,6 +179,9 @@ fn raise(kernel: &mut crate::Kernel, tag: u32, params: &Params) {
         wire::EVENT_SUSPEND_TAG => builtin::SUSPEND.id().clone(),
         wire::EVENT_STOPPING_TAG => builtin::STOPPING.id().clone(),
         wire::EVENT_BATTERY_MEASURED_TAG => builtin::BATTERY_MEASURED.id().clone(),
+        wire::EVENT_BOOK_OPENED_TAG => builtin::BOOK_OPENED.id().clone(),
+        wire::EVENT_BOOK_CLOSED_TAG => builtin::BOOK_CLOSED.id().clone(),
+        wire::EVENT_BOOK_FINISHED_TAG => builtin::BOOK_FINISHED.id().clone(),
         _ => builtin::PAGE_TURNED.id().clone(),
     };
     kernel.emit(&event, params);
@@ -474,4 +480,24 @@ fn the_drain_at_suspend_tells_every_waiting_plugin_in_order() {
             ('b', wire::EVENT_SUSPEND_TAG)
         ]
     );
+}
+
+const BOOKS: &[u32] = &[
+    wire::EVENT_BOOK_OPENED_TAG,
+    wire::EVENT_BOOK_CLOSED_TAG,
+    wire::EVENT_BOOK_FINISHED_TAG,
+    wire::EVENT_SUSPEND_TAG,
+];
+
+#[test]
+fn a_book_event_without_a_location_is_not_told_and_is_logged_once() {
+    let mut w = world(BOOKS, &[]);
+    w.kernel.take_warnings();
+    // No location says nothing true to tell (a zero would be a real place):
+    // it is dropped, with one line in the log until the queue is empty again.
+    for _ in 0..3 {
+        raise(&mut w.kernel, wire::EVENT_BOOK_CLOSED_TAG, &Params::new());
+    }
+    assert!(tags(&w, 'a').is_empty());
+    assert_eq!(w.kernel.take_warnings().len(), 1);
 }
