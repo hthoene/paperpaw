@@ -376,6 +376,8 @@ pub enum HttpReason {
     Ok,
     NoNetwork,
     Dns,
+    /// The certificate or the TLS handshake failed (`network.md` 4.1, reason 3).
+    Tls,
     Timeout,
     Refused,
     TooLarge,
@@ -425,6 +427,7 @@ impl<'a> HttpDone<'a> {
             HttpReason::Ok => r::OK,
             HttpReason::NoNetwork => r::NO_NETWORK,
             HttpReason::Dns => r::DNS,
+            HttpReason::Tls => r::TLS,
             HttpReason::Timeout => r::TIMEOUT,
             HttpReason::Refused => r::REFUSED,
             HttpReason::TooLarge => r::TOO_LARGE,
