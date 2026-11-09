@@ -13,7 +13,7 @@ use crate::{
     declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS},
     native_add_screen::{self as add_screen, AddScreen},
     native_dashboard::Dashboard,
-    native_pages, native_pick,
+    native_backdrop_host, native_pages, native_pick,
     native_picture::Pictures,
 };
 use alloc::{string::String, vec::Vec};
@@ -25,6 +25,7 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{Event, Incoming, kinds},
         files::Files,
+        image::ImageReady,
         formatting::Arg,
         registrations,
         registry::StatusScope,
@@ -100,6 +101,8 @@ pub struct NativePictureHome {
     choosers: Screens<Chooser>,
     dashboards: Screens<Dashboard>,
     adds: Screens<AddScreen>,
+    /// Counts the requests for the picture behind the dashboard.
+    cookie: u32,
 }
 
 impl Plugin for NativePictureHome {
@@ -123,7 +126,7 @@ impl Plugin for NativePictureHome {
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) =
-            read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+            read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
         else {
             return Ok(());
         };
@@ -152,6 +155,9 @@ impl Plugin for NativePictureHome {
                 self.dashboards.shown(DASHBOARD, instance)?;
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.shown();
+                    // Without the picture the page is
+                    // plain, and nothing else fails for it.
+                    dashboard.want_picture(host, &mut self.cookie).ok();
                 }
                 Ok(())
             }
@@ -160,7 +166,11 @@ impl Plugin for NativePictureHome {
                 instance: Some(instance),
                 ..
             } => self.adds.shown(ADD, instance),
+            Event::ImageReady(ready) => self.image_ready(host, &ready),
             Event::ScreenClosed { instance, .. } => {
+                if let Some(dashboard) = self.dashboards.get(instance) {
+                    dashboard.close(host);
+                }
                 self.adds.close(instance);
                 self.editors.close(instance);
                 self.choosers.close(instance);
@@ -229,6 +239,20 @@ impl Plugin for NativePictureHome {
 }
 
 impl NativePictureHome {
+    /// The host's answer to a picture asked for: it goes to the dashboard that
+    /// asked; one nobody waits for gives its picture back.
+    fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        for dashboard in self.dashboards.all() {
+            if dashboard.waits_for(ready.cookie()) {
+                return dashboard.image_ready(host, ready);
+            }
+        }
+        if let Some(image) = ready.image() {
+            native_backdrop_host::release(host, image);
+        }
+        Ok(())
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {

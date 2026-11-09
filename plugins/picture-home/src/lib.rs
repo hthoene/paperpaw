@@ -43,6 +43,8 @@ mod dashboard;
 pub mod native_add;
 pub mod native_add_screen;
 pub mod native_arrange;
+pub mod native_backdrop;
+pub mod native_backdrop_host;
 pub mod native_dash;
 pub mod native_dashboard;
 pub mod native_focus;

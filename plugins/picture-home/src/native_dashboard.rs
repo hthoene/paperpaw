@@ -7,9 +7,14 @@
 //! `native_source` (what is read of the device); this file reads, draws and
 //! hands inputs on through the host.
 //!
-//! Not yet (named steps in `PORTING-7.md`): the picture behind the page (image
-//! slots 36 and 37), the bar drawn in its strip and the hints row, the icons of tools and of the footer, the finger's drag
-//! while editing, and the widgets' updates.
+//! The picture behind the page is the host's (`native_backdrop`,
+//! `native_backdrop_host`): asked for when the screen shows, drawn first and not
+//! while editing, a notice instead of the page while it is made.
+//!
+//! Not yet (named steps in `PORTING-7.md`): the bar drawn in its strip and the
+//! hints row, the icons of tools and of the footer, the finger's drag while
+//! editing, the widgets' updates, and the parts of the picture's recipe the host's
+//! drawing cannot do.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
@@ -18,6 +23,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
+        image::ImageReady,
         snapshot::{self, Snapshot},
         ui::{Compose, Ui, WidgetHandle, WidgetInputKind},
     },
@@ -30,6 +36,8 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_add_screen as add_screen;
+use crate::native_backdrop::{Backdrop, Landed};
+use crate::native_backdrop_host as picture;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
@@ -116,6 +124,8 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// The picture behind the page.
+    backdrop: Backdrop,
 }
 
 impl Dashboard {
@@ -165,6 +175,74 @@ impl Dashboard {
     pub fn shown(&mut self) {
         self.stale = true;
         self.reshow = true;
+    }
+
+    /// Wants the picture the settings ask for: the host is asked to make it unless
+    /// it is held, asked for or given up already, and a picture that is no more
+    /// wanted is given back. `cookie` counts the plugin's requests.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals reading the settings. A
+    /// request the host refuses leaves the page plain, it is no error.
+    pub fn want_picture(&mut self, host: &Host<'_>, cookie: &mut u32) -> Result<(), Error> {
+        let recipe = picture::recipe(host)?;
+        let change = self.backdrop.want(recipe, cookie)?;
+        if let Some(image) = change.release {
+            picture::release(host, image);
+        }
+        if let Some((number, side)) = change.ask {
+            if picture::ask(host, self.backdrop.path(), number, side).is_err() {
+                self.backdrop.refused();
+                return Ok(());
+            }
+            // The notice shows while the host makes the picture.
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Fast)?;
+        }
+        Ok(())
+    }
+
+    /// Whether this screen waits for the answer to request `cookie`.
+    #[must_use]
+    pub fn waits_for(&self, cookie: u32) -> bool {
+        self.backdrop.waits_for(cookie)
+    }
+
+    /// The host's answer to the request for the picture: the page is drawn anew,
+    /// with the whole screen refreshed (the picture's grays), as interface 6 did
+    /// once the picture was made. Where none was made the page stays plain and
+    /// the reader is told why.
+    ///
+    /// # Errors
+    /// Host errors of the redraw.
+    pub fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        let landed = self.backdrop.ready(
+            ready.cookie(),
+            ready.status(),
+            ready.image(),
+            (ready.width(), ready.height()),
+        );
+        match landed {
+            Landed::Ignore(held) => {
+                if let Some(image) = held {
+                    picture::release(host, image);
+                }
+                return Ok(());
+            }
+            Landed::Failed(reason) => {
+                picture::tell(host, reason).ok();
+            }
+            Landed::Ready => {}
+        }
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Full)
+    }
+
+    /// The screen is closed: the picture goes back to the host.
+    pub fn close(&mut self, host: &Host<'_>) {
+        if let Some(image) = self.backdrop.clear().release {
+            picture::release(host, image);
+        }
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -499,6 +577,10 @@ impl Dashboard {
         ui: &Ui,
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
+        if self.backdrop.making() {
+            // Nothing else while the picture is made, as on interface 6.
+            return Self::draw_notice(host, frame);
+        }
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
         let Some(laid) = self.laid.as_ref() else {
@@ -507,6 +589,19 @@ impl Dashboard {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let drawn = self.paint(host, frame, &display, &font, laid);
+        let released = font.release();
+        drawn?;
+        released
+    }
+
+    /// The notice that the picture is being made.
+    fn draw_notice(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let drawn = Style::read(host, &display, &font).and_then(|style| {
+            let screen = (display.display_width(), display.display_height());
+            picture::notice(host, frame, &font, &style, screen)
+        });
         let released = font.release();
         drawn?;
         released
@@ -558,6 +653,12 @@ impl Dashboard {
         {
             ring(&mut above, target.rect, &style)?;
         }
+        // The picture first, not while the page is arranged.
+        if !self.editing
+            && let Some(drawing) = self.backdrop.drawing()?
+        {
+            picture::draw(frame, font, &style, &drawing)?;
+        }
         paint::replay(frame, font, below.iter())?;
         compose_each(
             laid.cells
@@ -577,6 +678,10 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        if self.backdrop.making() {
+            // The page is not on the screen: the host's own keys (back) apply.
+            return Ok(Handled::No);
+        }
         self.ensure(host, ui)?;
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);
