@@ -413,6 +413,31 @@ impl Loader {
     }
 }
 
+/// The device-wide table of handles the plugins' owners share, with `core.ui`
+/// wired at once (before the first plugin loads, so that a host call made while
+/// one loads or declares finds it). `None` (and a warning) where the table or
+/// the store has no room: then no interface-7 plugin loads, or `core.ui` is
+/// absent and the plugin is told so.
+#[cfg(feature = "ppn5")]
+fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
+    use paperpaw_core::native_host::{HostResources, HostWiring};
+    let resources = match HostResources::try_new() {
+        Ok(resources) => resources,
+        Err(_) => {
+            warn!("native: no room for the host's table of handles");
+            return None;
+        }
+    };
+    match resources.wire(HostWiring::new().ui(crate::DEVICE.id)) {
+        Ok(wired) if wired.ui_skipped() => {
+            warn!("native: core.ui not wired (no memory for its store)");
+        }
+        Ok(_) => {}
+        Err(status) => warn!("native: core.ui not wired ({status})"),
+    }
+    Some(resources)
+}
+
 impl CodeLoader for Loader {
     fn load(
         &mut self,
@@ -422,6 +447,34 @@ impl CodeLoader for Loader {
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
         self.load_file(storage, code)
+    }
+
+    /// What interface-7 plugins are served: `text.hyphenate` (the data
+    /// plugins' tables are files on the card) and `core.ui` (the screen stack's
+    /// store, sized for this device; nothing is allocated until a plugin uses it).
+    #[cfg(feature = "ppn5")]
+    fn hyphenation_sink(
+        &mut self,
+        storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::HostWiring;
+        if self.resources.is_none() {
+            self.resources = new_resources();
+        }
+        // `core.ui` was wired when the table of handles was made (before any
+        // plugin loaded); `text.hyphenate` needs the card, which only comes here.
+        let wired = match self
+            .resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+        {
+            Ok(wired) => wired,
+            Err(status) => {
+                warn!("native: text.hyphenate not wired ({status})");
+                return None;
+            }
+        };
+        wired.hyphen().cloned()
     }
 
     fn finish(&mut self, storage: &dyn Storage) {

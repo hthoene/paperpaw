@@ -752,9 +752,11 @@ impl Kernel {
             tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
         );
         if added.is_err() {
+            self.shared.hyphenation.remove_tables(id.as_str());
             let problem = "hyphenation tables left out, no memory for them".into();
             return self.warn(WarningSource::Plugin(id), None, problem);
         }
+        self.feed_hyphenation(Some(&id));
         let told: Vec<String> = self
             .shared
             .hyphenation
@@ -808,6 +810,7 @@ impl Kernel {
         self.shared.data_folders.retain(|(p, _)| p != id);
         self.remove_plugin_fonts(id);
         self.shared.hyphenation.remove_tables(id.as_str());
+        self.feed_hyphenation(Some(id));
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);
