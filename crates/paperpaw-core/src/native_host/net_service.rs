@@ -53,6 +53,7 @@ pub(crate) mod reason {
     pub(crate) const OK: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
     pub(crate) const DNS: u32 = 2;
+    pub(crate) const TLS: u32 = 3;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const TOO_LARGE: u32 = 6;
