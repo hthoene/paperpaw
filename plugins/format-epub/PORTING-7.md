@@ -24,6 +24,10 @@ on each opening.
   factory in `src/lib.rs` (`Box::new(d) as Box<dyn Document>`). The host's factory type is
   `Result<Box<dyn Document>, DocumentError>`, the SDK has no safe fallible box and a plugin crate
   holds no `unsafe`. A sweep skips that site.
+- **Documented residual (SDK):** `Document::links` builds `paperpaw_document::Link`s with `Link::new`, which
+  allocates its strings infallibly (Kernel's type); the sweeps do not call `links`. Where the trait
+  returns an `Option` or a `Vec` (`toc_entry`, `xpointer`, `locate_xpointer`, `page_label`, `fonts`) a
+  refused allocation answers none/empty; the sweeps call all of these.
 - **Documented residual (SDK):** `paperpaw_sdk::ImageFile::open` / `Decoded::open` (crate
   `paperpaw-image`) copy a path with no way to refuse; the picture lookups of this crate call them.
   The sweep leaves allocations made inside `paperpaw_image` be (`in_sdk_image` in

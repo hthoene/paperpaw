@@ -170,9 +170,9 @@ impl XPointer {
     fn node(&self) -> Option<(String, u32)> {
         let (index, char) = self.text?;
         let node = if self.element.is_empty() {
-            alloc::format!("text()[{index}]")
+            fallible::try_format!("text()[{index}]").ok()?
         } else {
-            alloc::format!("{}/text()[{index}]", self.element)
+            fallible::try_format!("{}/text()[{index}]", self.element).ok()?
         };
         Some((node, char))
     }
@@ -210,14 +210,23 @@ fn parse_xpointer(xpointer: &str) -> Option<XPointer> {
         // A position inside an element (`p[3].5`) counts as the element.
         let segment = segment.split('.').next().unwrap_or(segment);
         if segment.contains('[') {
-            segments.push(String::from(segment));
+            fallible::push(&mut segments, fallible::string(segment).ok()?).ok()?;
         } else {
-            segments.push(alloc::format!("{segment}[1]"));
+            fallible::push(&mut segments, fallible::try_format!("{segment}[1]").ok()?).ok()?;
         }
     }
     Some(XPointer {
         section: index.checked_sub(1)?,
-        element: segments.join("/"),
+        element: {
+            let mut element = String::new();
+            for (i, segment) in segments.iter().enumerate() {
+                if i > 0 {
+                    fallible::push_char(&mut element, '/').ok()?;
+                }
+                fallible::push_str(&mut element, segment).ok()?;
+            }
+            element
+        },
         text,
     })
 }
@@ -720,7 +729,7 @@ impl EpubDocument {
     /// they cannot be.
     fn pages_path(&self, storage: &dyn Storage) -> Option<String> {
         self.built(storage).ok()?;
-        Some(alloc::format!("{}/pages.txt", self.cache))
+        fallible::try_format!("{}/pages.txt", self.cache).ok()
     }
 }
 
@@ -815,7 +824,7 @@ impl Document for EpubDocument {
         };
         // Named by its size: decoded anew for a screen that shows it larger.
         // What is in the cache is this book's (see `open_styled`).
-        let base = alloc::format!("{}/cover-{}", self.cache, self.cover_fit.long);
+        let base = fallible::try_format!("{}/cover-{}", self.cache, self.cover_fit.long)?;
         if let Held::Uncleared(e) = self.state.get() {
             return Err(DocumentError::Storage(e));
         }
@@ -854,6 +863,7 @@ impl Document for EpubDocument {
         let (paths, ..) = self.chapter(storage, at.section).ok()?;
         // The block: the last listed at or before `at`.
         let (mut block, mut path) = (0, String::new());
+        let mut no_room = false;
         let _ = cached::lines(storage, &paths.positions, |line| {
             let Some((offset, element)) = position(line) else {
                 return true;
@@ -863,10 +873,10 @@ impl Document for EpubDocument {
             }
             block = offset;
             path.clear();
-            path.push_str(element);
-            true
+            no_room = fallible::push_str(&mut path, element).is_err();
+            !no_room
         });
-        let fragment = alloc::format!("/body/DocFragment[{}]/body", at.section + 1);
+        let fragment = fallible::try_format!("/body/DocFragment[{}]/body", at.section + 1).ok()?;
         // The text node the block's text at `at` comes from.
         let mut found: Option<(u32, String, u32)> = None;
         let _ = cached::lines(storage, &paths.xpointers, |line| {
@@ -876,23 +886,29 @@ impl Document for EpubDocument {
             if offset > at.offset {
                 return false;
             }
-            found = Some((offset, String::from(node), char));
-            true
+            match fallible::string(node) {
+                Ok(node) => found = Some((offset, node, char)),
+                Err(_) => no_room = true,
+            }
+            !no_room
         });
+        if no_room {
+            return None;
+        }
         if let Some((offset, node, char)) =
             found.filter(|(offset, ..)| *offset >= block && at.offset - *offset <= MAX_SPAN)
         {
-            let mut text = alloc::vec![0u8; (at.offset - offset) as usize];
+            let mut text = fallible::zeroed((at.offset - offset) as usize).ok()?;
             let n = storage
                 .read_at(&paths.text, u64::from(offset), &mut text)
                 .ok()?;
-            let chars = String::from_utf8_lossy(&text[..n]).chars().count() as u32;
-            return Some(alloc::format!("{fragment}/{node}.{}", char + chars));
+            let chars = fallible::lossy(&text[..n]).ok()?.chars().count() as u32;
+            return fallible::try_format!("{fragment}/{node}.{}", char + chars).ok();
         }
         if path.is_empty() {
             Some(fragment)
         } else {
-            Some(alloc::format!("{fragment}/{path}"))
+            fallible::try_format!("{fragment}/{path}").ok()
         }
     }
 
@@ -913,7 +929,8 @@ impl Document for EpubDocument {
                 true
             });
             if let Some((offset, chars)) = found {
-                let mut text = alloc::vec![0u8; (chars as usize * 4).min(MAX_SPAN as usize)];
+                let mut text =
+                    fallible::zeroed((chars as usize * 4).min(MAX_SPAN as usize)).ok()?;
                 let n = storage
                     .read_at(&paths.text, u64::from(offset), &mut text)
                     .ok()?;
@@ -948,20 +965,25 @@ impl Document for EpubDocument {
         if !self.styles || self.built(storage).is_err() {
             return Vec::new();
         }
-        package::fonts(storage, &self.cache)
-            .1
-            .into_iter()
-            .map(|f| EmbeddedFont {
-                family: f.family,
-                bold: f.bold,
-                italic: f.italic,
-            })
-            .collect()
+        // None where the heap has no room for the list.
+        let Ok((_, fonts)) = package::fonts(storage, &self.cache) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if out.try_reserve_exact(fonts.len()).is_err() {
+            return Vec::new();
+        }
+        out.extend(fonts.into_iter().map(|f| EmbeddedFont {
+            family: f.family,
+            bold: f.bold,
+            italic: f.italic,
+        }));
+        out
     }
 
     fn font_data(&self, storage: &dyn Storage, index: usize) -> Result<Vec<u8>, DocumentError> {
         self.built(storage)?;
-        let (identifier, fonts) = package::fonts(storage, &self.cache);
+        let (identifier, fonts) = package::fonts(storage, &self.cache)?;
         let font = fonts
             .get(index)
             .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;

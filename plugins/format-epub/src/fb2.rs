@@ -19,7 +19,6 @@
 //! text, so opening a book again does not read the whole file. Zipped
 //! books (`.fb2.zip`) are unpacked into the cache once.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -891,7 +890,7 @@ impl Document for Fb2Document {
         let Some(id) = &self.cover else {
             return Ok(None);
         };
-        let base = format!("{}/cover-{}", self.paths.dir, self.cover_fit.long);
+        let base = fallible::try_format!("{}/cover-{}", self.paths.dir, self.cover_fit.long)?;
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }
@@ -900,7 +899,7 @@ impl Document for Fb2Document {
             storage,
             &self.path,
             self.encoding,
-            &[(id.clone(), cache, self.cover_fit)],
+            &[(fallible::string(id)?, cache, self.cover_fit)],
             &self.paths.dir,
             self.color,
         )?;

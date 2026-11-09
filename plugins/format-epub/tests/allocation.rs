@@ -221,7 +221,33 @@ fn read_doc(doc: &dyn Document, storage: &Host) -> Result<Seen, DocumentError> {
             host(|| blocks.push((section, text, end, image.is_some())));
         }
     }
+    probe(doc, storage)?;
     Ok((host(|| doc.metadata().title.clone()), blocks))
+}
+
+/// What a reader asks besides the text: the contents, labels, places,
+/// fonts and cover. Those that cannot say "no room" answer none then
+/// (not compared); the others answer `OutOfMemory` and nothing else.
+fn probe(doc: &dyn Document, storage: &Host) -> Result<(), DocumentError> {
+    let at = Locator::new(0, 0);
+    for index in 0..doc.toc_len(storage) {
+        let _ = doc.toc_entry(storage, index);
+        let _ = doc.toc_target(storage, index);
+    }
+    let _ = doc.page_label(storage, at);
+    let _ = doc.xpointer(storage, Locator::new(0, 3));
+    let _ = doc.locate_xpointer(storage, "/body/DocFragment[1]/body/p[1]/text().3");
+    let _ = doc.link_target(storage, "#two");
+    let _ = doc.fonts(storage);
+    match doc.font_data(storage, 0) {
+        Ok(_) | Err(DocumentError::OutOfMemory | DocumentError::Malformed(_)) => {}
+        Err(other) => panic!("font_data: {other:?}"),
+    }
+    match doc.cover(storage) {
+        Ok(_) | Err(DocumentError::OutOfMemory) => {}
+        Err(other) => panic!("cover: {other:?}"),
+    }
+    Ok(())
 }
 
 fn sweep(
@@ -270,6 +296,13 @@ fn sweep(
                     complete_chapters(&storage),
                     0,
                     "{name}: allocation {nth} refused: a chapter without its picture is complete"
+                );
+                // Short memory is not the picture's fault: it is never
+                // marked undecodable (a comic has no chapters to check).
+                assert_eq!(
+                    cache_files_ending(&storage, ".bad"),
+                    0,
+                    "{name}: allocation {nth} refused: a picture is marked undecodable"
                 );
                 short += 1;
             }
@@ -381,6 +414,32 @@ fn pictures_left_out(seen: &Seen, clean: &Seen) -> bool {
             .iter()
             .zip(&clean.1)
             .all(|(a, b)| a == b || (!a.3 && b.3 && a.0 == b.0 && a.2 == b.2))
+}
+
+/// How many files of the cache of `storage` have names ending in `suffix`.
+fn cache_files_ending(storage: &Host, suffix: &str) -> usize {
+    fn walk(storage: &Host, dir: &str, suffix: &str) -> usize {
+        let mut found = Vec::new();
+        let _ = storage.list(dir, &mut |entry| {
+            found.push((entry.name.to_string(), entry.is_dir));
+        });
+        found
+            .iter()
+            .map(|(name, is_dir)| {
+                let path = if dir.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{dir}/{name}")
+                };
+                if *is_dir {
+                    walk(storage, &path, suffix)
+                } else {
+                    usize::from(name.ends_with(suffix))
+                }
+            })
+            .sum()
+    }
+    walk(storage, "", suffix)
 }
 
 /// How many chapters the cache of `storage` holds marked complete.
@@ -553,7 +612,11 @@ fn open_comic(storage: &Host) -> Result<Box<dyn Document>, DocumentError> {
 
 #[test]
 fn a_refused_allocation_in_a_comic_is_out_of_memory() {
-    sweep("comic", "c.cbz", &comic_fixture(), &[], true, &open_comic);
+    // A comic caches no chapter, so `complete_chapters` is 0 by nature:
+    // what is checked is that pictures do fall back to their text and are
+    // never marked undecodable.
+    let short = sweep("comic", "c.cbz", &comic_fixture(), &[], true, &open_comic);
+    assert!(short > 0, "no picture was left to its alternative text");
 }
 
 /// The files named `name` of the cache of `storage`.

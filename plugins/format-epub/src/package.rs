@@ -34,7 +34,9 @@ use crate::css;
 use crate::fallible;
 use crate::obfuscation::Method;
 
+mod fonts;
 mod nav;
+pub(crate) use fonts::fonts;
 use nav::{read_nav, read_ncx};
 
 /// Bump when the cache format or the conversion changes.
@@ -495,49 +497,6 @@ fn write_fonts(
     Ok(())
 }
 
-/// An embedded font as listed in `fonts.txt`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FontEntry {
-    pub family: u8,
-    pub bold: bool,
-    pub italic: bool,
-    pub method: Method,
-    pub path: String,
-}
-
-/// The book's identifier and embedded fonts from the cache.
-pub(crate) fn fonts(storage: &dyn Storage, cache: &str) -> (String, Vec<FontEntry>) {
-    let Ok(file) = path(cache, "fonts.txt") else {
-        return (String::new(), Vec::new());
-    };
-    let Ok(data) = paperpaw_sdk::read_file(storage, &file, 64 * 1024) else {
-        return (String::new(), Vec::new());
-    };
-    let text = String::from_utf8_lossy(&data);
-    let mut identifier = String::new();
-    let mut entries = Vec::new();
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split('\t').collect();
-        match fields.as_slice() {
-            ["id", id] => identifier = String::from(*id),
-            [family, bold, italic, method, path] => {
-                let Ok(family) = family.parse() else {
-                    continue;
-                };
-                entries.push(FontEntry {
-                    family,
-                    bold: *bold == "1",
-                    italic: *italic == "1",
-                    method: Method::from_code(method.parse().unwrap_or(0)),
-                    path: String::from(*path),
-                });
-            }
-            _ => {}
-        }
-    }
-    (identifier, entries)
-}
-
 /// The book's stylesheet rules from the cache; an error where the heap
 /// has no room for them, as a chapter converted without them would be
 /// kept so.
@@ -566,7 +525,7 @@ pub(crate) fn toc_entry(storage: &dyn Storage, cache: &str, index: u32) -> Optio
     let section = u32::from_le_bytes([header[1], header[2], header[3], header[4]]);
     let fragment_len = usize::from(u16::from_le_bytes([header[5], header[6]]));
     let title_len = usize::from(u16::from_le_bytes([header[7], header[8]]));
-    let mut text = alloc::vec![0u8; fragment_len + title_len];
+    let mut text = fallible::zeroed(fragment_len + title_len).ok()?;
     let mut filled = 0;
     while filled < text.len() {
         let n = storage
@@ -583,10 +542,14 @@ pub(crate) fn toc_entry(storage: &dyn Storage, cache: &str, index: u32) -> Optio
     }
     let (fragment, title) = text.split_at(fragment_len);
     Some(RawToc {
-        title: String::from_utf8_lossy(title).into_owned(),
+        title: fallible::string(&fallible::lossy(title).ok()?).ok()?,
         level: header[0],
         section,
-        fragment: (fragment_len > 0).then(|| String::from_utf8_lossy(fragment).into_owned()),
+        fragment: if fragment_len > 0 {
+            Some(fallible::string(&fallible::lossy(fragment).ok()?).ok()?)
+        } else {
+            None
+        },
     })
 }
 
@@ -1435,7 +1398,12 @@ mod tests {
         full.series = Some(" padded ".into());
         full.series_index = Some("2".into());
         full.authors = alloc::vec!["Ann".into(), "Bob\tTab".into(), String::new()];
-        full.subjects = alloc::vec!["one".into(), "two\nlines".into()];
+        full.subjects = alloc::vec![
+            "one".into(),
+            "two\nlines".into(),
+            "\"starts with a quote".into(),
+            "carriage\rreturn".into(),
+        ];
         full.description = Some("It begins.\\ Then more.".into());
         full.direction = PageProgression::RightToLeft;
         for (metadata, cover) in [(Metadata::default(), None), (full, Some("OEBPS/cover.png"))] {
