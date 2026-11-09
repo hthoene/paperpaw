@@ -1,6 +1,6 @@
-# Interface 7 family ASY: deferred and background work (draft)
+# Interface 7 family ASY: deferred and background work
 
-Contract draft for #228 (assignment #1088), reviewed with `sockets.md` (SOCK). Items marked [D] are
+Contract for #228 (assignment #1088), reviewed with `sockets.md` (SOCK). Items marked [D] are
 proposed decisions, [Q] open questions for Plugin, Firmware and Senior. Inputs: an audit of
 interface 6's work queue (the SDK's `work.rs`, `builtin/events.rs`; the kernel's `work.rs`,
 `work/runs.rs`, `network.rs`, `commands.rs`; the X4 shell's `firmware.rs`, `power.rs` and
@@ -8,8 +8,8 @@ interface 6's work queue (the SDK's `work.rs`, `builtin/events.rs`; the kernel's
 0025 (power saving), ADR 0030 (real-time screens), `device.md` (power levels, `dev_power`,
 `go_online`, the network manager), `network.md` (the `later` flag, power ends), `core-events.md`
 (the three work events named for ASY, the held-event store, lazy start), the usage-clock proposal
-(the monotonic clock), and `stages-services.md` (D4). Doc-only; records follow once approved. Tags
-are proposed and numbered without gaps at the records step.
+(the monotonic clock), and `stages-services.md` (D4).
+Records: `abi/services/core.work@1.def`.
 
 ## 0. Scope and principles
 
@@ -138,6 +138,18 @@ record.
   input, `network.md` 3.2) and keep the radio on until they end. The run ends when its callback has
   returned and its last request and socket have ended; its sockets must have an idle time
   (`sockets.md` 2.1). A work with `every_ms` is due again only after its run ended.
+- [D] **A resource counts until its end is told** (Senior, #681 R1). A request, socket or
+  broadcast of a run stays counted until its last event (99; 106 `closed` or `failed`; 107 `done`
+  or `failed`) has been delivered and that callback has returned, or was dropped because the
+  plugin stopped. Every event of a run's resource is delivered inside the run, so what the plugin
+  starts there (a retry from `http_done`) belongs to the same run: background, held by saving, and
+  under the same `RUN_MAX_MS` counted from the first `work_due`, never restarted. Once the 10
+  minutes have passed, the run's end events are still delivered inside it, and what the plugin
+  starts in them ends at once with reason 14 (SOCK 27), so a run cannot outlive its limit. The
+  host waits for those end events at most `RUN_END_GRACE_MS` (30,000) after the limit; then the
+  run is over whatever it still counts (a plugin that never takes its events cannot hold the radio
+  on). An end event delivered later is still marked with its ended run: what the plugin starts in
+  it ends at once with reason 14 (SOCK 27), never as foreground use.
 - [D] **At most 2 runs of one plugin at once on devices of the small memory class (the X4), 8 on
   others** (`RUNS_PER_PLUGIN`). A work of that plugin that comes due while it has that many runs
   open waits, due, in due order and is never dropped: its `work_due` comes when one of the
@@ -162,6 +174,12 @@ record.
 | 103 | `event.work_due` | `now_ms: u64`, `token: u32`, `why: u32`, `key: str 64` |
 | 104 | `event.work_refused` | `now_ms: u64`, `token: u32`, `reason: u32`, `key: str 64` |
 | 105 | `event.work_allowed` | `now_ms: u64` |
+
+- [D] **Subscriptions** (draft 30): the three go only to the plugin whose work it is, and only
+  when it subscribed to them with `registration.event`, as every event (`network.md` 4 for 99).
+  `declare` without a subscription to 103 is `ERR_STATE`: its work could never be told it is due.
+  104 and 105 are the plugin's choice: one that did not subscribe to 104 finds a refused work gone
+  from `state` (op 3), one without 105 tries again at its next work or event.
 
 ### 3.1 `event.work_due`
 
@@ -197,7 +215,7 @@ record.
 | An unknown `needs` bit, `moments` bit or `flags` bit | `ERR_UNSUPPORTED` |
 | `network` without `uses.network`, or the user turned the plugin's network off | `ERR_DENIED` |
 | More than 8 (X4) or 32 works per plugin, or the device's 32 (X4) or 256 | `ERR_FULL` |
-| Called outside a callback; a UI question in a run's callback | `ERR_STATE` |
+| Called outside a callback; a UI question in a run's callback; `declare` without a subscription to 103 | `ERR_STATE` |
 | No memory for a new work entry (1.1, section 5) | `ERR_NO_MEMORY` |
 
 ## 5. Memory

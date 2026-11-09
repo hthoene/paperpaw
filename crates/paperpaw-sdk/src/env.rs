@@ -981,6 +981,15 @@ impl<'a> Env<'a> {
             .map_or_else(alloc::vec::Vec::new, |maker| maker.slot_screens(slot))
     }
 
+    /// As [`Env::slot_screens`], without a list: `visit` is called with each
+    /// screen in that order until it returns `false` (nothing allocated
+    /// where the kernel made this `Env`).
+    pub fn each_slot_screen(&self, slot: &str, visit: &mut dyn FnMut(&'a crate::Id) -> bool) {
+        if let Some(maker) = self.screen_maker {
+            maker.each_slot_screen(slot, visit);
+        }
+    }
+
     /// The screen the user chose for slot `slot` (`[slots]`, see
     /// [`Command::BindSlot`](crate::Command::BindSlot)), where it is
     /// there; `None` for automatic, the plugins' choice.

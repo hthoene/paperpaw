@@ -118,7 +118,10 @@ impl Kernel {
     /// work waits for a network ([`events::NETWORK_WANTED`]) or that
     /// nothing uses it any more ([`events::NETWORK_IDLE`]).
     pub(crate) fn check_network(&mut self) {
-        let work = self.network_work_waiting();
+        // What `core.net` and `core.sockets` want (and a wish of the work
+        // scheduler) counts as work that waits where no network is up.
+        let (native_wants, native_live) = self.native_demand();
+        let work = self.network_work_waiting() || native_wants;
         let Some(wifi) = &mut self.shared.wifi else {
             return;
         };
@@ -134,7 +137,8 @@ impl Kernel {
         // Also once waiting work failed (`fail_waiting_network`): nothing
         // wants the radio then.
         wifi.wanted = self.io.network_waiting.is_some();
-        let busy = self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any();
+        let busy =
+            self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
             self.output.commands.push(events::NETWORK_IDLE.emit(()));
@@ -454,7 +458,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         if let Some(text) = text {
-            self.shared.clipboard = clipped(&text);
+            self.shared.clipboard = crate::commands::clipped(&text);
         }
         for (reply, params) in self.io.clipboard.answered() {
             self.reply_clipboard(reply, params);

@@ -42,6 +42,7 @@ pub mod style;
 pub mod text;
 pub mod uitext;
 pub mod widget;
+pub mod window;
 
 pub use dialog::Dialog;
 pub use focus::{ListFocus, ListInput, Step};
@@ -51,3 +52,4 @@ pub use messages::Messages;
 pub use paint::{Page, Paint};
 pub use screens::Screens;
 pub use style::Style;
+pub use window::{RowSource, WindowList};

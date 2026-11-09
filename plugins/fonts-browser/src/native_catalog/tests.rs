@@ -276,3 +276,34 @@ fn fonts_over_the_caps_are_not_offered() {
     assert_eq!(read(&json, true).len(), 1);
     assert_eq!(read(&json, false).len(), 1);
 }
+
+#[test]
+fn a_catalog_in_a_file_is_read_as_the_text_is() {
+    let fonts: Vec<String> = (0..40).map(|n| font(&format!("f{n}"), 2, true)).collect();
+    let json = catalog(&fonts);
+    assert!(json.len() > 4096, "more than one piece");
+    let storage = MemoryStorage::new().with("catalog.json", json.clone());
+    for outlines in [false, true] {
+        let from_file = Catalog::read_file(BASE, outlines, &storage, "catalog.json")
+            .unwrap()
+            .unwrap();
+        assert_eq!(ported(&from_file), ported(&read(&json, outlines)));
+    }
+    // No file is no catalog; a file that is no catalog is none either.
+    assert_eq!(
+        Catalog::read_file(BASE, false, &storage, "none.json").unwrap(),
+        None
+    );
+    let storage = MemoryStorage::new().with("catalog.json", "not json");
+    assert_eq!(
+        Catalog::read_file(BASE, false, &storage, "catalog.json").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn reading_the_catalog_file_may_be_refused_at_every_allocation() {
+    let json = catalog(&[font("a", 2, false), font("b", 2, false)]);
+    let storage = MemoryStorage::new().with("catalog.json", json);
+    sweep(|| Catalog::read_file(BASE, false, &storage, "catalog.json").map(|f| f.map(|f| f.len())));
+}
