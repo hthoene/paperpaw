@@ -279,6 +279,8 @@ pub struct Kernel {
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
+    /// When native plugins last got `event.tick` (see `native_host::native_tick`).
+    native_tick_at: Option<Instant>,
     /// When the user last pressed, touched or drew (`Kernel::handle`) and
     /// nothing else: not a page turned by itself, not an open asked from
     /// outside. The "no silent network change" window of the DEV commands
@@ -880,6 +882,7 @@ impl Kernel {
         // Times and deadlines come due here; jobs step only here, never
         // while input waits.
         self.works.ticking();
+        self.native_tick();
         self.finish()
     }
 

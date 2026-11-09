@@ -1,7 +1,7 @@
 //! Recipient restrictions are inherited from the kernel's existing router.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
-use alloc::rc::Rc;
+use alloc::{rc::Rc, vec::Vec};
 use core::cell::Cell;
 use paperpaw_sdk::{
     Cx, Handled, Screen, ScreenSpec, Version,
@@ -261,4 +261,92 @@ fn reply_lengths_are_checked_before_any_reply_can_be_read() {
     assert_eq!(reply_length(0, 8), Ok(0));
     assert_eq!(reply_length(8, 8), Ok(8));
     assert_eq!(reply_length(9, 8), Err(DropReason::Plugin(ERR_INVALID)));
+}
+
+struct TickInstance {
+    scope: Pin<Box<EnvironmentScope>>,
+    ticks: Rc<Cell<Vec<u64>>>,
+}
+impl FlatInstance for TickInstance {
+    fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
+        visit(FlatRegistration::Event {
+            event_tag: crate::native_host::registrations::EVENT_TICK_TAG,
+            index: 0,
+        });
+        // Registered for another event too: it gets no tick.
+        visit(FlatRegistration::Event {
+            event_tag: 32,
+            index: 1,
+        });
+    }
+    fn environment(&self) -> Pin<&EnvironmentScope> {
+        self.scope.as_ref()
+    }
+    fn dispatch_event(
+        &self,
+        index: usize,
+        bytes: &[u8],
+        _: &mut [u8],
+        _: &DispatchDepth,
+    ) -> Result<i32, Error> {
+        let mut seen = self.ticks.take();
+        if index == 0 {
+            seen.push(crate::native_host::registrations::tick_decode(bytes).unwrap());
+        } else {
+            seen.push(u64::MAX);
+        }
+        self.ticks.set(seen);
+        Ok(0)
+    }
+    fn event_dropped(&self, _: u32, why: DropReason) {
+        panic!("unexpected drop {why:?}");
+    }
+}
+
+/// Native plugins registered for `event.tick` get one tick a minute while the
+/// kernel is ticked: the first call starts the minute, nothing comes early,
+/// a long sleep gives one tick, and the plugin's other event registrations
+/// get none.
+#[test]
+fn a_native_plugin_gets_one_tick_a_minute() {
+    let ticks = Rc::new(Cell::new(Vec::new()));
+    let seen = Rc::clone(&ticks);
+    let mut kernel = test_loader::load(
+        crate::Kernel::builder(crate::tests::DEVICE),
+        &["flat"],
+        move |code| {
+            Ok(Box::new(
+                FlatPlugin::new(
+                    Manifest::new(Id::new_static("flat"), "Flat", Version::new(1, 0, 0)),
+                    Box::new(TickInstance {
+                        scope: Box::pin(EnvironmentScope::new()),
+                        ticks: Rc::clone(&seen),
+                    }),
+                    crate::native_host::flat::FlatDepth::try_new().unwrap(),
+                    code.host,
+                )
+                .unwrap(),
+            ))
+        },
+    );
+    let log = |kernel: &mut crate::Kernel, at: u64| {
+        kernel.tick(paperpaw_platform::Instant(at));
+        let seen = ticks.take();
+        ticks.set(seen.clone());
+        seen
+    };
+    assert!(
+        log(&mut kernel, 1_000).is_empty(),
+        "the first call starts the minute"
+    );
+    assert!(log(&mut kernel, 60_999).is_empty(), "not a minute yet");
+    assert_eq!(log(&mut kernel, 61_000), [61_000]);
+    assert_eq!(
+        log(&mut kernel, 100_000),
+        [61_000],
+        "none before the next minute"
+    );
+    // A device that slept for an hour gets one tick when it wakes.
+    assert_eq!(log(&mut kernel, 3_700_000), [61_000, 3_700_000]);
+    assert_eq!(log(&mut kernel, 3_700_500), [61_000, 3_700_000]);
 }
