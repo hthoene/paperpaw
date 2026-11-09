@@ -71,6 +71,8 @@ pub(crate) struct DeclKey {
 }
 
 const KIND_COUNT: usize = 31;
+/// The leading kinds with a per-kind record limit (`limits` in `charge`).
+const LIMITED_KINDS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -266,8 +268,9 @@ pub(crate) struct PendingDeclarations {
     index_bytes: usize,
     image_entries: usize,
     /// Records of owned (not image-backed) batches, by kind, for the per-kind
-    /// limits.
-    owned_counts: [u16; KIND_COUNT],
+    /// limits: only the first kinds have one (the rest share the aggregate
+    /// byte cap), so the table does not grow as kinds are added.
+    owned_counts: [u16; LIMITED_KINDS],
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
@@ -308,7 +311,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         }
     }
 
@@ -328,7 +331,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         })
     }
 
