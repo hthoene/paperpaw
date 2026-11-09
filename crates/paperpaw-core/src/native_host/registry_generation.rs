@@ -27,6 +27,23 @@ impl RegistryGeneration {
     }
 }
 
+/// Bumps the generation when dropped: held by a change that goes on after
+/// its first step (a plugin's code runs in between), so a reader never sees
+/// the new generation with the old lists.
+pub(crate) struct BumpOnExit(alloc::rc::Rc<RegistryGeneration>);
+
+impl BumpOnExit {
+    pub(crate) fn new(generation: &alloc::rc::Rc<RegistryGeneration>) -> Self {
+        Self(alloc::rc::Rc::clone(generation))
+    }
+}
+
+impl Drop for BumpOnExit {
+    fn drop(&mut self) {
+        self.0.bump();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +57,19 @@ mod tests {
         generation.0.set(u32::MAX);
         generation.bump();
         assert_eq!(generation.get(), 1);
+    }
+
+    #[test]
+    fn a_change_bumps_on_every_way_out() {
+        let generation = alloc::rc::Rc::new(RegistryGeneration::new());
+        let change = |fail: bool| -> Result<(), ()> {
+            let _bump = BumpOnExit::new(&generation);
+            if fail { Err(()) } else { Ok(()) }
+        };
+        assert_eq!(generation.get(), 1);
+        let _ = change(false);
+        assert_eq!(generation.get(), 2);
+        let _ = change(true);
+        assert_eq!(generation.get(), 3);
     }
 }

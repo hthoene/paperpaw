@@ -534,14 +534,14 @@ fn a_row_that_cannot_be_framed_is_skipped_by_every_walk() {
     assert_eq!(end.total as usize, page_rows.len());
     assert_eq!((end.flags, end.next), (1, end.total));
     // Asking for the one plugin that does not fit is an error, not a cut id.
-    assert!(
+    assert_eq!(
         call(
             &kernel,
             schema::OP_PLUGIN,
             &key(&format!("long-{}", "x".repeat(70))),
             4096
-        )
-        .is_err()
+        ),
+        Err(ERR_NOT_FOUND)
     );
 }
 

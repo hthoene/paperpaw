@@ -141,6 +141,11 @@ fn detail(
     let out = out.get_mut(..room).ok_or(ERR_INVALID)?;
     let mut used = 0;
     view.detail(op.id, key, asker, &mut |row| {
+        // A row that cannot be framed (a plugin id past its field) is not
+        // listed by the walks either: as if it were not there.
+        if row.framed_len().is_err() {
+            return Err(ERR_NOT_FOUND);
+        }
         let rest = out.get_mut(used..).ok_or(ERR_INVALID)?;
         used += row.encode(rest)?;
         Ok(())

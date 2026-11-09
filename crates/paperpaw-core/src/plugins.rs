@@ -232,7 +232,10 @@ impl Kernel {
             });
         }
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
-        self.shared.registry_generation.bump();
+        // After the last change, however this goes on.
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         // A sealed action that came after handlers in its place: they go.
         for action in self.shared.actions.drop_sealed_overrides() {
             self.warn_runtime(format!("`{action}` is sealed; not overridden"));
@@ -525,7 +528,9 @@ impl Kernel {
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
-        self.shared.registry_generation.bump();
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         let join = |ids: &[Id]| ids.iter().map(Id::as_str).collect::<Vec<_>>().join(", ");
         let value = entries.as_deref().map(join);
         let listed = entries.as_deref().unwrap_or_default();
@@ -814,6 +819,9 @@ impl Kernel {
     /// offered.
     pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
         let native_key = self.shared.native_instances.find(id.as_str());
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         let replacement = native_key.and_then(|key| self.begin_native_unload(key, id));
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());

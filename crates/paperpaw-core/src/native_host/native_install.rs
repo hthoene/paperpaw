@@ -251,7 +251,9 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        self.shared.registry_generation.bump();
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -492,7 +494,9 @@ impl crate::Kernel {
         resources: super::native_resources::Resources,
     ) -> Result<(), RegisterError> {
         self.check_resources(&resources)?;
-        self.shared.registry_generation.bump();
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));
