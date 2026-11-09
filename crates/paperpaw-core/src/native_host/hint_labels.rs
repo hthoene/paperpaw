@@ -9,6 +9,13 @@
 //! at most [`MAX_ACTIONS`] actions per instance) and its owned copy applied
 //! after the callback, into room reserved when it was checked, so the
 //! application cannot fail. Nothing here calls plugin code.
+//!
+//! **Memory.** Each label is charged to the submitter as
+//! `action + words + 4` bytes (`docs/abi/ui.md` section 3), summed over all the
+//! open instances of one plugin, against [`label_budget`]: a label over it is
+//! `ERR_NO_MEMORY` and the earlier labels stay. The charge is derived from
+//! the labels held, so replacing, clearing, an instance closing and a plugin
+//! stopping (its instances leave the stack) release it with the labels.
 use alloc::{boxed::Box, vec::Vec};
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
@@ -45,6 +52,24 @@ pub(crate) fn pinned(action: &str) -> bool {
     PINNED.contains(&action) || action == actions::BACK.as_str()
 }
 
+/// What one label costs beyond its action id: the host's bookkeeping per label
+/// (`docs/abi/ui.md` section 3: `128 + 64 + 4` at most).
+const LABEL_OVERHEAD: usize = 4;
+
+/// Most bytes of labels one plugin holds over all its open instances: three
+/// instances of the per-instance bound (`8 * (128 + 64 + 4)`) on the small
+/// class (the X4), twelve elsewhere. A stand-in until the plugin's own heap
+/// budget (`abi/heap-word.md` section 4, frame-owner charging) exists in core:
+/// then this is the one function that reads it instead.
+pub(crate) const fn label_budget(small: bool) -> usize {
+    const PER_INSTANCE: usize = MAX_ACTIONS * (ACTION_MAX + LABEL_MAX + LABEL_OVERHEAD);
+    if small {
+        3 * PER_INSTANCE
+    } else {
+        12 * PER_INSTANCE
+    }
+}
+
 /// What a label shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Shown {
@@ -58,9 +83,29 @@ enum Shown {
 pub(crate) struct HintSet {
     /// The screen instance (`ScreenKey` serial) it is for.
     pub(crate) instance: u32,
+    /// The plugin that submitted it, whom it is charged to.
+    owner: Box<str>,
     action: Box<str>,
     /// `None`: the action's usual name again (kind 0).
     shown: Option<Shown>,
+}
+
+impl HintSet {
+    /// Bytes charged for the label this keeps (0 for a removal).
+    fn charge(&self) -> usize {
+        self.shown
+            .as_ref()
+            .map_or(0, |shown| charge_of(&self.action, shown))
+    }
+}
+
+/// Bytes one held label is charged: its action id, the words, the overhead.
+fn charge_of(action: &str, shown: &Shown) -> usize {
+    let words = match shown {
+        Shown::Words(text) => text.len(),
+        Shown::Icon(_) | Shown::Hidden => 0,
+    };
+    action.len() + words + LABEL_OVERHEAD
 }
 
 /// The icon a label names: a host icon (`paperpaw_sdk::icons`), else nothing.
@@ -93,7 +138,13 @@ pub(crate) fn check(action: &str, kind: u32, label: &str) -> Result<(), i32> {
 ///
 /// # Errors
 /// What [`check`] says; `ERR_NO_MEMORY`.
-pub(crate) fn make(instance: u32, action: &str, kind: u32, label: &str) -> Result<HintSet, i32> {
+pub(crate) fn make(
+    owner: &str,
+    instance: u32,
+    action: &str,
+    kind: u32,
+    label: &str,
+) -> Result<HintSet, i32> {
     check(action, kind, label)?;
     let shown = match kind {
         DEFAULT => None,
@@ -103,6 +154,7 @@ pub(crate) fn make(instance: u32, action: &str, kind: u32, label: &str) -> Resul
     };
     Ok(HintSet {
         instance,
+        owner: copy(owner)?,
         action: copy(action)?,
         shown,
     })
@@ -120,70 +172,110 @@ fn copy(text: &str) -> Result<Box<str>, i32> {
 /// One instance's labels: `(action, what it shows)`, at most 8.
 type Labels = Vec<(Box<str>, Shown)>;
 
+/// One open instance's labels and the plugin they are charged to.
+#[derive(Debug)]
+struct Held {
+    instance: u32,
+    owner: Box<str>,
+    labels: Labels,
+}
+
+impl Held {
+    fn charged(&self) -> usize {
+        self.labels
+            .iter()
+            .map(|(action, shown)| charge_of(action, shown))
+            .sum()
+    }
+}
+
 /// The labels of the open instances.
 #[derive(Debug, Default)]
 pub(crate) struct HintLabels {
-    /// `(instance, its labels)`: at most one entry per instance on the stack.
-    by_instance: Vec<(u32, Labels)>,
+    /// At most one entry per instance on the stack.
+    by_instance: Vec<Held>,
 }
 
 impl HintLabels {
+    fn of(&self, instance: u32) -> Option<&Held> {
+        self.by_instance
+            .iter()
+            .find(|held| held.instance == instance)
+    }
+
     /// How many labels `instance` has room for without allocating.
     #[cfg(test)]
     fn room(&self, instance: u32) -> usize {
-        self.by_instance
-            .iter()
-            .find(|(open, _)| *open == instance)
-            .map_or(0, |(_, labels)| labels.capacity())
+        self.of(instance).map_or(0, |held| held.labels.capacity())
     }
 
     /// How many actions `instance` relabels now.
     #[cfg(test)]
     fn count(&self, instance: u32) -> usize {
-        self.by_instance
-            .iter()
-            .find(|(open, _)| *open == instance)
-            .map_or(0, |(_, labels)| labels.len())
+        self.of(instance).map_or(0, |held| held.labels.len())
     }
 
-    /// Whether the action `action` (`removes`: kind 0) fits for `instance`
-    /// after the `staged` sets of this callback: at most [`MAX_ACTIONS`]
-    /// distinct actions, counting what it relabels already; a removal frees
-    /// a place.
+    /// Bytes charged to the plugin `owner` for the labels it holds now.
+    #[cfg(test)]
+    pub(crate) fn charged(&self, owner: &str) -> usize {
+        self.by_instance
+            .iter()
+            .filter(|held| &*held.owner == owner)
+            .map(Held::charged)
+            .sum()
+    }
+
+    /// Whether `set` (`shown` none: a removal) fits for its instance after the
+    /// `staged` sets of this callback: at most [`MAX_ACTIONS`] distinct
+    /// actions, counting what it relabels already (a removal frees a place),
+    /// and the labels of all the owner's instances within `budget` bytes.
     ///
     /// # Errors
-    /// `ERR_NO_SPACE` for a ninth action, `ERR_NO_MEMORY`.
+    /// `ERR_NO_SPACE` for a ninth action; `ERR_NO_MEMORY` over the budget (the
+    /// labels held stay) or when the check itself finds no room.
     pub(crate) fn admits(
         &self,
-        instance: u32,
+        set: &HintSet,
         staged: &[HintSet],
-        action: &str,
-        removes: bool,
+        budget: usize,
     ) -> Result<(), i32> {
-        let mut names: Vec<&str> = Vec::new();
+        // `(action, bytes charged)` of this instance after everything staged.
+        let mut names: Vec<(&str, usize)> = Vec::new();
         names
             .try_reserve(MAX_ACTIONS + staged.len() + 1)
             .map_err(|_| ERR_NO_MEMORY)?;
-        if let Some((_, held)) = self.by_instance.iter().find(|(open, _)| *open == instance) {
-            names.extend(held.iter().map(|(name, _)| &**name));
+        if let Some(held) = self.of(set.instance) {
+            names.extend(
+                held.labels
+                    .iter()
+                    .map(|(name, shown)| (&**name, charge_of(name, shown))),
+            );
         }
         let later = staged
             .iter()
-            .filter(|set| set.instance == instance)
-            .map(|set| (&*set.action, set.shown.is_none()))
-            .chain(core::iter::once((action, removes)));
-        for (name, removes) in later {
-            if removes {
-                names.retain(|held| *held != name);
-            } else if !names.contains(&name) {
-                names.push(name);
+            .filter(|staged| staged.instance == set.instance)
+            .chain(core::iter::once(set));
+        for later in later {
+            let name = &*later.action;
+            names.retain(|(held, _)| *held != name);
+            if later.shown.is_some() {
+                names.push((name, later.charge()));
             }
         }
         if names.len() > MAX_ACTIONS {
-            Err(ERR_NO_SPACE)
-        } else {
-            Ok(())
+            return Err(ERR_NO_SPACE);
         }
+        let others: usize = self
+            .by_instance
+            .iter()
+            .filter(|held| held.instance != set.instance && held.owner == set.owner)
+            .map(Held::charged)
+            .sum();
+        let mine: usize = names.iter().map(|(_, bytes)| bytes).sum();
+        if others.saturating_add(mine) > budget {
+            return Err(ERR_NO_MEMORY);
+        }
+        Ok(())
     }
 
     /// Room for `sets` taken ahead (so [`Self::apply`] allocates nothing),
@@ -199,16 +291,20 @@ impl HintLabels {
             let at = match self
                 .by_instance
                 .iter()
-                .position(|(open, _)| *open == set.instance)
+                .position(|held| held.instance == set.instance)
             {
                 Some(at) => at,
                 None => {
-                    self.by_instance.push((set.instance, Vec::new()));
+                    self.by_instance.push(Held {
+                        instance: set.instance,
+                        owner: copy(&set.owner)?,
+                        labels: Vec::new(),
+                    });
                     self.by_instance.len() - 1
                 }
             };
             // Up to the cap: a batch may add several actions for one instance.
-            let labels = &mut self.by_instance[at].1;
+            let labels = &mut self.by_instance[at].labels;
             labels
                 .try_reserve_exact(MAX_ACTIONS.saturating_sub(labels.len()))
                 .map_err(|_| ERR_NO_MEMORY)?;
@@ -227,11 +323,11 @@ impl HintLabels {
             let Some(at) = self
                 .by_instance
                 .iter()
-                .position(|(open, _)| *open == set.instance)
+                .position(|held| held.instance == set.instance)
             else {
                 continue;
             };
-            let labels = &mut self.by_instance[at].1;
+            let labels = &mut self.by_instance[at].labels;
             let place = labels.iter().position(|(held, _)| *held == set.action);
             match (place, set.shown) {
                 (Some(place), Some(shown)) => labels[place].1 = shown,
@@ -245,16 +341,16 @@ impl HintLabels {
                 _ => {}
             }
         }
-        self.by_instance.retain(|(_, labels)| !labels.is_empty());
+        self.by_instance.retain(|held| !held.labels.is_empty());
     }
 
     /// What `instance` shows for `action`, if it relabels it.
     pub(crate) fn hint(&self, instance: u32, action: &str) -> Option<Hint> {
-        let (_, labels) = self
-            .by_instance
+        let (_, shown) = self
+            .of(instance)?
+            .labels
             .iter()
-            .find(|(open, _)| *open == instance)?;
-        let (_, shown) = labels.iter().find(|(held, _)| &**held == action)?;
+            .find(|(held, _)| &**held == action)?;
         Some(match shown {
             Shown::Words(text) => {
                 // A refusing heap shows the screen's own hint instead.
@@ -268,9 +364,10 @@ impl HintLabels {
         })
     }
 
-    /// The stack changed: labels of instances no longer on it go.
+    /// The stack changed: labels of instances no longer on it go, and with
+    /// them the charge of a plugin that stopped (its instances left the stack).
     pub(crate) fn retain_open(&mut self, open: impl Fn(u32) -> bool) {
-        self.by_instance.retain(|(instance, _)| open(*instance));
+        self.by_instance.retain(|held| open(held.instance));
     }
 
     /// Whether any label is kept (tests and gauges).

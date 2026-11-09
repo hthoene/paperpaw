@@ -167,3 +167,40 @@ fn a_labels_table_that_cannot_grow_refuses_the_batch_with_no_memory() {
     drop(held);
     assert_eq!(submit(&mut stage, &[hint("probe.go", 1, "Go")]), OK);
 }
+
+#[test]
+fn labels_over_the_plugins_budget_are_no_memory_and_the_earlier_ones_stay() {
+    use crate::native_host::hint_labels::{label_budget, make};
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("probe");
+    let labels = RefCell::new(HintLabels::default());
+    // The plugin's other instances hold the whole budget of the test device's
+    // class: twelve instances of eight labels of the greatest size.
+    let small = crate::native_host::ui_store::is_x4(env.device().memory);
+    let instances = if small { 3 } else { 12 };
+    assert_eq!(label_budget(small), instances * 8 * (128 + 64 + 4));
+    let words = "w".repeat(64);
+    let mut sets = Vec::new();
+    for instance in 0..instances {
+        for n in 0..8 {
+            let action = alloc::format!("probe.{}{}", "a".repeat(121), n);
+            assert_eq!(action.len(), 128);
+            sets.push(make("probe", 100 + instance as u32, &action, 1, &words).unwrap());
+        }
+    }
+    labels.borrow_mut().reserve(&sets).unwrap();
+    labels.borrow_mut().apply(sets);
+    let held = labels.borrow().charged("probe");
+    assert_eq!(held, label_budget(small));
+    let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
+        .with_ui(&env, Some(ScreenKey::new(KEY)), 0, 100)
+        .with_hint_labels(&labels, true);
+    // A new label is refused whole, with the earlier ones kept and no charge.
+    assert_eq!(
+        submit(&mut stage, &[hint("probe.go", 1, "Go")]),
+        ERR_NO_MEMORY
+    );
+    assert!(stage.take_hint_sets().is_empty());
+    assert_eq!(labels.borrow().charged("probe"), held);
+}
