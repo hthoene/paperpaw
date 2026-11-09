@@ -5061,6 +5061,8 @@ pub const fn paperpaw_sdk::native::library::Book<'_>::finished(self) -> bool
 pub const fn paperpaw_sdk::native::library::Book<'_>::is_new(self) -> bool
 pub const fn paperpaw_sdk::native::library::Book<'_>::opened(self) -> bool
 pub fn paperpaw_sdk::native::library::Book<'_>::progress(self) -> core::option::Option<u8>
+impl paperpaw_sdk::native::library::Book<'_>
+pub const fn paperpaw_sdk::native::library::Book<'_>::missing(self) -> bool
 impl<'a> paperpaw_sdk::native::library::Book<'a>
 pub const fn paperpaw_sdk::native::library::Book<'a>::added(self) -> u32
 impl<'a> paperpaw_sdk::native::library::Book<'a>
