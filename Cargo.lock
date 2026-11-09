@@ -2467,16 +2467,12 @@ name = "paperpaw-plugin-transfer"
 version = "1.0.4"
 dependencies = [
  "paperpaw-core",
- "paperpaw-digest",
- "paperpaw-fat",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-qr",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]

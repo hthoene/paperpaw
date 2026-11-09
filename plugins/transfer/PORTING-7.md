@@ -1,23 +1,24 @@
 # Interface-7 port (slices 1 to 3: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard and the offers)
 
-Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
+Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **complete with named gaps**
+(the owner's decision, see "Removal": the interface-6 plugin is removed although two functions are not native yet): the native
 entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
 and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online and
-opens the reader's own network; the cable and moving files are named blocked steps below, so the plugin is **gated**:
-it is not in `NATIVE_PLUGINS` and not in `tools/plugin-files7/complete.txt` (its native file is not the whole
-plugin). The interface-6 `Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
-them stay until the host activates native plugins (then they go together, no shim; see the removal step).
+opens the reader's own network; **the USB cable and moving and renaming files are not native** (blocked steps 1 and 3
+below, with what each needs). The plugin is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`; the
+interface-6 `Transfer` and everything of it is gone (see "Removal" for what a reader loses with it until the missing pieces
+land).
 
 ## Ported (slice 1)
 
 - `src/native_transfer.rs`: the address shown and the one the QR code carries (`urls`, given the
   `WifiState::reach` text instead of the state), the names a book may be put under (`is_book_name`), the read-only
   settings file (`read_only`) and the cable offer (`Offer::parse`, limits, plugin-name and safe-path checks, books
-  kept by 16 bytes of the name's SHA-256). `src/native_parity_tests.rs` compares each with the interface-6 code.
+  kept by 16 bytes of the name's SHA-256). They were compared with the interface-6 code, line by line, before it was removed; `src/native_transfer/tests.rs` pins the results.
 - `declarations.rs`: the three screens (the transfer and the cable open one at a time, the phone's by parameters),
   the action `open`, its place in the tools (order 46), its icon and the offers for `core.remote-keyboard` (phone)
-  and `core.cable` (cable). `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each
-  with the interface-6 registration.
+  and `core.cable` (cable). `tests/abi7_declarations.rs` decodes the batches by the host's rules and pins them byte for byte
+  (`testdata/declarations.bin.v1`; they were compared with the interface-6 registration before it was removed).
 
 ## Ported (slice 2: the native entry and the transfer screen)
 
@@ -132,8 +133,8 @@ setting moves into it at load (`docs/abi/secrets.md` 4). A card that comes over 
 secrets in the file until its first load moves them out, so the plugin refuses the file anyway (this is a change
 from interface 6, which let the page fetch it): `GET /api/file` answers 403 for it, in any case, and `read_only`
 still refuses uploading over it, deleting, moving and renaming it (403). Pinned by
-`the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; the interface-6 parity test
-compares `read_only` with the interface-6 rule.
+`the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; `read_only` is pinned by
+`names_and_keys_are_those_of_interface_6`.
 
 ## Blocked and next steps
 
@@ -162,12 +163,31 @@ compares `read_only` with the interface-6 rule.
    (as update's page does).
 8. Ignored acceptance cases for these are in `tests/acceptance_pending.rs` (they name what they wait for).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal (done: Part B of the port, a series of its own)
 
-1. `Transfer`, `TransferScreen`, `web.rs`, `plugins.rs`, `link.rs`, `phone.rs`, `cable.rs`, the interface-6 tests
-   (`src/tests.rs`, `tests/serving.rs`, `tests/plugins.rs`, `tests/cable.rs`, `tests/upload_memory.rs`,
-   `native_parity_tests.rs` once nothing is left to compare), the `HOW` table kept for the manifest; `data/page.html`
-   and `data/phone.html` stay (the native page is built from the first).
-2. The app's registration of `Transfer` (`crates/paperpaw-app/src/lib.rs`).
-3. List `NativeTransfer` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when blocked steps 1 to 6
-   are native (every user-visible function works natively), and then submit `screens_later` and `offers`.
+The interface-6 `Transfer` plugin, `TransferScreen`, `web.rs`, `plugins.rs`, `link.rs`, `phone.rs`, `cable.rs`, its
+tests (`src/tests.rs` but for the texts, `tests/serving.rs`, `tests/plugins.rs`, `tests/cable.rs`,
+`tests/upload_memory.rs`, `src/native_parity_tests.rs`), the `HOW` table and the kernel feature of the SDK dependency
+are gone; `how/*.txt`, `data/page.html` and `data/phone.html` stay (the native page and the phone's page are built from
+them). The app no longer registers `Transfer` (`crates/paperpaw-app`; the crate is an optional dependency linked by
+`native-linked`), `NativeTransfer` is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`, its network
+settings left `NETWORK_SETTINGS`, and the snapshots that showed the plugin were written anew (`x4-tools`,
+`boox-all-tools`, `x4-drawer-de`, `x4-update`, `boox-keyboard`; `x4-transfer` and the app's `tools.txt` row are
+gone). `abi/interface-7/blessings.txt`, `crates/paperpaw-sdk/interface/` and `native::DRAFT` are untouched.
+
+**What a reader loses with it, until the host activates native plugins and the missing pieces exist** (the owner
+decides whether this is acceptable; a plugin that is not constructible on the host today, see `make` above,
+adds to it):
+
+1. **Everything of the transfer while native plugins are not active** (the host refuses `make` until it admits
+   `event.install_done`, `event.wifi_done` and `event.work_due`, Core #944): the *Wi-Fi transfer* entry in the tools, the
+   page, installing plugins from the computer over Wi-Fi, typing on a phone (the keyboard drops its *Phone* key
+   because no screen fills `core.remote-keyboard`) and the *Wi-Fi transfer* button of the update page.
+2. **The USB cable transfer** (the workshop, `tools/usb-transfer.py`, `paperpaw-emu --cable`, installing a plugin or
+   adding books from a computer over the cable): no screen fills `core.cable` any more, so the host opens nothing when
+   the cable speaks. This is the large gap: it needs the cable stage declaration and the dialogs (blocked step 3).
+3. **Moving and renaming files from the page** (*Move* and *Rename* are hidden; `POST /api/move` is 501): needs
+   `Library::move` (blocked step 1). A move is done on the device (the file manager).
+4. **Smaller differences**: the own network's button is on *No Wi-Fi* only; `GET /api/plugins` says `installed` where
+   it said `store` or `local`; a book deleted over the page leaves what the library kept for it (its notes) to the walk's
+   clean-up; the interface-6 question for the code of a plugin from the computer is the host's confirmation.

@@ -386,8 +386,7 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     // Buttons in slots of a touch row: the footnote's side by side, the
-    // skim screen's four, the transfer's and the update page's one below
-    // the other.
+    // skim screen's four and the update page's one below the other.
     Case {
         name: "x4-footnote",
         profile: "xteink-x4",
@@ -403,15 +402,6 @@ const CASES: &[Case] = &[
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
         script: "page-forward,open:reader.skim-screen,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-transfer",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:transfer.open,wait:300",
         colour: 0,
         fixtures: false,
     },
