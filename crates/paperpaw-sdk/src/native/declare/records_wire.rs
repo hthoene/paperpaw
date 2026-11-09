@@ -1825,6 +1825,8 @@ pub struct EventScreenShown<'a> {
     pub height: u32,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub instance: Option<u32>,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub last_input: u32,
 }
 
 impl<'a> EventScreenShown<'a> {
@@ -1840,6 +1842,7 @@ impl<'a> EventScreenShown<'a> {
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
             instance: body.maybe_u32(bits, 0x01)?,
+            last_input: body.opt_u32(bits, 0x02, 0)?,
         })
     }
 
@@ -1847,6 +1850,9 @@ impl<'a> EventScreenShown<'a> {
         let mut bits = 0;
         if self.instance.is_some() {
             bits |= 0x01;
+        }
+        if self.last_input != 0 {
+            bits |= 0x02;
         }
         bits
     }
@@ -1862,16 +1868,23 @@ impl<'a> EventScreenShown<'a> {
         if bits & 0x01 != 0 {
             len += 4;
         }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.screen.as_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
         if let Some(value) = self.instance {
             write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if bits & 0x02 != 0 {
+            write_bytes(&self.last_input.to_le_bytes(), out, offset);
         }
     }
 }
@@ -20195,7 +20208,7 @@ pub const EVENT_TEXT_TYPED_TAG: u32 = 109;
 pub const EVENT_TEXT_TYPED_TEXT_MAX_BYTES: usize = 1024;
 
 /// The `event.text_typed` record, borrowed from its batch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct EventTextTyped<'a> {
     /// Little-endian u64.
     pub now_ms: u64,
@@ -20203,6 +20216,16 @@ pub struct EventTextTyped<'a> {
     pub text: &'a str,
     /// Little-endian u32.
     pub flags: u32,
+}
+
+impl core::fmt::Debug for EventTextTyped<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EventTextTyped")
+            .field("now_ms", &self.now_ms)
+            .field("text", &"..")
+            .field("flags", &self.flags)
+            .finish()
+    }
 }
 
 impl<'a> EventTextTyped<'a> {

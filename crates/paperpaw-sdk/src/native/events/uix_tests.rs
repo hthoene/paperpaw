@@ -128,6 +128,7 @@ fn ui_events_refuse_every_truncation_and_screen_shown_preserves_missing_ids() {
     }
     for instance in [None, Some(0), Some(4)] {
         let bytes = encode_ui_event(Record::EventScreenShown(EventScreenShown {
+            last_input: 0,
             now_ms: 1,
             screen: "fixture.screen",
             width: 400,
