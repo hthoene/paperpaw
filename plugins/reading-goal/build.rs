@@ -51,7 +51,12 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 2] = [
+    let emits: [(&str, Emit); 3] = [
+        ("WIDGETS", |sink| {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(sink);
+            declarations::widgets(&mut d)
+                .map_err(|e| format!("invalid Reading goal widget declarations: {e:?}"))
+        }),
         ("EVENTS", |sink| {
             declarations::events(sink)
                 .map_err(|e| format!("invalid Reading goal event declarations: {e:?}"))

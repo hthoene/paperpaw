@@ -229,7 +229,6 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `text.hyphenate` once.
     pub(crate) fn wire_hyphen(
         &self,
@@ -261,7 +260,6 @@ impl HostServices {
         self.ui.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
@@ -366,6 +364,7 @@ impl HostServices {
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
+            result = result.and(ui.plugin_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));

@@ -622,6 +622,7 @@ impl BuilderParts {
                 ),
                 formats: Formats::new(),
                 hyphenation,
+                hyphen_feed: crate::hyphen_feed::HyphenFeed::new(),
                 menus: Menus::new(),
                 actions: Actions::new(),
                 plugins: Plugins::new(),

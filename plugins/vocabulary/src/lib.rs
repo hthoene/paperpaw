@@ -61,6 +61,12 @@ mod native_decks;
 mod native_entry;
 #[allow(
     dead_code,
+    reason = "the review's decisions and the screen's drawing: the tests use what the shell does not"
+)]
+mod native_review;
+mod native_review_screen;
+#[allow(
+    dead_code,
     reason = "used by the native screens, which wait (PORTING-7.md)"
 )]
 mod native_words;

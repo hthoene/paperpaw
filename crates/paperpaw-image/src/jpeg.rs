@@ -480,6 +480,11 @@ pub(crate) fn decode(
                     return Err(ImageError::Unsupported("JPEG components"));
                 }
                 components.clear();
+                // The room for all of them first: a refusal is an error
+                // here, and `push` never grows the list.
+                components
+                    .try_reserve_exact(usize::from(count))
+                    .map_err(|_| ImageError::OutOfMemory)?;
                 for _ in 0..count {
                     let id = reader.byte()?;
                     let hv = reader.byte()?;

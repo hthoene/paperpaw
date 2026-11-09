@@ -26,11 +26,15 @@
 //!
 //! What static reading cannot see is **reported and refused unless named**:
 //! a call out of the image (the ROM, a blob) and a call into code with no
-//! symbol of its own. The budget's `allow` lines name them. **Indirect**
-//! calls (`callx8` and `callx12` through a vtable or a function pointer)
-//! cannot be followed; they are counted per function and listed, and the
-//! families the budget names are the ones the trait implementations a plugin
-//! can reach live in. The device test (S4, the overflow test with Wi-Fi
+//! symbol of its own. The budget's `allow` lines name them. **Calls through
+//! a register**: the S3's code makes almost every call as `l32r aN, literal`
+//! then `callx8 aN` (a long call), so a `callx8`/`callx12` whose register an
+//! `l32r` loaded is followed as the direct call it is (see [`regs`]: the walk
+//! goes back through straight-line code only, and gives up at a place another
+//! path enters, a rewrite of the register, a call or a form it does not
+//! name). The rest (a vtable, a function pointer) cannot be followed; they
+//! are counted per function and listed, and the families the budget names are
+//! the ones the trait implementations a plugin can reach live in. The device test (S4, the overflow test with Wi-Fi
 //! traffic) covers the rest.
 //!
 //! Budget lines (`#` starts a comment):
@@ -71,7 +75,7 @@
 //!
 //! **Every instruction form must be classified** (default deny, as the
 //! packer's): a function with a form `wide_class` or `narrow_class` of
-//! `frames_xtensa` does not know (`l32e`, `rotw`, the MAC16 forms, the S3's
+//! `frames_xtensa` does not know (`rf*`, the MAC16 forms, the S3's
 //! `ee.*`) fails, as does an `entry` of a register other than `a1`. A `jx` is
 //! counted with the indirect calls.
 //!
@@ -86,8 +90,10 @@
 //! the register window, which is what `a1` names (`allow sp` only). A `wsr` or
 //! `xsr` of `PS` (230, which holds the window's own enable and increment)
 //! is its own form, `wsr.ps` or `xsr.ps`: the generic `wsr` and `xsr` lines
-//! cover the other special registers. `rotw`, the `rf*` returns,
-//! MAC16 and the S3's `ee.*` forms stay unknown: no line can allow them.
+//! cover the other special registers. `rotw` rotates the window, so it is a
+//! change of the stack pointer too (`allow sp`, e.g. esp-backtrace's spill of
+//! the windows on the panic path). The `rf*` returns, MAC16 and the S3's
+//! `ee.*` forms stay unknown: no line can allow them.
 //!
 //! **Assumption: literals lie outside the functions.** A function's bytes are
 //! decoded from its symbol's start for its size; the linker script puts the
@@ -99,12 +105,15 @@
 //! a word an `l32r` of its own reads (the packer's `uncovered` reads the
 //! same layout for plugins).
 
+mod regs;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR};
+use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE};
 use crate::framelist::in_family;
 use crate::frames::path;
 use crate::frames_xtensa::{Class, entry_frame, length, narrow_class, wide_class};
+use regs::{Insn, Writes};
 
 /// `STT_FUNC` and `STT_OBJECT`.
 const STT_FUNC: u8 = 2;
@@ -251,14 +260,17 @@ struct Reads {
     edges: Vec<u32>,
     /// A `call0`, `callx0`, `call4` or `callx4`, at this address.
     narrow_call: Option<(u32, &'static str)>,
-    /// Calls through a register (`callx8`, `callx12`).
+    /// Calls through a register (`callx8`, `callx12`) that no `l32r` literal
+    /// gives.
     indirect: u32,
+    /// Calls through a register that did: followed as direct calls.
+    resolved: u32,
     /// An instruction that writes `a1`, not `entry`.
     writes_sp: Option<u32>,
     /// An instruction this scan does not know how long it is.
     unreadable: Option<u32>,
     /// An instruction of a form this scan does not classify (default deny, as
-    /// the packer's): `rotw`, `rf*`, MAC16, the S3's `ee.*` and the rest.
+    /// the packer's): `rf*`, MAC16, the S3's `ee.*` and the rest.
     unknown: Option<u32>,
     /// The named privileged forms (see [`named_form`]) with the first address
     /// of each: they leave `a1` alone, and the budget must allow each.
@@ -317,12 +329,24 @@ fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
         // `s32e at, as, imm` (op2 = 4) writes memory.
         (9, 0) => Some(("l32e", Some(t), false)),
         (9, 4) => Some(("s32e", None, false)),
+        // RST0 `st1` `rotw` (op1 = 0, op2 = 4, `r` = 8): the window rotates by
+        // the immediate, so `a1` names another frame (`allow sp`, never a form).
+        (0, 4) if r == 8 => Some(("rotw", None, true)),
         _ => None,
     }
 }
 
-fn read_function(code: &[u8], start_addr: u32) -> Reads {
+/// What a function's reading may look up: the words of the image (an `l32r`'s
+/// literal) and the addresses data points into code at (jump tables).
+struct Around<'a> {
+    word: &'a dyn Fn(u32) -> Option<u32>,
+    pointed: &'a BTreeSet<u32>,
+}
+
+fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
     let mut reads = Reads::default();
+    let mut insns: Vec<Insn> = Vec::new();
+    let mut sites: Vec<usize> = Vec::new();
     let mut at = 0usize;
     while at < code.len() {
         let pc = start_addr.wrapping_add(at as u32);
@@ -337,6 +361,11 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
         if len == 3 {
             let w =
                 u32::from(code[at]) | u32::from(code[at + 1]) << 8 | u32::from(code[at + 2]) << 16;
+            insns.push(Insn {
+                pc,
+                word: w,
+                wide: true,
+            });
             if let Some(size) = entry_frame(w) {
                 // The frame is taken from the stack pointer only by `entry a1`.
                 if (w >> 8) & 0xF != 1 {
@@ -364,8 +393,9 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
                 match t {
                     0xC => reads.narrow_call = reads.narrow_call.or(Some((pc, "callx0"))),
                     0xD => reads.narrow_call = reads.narrow_call.or(Some((pc, "callx4"))),
-                    // CALLX8 and CALLX12: through a register, not followed.
-                    _ => reads.indirect += 1,
+                    // CALLX8 and CALLX12: through a register; resolved below
+                    // when the register holds an `l32r` literal.
+                    _ => sites.push(insns.len() - 1),
                 }
             } else {
                 match wide_class(w) {
@@ -390,6 +420,11 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
             }
         } else {
             let w = u32::from(code[at]) | u32::from(code[at + 1]) << 8;
+            insns.push(Insn {
+                pc,
+                word: w,
+                wide: false,
+            });
             match narrow_class(w) {
                 Class::Safe => {}
                 Class::Writes => {
@@ -402,7 +437,151 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
         }
         at += len;
     }
+    resolve(&insns, &sites, start_addr, around, &mut reads);
     reads
+}
+
+/// What a register holds at a point of a function, for [`resolve`]: the
+/// address of the `l32r` literal every path to the point loaded into it, or
+/// nothing known.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Held {
+    Literal(u32),
+    Unknown,
+}
+
+type Regs = [Held; 16];
+
+/// Follows each `callx8`/`callx12` of `sites` to the `l32r` literal its
+/// register holds, on every path to it: the call is then a direct one to the
+/// literal's address. A forward analysis over the function's own instructions:
+/// the state at the entry is "nothing known"; an `l32r` makes its register hold
+/// its literal; a write of a register, a call (the registers from its rotation
+/// up), `entry` or a window register makes the registers it takes unknown; the
+/// state where paths meet keeps a register only if all of them agree. The
+/// flow goes by fall-through and branch targets, and every address a word of
+/// the image points at inside the function (a jump table) is an entry with
+/// nothing known.
+///
+/// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
+/// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
+/// register would read other addresses, and the literals this finds would be
+/// wrong. It fails closed, leaving every call of the function indirect (counted
+/// and listed in the budget): at a branch form `regs` does not model, a branch
+/// into the middle of an instruction, a hardware `loop` (its back edge is no
+/// instruction's), a `jx` in a function that has no address to jump to, an
+/// address the image points at that is no instruction's start, and for a site
+/// the flow never reaches. An instruction `regs`
+/// does not name makes every register unknown after it.
+fn resolve(
+    insns: &[Insn],
+    sites: &[usize],
+    start_addr: u32,
+    around: &Around<'_>,
+    reads: &mut Reads,
+) {
+    if sites.is_empty() {
+        return;
+    }
+    let give_up = |reads: &mut Reads| reads.indirect += sites.len() as u32;
+    let end = insns.last().map_or(start_addr, |i| i.next());
+    let index: BTreeMap<u32, usize> = insns.iter().enumerate().map(|(n, i)| (i.pc, n)).collect();
+    // Every address inside the function that a word of the image points at is
+    // a place the flow may enter from outside this function's own
+    // instructions (a jump table, here or in another function): an entry with
+    // nothing known. One that is no instruction's start leaves the reading out
+    // of step, and a `jx` with no such address to go to is a jump this reading
+    // cannot place: both give the function up.
+    let mut entries: Vec<usize> = Vec::new();
+    for p in around.pointed.range(start_addr..end) {
+        let Some(&to) = index.get(p) else {
+            return give_up(reads);
+        };
+        entries.push(to);
+    }
+    if entries.is_empty() && insns.iter().any(|i| i.is_jx()) {
+        return give_up(reads);
+    }
+    let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
+    for (n, i) in insns.iter().enumerate() {
+        let Some(targets) = i.targets() else {
+            return give_up(reads);
+        };
+        if i.is_loop() {
+            return give_up(reads);
+        }
+        for target in targets.into_iter().flatten() {
+            if (start_addr..end).contains(&target) {
+                // Into the middle of an instruction: this reading is out of step.
+                let Some(&to) = index.get(&target) else {
+                    return give_up(reads);
+                };
+                next[n].push(to);
+            }
+        }
+        if !i.ends_flow() && n + 1 < insns.len() {
+            next[n].push(n + 1);
+        }
+    }
+    let mut state: Vec<Option<Regs>> = vec![None; insns.len()];
+    let mut work: VecDeque<usize> = VecDeque::from([0]);
+    for &n in std::iter::once(&0).chain(&entries) {
+        state[n] = Some([Held::Unknown; 16]);
+        work.push_back(n);
+    }
+    while let Some(n) = work.pop_front() {
+        let Some(mut held) = state[n] else { continue };
+        match insns[n].writes() {
+            Writes::Nothing => {}
+            Writes::Reg(r) => {
+                held[r as usize] = match insns[n].l32r() {
+                    Some((_, literal)) => Held::Literal(literal),
+                    None => Held::Unknown,
+                };
+            }
+            Writes::Call(rotation) => {
+                for h in &mut held[rotation as usize..] {
+                    *h = Held::Unknown;
+                }
+            }
+            Writes::Window | Writes::Unknown => held = [Held::Unknown; 16],
+        }
+        for &to in &next[n] {
+            let joined = match state[to] {
+                None => held,
+                Some(old) => {
+                    let mut joined = old;
+                    for (a, b) in joined.iter_mut().zip(&held) {
+                        if a != b {
+                            *a = Held::Unknown;
+                        }
+                    }
+                    joined
+                }
+            };
+            if state[to] != Some(joined) {
+                state[to] = Some(joined);
+                work.push_back(to);
+            }
+        }
+    }
+    for &k in sites {
+        let literal =
+            insns[k]
+                .callx()
+                .zip(state[k])
+                .and_then(|(reg, held)| match held[reg as usize] {
+                    Held::Literal(literal) => (around.word)(literal),
+                    Held::Unknown => None,
+                });
+        match literal {
+            Some(target) => {
+                reads.edges.push(target);
+                reads.resolved += 1;
+            }
+            None => reads.indirect += 1,
+        }
+    }
 }
 
 /// The firmware's functions by address, its executable sections (address and
@@ -411,6 +590,10 @@ struct Image<'a> {
     funcs: Vec<Function>,
     exec: Vec<(u32, &'a [u8])>,
     data: Vec<(u32, &'a [u8])>,
+    /// Which of `exec` and `data` are writable sections: what the program can
+    /// change is no literal a call can be read from.
+    exec_rw: Vec<bool>,
+    data_rw: Vec<bool>,
     /// Every named address (any symbol that has a value), for naming a callee
     /// out of the image (the ROM's symbols come from the linker script).
     names: BTreeMap<u32, String>,
@@ -421,6 +604,7 @@ struct Image<'a> {
 fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
     let mut exec: Vec<(u32, &[u8])> = Vec::new();
     let mut data: Vec<(u32, &[u8])> = Vec::new();
+    let (mut exec_rw, mut data_rw) = (Vec::new(), Vec::new());
     let mut index_of: BTreeMap<usize, usize> = BTreeMap::new();
     for (i, s) in elf.sections.iter().enumerate() {
         if s.flags & SHF_ALLOC == 0 || s.kind != 1 {
@@ -429,8 +613,10 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         if s.flags & SHF_EXECINSTR != 0 {
             index_of.insert(i, exec.len());
             exec.push((s.addr, elf.data(s)?));
+            exec_rw.push(s.flags & SHF_WRITE != 0);
         } else {
             data.push((s.addr, elf.data(s)?));
+            data_rw.push(s.flags & SHF_WRITE != 0);
         }
     }
     let (_, symbols) = elf
@@ -475,6 +661,8 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         funcs: found.into_values().collect(),
         exec,
         data,
+        exec_rw,
+        data_rw,
         names,
         objects,
     })
@@ -523,13 +711,61 @@ pub struct Report {
     pub roots: (usize, usize),
     /// The largest frame in the set and where.
     pub largest: Option<(u32, String)>,
-    /// Calls through a register in the set (not followed).
+    /// Calls through a register in the set that the scan cannot follow (each
+    /// listed in the budget).
     pub indirect: u32,
+    /// Calls through a register that an `l32r` literal gave: followed.
+    pub resolved: u32,
     /// What the budget refuses, one line each.
     pub problems: Vec<String>,
 }
 
 impl Image<'_> {
+    /// The word of the image at `address` (an `l32r`'s literal: it is in an
+    /// executable section of the S3's linker script, or in a data one), from
+    /// the sections the program cannot write only.
+    fn word(&self, address: u32) -> Option<u32> {
+        let exec = self.exec.iter().zip(&self.exec_rw);
+        let data = self.data.iter().zip(&self.data_rw);
+        exec.chain(data).find_map(|((base, bytes), &writable)| {
+            if writable {
+                return None;
+            }
+            let from = address.checked_sub(*base)? as usize;
+            let word = bytes.get(from..from.checked_add(4)?)?;
+            Some(u32::from_le_bytes(word.try_into().ok()?))
+        })
+    }
+
+    /// Every address inside a function that a word outside the functions
+    /// (data, or the literal pools between them) holds: where a jump table or
+    /// a function pointer can send the flow, so a place another path enters.
+    fn pointed(&self) -> BTreeSet<u32> {
+        let mut found = BTreeSet::new();
+        let mut take = |base: u32, bytes: &[u8], skip_functions: bool| {
+            let first = (4 - base % 4) % 4;
+            let Some(bytes) = bytes.get(first as usize..) else {
+                return;
+            };
+            for (n, word) in bytes.as_chunks::<4>().0.iter().enumerate() {
+                let value = u32::from_le_bytes(*word);
+                if skip_functions && self.at(base + first + 4 * n as u32).is_some() {
+                    continue;
+                }
+                if self.at(value).is_some() {
+                    found.insert(value);
+                }
+            }
+        };
+        for (base, bytes) in &self.data {
+            take(*base, bytes, false);
+        }
+        for (base, bytes) in &self.exec {
+            take(*base, bytes, true);
+        }
+        found
+    }
+
     /// The function holding `address`, as an index into `funcs`.
     fn at(&self, address: u32) -> Option<usize> {
         let n = self.funcs.partition_point(|f| f.start <= address);
@@ -722,6 +958,12 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     let mut used = vec![false; budget.allow.len()];
     let mut queue: VecDeque<usize> = VecDeque::new();
     let mut seen: BTreeSet<usize> = BTreeSet::new();
+    let pointed = image.pointed();
+    let word = |address: u32| image.word(address);
+    let around = Around {
+        word: &word,
+        pointed: &pointed,
+    };
     seed(&image, budget, &mut report, &mut queue, &mut seen);
     while let Some(i) = queue.pop_front() {
         let f = &funcs[i];
@@ -743,10 +985,11 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let (k, from) = f.code;
         let data = image.exec[k].1;
         let to = (from + f.size as usize).min(data.len());
-        let reads = read_function(&data[from..to], f.start);
+        let reads = read_function(&data[from..to], f.start, &around);
         let caller = f.path.clone();
         judge(f, &reads, budget, &mut used, &mut report);
         report.indirect += reads.indirect;
+        report.resolved += reads.resolved;
         if reads.indirect > 0 {
             let count = reads.indirect;
             if !allowed(
@@ -777,6 +1020,10 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             ));
         }
     }
+    // One line per site is noise: a function calling `memcpy` fifty times is
+    // one line (`allow call` is per caller and callee already).
+    let mut seen_lines = BTreeSet::new();
+    report.problems.retain(|p| seen_lines.insert(p.clone()));
     Ok(report)
 }
 
@@ -787,7 +1034,7 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
     let budget = Budget::parse(&text).map_err(|e| format!("{budget}: {e}"))?;
     let report = check(&parsed, &budget).map_err(|e| format!("{elf}: {e}"))?;
     println!(
-        "{} functions checked from {} named roots and {} table entries; largest frame {}; {} indirect calls (not followed, each listed in the budget)",
+        "{} functions checked from {} named roots and {} table entries; largest frame {}; {} calls through a register followed (an `l32r` literal gave the target), {} not (each listed in the budget)",
         report.checked,
         report.roots.0,
         report.roots.1,
@@ -795,6 +1042,7 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
             .largest
             .as_ref()
             .map_or_else(|| "none".to_string(), |(b, p)| format!("{b} ({p})")),
+        report.resolved,
         report.indirect
     );
     if report.problems.is_empty() {
