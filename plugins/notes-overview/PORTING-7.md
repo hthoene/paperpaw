@@ -1,9 +1,10 @@
-# Notes overview on interface 7 (partly ported)
+# Notes overview on interface 7
 
-Status: **not complete** (the native plugin lists the books, pages a book's notes and exports them
-all; the opening of a note at its place waits for the host). The interface-6 plugin (`clippings.rs`, `scan.rs`,
-`screen.rs`, the `Plugin` in `lib.rs`) is still in place, because the host
-services it needs are not there. It is removed in the PR that finishes the port.
+Status: **complete.** The plugin is the native plugin only: the interface-6 plugin (`clippings.rs`,
+`scan.rs`, `screen.rs`, the `Plugin` in `lib.rs`), its tests (`tests/overview.rs`), its registration
+in `paperpaw-app`, its store-file builder (`tools/plugin-files`, `plugins.txt` keeps a comment line) and
+its desktop snapshots are gone. What waits for hosts is listed under *Not tested here* below; the
+code that sends and reads it is in place.
 
 ## Ported (no host needed): `src/model.rs`
 
@@ -78,7 +79,7 @@ services it needs are not there. It is removed in the PR that finishes the port.
   other plugins). `declarations.rs`: the list screen (`notes-overview.screen`) and the book's
   (`notes-overview.book`), one instance at a time each, the action `notes-overview.open`, the Tools
   menu entry (order 37) and the `bookmarks` icon; `tests/native_declarations.rs` compares them with
-  what the interface-6 plugin registered, field by field, and checks every record against the
+  what the interface-6 plugin registered (pinned in the test), and checks every record against the
   host's validation (the menu entry and the icon wait for the host's admission, as for every
   plugin of this port).
 - The list screen: the books with notes by title with `3 highlights · 1 bookmark` under each, then
@@ -159,10 +160,31 @@ services it needs are not there. It is removed in the PR that finishes the port.
   refused in turn. Not tested: the staging and the move on a card (the scripted host has no
   `storage`/`core.files`): acceptance on the desktop shell when the host runs native plugins.
 
-## Not ported yet (each is an ignored test in `tests/acceptance_pending.rs`)
+## Opening a note: `native_plugin.rs` (`open_note`), `native_notes.rs` (`Place`, `Layout::place`)
 
-- Opening a book at a note (the draft-22 `doc_open`/`command.open` into `core.reader`, then the
-  goto event): choosing a note refuses with `Unsupported`.
-- The rows' texts and the pixels (H1/H3 and the catalog in the scripted host).
-- Removing the interface-6 plugin (`clippings.rs`, `scan.rs`, `screen.rs`, the `Plugin` in
-  `lib.rs`): with the activation, in one commit, no shim.
+- Choosing a note opens its book at the note's place: `command.open` mode 1 into slot `core.reader`
+  (the reader the user bound there) with a handover of the params `path` (the book's path, read from
+  the library with `core.library` op `book` by the screen's catalog handle), `section` and `offset`
+  (decimal `u32`, the annotation's start: `docs/abi/document.md` section 1, *Opening at a place*,
+  Kernel's ruling for this port). Interface 6 opened the reader and then raised the `goto` event to
+  the note's start; a separate goto after the open would race it.
+- **The reader must honour `section` and `offset`.** Until `plugins/reader` is ported and reads them
+  the book opens at its usual place; that is the reader's, not this plugin's. No `page` is sent (an
+  annotation has none; interface 6 did not send one either).
+- The places of a page are kept beside its rows (`places`, 8 bytes a note, 800 B for a full page),
+  filled by `native_notes::page` with the rows and freed with them (`free_notes`, `turn`); the row
+  index becomes a place with `Layout::place` (`None` for the *Previous*/*Next notes* rows).
+- A book that changed under the screen (`State`/`NotFound` when its path is read) opens nothing and
+  says `notes-overview.gone`, as the notes screen does. A refusal to open (no reader offered:
+  `NotFound`) is the host's error status, as for every plugin that opens a slot.
+- Tested: the place of every note on every page of a 300-note book (`native_notes_tests.rs`), and
+  that the *Previous*/*Next notes* rows and one past the last have none; the page's `places` are
+  filled under the allocation-refusal sweep of `page`. Not tested end to end (the scripted host has
+  no `i18n` for the screen's rows, see above): the handover and the `command.open` itself.
+
+## Not tested here (each is an ignored test in `tests/acceptance_pending.rs`)
+
+- The rows' texts and the pixels (H1/H3 and the catalog of messages in the scripted host).
+- The staging and the move of the export onto the card (the scripted host has neither `storage`
+  nor `core.files`), and the time of a library of thousands of books (a device measurement).
+- The reader honouring `section` and `offset` (the reader's port).
