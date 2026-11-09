@@ -30,6 +30,13 @@ is subscribed the notes that wait go with *Send to Joplin* (the action, a rule, 
 
 ## Decisions
 
+- The sign-in's answer holds the session id (a credential): it is read from the request's memory body
+  (`max_body` 1,024, `Net::body` while its end event is handled) into a self-wiping `Secret` and never
+  written to a file, as in Beta 3. The password's header and the sign-in's body are wiped after the request.
+- An address the network service refuses (over 1,024 bytes, not an address) says so (`joplin.bad-address`) and
+  stops the automatic tries until the address changes; the retry work is not declared while a wrong
+  password or address blocks sending, and is declared again when the account changes.
+
 - The clock is the snapshot's (seconds); times written to Joplin are to the second (`.000`).
 - A rule's *Send to Joplin* now runs at once as declared work (interface 6 deferred it for one hour when no
   reader was there).

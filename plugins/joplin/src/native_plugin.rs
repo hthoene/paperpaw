@@ -29,7 +29,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     files::Volume,
-    mem::{SERVICE_BUFFER, buffer, push, wipe},
+    mem::{self, SERVICE_BUFFER, buffer, push, wipe},
     read_event,
     text::copy,
 };
@@ -39,7 +39,7 @@ use crate::native_joplin::{CLOUD, Service};
 use crate::native_keep::{self as keep, PASSWORD, Secret};
 use crate::native_kept as kept;
 use crate::native_send::{
-    Account, Auth, Body, Call, DEFAULT_NOTEBOOK, Done, Outcome, Sender, Start, Tell, Wire,
+    Account, Auth, Body, Call, DEFAULT_NOTEBOOK, Done, Outcome, Sender, Start, Step, Tell, Wire,
 };
 use crate::native_setup::Row;
 
@@ -216,48 +216,68 @@ impl Wire for HostWire<'_, '_> {
         seconds.checked_mul(1000)
     }
 
-    fn send(&mut self, call: &Call<'_>) -> Result<RequestId, Error> {
+    fn answer(&mut self, id: RequestId) -> Result<Secret, Error> {
         let host = self.host;
+        let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+        let read = self.handles.net(host).and_then(|net| {
+            let part = net.body(host, id, 0, &mut input, &mut out)?;
+            Secret::copy(core::str::from_utf8(part).map_err(|_| Error::Invalid)?)
+        });
+        wipe(&mut input);
+        wipe(&mut out);
+        read
+    }
+
+    fn send(&mut self, call: &Call<'_>) -> Result<RequestId, Error> {
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
         let sent = self.make(call, &mut input, &mut out);
         // The input held the password or the session in a header.
         wipe(&mut input);
         wipe(&mut out);
-        let _ = host;
         sent
     }
 }
 
 impl HostWire<'_, '_> {
-    /// The request for `call`; its headers carry the session or the password.
+    /// The request for `call`; its headers carry the session or the password,
+    /// which are wiped on every way out.
     fn make(
         &mut self,
         call: &Call<'_>,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<RequestId, Error> {
+        let proof = proof(call.auth)?;
+        let sent = self.request(call, proof.as_ref(), input, out);
+        if let Some((_, value)) = proof {
+            mem::wipe_text(value);
+        }
+        sent
+    }
+
+    fn request(
+        &mut self,
+        call: &Call<'_>,
+        proof: Option<&(&'static str, String)>,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<RequestId, Error> {
         let host = self.host;
-        let proof = match call.auth {
-            Auth::Session(id) => Some(("X-API-AUTH", copy(id)?)),
-            Auth::Basic { user, password } => Some((
-                "Authorization",
-                copy(&paperpaw_sdk::web::basic_auth(user, password))?,
-            )),
-            Auth::None => None,
-        };
         let mut headers: Vec<Header<'_>> = Vec::new();
         headers
             .try_reserve(call.headers.len() + 1)
             .map_err(|_| Error::NoMemory)?;
-        if let Some((name, value)) = &proof {
+        if let Some((name, value)) = proof {
             headers.push(Header::new(name, value)?);
         }
         for (name, value) in call.headers {
             headers.push(Header::new(name, value)?);
         }
+        // The sign-in's answer holds the session id: it is read from memory.
+        let keep = if call.step == Step::SignIn { 1024 } else { 256 };
         let mut request = Request::new(call.step.token(), call.method, call.url)?
             .headers(&headers)?
-            .max_body(256);
+            .max_body(keep);
         request = match call.body {
             Body::None => request,
             Body::Text(body) => request.body(body.as_bytes())?,
@@ -266,12 +286,22 @@ impl HostWire<'_, '_> {
         if let Some((path, most)) = call.save_to {
             request = request.save_to(FileRoot::Data, path)?.max_file(most)?;
         }
-        let sent = self.handles.net(host)?.request(host, &request, input, out);
-        if let Some((_, value)) = proof {
-            paperpaw_ui_kit::mem::wipe_text(value);
-        }
-        sent
+        self.handles.net(host)?.request(host, &request, input, out)
     }
+}
+
+/// The header that proves who sends: its name and value, to be wiped.
+fn proof(auth: Auth<'_>) -> Result<Option<(&'static str, String)>, Error> {
+    Ok(match auth {
+        Auth::Session(id) => Some(("X-API-AUTH", copy(id)?)),
+        Auth::Basic { user, password } => {
+            let line = paperpaw_sdk::web::basic_auth(user, password);
+            let value = copy(&line);
+            mem::wipe_text(line);
+            Some(("Authorization", value?))
+        }
+        Auth::None => None,
+    })
 }
 
 /// The storage calls on one root.
@@ -362,6 +392,7 @@ impl Plugin for NativeJoplin {
             Event::SettingChanged { key, .. } => {
                 if [SERVICE, ADDRESS, USER].contains(&key) || key.is_empty() {
                     self.sender.account_changed();
+                    self.retry_later(host)?;
                 }
                 self.rebuild(host)
             }
@@ -520,6 +551,11 @@ impl NativeJoplin {
 
     /// Declares the next try while notes wait.
     fn retry_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // A wrong password or address is not tried again by itself: the work
+        // is declared again when the account changes.
+        if self.sender.blocked() {
+            return Ok(());
+        }
         let waiting = kept::waiting(&RootVolume(host, Root::Data));
         match waiting {
             Ok(waiting) if waiting.is_empty() => Ok(()),
@@ -709,6 +745,7 @@ impl NativeJoplin {
             }
             self.keep_password(host, text)?;
             self.sender.account_changed();
+            self.retry_later(host)?;
         } else {
             return Ok(());
         }

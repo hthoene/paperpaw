@@ -9,8 +9,8 @@ use crate::native_joplin::{self as joplin, Service};
 use crate::native_keep::Secret;
 use crate::native_kept as kept;
 use crate::native_send::{
-    Account, Auth, Body, Call, Done, FOUND, INFO, NOTE_FILE, Outcome, SESSION, Sender, Start, Step,
-    Tell, Wire, sign_in_body, target_info,
+    Account, Auth, Body, Call, Done, FOUND, INFO, NOTE_FILE, Outcome, Sender, Start, Step, Tell,
+    Wire, sign_in_body, target_info,
 };
 use crate::test_volume::Mem;
 use alloc::collections::BTreeMap;
@@ -42,6 +42,8 @@ struct World {
     data: Mem,
     card: Mem,
     service: Service,
+    /// The address, where the test sets one.
+    base: Option<String>,
     notebook: String,
     password: Option<String>,
     network: bool,
@@ -59,6 +61,8 @@ struct World {
     seen: Vec<Seen>,
     next: u32,
     answer: Option<Done>,
+    /// The memory body of the last answer, by request.
+    bodies: BTreeMap<u32, Vec<u8>>,
 }
 
 impl World {
@@ -69,6 +73,7 @@ impl World {
             data: Mem::default(),
             card: Mem::default(),
             service,
+            base: None,
             notebook: "PaperPaw".to_string(),
             password: Some("pw".to_string()),
             network: true,
@@ -82,6 +87,7 @@ impl World {
             seen: Vec::new(),
             next: 0,
             answer: None,
+            bodies: BTreeMap::new(),
         }
     }
 
@@ -151,8 +157,9 @@ impl Wire for World {
         exempt(|| {
             Ok(Account {
                 service: self.service,
-                base: match self.service {
-                    Service::Cloud => joplin::CLOUD.to_string(),
+                base: match (&self.base, self.service) {
+                    (Some(base), _) => base.clone(),
+                    (_, Service::Cloud) => joplin::CLOUD.to_string(),
                     _ => "https://j.example".to_string(),
                 },
                 user: "me@example.org".to_string(),
@@ -177,11 +184,25 @@ impl Wire for World {
         self.now
     }
 
+    fn answer(&mut self, id: RequestId) -> Result<Secret, Error> {
+        exempt(|| {
+            let body = self.bodies.get(&id.get()).ok_or(Error::NotFound)?;
+            Secret::copy(core::str::from_utf8(body).unwrap())
+        })
+    }
+
     fn send(&mut self, call: &Call<'_>) -> Result<RequestId, Error> {
+        if call.url.len() > paperpaw_sdk::native::net::MAX_URL {
+            return Err(Error::Invalid);
+        }
         exempt(|| {
             let (status, saved) = self.serve(call);
-            if let (Some(body), Some((path, _))) = (saved, call.save_to) {
-                self.data.write(path, &body).unwrap();
+            match (saved, call.save_to) {
+                (Some(body), Some((path, _))) => self.data.write(path, &body).unwrap(),
+                (Some(body), None) => {
+                    self.bodies.insert(self.next + 1, body);
+                }
+                _ => {}
             }
             let auth = match call.auth {
                 Auth::Session(id) => format!("session {id}"),
@@ -274,7 +295,7 @@ fn sends_a_new_note_then_updates_it() {
     assert_eq!(w.items.len(), 3, "info, notebook, note");
     // The notebook is found, not made again.
     assert_eq!(w.seen[2].step, Step::NotebookFound);
-    for name in [FOUND, NOTE_FILE, INFO, SESSION] {
+    for name in [FOUND, NOTE_FILE, INFO] {
         assert!(w.data.get(name).is_none(), "{name} is cleaned away");
     }
 }
@@ -520,6 +541,23 @@ fn without_an_account_nothing_is_sent_and_it_is_said() {
         ended(Tell::SetupNeeded)
     );
     assert!(w.seen.is_empty());
+    assert_eq!(w.waiting(), ["Notes/a.md"]);
+}
+
+#[test]
+fn an_address_the_network_refuses_is_said_so_and_not_tried_again() {
+    let mut w = World::new(Service::WebDav);
+    w.notes("Notes/a.md", NOTES);
+    let mut s = Sender::new();
+    // Over the longest address a request has: not "not enough memory".
+    let long = format!("https://j.example/{}", "x".repeat(2000));
+    w.base = Some(long);
+    assert_eq!(
+        export(&mut w, &mut s, "Notes/a.md"),
+        ended(Tell::BadAddress)
+    );
+    assert!(s.blocked());
+    assert_eq!(s.start(&mut w, Start::Retry).unwrap(), Outcome::Quiet);
     assert_eq!(w.waiting(), ["Notes/a.md"]);
 }
 

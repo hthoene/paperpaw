@@ -36,7 +36,6 @@ use crate::native_note;
 
 /// The files of a sending, in the plugin's data folder.
 pub const INFO: &str = "info.json";
-pub const SESSION: &str = "session.json";
 pub const LOCKS_FILE: &str = "locks.txt";
 pub const FOUND: &str = "found.md";
 pub const NOTE_FILE: &str = "note.md";
@@ -163,6 +162,12 @@ pub trait Wire {
     fn network(&mut self) -> Result<(), Error>;
     /// Milliseconds since 1970 now, if the device knows the time.
     fn now_ms(&mut self) -> Option<i64>;
+    /// The answer of the request that just ended, from memory (readable only
+    /// while its end is being handled): the sign-in's, which holds the session.
+    ///
+    /// # Errors
+    /// `NoMemory`; what the network service says.
+    fn answer(&mut self, id: RequestId) -> Result<Secret, Error>;
     /// Makes the request; its end comes with the call's step as token.
     ///
     /// # Errors
@@ -201,6 +206,8 @@ pub enum Tell {
     /// Joplin answered with this status (`joplin.failed`).
     Failed(u32),
     BadLogin,
+    /// The address is no address the network can use (`joplin.bad-address`).
+    BadAddress,
     NoServer,
     NoData,
     Encrypted,
@@ -224,6 +231,7 @@ impl Tell {
             Self::Unreachable => "joplin.unreachable",
             Self::Failed(_) => "joplin.failed",
             Self::BadLogin => "joplin.bad-login",
+            Self::BadAddress => "joplin.bad-address",
             Self::NoServer => "joplin.no-server",
             Self::NoData => "joplin.no-data",
             Self::Encrypted => "joplin.encrypted",
@@ -444,6 +452,13 @@ impl Sender {
         self.run.is_some()
     }
 
+    /// Whether the last sending stopped at the account or address (nothing
+    /// is tried by itself until they change).
+    #[must_use]
+    pub const fn blocked(&self) -> bool {
+        self.blocked
+    }
+
     /// The account was changed: signed in anew, tried again by itself.
     pub fn account_changed(&mut self) {
         self.session = None;
@@ -538,12 +553,22 @@ impl Sender {
                 Ok(self.end_run(wire, Tell::NoNetwork, End::Again))
             }
             Error::NoMemory => Err(Error::NoMemory),
-            // Too long an address, a full table: this one cannot go.
-            _ => match self.run.as_ref().is_some_and(|r| r.book.is_some()) {
+            // An address the network service refuses (too long, not an
+            // address): it says so, and nothing is tried by itself until the
+            // address is changed.
+            Error::Invalid | Error::NoSpace if !self.in_book() => {
+                Ok(self.end_run(wire, Tell::BadAddress, End::Stop))
+            }
+            // A full table: this one cannot go.
+            _ => match self.in_book() {
                 true => self.book_failed(wire),
                 false => Ok(self.end_run(wire, Tell::Unreachable, End::Again)),
             },
         }
+    }
+
+    fn in_book(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| r.book.is_some())
     }
 
     /// What the request just made came to: kept in flight, or refused.
@@ -624,7 +649,7 @@ impl Sender {
                 auth: Auth::None,
                 headers: &[("Content-Type", "application/json")],
                 body: Body::Text(body.as_str()),
-                save_to: Some((SESSION, MAX_SMALL as u64)),
+                save_to: None,
             };
             return {
                 let (step, sent) = (call.step, wire.send(&call));
@@ -664,16 +689,22 @@ impl Sender {
             // No answer came (interface 6: status 0).
             _ => 0,
         };
-        let result = self.step(wire, step, status);
+        let result = self.step(wire, step, done.id, status);
         match result {
             Err(Error::NoMemory) => Ok(self.end_run(wire, Tell::NoMemory, End::Again)),
             other => other,
         }
     }
 
-    fn step(&mut self, wire: &mut dyn Wire, step: Step, status: u32) -> Result<Outcome, Error> {
+    fn step(
+        &mut self,
+        wire: &mut dyn Wire,
+        step: Step,
+        id: RequestId,
+        status: u32,
+    ) -> Result<Outcome, Error> {
         match step {
-            Step::SignIn => self.signed_in(wire, status),
+            Step::SignIn => self.signed_in(wire, id, status),
             Step::Info => self.checked(wire, status),
             Step::Locks => self.locks_listed(wire, status),
             Step::NotebookFound => self.notebook_found(wire, status),
@@ -710,11 +741,21 @@ impl Sender {
         Ok(self.end_run(wire, Tell::BadLogin, End::Stop))
     }
 
-    fn signed_in(&mut self, wire: &mut dyn Wire, status: u32) -> Result<Outcome, Error> {
+    fn signed_in(
+        &mut self,
+        wire: &mut dyn Wire,
+        request: RequestId,
+        status: u32,
+    ) -> Result<Outcome, Error> {
         match status {
             200..=299 => {
-                let id = Self::session_id(wire.data())?;
-                let _ = wire.data().remove(SESSION);
+                // The answer is read from memory while its event is delivered,
+                // never kept in a file.
+                let id = match wire.answer(request) {
+                    Ok(body) => Self::session_id(&body)?,
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    Err(_) => None,
+                };
                 match id {
                     Some(id) => {
                         self.session = Some(id);
@@ -730,15 +771,18 @@ impl Sender {
     }
 
     /// The session's id in the sign-in's answer; none if there is none.
-    fn session_id(v: &dyn Volume) -> Result<Option<Secret>, Error> {
-        let Some(bytes) = paperpaw_ui_kit::files::read_all_on(v, SESSION, MAX_SMALL)? else {
-            return Ok(None);
-        };
-        let body = String::from_utf8_lossy(&bytes);
-        let found = json::string_member(&body, "id")?;
-        match found {
-            Some(id) if !id.is_empty() => Secret::copy(&id).map(Some),
-            _ => Ok(None),
+    fn session_id(body: &Secret) -> Result<Option<Secret>, Error> {
+        match json::string_member(body.as_str(), "id")? {
+            Some(id) if !id.is_empty() => {
+                let secret = Secret::copy(&id);
+                paperpaw_ui_kit::mem::wipe_text(id);
+                secret.map(Some)
+            }
+            Some(id) => {
+                paperpaw_ui_kit::mem::wipe_text(id);
+                Ok(None)
+            }
+            None => Ok(None),
         }
     }
 
@@ -1162,7 +1206,7 @@ impl Sender {
 
 /// The files of a sending are taken off the data folder.
 fn clean(data: &dyn Volume) {
-    for name in [INFO, SESSION, LOCKS_FILE, FOUND, NOTE_FILE, NOTEBOOK_FILE] {
+    for name in [INFO, LOCKS_FILE, FOUND, NOTE_FILE, NOTEBOOK_FILE] {
         let _ = data.remove(name);
     }
 }
