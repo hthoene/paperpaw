@@ -145,7 +145,7 @@ impl Kernel {
     fn apply_labels_and_widgets(
         &mut self,
         owner_key: u64,
-        hints: alloc::vec::Vec<super::hint_labels::HintSet>,
+        hints: alloc::vec::Vec<crate::native_host::hint_labels::HintSet>,
         widgets: alloc::vec::Vec<u32>,
     ) -> Result<(), Error> {
         // The labels the callback set; room was taken when they were checked.
