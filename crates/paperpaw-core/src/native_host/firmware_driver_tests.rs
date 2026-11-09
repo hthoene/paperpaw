@@ -454,3 +454,47 @@ fn op_13_state_is_waiting_until_yes_then_running_then_ended() {
     d.delivered(outcome);
     assert_eq!(d.lookup(1, 1).unwrap().state, 2);
 }
+
+#[test]
+fn a_request_waiting_for_the_user_is_no_work_and_a_held_back_outcome_waits_for_its_time() {
+    let mut d = driver();
+    assert!(!d.has_work(0));
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    // Queued: the head can start.
+    assert!(d.has_work(0));
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    // The confirmation shows (up to ten minutes): the device may idle.
+    assert!(!d.has_work(1_000));
+    assert_eq!(d.due(), None);
+    d.answer(ask.question(), Answer::Yes);
+    assert!(d.has_work(1_000), "a write step can be taken");
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    // Ended, to be told; its plugin cannot be called now: held back until 5000.
+    assert!(d.has_work(0));
+    d.hold_back(5_000);
+    assert!(!d.has_work(2_000));
+    assert_eq!(d.due(), Some(5_000));
+    assert!(d.has_work(5_000));
+    d.released();
+    assert_eq!(d.due(), None);
+}
+
+#[test]
+fn only_the_outcome_that_was_told_is_taken() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    let first = d.peek_ready().unwrap();
+    // The ready list changed during the callback (the plugin stopped).
+    d.sender_stopped(first.owner);
+    assert_eq!(
+        d.take_ready_if(first.owner, first.request, first.kind),
+        None
+    );
+    // The other outcome is not marked delivered in its place.
+    assert_eq!(d.peek_ready().unwrap().owner, 2);
+}

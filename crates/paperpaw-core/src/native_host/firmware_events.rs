@@ -33,6 +33,8 @@ use paperpaw_native::host_glue::{
 const RECORD_BYTES: usize = 128;
 /// Outcomes told in one pass.
 const PER_PASS: usize = 4;
+/// How long a plugin that could not be called is left alone.
+const RETRY_MS: u64 = 1_000;
 
 /// No built-ins are known (no device host wired): none are named.
 struct NoBuiltIns;
@@ -74,8 +76,11 @@ impl Kernel {
         let Some(driver) = self.firmware.clone() else {
             return false;
         };
+        let now = self.now.millis();
         if self.shared.native_instances.depth() > 0 {
-            return driver.try_borrow().map_or(true, |driver| driver.has_work());
+            return driver
+                .try_borrow()
+                .map_or(true, |driver| driver.has_work(now));
         }
         self.firmware_wire(&driver);
         self.native_outbox_run();
@@ -83,7 +88,6 @@ impl Kernel {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
-            let now = self.now.millis();
             let hosts = self.shared.native_instances.hosts();
             match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => driver.pump(self.storage(), &DeviceBuiltIns(&*device.0), now),
@@ -94,7 +98,9 @@ impl Kernel {
         self.firmware_changes(&driver);
         self.firmware_told(&driver);
         self.native_outbox_run();
-        driver.try_borrow().map_or(true, |driver| driver.has_work())
+        driver
+            .try_borrow()
+            .map_or(true, |driver| driver.has_work(now))
     }
 
     /// Lets the device ops read the machine, once the host views exist.
@@ -138,10 +144,12 @@ impl Kernel {
             });
             if self.firmware_tell(owner, wire::EVENT_FIRMWARE_CHANGED_TAG, &record) == Err(ERR_BUSY)
             {
+                self.firmware_hold_back(driver);
                 break;
             }
             if let Ok(mut driver) = driver.try_borrow_mut() {
                 driver.clear_changed(owner, request);
+                driver.released();
             }
         }
     }
@@ -185,14 +193,38 @@ impl Kernel {
                 == Err(ERR_BUSY)
             {
                 // Its plugin cannot be called now: on a later pass.
+                self.firmware_hold_back(driver);
                 break;
             }
-            if let Ok(mut driver) = driver.try_borrow_mut()
-                && let Some(done) = driver.take_ready()
-            {
-                driver.delivered(done);
+            // Only the outcome that was told is marked: the list may have
+            // changed during the callback.
+            if let Ok(mut driver) = driver.try_borrow_mut() {
+                if let Some(done) =
+                    driver.take_ready_if(outcome.owner, outcome.request, outcome.kind)
+                {
+                    driver.delivered(done);
+                }
+                driver.released();
             }
         }
+    }
+
+    /// A plugin could not be called: no new try for [`RETRY_MS`], so the
+    /// device may idle meanwhile (`Kernel::firmware_due` is the deadline).
+    fn firmware_hold_back(
+        &self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.hold_back(self.now.millis().saturating_add(RETRY_MS));
+        }
+    }
+
+    /// When the pump looks again for what could not be told.
+    pub(crate) fn firmware_due(&self) -> Option<u64> {
+        self.firmware
+            .as_ref()
+            .and_then(|driver| driver.try_borrow().ok().and_then(|driver| driver.due()))
     }
 
     /// Calls `owner`'s event callback with `record`. `Ok` where it was called
@@ -203,8 +235,15 @@ impl Kernel {
         if !instances.subscribed(owner, tag) {
             return Ok(());
         }
-        let Ok(InstanceState::Running(lease)) = instances.state(owner) else {
-            return Ok(());
+        let lease = match instances.state(owner) {
+            Ok(InstanceState::Running(lease)) => lease,
+            // Not started yet: it is started and told on a later pass.
+            Ok(InstanceState::Lazy) => {
+                instances.request_start(owner)?;
+                return Err(ERR_BUSY);
+            }
+            // Stopped (or gone): nobody to tell.
+            _ => return Ok(()),
         };
         let mut bytes = [0u8; RECORD_BYTES];
         let Ok(len) = codec::encode_batch(core::slice::from_ref(record), &mut bytes) else {

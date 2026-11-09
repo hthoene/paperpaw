@@ -202,6 +202,7 @@ impl crate::Kernel {
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
             .chain(self.native_demand_due().map(|at| at.millis()))
+            .chain(self.firmware_due())
             .min()
             .map(Instant)
     }

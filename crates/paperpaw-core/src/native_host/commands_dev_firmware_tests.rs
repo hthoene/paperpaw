@@ -108,10 +108,7 @@ fn stage(
     let env = kernel.shared.env(Instant(0));
     let mut ctx = DevContext::new(AdmittedFeatures::test(bits, HOST), &kernel.radio_requests);
     if let Some(driver) = firmware {
-        ctx = ctx.with_firmware(FirmwareContext {
-            driver: Rc::clone(driver),
-            owner: OWNER,
-        });
+        ctx = ctx.with_firmware(FirmwareContext::new(Rc::clone(driver), OWNER));
     }
     let mut stage =
         crate::native_host::commands::CommandStage::new(&id, env.settings(), None, 16, 4096)
@@ -236,6 +233,22 @@ fn an_accepted_request_waits_and_a_batch_that_never_applies_gives_it_back() {
     assert_eq!(
         stage(&kernel, FIRMWARE, Some(&d), &[check(2, 1)]).0,
         ERR_INVALID
+    );
+}
+
+#[test]
+fn a_release_that_finds_the_table_borrowed_is_counted() {
+    let kernel = kernel();
+    let d = driver();
+    let (status, output) = stage(&kernel, FIRMWARE, Some(&d), &[install(1, "a.ppu")]);
+    assert_eq!(status, OK);
+    let held = d.borrow_mut();
+    drop(output);
+    drop(held);
+    assert_eq!(
+        d.borrow().skipped(),
+        1,
+        "the request stays, and it is counted"
     );
 }
 

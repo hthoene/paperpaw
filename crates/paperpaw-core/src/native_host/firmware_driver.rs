@@ -28,7 +28,7 @@ use super::firmware_install::{
     Question,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
@@ -89,7 +89,10 @@ pub(crate) struct Driver {
     lost: u32,
     /// Answers and aborts that found the machine borrowed and did nothing
     /// (never from a callback; counted so a test or a log can see it).
-    skipped: u32,
+    skipped: Rc<Cell<u32>>,
+    /// Until when the pump does not try to tell again (a plugin that could
+    /// not be called); `None` when nothing is held back.
+    blocked_until: Option<u64>,
     /// The confirmation the host must show (an install's or a restart's),
     /// until [`Self::take_ask`].
     ask: Option<Ask>,
@@ -106,7 +109,8 @@ impl Driver {
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
-            skipped: 0,
+            skipped: Rc::new(Cell::new(0)),
+            blocked_until: None,
             ask: None,
         }
     }
@@ -114,7 +118,17 @@ impl Driver {
     /// How many answers and aborts found the machine borrowed and did nothing.
     #[cfg(test)]
     pub(crate) fn skipped(&self) -> u32 {
-        self.skipped
+        self.skipped.get()
+    }
+
+    /// The counter of skips, for callers that cannot borrow the driver when
+    /// they skip (a stage's release, the apply after a callback).
+    pub(crate) fn skip_counter(&self) -> Rc<Cell<u32>> {
+        Rc::clone(&self.skipped)
+    }
+
+    fn skip(&self) {
+        self.skipped.set(self.skipped.get().saturating_add(1));
     }
 
     /// How many requests wait (the running one included).
@@ -350,7 +364,7 @@ impl Driver {
         let event = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.answer(question, answer, &mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 return Event::Quiet;
             }
         };
@@ -468,9 +482,49 @@ impl Driver {
             .map_or(0, |machine| machine.state().number())
     }
 
-    /// Whether anything waits, runs or is not yet told (the pump asks again).
-    pub(crate) fn has_work(&self) -> bool {
-        !self.entries.is_empty() || !self.ready.is_empty() || self.ask.is_some()
+    fn tell_pending(&self) -> bool {
+        !self.ready.is_empty() || self.entries.iter().any(|entry| entry.changed)
+    }
+
+    /// Whether the pump has something to do now: a job that can take a step,
+    /// a queue head that can start, or something that can be told. A request
+    /// that waits for the user's answer, or behind one, is no work (the
+    /// answer or the dialog's end wakes the pump), and what could not be told
+    /// waits for [`Self::due`], so the device may idle.
+    pub(crate) fn has_work(&self, now: u64) -> bool {
+        let held = self.blocked_until.is_some_and(|until| now < until);
+        if !held && self.tell_pending() {
+            return true;
+        }
+        self.machine.try_borrow().map_or(true, |machine| {
+            machine.can_step() || (!machine.busy() && !self.queue.is_empty())
+        })
+    }
+
+    /// When to look again for what could not be told, if anything waits.
+    pub(crate) fn due(&self) -> Option<u64> {
+        self.blocked_until.filter(|_| self.tell_pending())
+    }
+
+    /// Its plugin could not be called: no new try before `until`.
+    pub(crate) fn hold_back(&mut self, until: u64) {
+        self.blocked_until = Some(until);
+    }
+
+    /// Something was told: tries are free again.
+    pub(crate) fn released(&mut self) {
+        self.blocked_until = None;
+    }
+
+    /// The ended outcome of `owner`'s request, if it is still the oldest
+    /// one waiting; another one (the ready list changed during the callback)
+    /// is left alone.
+    pub(crate) fn take_ready_if(&mut self, owner: u64, request: u32, kind: u32) -> Option<Outcome> {
+        let first = self.ready.first()?;
+        if (first.owner, first.request, first.kind) != (owner, request, kind) {
+            return None;
+        }
+        self.take_ready()
     }
 
     /// The first request whose `firmware_changed` is due, left marked.
@@ -545,7 +599,7 @@ impl Driver {
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
             Err(_) => {
-                self.skipped = self.skipped.saturating_add(1);
+                self.skip();
                 got = false;
                 None
             }
@@ -609,7 +663,7 @@ impl Driver {
             }
             machine.forget(owner);
         } else {
-            self.skipped = self.skipped.saturating_add(1);
+            self.skip();
         }
         self.entries.retain(|entry| entry.owner != owner);
         self.ready.retain(|outcome| outcome.owner != owner);

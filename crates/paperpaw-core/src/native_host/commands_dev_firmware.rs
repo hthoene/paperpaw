@@ -21,7 +21,10 @@
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{firmware_driver::Driver, owner_paths};
 use alloc::{rc::Rc, string::String, vec::Vec};
-use core::{cell::RefCell, fmt};
+use core::{
+    cell::{Cell, RefCell},
+    fmt,
+};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
 };
@@ -41,6 +44,27 @@ const KIND_FIRMWARE: u32 = 1;
 pub(crate) struct FirmwareContext {
     pub(crate) driver: Rc<RefCell<Driver>>,
     pub(crate) owner: u64,
+    /// The driver's count of what was skipped, kept here to be reachable
+    /// when the driver itself is borrowed.
+    skipped: Rc<Cell<u32>>,
+}
+
+impl FirmwareContext {
+    /// The context of `owner` over `driver`.
+    pub(crate) fn new(driver: Rc<RefCell<Driver>>, owner: u64) -> Self {
+        let skipped = driver
+            .try_borrow()
+            .map_or_else(|_| Rc::new(Cell::new(0)), |driver| driver.skip_counter());
+        Self {
+            driver,
+            owner,
+            skipped,
+        }
+    }
+
+    fn skip(&self) {
+        self.skipped.set(self.skipped.get().saturating_add(1));
+    }
 }
 
 impl fmt::Debug for FirmwareContext {
@@ -95,6 +119,10 @@ impl Drop for FwRelease {
             for request in &self.requests {
                 driver.cancel(self.ctx.owner, *request);
             }
+        } else {
+            // The table is borrowed (never from a callback): the requests
+            // stay and run; counted, not silent.
+            self.ctx.skip();
         }
     }
 }
@@ -281,9 +309,15 @@ impl crate::Kernel {
                 }
             }
             FirmwareOp::Restart(ctx) => {
-                if let Ok(mut driver) = ctx.driver.try_borrow_mut() {
-                    // The state may have moved since submit: then nothing asks.
-                    let _ = driver.request_restart(ctx.owner);
+                // The state may have moved since submit: then nothing asks,
+                // and the skip is counted.
+                let asked = ctx
+                    .driver
+                    .try_borrow_mut()
+                    .map_err(|_| ERR_BUSY)
+                    .and_then(|mut driver| driver.request_restart(ctx.owner));
+                if asked.is_err() {
+                    ctx.skip();
                 }
             }
         }
