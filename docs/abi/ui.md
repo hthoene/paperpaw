@@ -460,6 +460,11 @@ asker learns its request id at once and long texts move in pages, never cut.
   it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
   filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
   them.
+- [D] **Raise once per press** (Senior R1 on #870): verdicts 2 run and 5 raise act on every input
+  they answer, the rest of a captured one included, so a filter that answers run or raise again
+  on the key's repeat or release, or on the pointer's moves and up, runs its action again. A filter
+  answers run or raise once per press (at the press, or at the up for a recognizer) and pass or
+  take for the rest of it; the host does not deduplicate.
 - [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
   down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
   it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
