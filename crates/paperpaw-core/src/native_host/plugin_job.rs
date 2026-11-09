@@ -45,6 +45,8 @@ pub(crate) mod reason {
     pub(crate) const ID_TAKEN: u8 = 15;
     /// A card error.
     pub(crate) const CARD: u8 = 16;
+    /// The content changed since it was checked or asked about.
+    pub(crate) const CHANGED: u8 = 18;
     /// Not on this device: the code is of another kind (a computer's).
     pub(crate) const NOT_HERE: u8 = 19;
     /// The host stopped it (shutdown, card swap, suspend).

@@ -66,6 +66,12 @@ pub(crate) mod plugin_folder;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[path = "native_host/plugin_rules.rs"]
+#[allow(dead_code, reason = "the install job applies it; see plugin_check")]
+pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_swap.rs"]
+#[allow(dead_code, reason = "the install job runs it and the start replays it; see plugin_check")]
+pub(crate) mod plugin_swap;
 #[path = "native_host/plugin_trust.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_trust;
