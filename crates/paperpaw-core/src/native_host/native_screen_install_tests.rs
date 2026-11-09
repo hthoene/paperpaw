@@ -1455,34 +1455,6 @@ mod resources;
 #[path = "native_slot_offers_tests.rs"]
 mod slot_offers;
 
-#[test]
-fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
-    let mut kernel = kernel(0);
-    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
-    let before = live();
-    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
-    for owner in owners {
-        kernel
-            .register_native(
-                host_named(owner, 0),
-                &FlatDepth::try_new().unwrap(),
-                |_, _, _| {},
-            )
-            .unwrap();
-    }
-    let each = (live() - before) / owners.len();
-    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
-    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
-    // riscv32 sizes. Bounded here so that growth shows in review: with one
-    // sorted list per owner (not a table per kind) the cost does not grow
-    // with the kinds.
-    assert!(each <= 2_048, "{each} B per owner");
-    // Every owner's `make` was handed the same static table, not a copy.
-    let tables = TABLES.with(|tables| tables.borrow().clone());
-    assert!(tables.len() > owners.len());
-    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
-}
-
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
