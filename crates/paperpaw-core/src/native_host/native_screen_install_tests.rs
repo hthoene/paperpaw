@@ -682,8 +682,6 @@ fn sweep_post_factory_allocations(arms: u8) {
     );
 }
 
-/// A library with no declaration and no registration is no plugin: invalid
-/// (never "needs a newer host"), nothing published, the host destroyed.
 #[test]
 fn an_empty_install_is_refused_without_publication() {
     reset(NORMAL);
@@ -695,17 +693,12 @@ fn an_empty_install_is_refused_without_publication() {
     EMPTY.with(|value| value.set(true));
     let result = install(&mut kernel, 0);
     EMPTY.with(|value| value.set(false));
-    assert!(matches!(
-        result,
-        Err(Error::Status(host_glue::ERR_INVALID))
-    ));
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
     assert!(kernel.shared.native_instances.find("factory").is_none());
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
 
-/// A library that declares nothing but registers an event is admitted and
-/// subscribed to it (an events-only plugin: a logger, a sync).
 #[test]
 fn an_events_only_library_is_admitted_and_subscribed() {
     EMPTY.with(|value| value.set(true));
@@ -719,7 +712,13 @@ fn an_events_only_library_is_admitted_and_subscribed() {
             .native_instances
             .subscribed(key, wire::EVENT_STARTED_TAG)
     );
-    assert!(!kernel.shared.registry.screens.contains_key("factory.screen"));
+    assert!(
+        !kernel
+            .shared
+            .registry
+            .screens
+            .contains_key("factory.screen")
+    );
     assert!(kernel.unload_plugin(&Id::new_static("factory")));
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
@@ -1224,10 +1223,7 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
         EMPTY.with(|value| value.set(true));
         let result = kernel.register_native(hosted, &depth, |_, _, _| {});
         EMPTY.with(|value| value.set(false));
-        assert!(matches!(
-            result,
-            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
-        ));
+        assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
         assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
         assert!(pool.hosts().retirements_pending());
         assert!(kernel.native_unload_due().is_some());

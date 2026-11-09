@@ -269,18 +269,8 @@ impl Kernel {
                 sha256,
                 host: &host,
             };
-            match loader.load_native(storage.as_ref(), &file) {
-                Ok(None) => {}
-                Ok(Some(admission)) => {
-                    self.add_native_plugin(&plugin, disabled, admission);
-                    continue;
-                }
-                Err(problem) => {
-                    let message = format!("{path}: not loaded ({problem:?})");
-                    self.warn(WarningSource::Plugin(id.clone()), None, message);
-                    self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
-                    continue;
-                }
+            if self.load_native_code(loader.as_mut(), storage.as_ref(), &file, &plugin, disabled) {
+                continue;
             }
             let loaded = loader.load(storage.as_ref(), &file).and_then(|code| {
                 if code.manifest().id == id {
@@ -318,6 +308,32 @@ impl Kernel {
         loader.finish(storage.as_ref());
         self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
+    }
+
+    /// Asks the loader whether `file` is a native library and, if so, admits it
+    /// ([`Self::add_native_plugin`]) or lists why not; `true` when it was one
+    /// (the code is not loaded the other way).
+    fn load_native_code(
+        &mut self,
+        loader: &mut dyn CodeLoader,
+        storage: &dyn Storage,
+        file: &CodeFile<'_>,
+        plugin: &DataPlugin,
+        disabled: &[String],
+    ) -> bool {
+        match loader.load_native(storage, file) {
+            Ok(None) => false,
+            Ok(Some(admission)) => {
+                self.add_native_plugin(plugin, disabled, admission);
+                true
+            }
+            Err(problem) => {
+                let message = format!("{}: not loaded ({problem:?})", file.path);
+                self.warn(WarningSource::Plugin(file.id.clone()), None, message);
+                self.list_code_plugin(plugin, disabled, PluginState::Failed, problem);
+                true
+            }
+        }
     }
 
     /// A native plugin the shell hosted: admitted through the kernel before

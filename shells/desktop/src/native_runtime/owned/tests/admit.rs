@@ -84,7 +84,10 @@ fn a_declared_screen_is_admitted_opens_and_draws_through_the_library() {
     let width = usize::from(device.panel.width());
     let at = (8 * width + 8) * 3;
     // Black is not white (the panel's darkest gray is not zero here).
-    assert!(after[at] < 64 && before[at] > after[at], "its bar is on the panel");
+    assert!(
+        after[at] < 64 && before[at] > after[at],
+        "its bar is on the panel"
+    );
     assert!(device.kernel.take_warnings().is_empty());
     assert!(mapped(ID));
     drop(device);
