@@ -5,7 +5,6 @@ Row "Vocabulary" (focused)
 Row "Flash cards"
 Row "Notes vault"
 Row "News"
-Row "Catalogs"
 Row "Wi-Fi transfer"
 Row "Plugin store"
 Row "Screenshot"

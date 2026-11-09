@@ -12,6 +12,7 @@ files
 joplin
 keys
 menu-editor
+opds
 profiles
 notes-overview
 readwise
