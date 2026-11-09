@@ -102,7 +102,8 @@ impl<'a> OpenBook<'a> {
         self.image_side = side;
         self
     }
-    /// The longest side of the cover (0 leaves it to the host).
+    /// The longest side of the cover (0 leaves it to the host). The SDK does not
+    /// check it; the host bounds it.
     #[must_use]
     pub const fn cover_side(mut self, side: u32) -> Self {
         self.cover_side = side;
@@ -221,6 +222,13 @@ pub struct DocPosition {
     /// The offset in the section's source units.
     pub offset: u32,
 }
+impl DocPosition {
+    /// The place at `offset` in `section`.
+    #[must_use]
+    pub const fn new(section: u32, offset: u32) -> Self {
+        Self { section, offset }
+    }
+}
 
 /// The document service handle. Release it explicitly within a callback.
 #[derive(Debug)]
@@ -328,7 +336,7 @@ impl Documents {
             input,
             out,
         )?;
-        state_of(&out[..n])
+        state_of(out.get(..n).ok_or(Error::Invalid)?)
     }
 
     /// Read a document's state (op 2), to follow its preparation.
@@ -344,7 +352,7 @@ impl Documents {
         out: &'a mut [u8],
     ) -> Result<DocState<'a>, Error> {
         let n = self.call(host, schema::OP_STATE, &[&document.record()], input, out)?;
-        let state = state_of(&out[..n])?;
+        let state = state_of(out.get(..n).ok_or(Error::Invalid)?)?;
         if state.id() != document {
             return Err(Error::Invalid);
         }
@@ -394,7 +402,7 @@ impl Documents {
             generation: 0,
         };
         let n = self.call(host, schema::OP_XPOINTER, &[&at], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceDocXpointer<'a>>()
             .map_err(|_| Error::Invalid)?;
         if row.document != document.0 {
@@ -425,7 +433,7 @@ impl Documents {
             text: xpointer,
         };
         let n = self.call(host, schema::OP_LOCATE, &[&ask], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceDocAt>()
             .map_err(|_| Error::Invalid)?;
         if row.document != document.0 {

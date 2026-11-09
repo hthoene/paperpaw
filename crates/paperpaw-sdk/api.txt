@@ -3871,6 +3871,8 @@ pub struct paperpaw_sdk::native::document::DocId(_)
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::DocPosition
 pub paperpaw_sdk::native::document::DocPosition::offset: u32
 pub paperpaw_sdk::native::document::DocPosition::section: u32
+impl paperpaw_sdk::native::document::DocPosition
+pub const fn paperpaw_sdk::native::document::DocPosition::new(u32, u32) -> Self
 pub struct paperpaw_sdk::native::document::DocState<'a>(_)
 impl<'a> paperpaw_sdk::native::document::DocState<'a>
 pub const fn paperpaw_sdk::native::document::DocState<'a>::cache_made_now(&self) -> bool

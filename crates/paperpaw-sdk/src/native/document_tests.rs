@@ -288,10 +288,7 @@ fn xpointer_and_locate_convert_a_position_both_ways() {
         .xpointer(
             &host,
             DocId(4),
-            DocPosition {
-                section: 2,
-                offset: 40,
-            },
+            DocPosition::new(2, 40),
             &mut input,
             &mut out,
         )
@@ -326,13 +323,7 @@ fn xpointer_and_locate_convert_a_position_both_ways() {
             &mut out,
         )
         .unwrap();
-    assert_eq!(
-        at,
-        DocPosition {
-            section: 2,
-            offset: 40
-        }
-    );
+    assert_eq!(at, DocPosition::new(2, 40));
     assert_eq!(state.op.get(), schema::OP_LOCATE);
     let bytes = state.input.borrow();
     assert!(matches!(
@@ -356,10 +347,7 @@ fn xpointer_and_locate_refuse_bad_input_and_foreign_answers() {
         docs.xpointer(
             &host,
             DocId(4),
-            DocPosition {
-                section: 0,
-                offset: 0
-            },
+            DocPosition::new(0, 0),
             &mut input,
             &mut out
         ),
@@ -382,10 +370,7 @@ fn xpointer_and_locate_refuse_bad_input_and_foreign_answers() {
         docs.xpointer(
             &host,
             DocId(4),
-            DocPosition {
-                section: 0,
-                offset: 0
-            },
+            DocPosition::new(0, 0),
             &mut input,
             &mut out
         ),
