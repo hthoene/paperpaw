@@ -250,10 +250,16 @@ impl Driver {
             let kind = self.kind_of(&job);
             self.entries
                 .retain(|entry| (entry.owner, entry.request) != (owner, request));
+            // The result place reserved for the check goes with it, unless
+            // another check of the plugin still needs it.
+            let other_check = self
+                .entries
+                .iter()
+                .any(|entry| entry.owner == owner && entry.kind == KIND_CHECK);
             if kind == KIND_CHECK
+                && !other_check
                 && let Ok(mut machine) = self.machine.try_borrow_mut()
             {
-                // The result place reserved for the check goes with it.
                 machine.forget(owner);
             }
         }
@@ -368,6 +374,16 @@ impl Driver {
 
     /// The edge of `outcome` reached its plugin: op 13 reads it from now on.
     pub(crate) fn delivered(&mut self, outcome: Outcome) {
+        // A restart reuses its install's number: one asked for from the
+        // callback just told waits with that number, and the old outcome must
+        // not be written into its slot.
+        let again = self.entries.iter().any(|entry| {
+            (entry.owner, entry.kind, entry.request)
+                == (outcome.owner, outcome.kind, outcome.request)
+        });
+        if again {
+            return;
+        }
         if let Some(kept) = self
             .kept
             .iter_mut()
@@ -391,10 +407,12 @@ impl Driver {
     /// Suspend, shutdown or a card swap: the running job and every waiting
     /// one end with reason 20, each for its sender.
     pub(crate) fn abort_all(&mut self) {
+        let mut got = true;
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
             Err(_) => {
                 self.skipped = self.skipped.saturating_add(1);
+                got = false;
                 None
             }
         };
@@ -421,8 +439,10 @@ impl Driver {
                 reason: STOPPED,
             });
         }
-        // What is left has no job: a restart that waits for its answer.
-        while let Some(entry) = self.entries.first().copied() {
+        // What is left has no job: a restart that waits for its answer. With
+        // the machine borrowed the running job was not stopped and its entry
+        // is still its own: it ends (once) when the job does.
+        while got && let Some(entry) = self.entries.first().copied() {
             self.end(Outcome {
                 owner: entry.owner,
                 request: entry.request,
