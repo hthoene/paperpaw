@@ -2,6 +2,13 @@
 //! for `core.files` root 2: a built-in plugin has no install folder on the
 //! card, whatever a leftover `plugins/<id>/` holds.
 //!
+//! Open question for Kernel (R3 of the #715 review): may a card plugin take a
+//! linked plugin's id? `register_linked` refuses a taken id; this set assumes
+//! the registry refuses the other way round too (a card plugin with a linked
+//! id is never registered), so its install folder is never read. If Kernel
+//! rules that it may, the id must leave this set when the card plugin is
+//! registered, and `core.files` root 2 must read that plugin's own folder.
+//!
 //! The kernel adds an id before it registers the plugin and takes it back
 //! when the registration fails, so an id is in the set only for a plugin that
 //! is linked. Every allocation is fallible; a set that is in use answers "yes"

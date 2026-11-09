@@ -136,11 +136,12 @@ fn quiet() -> Rc<Source> {
 fn the_wiring_refuses_core_files_until_every_kind_of_busy_state_has_a_source() {
     let resources = HostResources::try_new().unwrap();
     let wiring = || HostWiring::new().files(card());
-    // None, then some: nothing is wired, and the refusal is `ERR_STATE`.
+    // None, then some: nothing is wired, and the refusal is `ERR_STATE`. The
+    // network's source is the host's own and is there from the first call.
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     let sources = resources.hosts().busy_sources();
+    assert!(sources.has(BusyKind::Network));
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    sources.register(BusyKind::Network, quiet()).unwrap();
     assert_eq!(resources.wire(wiring()).err(), Some(ERR_STATE));
     assert!(resources.hosts().files().is_none(), "nothing half wired");
     // The reader's book was the last: now it wires, once.
@@ -155,7 +156,6 @@ fn the_wired_host_asks_the_device_sources() {
     let resources = HostResources::try_new().unwrap();
     let sources = resources.hosts().busy_sources();
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
-    sources.register(BusyKind::Network, quiet()).unwrap();
     let reader = Rc::new(Source {
         busy: Cell::new(true),
         moving: Cell::new(true),
@@ -171,7 +171,8 @@ fn the_wired_host_asks_the_device_sources() {
 fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
     let resources = HostResources::try_new().unwrap();
     let hosts = resources.hosts();
-    // Registered once, however many times the wiring asks.
+    // Registered once, however many times the wiring asks, and with neither
+    // `core.net` nor `core.sockets` wired.
     hosts.register_in_use_source().unwrap();
     hosts.register_in_use_source().unwrap();
     let sources = hosts.busy_sources();
@@ -179,6 +180,7 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
     assert!(!sources.complete());
     sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
     sources.register(BusyKind::ReaderBook, quiet()).unwrap();
+    assert!(hosts.net().is_none() && hosts.sockets().is_none());
     resources.wire(HostWiring::new().files(card())).unwrap();
     let files = &hosts.files().unwrap().0;
     assert!(!files.busy("Books/a.epub", Access::Write));

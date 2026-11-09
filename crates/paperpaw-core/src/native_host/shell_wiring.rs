@@ -273,6 +273,11 @@ impl HostResources {
     /// wired then).
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
+        // What `core.net` and `core.sockets` hold in use is a busy source of
+        // the device from the start (the table is the host's own, whether
+        // or not either service is wired), so a call that names the network
+        // and `core.files` together is judged on the other two sources only.
+        hosts.register_in_use_source()?;
         // `core.files` needs every source of what the host holds in use
         // (the library's move, the network's files, the reader's book):
         // without one "nothing is busy" would be wrong, so it is refused.
@@ -319,7 +324,6 @@ impl HostResources {
                 hosts.policy().clone(),
             ));
             hosts.wire_net(device.clone())?;
-            hosts.register_in_use_source()?;
             wired.net = Some(NetReports(device));
         }
         if let Some(inputs) = wiring.sockets {
@@ -333,11 +337,8 @@ impl HostResources {
                 hosts.policy().clone(),
             ));
             hosts.wire_sockets(device.clone())?;
-            hosts.register_in_use_source()?;
             wired.sockets = Some(SockReports(device));
         }
-        // After the network: what `core.net` and `core.sockets` hold in use is
-        // a source of the busy answers, registered as they are wired.
         if let Some(storage) = wiring.files {
             hosts.wire_files(Rc::new(StorageFiles::new(
                 storage,
