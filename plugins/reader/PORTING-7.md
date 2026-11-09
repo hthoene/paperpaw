@@ -80,8 +80,15 @@ relative to the data folder).
 - `native_words::run` asks every subscriber once and reads nothing of what they answer or fail with;
   the lookup is the user's. Declared in `declarations::stages` (host admission and the codec's bounds
   are tested).
-- Not wired yet: the interface-6 reader still emits `core.word-looked-up`; the native selection flow
-  calls `native_words::run` when it exists (with the annotations screen's `native_notes::run`).
+- `native_words::announce` is the one place a lookup becomes a stage run (a test records one run with the
+  right payload: word, sentence, path, section, offset, language, title; a path over 512 bytes is refused and
+  nothing runs; `tests/native_words_alloc.rs` refuses every allocation of the input); `run` does it with the
+  host's stage and gives every refusal back for the caller to ignore.
+- Not wired yet: the native reader has no selection flow, and the interface-6 reader screen
+  (`screen/selecting.rs`) cannot run a stage, so it still emits `core.word-looked-up`. That emitter stays
+  until vocabulary (Port D) and readwise/joplin (Port E) subscribe to the stage; the native selection flow
+  calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
+  `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
 
 ## The stage `reader.filter@1`
 
