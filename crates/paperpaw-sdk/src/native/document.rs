@@ -1,7 +1,7 @@
 //! The document service `core.document` (`docs/abi/document.md` 2): open a book
 //! through its format, read its preparation state, convert a position to a KOReader
-//! XPointer and back, and close it. This is the opener's side; reading blocks,
-//! tables of contents and the rest of the service's operations are not here yet.
+//! XPointer and back, read its metadata, and close it. This is the opener's side; reading
+//! blocks, tables of contents and the rest of the service's operations are not here yet.
 use super::wire::services_wire::core_document_v1 as schema;
 use super::{
     Error, Host,
@@ -449,6 +449,9 @@ impl Documents {
 #[path = "document_readers.rs"]
 mod readers;
 pub use readers::{Reader, ReaderCursor, ReaderPage, ReaderPageEnd};
+#[path = "document_meta.rs"]
+mod meta;
+pub use meta::{DocTextPart, DocTextQuery, Metadata};
 
 fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
     RawRecord::one(bytes).map_err(|_| Error::Invalid)

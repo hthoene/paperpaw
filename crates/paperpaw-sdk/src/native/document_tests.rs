@@ -393,5 +393,7 @@ fn xpointer_and_locate_refuse_bad_input_and_foreign_answers() {
     );
 }
 
+#[path = "document_meta_tests.rs"]
+mod meta;
 #[path = "document_readers_tests.rs"]
 mod readers;
