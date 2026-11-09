@@ -362,7 +362,7 @@ impl EpubDocument {
             .ok_or_else(bad)? as usize;
         let dest = core::str::from_utf8(params.get(4..).ok_or_else(bad)?).map_err(|_| bad())?;
         self.built(storage)?;
-        let (identifier, fonts) = package::fonts(storage, &self.cache);
+        let (identifier, fonts) = package::fonts(storage, &self.cache)?;
         let font = fonts
             .get(index)
             .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;
