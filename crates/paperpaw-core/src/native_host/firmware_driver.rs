@@ -64,6 +64,9 @@ pub(crate) struct Driver {
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
+    /// The confirmation the host must show (an install's or a restart's),
+    /// until [`Self::take_ask`].
+    ask: Option<Ask>,
 }
 
 impl Driver {
@@ -76,6 +79,7 @@ impl Driver {
             queue: Vec::new(),
             ready: Vec::new(),
             kept: Vec::new(),
+            ask: None,
         }
     }
 
@@ -204,6 +208,37 @@ impl Driver {
         Ok(())
     }
 
+    /// Takes back a request accepted by `submit_*` whose batch never applied
+    /// (a callback error, a refused drain). A job that already runs is left to
+    /// end: only a request still waiting in the queue goes.
+    pub(crate) fn cancel(&mut self, owner: u64, request: u32) {
+        let queued = self
+            .queue
+            .iter()
+            .position(|job| (job.owner, job.request) == (owner, request));
+        if let Some(at) = queued {
+            self.queue.remove(at);
+            self.entries
+                .retain(|entry| (entry.owner, entry.request) != (owner, request));
+        }
+    }
+
+    /// The submit gates of `firmware_restart` (nothing changes).
+    ///
+    /// # Errors
+    /// `ERR_STATE` with none waiting, `ERR_DENIED` for another plugin.
+    pub(crate) fn restart_gate(&self, owner: u64) -> Result<(), i32> {
+        self.machine
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .restart_gate(owner)
+    }
+
+    /// The confirmation to show, once.
+    pub(crate) fn take_ask(&mut self) -> Option<Ask> {
+        self.ask.take()
+    }
+
     /// `firmware_restart` at submit: only the plugin whose install waits may
     /// ask; the returned question is the host's to show.
     ///
@@ -211,10 +246,13 @@ impl Driver {
     /// `ERR_STATE` with none waiting, `ERR_DENIED` for another plugin,
     /// `ERR_BUSY` while a job runs.
     pub(crate) fn request_restart(&mut self, owner: u64) -> Result<Ask, i32> {
-        self.machine
+        let ask = self
+            .machine
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
-            .request_restart(owner, 0)
+            .request_restart(owner, 0)?;
+        self.ask = Some(ask);
+        Ok(ask)
     }
 
     /// The user answered the open confirmation.
@@ -252,8 +290,10 @@ impl Driver {
 
     /// Records what ended: the entry goes, the outcome waits for delivery.
     fn note(&mut self, event: Event) -> Event {
-        if let Event::Ended(outcome) = event {
-            self.end(outcome);
+        match event {
+            Event::Ended(outcome) => self.end(outcome),
+            Event::Ask(ask) => self.ask = Some(ask),
+            _ => {}
         }
         event
     }

@@ -798,6 +798,18 @@ impl FirmwareInstall {
 
     // ---- the restart ----
 
+    /// The submit-time gates of `firmware_restart`, changing nothing.
+    ///
+    /// # Errors
+    /// `ERR_STATE` with no image waiting, `ERR_DENIED` for another plugin.
+    pub(crate) fn restart_gate(&self, owner: u64) -> Result<(), i32> {
+        match self.waiting {
+            None => Err(ERR_STATE),
+            Some(waiting) if waiting.owner != owner => Err(ERR_DENIED),
+            Some(_) => Ok(()),
+        }
+    }
+
     /// `firmware_restart` at submit: only the plugin whose install waits may
     /// ask, and the host asks again.
     ///
