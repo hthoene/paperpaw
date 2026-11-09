@@ -426,7 +426,7 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), super::new_resources()) else {
+        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), crate::native::new_resources()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
