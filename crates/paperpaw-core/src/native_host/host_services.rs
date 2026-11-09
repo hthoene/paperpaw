@@ -10,6 +10,7 @@
 use super::{
     doc_service::{self, DocHost, DocServices},
     files_service::{FilesHost, FilesServices},
+    hyphen_service::HyphenServices,
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
     net_service::{self, NetHost, NetServices},
@@ -42,6 +43,8 @@ pub(crate) struct HostServices {
     files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    hyphen: OnceCell<HyphenServices>,
+    images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
     net: OnceCell<NetServices>,
@@ -75,6 +78,7 @@ impl core::fmt::Debug for HostServices {
             .field("files", &self.files.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("hyphen", &self.hyphen.get().is_some())
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
             .field("net", &self.net.get().is_some())
@@ -92,6 +96,8 @@ impl HostServices {
             files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            hyphen: OnceCell::new(),
+            images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
             net: OnceCell::new(),
@@ -218,7 +224,31 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
-        self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+        self.lookup
+            .set(LookupServices::new(host))
+            .map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `text.hyphenate` once.
+    pub(crate) fn wire_hyphen(
+        &self,
+        host: Rc<dyn super::hyphen_service::HyphenHost>,
+    ) -> Result<(), i32> {
+        self.hyphen
+            .set(HyphenServices(Rc::new(
+                super::hyphen_service::HyphenState::new(host),
+            )))
+            .map_err(|_| ERR_STATE)
+    }
+
+    /// The device's decoded pictures (`image.info`, `canvas.draw_image`).
+    pub(crate) fn images(&self) -> &super::image_service::ImageTable {
+        &self.images
+    }
+
+    pub(crate) fn hyphen(&self) -> Option<&HyphenServices> {
+        self.hyphen.get()
     }
 
     #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
@@ -331,6 +361,8 @@ impl HostServices {
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
         }
+        // The plugin's pictures end with it (its image ids are its own).
+        result = result.and(self.images.owner_stopped(owner));
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));

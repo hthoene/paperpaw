@@ -33,7 +33,9 @@ impl InstalledCodes {
         let mut entries = Vec::new();
         for plugin in plugins {
             if let Some(digest) = entry_in(text, plugin.as_str()) {
-                entries.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+                entries
+                    .try_reserve(1)
+                    .map_err(|_| StorageError::OutOfMemory)?;
                 entries.push((plugin, digest));
             }
         }

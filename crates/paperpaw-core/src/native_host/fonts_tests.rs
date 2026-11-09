@@ -3,6 +3,7 @@ use crate::native_host::HostResources;
 use core::pin::pin;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_UTF8};
 use paperpaw_platform::Instant;
+use paperpaw_sdk::builtin::fonts as roles;
 use paperpaw_sdk::{Font, FontSpec, Id};
 
 fn bytes(text: &[u8]) -> PpBytes {
@@ -296,6 +297,76 @@ fn ink_without_drawn_pixels_and_refusals_preserve_all_outputs() {
             );
             assert_eq!(values, [91; 4]);
         }
+    });
+}
+
+fn add_icon_font(kernel: &mut crate::Kernel, chars: &[char]) {
+    let mut pack = paperpaw_text::PackBuilder::new();
+    pack.add_strike(
+        10.0,
+        paperpaw_text::LineMetrics::new(8.0, 2.0, 12.0),
+        chars
+            .iter()
+            .map(|c| (*c, paperpaw_text::Glyph::empty(5.0)))
+            .collect(),
+    );
+    kernel
+        .shared
+        .fonts
+        .add(FontSpec::new(
+            Id::parse("pack.icons").unwrap(),
+            Font::from_data(pack.build(), &[]).unwrap(),
+        ))
+        .unwrap();
+    kernel
+        .shared
+        .fonts
+        .bind_user(roles::ICONS, Id::parse("pack.icons").unwrap());
+}
+
+fn glyph(scope: &EnvironmentScope, name: &[u8], cap: usize) -> (i32, [u8; 8]) {
+    let mut out = [0xaa_u8; 8];
+    let len = unsafe {
+        icon_glyph(
+            scope,
+            bytes(name),
+            PpBuffer {
+                ptr: out.as_mut_ptr(),
+                cap,
+            },
+        )
+    };
+    (len, out)
+}
+
+#[test]
+fn icon_glyph_writes_the_utf8_of_a_named_icon_of_the_bound_font() {
+    let star = paperpaw_sdk::icons::char("star").unwrap();
+    let mut with = kernel();
+    add_icon_font(&mut with, &[star]);
+    scoped(&with, |scope| {
+        let (len, out) = glyph(scope, b"star", 8);
+        let mut want = [0_u8; 4];
+        let want = star.encode_utf8(&mut want).as_bytes();
+        assert_eq!(usize::try_from(len).unwrap(), want.len());
+        assert_eq!(&out[..want.len()], want);
+        assert_eq!(out[want.len()], 0xaa, "only the character is written");
+        // A smaller `out` is ERR_NO_SPACE and nothing is written.
+        assert_eq!(glyph(scope, b"star", 1), (ERR_NO_SPACE, [0xaa; 8]));
+        assert_eq!(glyph(scope, b"star", 0).0, ERR_NO_SPACE);
+        // A name the host lacks, or one the font has no drawing for.
+        assert_eq!(glyph(scope, b"no-such-icon", 8).0, ERR_NOT_FOUND);
+        assert_eq!(glyph(scope, b"zoom-in", 8).0, ERR_NOT_FOUND);
+        // Not `[a-z0-9-]` once, 1 to 64 bytes: invalid.
+        for bad in [&b""[..], b"Star", b"a_b", b"a b", b"a/b", &[b'a'; 65][..]] {
+            assert_eq!(glyph(scope, bad, 8).0, ERR_INVALID, "{bad:?}");
+        }
+        assert_eq!(glyph(scope, &[0xff], 8).0, ERR_UTF8);
+    });
+    // No icon font bound: not found, the plugin shows text.
+    let without = kernel();
+    scoped(&without, |scope| {
+        assert_eq!(glyph(scope, b"star", 8).0, ERR_NOT_FOUND);
     });
 }
 

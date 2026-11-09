@@ -39,3 +39,36 @@ Assignment #1638 (#228). Branch based on #385 (draft 28, `5067fc377`); move to i
 - Fonts: `doc_font` rows give family/flags/bytes; how the host reads a face's data is not in section 3.
 - X4: `.ppn` size vs Beta 3 not measurable until an entry point exists; heap and stack of `block` on a long
   chapter are open device gates.
+
+## Reading on a full heap (Core, todo 208)
+
+Status: **partly done.** Opening and reading HTML and Markdown (and the conversion, CSS and cache
+code they share with EPUB) answers a refused allocation, it never aborts. The refusal sweeps cover
+Markdown and HTML only; EPUB open (package, ZIP), FB2 and CBZ have no sweep yet (follow-up). A
+picture that finds no room to be decoded shows its alternative text for now, but its chapter is
+**not marked complete** in the cache (`<n>.end` is not written), so the next opening converts it
+again; one that cannot be decoded for other reasons is cached as its alternative text, as before.
+Any other refused allocation fails the chapter with `OutOfMemory`. Until Kernel's decoder tells
+"too big for the heap" from a refused allocation, a picture too big for the heap costs a conversion
+on each opening.
+
+- Every growth on the path of opening and reading a book (strings, lists, formatted text, the cache
+  record reader) goes through `src/fallible.rs` or `try_reserve` itself. A refusal is
+  `DocumentError::OutOfMemory`, which a provider maps to the format refusal. Successful parses
+  give the same output as before.
+- `tests/allocation.rs` refuses the n-th allocation for every n over a representative Markdown
+  and HTML document, and checks: the answer is `OutOfMemory` or the same document, never a panic,
+  and a retry on the same storage reads as a clean run does (nothing half-made stays).
+  `list_infallible_sites` (ignored, developer aid) lists allocations that do not go through
+  `try_*`.
+- **Documented residual:** the one `Box<dyn Document>` per opened document, made by the format
+  factory in `src/lib.rs` (`Box::new(d) as Box<dyn Document>`). The host's factory type is
+  `Result<Box<dyn Document>, DocumentError>`, the SDK has no safe fallible box and a plugin crate
+  holds no `unsafe`. A sweep skips that site.
+- **Documented residual (SDK):** `paperpaw_sdk::ImageFile::open` / `Decoded::open` (crate
+  `paperpaw-image`) copy a path with no way to refuse; the picture lookups of this crate call them.
+  The sweep leaves allocations made inside `paperpaw_image` be (`in_sdk_image` in
+  `tests/allocation.rs`). Follow-up: a fallible `ImageFile::try_open` (Kernel's API).
+- Cache line reads (`cached::lines`) and picture lookups answer `OutOfMemory` where the caller can
+  say so (conversion, block reads); lookups with no way to say it (labels, links, anchors, the
+  Document trait's `Option` returns) find nothing for that call and are not cached.

@@ -29,6 +29,7 @@ mod cbz;
 mod convert;
 mod css;
 mod document;
+mod fallible;
 mod fb2;
 mod html;
 mod markdown;
@@ -302,6 +303,22 @@ pub fn fingerprint(
     ends.copy_within(ENDS..ENDS + tail, head);
     let hash = paperpaw_sdk::digest::fnv1a64(&ends[..head + tail]);
     Ok(alloc::format!("{size} {hash:016x}"))
+}
+
+/// [`fingerprint`] where a refused allocation is `OutOfMemory` and a
+/// storage error is the document's.
+pub(crate) fn fingerprint_with(
+    storage: &dyn paperpaw_sdk::Storage,
+    path: &str,
+) -> Result<alloc::string::String, paperpaw_sdk::document::DocumentError> {
+    let size = storage.size(path)?;
+    let mut ends = fallible::zeroed(2 * ENDS)?;
+    let (head, tail) = ends.split_at_mut(ENDS);
+    let head = read_full(storage, path, 0, head)?;
+    let tail = read_full(storage, path, size.saturating_sub(ENDS as u64), tail)?;
+    ends.copy_within(ENDS..ENDS + tail, head);
+    let hash = paperpaw_sdk::digest::fnv1a64(&ends[..head + tail]);
+    fallible::try_format!("{size} {hash:016x}")
 }
 
 /// Fills `buf` from `offset` of `path` as far as the file goes; how much.

@@ -12,7 +12,7 @@ macro_rules! values {
             Unknown(u32),
         }
         impl $name {
-            const fn decode(value:u32)->Self { match value { $($value=>Self::$variant,)+ value=>Self::Unknown(value) } }
+            pub(crate) const fn decode(value:u32)->Self { match value { $($value=>Self::$variant,)+ value=>Self::Unknown(value) } }
         }
     };
 }
@@ -102,7 +102,7 @@ pub enum DeviceOutcome {
     RestartPending,
 }
 impl DeviceOutcome {
-    const fn decode(value: u32) -> Self {
+    pub(crate) const fn decode(value: u32) -> Self {
         match value {
             0 => Self::Ok,
             2 => Self::Declined,

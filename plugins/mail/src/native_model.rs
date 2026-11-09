@@ -11,8 +11,11 @@
 //! The interface-6 modules stay until the port is complete (`PORTING-7.md`).
 
 pub mod codec;
+pub mod fail;
 pub mod header;
 pub mod html;
 pub mod imap;
 pub mod mem;
+pub mod render;
 pub mod smtp;
+pub mod store;

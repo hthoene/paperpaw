@@ -193,6 +193,7 @@ impl Sealer for Veiling {
 pub(super) fn status(error: StorageError) -> i32 {
     match error {
         StorageError::Full => ERR_FULL,
+        StorageError::OutOfMemory => ERR_NO_MEMORY,
         _ => ERR_IO,
     }
 }
