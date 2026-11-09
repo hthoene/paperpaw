@@ -8,9 +8,10 @@
 //! card and the widget follow with their host pieces (see `PORTING-7.md`): a
 //! screen or an entry that cannot work is not declared.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Kind, MenuEntryDecl, ScreenDecl,
-    SpecDecl, SubscribeDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, MenuEntryDecl,
+    ScreenDecl, SpecDecl, SubscribeDecl, WidgetDecl,
 };
+use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
@@ -32,6 +33,11 @@ pub const WORK_TOKEN: u32 = 5;
 /// The stage of the words looked up, and its token.
 pub const WORD_TOKEN: u32 = 6;
 pub const WORD_STAGE: &str = "reader.word-looked-up";
+
+/// The widgets' tokens: the word of the day, the words saved, the cards due.
+pub const WORD_WIDGET_TOKEN: u32 = 20;
+pub const SAVED_WIDGET_TOKEN: u32 = 21;
+pub const DUE_WIDGET_TOKEN: u32 = 22;
 
 /// The reading settings' group, where the settings are.
 pub const GROUP: &str = "core.group.reading";
@@ -193,4 +199,113 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     declarations.menu_entry(entry)?;
     declarations.icon("vocabulary.flash-cards", "stack-2")?;
     declarations.submit()
+}
+
+/// Which word the word of the day is: another each day, or the newest.
+pub const PICKS: [&str; 2] = ["vocabulary.pick.daily", "vocabulary.pick.newest"];
+
+/// A widget of the plugin.
+#[derive(Debug, Clone, Copy)]
+pub struct Def {
+    /// Relative to the plugin: `widget.word` is `vocabulary.widget.word`.
+    pub name: &'static str,
+    pub token: u32,
+    /// The widget's own settings, in order, after the look they share.
+    pub options: &'static [Opt],
+}
+
+/// The look the widgets share, in the order interface 6 listed it, without the
+/// size and the alignment (which follow, as each widget has them).
+const fn look() -> [Opt; 7] {
+    [
+        Opt::Frame("core.frame.none"),
+        Opt::Padding,
+        Opt::Paper,
+        Opt::Ink,
+        Opt::Corners,
+        Opt::FrameLine,
+        Opt::Shadow,
+    ]
+}
+
+const WORD_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.left"),
+    Opt::Choice(
+        "pick",
+        "vocabulary.setting.pick",
+        &PICKS,
+        "vocabulary.pick.daily",
+        "vocabulary.setting.pick.help",
+    ),
+    Opt::Part("caption", "vocabulary.part.caption", true),
+    Opt::Part("sentence", "vocabulary.part.sentence", true),
+    Opt::Part("book", "vocabulary.part.book", false),
+];
+
+const SAVED_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.left"),
+    Opt::Part("caption", "vocabulary.part.caption", true),
+    Opt::Part("newest", "vocabulary.part.newest", true),
+    Opt::Part("books", "vocabulary.part.books", false),
+    Opt::Part("languages", "vocabulary.part.languages", false),
+];
+
+const DUE_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.left"),
+    Opt::Part("caption", "vocabulary.part.caption", true),
+];
+
+/// The widgets, with their own settings (the shared look comes first).
+pub const WIDGETS: [Def; 3] = [
+    Def {
+        name: "widget.word",
+        token: WORD_WIDGET_TOKEN,
+        options: WORD_OWN,
+    },
+    Def {
+        name: "widget.saved",
+        token: SAVED_WIDGET_TOKEN,
+        options: SAVED_OWN,
+    },
+    Def {
+        name: "widget.due",
+        token: DUE_WIDGET_TOKEN,
+        options: DUE_OWN,
+    },
+];
+
+impl Def {
+    /// Every setting of the widget in order: the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
+    pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
+        look().into_iter().chain(self.options.iter().copied())
+    }
+}
+
+/// The widgets with the group of settings each: *Word of the day*, *Words
+/// saved* and *Cards due* (the word of the day follows the day, so it is live).
+pub fn widgets(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut d = Declarations::new(sink);
+    for widget in WIDGETS {
+        let group = ["vocabulary.", widget.name].concat();
+        d.group(GroupDecl::new(widget.name, &group))?;
+        let mut spec = WidgetDecl::new(widget.name, &group, "core.widgets.words", widget.token)
+            .map_err(|_| DeclareError::TooLong("widget"))?;
+        if widget.token == WORD_WIDGET_TOKEN {
+            spec = spec.live();
+        }
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
+        d.widget(spec)?;
+        declare_all(&mut d, widget.name, &group, widget.all())?;
+        d.submit()?;
+    }
+    Ok(())
 }
