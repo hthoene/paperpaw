@@ -6,7 +6,11 @@ use super::*;
 impl Kernel {
     /// `event` after the native filters and then the interface-6 ones, or the
     /// effects of an input one of them took, cancelled or ran an action for.
-    pub(crate) fn filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+    pub(crate) fn filtered(
+        &mut self,
+        now: Instant,
+        event: InputEvent,
+    ) -> Result<InputEvent, Effects> {
         let event = self.native_filtered(now, event)?;
         self.legacy_filtered(now, event)
     }
