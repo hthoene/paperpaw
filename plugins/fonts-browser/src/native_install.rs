@@ -115,7 +115,8 @@ impl NativeFontsBrowser {
             false,
         );
         match asked {
-            Ok(()) => Ok(()),
+            // The page stops offering *Stop* now.
+            Ok(()) => self.refresh(host),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(_) => self.fail(host),
         }
