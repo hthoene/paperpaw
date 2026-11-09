@@ -368,6 +368,15 @@ pub mod build {
             index
         }
 
+        /// Adds a data symbol (`STT_OBJECT`, global) of `size` bytes; its
+        /// index.
+        pub fn object(&mut self, name: &str, value: u32, size: u32, shndx: u16) -> u32 {
+            let index = self.symbol(name, value, size, shndx, false);
+            let last = self.symbols.last_mut().expect("just pushed");
+            last.info |= 1;
+            index
+        }
+
         /// Adds a relocation of `kind` against `symbol` at `offset` in
         /// `section`.
         pub fn rela(&mut self, section: usize, offset: u32, symbol: u32, kind: u32) {

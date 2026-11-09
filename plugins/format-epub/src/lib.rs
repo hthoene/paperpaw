@@ -33,9 +33,11 @@ mod fallible;
 mod fb2;
 mod html;
 mod markdown;
+mod native_io;
 mod obfuscation;
 mod package;
 mod pictures;
+pub mod provider;
 mod woff;
 
 use alloc::borrow::Cow;
@@ -51,6 +53,7 @@ pub use document::EpubDocument;
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
+pub use native_io::NativeIo;
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
@@ -352,6 +355,38 @@ fn is_epub(head: &[u8]) -> bool {
         && method == 0
         && head.get(30..30 + name) == Some(&b"mimetype"[..])
         && head.get(data..data + MIME.len()) == Some(MIME)
+}
+
+/// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn html_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-html.html",
+        |storage, name, options| {
+            HtmlDocument::open(storage, name, options.publisher_styles)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
+/// The `core.format` provider of Markdown files (`md`, `markdown`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn markdown_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-markdown.markdown",
+        |storage, name, options| {
+            MarkdownDocument::open(storage, name, options.publisher_styles)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
 }
 
 #[cfg(test)]
