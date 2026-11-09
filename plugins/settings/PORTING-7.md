@@ -71,6 +71,12 @@ link them until the host activates native plugins; then they go together (no shi
   all widgets and the gap (`native_model::widget_look_covers`, from the registry's widgets;
   tested). A theme no longer resets the frame of all widgets (it never did in interface 6). The
   row shows only where a look exists. The chooser's drawing needs the host (`settings-widget-look`).
+  **Differences and host duties:** (1) `apply_preset` takes the covered set per kind from the host
+  (`registry.md` 4.3): the host's theme set must leave out `core.widgets.frame` and its look set must
+  equal `widget_look_covers`, else the mark here and the result of choosing differ. (2) Beta 3
+  counted a widget's `.frame` as in use only where it was written down, even at its default; here
+  "in use" compares with `is_default`, so a look that names a frame at its default may be marked as
+  *None*. Not asserted by a test (the host decides what `is_default` means for a named default).
 
 ## Tests
 
