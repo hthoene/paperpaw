@@ -20,7 +20,17 @@ pub(crate) fn visibility_for(
     secret: bool,
     editor: Option<&str>,
 ) -> Visibility {
-    if grant && editor != Some(caller.as_str()) {
+    visibility_of(caller.as_str(), grant, secret, editor)
+}
+
+/// [`visibility_for`] for a caller known by its id text (REG rows).
+pub(crate) fn visibility_of(
+    caller: &str,
+    grant: bool,
+    secret: bool,
+    editor: Option<&str>,
+) -> Visibility {
+    if grant && editor != Some(caller) {
         Visibility::Hidden
     } else if secret {
         Visibility::Redacted

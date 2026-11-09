@@ -9,7 +9,7 @@ use paperpaw_core::native_host::registrations::{
     EventScreenOpened, Record, ServiceEnd, ServiceLibAnnotation, ServiceLibBook, ServiceLibEntry,
     record_encode_one, records_decode,
 };
-use paperpaw_native::host_glue::{ERR_STATE, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_plugin_notes_overview::NATIVE_ENTRY;
 use paperpaw_scripted_host::{ScriptedHost, Slot, event_batch, sweep};
 use std::cell::{Cell, RefCell};
@@ -175,14 +175,15 @@ fn opened(screen: &str) -> Vec<u8> {
     .unwrap()
 }
 
-/// The scripted host does not answer `i18n.copy` and `i18n.format` yet
-/// (`ERR_UNSUPPORTED`), so the list ends there, after the library has been
-/// read; the rows' texts are not checked here.
+/// The list is made whole: the host answers `i18n.copy` and `i18n.format`
+/// from the plugin's own catalogs (`run` adds them).
 fn finished(status: i32) -> bool {
-    status == 0 || status == ERR_UNSUPPORTED
+    status == 0
 }
 
 fn run(host: &ScriptedHost) -> i32 {
+    host.add_catalogs_in(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"))
+        .unwrap();
     // A refusal while the plugin is made is the factory's status.
     let plugin = match host.load(NATIVE_ENTRY.entry()) {
         Ok(plugin) => plugin,

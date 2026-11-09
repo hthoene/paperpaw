@@ -101,8 +101,31 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
     }
   ],
-  "services": [],
+  "services": [
+    "core.secrets",
+    "core.ui"
+  ],
   "features": []
 }

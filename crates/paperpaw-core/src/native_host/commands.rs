@@ -313,19 +313,14 @@ impl<'a> CommandStage<'a> {
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
+        // `answer_plugin` and a write of a grant are refused for every plugin
+        // (`refused_outright`).
+        if let Some(status) = refused_outright(batch) {
+            return Some(status);
+        }
         // In a work run's callback only the listed commands are staged (the
         // callback sees the refusal and what it staged before stays valid).
-        if self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command)) {
-            return Some(ERR_STATE);
-        }
-        // `answer_plugin` needs the install feature (`uses.install`, DEV,
-        // `docs/abi/device.md` section 1). Until command staging checks
-        // features (DEV host side), it is refused for every plugin, wherever it
-        // sits in the batch.
-        batch
-            .iter()
-            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
-            .then_some(ERR_DENIED)
+        (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
@@ -558,6 +553,35 @@ impl CommandScope {
     }
 }
 
+/// A batch no plugin may send: `ERR_DENIED` for the whole of it.
+///
+/// `answer_plugin` needs the install feature (`uses.install`, DEV,
+/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
+/// host side), it is refused for every plugin, wherever it sits in the batch.
+///
+/// User grants are the host's alone (`screens-input.md`, guarded grants): a
+/// command that sets, resets or previews a `core.grant.*` setting refuses the
+/// whole batch, for every plugin, the one the grant names and the settings
+/// editor included.
+fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
+    batch
+        .iter()
+        .any(|command| {
+            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
+        })
+        .then_some(ERR_DENIED)
+}
+
+/// Whether `command` writes a user grant (`core.grant.*`).
+fn touches_grant(command: WireCommand<'_>) -> bool {
+    match command {
+        WireCommand::SetSetting { key, .. }
+        | WireCommand::ResetSetting { key, .. }
+        | WireCommand::PreviewSetting { key, .. } => key.starts_with("core.grant."),
+        _ => false,
+    }
+}
+
 impl Default for CommandScope {
     fn default() -> Self {
         Self::new()
@@ -573,6 +597,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_grant_tests.rs"]
+mod grant_tests;
 
 #[cfg(test)]
 mod tests {

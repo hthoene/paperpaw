@@ -338,6 +338,31 @@ impl Code {
     }
 }
 
+impl Code {
+    /// An empty code with room for `len` bytes, so that no growth leaves a
+    /// copy of it behind, unwiped.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn reserved(len: usize) -> Result<Self, Error> {
+        let mut text = String::new();
+        text.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
+        Ok(Self(text))
+    }
+
+    /// Appends `piece`, where it fits the room [`Code::reserved`] made.
+    ///
+    /// # Errors
+    /// `NoMemory` where it would not fit: the code is as before.
+    pub fn push_str(&mut self, piece: &str) -> Result<(), Error> {
+        if self.0.capacity() - self.0.len() < piece.len() {
+            return Err(Error::NoMemory);
+        }
+        self.0.push_str(piece);
+        Ok(())
+    }
+}
+
 impl core::ops::Deref for Code {
     type Target = str;
 

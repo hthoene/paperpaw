@@ -32,12 +32,26 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
+mod native_entry;
 pub mod native_fetch;
 #[cfg(test)]
 mod native_fetch_tests;
+#[doc(hidden)]
+pub mod native_keep;
 #[cfg(test)]
 mod native_parity_tests;
+/// The interface-7 wallabag plugin.
+pub mod native_plugin;
 pub mod native_wallabag;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

@@ -41,7 +41,12 @@ pub fn from_fields(
     rows: &str,
     variants: &str,
 ) -> Result<Option<Added>, Error> {
-    let id = id.trim();
+    // The chosen layouts are stored as a comma-separated list, so an id
+    // holds no comma (interface 6 let one split the list).
+    let mut clean = String::new();
+    clean.try_reserve(id.len()).map_err(|_| Error::NoMemory)?;
+    clean.extend(id.chars().filter(|c| *c != ','));
+    let id = clean.trim();
     if id.is_empty() {
         return Ok(None);
     }
@@ -251,6 +256,14 @@ mod tests {
                 "{id}{code}{rows}"
             );
         }
+    }
+
+    #[test]
+    fn a_comma_is_left_out_of_an_id_so_the_stored_list_keeps_it_whole() {
+        let id = |text: &str| from_fields(text, "X", "abc", "").unwrap().map(|l| l.id);
+        assert_eq!(id("a,b.layout").as_deref(), Some("ab.layout"));
+        assert_eq!(id(" ,x, ").as_deref(), Some("x"));
+        assert_eq!(id(",,"), None);
     }
 
     #[test]

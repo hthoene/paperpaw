@@ -1,6 +1,6 @@
-# Interface 7 family SEC: stored secrets and randomness (draft)
+# Interface 7 family SEC: stored secrets and randomness
 
-Contract draft for #228 (assignment #1088), reviewed with `network.md` (NET). Items marked [D] are
+Contract for #228 (assignment #1088), reviewed with `network.md` (NET). Items marked [D] are
 proposed decisions, [Q] open questions for Plugin and Senior. Inputs: an audit of interface 6's
 secrets and randomness (the SDK's `secrets.rs`, `random.rs`, `wifi.rs`, `served.rs`; the kernel's
 `lib.rs` `set_secret`, `builder.rs`, `commands.rs` `vet_reserved`, `config.rs` secret settings;
@@ -8,7 +8,8 @@ the X4, desktop and Android shells' random sources and the Android private folde
 first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets), `device.md`
 (Wi-Fi passwords, `dev_network.flags` bit 1), `commands.md` (slot 15 refuses secret settings),
 `registry.md` (the secret flag of `reg_setting`), `files.md` section 4 (decision 124) and
-`stages-services.md` (D4: `core.secrets` is SEC's service). Doc-only; records follow once approved.
+`stages-services.md` (D4: `core.secrets` is SEC's service).
+Records: `abi/services/core.secrets@1.def`.
 
 ## 0. Scope and principles
 
