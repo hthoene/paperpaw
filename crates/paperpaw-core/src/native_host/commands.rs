@@ -320,8 +320,7 @@ impl<'a> CommandStage<'a> {
         }
         // In a work run's callback only the listed commands are staged (the
         // callback sees the refusal and what it staged before stays valid).
-        (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command)))
-            .then_some(ERR_STATE)
+        (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
