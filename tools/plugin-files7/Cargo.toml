@@ -53,6 +53,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-xtc"
+path = "src/bin/format-xtc.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "help"
 path = "src/bin/help.rs"
 test = false
@@ -198,6 +204,7 @@ paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = [
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
+paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
 paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
 paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
