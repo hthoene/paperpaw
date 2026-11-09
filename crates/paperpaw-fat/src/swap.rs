@@ -285,6 +285,10 @@ impl Storage for Swappable {
         self.with(true, |s| s.ignores_case())
     }
 
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.with(None, |s| s.same_entry(a, b))
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.with(None, |s| s.free_space())
     }
