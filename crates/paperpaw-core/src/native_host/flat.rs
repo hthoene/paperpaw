@@ -202,6 +202,7 @@ impl FlatPlugin {
                 directory: host.try_directory().map_err(|_| FlatError::Allocation)?,
                 stack_rows: Rc::clone(&host.stack_rows),
                 font_removals: Rc::clone(&host.font_removals),
+                registry_generation: Rc::clone(&host.registry_generation),
             },
         })
     }
@@ -263,6 +264,7 @@ impl Plugin for FlatPlugin {
                 directory,
                 stack_rows: Rc::clone(&self.host.stack_rows),
                 font_removals: Rc::clone(&self.host.font_removals),
+                registry_generation: Rc::clone(&self.host.registry_generation),
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
                 move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
@@ -366,6 +368,7 @@ fn invoke(
         stack_generation: host.stack_rows.generation(),
         stack_rows: &host.stack_rows,
         font_removals: &host.font_removals,
+        registry_generation: &host.registry_generation,
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),

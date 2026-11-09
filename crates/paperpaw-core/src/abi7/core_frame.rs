@@ -35,6 +35,7 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
+    pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
@@ -234,6 +235,7 @@ impl CoreFrame<'_> {
         crate::native_host::registry_service::Sources {
             env: self.env,
             directory: self.directory,
+            generation: self.registry_generation,
         }
     }
 }

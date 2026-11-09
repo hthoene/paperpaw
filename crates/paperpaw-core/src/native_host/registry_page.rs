@@ -51,8 +51,10 @@ impl<'a> RegistryPage<'a> {
 
     /// Continue consumes the row; Break leaves it for the next page.
     pub(crate) fn push(&mut self, record: &dyn Row) -> Result<ControlFlow<()>, i32> {
+        // A row past `total`: the tables changed between the counting walk
+        // and this one.
         if self.cursor == self.total {
-            return Err(ERR_INVALID);
+            return Err(ERR_STATE);
         }
         if self.rows == core_registry_v1::PAGE_MAX_ROWS {
             return Ok(ControlFlow::Break(()));
@@ -182,6 +184,14 @@ mod tests {
         assert_eq!(page_end(&out[..length]).0, 1);
         let mut page = RegistryPage::new(&query(0, 0), 1, 1, &mut out[..end_bytes]).unwrap();
         assert_eq!(page.push(&row()), Err(ERR_NO_SPACE));
+    }
+
+    #[test]
+    fn a_row_past_the_total_is_a_state_error() {
+        let mut out = [0; 256];
+        let mut page = RegistryPage::new(&query(0, 0), 1, 1, &mut out).unwrap();
+        assert_eq!(page.push(&row()).unwrap(), ControlFlow::Continue(()));
+        assert_eq!(page.push(&row()), Err(ERR_STATE));
     }
 
     #[test]

@@ -322,7 +322,7 @@ impl Kernel {
         let id = manifest.id.clone();
         self.register_off(plugin, manifest);
         let on = !disabled.iter().any(|d| d == id.as_str());
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+        if let Some(info) = self.shared.plugin_mut(id.as_str()) {
             info.enabled = on;
             if on {
                 info.state = state;
@@ -332,7 +332,7 @@ impl Kernel {
     }
 
     fn set_code_info(&mut self, id: &Id, problem: Option<PluginProblem>) {
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+        if let Some(info) = self.shared.plugin_mut(id.as_str()) {
             info.kind = PluginKind::Code;
             info.problem = problem;
         }

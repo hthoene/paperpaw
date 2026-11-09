@@ -620,6 +620,9 @@ impl BuilderParts {
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
+                registry_generation: alloc::rc::Rc::new(
+                    crate::native_host::registry_generation::RegistryGeneration::new(),
+                ),
                 formats: Formats::new(),
                 hyphenation,
                 menus: Menus::new(),
@@ -919,7 +922,7 @@ impl Kernel {
                     continue;
                 }
                 self.add_plugin(&plugin, &disabled);
-                if let Some(info) = self.shared.plugins.get_mut(plugin.manifest().id.as_str()) {
+                if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
                 self.add_hyphenation_tables(&plugin);

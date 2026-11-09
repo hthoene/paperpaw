@@ -125,6 +125,7 @@ impl Kernel {
         state: PluginState,
         enabled: bool,
     ) {
+        self.shared.registry_generation.bump();
         self.shared.plugins.push(PluginInfo::new(
             manifest,
             state,
@@ -221,6 +222,7 @@ impl Kernel {
             });
         }
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
+        self.shared.registry_generation.bump();
         // A sealed action that came after handlers in its place: they go.
         for action in self.shared.actions.drop_sealed_overrides() {
             self.warn_runtime(format!("`{action}` is sealed; not overridden"));
@@ -513,6 +515,7 @@ impl Kernel {
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
+        self.shared.registry_generation.bump();
         let join = |ids: &[Id]| ids.iter().map(Id::as_str).collect::<Vec<_>>().join(", ");
         let value = entries.as_deref().map(join);
         let listed = entries.as_deref().unwrap_or_default();
@@ -721,7 +724,7 @@ impl Kernel {
         } else {
             self.register_plugin(&plugin, manifest);
             self.add_hyphenation_tables(&plugin);
-            if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+            if let Some(info) = self.shared.plugin_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;
             }
         }
@@ -825,7 +828,7 @@ impl Kernel {
             .remove_plugin(id.as_str());
         // A code plugin's code runs until the restart: it stays listed as
         // stopping then.
-        match self.shared.plugins.get_mut(id.as_str()) {
+        match self.shared.plugin_mut(id.as_str()) {
             Some(info)
                 if info.kind == paperpaw_sdk::PluginKind::Code
                     && info.state == PluginState::Running
@@ -895,7 +898,7 @@ impl Kernel {
         // A code plugin's code runs until the restart: the new version
         // takes over then.
         if self.shared.native_instances.find(id.as_str()).is_none()
-            && let Some(info) = self.shared.plugins.get_mut(id.as_str())
+            && let Some(info) = self.shared.plugin_mut(id.as_str())
             && info.kind == paperpaw_sdk::PluginKind::Code
             && info.state == PluginState::Running
         {

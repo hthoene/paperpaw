@@ -87,8 +87,13 @@ fn list(
 ) -> Result<usize, i32> {
     let generation = view.generation();
     let mut total = 0_u32;
-    view.rows(op.id, query.scope, asker, &mut |_| {
-        total = total.saturating_add(1);
+    // A row that cannot be framed (an id over its field's cap, which no
+    // declaration check bounds for plugin ids) is skipped, here and in the
+    // page walk alike, so `total`, the cursor and the rows agree.
+    view.rows(op.id, query.scope, asker, &mut |row| {
+        if row.framed_len().is_ok() {
+            total = total.saturating_add(1);
+        }
         ControlFlow::Continue(())
     })?;
     let room = op.max_reply.min(out.len());
@@ -97,6 +102,9 @@ fn list(
     let mut index = 0_u32;
     let mut failure = None;
     view.rows(op.id, query.scope, asker, &mut |row| {
+        if row.framed_len().is_err() {
+            return ControlFlow::Continue(());
+        }
         let at = index;
         index = index.saturating_add(1);
         if at < query.cursor {

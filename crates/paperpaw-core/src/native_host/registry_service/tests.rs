@@ -120,6 +120,7 @@ fn call(kernel: &crate::Kernel, id: u32, input: &[u8], room: usize) -> Result<Ve
         sources: Sources {
             env: &env,
             directory: None,
+            generation: &kernel.shared.registry_generation,
         },
         hosts: HostServices::new(),
         registry: true,
@@ -232,6 +233,7 @@ fn a_frame_without_a_registry_refuses_every_op() {
         sources: Sources {
             env: &env,
             directory: None,
+            generation: &kernel.shared.registry_generation,
         },
         hosts: HostServices::new(),
         registry: false,
@@ -420,6 +422,7 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
     let current = Sources {
         env: &env,
         directory: None,
+        generation: &kernel.shared.registry_generation,
     }
     .generation();
     for input in [
@@ -432,6 +435,7 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
             sources: Sources {
                 env: &env,
                 directory: None,
+                generation: &kernel.shared.registry_generation,
             },
             hosts: HostServices::new(),
             registry: true,
@@ -472,24 +476,73 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
 }
 
 #[test]
-fn the_generation_follows_the_plugin_set_and_is_never_zero() {
-    let one = kernel(0);
-    let same = kernel(0);
-    let more = crate::Kernel::builder(crate::tests::DEVICE)
+fn the_generation_is_the_kernels_counter_and_a_change_of_the_same_size_bumps_it() {
+    let mut kernel = kernel(0);
+    let generation = |kernel: &crate::Kernel| kernel.shared.registry_generation.get();
+    let before = generation(&kernel);
+    assert_ne!(before, 0);
+    // Nothing changed: the same generation, however often it is read.
+    assert_eq!(generation(&kernel), before);
+    // A plugin switched off: the list has as many rows as before, and a new
+    // generation.
+    let count = page(&kernel, schema::OP_PLUGINS, "").1.total;
+    kernel.shared.plugin_mut("demo").unwrap().enabled = false;
+    assert_eq!(page(&kernel, schema::OP_PLUGINS, "").1.total, count);
+    let after = generation(&kernel);
+    assert_ne!(after, before);
+    // The page ends with it, so a reader holding the old one is told so.
+    let (_, end) = page(&kernel, schema::OP_PLUGINS, "");
+    assert_eq!(end.generation, after);
+    assert_eq!(
+        call(&kernel, schema::OP_PLUGINS, &query("", 1, before), 4096),
+        Err(ERR_STATE)
+    );
+}
+
+/// A plugin whose id does not fit `reg_plugin.id` (64 bytes): no check of the
+/// manifest bounds it.
+struct LongId;
+impl Plugin for LongId {
+    fn manifest(&self) -> Manifest {
+        let id = format!("long-{}", "x".repeat(70));
+        Manifest::new(Id::parse(&id).unwrap(), "Long", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_row_that_cannot_be_framed_is_skipped_by_every_walk() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Bare)
+        .plugin(LongId)
         .plugin(Demo { actions: 0 })
         .build()
         .unwrap();
-    let generation = |kernel: &crate::Kernel| {
-        let env = kernel.shared.env(Instant(0));
-        Sources {
-            env: &env,
-            directory: None,
-        }
-        .generation()
-    };
-    assert_ne!(generation(&one), 0);
-    assert_eq!(generation(&one), generation(&same));
-    assert_ne!(generation(&one), generation(&more));
+    let rows = pages(&kernel, schema::OP_PLUGINS, "");
+    let ids: Vec<&str> = rows
+        .iter()
+        .map(|row| row.split(' ').nth(1).unwrap())
+        .collect();
+    assert!(ids.contains(&"bare") && ids.contains(&"demo"));
+    assert!(!ids.iter().any(|id| id.starts_with("long-")), "{ids:?}");
+    // The count, the cursor and the rows agree: every page is whole and the
+    // last one says so.
+    let (page_rows, end) = page(&kernel, schema::OP_PLUGINS, "");
+    assert_eq!(end.total as usize, page_rows.len());
+    assert_eq!((end.flags, end.next), (1, end.total));
+    // Asking for the one plugin that does not fit is an error, not a cut id.
+    assert!(
+        call(
+            &kernel,
+            schema::OP_PLUGIN,
+            &key(&format!("long-{}", "x".repeat(70))),
+            4096
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -508,4 +561,112 @@ fn a_reply_buffer_too_small_for_the_end_is_no_space_and_other_ops_are_not_here_y
         call(&kernel, schema::OP_NEEDS, &query("demo", 0, 0), 4096),
         Err(ERR_UNSUPPORTED)
     );
+}
+
+/// The kernel with data plugin `names` on its storage, each `(id, extra)`:
+/// `extra` goes into the `[plugin]` section of its `plugin.ini`.
+fn data_kernel(plugins: &[(&str, &str)]) -> crate::Kernel {
+    let mut storage = paperpaw_sdk::MemoryStorage::new();
+    for (name, extra) in plugins {
+        let ini = format!("[plugin]\nname = {name}\nformats = 4\n{extra}\n");
+        storage = storage.with(&format!("plugins/{name}/plugin.ini"), ini);
+    }
+    crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Demo { actions: 1 })
+        .storage(storage)
+        .build()
+        .unwrap()
+}
+
+fn generation(kernel: &crate::Kernel) -> u32 {
+    kernel.shared.registry_generation.get()
+}
+
+/// Whether `command` changed the generation, by the kernel's own route.
+fn bumps(kernel: &mut crate::Kernel, command: paperpaw_sdk::Command) -> bool {
+    let before = generation(kernel);
+    kernel.apply(command);
+    generation(kernel) != before
+}
+
+#[test]
+fn every_change_of_a_list_bumps_the_generation() {
+    use paperpaw_sdk::Command;
+    let mut kernel = data_kernel(&[("cosy", ""), ("other", "")]);
+    assert_ne!(generation(&kernel), 0);
+    // Disabled, enabled.
+    assert!(bumps(
+        &mut kernel,
+        Command::SetPluginEnabled(id("cosy"), false)
+    ));
+    assert!(bumps(
+        &mut kernel,
+        Command::SetPluginEnabled(id("cosy"), true)
+    ));
+    // Removed.
+    assert!(bumps(&mut kernel, Command::RemovePlugin(id("other"))));
+    assert!(kernel.plugins().get("other").is_none());
+    // Installed (a folder staged as the shell does), updated over itself.
+    for version in ["1.0.0", "1.1.0"] {
+        kernel
+            .shared
+            .storage
+            .write(
+                "plugins/.fresh.part/plugin.ini",
+                format!("[plugin]\nname = Fresh\nid = fresh\nversion = {version}\nformats = 4\n")
+                    .as_bytes(),
+            )
+            .unwrap();
+        assert!(bumps(
+            &mut kernel,
+            Command::InstallPlugin(id("fresh"), "plugins/.fresh.part".into())
+        ));
+    }
+    // Re-read from a folder.
+    kernel
+        .shared
+        .storage
+        .write(
+            "plugins/again/plugin.ini",
+            b"[plugin]\nname = Again\nformats = 4\n",
+        )
+        .unwrap();
+    assert!(bumps(
+        &mut kernel,
+        Command::LoadPlugin("plugins/again".into())
+    ));
+    // A slot bound, a key bound, a menu set.
+    assert!(bumps(
+        &mut kernel,
+        Command::BindSlot(id("demo.stage"), Some(id("demo.main")))
+    ));
+    assert!(bumps(
+        &mut kernel,
+        Command::SetMenu(id("demo.menu"), Some(Vec::new()))
+    ));
+    assert!(bumps(
+        &mut kernel,
+        Command::bind("base", "up", Some(id("demo.act00")))
+    ));
+}
+
+#[test]
+fn a_plugin_listed_by_the_host_and_a_declaration_batch_bump_the_generation() {
+    // Listed, as a plugin in safe mode or one not loaded is.
+    let mut kernel = kernel(0);
+    let before = generation(&kernel);
+    kernel.add_plugin_info(
+        Manifest::new(id("later"), "Later", Version::new(0, 1, 0)),
+        paperpaw_sdk::PluginState::Off,
+        false,
+    );
+    let listed = generation(&kernel);
+    assert_ne!(listed, before);
+    // A batch of declarations, inputs among them.
+    let mut staging = crate::registry::Staging::default();
+    staging
+        .inputs
+        .push(InputSpec::new(id("later.chord"), "later.input.chord"));
+    kernel.merge(&id("later"), staging).unwrap();
+    assert_ne!(generation(&kernel), listed);
 }

@@ -69,6 +69,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             stack_generation: self.host.stack_rows.generation(),
             stack_rows: &self.host.stack_rows,
             font_removals: &self.host.font_removals,
+            registry_generation: &self.host.registry_generation,
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),

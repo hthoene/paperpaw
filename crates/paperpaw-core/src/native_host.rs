@@ -21,6 +21,7 @@ pub(crate) mod event_tags;
 
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]
 #[allow(dead_code, reason = "the shell feeds the scheduler; tests do today")]
@@ -349,6 +350,7 @@ pub struct FlatHost {
     pub(crate) directory: Option<native_declarations::DirectoryWeak>,
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
+    pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
 }
 
 impl FlatHost {
@@ -379,6 +381,7 @@ impl crate::Kernel {
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
+            registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
         }
     }
 }
