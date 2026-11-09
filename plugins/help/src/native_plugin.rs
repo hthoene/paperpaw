@@ -32,8 +32,7 @@ mod image {
 }
 
 const OVERLAY: u32 = 10;
-const AGAIN: u32 = 11;
-const SHOWN: u32 = 2;
+const STACK: u32 = 2;
 const READY: u32 = 3;
 
 const OVERLAY_SCREEN: &str = "help.overlay";
@@ -49,7 +48,6 @@ struct Row {
     screen: String,
     instance: Instance,
     setup: bool,
-    waits: bool,
 }
 
 /// The hints over a screen.
@@ -111,7 +109,7 @@ impl Plugin for NativeHelp {
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenReady, kinds::ScreenClosed)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenReady, kinds::ScreenClosed, kinds::StackChanged)
         else {
             return Ok(());
         };
@@ -123,11 +121,14 @@ impl Plugin for NativeHelp {
                 ..
             } => self.opened(host, screen, instance, handover),
             Event::ScreenShown {
-                screen,
                 instance: Some(instance),
                 ..
-            } => self.shown(host, token, screen, instance),
+            } => self.shown(host, token, instance),
             Event::ScreenReady { screen, .. } if token == READY => self.explain(host, screen),
+            Event::StackChanged { .. } if token == STACK => {
+                let rows = self.stack(host)?;
+                self.covered(host, &rows)
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -217,7 +218,6 @@ impl NativeHelp {
                         screen: copy(row.screen())?,
                         instance: row.instance(),
                         setup: row.slot() == paperpaw_sdk::builtin::slots::SETUP.as_str(),
-                        waits: row.waits_ready(),
                     },
                 )?;
             }
@@ -228,37 +228,16 @@ impl NativeHelp {
         }
     }
 
-    /// A screen shown: our own screens by their token, any other through the
-    /// subscription (`SHOWN`).
-    fn shown(
-        &mut self,
-        host: &Host<'_>,
-        token: u32,
-        screen: &str,
-        instance: Instance,
-    ) -> Result<(), Error> {
-        if screen == OVERLAY_SCREEN {
+    /// One of our own screens shown, by its token (`event.screen_shown` goes
+    /// to a screen's own token only; another plugin's screens are met through
+    /// `event.screen_ready` and `event.stack_changed`).
+    fn shown(&mut self, host: &Host<'_>, token: u32, instance: Instance) -> Result<(), Error> {
+        self.screens.shown(token, instance)?;
+        if token == OVERLAY {
             // Seen as it shows: never again, unless asked for.
-            self.screens.shown(OVERLAY, instance)?;
             if let Some(Slot::Overlay(overlay)) = self.screens.get(instance) {
                 overlay.kept = seen::mark_seen(host, &overlay.screen)?;
             }
-            return Ok(());
-        }
-        if screen == "help.again" {
-            return self.screens.shown(AGAIN, instance);
-        }
-        if token != SHOWN {
-            return Ok(());
-        }
-        let rows = self.stack(host)?;
-        self.covered(host, &rows)?;
-        let waits = rows
-            .iter()
-            .find(|row| row.instance == instance)
-            .is_some_and(|row| row.waits);
-        if !waits {
-            self.explain_with(host, screen, &rows)?;
         }
         Ok(())
     }
@@ -269,11 +248,12 @@ impl NativeHelp {
     }
 
     /// Closes the hints that another screen now covers (a plugin's question, a
-    /// notice opened over them): what they explain is hidden, so they show the
+    /// notice opened over them; the stack changed): what they explain is hidden, so they show the
     /// next time instead.
     fn covered(&self, host: &Host<'_>, rows: &[Row]) -> Result<(), Error> {
         for (index, row) in rows.iter().enumerate() {
-            if row.screen != OVERLAY_SCREEN {
+            // The top of the stack covers nothing: only hints below it are covered.
+            if index == 0 || row.screen != OVERLAY_SCREEN {
                 continue;
             }
             // The stack is listed from the top down: below is the next row.

@@ -68,3 +68,24 @@ fn the_host_admits_the_screens_and_refuses_the_rest_as_unsupported() {
         }
     }
 }
+
+/// `event.screen_shown` (38) and `event.action_run` (39) go to a screen's or an
+/// action's own token: a registration naming either refuses the whole batch, so
+/// the plugin could not be made (`screens-input.md` section 2).
+#[test]
+fn no_event_registration_names_a_screen_shown_or_an_action_run() {
+    let mut registered = 0;
+    for batch in batches!(declarations::events) {
+        for record in records_decode(&batch).unwrap().iter() {
+            let text = format!("{record:?}");
+            if text.contains("Event {") {
+                registered += 1;
+                assert!(
+                    !text.contains("event_tag: 38,") && !text.contains("event_tag: 39,"),
+                    "{text}"
+                );
+            }
+        }
+    }
+    assert_eq!(registered, 2, "the screen ready and the stack changed");
+}
