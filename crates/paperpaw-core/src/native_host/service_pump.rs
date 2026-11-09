@@ -63,12 +63,13 @@ fn pump(
         buffer.resize(EVENT_BUFFER, 0);
     }
     instances.set_service_retry(None);
+    let sched = instances.work_services().map(|work| &*work.sched);
     let mut more = false;
     let mut index = 0;
     while let Some((key, lease)) = instances.running_nth(index) {
         index += 1;
         for service in services.iter().flatten() {
-            more |= drain(*service, key, lease, &mut buffer, env);
+            more |= drain(*service, key, lease, &mut buffer, env, sched);
         }
     }
     more
@@ -82,19 +83,21 @@ fn drain(
     lease: &super::native_instances::NativeLease,
     buffer: &mut [u8],
     env: &Env<'_>,
+    sched: Option<&super::work_sched::WorkSched>,
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
-            // ACTIVATION BLOCKER (#228, Core's work pump, todo 265): the run of
-            // the event is ignored here, so its callback runs outside the run.
-            // Before the services are wired in a shipped shell, `drain` must
-            // enter that run's callback around `service_event` (`work.md` 2.3)
-            // and a test must pin the order: the event in the run, a start
-            // from it in the same run, the run ends after the last callback.
-            Ok(Some((len, _run))) => {
+            Ok(Some((len, run))) => {
+                // The events of a work run's request or socket come in the
+                // run (background, its requests tied to it); the run counts
+                // them until their callbacks returned (`work.md` 2.3).
+                let _guard = sched
+                    .zip(run.and_then(|run| u32::try_from(run).ok()))
+                    .map(|(sched, run)| sched.enter_run_callback(owner, run));
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
                 let _ = lease.service_event(&buffer[..len], env);
+                drop(_guard);
                 if service.event_delivered(owner) == Err(ERR_BUSY) {
                     return true;
                 }
@@ -119,7 +122,11 @@ impl crate::Kernel {
         let env = self.shared.env(self.now);
         let instances = &self.shared.native_instances;
         let more = pump(instances, &instances.event_services(), &env);
-        instances.set_service_more(more);
+        // Declared work comes due on the same tick (`work_pump`).
+        let work_more = self.native_work_pump();
+        self.shared
+            .native_instances
+            .set_service_more(more || work_more);
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -155,11 +162,10 @@ impl crate::Kernel {
     }
 
     /// A work run reached its longest time: what each service started in it
-    /// ends. The work scheduler's pump calls it where it takes an expired run.
+    /// ends. The work pump (`work_pump`) calls it where it takes an expired run.
     ///
     /// # Errors
     /// The first service's refusal, after the others were told.
-    #[allow(dead_code, reason = "the work scheduler has no pump on the kernel yet")]
     pub(crate) fn native_services_work_ended(&self, owner: u64, run: u64) -> Result<(), i32> {
         let services = self.shared.native_instances.event_services();
         let mut result = Ok(());
