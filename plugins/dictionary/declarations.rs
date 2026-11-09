@@ -1,15 +1,16 @@
-//! The dictionary's native declarations (slice 1): the folder setting and the
-//! StarDict dictionaries as a lookup provider. The panel's screen and the
-//! slot it fills (`core.lookup`) follow with the panel (`PORTING-7.md`): a
-//! screen that cannot draw is not declared.
+//! The dictionary's native declarations: the folder setting, the StarDict
+//! dictionaries as a lookup provider, and the panel (an overlay screen) with
+//! the slot it fills (`core.lookup`).
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Kind, LookupProviderDecl,
-    SpecDecl,
+    ScreenDecl, SlotOfferDecl, SpecDecl,
 };
 
 /// The StarDict dictionaries as a lookup provider (a stage subscriber).
 pub const PROVIDER_TOKEN: u32 = 20;
+/// The panel over the reader's page: the screen that fills `core.lookup`.
+pub const POPUP_TOKEN: u32 = 22;
 /// The background work that makes the indexes of the dictionaries.
 pub const WORK_TOKEN: u32 = 21;
 /// Its key.
@@ -54,6 +55,16 @@ pub fn providers<F: FnMut(&[u8]) -> Result<(), i32>>(
         PROVIDER_TOKEN,
     ))?;
     d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The panel (an overlay: the page shows above it) and the slot it fills.
+pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.screen(ScreenDecl::new("popup", "dictionary.title", POPUP_TOKEN).overlay())?;
+    d.slot_offer(SlotOfferDecl::new("core.lookup", "dictionary.popup"))?;
     d.submit()?;
     Ok(())
 }

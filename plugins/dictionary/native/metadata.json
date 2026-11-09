@@ -129,6 +129,8 @@
   ],
   "services": [
     "core.files",
+    "core.lookup",
+    "core.ui",
     "core.work"
   ],
   "features": [

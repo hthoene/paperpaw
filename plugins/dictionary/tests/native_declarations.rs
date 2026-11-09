@@ -42,6 +42,7 @@ fn the_image_is_what_the_builder_makes() {
             batches!(declarations::providers),
             image::PROVIDERS,
         ),
+        ("screens", batches!(declarations::screens), image::SCREENS),
     ] {
         assert_eq!(built.len(), image.len(), "{name}");
         for (built, image) in built.iter().zip(image) {
@@ -76,5 +77,15 @@ fn the_host_admits_the_setting_and_names_what_it_refuses() {
             refused += 1;
         }
         assert_eq!(refused, 1, "the provider");
+    }
+}
+
+/// What the host says of the panel's screen and of its offer of `core.lookup`
+/// is printed by the first failing assertion; the screen itself is admitted.
+#[test]
+fn the_host_admits_the_panel_screen() {
+    for batch in batches!(declarations::screens) {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("dictionary", &records).unwrap();
     }
 }

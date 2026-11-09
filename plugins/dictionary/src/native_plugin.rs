@@ -5,23 +5,30 @@
 //! background (`core.work`), a step at a time, and answers once it is ready.
 //! The panel is a later slice (`PORTING-7.md`).
 use crate::{
-    declarations::{DEFAULT_FOLDER, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
+    declarations::{DEFAULT_FOLDER, POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
     native_disk::{HostRoot, Routed},
     native_folders::Folders,
     native_model::{self, Source},
+    native_popup::View,
     native_source::Dictionaries,
 };
 use alloc::vec::Vec;
-use paperpaw_sdk::native::{
-    Error, Host, Plugin,
-    events::{Event, Incoming},
-    lookup::{self, Ask, Entry},
-    registrations,
-    reply::Reply,
-    settings::{self, SettingValue},
-    work::{Work, WorkSpec},
+use paperpaw_sdk::{
+    Handled,
+    native::{
+        Error, Host, Plugin,
+        callbacks::{DrawFrame, Input},
+        events::{Event, Incoming},
+        lookup::{self, Ask, Entry},
+        registrations,
+        reply::Reply,
+        settings::{self, SettingValue},
+        ui::Ui,
+        work::{Work, WorkSpec},
+    },
 };
 use paperpaw_stardict::Builder;
+use paperpaw_ui_kit::Screens;
 
 /// The setting of the folder.
 const FOLDER_KEY: &str = "dictionary.folder";
@@ -39,6 +46,8 @@ pub struct NativeDictionary {
     pending: Vec<Builder>,
     /// An index could not be made: not tried again until the next start.
     gave_up: bool,
+    ui: Option<Ui>,
+    screens: Screens<View>,
 }
 
 impl NativeDictionary {
@@ -131,7 +140,11 @@ impl NativeDictionary {
 
 impl Plugin for NativeDictionary {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SETTINGS.iter().chain(image::PROVIDERS) {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::PROVIDERS)
+            .chain(image::SCREENS)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -153,7 +166,36 @@ impl Plugin for NativeDictionary {
                 self.ask(host, &ask, reply)
             }
             Event::WorkDue(_) if token == WORK_TOKEN => self.index(host),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } => {
+                if self.ui.is_none() {
+                    self.ui = Some(Ui::open(host)?);
+                }
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                self.screens.open(instance, View::open(host, ui, handover)?)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => self.screens.shown(POPUP_TOKEN, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
             _ => Ok(()),
+        }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        view.draw(host, &mut frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match self.screens.top(token) {
+            Some(view) => view.input(host, &input),
+            None => Ok(Handled::No),
         }
     }
 }
