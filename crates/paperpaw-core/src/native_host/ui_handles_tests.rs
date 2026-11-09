@@ -45,8 +45,12 @@ fn instances_come_from_a_checked_counter_up_to_the_cap_and_one_beyond() {
         assert_eq!(table.widgets(), cap as usize);
         assert_eq!(table.make_widget(OWNER, ME, 7, 1, false), Err(ERR_FULL));
         assert_eq!(table.widgets(), cap as usize, "a refusal adds nothing");
-        // Dropping one makes room; its id is not used again.
+        // Dropping one makes room once its owner has been told; its id is not
+        // used again.
         table.drop_widget(ME, last).unwrap();
+        assert_eq!(table.make_widget(OWNER, ME, 7, 1, false), Err(ERR_FULL));
+        let notice = table.next_dropped(OWNER).unwrap();
+        table.dropped_delivered(&notice);
         let again = table.make_widget(OWNER, ME, 7, 1, false).unwrap();
         assert!(again > last);
     }
@@ -105,18 +109,70 @@ fn a_closed_screen_and_a_stopped_plugin_take_their_instances_along() {
     let a = table.make_widget(OWNER, ME, 7, 1, false).unwrap();
     let b = table.make_widget(OWNER, ME, 8, 1, true).unwrap();
     let c = table.make_widget(OWNER, OTHER, 9, 1, false).unwrap();
-    let told: Vec<_> = table.dropped_by_screen(7).collect();
-    assert_eq!(told, [(a, OWNER)]);
     assert_eq!(table.drop_screen(7), 1);
     assert_eq!(table.drop_screen(7), 0);
     assert_eq!(table.drop_widget(ME, a), Err(ERR_NOT_FOUND));
-    // The private flag does not leak into the owner index.
-    assert_eq!(table.dropped_by_screen(8).collect::<Vec<_>>(), [(b, OWNER)]);
+    // The maker stopped: its instance goes; the owner is told of it.
     table.drop_plugin(ME);
     assert_eq!(table.widgets(), 1);
+    assert_eq!(table.next_dropped(OWNER).map(|d| d.instance), Some(a));
     table.drop_plugin(OWNER);
     assert_eq!(table.widgets(), 0);
+    // The owner stopped: nobody is left to tell.
+    assert_eq!(table.next_dropped(OWNER), None);
     assert_eq!(table.drop_widget(OTHER, c), Err(ERR_NOT_FOUND));
+    let _ = b;
+}
+
+#[test]
+fn an_owner_hears_of_every_drop_once_in_order_and_one_attempt_ends_a_notice() {
+    let mut table = UiHandles::new(false);
+    let a = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
+    let b = table.make_widget(OWNER, ME, 7, 4, false).unwrap();
+    let c = table.make_widget(OTHER, ME, 7, 5, false).unwrap();
+    // One by its maker (op 5), the rest with their screen.
+    table.drop_widget(ME, a).unwrap();
+    assert_eq!(table.drop_screen(7), 2);
+    let first = table.next_dropped(OWNER).unwrap();
+    assert_eq!(
+        first,
+        Dropped {
+            owner: OWNER,
+            token: 4,
+            instance: a
+        }
+    );
+    // Not told yet: still the first.
+    assert_eq!(table.next_dropped(OWNER), Some(first));
+    table.dropped_delivered(&first);
+    table.dropped_delivered(&first);
+    let second = table.next_dropped(OWNER).unwrap();
+    assert_eq!(second.instance, b);
+    table.dropped_delivered(&second);
+    assert_eq!(table.next_dropped(OWNER), None);
+    // Another owner's is its own, with its own token.
+    assert_eq!(
+        table.next_dropped(OTHER),
+        Some(Dropped {
+            owner: OTHER,
+            token: 5,
+            instance: c
+        })
+    );
+}
+
+#[test]
+fn undelivered_drops_stop_new_instances_instead_of_being_lost() {
+    let mut table = UiHandles::new(true);
+    // Fill and drop the cap's worth without Core delivering any.
+    for _ in 0..MAX_WIDGETS_X4 {
+        table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+    }
+    assert_eq!(table.drop_screen(7), MAX_WIDGETS_X4);
+    assert_eq!(table.make_widget(OWNER, ME, 8, 1, false), Err(ERR_FULL));
+    let first = table.next_dropped(OWNER).unwrap();
+    table.dropped_delivered(&first);
+    assert!(table.make_widget(OWNER, ME, 8, 1, false).is_ok());
 }
 
 #[test]
@@ -460,8 +516,12 @@ fn each_table_is_one_allocation_of_its_cap_and_never_grows() {
         assert_eq!((table.widgets.capacity(), table.status.capacity()), (0, 0));
         table.make_widget(OWNER, ME, 7, 0, false).unwrap();
         table.grant_status(ME, 1, OWNER, 0, false).unwrap();
-        let (wc, sc) = (table.widgets.capacity(), table.status.capacity());
-        assert!(wc >= widgets && sc >= status);
+        let (wc, sc, dc) = (
+            table.widgets.capacity(),
+            table.status.capacity(),
+            table.dropped.capacity(),
+        );
+        assert!(wc >= widgets && sc >= status && dc >= widgets);
         // From here no insert allocates: a refusing heap changes nothing.
         FAIL_NTH.with(|n| n.set(1));
         let mut made = 1;
@@ -476,13 +536,68 @@ fn each_table_is_one_allocation_of_its_cap_and_never_grows() {
         assert_eq!((made, granted), (widgets, status));
         assert_eq!(spared, 1, "no insert after the first asked the heap");
         assert_eq!(
-            (table.widgets.capacity(), table.status.capacity()),
-            (wc, sc),
+            (
+                table.widgets.capacity(),
+                table.status.capacity(),
+                table.dropped.capacity()
+            ),
+            (wc, sc, dc),
             "no growth to the cap"
         );
-        // The bytes held at most: 32 x 32 + 40 x 16, 32 x 16 + 40 x 8 on the X4.
+        // The bytes held at most: 32 x 32 + 40 x 16 + 32 x 16 (the drops to tell),
+        // 16 x 32 + 40 x 8 + 16 x 16 on the X4.
         assert!(
-            wc * size_of::<Widget>() + sc * size_of::<Status>() <= if x4 { 832 } else { 1_664 }
+            wc * size_of::<Widget>() + sc * size_of::<Status>() + dc * size_of::<Dropped>()
+                <= if x4 { 1_088 } else { 2_176 }
         );
+    }
+}
+
+#[test]
+fn the_room_for_every_notice_is_taken_when_an_instance_is_made() {
+    let mut table = UiHandles::new(false);
+    for screen in 1..=5 {
+        table.make_widget(OWNER, ME, screen, 1, false).unwrap();
+        // Every live instance can be dropped without the heap.
+        assert!(table.dropped_room() >= table.widgets(), "screen {screen}");
+    }
+    table.drop_screen(2);
+    table.drop_screen(3);
+    assert!(table.dropped_room() >= table.widgets());
+    assert!(table.dropped_room() + 2 >= 32, "one allocation of the cap");
+    table.drop_plugin(ME);
+    assert_eq!(table.widgets(), 0);
+    assert!(table.next_dropped(OWNER).is_some());
+}
+
+#[test]
+fn a_dead_owner_or_a_failed_delivery_never_pins_the_cap() {
+    for x4 in [false, true] {
+        let cap = if x4 { MAX_WIDGETS_X4 } else { MAX_WIDGETS };
+        // The owner stopped: its waiting drops go with it, at once.
+        let mut table = UiHandles::new(x4);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+        }
+        assert_eq!(table.drop_screen(7), cap);
+        assert_eq!(table.make_widget(OWNER, ME, 8, 1, false), Err(ERR_FULL));
+        table.drop_plugin(OWNER);
+        assert_eq!(table.next_dropped(OWNER), None);
+        assert!(table.make_widget(OTHER, ME, 8, 1, false).is_ok());
+        // A failed delivery is an attempt: giving the notice back ends it,
+        // however the callback went, and the place is free again.
+        let mut table = UiHandles::new(x4);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 7, 1, false).unwrap();
+        }
+        assert_eq!(table.drop_screen(7), cap);
+        while let Some(notice) = table.next_dropped(OWNER) {
+            // The callback failed or trapped: the attempt is over all the same.
+            table.dropped_delivered(&notice);
+        }
+        assert_eq!(table.next_dropped(OWNER), None);
+        for _ in 0..cap {
+            table.make_widget(OWNER, ME, 9, 1, false).unwrap();
+        }
     }
 }

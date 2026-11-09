@@ -69,6 +69,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             stack_generation: self.host.stack_rows.generation(),
             stack_rows: &self.host.stack_rows,
             font_removals: &self.host.font_removals,
+            registry_generation: &self.host.registry_generation,
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
@@ -125,6 +126,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.identity.take_open_info()
+    }
+
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }
@@ -237,6 +242,25 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
+    }
+    fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+        let tag = super::registrations::RawRecord::single(bytes)?.tag();
+        let mut token = None;
+        self.instance
+            .registrations(self.depth.as_depth(), &mut |_, record| {
+                if let super::Registration::Event {
+                    event_tag,
+                    token: at,
+                } = record
+                    && event_tag == tag
+                    && token.is_none()
+                {
+                    token = Some(at);
+                }
+            })
+            .map_err(|error| status(error.into()))?;
+        let token = token.ok_or(host_glue::ERR_UNSUPPORTED)?;
+        self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();

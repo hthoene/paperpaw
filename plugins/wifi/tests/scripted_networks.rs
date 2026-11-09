@@ -9,7 +9,7 @@ use paperpaw_core::native_host::registrations::{
     EventScreenOpened, Record, ServiceDevNetwork, ServiceDevWifi, ServiceEnd, ServiceSecEntry,
     record_encode_one,
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_plugin_wifi::NATIVE_ENTRY;
 use paperpaw_scripted_host::{ScriptedHost, Slot, event_batch, sweep};
 use std::cell::RefCell;
@@ -111,10 +111,10 @@ fn opened() -> Vec<u8> {
 }
 
 /// The scripted host does not answer `i18n.copy` and `i18n.format` yet
-/// (`ERR_UNSUPPORTED`), so the rows end there, after the device and the
+/// (`ERR_UNSUPPORTED`) or has no text for the key (`ERR_NOT_FOUND`), so the rows end there, after the device and the
 /// secrets have been read; the rows' texts are not checked here.
 fn finished(status: i32) -> bool {
-    status == 0 || status == ERR_UNSUPPORTED
+    status == 0 || status == ERR_UNSUPPORTED || status == ERR_NOT_FOUND
 }
 
 fn run(host: &ScriptedHost) -> i32 {

@@ -24,13 +24,14 @@ on:
       - "AGENTS.md"
       - ".claude/**"
 
-# A newer push to the same pull request cancels the run before it. Push
-# runs (main, integration, abi7/integration) each get their own group, keyed
-# by commit, so none is cancelled or replaced while queued and every merge
-# keeps a full result.
+# A newer push to the same pull request or branch cancels the run before it,
+# so the queue does not fill with runs that the next merge makes obsolete
+# (abi7/integration gets one push per merge). main keeps a full run for every
+# commit (group per commit, nothing cancelled). CI has no tag trigger; the
+# release and update jobs are in release.yml, which never cancels.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -348,7 +349,26 @@ jobs:
         working-directory: shells/xteink
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5"
+          # Built with legacy symbol mangling (espup's compiler defaults to v0,
+          # which the scan's paths do not name: shells/xteink/frame-budget-s3.txt);
+          # the names are the only difference from the release's build.
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5" \
+            --config 'target.xtensa-esp32s3-none-elf.rustflags=["-Z","unstable-options","-C","symbol-mangling-version=legacy"]'
+      # What a plugin's code can call into on the S3, as for the X4 below: the
+      # host table's entries and what they reach (every direct call, and every
+      # call through an `l32r` literal), each held under the 2 KiB band; the calls
+      # it cannot follow are listed one by one in the budget, with their reasons
+      # (`shells/xteink/frame-budget-s3.txt`, and `-classic.txt` for the X4 Classic).
+      - name: The S3's host frames and calls fit under the band
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
+        run: |
+          # The X4 Pro and the X4 Classic are two builds with their own symbols:
+          # one budget each.
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+          cargo run -q --release -p paperpaw-sign -- frames-s3 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
+            --budget "$budget"
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
       - name: The install image fits CrossPoint's slot

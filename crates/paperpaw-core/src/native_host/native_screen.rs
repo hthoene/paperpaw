@@ -1,6 +1,7 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
 use crate::native_host::codec;
+use crate::native_host::ui_store::Info;
 #[cfg(test)]
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -21,6 +22,11 @@ const TYPED_TOTAL_MAX: usize = 64 * 1024;
 /// The owner/runtime supplies admission and the callback-scoped host views.
 /// Implementations keep no input, frame, canvas or environment borrow.
 pub(crate) trait Dispatch {
+    /// What the `screen_opened` now sent says of the hand-over its open
+    /// named, if the kernel set it (none for an open without one).
+    fn take_open_info(&self) -> Option<Info> {
+        None
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn draw(
@@ -71,6 +77,9 @@ pub(crate) trait Dispatch {
 
 #[cfg(test)]
 impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -115,6 +124,9 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
 }
 
 impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -214,7 +226,7 @@ impl<D: Dispatch> NativeScreen<D> {
         self.status(result)
     }
 
-    fn opened(&self, again: bool, count: u32, env: &Env<'_>) {
+    fn opened(&self, again: bool, info: Info, env: &Env<'_>) {
         let Some(key) = self.key else {
             return;
         };
@@ -231,9 +243,9 @@ impl<D: Dispatch> NativeScreen<D> {
                 instance: key.serial(),
                 slot,
                 flags: u32::from(again),
-                handover: 0,
-                params: count,
-                text_bytes: 0,
+                handover: info.handover,
+                params: info.params,
+                text_bytes: info.text_bytes,
             }),
             env,
         );
@@ -395,7 +407,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
         self.key = cx.key();
         if !self.opened && self.key.is_some() {
             self.opened = true;
-            self.opened(false, self.params_count, cx.env());
+            let info = Info {
+                params: self.params_count,
+                ..Info::NONE
+            };
+            self.opened(false, info, cx.env());
         }
         self.shown(cx.env());
     }
@@ -411,11 +427,16 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
         };
-        self.params_count = count;
+        // The open's hand-over, if it named one, comes from the kernel.
+        let info = self.dispatch.take_open_info().unwrap_or(Info {
+            params: count,
+            ..Info::NONE
+        });
+        self.params_count = info.params;
         let again = self.opened;
         self.key = cx.key();
         self.opened = self.key.is_some();
-        self.opened(again, count, cx.env());
+        self.opened(again, info, cx.env());
         if again && self.is_top(cx) {
             self.shown(cx.env());
         }

@@ -67,6 +67,13 @@ fn delete_carries_with_notes_and_checks_the_reply_against_the_paths() {
             Some(Record::ServiceLibPaths(p)) if p.flags == 1
         ));
     }
+    // A row for another path than the one asked is Invalid.
+    reply(&state, &[row("/other.epub", 0, 0), end(0, 1, 0, 0)]);
+    assert_eq!(
+        lib.delete(&host, &["/a.epub"], false, &mut input, &mut out)
+            .unwrap_err(),
+        Error::Invalid
+    );
     // A row short of the paths, or an end that is not the unpaged one, is Invalid.
     reply(&state, &[row("/a.epub", 0, 0), end(0, 1, 0, 0)]);
     assert_eq!(
@@ -235,7 +242,17 @@ fn names_the_card_takes_pass_and_a_refusal_is_the_calls_status() {
     let mut state = State::default();
     let (host, lib) = host_and_lib(&table, &mut state);
     let (mut input, mut out) = ([0; 2048], [0; 4096]);
-    // COM10 and "console" are not reserved.
+    // COM0, COM10 and "console" are not reserved.
+    reply(&state, &[row("/Books/COM0.epub", 0, 0)]);
+    assert!(
+        lib.import(
+            &host,
+            &Import::new("/tmp/a.epub", "COM0.epub"),
+            &mut input,
+            &mut out
+        )
+        .is_ok()
+    );
     reply(&state, &[row("/Books/COM10.epub", 0, 0)]);
     assert!(
         lib.import(

@@ -25,7 +25,6 @@ store-plugins = [
     "dep:paperpaw-plugin-stats",
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-calibre",
-    "dep:paperpaw-plugin-kosync",
     "dep:paperpaw-plugin-koreader",
     "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
@@ -34,7 +33,6 @@ store-plugins = [
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-translate",
     "dep:paperpaw-plugin-reading-goal",
-    "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
@@ -74,6 +72,7 @@ native-linked = [
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-help",
+    "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
     "dep:paperpaw-plugin-setup",
@@ -84,6 +83,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-files/linked",
     "paperpaw-plugin-keyboard/linked",
+    "paperpaw-plugin-lock/linked",
     "paperpaw-plugin-menu/linked",
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
@@ -120,11 +120,9 @@ paperpaw-plugin-hyphenation-sv = { workspace = true, optional = true }
 paperpaw-plugin-hyphenation-uk = { workspace = true, optional = true }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-kosync = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-stats = { workspace = true, optional = true }
 paperpaw-plugin-reading-goal = { workspace = true, optional = true }
-paperpaw-plugin-notes-overview = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
@@ -136,7 +134,7 @@ paperpaw-plugin-file-manager.workspace = true
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-browser = { workspace = true, optional = true }
 paperpaw-plugin-opds.workspace = true
-paperpaw-plugin-lock.workspace = true
+paperpaw-plugin-lock = { workspace = true, optional = true }
 paperpaw-plugin-wikipedia.workspace = true
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }

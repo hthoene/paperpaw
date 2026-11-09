@@ -771,3 +771,39 @@ fn the_wait_for_the_session_counts_from_the_end_of_the_wait_for_the_network() {
         std::vec![Ev::new(id, 1, kind::FAILED, reason::BUSY, 0)]
     );
 }
+
+#[test]
+fn a_socket_that_cannot_connect_leaves_the_queue_for_the_session_and_asks_again() {
+    let f = Fake::new(SockProfile::OTHER, 0);
+    f.tls_on.set(true);
+    let net = TlsHolder::Net(1);
+    f.table.pool().tls_request(net);
+    let a = tls_connect_with(
+        &f,
+        OWNER,
+        wire::ServiceSockConnect {
+            flags: 1,
+            timeout_ms: 60_000,
+            ..head(1)
+        },
+        &[],
+    )
+    .unwrap();
+    assert!(f.table.pool().tls_waiting(), "it waits for the session");
+    // The network goes: the socket cannot connect, so it does not stand at the
+    // head of the queue while the session is free.
+    f.network.set(false);
+    tick(&f).unwrap();
+    assert!(!f.table.pool().tls_waiting());
+    f.table.pool().tls_drop(net);
+    assert_eq!(
+        f.table.pool().tls_request(TlsHolder::Net(2)),
+        crate::native_host::net_pool::TlsLease::Held,
+        "a free session is not held back by a socket that cannot use it"
+    );
+    f.table.pool().tls_drop(TlsHolder::Net(2));
+    // The network is back: it asks again and gets the session.
+    f.network.set(true);
+    tick(&f).unwrap();
+    assert_eq!(holder(&f), Some(TlsHolder::Sock(a)));
+}

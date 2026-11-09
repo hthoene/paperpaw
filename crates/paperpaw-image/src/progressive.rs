@@ -303,7 +303,10 @@ fn scan(
     if count == 0 || count > 4 {
         return Err(ImageError::Invalid("bad scan"));
     }
-    let mut members: Vec<usize> = Vec::with_capacity(count);
+    let mut members: Vec<usize> = Vec::new();
+    members
+        .try_reserve_exact(count)
+        .map_err(|_| ImageError::OutOfMemory)?;
     for _ in 0..count {
         let id = reader.byte()?;
         let tables = reader.byte()?;
