@@ -82,12 +82,17 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    editor until then.
 5. **Another plugin's mode (reading-goal's `reading-goal.sleep`):** on interface 6 the plugin adds the choice
    with `Registrar::add_choice(sleep::SHOW, …)` and the sleep screen embeds the plugin's `Screen`. Natively the
-   choice is the foreign `setting.choice` declaration (`registry.md` record 26: `key`, `value`, `title`), whose wire
-   record exists (`SettingChoice`) but which has **no `Declarations` builder** yet, so no native plugin can offer a mode:
-   a small SDK addition (Services) that `reading-goal` needs. A mode's screen cannot be embedded in another plugin's
-   draw: the contract to settle (Kernel) is that the sleep screen opens it with `command.open` in `replace` mode (the
-   offered screen declared `overlay`, closing itself on `event.resume`). Until both exist, `native_sleep::decide`
-   answers `Content::Other` and the screen shows the message, as it does now.
+   **offering side exists**: the offering plugin (reading-goal) declares the foreign `setting.choice` (`registry.md`
+   record 26) with `Declarations::setting_choice("sleep.show", "reading-goal.sleep", title)`; sleep itself declares
+   nothing for it. What is missing is the **showing side**: a mode's screen cannot be embedded in another plugin's
+   draw, and the contract to settle (Kernel, asked) is that the sleep screen opens it with `command.open` in
+   `replace` mode (the offered screen declared `overlay`, closing itself on `event.resume`), after checking the
+   stored value among the `core.registry` choices (op 3). Until it exists, `native_sleep::decide` never answers
+   `Content::Other` (`Facts::other_screen` is false).
+   **Meanwhile a stored `sleep.show = reading-goal.sleep` (or any mode no plugin offers) falls back as interface 6
+   did for a mode no plugin offers any more: the cover where there is one, else the cat** (`native_sleep::decide`;
+   the stored word is left as it is; pinned by `a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat`
+   over all fact combinations). `Facts::other_screen` is false until the builder and the opening contract exist.
 6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
 
 The order that makes the plugin native-only: #692 → 1 and 2 (one stacked PR on #692's branch; one decode at a time,

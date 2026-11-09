@@ -47,6 +47,45 @@ fn another_plugins_screen_takes_the_place_of_a_mode() {
     assert_eq!(decide(CAT, with(|f| f.other_screen = true)), Content::Cat);
 }
 
+/// A stored `sleep.show` that no plugin offers (another plugin's mode after it
+/// was removed, a word from a newer version, an empty or a very long text) falls
+/// back as interface 6 did: the cover where there is one, else the cat. Never
+/// another plugin's screen (there is none), the overlay, a blank page or a
+/// panic, whatever the other facts say.
+#[test]
+fn a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat() {
+    let long = "x".repeat(300);
+    let modes = [
+        "reading-goal.sleep",
+        "gone.mode",
+        "",
+        " ",
+        "Cat",
+        "ünï.cödé",
+        long.as_str(),
+    ];
+    for mode in modes {
+        for bits in 0..64u32 {
+            let facts = Facts {
+                off: bits & 1 != 0,
+                over_page: bits & 2 != 0,
+                other_screen: false,
+                picture: bits & 8 != 0,
+                cover: bits & 16 != 0,
+                widgets_empty: bits & 32 != 0,
+            };
+            let want = if facts.cover {
+                Content::Cover
+            } else {
+                Content::Cat
+            };
+            assert_eq!(decide(mode, facts), want, "{mode:?} {facts:?}");
+            // The mode is kept as it is: the stored word is not rewritten.
+            assert_eq!(effective(mode, facts), mode);
+        }
+    }
+}
+
 #[test]
 fn widgets_message_and_page() {
     assert_eq!(decide(WIDGETS, NONE), Content::Widgets);
