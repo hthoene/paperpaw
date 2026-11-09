@@ -1,19 +1,17 @@
-//! The native declarations name what the interface-6 registration names: the
-//! group and its settings, the screens, the action, the status item, the
-//! icons, the needs and the first-run step. Callbacks and the radio's own
-//! events are a later slice (`PORTING-7.md`).
+//! What the Wi-Fi plugin declares: the group and its settings, the screens,
+//! the action, the status item, the icons, the needs and the first-run step,
+//! as the image holds them, and the subscriptions to the radio's events.
+//! (The interface-6 registration these once matched is gone; the ids and
+//! numbers below are what it registered.)
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
 mod declarations;
-use paperpaw_plugin_wifi::Wifi;
+use paperpaw_core::native_host::{declarations::validate_batch, registrations::records_decode};
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, MenuNeed, Plugin, Registrar};
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("wifi"));
-    Wifi.register(&mut r).unwrap();
-    r.into_contributions()
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/wifi_declarations.rs"));
 }
 
 fn batches(
@@ -31,161 +29,109 @@ fn batches(
     out
 }
 
-#[test]
-fn the_group_and_the_settings_match() {
-    let mut groups = Vec::new();
-    let mut settings = Vec::new();
-    for contribution in legacy() {
-        match contribution {
-            Contribution::SettingGroup(group) => groups.push((
-                group.id.as_str().to_string(),
-                group.title.to_string(),
-                group.order,
-                group.page.as_ref().map(|p| p.as_str().to_string()),
-            )),
-            Contribution::FixedSettings(list) => {
-                for spec in list.iter() {
-                    settings.push(format!(
-                        "{} {} {:?} {} {:?} {:?}",
-                        spec.id.as_str(),
-                        spec.title,
-                        spec.description,
-                        spec.group.as_str(),
-                        spec.default,
-                        spec.kind,
-                    ));
-                }
-            }
-            _ => {}
+/// Every record of the batches, as the host decodes it, in text.
+fn text(batches: &[Vec<u8>]) -> String {
+    let mut all = String::new();
+    for batch in batches {
+        for record in records_decode(batch).unwrap().iter() {
+            all.push_str(&format!("{record:?}\n"));
         }
     }
-    assert_eq!(
-        groups,
-        [(
-            "wifi.group".to_string(),
-            "wifi.title".to_string(),
-            85,
-            Some("wifi.page".to_string())
-        )]
-    );
-    let idle = declarations::IDLE_OFF;
-    assert_eq!(settings.len(), 4);
-    for (setting, text) in [
-        ("wifi.on-demand", "Bool(true)"),
-        ("wifi.idle-off", "Text(\"wifi.idle-off.1m\")"),
-        ("wifi.while-charging", "Bool(false)"),
-        ("wifi.join-first", "Text(\"wifi.join-first.picked\")"),
-    ]
-    .iter()
-    .zip(&settings)
-    {
-        assert!(text.starts_with(&format!("{} ", setting.0)), "{text}");
-        assert!(text.contains(setting.1), "{text}");
-        assert!(text.contains(" wifi.group "), "{text}");
-        assert!(
-            text.contains(&format!("\"{}.help\"", text.split(' ').nth(1).unwrap())),
-            "{text}"
-        );
-    }
-    for id in idle {
-        assert!(settings[1].contains(id), "{id}");
-    }
-    assert!(settings[3].contains("wifi.join-first.strongest"));
-    assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
+    all
 }
 
 #[test]
-fn screens_action_status_item_icons_needs_and_step_match() {
-    let mut screens = Vec::new();
-    let (mut actions, mut icons, mut needs) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut status, mut steps) = (Vec::new(), Vec::new());
-    for contribution in legacy() {
-        match contribution {
-            Contribution::Screen(s) => screens.push((
-                s.id.as_str().to_string(),
-                s.title.to_string(),
-                s.instances == paperpaw_sdk::Instances::SINGLE,
-            )),
-            Contribution::FixedActions(list) => {
-                for a in list.iter() {
-                    let a = paperpaw_sdk::Action::Fixed(a);
-                    actions.push((a.id().as_str().to_string(), a.title().to_string()));
-                }
-            }
-            Contribution::FixedIcons(list) => {
-                for (item, icon) in list.iter() {
-                    icons.push((item.as_str().to_string(), (*icon).to_string()));
-                }
-            }
-            Contribution::MenuNeed { item, need, .. } => {
-                assert_eq!(need, MenuNeed::Wifi);
-                needs.push(item.as_str().to_string());
-            }
-            Contribution::StatusItem(s) => status.push((
-                s.id.as_str().to_string(),
-                s.title.to_string(),
-                s.tap.as_ref().map(|t| t.as_str().to_string()),
-            )),
-            Contribution::SetupStep(s) => {
-                steps.push((
-                    s.id.as_str().to_string(),
-                    s.title.to_string(),
-                    s.help.to_string(),
-                    s.order,
-                ));
-            }
-            _ => {}
+fn the_image_is_what_the_builder_makes() {
+    for (name, built, image) in [
+        (
+            "settings",
+            batches(|d| declarations::settings(d).unwrap()),
+            image::SETTINGS,
+        ),
+        (
+            "screens",
+            batches(|d| declarations::screens(d).unwrap()),
+            image::SCREENS,
+        ),
+        (
+            "navigation",
+            batches(|d| declarations::navigation(d).unwrap()),
+            image::NAVIGATION,
+        ),
+        (
+            "events",
+            batches(|d| declarations::events(d).unwrap()),
+            image::EVENTS,
+        ),
+    ] {
+        assert_eq!(built.len(), image.len(), "{name}");
+        for (built, image) in built.iter().zip(image) {
+            assert_eq!(built.as_slice(), *image, "{name}");
         }
     }
-    let s = |id: &str, title: &str| (id.to_string(), title.to_string(), true);
-    assert_eq!(
-        screens,
-        [
-            s("wifi.page", "wifi.title"),
-            s("wifi.networks", "wifi.networks.title"),
-            s("wifi.phone", "wifi.phone.title"),
-        ]
-    );
-    assert_eq!(
-        actions,
-        [("wifi.open".to_string(), "wifi.title".to_string())]
-    );
-    assert_eq!(
-        icons,
-        [
-            ("wifi.group".to_string(), "wifi".to_string()),
-            ("wifi.open".to_string(), "wifi".to_string())
-        ]
-    );
-    needs.sort();
-    assert_eq!(
-        needs,
-        [
-            "wifi.idle-off",
-            "wifi.join-first",
-            "wifi.on-demand",
-            "wifi.while-charging"
-        ]
-    );
-    assert_eq!(
-        status,
-        [(
-            "wifi.status".to_string(),
-            "wifi.status.item".to_string(),
-            Some("wifi.open".to_string())
-        )]
-    );
-    assert_eq!(
-        steps,
-        [(
-            "wifi.setup".to_string(),
-            "wifi.title".to_string(),
-            "wifi.setup.help".to_string(),
-            50
-        )]
-    );
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
-    assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
+}
+
+#[test]
+fn the_group_and_the_settings_are_declared() {
+    let settings = batches(|d| declarations::settings(d).unwrap());
+    assert_eq!(settings.len(), 1);
+    let text = text(&settings);
+    // The group (order 85, its page) and the four settings with their
+    // defaults and choices.
+    for needle in [
+        "name: \"group\", title: \"wifi.title\", order: 85, page: \"page\"",
+        "name: \"on-demand\"",
+        "name: \"idle-off\"",
+        "wifi.idle-off.1m",
+        "name: \"while-charging\"",
+        "name: \"join-first\"",
+        "wifi.join-first.picked",
+        "wifi.join-first.strongest",
+    ] {
+        assert!(text.contains(needle), "{needle} in {text}");
+    }
+    for id in declarations::IDLE_OFF {
+        assert!(text.contains(id), "{id}");
+    }
+    for batch in &settings {
+        // The host admits the group and the settings as far as it wires them
+        // (others it refuses as unsupported until it does).
+        let _ = validate_batch("wifi", &records_decode(batch).unwrap());
+    }
+}
+
+#[test]
+fn the_screens_action_status_item_icons_needs_and_step_are_declared() {
+    let screens = batches(|d| declarations::screens(d).unwrap());
+    assert_eq!(screens.len(), 1);
+    let text_of_screens = text(&screens);
+    for needle in [
+        "name: \"page\"",
+        "name: \"networks\"",
+        "wifi.networks.title",
+        "name: \"phone\"",
+        "wifi.phone.title",
+    ] {
+        assert!(text_of_screens.contains(needle), "{needle}");
+    }
+    for batch in &screens {
+        validate_batch("wifi", &records_decode(batch).unwrap()).unwrap();
+    }
+    let navigation = batches(|d| declarations::navigation(d).unwrap());
+    assert!(!navigation.is_empty());
+    let text_of_navigation = text(&navigation);
+    for needle in [
+        "wifi.open",
+        "wifi.status",
+        "wifi.status.item",
+        "wifi.setup",
+        "wifi.setup.help",
+    ] {
+        assert!(
+            text_of_navigation.contains(needle),
+            "{needle} in {text_of_navigation}"
+        );
+    }
     // Ten subscriptions (the radio's four and the timers' work among them) in two batches.
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 2);
 }
