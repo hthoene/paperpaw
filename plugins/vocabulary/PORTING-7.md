@@ -141,13 +141,13 @@ native screens replace these callers.
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The rest of the native shell: the scan action, events and help.
-- Screens (card files, sleep card) on `core.ui`.
-- The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
-  `widget::{cx,names,options}`; no drawing of its own.
+- The sleep card on `core.ui`.
+- The widgets on the widget stage, as Stats' (`native_widgets.rs`): the host call and the stage exist
+  (Core todo 76 is done), so this is Vocabulary's own work, not a blocker.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (decorations).
+- Marks in books (decorations): the decoration stage of interface 7 is not defined (Kernel).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
-- Card-folder files: `core.files` (#339).
+- Card-folder files: done, see *Ported: the card files* below.
 
 ## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
 
@@ -244,3 +244,29 @@ native screens replace these callers.
 - Differences: the words looked up while the list is open show when it is shown again, not at once (no
   word-looked-up event yet). Rows are numbered from the newest, so a hold first counts the words again: a list
   that changed since it was counted is counted again and drawn anew, never deleting another word.
+
+## Ported: the card files (`native_card.rs`, `native_sd.rs`, `native_sd_shell.rs`)
+
+- **The card as a `Storage`** (`native_card.rs`): `core.files` (folders, information, moves) and the card root of the
+  storage calls, behind a `Card` trait like the file manager's adapter (the same code; a shared SDK helper would
+  take both). Differences: `rename` **replaces** (the save and the ledger put a part in place with it, as
+  `files::put_in_place` expects). `Both` puts the plugin's data folder (`.paperpaw/plugins/vocabulary/…`: the
+  decks, the ledger) and the card in one `Storage`, as the data layer and `sync` name them, so the sync and the
+  save run unchanged. A move across the two is `Unsupported` (nothing is ever moved between them).
+  `with_both` opens the service for a callback and gives it back.
+- **The menu** `vocabulary.sd-menu` (`MenuView`): *Update the decks*, then for each deck a row that saves it and,
+  where it is linked to a file, a switch for removing the cards the file lacks. Texts, notes and the Anki rule are those
+  of interface 6; the rows are made over `Words`, tested in both languages.
+- **The update/save screen** `vocabulary.sd-card` (`Run`): the sync `Job` or the export `Saver`, one bounded step at a
+  time. Each step is a `core.work` callback (`WorkDue`, key `vocabulary.sd`) that asks for the next while there is
+  one; the screen draws the rows as the host's list, so the progress is **a percentage in the first row** where
+  interface 6 drew a bar (no `Canvas`). The question about a deck of the file's name is the two rows *Add them to my
+  deck* / *Make a new deck* under the question. A refused allocation ends the run with *Not enough memory…*, never a
+  panic; closing the screen cancels a save (no part of a file stays). The flash cards' opening updates from the
+  new and changed files (`vocabulary.sd-auto`, once as the decks open).
+- The files row of the decks' screen is offered where the card can be read (the service is there); the phone row
+  stays out until its screen is ported.
+- Tests: `native_sd_tests.rs` (rows, an update, the ask, a save, the progress, cancelling a save, and every
+  allocation of a whole update refused in turn, with the decks still whole). Not tested (needs a host with `core.ui`,
+  `core.files` and `core.work`): what the shell draws and the work callbacks.
+- Metadata: `core.files` and `core.work` join the services.
