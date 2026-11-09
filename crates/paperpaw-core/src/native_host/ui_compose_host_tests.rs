@@ -84,7 +84,7 @@ struct World {
     me: u64,
     owner: u64,
     depth: DispatchDepth,
-    handles: UiHandles,
+    handles: RefCell<UiHandles>,
     widget: u32,
 }
 
@@ -115,7 +115,7 @@ fn world() -> World {
         me,
         owner,
         depth: DispatchDepth::new(),
-        handles,
+        handles: RefCell::new(handles),
         widget,
     }
 }
@@ -150,7 +150,7 @@ fn run(
     let host = ComposeHost {
         handles: &w.handles,
         guard,
-        registry: &w.registry,
+        leases: &w.registry,
         env: &env,
         depth: &w.depth,
         gate_open,
@@ -194,6 +194,7 @@ fn refusals_come_before_any_call() {
     let mut own = world();
     own.widget = own
         .handles
+        .borrow_mut()
         .make_widget(own.me, own.me, 7, 5, false)
         .unwrap();
     let r = request(ComposeKind::Widget, own.widget, visible());
@@ -252,8 +253,8 @@ fn a_stopped_owner_fails_quietly() {
 
 #[test]
 fn the_host_is_a_few_borrows_and_holds_no_buffer() {
-    // Six words and a flag: no frame of this path comes near the 2,047 bytes
-    // the ppn5 build holds every host function to.
-    assert!(size_of::<ComposeHost<'_, '_>>() <= 64);
-    assert!(size_of::<RegistryDraw<'_, '_>>() <= 16);
+    // Eight words and a flag (two of them trait objects): no frame of this
+    // path comes near the 2,047 bytes the ppn5 build holds every host function to.
+    assert!(size_of::<ComposeHost<'_, '_>>() <= 72);
+    assert!(size_of::<RegistryDraw<'_, '_>>() <= 24);
 }

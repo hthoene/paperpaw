@@ -687,6 +687,10 @@ impl NativeIdentity {
     pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.callbacks.take_open_info()
     }
+    /// The device's `core.ui` service (widget handles), once a shell wired it.
+    pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
+        self.pool.as_ref()?.ui()
+    }
 }
 
 #[cfg(test)]
