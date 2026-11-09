@@ -164,9 +164,12 @@ jobs:
       # warnings). A plugin built into the firmware says why it embeds
       # large files in its Cargo.toml (`embedded-assets`).
       - name: Every first-party plugin keeps the plugin conventions
-        # `plugins/test-support/` holds shared test code, not a plugin.
+        # `plugins/test-support/` holds shared test code, not a plugin. The
+        # hyphenation folders are sources (patterns, texts) of data plugins that
+        # `tools/hyphenation-packs` builds and checks (its tests run in Tests);
+        # `paperpaw-dev package` does not know their `[hyphenation]` file kind yet.
         run: |
-          dirs=$(ls -d plugins/*/ | grep -v '^plugins/test-support/$')
+          dirs=$(ls -d plugins/*/ | grep -v -E '^plugins/(test-support|hyphenation[a-z-]*)/$')
           target/release/paperpaw-dev package --strict $dirs
 
   msrv:
