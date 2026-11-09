@@ -70,7 +70,14 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
-                .with_images(context.image_admit())
+                .with_images({
+                    // Requests held outside the table count against the room.
+                    let mut admit = context.image_admit();
+                    admit.room = admit
+                        .room
+                        .saturating_sub(self.image_held(context.owner_key()));
+                    admit
+                })
                 .with_hint_labels(
                     self.shared.stack_rows.labels(),
                     !self.hint.buttons.is_empty(),

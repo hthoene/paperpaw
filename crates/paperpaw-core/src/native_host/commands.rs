@@ -106,6 +106,9 @@ pub struct CommandStage<'a> {
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
+    /// Picture requests of the plugin held elsewhere (kept for a retry or
+    /// failed, not yet told): they count against its room.
+    images_held: usize,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -146,6 +149,7 @@ impl<'a> CommandStage<'a> {
             accepted: 0,
             images: None,
             quiet: false,
+            images_held: 0,
             staged_images: Vec::new(),
             staged_hints: Vec::new(),
         }
@@ -171,9 +175,15 @@ impl<'a> CommandStage<'a> {
         self.quiet = quiet;
     }
 
+    /// The picture requests of the plugin that wait outside the table.
+    pub(crate) fn set_images_held(&mut self, held: usize) {
+        self.images_held = held;
+    }
+
     /// As [`Self::with_images`], on a stage already lent (the instance's
     /// own features are known only inside its callback scope).
-    pub(crate) fn admit_images(&mut self, images: ImageAdmit) {
+    pub(crate) fn admit_images(&mut self, mut images: ImageAdmit) {
+        images.room = images.room.saturating_sub(self.images_held);
         self.images = Some(images);
     }
 
