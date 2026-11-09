@@ -30,6 +30,9 @@ mod ui;
 /// A redraw a stage kept for its screen (run by the kernel after the callback).
 pub(crate) use ui::Redraw;
 
+#[path = "commands_nav.rs"]
+mod nav;
+
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
@@ -116,6 +119,7 @@ pub struct CommandStage<'a> {
     staged_images: Vec<ImageCommand>,
     /// The checked `command.set_hint` copies, applied after the callback.
     staged_hints: Vec<super::hint_labels::HintSet>,
+    staged_policies: Vec<nav::PolicyChange>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -152,6 +156,7 @@ impl<'a> CommandStage<'a> {
             images_held: 0,
             staged_images: Vec::new(),
             staged_hints: Vec::new(),
+            staged_policies: Vec::new(),
         }
     }
 
@@ -288,6 +293,10 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_hints(batch) {
             return error;
         }
+        let start_policies = self.staged_policies.len();
+        if let Err(error) = self.reserve_policies(batch) {
+            return error;
+        }
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
@@ -306,6 +315,7 @@ impl<'a> CommandStage<'a> {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
+            self.staged_policies.truncate(start_policies);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
@@ -342,7 +352,9 @@ impl<'a> CommandStage<'a> {
             .filter(|command| {
                 !matches!(
                     command,
-                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                    WireCommand::Redraw { .. }
+                        | WireCommand::SetHint { .. }
+                        | WireCommand::ScreenPolicy { .. }
                 ) && !dev::is_dev(command)
             })
             .count()
@@ -403,8 +415,18 @@ impl<'a> CommandStage<'a> {
             if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
+            // Kept apart, applied before the others (`stage_policy`).
+            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+                self.stage_policy(&command)?;
+                continue;
+            }
             if dev::is_dev(&command) {
                 self.dev_push(command)?;
+                continue;
+            }
+            // A close of the root and a `back_to` with nothing above change
+            // nothing: `OK`, nothing staged.
+            if self.nav_no_effect(&command) {
                 continue;
             }
             if images && let Some(image) = image_service::commands::owned(&command) {

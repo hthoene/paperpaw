@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), hints) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop), hints, policies) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -70,6 +70,7 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
+                .with_stack(&self.shared.stack_rows, context.owner_key())
                 .with_images({
                     // Requests held outside the table count against the room.
                     let mut admit = context.image_admit();
@@ -92,10 +93,20 @@ impl Kernel {
                 }
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
+                let policies = stage.take_policies();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, context.owner_key(), images, output, hints))
+                Ok::<_, Error>((
+                    status,
+                    owner,
+                    context.owner_key(),
+                    images,
+                    output,
+                    hints,
+                    policies,
+                ))
             })??
         };
+        self.native_screen_policies(&owner, owner_key, policies);
         self.drain_native_ui(&owner, commands, redraw);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);
