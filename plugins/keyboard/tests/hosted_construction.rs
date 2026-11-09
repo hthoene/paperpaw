@@ -2,11 +2,11 @@
 //! native host. `make` there has no live frame, so it must not open services
 //! (it registers its declarations; `core.ui` opens in the first callback).
 //!
-//! The host does not yet admit the navigation and event declaration families
-//! (only screens are wired, #310), so it refuses this construction with
-//! `Unsupported` (-1). The positive case is an explicit refusal until then;
-//! the second test pins that it is that refusal, not a service-state error
-//! from `make` itself.
+//! The host does not yet publish wire declarations (the registry views are
+//! not wired, #310), so `make` succeeds and the commit refuses the
+//! construction with `DeclarationViewsUnavailable` (`ERR_UNSUPPORTED` at the
+//! boundary). The positive case is an explicit refusal until then; the second
+//! test pins that it is that refusal, not a service-state error from `make`.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -35,7 +35,7 @@ fn make_runs_in_a_real_registered_scope() {
 fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
     let refused = construct().unwrap_err();
     assert_eq!(
-        refused, "Factory(-1)",
+        refused, "Lifecycle(DeclarationViewsUnavailable)",
         "not a service-state refusal from make"
     );
 }

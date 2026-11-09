@@ -11,21 +11,17 @@ const CASES: [Case; 4] = [
     Case {
         name: "the-provider-answers-from-the-stardict-dictionaries-of-the-folder",
         golden: None,
-        blocked_by: &[
-            "core-files-facade-384",
-            "stardict-on-native-files",
-            "lookup-broker-host",
-        ],
+        blocked_by: &["lookup-broker-host"],
     },
     Case {
         name: "the-panel-shows-the-definitions-and-scrolls",
         golden: None,
-        blocked_by: &["slice-2-panel", "H1", "H3", "H4"],
+        blocked_by: &["H1", "H3", "H4"],
     },
     Case {
         name: "first-lookup-prepares-the-indexes-in-the-background",
         golden: None,
-        blocked_by: &["work-service-sdk", "stardict-on-native-files"],
+        blocked_by: &["host-runs-work-due"],
     },
     Case {
         name: "other-providers-answering-later-and-going-online",
@@ -42,19 +38,19 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: core.files facade (#384), StarDict on native files, the host's lookup broker"]
+#[ignore = "BLOCKED: the host's lookup broker (the source over a card is tested in native_source.rs)"]
 fn the_provider_reads_dictionaries() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: the panel (slice 2) and H1/H3/H4"]
+#[ignore = "BLOCKED: H1/H3/H4: the host draws no native screen yet (the panel model is tested in native_panel/tests.rs)"]
 fn the_panel() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: the work service SDK and StarDict on native files"]
+#[ignore = "BLOCKED: the host running work_due for the plugin (the builders are tested in native_source.rs)"]
 fn background_indexing() {
     CASES[2].refuse().unwrap();
 }

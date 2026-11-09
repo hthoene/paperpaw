@@ -448,6 +448,9 @@ impl Storage for Card {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.0.create_dir(path)
     }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
+    }
 }
 
 /// What notices say, as a notice screen would show it.
@@ -575,6 +578,10 @@ struct Device {
     /// The install's buffer finds no memory (the next page-sized block is
     /// refused when `begin` runs).
     fail_buffer: bool,
+    /// The firmware started seeds English hyphenation first (the new
+    /// firmware's start, `shells/xteink/src/native/seed.rs`; Beta 3 and
+    /// before had English built in and did not).
+    seeds: bool,
 }
 
 impl Device {
@@ -610,6 +617,7 @@ impl Device {
             rest: Vec::new(),
             restart: false,
             fail_buffer: false,
+            seeds: false,
         };
         device.rest = device.rest_of(&flash);
         device.boot(Chip(flash));
@@ -652,6 +660,9 @@ impl Device {
             }
             self.now = 0;
             self.restart = false;
+            if self.seeds {
+                paperpaw_default_packs::seed_hyphenation(&self.card);
+            }
             let mut kernel = Kernel::builder(DEVICE)
                 .storage(self.card.clone())
                 .network(true)
@@ -1166,6 +1177,91 @@ fn the_images_made_here_are_whole() {
         assert_eq!(
             Plugins::read(&again[PLUGINS_AT..]).unwrap().text(),
             "paperpaw-plugin-stats 1.0.0\n"
+        );
+    }
+}
+
+// English hyphenation after the update of a firmware that had it built in.
+
+const ENGLISH_INI: &str = "plugins/hyphenation/plugin.ini";
+const ENGLISH_TABLE: &str = "plugins/hyphenation/hyphenation/en.pphp";
+
+/// Whether the kernel running runs the English pack as a plugin.
+fn english_runs(device: &mut Device) -> bool {
+    device
+        .kernel()
+        .plugins()
+        .get("hyphenation")
+        .is_some_and(|plugin| plugin.state == paperpaw_sdk::PluginState::Running)
+}
+
+/// Updates `device` online to the new firmware and starts it, which
+/// seeds (a firmware that has the seeding is the one the update brings).
+fn update_to_new_firmware(device: &mut Device, files: &Files) {
+    device.server.updates = vec![files.new.clone()];
+    let shown = device.update_online();
+    assert!(shown.contains("Update installed"), "{shown}");
+    device.run_for(3_000);
+    assert!(device.restart);
+    device.seeds = true;
+    device.restart();
+}
+
+/// A card as Beta 3 left it has no English pack (it was built in): the
+/// update's first start puts it there, the kernel runs it, and every later
+/// start leaves it be.
+#[test]
+fn an_update_from_beta_3_leaves_english_hyphenation_on_the_card() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        assert!(!device.card.exists(ENGLISH_INI), "{name}: the card before");
+        update_to_new_firmware(&mut device, &files);
+        assert!(
+            device.card.exists(ENGLISH_INI),
+            "{name}: the pack was put there"
+        );
+        let mut table = vec![0u8; device.card.size(ENGLISH_TABLE).unwrap() as usize];
+        device.card.read_at(ENGLISH_TABLE, 0, &mut table).unwrap();
+        paperpaw_hyphen::check_table(&table).expect("a whole table");
+        assert!(english_runs(&mut device), "{name}: the kernel runs it");
+        // Its trial run, kept, restarted: still there, and the same.
+        device.run_for(TRIAL_MS + 1_000);
+        device.restart();
+        assert!(english_runs(&mut device), "{name}: after the next start");
+        let mut again = vec![0u8; table.len()];
+        device.card.read_at(ENGLISH_TABLE, 0, &mut again).unwrap();
+        assert_eq!(again, table, "{name}");
+        // A reader who removes it keeps it removed through restarts.
+        device.card.remove_dir_all("plugins/hyphenation").unwrap();
+        device.restart();
+        assert!(!device.card.exists(ENGLISH_INI), "{name}: not put back");
+        assert!(!english_runs(&mut device), "{name}");
+    }
+}
+
+/// A card that has the pack (the flasher's, or a newer one) keeps it as it
+/// is through the update.
+#[test]
+fn an_update_keeps_an_english_pack_that_is_on_the_card() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        let ini = "[plugin]\nid = hyphenation\nversion = 9.0.0\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n";
+        device.card.write(ENGLISH_INI, ini.as_bytes()).unwrap();
+        device.card.write(ENGLISH_TABLE, b"not a table").unwrap();
+        update_to_new_firmware(&mut device, &files);
+        let mut read = vec![0u8; ini.len() + 8];
+        let n = device.card.read_at(ENGLISH_INI, 0, &mut read).unwrap();
+        assert_eq!(
+            &read[..n],
+            ini.as_bytes(),
+            "{name}: the manifest is as it was"
+        );
+        assert_eq!(
+            device.card.size(ENGLISH_TABLE).unwrap(),
+            11,
+            "{name}: so is the table"
         );
     }
 }

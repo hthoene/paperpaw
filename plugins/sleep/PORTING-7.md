@@ -100,9 +100,30 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    cover where there is one, else the cat** (`native_sleep::decide`; the stored word is left as it is; pinned by
    `a_stored_mode_no_plugin_offers_falls_back_to_the_cover_or_the_cat` over all fact combinations).
    `Facts::other_screen` stays false and `Content::Other` is never answered: the other plugin's screen is shown by the
-   host, not by sleep. Known limits: the binding is made when the setting changes and at start, not when a plugin
-   offering the mode appears later; and a built-in mode binds `core.sleep` back to the default, which also replaces a
-   screen the user bound by hand in the plugin manager.
+   host, not by sleep. **Binding and unbinding (Kernel's rulings; the host does not resolve slots from `sleep.show`):**
+   - **At start and on `plugins-changed` (event 70):** a stored foreign value that is offered for `core.sleep` binds the
+     slot, but only while the slot's `reg_slot` bit 0 (the reader bound it) is clear; **never an unbinding** there
+     (`native_sleep::plan_stored`). So a Beta 3 stored `reading-goal.sleep` binds at the first start, and a binding the
+     reader made survives every start. A stale value only shows the cover/cat fallback.
+   - **On `setting.changed` for `sleep.show`, and for the empty key** (a bulk reset or import: `sleep.show` is read
+     again and the same reconcile runs): a foreign value that is a current candidate binds; a change to one of its
+     own modes (or an empty value) binds back to the default (empty screen) **only if the slot is bound now to one
+     of `sleep.show`'s foreign choices** (registry ops `slots` and `choices`), so a screen the reader bound for another
+     purpose stays; a stale value or the plugin's own screen's id leaves the slot alone (`native_sleep::plan`).
+   Pinned by `a_beta_3_stored_value_binds_at_first_start`,
+   `a_binding_of_a_non_sleep_screen_survives_start_event_70_and_a_reset`, `a_binding_the_reader_made_survives` and
+   `a_change_unbinds_only_a_sleep_mode_and_binds_an_offered_one`. No consent is needed for a change (the reader's own
+   setting change is the consent); the metadata still declares the optional `uses.registry` that `registry.md` 4.2
+   names for `command.bind_slot`. Known limit: nothing binds when a plugin offering the mode appears later than the
+   next start or event 70.
+   **The registry handle** (`Registry::open`, for the slot offers) is opened the first time a foreign value needs the
+   list and then kept for the plugin's lifetime (`NativeSleep::registry`), as `ui` is; it holds nothing the host has to
+   give back before the plugin stops, and each query uses its own 4 KiB buffers that are freed after the call.
+   **Two `hosted_construction` pins:** `tests/hosted_construction.rs` pins `make` as refused with `Factory(-1)`
+   (`Unsupported`) because the batch subscribes to `event.setting.changed`, for which the host has no encoder yet;
+   other plugins' tests still pin `DeclarationViewsUnavailable` (the commit refused, #944) because they do not
+   subscribe to it. When Core adds the encoder, sleep's pin returns to `DeclarationViewsUnavailable` and then to the
+   positive case with #944; the ignored positive test stays as it is.
 6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
 
 The order that makes the plugin native-only: #692 → 1 and 2 (one stacked PR on #692's branch; one decode at a time,

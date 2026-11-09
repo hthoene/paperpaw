@@ -115,3 +115,10 @@ fn the_events_are_the_download() {
     // cut off by a restart: it comes back with the download, `PORTING-7.md`).
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
 }
+
+#[test]
+fn the_end_of_an_install_is_heard() {
+    // Not in interface 6 (the kernel said it was done): `install_done` ends the install and
+    // the removal the plugin asked the host for.
+    assert_eq!(batches(|d| declarations::installs(d).unwrap()).len(), 1);
+}

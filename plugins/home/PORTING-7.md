@@ -90,8 +90,8 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
 - *All tools* opens the screen `home.drawer`; *Edit home screen* opens the slot `core.home` with the
   parameter `mode` = `edit` (a handover). As on interface 6, the dashboard turns to editing when it
   is shown; that is the dashboard's slice.
-- `add-widget` and `drawer` answer `Unsupported` when opened: they are declared (the declaration
-  parity test pins that) and nothing opens them while the app has the interface-6 home screen.
+- The drawer is native since slice 3f (below); nothing opens the screens while the app has the
+  interface-6 home screen.
 
 ### Gaps (each an ignored acceptance case in `tests/acceptance_pending.rs`)
 
@@ -99,7 +99,6 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
   the pages are fitted to the new grid by the dashboard's slice. A widget's size in cells comes from
   `widget_measure` of an instance, which only a screen showing it makes (docs/abi/ui.md 5.2); the
   registry's widget rows carry no size. `native_pages::reflow` is ready for it.
-- The drawer waits for the dashboard slice (it shares the tool cell) and for icons (#517).
 - The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
   a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
 - `make` is refused by the host today as `Unsupported` (#944, `tests/hosted_construction.rs`).
@@ -191,18 +190,38 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   layouts and the rows' icons: `home-add` (#517). The things are listed by name.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
   the key.
-- At a show the focus is drawn only if `home.focus-at-once` is on; interface 6 also asks whether the
-  last input was by keys (`ui::focus_shown`), which waits for the input mode (H4): `home-dashboard`.
+- At a show the focus is drawn only if `home.focus-at-once` is on **and** the last input was by buttons
+  (`event.screen_shown.last_input`, draft 30: buttons 1; touch, pen and "not known" get none, as
+  Kernel ruled): `focus_at_show` in `native_dashboard.rs`. Drawing it waits for H1/H4: `home-dashboard`.
 - The status line above the grid is made room for but not drawn (`home-status-line`).
-- Icons: tools show their name only, the footer's actions and the pencil no icon until icons are
-  admitted (`home-tool-icons`, #517). A tool the plugin shows faint (not enabled now) is not told
-  apart yet.
+- Icons (slice 3e): a tool shows its icon above its name, the icon in the same frame for every tool (the
+  ink of a circle) so that names side by side line up, names of tools in a row keeping to the most lines
+  any of them takes; a tool its plugin shows on is drawn light on a dark ground and one it shows not
+  enabled in the faint ink. The footer's actions show their icons (the puzzle piece where the menu row
+  names none) and the pencil its icon (*Done* stays a word). The characters come from the host
+  (`icon.glyph`, slot 40, `paperpaw_sdk::native::fonts::IconGlyph`) when the page is laid out; the icon
+  font is the one bound to `role:icons`. Where the host has none (no icon font bound, a name its set lacks)
+  a tool shows its name alone and the pencil its word, a footer action nothing. Nothing is drawn through a
+  host yet: `home-tool-icons` (H1). Differences from interface 6: the focus ring goes round the whole cell,
+  not only round the icon and name's ink; a tool's label or badge as its plugin shows it now is not shown
+  (only its name). Drawing uses `paperpaw_ui_kit::icons` and `Paint::Icon` (new, with `replay_icons`).
+  The icons of *Add*'s rows and the drawer's tools follow with their screens.
 - The widgets' updates (the minute tick, `widget_changed`) and a screen that turned are not
   subscribed to: the page is laid out when it shows and when the page turns (`home-widget-updates`).
   A widget that pages itself (a list, a calendar) is not told the page buttons.
 - The built-in widgets of the home screen (status, date, clock, continue, recent) are not declared:
   `home-builtin-widgets`.
-- The drawer: `home-drawer`.
+- The drawer (slice 3f, `native_drawer.rs`): *All tools* opens `home.drawer`, a header (title, back arrow
+  and page arrows on touch screens) over the tools as icons in a grid (4 columns upright, more on a
+  screen on its side up to 6, cells about as high as wide, a line higher where a name takes two), each
+  drawn as on the dashboard (`native_icons::draw_tool`). Buttons move the focus by one tool or a row and
+  stop at the ends; the page buttons move it a screenful; the first press only shows it (the focus is
+  drawn at once only where the last input was buttons, `event.screen_shown.last_input`); *Confirm* or a
+  tap goes back and runs the tool (both staged together, so a refusal stages neither); a swipe down goes
+  back. `Grid` (arithmetic, hits, moves) is tested without the host. Gaps: the grid is not mirrored where
+  the interface runs right to left (no native home screen is yet), and the interface-6 once-only hint on
+  the gestures is not carried; nothing is drawn or taken through a host yet (H1/H4): `home-drawer`.
+  Worst case memory: the tools' ids (at most 256) and their wrapped names for one draw.
 - Nothing here is drawn or taken through a host yet (H1/H4): `home-dashboard`.
 
 Worst case memory: the snapshot (16 page texts of at most 4 KiB, 256 widgets and tools of a few
