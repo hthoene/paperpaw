@@ -9,6 +9,7 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
     let sources = [
         include_str!("../src/native_plugin.rs"),
         include_str!("../src/native_plugin/books.rs"),
+        include_str!("../src/native_plugin/choose.rs"),
         include_str!("../src/native_plugin/names.rs"),
         include_str!("../src/native_plugin/open.rs"),
         include_str!("../src/native_plugin/sheet.rs"),
@@ -48,6 +49,7 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                         | "files.books"
                         | "files.archive"
                         | "files.menu"
+                        | "files.choose-folder"
                 )
             {
                 asked += 1;

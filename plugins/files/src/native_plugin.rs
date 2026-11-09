@@ -362,9 +362,9 @@ impl Plugin for NativeFiles {
                     }
                 ) && !view.dir.is_empty()
                 {
-                    return self.chooser_back(host, token).map(|up| {
-                        if up { Handled::Yes } else { Handled::No }
-                    });
+                    return self
+                        .chooser_back(host, token)
+                        .map(|up| if up { Handled::Yes } else { Handled::No });
                 }
                 &mut view.list
             }

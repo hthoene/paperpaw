@@ -6,7 +6,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{
     mem::push,
-    text::{concat, cmp_lowercase, copy},
+    text::{cmp_lowercase, concat, copy},
 };
 
 /// Folders of one folder shown at most: a longer list is cut (the first
@@ -83,8 +83,7 @@ pub fn sort(names: &mut [String]) {
 /// `NoMemory`.
 pub fn folder_name(typed: &str) -> Result<Option<String>, Error> {
     let mut name = String::new();
-    name.try_reserve(typed.len())
-        .map_err(|_| Error::NoMemory)?;
+    name.try_reserve(typed.len()).map_err(|_| Error::NoMemory)?;
     for c in typed.chars() {
         if !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control() {
             name.push(c);
@@ -113,10 +112,7 @@ mod tests {
             picks("", 2).unwrap(),
             [Pick::Use, Pick::New, Pick::Folder(0), Pick::Folder(1)]
         );
-        assert_eq!(
-            picks("books", 0).unwrap(),
-            [Pick::Use, Pick::Up, Pick::New]
-        );
+        assert_eq!(picks("books", 0).unwrap(), [Pick::Use, Pick::Up, Pick::New]);
     }
 
     #[test]
@@ -132,7 +128,11 @@ mod tests {
 
     #[test]
     fn folders_are_listed_by_name_with_case_aside() {
-        let mut names = vec![String::from("b"), String::from("Archive"), String::from("a")];
+        let mut names = vec![
+            String::from("b"),
+            String::from("Archive"),
+            String::from("a"),
+        ];
         sort(&mut names);
         assert_eq!(names, ["a", "Archive", "b"]);
     }
