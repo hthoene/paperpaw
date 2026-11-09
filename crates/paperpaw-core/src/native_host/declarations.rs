@@ -110,9 +110,11 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         // against the plugin's actions, screens, settings and menu sections at
         // commit (`declaration_checks.rs`).
         Record::SetupStep(_) => super::declaration_reg_checks::validate(plugin_id, record),
-        // Input and help declarations (`docs/abi/ui.md`): refused until the
-        // host admits them (UIX hand-off).
-        Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
+        // Input and help declarations (`docs/abi/ui.md` sections 2 and 7):
+        // checked here and kept in the declaration store (`declarations_input`).
+        Record::InputSpec(_) | Record::HelpHint(_) => {
+            super::declarations_input::validate(plugin_id, record)
+        }
         // Widget and status declarations: checked in `declarations_uix`.
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)

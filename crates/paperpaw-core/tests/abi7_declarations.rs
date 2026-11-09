@@ -1277,9 +1277,10 @@ fn event_only_wire_batch_remains_committable() {
     assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
 }
 
-/// Input/help declarations stay refused until their host admission lands.
+/// Input/help declarations are admitted; an empty one (no name, no screen) is
+/// invalid and poisons construction, as the widget and status ones.
 #[test]
-fn input_and_help_declarations_stay_refused_until_admitted() {
+fn empty_input_and_help_declarations_are_invalid() {
     for tag in [29, 30] {
         // Sixty-four zero bytes are a valid body of every generated record.
         let bytes = batch(&[record(tag, &[vec![0; 64]])]);
@@ -1287,11 +1288,11 @@ fn input_and_help_declarations_stay_refused_until_admitted() {
         let first = decoded.iter().next().unwrap();
         assert_eq!(
             validate_record(PLUGIN, &first),
-            Err(ERR_UNSUPPORTED),
+            Err(ERR_INVALID),
             "tag {tag}"
         );
         let (result, committed) = run(&bytes);
-        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert_eq!(result, Err(ERR_INVALID), "tag {tag}");
         assert!(
             committed.is_err(),
             "tag {tag}: refusal must poison construction"
