@@ -217,21 +217,17 @@ impl crate::Kernel {
         let instances = &self.shared.native_instances;
         let pending = &instances.image_pump.pending;
         let mut at = 0;
-        loop {
-            // No borrow is held across the call.
-            let Some((owner, command)) = ({
-                let mut list = pending.borrow_mut();
-                (at < list.len()).then(|| list.remove(at))
-            }) else {
-                break;
-            };
-            match self.image_apply_one(owner, &command) {
-                Some(status) if for_now(status) => {
-                    // Its place was just left: no allocation.
-                    pending.borrow_mut().insert(at, (owner, command));
-                    at += 1;
-                }
-                _ => {}
+        // No borrow is held across the call.
+        while let Some((owner, command)) = {
+            let mut list = pending.borrow_mut();
+            (at < list.len()).then(|| list.remove(at))
+        } {
+            if let Some(status) = self.image_apply_one(owner, &command)
+                && for_now(status)
+            {
+                // Its place was just left: no allocation.
+                pending.borrow_mut().insert(at, (owner, command));
+                at += 1;
             }
         }
     }

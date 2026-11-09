@@ -120,6 +120,7 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+pub(crate) mod event_call;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -142,12 +143,11 @@ pub(crate) mod host_services;
 )]
 pub(crate) mod hyphen_card;
 pub(crate) mod hyphen_service;
+pub(crate) mod image_pump;
 #[allow(
     dead_code,
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
-pub(crate) mod event_call;
-pub(crate) mod image_pump;
 pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;

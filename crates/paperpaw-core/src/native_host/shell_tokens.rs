@@ -129,3 +129,37 @@ pub(crate) fn dispatch_token_draw<S, M>(
             .map_err(Into::into)
     })?
 }
+
+// The accessors the command stage reads (`shell.rs` is at its line limit).
+impl<S> super::Context<S> {
+    /// The host owner key of the plugin (the key of its native instance).
+    #[allow(
+        dead_code,
+        reason = "read by the staged command path (with_native_commands), which the shell wires"
+    )]
+    pub(crate) fn owner_key(&self) -> u64 {
+        self.resources.owner_id()
+    }
+
+    /// What a command stage checks the plugin's image commands against:
+    /// whether root 1 is open to it (`uses.storage`) and how many more
+    /// requests it may queue now.
+    #[allow(
+        dead_code,
+        reason = "read by the staged command path (with_native_commands), which the shell wires"
+    )]
+    pub(crate) fn image_admit(&self) -> super::super::image_service::commands::ImageAdmit {
+        super::super::image_service::commands::ImageAdmit {
+            storage_root: self
+                .declared_services
+                .features()
+                .feature("uses.storage")
+                .is_ok(),
+            room: self
+                .resources
+                .hosts()
+                .images()
+                .prepare_room(self.resources.owner_id()),
+        }
+    }
+}

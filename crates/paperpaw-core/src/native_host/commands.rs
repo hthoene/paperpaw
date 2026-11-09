@@ -153,6 +153,10 @@ impl<'a> CommandStage<'a> {
     /// [`ImageAdmit`]. The admitted ones come back from
     /// [`Self::take_image_commands`].
     #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the staged command path (with_native_commands) is wired with the shell's production command stage"
+    )]
     pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
         self.images = Some(images);
         self
@@ -212,24 +216,8 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // Whole batch refused, the stage as it was: the callback sees it and
-        // what it staged before stays valid.
-        if self.quiet
-            && batch
-                .iter()
-                .any(|command| shows_the_user_something(&command))
-        {
-            return ERR_STATE;
-        }
-        // `answer_plugin` needs the install feature (`uses.install`, DEV,
-        // `docs/abi/device.md` section 1). Until command staging checks
-        // features (DEV host side), it is refused for every plugin, wherever it
-        // sits in the batch.
-        if batch
-            .iter()
-            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
-        {
-            return ERR_DENIED;
+        if let Some(status) = self.refused_before_checks(batch) {
+            return status;
         }
         if let Err(status) = self
             .validate_open_budget(batch)
@@ -322,6 +310,27 @@ impl<'a> CommandStage<'a> {
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// A batch refused whole, whatever else it holds, the stage as it was.
+    fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
+        // In a work run's callback nothing is shown (the callback sees it and
+        // what it staged before stays valid).
+        if self.quiet
+            && batch
+                .iter()
+                .any(|command| shows_the_user_something(&command))
+        {
+            return Some(ERR_STATE);
+        }
+        // `answer_plugin` needs the install feature (`uses.install`, DEV,
+        // `docs/abi/device.md` section 1). Until command staging checks
+        // features (DEV host side), it is refused for every plugin, wherever it
+        // sits in the batch.
+        batch
+            .iter()
+            .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))
+            .then_some(ERR_DENIED)
     }
 
     /// One `set_setting` of a batch: its bytes counted against the budget, the
