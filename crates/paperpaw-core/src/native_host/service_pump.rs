@@ -3,8 +3,8 @@
 //! events its services queued, one callback each, and the service frees what
 //! the callback could read when it returns.
 //!
-//! The pump runs from [`Kernel::tick`](crate::Kernel::tick); the shell ticks
-//! after it reports (`NetReports`, `SockReports`). It never runs inside a
+//! The pump runs at the end of every kernel call (`Kernel::finish`: a tick, an
+//! input); the shell ticks after it reports (`NetReports`, `SockReports`). It never runs inside a
 //! callback (events raised during one come after it returns), keeps each
 //! service's order for one plugin, and delivers at most [`PER_OWNER`] events
 //! of one service to one plugin in a pass so that no plugin starves another;
@@ -130,9 +130,11 @@ impl crate::Kernel {
     #[allow(dead_code, reason = "the work scheduler has no pump on the kernel yet")]
     pub(crate) fn native_services_work_ended(&self, owner: u64, run: u64) -> Result<(), i32> {
         let services = self.shared.native_instances.event_services();
-        services.iter().flatten().fold(Ok(()), |result, service| {
-            result.and(service.work_ended(owner, run))
-        })
+        let mut result = Ok(());
+        for service in services.iter().flatten() {
+            result = result.and(service.work_ended(owner, run));
+        }
+        result
     }
 
     /// `each` for every running plugin and every wired service.

@@ -25,6 +25,8 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn finish(&mut self) -> Effects {
+        // The events of the host services, between callbacks.
+        self.native_service_pump();
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
