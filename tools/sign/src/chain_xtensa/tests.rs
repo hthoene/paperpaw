@@ -173,7 +173,7 @@ fn an_absent_trait_fails_once_the_image_has_code_of_it() {
     let root = ("root", fine.clone());
     // Nothing implements it: the line holds, and `absent` is no root.
     let report = run(
-        &[root.clone()],
+        std::slice::from_ref(&root),
         &["root"],
         "absent trait a::T no impl until the linked path lands\n",
     );
