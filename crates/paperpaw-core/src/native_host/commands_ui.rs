@@ -389,16 +389,16 @@ impl crate::Kernel {
         // interface-6 guard's are: its screens open and close above and
         // including itself, and its raised input is not held (ui.md 4.3). Any
         // other plugin's are held below it. Judged for each command, as an
-        // earlier one of the batch may have closed the guard.
+        // earlier one of the batch may have closed the guard. The marks the
+        // caller had are put back.
         let own_guard = self
             .guard()
             .and_then(|guard| self.stack.get(guard))
             .is_some_and(|guard| guard.id.namespace() == owner.as_str());
-        self.from_guard = own_guard;
-        self.from_guard_own = own_guard;
+        let before = (self.from_guard, self.from_guard_own);
+        (self.from_guard, self.from_guard_own) = (own_guard, own_guard);
         self.drain_native_command_as(owner, command);
-        self.from_guard = false;
-        self.from_guard_own = false;
+        (self.from_guard, self.from_guard_own) = before;
     }
 
     fn drain_native_command_as(&mut self, owner: &Id, command: Command) {
@@ -423,6 +423,54 @@ impl crate::Kernel {
             return;
         }
         self.apply(command);
+    }
+
+    /// Applies the policy changes a callback of `owner` (host owner id
+    /// `owner_key`) asked for (`command.screen_policy`, ui.md 1.2), before its
+    /// other commands. A change for a screen that is gone, or that turns
+    /// `guards` on where the screen is no longer the top one, is dropped with
+    /// a warning; the stage judged it at submit.
+    #[allow(
+        dead_code,
+        reason = "the command runner (shell_commands) calls it, wired with the shell"
+    )]
+    pub(crate) fn native_screen_policies(
+        &mut self,
+        owner: &Id,
+        owner_key: u64,
+        changes: Vec<super::nav::PolicyChange>,
+    ) {
+        use crate::screens::POLICY_GUARDS;
+        let mut changed = false;
+        for change in changes {
+            let Some(index) = self.stack.iter().position(|active| {
+                active.serial == change.instance && active.id.namespace() == owner.as_str()
+            }) else {
+                self.warn_runtime("native screen policy dropped: its screen is gone");
+                continue;
+            };
+            let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();
+            if turns_on
+                && crate::native_host::ui_guard::guard_on_allowed(
+                    &*self.shared.stack_rows,
+                    owner_key,
+                    change.instance,
+                )
+                .is_err()
+            {
+                self.warn_runtime("native screen policy dropped: its screen is no longer on top");
+                continue;
+            }
+            self.stack[index].policy = Some(change.flags);
+            changed = true;
+        }
+        if changed {
+            // The stack rows and the guard follow; what the guard held waits
+            // no longer once none guards.
+            self.sync_stack();
+            self.release_held_notice();
+            self.output.redraw = true;
+        }
     }
 
     /// The deferred redraw, if its screen is still on top.

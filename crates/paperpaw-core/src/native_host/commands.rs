@@ -146,6 +146,7 @@ pub struct CommandStage<'a> {
     /// The checked `command.widget_changed` instances, applied after the
     /// callback.
     staged_widgets: Vec<u32>,
+    staged_policies: Vec<nav::PolicyChange>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -187,6 +188,7 @@ impl<'a> CommandStage<'a> {
             room: core::cell::RefCell::new(None),
             staged_hints: Vec::new(),
             staged_widgets: Vec::new(),
+            staged_policies: Vec::new(),
         }
     }
 
@@ -318,6 +320,10 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_widgets(batch) {
             return error;
         }
+        let start_policies = self.staged_policies.len();
+        if let Err(error) = self.reserve_policies(batch) {
+            return error;
+        }
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
@@ -337,6 +343,7 @@ impl<'a> CommandStage<'a> {
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
             self.staged_widgets.truncate(start_widgets);
+            self.staged_policies.truncate(start_policies);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
@@ -425,6 +432,7 @@ impl<'a> CommandStage<'a> {
                     WireCommand::Redraw { .. }
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
+                        | WireCommand::ScreenPolicy { .. }
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
@@ -493,6 +501,11 @@ impl<'a> CommandStage<'a> {
             // Listed for the table, not a kernel command; room is reserved.
             if let WireCommand::WidgetChanged { instance } = command {
                 self.staged_widgets.push(instance);
+                continue;
+            }
+            // Kept apart, applied before the others (`stage_policy`).
+            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+                self.stage_policy(&command)?;
                 continue;
             }
             if dev::is_dev(&command) {
