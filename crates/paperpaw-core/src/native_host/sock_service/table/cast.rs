@@ -73,6 +73,10 @@ impl Cast {
         self.state != State::Ended
     }
 
+    pub(super) fn run(&self) -> Option<u64> {
+        self.run
+    }
+
     fn untold(&self) -> bool {
         self.answers.iter().any(|a| a.slot.is_some()) || self.held.is_some()
     }
@@ -212,11 +216,6 @@ impl Inner {
         if !self.casts[index].live() {
             return;
         }
-        if let Some(run) = self.casts[index].run
-            && core::mem::take(&mut self.casts[index].run_open)
-        {
-            host.resource_closed(run);
-        }
         if abort {
             host.transport().close(self.casts[index].id);
         }
@@ -293,6 +292,13 @@ impl Inner {
             if c.owner == owner && !c.live() && !c.pending() {
                 let back = c.charge;
                 self.release(host, back);
+                // The plugin has been told of the end: the run lets go of it.
+                let c = &mut self.casts[index];
+                if let Some(run) = c.run
+                    && core::mem::take(&mut c.run_open)
+                {
+                    host.resource_closed(run);
+                }
                 self.casts.remove(index);
             } else {
                 index += 1;
@@ -461,7 +467,7 @@ pub(super) fn encode(
                 .get(..usize::from(a.from_len))
                 .and_then(|b| core::str::from_utf8(b).ok())
                 .ok_or(ERR_INVALID)?;
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventBroadcast(wire::EventBroadcast {
                     now_ms: a.slot.map_or(0, |s| s.at),
                     socket: c.id,
@@ -476,7 +482,7 @@ pub(super) fn encode(
         }
         Pick::End => {
             let (slot, kind, why) = c.end.ok_or(ERR_NOT_FOUND)?;
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventBroadcast(wire::EventBroadcast {
                     now_ms: slot.at,
                     socket: c.id,

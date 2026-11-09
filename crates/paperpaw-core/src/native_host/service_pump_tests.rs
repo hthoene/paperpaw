@@ -65,7 +65,7 @@ struct Service {
     deadline: Cell<Option<u64>>,
 }
 impl ServiceEvents for Service {
-    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         if self.busy_next.replace(false) {
             return Err(ERR_BUSY);
         }
@@ -80,7 +80,7 @@ impl ServiceEvents for Service {
         to.copy_from_slice(bytes);
         let len = bytes.len();
         queue.remove(at);
-        Ok(Some(len))
+        Ok(Some((len, None)))
     }
     fn event_delivered(&self, owner: u64) -> Result<(), i32> {
         self.log.borrow_mut().push("delivered");
@@ -104,14 +104,15 @@ impl ServiceEvents for Service {
     }
 }
 
-struct Fixture {
-    instances: NativeInstances,
-    keys: Vec<u64>,
-    seen: Vec<Rc<RefCell<Vec<Vec<u8>>>>>,
+pub(crate) struct Fixture {
+    pub(crate) instances: NativeInstances,
+    pub(crate) keys: Vec<u64>,
+    /// The bytes each plugin's `service_event` was given.
+    pub(crate) seen: Vec<Rc<RefCell<Vec<Vec<u8>>>>>,
     plugins: Vec<Rc<Cell<Result<i32, i32>>>>,
 }
 
-fn fixture(count: usize) -> Fixture {
+pub(crate) fn fixture(count: usize) -> Fixture {
     let mut instances = NativeInstances::default();
     let (mut keys, mut seen, mut plugins) = (Vec::new(), Vec::new(), Vec::new());
     for n in 0..count {
@@ -138,6 +139,15 @@ fn fixture(count: usize) -> Fixture {
 
 fn run(f: &Fixture, service: &Service) -> bool {
     run_at(f, service, 0)
+}
+
+/// One pass of the real pump over `services`, at time 0.
+pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 2]) -> bool {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    pump(&f.instances, &services, &env)
 }
 
 fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {

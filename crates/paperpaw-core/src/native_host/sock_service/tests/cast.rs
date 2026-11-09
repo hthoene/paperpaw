@@ -50,7 +50,11 @@ fn cast_with(f: &Fake, owner: u64, bytes: &[u8]) -> Result<u32, i32> {
 fn next_cast(f: &Fake, owner: u64) -> Option<CEv> {
     let mut out = std::vec![0; 256];
     let used = next_event(f, owner, &mut out).unwrap()?;
-    match wire::record_decode_one(&out[..used]).unwrap() {
+    // What the plugin's callback gets: the SDK frames it as a batch of one and
+    // decodes it (the kernel's `service_event` reads its tag the same way).
+    let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
+    assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
         Record::EventBroadcast(e) => Some(cev(e.socket, e.token, e.kind, e.reason, e.len, e.from)),
         other => panic!("not event 107: {other:?}"),
     }
@@ -391,11 +395,13 @@ fn socket_and_broadcast_events_come_in_the_order_they_happened() {
     let mut seen = Vec::new();
     let mut out = std::vec![0; 256];
     while let Some(used) = next_event(&f, OWNER, &mut out).unwrap() {
-        seen.push(match wire::record_decode_one(&out[..used]).unwrap() {
-            Record::EventSocket(e) => (e.socket, e.kind),
-            Record::EventBroadcast(e) => (e.socket, 10 + e.kind),
-            other => panic!("{other:?}"),
-        });
+        seen.push(
+            match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
+                Record::EventSocket(e) => (e.socket, e.kind),
+                Record::EventBroadcast(e) => (e.socket, 10 + e.kind),
+                other => panic!("{other:?}"),
+            },
+        );
         event_delivered(&f, OWNER).unwrap();
     }
     assert_eq!(seen, std::vec![(b, 10), (s, 0), (b, 10)]);
@@ -473,6 +479,7 @@ fn turning_a_plugins_network_off_ends_a_broadcast_that_waits_for_answers() {
 #[test]
 fn a_broadcast_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends() {
     let balanced = |f: &Fake, opened: usize| {
+        let _ = drain_cast(f, OWNER);
         assert_eq!(*f.run_opened.borrow(), std::vec![7; opened]);
         assert_eq!(*f.run_closed.borrow(), std::vec![7; opened], "exactly once");
     };
@@ -483,6 +490,7 @@ fn a_broadcast_of_a_work_run_keeps_the_run_until_it_ends_whichever_way_it_ends()
     assert!(f.run_closed.borrow().is_empty(), "alive: the run goes on");
     f.advance(60_000);
     tick(&f).unwrap();
+    assert!(f.run_closed.borrow().is_empty(), "ended, not yet told");
     tick(&f).unwrap();
     balanced(&f, 1);
     // The run reached its longest time.

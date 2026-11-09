@@ -617,6 +617,13 @@ impl NativeInstances {
         Some((hosts.pool_made()?, hosts))
     }
 
+    /// The closes the work scheduler could not take are asked again.
+    pub(crate) fn retry_run_closes(&self, now_ms: u64) {
+        if let Some(pool) = self.pool.as_ref() {
+            pool.hosts().retry_run_closes(now_ms);
+        }
+    }
+
     /// The device's network policy, once `core.net` or `core.sockets` is wired.
     pub(crate) fn net_policy(&self) -> Option<alloc::rc::Rc<super::net_policy::NetPolicy>> {
         let hosts = self.pool.as_ref()?.hosts();

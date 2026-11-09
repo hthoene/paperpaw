@@ -340,6 +340,16 @@ impl HostServices {
         }
     }
 
+    /// Asks the work scheduler again for the closes of runs' resources it
+    /// could not take (see `OwnerDirectory::retry_closes`).
+    pub(crate) fn retry_run_closes(&self, now_ms: u64) {
+        if let Some(owners) = self.owners.get()
+            && owners.closes_wait()
+        {
+            owners.retry_closes(now_ms);
+        }
+    }
+
     /// The paths in use by host writers (shared with `core.files`' busy check).
     pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
         self.in_use.get_or_init(Default::default)
