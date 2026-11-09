@@ -216,7 +216,17 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   index and every text whole by offsets.
 - [D] `facets` (`lib_query.facet`: 0 authors, 1 series, 2 tags, 3 first letters, 4 folders; the
   other query fields filter): rows `lib_facet` (`text: str 256`, `count`, `first`: the index of its
-  first book in the same query sorted by that facet, for jumping).
+  first book in the same query sorted by that facet, for jumping). **Folders** (interface 6
+  `shelves::folder_in`) are one level: each folder right inside the query's `folder` (the books'
+  root when empty) that holds a matching book at any depth, `text` its whole path and `count` the
+  books in it and below; a book right in the query's folder adds no row. Neither only leaf folders
+  nor every ancestor.
+- [D] `next_in_series` (interface 6 `Index::next_in_series`, Port Reviewer on #696): the series'
+  **lowest unread book**, not the book after the given one: of the books in the given book's series
+  never opened (`progress` 255), the one with the lowest series number, ties by catalog key; the
+  given book itself when it is that one. `ERR_NOT_FOUND` when the book has no series or every book
+  of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
+  asks op 6 with a book of each series it shows.
 - [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`):
   `cursor` is the index in the result of the page's first row (0 for the first page). Under one
   catalog generation the result's order is fixed, so every page is reachable from the cursor alone:
@@ -239,8 +249,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   hash differs, never made) is walked from the start: slower, the same rows, never an error. A
   stopped plugin's entries are cleared.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
-  the screen's long side; the default is interface 6 `cover_fit`, the larger of 300 and 3/8 of the
-  screen's long side): the catalog's cover as an image id of the caller, made from the book's format
+  the screen's long side, larger is `ERR_INVALID`, never clamped; the default is interface 6
+  `cover_fit`, the larger of 300 and 3/8 of the screen's long side): the catalog's cover as an
+  image id of the caller, made from the book's format
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).

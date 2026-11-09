@@ -150,8 +150,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 1080 | `service.doc_reader` | `id: str 128`, `screen: str 128`, `formats: str 1032`, `title: str 128` |
 | 1081 | `service.doc_progress` | `progress_ppm: u32` |
 
-- [D] `doc_page.scope` is op 21's format filter, else empty; `doc_path.flags` bit 0: sniff when no
-  extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
+- [D] `doc_page.scope` is op 21's format filter, else empty. Ops 19 and 21 name no document: their
+  `doc_page.document` is 0 and ignored (the host accepts any value there). `doc_path.flags` bit 0:
+  sniff when no extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
   `doc_format.title` and `doc_reader.title` are translated by the host as REG rows are. Two-way
   records (plugin and host send them; never `HOST_ONLY`): `doc_state` and the block, meta, toc,
   link, font and image rows, because a format plugin answers them in its `core.format` reply and the
@@ -461,9 +462,14 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
   by a `doc_image` for the opener: it checks the path (root 6 rules, the cache file's header against
   `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
-  the id it already has for that path in this document), and passes `width`, `height` and `flags`
-  bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
-  counted as a failed read) and never fails the whole stream. Over the 8 image ids per plugin, the
+  the id it already has for that path in this document), and passes `width` and `height` on;
+  `doc_image.flags` (the same bits as `image.info`'s) is bit 0 colour, set when the cache file's
+  header says the picture is in colour (the header is read for the check anyway; never on a screen
+  without colour), and bit 1 not decoded yet, `fmt.image`'s bit 0. Other `fmt.image` bits are
+  dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
+  older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
+  fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
+  and never fails the whole stream. Over the 8 image ids per plugin, the
   host ends the opener's least recently drawn document image first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
@@ -493,7 +499,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
   (where the screen has it).
-- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
+- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
+  not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
   centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
   `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
