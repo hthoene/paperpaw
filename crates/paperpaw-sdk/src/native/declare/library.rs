@@ -47,6 +47,15 @@ pub enum BookDataKind {
     Cache,
 }
 
+/// A name that is one folder: a menu identifier without dots.
+fn folder_name(value: &str, maximum: usize, field: &'static str) -> Result<(), DeclareError> {
+    menu_identifier(value, maximum, field)?;
+    if value.contains('.') {
+        return Err(DeclareError::Encode(ERR_INVALID));
+    }
+    Ok(())
+}
+
 impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Declare an owned field. The host stamps the plugin prefix on its name.
     ///
@@ -58,12 +67,15 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Declare a per-book folder in the plugin's data (root 0) at
     /// `books/<name>/<book key>/`, with the book key of `Library::book_key`. The
     /// host moves and removes these folders; the plugin only writes inside them.
-    /// At most 4 per plugin.
+    /// At most 4 per plugin (the host's cap).
+    ///
+    /// The name becomes one folder name: lowercase letters, digits and `-`, at
+    /// most 96 bytes, so no dot and no path separator.
     ///
     /// # Errors
     /// Returns a name, encoding, allocation or latched sink refusal.
     pub fn book_data(&mut self, name: &str, kind: BookDataKind) -> Result<&mut Self, DeclareError> {
-        let record = menu_identifier(name, wire::BOOK_DATA_SPEC_NAME_MAX_BYTES, "book data name")
+        let record = folder_name(name, wire::BOOK_DATA_SPEC_NAME_MAX_BYTES, "book data name")
             .map(|()| wire::BookDataSpec {
                 name,
                 kind: match kind {
