@@ -276,6 +276,277 @@ fn check_refuses_a_size_zero_function_and_code_no_symbol_covers() {
     );
 }
 
+/// The dead word the toolchain leaves: `0x0000ff00`, its first byte read as
+/// padding.
+const DEAD: [u8; 4] = [0x00, 0xff, 0x00, 0x00];
+
+/// f1 (5 bytes), a gap of `gap` bytes, f2 (`entry`, `body`, `retw.n`).
+fn pool(gap: &[u8], body: &[u8]) -> (Vec<u8>, Vec<(usize, usize)>) {
+    let mut code = ENTRY_32.to_vec();
+    code.extend_from_slice(&RETW_N);
+    let end1 = code.len();
+    code.extend_from_slice(gap);
+    let start2 = code.len();
+    code.extend_from_slice(&ENTRY_32);
+    code.extend_from_slice(body);
+    code.extend_from_slice(&RETW_N);
+    let end = code.len();
+    (code, vec![(0, end1), (start2, end)])
+}
+
+fn nothing() -> Reach {
+    Reach::default()
+}
+
+#[test]
+fn a_dead_word_nothing_reaches_is_let_through_and_noted() {
+    // f1 at 0..5, padding 5..8, the dead word at 8, f2 at 12.
+    let mut gap = vec![0, 0, 0];
+    gap.extend_from_slice(&DEAD);
+    let (code, ranges) = pool(&gap, &[]);
+    // Without the image's view of what points where: still refused.
+    assert_eq!(
+        scan_ranges(&code, &ranges),
+        Some(Finding::Uncovered { at: 9 })
+    );
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (None, vec![8])
+    );
+    // Before the first function: the same.
+    let mut front = DEAD.to_vec();
+    front.extend_from_slice(&ENTRY_32);
+    front.extend_from_slice(&RETW_N);
+    assert_eq!(
+        scan_ranges_in(&front, &[(4, front.len())], Some(&nothing())),
+        (None, vec![0])
+    );
+    // Something that points at a byte of it (anywhere in 8..12) refuses it,
+    // one at the next function does not.
+    for at in 8..12 {
+        let reach = Reach { pointed: vec![at] };
+        assert_eq!(
+            scan_ranges_in(&code, &ranges, Some(&reach)),
+            (Some(Finding::Uncovered { at: 9 }), vec![]),
+            "{at}"
+        );
+    }
+    let reach = Reach {
+        pointed: vec![7, 12],
+    };
+    assert_eq!(scan_ranges_in(&code, &ranges, Some(&reach)).0, None);
+}
+
+#[test]
+fn a_dead_word_that_a_call_a_jump_or_a_branch_goes_to_is_refused() {
+    let mut gap = vec![0, 0, 0];
+    gap.extend_from_slice(&DEAD);
+    // f2 is at 12 (its `entry` 12..15); the instruction under test is at 15.
+    let at = 15i64;
+    let sized = |imm: i64, shift: u32, op: u32| -> [u8; 3] {
+        let w = op | ((imm as u32) & 0x3FFFF) << shift;
+        [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+    };
+    // j: at + 4 + imm18 = 8.
+    let j = sized(8 - (at + 4), 6, 0x06);
+    // call8: (at & ~3) + 4 + imm18 * 4 = 8.
+    let call = sized((8 - ((at & !3) + 4)) / 4, 6, 0x05 | 2 << 4);
+    // beqz a2, ...: n = 1, `s` 2, imm12 at bit 12.
+    let beqz = {
+        let imm = (8 - (at + 4)) as u32 & 0xFFF;
+        let w = 0x06 | 1 << 4 | 2 << 8 | imm << 12;
+        [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+    };
+    // beq a2, a3, ...: op0 7, imm8 at bit 16.
+    let beq = {
+        let w = 0x07 | 3 << 4 | 2 << 8 | (((8 - (at + 4)) as u32) & 0xFF) << 16;
+        [w as u8, (w >> 8) as u8, (w >> 16) as u8]
+    };
+    for (name, instruction) in [("j", j), ("call8", call), ("beqz", beqz), ("beq", beq)] {
+        let (code, ranges) = pool(&gap, &instruction);
+        assert_eq!(
+            scan_ranges_in(&code, &ranges, Some(&nothing())),
+            (Some(Finding::Uncovered { at: 9 }), vec![]),
+            "{name}"
+        );
+        // The same instruction going to the second function's start is fine.
+    }
+    let away = sized(12 - (at + 4), 6, 0x06);
+    let (code, ranges) = pool(&gap, &away);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (None, vec![8])
+    );
+}
+
+#[test]
+fn a_hardware_loops_end_is_unsigned_and_a_word_after_a_running_on_function_is_refused() {
+    // f1: entry, `loop a2, +imm8`, 98 `nop.n`, `retw.n` (204 bytes), the dead
+    // word at 204, f2 at 208. A loop's end is at + 4 + imm8, imm8 unsigned.
+    let f1 = |imm8: u32, last: &[u8]| {
+        let mut code = ENTRY_32.to_vec();
+        let w = 0x06 | 7 << 4 | 2 << 8 | 8 << 12 | imm8 << 16;
+        code.extend_from_slice(&[w as u8, (w >> 8) as u8, (w >> 16) as u8]);
+        for _ in 0..98 {
+            code.extend_from_slice(&[0x3d, 0xf0]);
+        }
+        code.extend_from_slice(last);
+        assert_eq!(code.len(), 204);
+        code.extend_from_slice(&DEAD);
+        code.extend_from_slice(&ENTRY_32);
+        code.extend_from_slice(&RETW_N);
+        let ranges = vec![(0, 204), (208, code.len())];
+        (code, ranges)
+    };
+    // 200 (a signed read makes it -56): 3 + 4 + 200 = 207, in the word.
+    let (code, ranges) = f1(200, &RETW_N);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 205 }), vec![])
+    );
+    // 190: the end is at 197, inside the function.
+    let (code, ranges) = f1(190, &RETW_N);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (None, vec![204])
+    );
+    // The same, but the function runs on into the word (it ends in a `nop.n`).
+    let (code, ranges) = f1(190, &[0x3d, 0xf0]);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 205 }), vec![])
+    );
+}
+
+#[test]
+fn a_dead_word_that_reads_as_control_flow_is_refused() {
+    for word in [
+        [0x36, 0x41, 0x00, 0x00], // entry a1, 32
+        [0x00, 0x36, 0x41, 0x00], // the same, one byte on
+        [0x80, 0x00, 0x00, 0x00], // ret
+        [0x90, 0x00, 0x00, 0x00], // retw
+        [0xa0, 0x00, 0x00, 0x00], // jx a0
+        [0xc0, 0x00, 0x00, 0x00], // callx8 a0
+        [0x1d, 0xf0, 0x00, 0x00], // retw.n
+        [0x00, 0x00, 0x0d, 0xf0], // ret.n
+    ] {
+        let (code, ranges) = pool(&[0, 0, 0, word[0], word[1], word[2], word[3]], &[]);
+        assert_eq!(code[8..12], word);
+        assert_eq!(
+            scan_ranges_in(&code, &ranges, Some(&nothing())).1,
+            Vec::<usize>::new(),
+            "{word:02x?}"
+        );
+    }
+    assert!(!dead::looks_like_control(DEAD));
+}
+
+#[test]
+fn a_gap_that_is_partial_unaligned_or_after_the_last_function_is_refused() {
+    // The gap is 5..8: the word at 4 is not wholly in it.
+    let (code, ranges) = pool(&[0x00, 0xff, 0x00], &[]);
+    assert_eq!(ranges[1].0, 8);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 6 }), vec![])
+    );
+    // A word that straddles two aligned words (the gap is 5..11).
+    let (code, ranges) = pool(&[0, 0, 0, 0, 0xff, 0], &[]);
+    assert_eq!(
+        scan_ranges_in(&code, &ranges, Some(&nothing())),
+        (Some(Finding::Uncovered { at: 9 }), vec![])
+    );
+    // After the last function.
+    let mut tail = ENTRY_32.to_vec();
+    tail.extend_from_slice(&RETW_N);
+    let end = tail.len();
+    tail.extend_from_slice(&[0, 0, 0]);
+    tail.extend_from_slice(&DEAD);
+    assert_eq!(
+        scan_ranges_in(&tail, &[(0, end)], Some(&nothing())),
+        (Some(Finding::Uncovered { at: end + 4 }), vec![])
+    );
+}
+
+#[test]
+fn at_most_sixty_four_bytes_of_dead_words_are_let_through() {
+    let mut front = Vec::new();
+    for _ in 0..16 {
+        front.extend_from_slice(&DEAD);
+    }
+    let end = front.len();
+    front.extend_from_slice(&ENTRY_32);
+    front.extend_from_slice(&RETW_N);
+    let (found, words) = scan_ranges_in(&front, &[(end, front.len())], Some(&nothing()));
+    assert_eq!((found, words.len()), (None, 16));
+    // One more.
+    let mut more = DEAD.to_vec();
+    more.extend_from_slice(&front);
+    let (found, words) = scan_ranges_in(&more, &[(end + 4, more.len())], Some(&nothing()));
+    assert_eq!(
+        (found, words.len()),
+        (Some(Finding::Uncovered { at: 65 }), 16)
+    );
+}
+
+/// `.text` at 0x4200_0000 (a dead word at 8, a function at 12), `.rodata`
+/// with `rodata` as its bytes, and `rela` relocations `(offset, target)`
+/// against symbols at `.text + target`.
+fn dead_image(rodata: &[u8], relocs: &[u32], debug: &[u32]) -> Vec<u8> {
+    use crate::elf::build::Builder;
+    let mut gap = vec![0, 0, 0];
+    gap.extend_from_slice(&DEAD);
+    let (code, ranges) = pool(&gap, &[]);
+    let mut b = Builder::new(crate::elf::EM_XTENSA, crate::elf::ET_EXEC);
+    let text = b.section(".text", 0x6, 0x4200_0000, &code, 16);
+    for (n, &(start, end)) in ranges.iter().enumerate() {
+        b.function(
+            &format!("f{n}"),
+            0x4200_0000 + start as u32,
+            (end - start) as u32,
+            text as u16,
+            false,
+        );
+    }
+    if !rodata.is_empty() {
+        b.section(".rodata", 0x2, 0x3c00_0000, rodata, 4);
+    }
+    for (n, &target) in relocs.iter().enumerate() {
+        let symbol = b.symbol(&format!("r{n}"), 0x4200_0000 + target, 0, text as u16, true);
+        b.rela(text, 0, symbol, 1);
+    }
+    if !debug.is_empty() {
+        let section = b.section(".debug_line", 0, 0, &[0; 16], 1);
+        for &target in debug {
+            let symbol = b.symbol("d", 0x4200_0000 + target, 0, text as u16, true);
+            b.rela(section, 0, symbol, 1);
+        }
+    }
+    b.build()
+}
+
+#[test]
+fn check_lets_a_dead_word_through_unless_a_relocation_or_a_stored_address_reaches_it() {
+    assert_eq!(check_of(&dead_image(&[], &[], &[])), Ok(()));
+    // Data that holds other things, and the address of the function.
+    assert_eq!(
+        check_of(&dead_image(&0x4200_000cu32.to_le_bytes(), &[12], &[])),
+        Ok(())
+    );
+    // A debug section's address (`.text + 8`: a line) reaches nothing.
+    assert_eq!(check_of(&dead_image(&[], &[], &[8, 9])), Ok(()));
+    // A relocation to any byte of the word.
+    for target in [8, 9, 10, 11] {
+        let err = check_of(&dead_image(&[], &[target], &[])).unwrap_err();
+        assert!(err.contains("no `l32r` reads"), "{target}: {err}");
+    }
+    // A word of the image that holds an address in it.
+    for address in [0x4200_0008u32, 0x4200_000b] {
+        let err = check_of(&dead_image(&address.to_le_bytes(), &[], &[])).unwrap_err();
+        assert!(err.contains("no `l32r` reads"), "{address:#x}: {err}");
+    }
+}
+
 #[test]
 fn the_length_of_an_instruction_is_in_its_first_byte() {
     for b0 in 0u8..=255 {

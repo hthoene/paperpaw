@@ -429,7 +429,8 @@ mod x4 {
         // NOTE: this probe builds its own pool (and `core.ui` store). Real linked-
         // plugin registration must share the loader's pool (`try_clone`, one
         // `UiStore` per device, ui.md 1.1) so the device keeps one UI store; that comes with the stack gate being lifted (todo 150).
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), super::new_resources()) else {
+        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), crate::native::new_resources())
+        else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
