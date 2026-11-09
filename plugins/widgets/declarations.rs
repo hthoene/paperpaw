@@ -21,6 +21,7 @@ pub mod category {
     pub const PERSONAL: &str = "core.widgets.personal";
     pub const WORDS: &str = "core.widgets.words";
     pub const DEVICE: &str = "core.widgets.device";
+    pub const BOOKS: &str = "core.widgets.books";
 }
 
 /// A widget of the pack.
@@ -258,6 +259,39 @@ const BATTERY_OPTIONS: &[Opt] = &[
     Opt::Part("percent", "widgets.books.part.percent", true),
     Opt::Part("charging", "widgets.books.part.charging", true),
     Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
+const LIBRARY_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Part("books", "widgets.books.part.books", true),
+    Opt::Part("finished", "widgets.books.part.finished", true),
+    Opt::Part("reading", "widgets.books.part.reading", true),
+    Opt::Part("unread", "widgets.books.part.unread", true),
+    Opt::Part("bar", "widgets.books.part.bar", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
+const HIGHLIGHT_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Choice(
+        "source",
+        "widgets.books.setting.highlight-source",
+        &["widgets.highlight.recent", "widgets.highlight.all"],
+        "widgets.highlight.recent",
+        "widgets.highlight.source.help",
+    ),
+    Opt::Choice(
+        "change",
+        "widgets.books.setting.highlight-change",
+        &["widgets.highlight.daily", "widgets.highlight.shown"],
+        "widgets.highlight.daily",
+        "widgets.books.setting.highlight-change.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+    Opt::Part("marks", "widgets.books.part.marks", true),
+    Opt::Part("title", "widgets.books.part.title", true),
+    Opt::Part("author", "widgets.books.part.author", false),
+    Opt::Part("note", "widgets.books.part.note", false),
 ];
 
 const MOON_OPTIONS: &[Opt] = &[
@@ -632,6 +666,24 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: false,
         options: BATTERY_OPTIONS,
+    },
+    Def {
+        name: "library",
+        token: 114,
+        category: category::BOOKS,
+        live: true,
+        align: "core.align.center",
+        look_last: false,
+        options: LIBRARY_OPTIONS,
+    },
+    Def {
+        name: "highlight",
+        token: 115,
+        category: category::WORDS,
+        live: true,
+        align: "core.align.center",
+        look_last: false,
+        options: HIGHLIGHT_OPTIONS,
     },
 ];
 

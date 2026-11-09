@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.install",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.network",
       "required": false,
       "revision": 1
@@ -59,5 +64,5 @@
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 195
+  "total_bytes": 215
 }

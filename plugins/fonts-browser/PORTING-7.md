@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 to 3: the model, the declarations, the native entry and screens)
+# Interface-7 port (slices 1 to 4: the model, the declarations, the native entry and screens, install and removal)
 
 Version 1.0.8 (already above its Beta 3 version; no further bump). Status: **not complete**: the native
 entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the list and a
@@ -38,6 +38,31 @@ activates native plugins (then it goes together, no shim; see the removal step).
   Installed fonts are the plugins `font-*` of the registry (`core.registry`, op plugins), the device's font kind
   (files or packs) comes from `core.device` (memory class, `outlines`).
 - `src/native_view.rs`: the rows of a page and the installed versions, tested without a host.
+
+## Slice 4: download, update, remove (`src/native_install.rs`, `src/native_job.rs`)
+
+- The page of a font offers *Download*, *Update*, *Stop* and *Remove* again (a font being
+  downloaded shows only *Stop*; another font waits, `fonts-browser.busy`).
+- `native_job::Job` (host-free): the plan's files one at a time; each file saved by `core.net` into
+  `staging/<plugin>/…` (`max_file` as `native_plan` says) is checked by size and SHA-1 read in
+  4 KiB pieces (`verify`); a file that does not check out, or does not arrive, ends the job and the
+  staged files go (`clear`). Tested in `native_job/tests.rs`.
+- `native_install.rs` (host): once the last file is kept, `command.install_plugin(1, Data,
+  staging/<plugin>, update)`; the host asks the user (decision 132). `install_done` (new
+  subscription, `declarations::installs`, token 4) ends it: only an OK outcome says *ready*, any
+  other end says *could not be downloaded*; the staging folder goes in every case. *Remove* is
+  `command.remove_plugin(2, id)` (the host asks, decision 124); its `install_done` refreshes the page.
+- Metadata: the feature `uses.install` is added (the `.s3` files follow #713).
+- Install requests: each download has its own request number (16 up); `install_done` ends a job only
+  when it is that job's own, asked question, and no *Stop* is offered once the host was asked (the job
+  stays until `install_done`), so a late answer cannot end the next font's job (test in `native_job`).
+- Restart: `make` removes the `staging` folder (no job can exist then), which closes the cut-off-download
+  gap that interface 6 closed at `started`; a download also clears its own staging first. Unmeasured:
+  whether the host's `remove` takes a non-empty folder (an error is ignored, the leftover then goes with
+  the next download of that font). *Remove* refused (Denied/Full) says it failed.
+- Unmeasured X4 timing: checking a 1 MiB font file (SHA-1 in 4 KiB pieces) in one callback.
+- Gaps: the host's questions are not wired to native
+  plugins (H2), so no end-to-end run yet (`fonts-browser-install` stays ignored).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 

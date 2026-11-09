@@ -201,10 +201,10 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
 fn a_linked_plugin_is_built_in_and_a_loaded_one_is_not() {
     let linked = Rc::new(crate::native_host::linked_plugins::LinkedPlugins::default());
     let files = StorageFiles::new(card(), Rc::default(), linked.clone());
-    assert!(!files.is_linked("home"));
+    assert!(!files.built_in("home"));
     linked.add("home").unwrap();
-    assert!(files.is_linked("home"));
-    assert!(!files.is_linked("other") && !files.is_linked("hom"));
+    assert!(files.built_in("home"));
+    assert!(!files.built_in("other") && !files.built_in("hom"));
     linked.remove("home");
-    assert!(!files.is_linked("home"));
+    assert!(!files.built_in("home"));
 }

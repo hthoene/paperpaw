@@ -40,10 +40,11 @@ fn the_image_is_what_the_builder_makes() {
 }
 
 #[test]
-fn the_host_admits_the_screen() {
+fn the_host_admits_the_screen_its_slot_and_its_subscription() {
     for batch in batches!(declarations::screen) {
         let records = records_decode(&batch).unwrap();
-        assert_eq!(records.iter().count(), 1);
+        // The screen, the slot offer and the subscription to `http_done`.
+        assert_eq!(records.iter().count(), 3);
         validate_batch("wikipedia", &records).unwrap();
     }
 }

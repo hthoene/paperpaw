@@ -120,7 +120,6 @@ const JOINED: usize = 384;
 pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
-    #[allow(dead_code, reason = "FilesHost::built_in (#757) reads it")]
     linked: Rc<LinkedPlugins>,
 }
 
@@ -135,13 +134,6 @@ impl StorageFiles {
             sources,
             linked,
         }
-    }
-
-    /// Whether `plugin` is linked into the firmware (the answer of
-    /// `FilesHost::built_in`): a loaded plugin never is.
-    #[allow(dead_code, reason = "FilesHost::built_in (#757) asks it")]
-    pub(crate) fn is_linked(&self, plugin: &str) -> bool {
-        self.linked.contains(plugin)
     }
 
     /// Whether the file or folder `parent/name` exists.
@@ -170,6 +162,12 @@ impl StorageFiles {
 }
 
 impl FilesHost for StorageFiles {
+    /// A plugin linked into the firmware (`Kernel::register_linked`); a loaded
+    /// `.ppn` plugin never is, and a card plugin never takes a linked id.
+    fn built_in(&self, plugin: &str) -> bool {
+        self.linked.contains(plugin)
+    }
+
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool {
         let names = excluded_names(root);
         if names

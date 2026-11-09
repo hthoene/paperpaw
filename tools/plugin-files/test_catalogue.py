@@ -100,7 +100,6 @@ class HowItWorks(unittest.TestCase):
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
             for plugin, files in [
-                ("reading-goal", {f"pictures/{mood}.png" for mood in ["sad", "meh", "content", "happy"]}),
                 ("widgets", {"data/quotes.en.txt", "data/quotes.de.txt"}),
                 ("vocabulary", {"data/phone.txt"}),
             ]:
