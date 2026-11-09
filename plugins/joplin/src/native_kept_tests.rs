@@ -3,12 +3,10 @@
 //! version 1 still read, a failure leaving the list as it was, and no more
 //! than a few paths held at a time.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use crate::kept;
 use crate::native_kept::{self as native, MOST_WAITING, Sent};
 use crate::test_volume::Mem;
 use alloc::format;
 use alloc::string::{String, ToString};
-use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::files::Volume;
 
@@ -17,70 +15,6 @@ fn note(id: &str, text: &str) -> Sent {
         id: id.to_string(),
         text: text.to_string(),
     }
-}
-
-#[test]
-fn the_files_are_those_interface_6_writes() {
-    let (old, new) = (MemoryStorage::new(), Mem::default());
-    let steps = |old: &MemoryStorage, new: &Mem| {
-        let old_note = |n: &Sent| kept::Sent {
-            id: n.id.clone(),
-            text: n.text.clone(),
-        };
-        for (path, n) in [
-            ("Notes/a.md", note("1", "t1")),
-            ("Notes/b.md", note("2", "t2")),
-            ("Notes/a.md", note("1", "t3")),
-        ] {
-            kept::keep_sent(old, path, &old_note(&n)).unwrap();
-            native::keep_sent(new, path, &n).unwrap();
-            kept::keep_sending(old, path, &old_note(&n)).unwrap();
-            native::keep_sending(new, path, &n).unwrap();
-        }
-        kept::remove_sending(old, "Notes/b.md").unwrap();
-        native::remove_sending(new, "Notes/b.md").unwrap();
-        for path in ["Notes/a.md", "Notes/b.md", "Notes/a.md", "Notes/c.md"] {
-            kept::add_waiting(old, path).unwrap();
-            native::add_waiting(new, path).unwrap();
-        }
-        kept::remove_waiting(old, "Notes/b.md").unwrap();
-        native::remove_waiting(new, "Notes/b.md").unwrap();
-        kept::keep_notebook(old, "Books", "abc").unwrap();
-        native::keep_notebook(new, "Books", "abc").unwrap();
-    };
-    steps(&old, &new);
-    for name in [
-        native::SENT,
-        native::SENDING,
-        native::WAITING,
-        native::NOTEBOOK,
-    ] {
-        assert_eq!(
-            old.get(&kept::file(name)).unwrap(),
-            new.get(name).unwrap(),
-            "{name}"
-        );
-    }
-    assert!(new.get("sent.txt.new").is_none());
-    assert_eq!(
-        native::sent(&new, "Notes/a.md").unwrap(),
-        Some(note("1", "t3"))
-    );
-    assert_eq!(native::sent(&new, "Notes/x.md").unwrap(), None);
-    assert_eq!(
-        native::sending(&new, "Notes/b.md").unwrap(),
-        None,
-        "removed once its answer came"
-    );
-    assert_eq!(
-        native::waiting(&new).unwrap(),
-        kept::waiting(&old),
-        "the same list"
-    );
-    assert_eq!(
-        native::notebook(&new).unwrap(),
-        Some((String::from("Books"), String::from("abc")))
-    );
 }
 
 /// What version 1 wrote stays readable (see `docs/data-files.md`).

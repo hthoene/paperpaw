@@ -59,6 +59,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "joplin"
+path = "src/bin/joplin.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "keys"
 path = "src/bin/keys.rs"
 test = false
@@ -193,6 +199,7 @@ paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = [
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
 paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
 paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
+paperpaw-plugin-joplin = { path = "../../plugins/joplin", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }

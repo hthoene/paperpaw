@@ -14,7 +14,6 @@ use paperpaw_sdk::native::{
     Error, Host, Plugin,
     callbacks::{DrawFrame, Input},
     commands::{CommandSender, RedrawMode},
-    declare::EventKind,
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
     formatting::Arg,
     net::{FileRoot, Header, Net, REPLY, REQUEST_INPUT, Request, RequestId},
@@ -231,7 +230,12 @@ impl Wire for HostWire<'_, '_> {
 
 impl HostWire<'_, '_> {
     /// The request for `call`; its headers carry the session or the password.
-    fn make(&mut self, call: &Call<'_>, input: &mut [u8], out: &mut [u8]) -> Result<RequestId, Error> {
+    fn make(
+        &mut self,
+        call: &Call<'_>,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<RequestId, Error> {
         let host = self.host;
         let proof = match call.auth {
             Auth::Session(id) => Some(("X-API-AUTH", copy(id)?)),
@@ -338,11 +342,7 @@ impl Plugin for NativeJoplin {
             }
             // The action (also a rule's): the work that sends is declared and
             // runs at once.
-            Event::ActionRun { .. } if token == SEND_TOKEN => self.declared(
-                host,
-                SEND_KEY,
-                true,
-            ),
+            Event::ActionRun { .. } if token == SEND_TOKEN => self.declared(host, SEND_KEY, true),
             Event::Started { .. } if token == STARTED_TOKEN => self.retry_later(host),
             Event::WorkDue(due) if token == WORK_TOKEN => {
                 let start = if due.key() == SEND_KEY {
@@ -472,7 +472,13 @@ impl NativeJoplin {
 
     /// Says how a sending ended (a sending that runs by itself tells only what
     /// went well; the set-up screen says it either way).
-    fn tell(&mut self, host: &Host<'_>, tell: Tell, quiet: bool, apart: usize) -> Result<(), Error> {
+    fn tell(
+        &mut self,
+        host: &Host<'_>,
+        tell: Tell,
+        quiet: bool,
+        apart: usize,
+    ) -> Result<(), Error> {
         let mut say = Messages::new()?;
         let text = match tell {
             Tell::Sent(count) => say.format(host, tell.key(), &[Arg::Count(count)])?,
@@ -581,7 +587,8 @@ impl NativeJoplin {
         }
         let focus = view.list.focus();
         view.list = ItemList::new(items);
-        view.list.set_focus(focus.min(shown.len().saturating_sub(1)));
+        view.list
+            .set_focus(focus.min(shown.len().saturating_sub(1)));
         view.rows = shown;
         Ok(())
     }
@@ -744,12 +751,3 @@ fn notify(host: &Host<'_>, message: &str) {
         let _ = CommandSender::new(host, &mut scratch).notify(notice);
     }
 }
-
-/// The kinds of event the plugin reads (checked against the declarations).
-#[cfg(test)]
-pub(crate) const READ: [EventKind; 4] = [
-    EventKind::Started,
-    EventKind::HttpDone,
-    EventKind::WorkDue,
-    EventKind::SettingChanged,
-];

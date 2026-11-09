@@ -1,5 +1,6 @@
 //! A volume in memory for the tests: the storage calls over files in a map.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
+use crate::fail_alloc::exempt;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -46,7 +47,8 @@ impl Volume for Mem {
     }
 
     fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        self.files.borrow_mut().insert(name.into(), data.into());
+        // The test's own storage: a sweep refuses the plugin's allocations only.
+        exempt(|| self.files.borrow_mut().insert(name.into(), data.into()));
         Ok(())
     }
 
@@ -54,11 +56,13 @@ impl Volume for Mem {
         assert!(data.len() <= MAX_DATA);
         let mut longest = self.longest.borrow_mut();
         *longest = (*longest).max(data.len());
-        self.files
-            .borrow_mut()
-            .entry(name.into())
-            .or_default()
-            .extend_from_slice(data);
+        exempt(|| {
+            self.files
+                .borrow_mut()
+                .entry(name.into())
+                .or_default()
+                .extend_from_slice(data);
+        });
         Ok(())
     }
 
@@ -68,7 +72,7 @@ impl Volume for Mem {
             .borrow_mut()
             .remove(from)
             .ok_or(Error::NotFound)?;
-        self.files.borrow_mut().insert(to.into(), file);
+        exempt(|| self.files.borrow_mut().insert(to.into(), file));
         Ok(())
     }
 

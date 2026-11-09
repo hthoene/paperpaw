@@ -26,7 +26,6 @@ use paperpaw_sdk::native::{
     Error,
     net::{Reason, RequestId},
 };
-use paperpaw_sdk::time::UnixTime;
 use paperpaw_ui_kit::{files::Volume, json, mem, text};
 
 use crate::native_joplin::{self as joplin, NOTE, NOTEBOOK, SYNC_VERSION, Service};
@@ -343,7 +342,7 @@ pub struct Sender {
 }
 
 /// The JSON text of the sign-in, wiped when dropped.
-fn sign_in_body(email: &str, password: &str) -> Result<Secret, Error> {
+pub(crate) fn sign_in_body(email: &str, password: &str) -> Result<Secret, Error> {
     let mut out = String::new();
     out.try_reserve(email.len() + password.len() + 32)
         .map_err(|_| Error::NoMemory)?;
@@ -877,7 +876,7 @@ impl Sender {
         let old = kept::notebook(wire.data()).ok().flatten().map(|(_, id)| id);
         let seed = text::format(format_args!("paperpaw notebook {name} {now}"))?;
         let id = joplin::new_id(&seed, old.as_deref())?;
-        let item = joplin::notebook(&id, &name, &UnixTime::from_millis(now).iso8601())?;
+        let item = joplin::notebook(&id, &name, &joplin::iso8601(now)?)?;
         if wire.data().write(NOTEBOOK_FILE, item.as_bytes()).is_err() {
             return Ok(self.end_run(wire, Tell::Unreachable, End::Again));
         }
@@ -1022,7 +1021,7 @@ impl Sender {
         let at = found
             .as_ref()
             .map_or(now, |p| now.max(p.updated.saturating_add(1)));
-        let updated = UnixTime::from_millis(at).iso8601();
+        let updated = joplin::iso8601(at)?;
         let old = book.last().map(|n| n.id.clone());
         let id = match (&found, old) {
             (Some(_), Some(old)) => old,

@@ -35,12 +35,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "joplin"
-path = "src/bin/joplin.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "mail"
 path = "src/bin/mail.rs"
 test = false
@@ -239,7 +233,6 @@ paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
-paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
 paperpaw-plugin-koreader = { path = "../../plugins/koreader" }
 paperpaw-plugin-kosync = { path = "../../plugins/kosync" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }

@@ -41,7 +41,7 @@ impl Row {
 
     /// Its title's key.
     #[must_use]
-    pub const fn title(self, service: Service) -> &'static str {
+    pub fn title(self, service: Service) -> &'static str {
         match self {
             Row::Service => "joplin.service",
             Row::Address => "joplin.address",
