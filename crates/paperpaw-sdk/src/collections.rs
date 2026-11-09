@@ -45,6 +45,15 @@ impl<K: Ord, V> VecMap<K, V> {
         self.entries.retain(|(key, value)| keep(key, value));
     }
 
+    /// Room for exactly `more` entries more, or `Err` when the heap refuses.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(crate) fn try_reserve_exact(
+        &mut self,
+        more: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.entries.try_reserve_exact(more)
+    }
+
     fn find<Q: Ord + ?Sized>(&self, key: &Q) -> Result<usize, usize>
     where
         K: Borrow<Q>,

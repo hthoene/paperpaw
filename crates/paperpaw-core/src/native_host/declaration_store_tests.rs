@@ -35,6 +35,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::PresetValue,
     Kind::Stage,
     Kind::Subscription,
+    Kind::SetupStep,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,

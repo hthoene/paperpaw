@@ -116,6 +116,9 @@ fn expected_snapshot(battery: Option<Battery>, clock: bool) -> Vec<u8> {
     value.monotonic_ms = 17;
     value.touch = true;
     value.unix_seconds = clock.then_some(0);
+    // With a clock the host says the user's offset from UTC (draft 29): the
+    // fixture's zone is UTC.
+    value.utc_offset_minutes = clock.then_some(0);
     value.battery = battery.map(|input| {
         let mut result = wire::Battery::new(input.percent);
         result.charging = input.charging;

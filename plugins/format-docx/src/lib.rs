@@ -27,7 +27,9 @@ extern crate alloc;
 mod cache;
 mod document;
 mod images;
+mod mem;
 mod parts;
+pub mod provider;
 mod writer;
 
 use alloc::borrow::Cow;

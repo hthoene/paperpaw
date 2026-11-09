@@ -473,3 +473,89 @@ fn the_debug_texts_name_no_more_than_the_fields() {
         assert!(alloc::format!("{work:?}").contains("Work"));
     });
 }
+
+#[test]
+fn work_due_reads_its_key_token_and_why() {
+    let due = |why| {
+        WorkDue::decode(wire::EventWorkDue {
+            now_ms: 12,
+            token: 7,
+            why,
+            key: "mail.sync",
+        })
+    };
+    let first = due(0);
+    assert_eq!(
+        (first.now_ms(), first.token(), first.key()),
+        (12, 7, "mail.sync")
+    );
+    for (wire_why, why) in [
+        (0, Why::Time),
+        (1, Why::Deadline),
+        (2, Why::Wake),
+        (3, Why::Online),
+        (4, Why::Charging),
+        (9, Why::Other(9)),
+    ] {
+        assert_eq!(due(wire_why).why(), why);
+    }
+}
+
+#[test]
+fn work_refused_knows_network_off_and_keeps_other_reasons() {
+    let refused = |reason| {
+        WorkRefused::decode(wire::EventWorkRefused {
+            now_ms: 3,
+            token: 8,
+            reason,
+            key: "update.look",
+        })
+    };
+    let off = refused(13);
+    assert_eq!(off.reason(), Refusal::NetworkOff);
+    assert_eq!(
+        (off.now_ms(), off.token(), off.key()),
+        (3, 8, "update.look")
+    );
+    assert_eq!(refused(99).reason(), Refusal::Other(99));
+}
+
+#[test]
+fn the_work_events_decode_through_the_event_enum() {
+    use crate::native::events::Event;
+    let encode = |record: Record<'_>| {
+        let mut bytes = [0; 128];
+        let n = wire::records_encode(&[record], &mut bytes).unwrap();
+        bytes[..n].to_vec()
+    };
+    let due = encode(Record::EventWorkDue(wire::EventWorkDue {
+        now_ms: 5,
+        token: 2,
+        why: 1,
+        key: "a.b",
+    }));
+    let Ok(Event::WorkDue(due)) = Event::decode(&due) else {
+        panic!("a work_due event");
+    };
+    assert_eq!(
+        (due.token(), due.why(), due.key()),
+        (2, Why::Deadline, "a.b")
+    );
+    let refused = encode(Record::EventWorkRefused(wire::EventWorkRefused {
+        now_ms: 5,
+        token: 2,
+        reason: 13,
+        key: "a.b",
+    }));
+    assert!(matches!(
+        Event::decode(&refused),
+        Ok(Event::WorkRefused(r)) if r.reason() == Refusal::NetworkOff
+    ));
+    let allowed = encode(Record::EventWorkAllowed(wire::EventWorkAllowed {
+        now_ms: 9,
+    }));
+    assert!(matches!(
+        Event::decode(&allowed),
+        Ok(Event::WorkAllowed { now_ms: 9 })
+    ));
+}
