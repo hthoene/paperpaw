@@ -63,9 +63,16 @@ const QUERY_LIMIT: usize = 256;
 /// The longest text of a text setting.
 const TEXT_LIMIT: usize = 4096;
 const THEME_KIND: &str = "core.theme";
+/// The kind of presets that give widgets a look as a whole.
+const WIDGET_LOOK_KIND: &str = "core.widget-look";
 /// Appearance settings a theme never changes: what the reader needs to read
 /// the interface at all.
-const THEME_KEPT: [&str; 3] = ["core.ui-size", "core.ui-contrast", "core.logo"];
+const THEME_KEPT: [&str; 4] = [
+    "core.ui-size",
+    "core.ui-contrast",
+    "core.logo",
+    "core.widgets.frame",
+];
 const LOOK_GROUP: &str = "core.group.look";
 /// The marker of the theme in use.
 const MARK: &str = "•";
@@ -89,6 +96,40 @@ struct ListView {
     stale: bool,
 }
 
+/// What the chooser of presets chooses: a theme, or a look of widgets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Look {
+    #[default]
+    Theme,
+    Widgets,
+}
+
+impl Look {
+    /// The kind of the presets chosen.
+    fn kind(self) -> &'static str {
+        match self {
+            Look::Theme => THEME_KIND,
+            Look::Widgets => WIDGET_LOOK_KIND,
+        }
+    }
+
+    /// The translation key of its name.
+    fn title(self) -> &'static str {
+        match self {
+            Look::Theme => "settings.theme",
+            Look::Widgets => "settings.widget-look",
+        }
+    }
+
+    /// The parameters that open its chooser.
+    fn params(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Look::Theme => &[],
+            Look::Widgets => &[("mode", "widgets")],
+        }
+    }
+}
+
 /// A row of a group's page.
 #[derive(Debug)]
 enum Row {
@@ -98,7 +139,8 @@ enum Row {
     Reset,
     /// An action plugins add to the group: its id, name and what it shows at the right.
     Action(String, String, String),
-    Theme,
+    /// The chooser of themes, or of looks of widgets.
+    Look(Look),
     /// A part of the group: its id and name.
     Part(String, String),
     More,
@@ -205,6 +247,8 @@ struct ChooseView {
 /// Choosing a theme.
 #[derive(Debug, Default)]
 struct ThemesView {
+    /// Themes, or looks of widgets.
+    look: Look,
     /// Preset id and name; the first is "none".
     themes: Vec<(String, String)>,
     list: ItemList,
@@ -363,7 +407,7 @@ impl Plugin for NativeSettings {
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
             View::Themes(v) => {
-                let title = messages.copy(host, "settings.theme")?;
+                let title = messages.copy(host, v.look.title())?;
                 v.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
@@ -514,6 +558,7 @@ impl NativeSettings {
             String::new(),
             false,
         );
+        let mut look = Look::Theme;
         if let Some(handover) = handover {
             let mut input = buffer(SERVICE_BUFFER)?;
             let mut output = buffer(SERVICE_BUFFER)?;
@@ -525,6 +570,7 @@ impl NativeSettings {
                     "text" => text = copy(param.value())?,
                     "scope" => scope = copy(param.value())?,
                     "more" => more = param.value() == "1",
+                    "mode" if param.value() == "widgets" => look = Look::Widgets,
                     _ => {}
                 }
             }
@@ -539,6 +585,7 @@ impl NativeSettings {
             &mut reader,
             screen,
             (id, focus, text, !scope.is_empty(), more),
+            look,
         );
         let view = reader.finish(view)?;
         self.screens.open(instance, view)
@@ -549,6 +596,7 @@ impl NativeSettings {
         reader: &mut Reader<'_, '_>,
         screen: &str,
         (id, focus, text, scoped, more): (String, String, String, bool, bool),
+        look: Look,
     ) -> Result<View, Error> {
         Ok(match screen {
             "settings.list" if id.is_empty() && focus.is_empty() => {
@@ -578,7 +626,10 @@ impl NativeSettings {
                 View::Choose(view)
             }
             "settings.themes" => {
-                let mut view = ThemesView::default();
+                let mut view = ThemesView {
+                    look,
+                    ..ThemesView::default()
+                };
                 build_themes(host, reader, &mut view)?;
                 View::Themes(view)
             }
@@ -814,7 +865,10 @@ impl NativeSettings {
         match row {
             Row::Heading(_) => Ok(()),
             Row::Reset => self.ask_reset(host, &group, &title),
-            Row::Theme => self.open(host, "settings.themes", &[]),
+            Row::Look(look) => {
+                let look = *look;
+                self.open(host, "settings.themes", look.params())
+            }
             Row::Action(action, ..) => {
                 let action = copy(action)?;
                 let mut scratch = buffer(256)?;
@@ -1028,6 +1082,7 @@ impl NativeSettings {
         let Some(View::Themes(v)) = self.screens.top(token) else {
             return Ok(());
         };
+        let look = v.look;
         let Some((id, _)) = v.themes.get(index) else {
             return Ok(());
         };
@@ -1037,7 +1092,7 @@ impl NativeSettings {
         if id.is_empty() {
             // None: the appearance as PaperPaw comes.
             let mut reader = Reader::open(host)?;
-            let keys = look_settings(&mut reader);
+            let keys = look_settings(&mut reader, look);
             for key in reader.finish(keys)? {
                 commands.reset_setting(ResetTarget::Setting(&key))?;
             }

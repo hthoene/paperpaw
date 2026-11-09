@@ -271,6 +271,35 @@ fn a_placement_id_names_its_widget_and_its_settings() {
 }
 
 #[test]
+fn a_widget_look_covers_the_looks_of_the_widgets_there_are() {
+    let widgets = [
+        String::from("widgets.clock"),
+        String::from("widgets.weather"),
+    ];
+    for key in [
+        "widgets.clock.frame",
+        "widgets.weather.drop-shadow",
+        "widgets.clock.frame-line",
+        "core.widgets.gap",
+        "core.widgets.frame",
+    ] {
+        assert!(widget_look_covers(key, &widgets), "{key}");
+    }
+    for key in [
+        // Not a widget there is, not a part a look covers, or a longer name.
+        "widgets.news.frame",
+        "widgets.clock.face",
+        "widgets.clock.frames",
+        "status.line.size",
+        "core.widgets.other",
+        "",
+    ] {
+        assert!(!widget_look_covers(key, &widgets), "{key}");
+    }
+    assert!(!widget_look_covers("widgets.clock.frame", &[]));
+}
+
+#[test]
 fn every_word_counts() {
     let find = |text: &str, query: &str| matches(text, &words(query).unwrap()).unwrap();
     assert!(find("Font size of the book's text", "SIZE font"));

@@ -235,6 +235,45 @@ pub fn visible(groups: &[Group], cx: Context, setting: &Setting, options: Option
             || group_is(groups, setting, DEVELOPER_GROUP))
 }
 
+/// The ends of the settings of a widget that a widget look covers
+/// (`<widget>.frame` …).
+const LOOK_PARTS: [&str; 9] = [
+    ".frame",
+    ".padding",
+    ".size",
+    ".align",
+    ".paper",
+    ".ink",
+    ".corners",
+    ".frame-line",
+    ".drop-shadow",
+];
+
+/// The settings of all widgets a widget look covers, and the gap between them.
+const LOOK_ALL: [&str; 8] = [
+    "core.widgets.frame",
+    "core.widgets.paper",
+    "core.widgets.ink",
+    "core.widgets.corners",
+    "core.widgets.frame-line",
+    "core.widgets.shadow",
+    "core.widgets.padding",
+    "core.widgets.gap",
+];
+
+/// Whether a widget look covers setting `key`: each registered widget's frame,
+/// padding, size, alignment, colours and shape, and those of all widgets and
+/// their gap; not the settings of other things that end so (the status
+/// lines' size).
+#[must_use]
+pub fn widget_look_covers(key: &str, widgets: &[String]) -> bool {
+    LOOK_ALL.contains(&key)
+        || LOOK_PARTS.iter().any(|part| {
+            key.strip_suffix(part)
+                .is_some_and(|widget| widgets.iter().any(|w| w == widget))
+        })
+}
+
 /// The widget a placement id names: `widgets.clock` for `widgets.clock@2`;
 /// `None` for an id that is no placement.
 #[must_use]

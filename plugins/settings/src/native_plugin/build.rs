@@ -161,7 +161,7 @@ impl GroupView {
                 item
             }
             Row::Reset => Item::row(&messages.copy(host, "settings.reset-page")?, "")?,
-            Row::Theme => Item::row(&messages.copy(host, "settings.theme")?, "›")?,
+            Row::Look(look) => Item::row(&messages.copy(host, look.title())?, "›")?,
             Row::Action(_, title, badge) => Item::row(title, badge)?,
             Row::Part(_, title) => Item::row(title, "›")?,
             Row::More => Item::row(&messages.copy(host, "settings.more")?, "›")?,
@@ -478,8 +478,12 @@ pub(super) fn page_rows(
                 push(&mut rows, Row::Action(page.action, page.title, copy("›")?))?;
             }
         }
-        if of == LOOK_GROUP && !reader.presets(THEME_KIND)?.is_empty() {
-            push(&mut rows, Row::Theme)?;
+        if of == LOOK_GROUP {
+            for look in [Look::Theme, Look::Widgets] {
+                if !reader.presets(look.kind())?.is_empty() {
+                    push(&mut rows, Row::Look(look))?;
+                }
+            }
         }
     }
     let sections = model::section_order(pool.iter().flatten().map(|e| e.detail.section.as_str()))?;
@@ -594,11 +598,23 @@ pub(super) fn build_choose(
     Ok(())
 }
 
-/// The appearance settings a theme covers.
-pub(super) fn look_settings(reader: &mut Reader<'_, '_>) -> Result<Vec<String>, Error> {
-    let groups = reader.groups()?;
+/// The settings the presets of `look` cover: the appearance settings a theme
+/// gives values (what the reader needs to read at all is kept), or the
+/// settings of every widget's frame, room, sizes and colours.
+pub(super) fn look_settings(reader: &mut Reader<'_, '_>, look: Look) -> Result<Vec<String>, Error> {
     let all = reader.settings("")?;
     let mut keys = Vec::new();
+    if look == Look::Widgets {
+        let widgets = reader.widget_ids()?;
+        for s in all
+            .iter()
+            .filter(|s| model::widget_look_covers(&s.key, &widgets))
+        {
+            push(&mut keys, copy(&s.key)?)?;
+        }
+        return Ok(keys);
+    }
+    let groups = reader.groups()?;
     for s in &all {
         if model::within(&groups, listed_in(&groups, s), LOOK_GROUP)
             && !THEME_KEPT.contains(&s.key.as_str())
@@ -621,10 +637,10 @@ pub(super) fn build_themes(
         &mut themes,
         (String::new(), messages.copy(host, "settings.theme.none")?),
     )?;
-    for (id, name) in reader.presets(THEME_KIND)? {
+    for (id, name) in reader.presets(view.look.kind())? {
         push(&mut themes, (id, name))?;
     }
-    let covered = look_settings(reader)?;
+    let covered = look_settings(reader, view.look)?;
     let all = reader.settings("")?;
     let mut in_use: Option<usize> = None;
     // None: every covered setting has its default.

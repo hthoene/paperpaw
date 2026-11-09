@@ -63,6 +63,15 @@ link them until the host activates native plugins; then they go together (no shi
   stands for. The id rules (`unplaced`, `unplaced_key`) are unit-tested and swept; the page itself
   needs the host (ignored case `settings-placement-page`).
 
+- *Widget look:* on the appearance page a second row, *Widget look*, opens the chooser of the
+  presets of kind `core.widget-look` (`settings.themes` with `mode` = `widgets`), as the themes
+  row opens the themes': *None* first (every covered setting back to its default), the look in
+  use marked, choosing one applies it (`apply_preset`). What a look covers is each widget's
+  frame, padding, size, alignment, paper, ink, corners, frame line and shadow, and the settings of
+  all widgets and the gap (`native_model::widget_look_covers`, from the registry's widgets;
+  tested). A theme no longer resets the frame of all widgets (it never did in interface 6). The
+  row shows only where a look exists. The chooser's drawing needs the host (`settings-widget-look`).
+
 ## Tests
 
 `native_model`: group membership, offered/visible levels, main-page order, sections, stepping and
@@ -74,8 +83,11 @@ search, secrets, restart).
 
 ## Not ported yet (explicit)
 
-- A widget look row (the *Widgets* chooser of interface 6) and the preview of a group's settings (a
-  widget composed above them: slot 35, H3) are not ported.
+- The preview of a group's settings (a widget composed above them, interface 6
+  `env.widgets().preview`): the facade (`ui.compose`, `widget_make`) exists, but the registry does
+  not say which widget previews a group (`widget.spec.previews` is not in `reg_widget`; asked of
+  Kernel). Ignored case `settings-group-preview`, blocked by `reg_widget.previews` and the host's
+  slot 35 (H3).
 - No icons in rows, switches are shown as *On*/*Off* text, no sliders (numbers use − and +); the kit
   draws none yet. Reading-font sizes that look alike are not merged when stepping.
 - A unit is the host's translated text: `{count}` is replaced, else the number comes first. Whether
