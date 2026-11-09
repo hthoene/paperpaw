@@ -438,6 +438,7 @@ impl Kernel {
             })
             .collect();
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        let guard_before = native_host::ui_guard::guard_instance(&*self.shared.stack_rows);
         self.shared
             .stack_rows
             .update(self.stack.iter().zip(&entries).map(|(active, entry)| {
@@ -463,6 +464,17 @@ impl Kernel {
                         | (u8::from(active.guard_dialog) * GUARD_DIALOG),
                 }
             }));
+        // A guard that is new (or another one) drops the private status values
+        // cached before it; a refusal is harmless, private items are hidden
+        // under a guard before the cache is read.
+        let guard_after = native_host::ui_guard::guard_instance(&*self.shared.stack_rows);
+        if guard_after.is_some()
+            && guard_after != guard_before
+            && let Some(ui) = self.shared.native_instances.ui_services()
+            && ui.guard_started().is_err()
+        {
+            self.warn_runtime("status cache not cleared at guard start");
+        }
         self.shared.stack.clear();
         self.shared.stack.extend(entries);
         self.sync_chromes();
@@ -569,6 +581,16 @@ impl Kernel {
             };
             let mut after = 0;
             while let Some(instance) = store.next_retained_instance(after)? {
+                after = instance;
+                if !self.stack.iter().any(|screen| screen.serial == instance) {
+                    self.native_instance_closed(instance)?;
+                }
+            }
+            // Widget instances of closed screens the store no longer holds.
+            let mut after = 0;
+            while let Some(ui) = self.shared.native_instances.ui_services()
+                && let Some(instance) = ui.next_widget_screen(after)?
+            {
                 after = instance;
                 if !self.stack.iter().any(|screen| screen.serial == instance) {
                     self.native_instance_closed(instance)?;
