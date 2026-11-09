@@ -1,12 +1,9 @@
 //! Battery's screen through the hosted acceptance kit (`plugins/test-support/acceptance.rs`):
 //! the linked native plugin on a real kernel, its screen opened, keys pressed, the frame
-//! compared with the interface-6 golden (`testdata/screens`).
+//! compared exactly with the interface-6 golden (`testdata/screens`).
 //!
-//! What runs today: the screen opens on the kernel's own stack and a key script moves it. What
-//! does not: `NativeScreen` draws with an `Env`-only scope, so the plugin's font and usage
-//! services answer `State` and the frame stays blank (H1/H3, the real `CoreFrame` for a native
-//! screen's draw). `a_blank_frame_is_not_the_golden` pins that, and
-//! `the_screen_looks_as_it_did` is the acceptance case that turns on when it is fixed.
+//! The kernel gets the default font packs, and a test-only plugin brings the two catalogs:
+//! the production host does not load a native plugin's `i18n/*.ini` from the card yet.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -28,9 +25,38 @@ const SERVICES: &[&str] = &[
     "core.work-note",
 ];
 
-fn start() -> Session {
+/// The plugin's two catalogs as the kernel reads them: the production host does not load a
+/// native plugin's `i18n/*.ini` yet (`docs/abi/screens-input.md` [D]), so a test-only plugin
+/// registers them, as `native_battery_pixel_tests.rs` in core does.
+struct Catalogs;
+impl paperpaw_sdk::Plugin for Catalogs {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::new_static("battery"),
+            "Battery catalogs",
+            paperpaw_sdk::Version::new(1, 0, 8),
+        )
+    }
+    fn register(
+        &self,
+        r: &mut paperpaw_sdk::Registrar,
+    ) -> Result<(), paperpaw_sdk::RegisterError> {
+        for text in [
+            include_str!("../i18n/en.ini"),
+            include_str!("../i18n/de.ini"),
+        ] {
+            r.add_translations(std::borrow::Cow::Borrowed(text))?;
+        }
+        Ok(())
+    }
+}
+
+fn start(config: &str) -> Session {
     Session::start(
-        hosted::Setup::x4(),
+        hosted::Setup::x4().config(config).with_kernel(|b| {
+            b.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+                .plugin(Catalogs)
+        }),
         paperpaw_plugin_battery::NATIVE_ENTRY.entry(),
         "battery",
         SERVICES,
@@ -71,7 +97,7 @@ fn golden(name: &str) -> PathBuf {
 
 #[test]
 fn the_screen_opens_on_the_real_stack_and_back_leaves_it() {
-    let mut run = start();
+    let mut run = start("");
     run.open("battery.screen").expect("the screen opens");
     assert_eq!(run.top().as_deref(), Some("battery.screen"));
     run.keys(&["back"]).expect("the X4 has back");
@@ -84,27 +110,40 @@ fn the_screen_opens_on_the_real_stack_and_back_leaves_it() {
     assert!(refused.contains("battery.nothing"), "{refused}");
 }
 
-#[test]
-fn a_blank_frame_is_not_the_golden() {
-    let folder = scratch("blank");
-    let mut run = start();
+/// The screen of a device that does not say its charge, no time awake recorded yet.
+fn opened(config: &str) -> Session {
+    let mut run = start(config);
     run.open("battery.screen").unwrap();
-    let error = run
-        .frame()
-        .matches_golden_in(&golden("empty-unknown-en"), &folder)
-        .unwrap_err();
-    assert!(error.contains("pixels differ"), "{error}");
-    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(run.dropped(), vec![], "the plugin finished every callback");
+    run
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H3: a native screen draws with an Env-only scope, so battery's font and usage services answer State and the frame stays blank"]
 fn the_screen_looks_as_it_did() {
-    let mut run = start();
-    run.open("battery.screen").unwrap();
+    let run = opened("");
     run.frame()
-        .matches_golden(&golden("empty-unknown-en"))
+        .matches_golden_in(&golden("empty-unknown-en"), &scratch("en"))
         .unwrap();
+}
+
+#[test]
+fn the_german_screen_looks_as_it_did() {
+    let run = opened("[core]\nlanguage = de\n");
+    run.frame()
+        .matches_golden_in(&golden("empty-unknown-de"), &scratch("de"))
+        .unwrap();
+}
+
+#[test]
+fn another_languages_golden_is_not_the_screen() {
+    let folder = scratch("other");
+    let run = opened("");
+    let error = run
+        .frame()
+        .matches_golden_in(&golden("empty-unknown-de"), &folder)
+        .unwrap_err();
+    assert!(error.contains("pixels differ"), "{error}");
+    let _ = std::fs::remove_dir_all(&folder);
 }
 
 /// The kit's own comparison: exact, with the evidence of a difference written out.
@@ -216,3 +255,4 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
     );
     let _ = std::fs::remove_dir_all(&folder);
 }
+
