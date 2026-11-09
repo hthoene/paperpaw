@@ -27,7 +27,9 @@ use paperpaw_ui_kit::widget::text::{Wrapped, largest_size};
 use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
-use crate::declarations::{RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN};
+use crate::declarations::{
+    CALENDAR_WIDGET_TOKEN, RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN,
+};
 
 /// The most bytes of a stage reply (a size, or one target).
 const REPLY: usize = 256;
@@ -62,6 +64,11 @@ static STREAK: Behaviour = Behaviour {
     draw: crate::native_widget_streak::draw,
 };
 
+static CALENDAR: Behaviour = Behaviour {
+    height: crate::native_widget_calendar::height,
+    draw: crate::native_widget_calendar::draw,
+};
+
 /// The behaviour of the widget declared with `token`.
 fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
@@ -69,6 +76,7 @@ fn behaviour(token: u32) -> Option<&'static Behaviour> {
         WEEK_TOKEN => Some(&WEEK),
         RING_TOKEN => Some(&RING),
         STREAK_TOKEN => Some(&STREAK),
+        CALENDAR_WIDGET_TOKEN => Some(&CALENDAR),
         _ => None,
     }
 }
@@ -80,6 +88,7 @@ fn token_of(widget: &str) -> Option<u32> {
         "stats.widget.week" => Some(WEEK_TOKEN),
         "stats.widget.goal" => Some(RING_TOKEN),
         "stats.widget.streak" => Some(STREAK_TOKEN),
+        "stats.widget.calendar" => Some(CALENDAR_WIDGET_TOKEN),
         _ => None,
     }
 }
@@ -111,6 +120,7 @@ struct Item {
 #[derive(Debug, Default)]
 pub(crate) struct Slot {
     pub streak: crate::native_widget_streak::Cache,
+    pub calendar: crate::native_widget_calendar::Cache,
 }
 
 /// The widgets made for screens, by the host's instance.
