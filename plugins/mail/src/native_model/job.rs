@@ -123,6 +123,13 @@ impl Job {
     pub fn cancel<N: Net>(&mut self, net: N) {
         let mut link = Link::new(&mut self.state, net);
         Io::close(&mut link);
+        self.reset();
+    }
+
+    /// The job is idle again, whatever it was doing: the session (which holds
+    /// the password) is dropped and what waited to be sent is wiped. The socket
+    /// is the caller's to close.
+    pub fn reset(&mut self) {
         self.state = LinkState::default();
         self.session = Session::None;
         self.run = Run::Idle;
