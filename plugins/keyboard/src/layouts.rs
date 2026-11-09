@@ -675,8 +675,7 @@ mod tests {
             letters: String::from("αβγ δεζ"),
             variants: Vec::new(),
         };
-        let kept =
-            chosen_drawn("de", "", "greek.layout", false, &[added], &latin_only).unwrap();
+        let kept = chosen_drawn("de", "", "greek.layout", false, &[added], &latin_only).unwrap();
         assert_eq!(kept[0].0, "DE");
     }
 
