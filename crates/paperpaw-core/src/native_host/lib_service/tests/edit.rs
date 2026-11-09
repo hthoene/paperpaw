@@ -298,8 +298,8 @@ fn long_texts_and_notes_come_in_parts_in_order_and_whole() {
     };
     add(&fake, t, &[long, edit()]).unwrap();
     let chunk = "x".repeat(3000);
-    // Not complete yet: the commit and the next edit_add refuse.
-    assert_eq!(commit(&fake, t), Err(ERR_INVALID));
+    // Not complete yet: the next edit_add refuses (a commit would end the
+    // transaction, see `a_commit_with_a_part_missing_ends_the_transaction`).
     assert_eq!(add(&fake, t, &[edit()]), Err(ERR_INVALID));
     // Gaps, overlaps, wrong fields and unknown edits are ERR_INVALID at that part.
     assert_eq!(
@@ -356,11 +356,6 @@ fn long_texts_and_notes_come_in_parts_in_order_and_whole() {
     );
     // The note, then both XPointers; each field ends with `last`.
     assert!(part(&fake, t, 0, 1, 0, "note", true).is_ok());
-    assert_eq!(
-        commit(&fake, t),
-        Err(ERR_INVALID),
-        "the XPointers are still missing"
-    );
     assert!(part(&fake, t, 0, 2, 0, "/a", true).is_ok());
     assert!(part(&fake, t, 0, 3, 0, "/b", true).is_ok());
     assert!(commit(&fake, t).is_ok());
