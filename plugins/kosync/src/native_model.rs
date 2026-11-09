@@ -134,6 +134,27 @@ pub fn progress_text(progress: f64) -> Result<String, Error> {
     copy(text)
 }
 
+/// A progress (0..1) as a whole percent, as `{:.0}` of the progress times 100
+/// writes it (a tie goes to the even number), for the offer's text.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn percent_text(progress: f64) -> Result<String, Error> {
+    let x = if progress.is_finite() { progress * 100.0 } else { 0.0 };
+    let x = x.clamp(0.0, 999_999.0);
+    let floor = x - x % 1.0;
+    let rest = x - floor;
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped above")]
+    let floor = floor as u32;
+    let whole = if rest > 0.5 || (rest == 0.5 && floor % 2 == 1) {
+        floor + 1
+    } else {
+        floor
+    };
+    let mut digits = [0; 20];
+    copy(decimal(whole as usize, &mut digits))
+}
+
 /// `text` as a JSON string literal.
 ///
 /// # Errors
@@ -416,6 +437,18 @@ mod tests {
         let key = key_with("abc", &mut digits).unwrap();
         assert_eq!(key, "900150983cd24fb0d6963f7d28e17f72");
         assert_eq!(digits, [0; 32]);
+    }
+
+    #[test]
+    fn percent_is_written_as_the_format_macro_rounds_it() {
+        for progress in [0.0, 0.004, 0.005, 0.0125, 0.125, 0.135, 0.5, 0.505, 0.994, 0.995, 1.0, 0.3333, 0.665] {
+            assert_eq!(
+                percent_text(progress).unwrap(),
+                format!("{:.0}", progress * 100.0),
+                "{progress}"
+            );
+        }
+        assert_eq!(percent_text(f64::NAN).unwrap(), "0");
     }
 
     #[test]

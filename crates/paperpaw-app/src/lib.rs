@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 36] = [
+pub const STORE_PLUGINS: [&str; 35] = [
     "aids",
     "browser",
     "calibre",
@@ -100,7 +100,6 @@ pub const STORE_PLUGINS: [&str; 36] = [
     "hyphenation-uk",
     "joplin",
     "koreader",
-    "kosync",
     "mail",
     "news",
     "notes-overview",
@@ -251,7 +250,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_kosync::Kosync);
         b = offered(b, store, paperpaw_plugin_koreader::KoReader);
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
