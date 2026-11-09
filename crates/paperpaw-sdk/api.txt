@@ -5233,6 +5233,7 @@ impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::can_delete<'a>(&self, &paperpaw_sdk::native::Host<'_>, &[&str], &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::DeleteReport<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::delete<'a>(&self, &paperpaw_sdk::native::Host<'_>, &[&str], bool, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::DeleteReport<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::library::Library::import<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Import<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::move_to(&self, &paperpaw_sdk::native::Host<'_>, &str, &str, bool, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::cover(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Cover, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
