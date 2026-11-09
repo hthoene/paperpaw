@@ -34,6 +34,7 @@ mod bands;
 pub mod battery;
 pub mod blame;
 pub mod bm8563;
+pub mod body_room;
 pub mod bounded;
 pub mod bq27220;
 pub mod buttons;

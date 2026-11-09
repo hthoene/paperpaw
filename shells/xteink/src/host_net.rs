@@ -21,6 +21,8 @@
 //! and the `Instant` given to [`Kernel::tick`] are the same one, so that the
 //! deadline the kernel wakes at is the services'.
 
+mod http;
+
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -28,15 +30,16 @@ use core::cell::{Cell, RefCell};
 
 use log::{info, warn};
 use paperpaw_core::native_host::shell_wiring::{
-    Connect, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls, SockTransport, TlsFailure,
-    TlsOpen, UntrustedWhy,
+    Connect, NetReports, PeerInfo, ShellNetwork, SockFailure, SockReports, SockTls, SockTransport,
+    TlsFailure, TlsOpen, UntrustedWhy,
 };
 use paperpaw_core::sdk::{CertificateHash, Distrust, KeyHash, SocketError, Trust};
 use paperpaw_core::{Effects, Kernel, SocketCall, SocketEvent, TlsSetup};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY};
-use paperpaw_platform::Instant;
+use paperpaw_platform::{Instant, Storage};
 use paperpaw_x4::net_lost::{NetLost, Service};
 
+use crate::http::Calls;
 use crate::net::Net;
 use crate::sockets::Sockets;
 
@@ -53,17 +56,19 @@ const HANDSHAKE_MS: u32 = 30_000;
 const BROADCAST_MS: u32 = 11_000;
 
 /// What one step of the sockets came to, before it is reported.
-#[derive(Debug)]
 enum Out {
     /// A socket's event.
     Socket(SocketEvent),
     /// A socket that was short of room can take more.
     Writable(u32),
+    /// What the HTTP requests came to.
+    Net(http::NetOut),
 }
 
 /// The reports core gave the shell to make them with.
 struct Wired {
-    sockets: SockReports,
+    net: Option<NetReports>,
+    sockets: Option<SockReports>,
 }
 
 struct Inner {
@@ -93,6 +98,23 @@ struct Inner {
     /// Something could not be remembered for want of memory: every socket
     /// ends at the next step (the network is told lost), nothing crashes.
     oom: bool,
+    /// The HTTP requests of core (`core.net`).
+    http: Calls,
+    /// The card, for the answers written to a staged file.
+    storage: Option<Rc<dyn Storage>>,
+    /// Requests core ended (or never resumed): their connections go.
+    aborts: Vec<u32>,
+    /// Requests' most body bytes (request, bytes).
+    caps: Vec<(u32, usize)>,
+    /// Requests were going on at the last step with a network.
+    http_was: bool,
+    /// A request stalled without an answer: the radio starts anew.
+    restart: bool,
+    /// Reports dropped for a service that was not wired (since last logged).
+    unwired: u32,
+    /// Answers whose body went with a report core refused busy (no room for
+    /// a copy to tell again), since last logged.
+    lost_answers: u32,
     /// The services still to be told the network is lost: flags, never a
     /// list item, so that saying so needs no memory (and is made again where
     /// core is busy).
@@ -127,6 +149,14 @@ impl Bridge {
                 closes: Vec::new(),
                 broken: Vec::new(),
                 oom: false,
+                http: Calls::default(),
+                storage: None,
+                aborts: Vec::new(),
+                caps: Vec::new(),
+                http_was: false,
+                restart: false,
+                unwired: 0,
+                lost_answers: 0,
                 lost: NetLost::new(),
             }),
             up: Cell::new(false),
@@ -134,27 +164,36 @@ impl Bridge {
     }
 
     /// Keeps the reports core gave for what was wired.
-    pub fn wired(&self, sockets: Option<&SockReports>) {
-        if let Some(sockets) = sockets {
-            self.inner.borrow_mut().reports = Some(Wired {
-                sockets: sockets.clone(),
-            });
-        }
+    pub fn wired(
+        &self,
+        storage: Rc<dyn Storage>,
+        net: Option<&NetReports>,
+        sockets: Option<&SockReports>,
+    ) {
+        let mut inner = self.inner.borrow_mut();
+        inner.storage = Some(storage);
+        inner.reports = Some(Wired {
+            net: net.cloned(),
+            sockets: sockets.cloned(),
+        });
     }
 
     /// Whether a socket is open or asked for: the radio stays awake and the
     /// main loop comes by again soon.
     pub fn moving(&self) -> bool {
         self.inner.try_borrow().map_or(true, |inner| {
-            !inner.calls.is_empty() || !inner.retry.is_empty() || inner.sockets.moving()
+            !inner.calls.is_empty()
+                || !inner.retry.is_empty()
+                || inner.sockets.moving()
+                || inner.http.busy()
         })
     }
 
     /// Whether a socket is open (the radio does not doze).
     pub fn open(&self) -> bool {
-        self.inner
-            .try_borrow()
-            .map_or(true, |inner| inner.sockets.any() || !inner.calls.is_empty())
+        self.inner.try_borrow().map_or(true, |inner| {
+            inner.sockets.any() || !inner.calls.is_empty() || inner.http.busy()
+        })
     }
 
     /// One step with the radio on a network: what core asked is done, what
@@ -214,22 +253,27 @@ impl Bridge {
             push_out(&mut out, Out::Socket(event), &mut inner.oom);
         }
         inner.settle(&mut out);
+        if inner.http_online(net, clock_ready, &mut out) {
+            inner.restart = true;
+        }
         if inner.oom {
             // Nothing could be remembered: the sockets end (core is told
             // the network is lost, which needs no memory to say).
             inner.oom = false;
             drop(inner.sockets.lost_events(Some(net)));
             inner.forget_all();
-            // Core is told by a flag, which needs no memory.
+            inner.http.clear(Some(net));
+            // Core is told by flags, which need no memory.
             out.clear();
             inner.lost.raise_sockets();
+            inner.lost.raise_requests();
         }
         out
     }
 
     /// One step with no network up: what was open is let go and core is told
     /// the network is gone, once.
-    fn step_offline(&self, net: Option<&mut Net>) -> Vec<Out> {
+    fn step_offline(&self, mut net: Option<&mut Net>) -> Vec<Out> {
         self.up.set(false);
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
             return Vec::new();
@@ -238,7 +282,7 @@ impl Bridge {
         // Released on the network they were opened on; core hears one
         // `network_lost`, not a failure per socket.
         let had = inner.sockets.any() || !inner.calls.is_empty() || inner.was_up;
-        drop(inner.sockets.lost_events(net));
+        drop(inner.sockets.lost_events(net.as_deref_mut()));
         inner.forget_all();
         inner.calls.clear();
         inner.connects.clear();
@@ -246,6 +290,7 @@ impl Bridge {
         if had {
             inner.lost.raise_sockets();
         }
+        inner.http_offline(net);
         inner.oom = false;
         // Core is told by the flag, which is made at the report.
         Vec::new()
@@ -255,11 +300,12 @@ impl Bridge {
     /// of the services' events runs at the end of that call. The kernel's
     /// effects, for the main loop to apply; `None` when nothing was taken.
     fn report(&self, out: Vec<Out>, kernel: &mut Kernel) -> Option<Effects> {
-        let sockets = self
-            .inner
-            .try_borrow()
-            .ok()
-            .and_then(|inner| inner.reports.as_ref().map(|wired| wired.sockets.clone()))?;
+        let (net, sockets) = self.inner.try_borrow().ok().and_then(|inner| {
+            inner
+                .reports
+                .as_ref()
+                .map(|wired| (wired.net.clone(), wired.sockets.clone()))
+        })?;
         // One report at a time: what core refuses `ERR_BUSY` is kept for the
         // next step, if there is room to keep it (else the sockets end).
         // The network lost comes first, from its flags (nothing is allocated
@@ -270,8 +316,12 @@ impl Bridge {
             .map(|mut inner| inner.lost.take())
             .unwrap_or_default();
         let mut told = pending.report(|service| match service {
-            Service::Sockets => sockets.network_lost() != Err(ERR_BUSY),
-            // Not wired in this build.
+            Service::Sockets => sockets
+                .as_ref()
+                .is_none_or(|sockets| sockets.network_lost() != Err(ERR_BUSY)),
+            Service::Requests => net
+                .as_ref()
+                .is_none_or(|net| net.network_lost() != Err(ERR_BUSY)),
             _ => true,
         });
         if pending.any()
@@ -280,7 +330,7 @@ impl Bridge {
             inner.lost.merge(pending);
         }
         for item in out {
-            match self.report_one(&sockets, item) {
+            match self.report_one(net.as_ref(), sockets.as_ref(), item) {
                 Ok(()) => told = true,
                 Err(item) => self.keep_for_later(item),
             }
@@ -288,6 +338,13 @@ impl Bridge {
         // The time as it is at the end of the step: deadlines are not judged
         // early (the clock is the one the services' deadlines are in).
         told.then(|| kernel.tick(crate::now()))
+    }
+
+    /// A report was dropped for a service that is not wired, counted.
+    fn count_unwired(&self) {
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.unwired = inner.unwired.saturating_add(1);
+        }
     }
 
     /// Keeps a report core refused for the next step.
@@ -298,11 +355,29 @@ impl Bridge {
         }
     }
 
-    /// One report; the item again where core had the table borrowed.
-    fn report_one(&self, sockets: &SockReports, item: Out) -> Result<(), Out> {
+    /// One report; the item again where core had the table borrowed. A
+    /// report for a service that is not wired is dropped.
+    fn report_one(
+        &self,
+        net: Option<&NetReports>,
+        sockets: Option<&SockReports>,
+        item: Out,
+    ) -> Result<(), Out> {
+        if let Out::Net(report) = item {
+            let Some(net) = net else {
+                self.count_unwired();
+                return Ok(());
+            };
+            return self.report_net(net, report).map_err(Out::Net);
+        }
+        let Some(sockets) = sockets else {
+            self.count_unwired();
+            return Ok(());
+        };
         let result = match &item {
             Out::Writable(id) => sockets.writable(*id),
             Out::Socket(event) => self.report_socket(sockets, event),
+            Out::Net(_) => return Ok(()),
         };
         match result {
             Err(ERR_BUSY) => Err(item),
@@ -384,15 +459,23 @@ impl Bridge {
     /// since the last time, once the sockets are all closed (never what
     /// they held). Cheap: a counter each.
     fn log_counts(&self) {
-        let (reports, idle) = match self.inner.try_borrow() {
-            Ok(inner) => (
-                inner.reports.as_ref().map(|w| w.sockets.clone()),
-                !inner.sockets.any() && inner.calls.is_empty(),
-            ),
+        let (reports, unwired, lost) = match self.inner.try_borrow_mut() {
+            Ok(mut inner) => {
+                if inner.sockets.any() || !inner.calls.is_empty() || inner.http.busy() {
+                    return;
+                }
+                (
+                    inner.reports.as_ref().and_then(|w| w.sockets.clone()),
+                    core::mem::take(&mut inner.unwired),
+                    core::mem::take(&mut inner.lost_answers),
+                )
+            }
             Err(_) => return,
         };
-        if !idle {
-            return;
+        if unwired != 0 || lost != 0 {
+            info!(
+                "net: {unwired} reports dropped (service not wired), {lost} answers lost (core busy)"
+            );
         }
         let Some(sockets) = reports else {
             return;
@@ -713,6 +796,14 @@ impl Bridge {
             Some(net) => self.step_online(net, now, clock_ready),
             None => self.step_offline(radio.net()),
         };
+        if self
+            .inner
+            .try_borrow_mut()
+            .is_ok_and(|mut inner| core::mem::take(&mut inner.restart))
+        {
+            // A request stalled without any answer: the radio starts anew.
+            radio.restart();
+        }
         let effects = self.report(out, kernel);
         self.log_counts();
         effects
