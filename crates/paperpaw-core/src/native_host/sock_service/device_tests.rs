@@ -130,6 +130,10 @@ fn fixture(tls: bool) -> Fixture {
     shell.up.set(true);
     let hosts = HostServices::new();
     let owners = hosts.owners().unwrap().try_clone().unwrap();
+    // The kernel has filled the policy: nothing is off.
+    hosts
+        .policy()
+        .update(0, false, false, [].into_iter(), [].into_iter());
     let limits = SockLimits::small(49_152);
     let device = SockDevice::new(
         card.clone(),

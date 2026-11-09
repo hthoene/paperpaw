@@ -100,6 +100,10 @@ fn fixture(limits: NetLimits) -> Fixture {
     shell.up.set(true);
     let hosts = HostServices::new();
     let owners = hosts.owners().unwrap().try_clone().unwrap();
+    // The kernel has filled the policy: nothing is off.
+    hosts
+        .policy()
+        .update(0, false, false, [].into_iter(), [].into_iter());
     let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits).device(
         hosts
             .net_pool(limits.pool_bytes, limits.tls_sessions)

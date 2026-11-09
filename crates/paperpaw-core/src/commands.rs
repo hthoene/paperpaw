@@ -46,6 +46,8 @@ impl Kernel {
         }
         self.check_network();
         self.run_commands();
+        // Whatever this call decided is what the next callback goes by.
+        self.sync_net_policy();
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
@@ -600,6 +602,9 @@ impl Kernel {
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
+        // A setting of a plugin's network changed: the plugins that hear it
+        // next are already answered by the new one.
+        self.sync_net_policy();
         let env = self.shared.env(self.now);
         // A password typed (an answer to a question asked as one) reaches
         // the plugin that asked alone, the one its reply event is named
