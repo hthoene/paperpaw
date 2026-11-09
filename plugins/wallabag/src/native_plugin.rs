@@ -28,7 +28,7 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, PAGE_TOKEN, SCREEN};
+use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, PAGE_TOKEN, SCREEN, STOP_TOKEN};
 use crate::native_fetcher::{Fetcher, Finish, Login};
 use crate::native_keep::{self as keep, CLIENT_SECRET, PASSWORD, Secret};
 use crate::native_lists::{self as lists, DataFiles};
@@ -93,7 +93,7 @@ impl Plugin for NativeWallabag {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::PageTurned)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::PageTurned, kinds::Stopping)
         else {
             return Ok(());
         };
@@ -111,6 +111,10 @@ impl Plugin for NativeWallabag {
                 {
                     return Err(Error::NoMemory);
                 }
+                Ok(())
+            }
+            Event::Stopping { .. } if token == STOP_TOKEN => {
+                self.fetcher.cancel(host, &DataFiles::new(host));
                 Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
@@ -382,7 +386,7 @@ impl NativeWallabag {
         let text = say.copy(host, "wallabag.fetching")?;
         self.notice(host, &text)?;
         let login = Login::new(&url, &user, &client, &password, &secret);
-        match self.fetcher.start(host, &login)? {
+        match self.fetcher.start(host, &DataFiles::new(host), &login)? {
             Some(finish) => self.finished(host, finish),
             None => Ok(()),
         }

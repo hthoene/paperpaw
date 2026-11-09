@@ -58,8 +58,9 @@ fn the_decoded_batches_say_what_the_plugin_declares() {
         native.icons,
         ["wallabag.fetch|refresh", "wallabag.open|article"]
     );
-    // The end of a request (99) and the reader's page turns (37).
-    assert_eq!(native.events, ["37:4", "99:3"]);
+    // The plugin stopping (35), the reader's page turns (37) and the end of a
+    // request (99).
+    assert_eq!(native.events, ["35:5", "37:4", "99:3"]);
     assert!(native.groups.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

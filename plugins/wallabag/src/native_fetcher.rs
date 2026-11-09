@@ -251,9 +251,18 @@ impl Fetcher {
     ///
     /// # Errors
     /// `NoMemory`.
-    pub fn start(&mut self, host: &Host<'_>, login: &Login<'_>) -> Result<Option<Finish>, Error> {
+    pub fn start(
+        &mut self,
+        host: &Host<'_>,
+        files: &dyn Files,
+        login: &Login<'_>,
+    ) -> Result<Option<Finish>, Error> {
         if self.run.is_some() {
             return Ok(None);
+        }
+        // What a fetch cut short left (a power cut, a stop): up to 32 MiB.
+        for name in [ENTRIES, ENTRY, TMP] {
+            lists::remove(files, name);
         }
         let run = Run {
             server: copy(login.server)?,

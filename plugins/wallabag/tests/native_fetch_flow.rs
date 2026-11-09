@@ -30,6 +30,7 @@ use std::collections::BTreeMap;
 
 const START: u32 = 1;
 const DONE: u32 = 2;
+const STOP: u32 = 3;
 
 thread_local! {
     static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -116,7 +117,11 @@ impl Plugin for Probe {
             batch.extend_from_slice(bytes);
             Ok(())
         });
-        for (kind, token) in [(EventKind::Started, START), (EventKind::HttpDone, DONE)] {
+        for (kind, token) in [
+            (EventKind::Started, START),
+            (EventKind::HttpDone, DONE),
+            (EventKind::Stopping, STOP),
+        ] {
             d.subscribe_event(kind, token).map_err(|_| Error::Invalid)?;
         }
         d.submit().map_err(|_| Error::Invalid)?;
@@ -136,7 +141,7 @@ impl Plugin for Probe {
             START => {
                 let (password, secret) = (Secret::copy("pa ss&1")?, Secret::copy("cl=sec")?);
                 let login = Login::new("https://w.example", "me@x", "cid", &password, &secret);
-                let started = self.0.start(host, &login);
+                let started = self.0.start(host, &Mem, &login);
                 say(format!("start {started:?}"));
                 started.map(|_| ())
             }
@@ -146,6 +151,11 @@ impl Plugin for Probe {
                     say(format!("done {stepped:?}"));
                     stepped.map(|_| ())?;
                 }
+                Ok(())
+            }
+            STOP => {
+                self.0.cancel(host, &Mem);
+                say(format!("stopped running {}", self.0.running()));
                 Ok(())
             }
             _ => Ok(()),
@@ -605,4 +615,39 @@ fn a_page_turn_in_the_folder_notes_the_article_once() {
     lists::note_read(&Mem, "Books/Wallabag/Seven.epub").unwrap();
     lists::note_read(&Mem, "Books/Wallabag/Seven.epub").unwrap();
     assert_eq!(file("finished.txt").unwrap(), "7\n");
+}
+
+#[test]
+fn a_fetch_clears_what_a_cut_one_left_and_a_stop_clears_what_it_has() {
+    let host = ScriptedHost::new();
+    setup(&host);
+    // A power cut left a book half down and the answers of the last fetch.
+    for name in ["article.tmp", "entries.json", "entry.json"] {
+        put(name, b"left over");
+    }
+    put("articles.txt", b"kept");
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    plugin.event(START, &done(0, 0, 0, 0)).unwrap();
+    for name in ["article.tmp", "entries.json", "entry.json"] {
+        assert!(file(name).is_none(), "{name}");
+    }
+    assert_eq!(file("articles.txt").unwrap(), "kept");
+    // Stopped while a book comes down: the file the fetch had is taken away,
+    // its answer is no more asked for, and the lists stay.
+    plugin
+        .event(DONE, &done(1, 200, 0, TOKEN_ANSWER.len()))
+        .unwrap();
+    put("entries.json", list(&[("7", "Seven")]).as_bytes());
+    ok(&plugin, 2).unwrap();
+    put("article.tmp", b"half");
+    seen();
+    plugin.event(STOP, &done(0, 0, 0, 0)).unwrap();
+    assert_eq!(seen(), ["stopped running false"]);
+    assert!(file("article.tmp").is_none() && file("entries.json").is_none());
+    assert_eq!(file("articles.txt").unwrap(), "kept");
+    // The end of the request it had is ignored.
+    log();
+    ok(&plugin, 3).unwrap();
+    assert!(log().is_empty());
+    assert_eq!(seen(), ["done Ok(None)"]);
 }

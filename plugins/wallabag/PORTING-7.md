@@ -69,6 +69,8 @@ it asked about (`entry.json`: gone with a 404 or archived), and each new article
 - The lists (`articles.txt`, `finished.txt`, `account.txt`) live in the data folder behind the `Files`
   trait of `native_lists` (the host's `DataFiles`, or memory in the tests); the lists of another server
   or user are let go of first, as before.
+- Only a 404 counts as "gone" when a fetched article that is no longer listed is asked about; a 2xx says archived or not, any other answer is a failed check and the book stays.
+- The files of a fetch (`entries.json`, `entry.json`, `article.tmp`, up to 32 MiB) are cleared when a fetch starts (a power cut leaves them) and when the plugin stops (`Fetcher::cancel`, on `stopping`).
 - The reader's page turns (`PageTurned`) note an article read to the end; only a book under a `Wallabag`
   folder looks at the lists.
 - Allocation is fallible; a refused allocation ends the fetch with `Error::NoMemory`, every other failure

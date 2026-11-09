@@ -13,6 +13,8 @@ pub const FETCH_TOKEN: u32 = 2;
 /// The end of a request, and the reader's page turns.
 pub const HTTP_TOKEN: u32 = 3;
 pub const PAGE_TOKEN: u32 = 4;
+/// The plugin stops: a fetch under way is cancelled and its files go.
+pub const STOP_TOKEN: u32 = 5;
 pub const SCREEN: u32 = 10;
 
 /// The server and the account, set on the set-up screen: the address, the
@@ -68,14 +70,16 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// The events the fetch needs: the end of a request (a request is refused
-/// without the subscription) and the reader's page turns (an article read to
-/// the end is noted to be archived).
+/// without the subscription), the reader's page turns (an article read to the
+/// end is noted to be archived) and the plugin's stopping.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
     d.submit()?;
     d.subscribe_event(EventKind::PageTurned, PAGE_TOKEN)?;
+    d.submit()?;
+    d.subscribe_event(EventKind::Stopping, STOP_TOKEN)?;
     d.submit()?;
     Ok(())
 }
