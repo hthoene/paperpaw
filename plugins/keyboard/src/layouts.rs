@@ -414,7 +414,11 @@ pub(crate) fn chosen_drawn(
                     Some(l) if all_drawn(drawn, &l.letters) => {
                         let mut one = crate::native_layouts::chosen_of(l)?;
                         for (_, variants) in &mut one.2 {
-                            variants.retain(|c| all_drawn(drawn, c.encode_utf8(&mut [0; 4])));
+                            // The whole string first; a letter at a time only
+                            // where some are not drawn.
+                            if !all_drawn(drawn, variants) {
+                                variants.retain(|c| all_drawn(drawn, c.encode_utf8(&mut [0; 4])));
+                            }
                         }
                         one.2.retain(|(_, variants)| !variants.is_empty());
                         Some(one)
@@ -665,6 +669,30 @@ mod tests {
         let kept = chosen_drawn("en", "", "mixed.layout", false, &[added], &latin_only).unwrap();
         // `a` keeps its Latin variants, `d` has none left.
         assert_eq!(kept[0].2, [('a', String::from("áà"))]);
+    }
+
+    #[test]
+    fn variants_all_drawn_are_asked_as_one_string() {
+        use core::cell::Cell;
+        let calls = Cell::new(0);
+        let count = |_: &str| {
+            calls.set(calls.get() + 1);
+            true
+        };
+        let added = Added {
+            id: String::from("many.layout"),
+            code: String::from("MY"),
+            letters: String::from("abc"),
+            variants: alloc::vec![
+                ('a', String::from("áàâäãå")),
+                ('e', String::from("éèêë")),
+                ('i', String::from("íìîï")),
+            ],
+        };
+        let kept = chosen_drawn("en", "", "many.layout", false, &[added], &count).unwrap();
+        assert_eq!(kept[0].2.len(), 3);
+        // One question for the letters and one for each letter's variants.
+        assert_eq!(calls.get(), 4);
     }
 
     #[test]
