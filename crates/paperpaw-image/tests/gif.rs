@@ -261,13 +261,13 @@ fn screens_over_8_megapixels_are_refused() {
     gif.width = 65535;
     gif.height = 65535;
     let (result, sink) = gif_result(&gif.encode(), Fit::screen(480, 800), false);
-    assert_eq!(result, Err(ImageError::Unsupported("GIF this large")));
+    assert_eq!(result, Err(ImageError::TooLarge));
     assert!(!sink.started);
     // One pixel over 8 megapixels: refused the same.
     gif.width = 2000;
     gif.height = 4001;
     let (result, sink) = gif_result(&gif.encode(), Fit::screen(480, 800), false);
-    assert_eq!(result, Err(ImageError::Unsupported("GIF this large")));
+    assert_eq!(result, Err(ImageError::TooLarge));
     assert!(!sink.started);
     // 8 megapixels exactly: taken, the screen white around the picture.
     gif.width = 2500;

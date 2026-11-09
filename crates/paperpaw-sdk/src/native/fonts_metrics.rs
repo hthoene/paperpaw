@@ -1,5 +1,7 @@
 //! Font metrics and ink queried through the callback's live host binding.
-use super::{Font, TEXT_INK_MAX_BYTES, bytes, validate_font_size, validate_text};
+use super::{
+    Font, TEXT_COVERS_MAX_BYTES, TEXT_INK_MAX_BYTES, bytes, validate_font_size, validate_text,
+};
 use crate::{
     LineMetrics,
     native::{Error, binding::status},
@@ -94,6 +96,44 @@ impl Font<'_> {
         }
         status(result)?;
         Ok(Some(InkBounds::new(top, bottom, left, right)))
+    }
+}
+
+impl Font<'_> {
+    /// The byte length of the longest start of `text` whose characters this font
+    /// draws, with the fallbacks its role draws with (`text.covers`, slot 39): equal
+    /// to `text.len()` when every character is drawn, otherwise the offset of the
+    /// first that is not, always at a character boundary. Case is not folded. An
+    /// icon role with no icon font bound answers 0. Works outside a draw callback
+    /// and allocates nothing.
+    ///
+    /// # Errors
+    /// Returns Invalid for text over 1,024 bytes (nothing is asked), or the host's
+    /// refusal, including State when the font handle is stale and Unsupported on a
+    /// host that has not wired the slot.
+    pub fn covers(&self, text: impl AsRef<str>) -> Result<usize, Error> {
+        let text = text.as_ref();
+        if text.len() > TEXT_COVERS_MAX_BYTES {
+            return Err(Error::Invalid);
+        }
+        let handle = self.handle.ok_or(Error::State)?;
+        // SAFETY: the font retains its callback host and opaque handle; the text
+        // stays live throughout the call.
+        let result = unsafe { (self.host.table.text_covers)(self.host.ctx, handle, bytes(text)) };
+        status_length(result, text)
+    }
+}
+
+/// A length the host answered, or its refusal. A length past the text or one
+/// inside a character is not what the contract says: Invalid.
+fn status_length(result: i32, text: &str) -> Result<usize, Error> {
+    let Ok(length) = usize::try_from(result) else {
+        return Err(Error::from_status(result));
+    };
+    if text.is_char_boundary(length) && length <= text.len() {
+        Ok(length)
+    } else {
+        Err(Error::Invalid)
     }
 }
 

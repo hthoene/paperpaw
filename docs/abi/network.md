@@ -1,6 +1,6 @@
-# Interface 7 family NET: HTTP requests and serving HTTP (draft)
+# Interface 7 family NET: HTTP requests and serving HTTP
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: an audit of interface 6's HTTP client and
 server (`crates/paperpaw-core/src/io/http.rs`, `io/servers.rs`, `network.rs`, `work.rs`, the X4
 shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpaw-serve`, the SDK's
@@ -9,8 +9,8 @@ shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpa
 `device.md` (Wi-Fi, network demand, `uses.wifi`), `files.md` (roots, `uses.storage`),
 `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies) and
 `core-events.md` 3.3 (event admission and the held-event store). Its companion `secrets.md`
-(SEC) is reviewed with it. Doc-only; records follow once approved. Tags are proposed and numbered
-without gaps at the records step.
+(SEC) is reviewed with it.
+Records: `abi/services/core.net@1.def`.
 
 ## 0. Scope and principles
 
@@ -167,6 +167,11 @@ file's size, 2.1).
   `If-Modified-Since`, `If-None-Match`, `If-Unmodified-Since`, `Range`, `User-Agent`), so
   `Authorization`, cookies and key headers never leave the origin the plugin named. `final_url` is
   where the answer came from.
+- [D] **A redirect from `http` to `https`** is followed like any other: the request closes its
+  plain connection first, then waits for the TLS session (3.4) as if it were an `https` request,
+  in its original start order and with its `timeout_ms` still counting from its start. It never
+  holds a connection while it waits (no deadlock with SOCK); while the session stays taken (a SOCK
+  TLS socket) it ends with reason `timeout`, never `refused` (interface 6 followed such redirects).
 - [D] **TLS:** 1.2 and 1.3; the chain must lead to a root of the host's store (on the X4, Mozilla's
   roots, ADR 0017) and the name must match; dates are checked against network time once it is
   known (ADR 0017). No pinning, no trust override and no client certificate over HTTP (mail pins

@@ -96,12 +96,15 @@ impl<IO: ReadWriteSeek + 'static> Frame<IO> {
     }
 }
 
-#[allow(clippy::large_enum_variant, reason = "returned at once, never kept")]
-enum Outcome<IO: ReadWriteSeek + 'static> {
+/// What working a folder came to. Small on purpose: the frames of the walk
+/// are not copied around (a frame is some 250 bytes of stack on the devices,
+/// and the walk is reached through `&dyn Storage` with 2,048 bytes to its
+/// name): a subfolder to go into replaces the folder's frame in place.
+enum Outcome {
     /// A limit was reached: go on from this slot.
     Yield(u32),
-    /// A subfolder to go into.
-    Down(Frame<IO>),
+    /// The frame now is the subfolder to go into.
+    Down,
     /// Every entry is out of the folder.
     Emptied,
     /// The folder is damaged.
@@ -114,7 +117,11 @@ fn child_path(parent: &Option<String>, name: &str) -> Option<String> {
 }
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
-    /// [`Storage::remove_tree_step`] with what it read counted.
+    /// [`Storage::remove_tree_step`] with what it read counted. Not inlined,
+    /// nor are the walk's other steps: each keeps its own stack frame, so
+    /// that none adds to the others' (the largest is below 2,048 bytes on
+    /// the ESP32-S3).
+    #[inline(never)]
     pub(super) fn walk_tree(
         &self,
         root: &str,
@@ -154,21 +161,31 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         // A place whose folder cannot be found within the call's share of
         // reads (a folder of files where it names subfolders) is stale: the
         // walk starts over.
-        let (mut frame, reached) = match self.descend(start(), depth, reads, &mut removed)? {
-            Some(found) => found,
-            None => (start(), 0),
+        let mut frame = start();
+        let reached = match self.descend(&mut frame, depth, reads, &mut removed)? {
+            Some(reached) => reached,
+            None => {
+                frame = start();
+                0
+            }
         };
         if reached < depth {
             (depth, slot) = (reached, 0);
         }
         loop {
-            let outcome = self.work(&frame, depth, slot, root.is_empty(), &mut removed, reads)?;
+            let outcome = self.work(
+                &mut frame,
+                depth,
+                slot,
+                root.is_empty(),
+                &mut removed,
+                reads,
+            )?;
             match outcome {
                 Outcome::Yield(next) => {
                     return Ok(TreeStep::new(removed, false, encode(depth, next)));
                 }
-                Outcome::Down(child) => {
-                    frame = child;
+                Outcome::Down => {
                     depth += 1;
                     slot = 0;
                 }
@@ -190,9 +207,9 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     // On in the folder above, after the one removed.
                     depth -= 1;
                     slot = (entry.offset_range().1 / SLOT) as u32;
-                    match self.descend(start(), depth, reads, &mut removed)? {
-                        Some((above, reached)) => {
-                            frame = above;
+                    frame = start();
+                    match self.descend(&mut frame, depth, reads, &mut removed)? {
+                        Some(reached) => {
                             if reached < depth {
                                 (depth, slot) = (reached, 0);
                             }
@@ -209,6 +226,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
 
     /// The folder at `root`, or the step that is the whole answer: nothing
     /// there (done), or a file there (removed).
+    #[inline(never)]
     fn open_tree(&self, root: &str) -> Result<Result<FatDir<IO>, TreeStep>, StorageError> {
         let done = |removed| TreeStep::new(removed, true, 0);
         if !root.is_empty() {
@@ -235,6 +253,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
 
     /// The root of the tree is empty: removed (cut off where it is damaged),
     /// unless it is kept.
+    #[inline(never)]
     fn finish_tree(
         &self,
         root: &str,
@@ -279,16 +298,18 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         frame.dir.remove_found(entry).map_err(error)
     }
 
-    /// The folder `depth` levels below `frame`, found by the first subfolder
-    /// of each folder, and how deep it got (less where a folder has none);
-    /// `None` where the call's share of reads is used.
+    /// `frame` made the folder `depth` levels below it, found by the first
+    /// subfolder of each folder, and how deep it got (less where a folder has
+    /// none: `frame` is then the deepest folder there is); `None` where the
+    /// call's share of reads is used (`frame` is then of no use).
+    #[inline(never)]
     fn descend(
         &self,
-        mut frame: Frame<IO>,
+        frame: &mut Frame<IO>,
         depth: usize,
         reads: &mut Reads,
         removed: &mut u32,
-    ) -> Result<Option<(Frame<IO>, usize)>, StorageError> {
+    ) -> Result<Option<usize>, StorageError> {
         for level in 0..depth {
             let mut found = None;
             let mut items = entries(&frame.dir);
@@ -327,7 +348,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     if *removed >= MAX_REMOVALS {
                         return Ok(None);
                     }
-                    self.remove_file(&frame, &entry, &name)?;
+                    self.remove_file(frame, &entry, &name)?;
                     *removed += 1;
                     continue;
                 }
@@ -339,24 +360,25 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             }
             drop(items);
             let Some((entry, name)) = found else {
-                return Ok(Some((frame, level)));
+                return Ok(Some(level));
             };
-            frame = frame.child(entry, &name);
+            *frame = frame.child(entry, &name);
         }
-        Ok(Some((frame, depth)))
+        Ok(Some(depth))
     }
 
     /// Takes the entries out of `frame`'s folder from `slot` on, in order,
-    /// until a subfolder (to go into), the end, or a limit.
+    /// until a subfolder (`frame` becomes it), the end, or a limit.
+    #[inline(never)]
     fn work(
         &self,
-        frame: &Frame<IO>,
+        frame: &mut Frame<IO>,
         depth: usize,
         slot: u32,
         card_root: bool,
         removed: &mut u32,
         reads: &mut Reads,
-    ) -> Result<Outcome<IO>, StorageError> {
+    ) -> Result<Outcome, StorageError> {
         // Every folder but the root of the card begins with `.` and `..`.
         let top_of_card = card_root && depth == 0;
         if reads.work + 2 >= MAX_READS {
@@ -397,7 +419,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         };
         let (mut pass, mut next, mut again) = (from, from, false);
         let mut items = open(pass)?;
-        loop {
+        let (entry, name) = loop {
             if *removed >= MAX_REMOVALS || reads.work >= MAX_READS {
                 // In the second look at a folder (below) it starts over.
                 return Ok(Outcome::Yield(if again { 0 } else { next }));
@@ -438,10 +460,14 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 if depth + 1 > DEPTH {
                     return Err(StorageError::InvalidData);
                 }
-                return Ok(Outcome::Down(frame.child(entry, &name)));
+                break (entry, name);
             }
             self.remove_file(frame, &entry, &name)?;
             *removed += 1;
-        }
+        };
+        // The folder's iterator is done with before its frame is replaced.
+        drop(items);
+        *frame = frame.child(entry, &name);
+        Ok(Outcome::Down)
     }
 }

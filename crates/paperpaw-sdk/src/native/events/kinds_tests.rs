@@ -65,6 +65,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 insert: Some(3),
             }),
             Record::EventScreenShown(EventScreenShown {
+                last_input: 0,
                 now_ms: 42,
                 screen: "fixture.screen",
                 width: 480,
@@ -240,6 +241,15 @@ fn fixtures() -> Vec<Vec<u8>> {
                 key: "mail.sync",
             }),
             Record::EventWorkAllowed(EventWorkAllowed { now_ms: 42 }),
+            Record::EventLookupReady(EventLookupReady {
+                now_ms: 42,
+                provider: "wikipedia.lookup",
+            }),
+            Record::EventTextTyped(EventTextTyped {
+                now_ms: 42,
+                text: "héllo",
+                flags: 1,
+            }),
             Record::EventScreenOpened(EventScreenOpened {
                 now_ms: 42,
                 screen: "fixture.screen",
@@ -330,6 +340,7 @@ fn decode_as_agrees_with_decode_for_every_kind() {
 fn another_kind_is_none_without_reading_the_body() {
     // The screen's text is not UTF-8: reading it fails, asking for another kind does not.
     let mut bytes = encode(Record::EventScreenShown(wire::EventScreenShown {
+        last_input: 0,
         now_ms: 42,
         screen: "zz",
         width: 1,
