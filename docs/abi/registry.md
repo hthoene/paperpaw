@@ -178,6 +178,14 @@ Field meanings:
   is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
+- [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
+  admitted this run, which it keeps with the plugin's registry row: the validated view where its
+  bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
+  bytes (`metadata::MAX_BYTES`) made at admission; features from
+  `metadata::Checked::requested_features` (unavailable optional ones too), services from `services`.
+  Kind 2 from the plugin's `requires` (`plugin.ini`), which the host keeps for every plugin it
+  lists. A plugin whose metadata was not admitted this run (off, refused, a data plugin) has kind 2
+  rows only; why it did not load is `reg_plugin.problem`.
 - `reg_item.flags` (actions, screens, inputs, menus): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
   3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),

@@ -16996,6 +16996,23 @@
             "service.end"
           ],
           "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 22,
+          "input": [
+            "service.reg_key"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "setup_step",
+          "reply": [
+            "service.reg_setup_step",
+            "service.reg_text"
+          ],
+          "since": 0
         }
       ],
       "page_rows": 32,
