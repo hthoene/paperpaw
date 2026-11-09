@@ -2,6 +2,10 @@
 //! The rows leave the view as records that encode themselves, so this file
 //! needs no record types: the host side
 //! (`native_host::registry_service`) implements [`Row`] for its records.
+#![allow(
+    dead_code,
+    reason = "the frame tests that include this file through `context.rs` read none of it"
+)]
 use core::ops::ControlFlow;
 
 /// One reply record, ready to be framed into a reply buffer.
