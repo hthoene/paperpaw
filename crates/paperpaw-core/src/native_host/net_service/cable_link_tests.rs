@@ -39,6 +39,13 @@ fn one_server_listens_and_its_start_is_told_once() {
     link.start_refused(3);
     assert_eq!(link.started(), None);
     assert!(link.listen(4), "the cable is free again");
+    // Its stop (`unlisten`) came first: nothing ended on the device, so the
+    // next request is not answered 403.
+    link.take_start();
+    assert!(link.unlisten(4));
+    assert!(link.ended());
+    link.start_refused(4);
+    assert!(!link.ended());
 }
 
 #[test]
