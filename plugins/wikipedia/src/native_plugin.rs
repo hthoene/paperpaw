@@ -144,7 +144,7 @@ impl Plugin for NativeWikipedia {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         match self.screens.top(token) {
-            Some(view) => view.input(host, &input),
+            Some(view) => view.input(host, &input, self.net.as_ref()),
             None => Ok(Handled::No),
         }
     }
