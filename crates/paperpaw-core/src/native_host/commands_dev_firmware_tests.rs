@@ -240,19 +240,20 @@ fn an_accepted_request_waits_and_a_batch_that_never_applies_gives_it_back() {
 }
 
 #[test]
-fn the_fifth_request_is_full_and_nothing_of_it_is_kept() {
+fn the_third_request_of_one_plugin_is_full_and_nothing_of_it_is_kept() {
     let kernel = kernel();
     let d = driver();
     let mut kept = Vec::new();
-    for request in 1..=4 {
+    for request in 1..=2 {
         let (status, output) = stage(&kernel, FIRMWARE, Some(&d), &[install(request, "a.ppu")]);
         assert_eq!(status, OK);
         kept.push(output);
     }
+    // Two open requests per plugin (device-wide stays four).
     let (status, output) = stage(&kernel, FIRMWARE, Some(&d), &[install(5, "a.ppu")]);
     assert_eq!(status, ERR_FULL);
     drop(output);
-    assert_eq!(d.borrow().waiting(), 4);
+    assert_eq!(d.borrow().waiting(), 2);
     assert!(!d.borrow().holds(OWNER, 5));
 }
 

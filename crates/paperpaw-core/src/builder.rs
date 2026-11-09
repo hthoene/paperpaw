@@ -89,7 +89,7 @@ impl KernelBuilder {
     /// (`device.md` 5.1, 5.3). Without it every firmware command of a plugin
     /// is `ERR_UNSUPPORTED`; with it a firmware request is accepted whole at
     /// submit, queued and driven one bounded step at a time from the main
-    /// loop ([`Kernel::native_firmware_pump`]).
+    /// loop (`Kernel::native_firmware_pump`).
     #[must_use]
     pub fn firmware_host(
         mut self,

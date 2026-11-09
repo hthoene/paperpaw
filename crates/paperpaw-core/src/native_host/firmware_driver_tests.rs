@@ -20,11 +20,16 @@ impl BuiltIns for Names {
 }
 
 fn driver() -> Driver {
+    driver_sized(2)
+}
+
+/// A driver over an image of `blocks` write blocks.
+fn driver_sized(blocks: u32) -> Driver {
     let fake = FakeFirmware::new(
         "0.5.0",
         "paperpaw-x4",
         5,
-        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+        paperpaw_facts("0.6.0", "paperpaw-x4", blocks * WRITE_BLOCK),
     );
     Driver::new(
         Box::new(fake),
@@ -403,7 +408,7 @@ fn a_stop_with_the_machine_borrowed_tells_nobody_twice() {
 
 #[test]
 fn many_steps_between_two_looks_leave_one_changed_mark() {
-    let mut d = driver();
+    let mut d = driver_sized(16);
     d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
     let Event::Ask(ask) = run(&mut d) else {
         panic!("always asked");
