@@ -175,7 +175,7 @@ fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
     for other in ["plugin\u{df}", "\u{212a}Books"] {
         card.dir(other);
         assert!(
-            list_all(&host, 1, "").unwrap().contains(&other.to_string()),
+            list_all(&host, 1, "").unwrap().contains(&std::format!("{other}")),
             "{other}"
         );
     }
