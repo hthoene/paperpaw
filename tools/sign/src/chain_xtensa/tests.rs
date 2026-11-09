@@ -168,6 +168,39 @@ fn root_trait_names_the_methods_of_every_impl_of_a_trait_and_its_default_methods
 }
 
 #[test]
+fn an_absent_trait_fails_once_the_image_has_code_of_it() {
+    let fine = f(&[&entry(32), &RETW_N]);
+    let root = ("root", fine.clone());
+    // Nothing implements it: the line holds, and `absent` is no root.
+    let report = run(
+        &[root.clone()],
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    // An impl method appears: it fails, by its path, with the reason.
+    let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let report = run(
+        &[root.clone(), (one, fine.clone())],
+        &["root"],
+        "absent trait a::T no impl until the linked path lands\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(report.problems[0].contains("has code in the image now"));
+    assert!(report.problems[0].contains("no impl until the linked path lands"));
+    // A default method of the trait counts as code of it.
+    let default = "_ZN1a1T3dft17h0123456789abcdefE";
+    let report = run(
+        &[root, (default, fine)],
+        &["root"],
+        "absent trait a::T why\n",
+    );
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    // A line with no reason is not a line of the budget.
+    assert!(Budget::parse("root x\nabsent trait a::T\n").is_err());
+}
+
+#[test]
 fn a_frame_of_the_limit_in_a_function_reached_is_refused_and_one_not_reached_is_not() {
     let a = BASE;
     let root = f(&[&entry(32), &call(12, a + 3, a + 16), &RETW_N]);

@@ -51,6 +51,13 @@
 //!                                     by the type's path (generics and
 //!                                     lifetimes left out); the methods a
 //!                                     table reaches through a trait object
+//! absent trait <path> <why>           the trait has no code in the image yet
+//!                                     (nothing implements it, so a call
+//!                                     through `&dyn` it reaches nothing):
+//!                                     FAILS once a function of it appears,
+//!                                     so wiring it cannot go unnoticed
+//!                                     while the budget has no root for it;
+//!                                     replace the line with `root trait`
 //! table <symbol>                      a static (the host, heap or shared
 //!                                     table) whose words are function
 //!                                     pointers: each is a root
@@ -234,6 +241,9 @@ pub struct Budget {
     pub impl_roots: Vec<String>,
     /// `root trait <path>`: the methods of every impl of the trait (see [`trait_of`]).
     pub trait_roots: Vec<String>,
+    /// `absent trait <path> <why>`: traits with no code in the image, each
+    /// with its reason; a function of one fails (see [`trait_of`]).
+    pub absent_traits: Vec<(String, String)>,
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
@@ -269,6 +279,9 @@ impl Budget {
                 ["root", family] => budget.roots.push((*family).to_string()),
                 ["root", "impl", ty] => budget.impl_roots.push((*ty).to_string()),
                 ["root", "trait", tr] => budget.trait_roots.push((*tr).to_string()),
+                ["absent", "trait", tr, why @ ..] if !why.is_empty() => budget
+                    .absent_traits
+                    .push(((*tr).to_string(), why.join(" "))),
                 ["table", symbol] => budget.tables.push((*symbol).to_string()),
                 ["allow", "call", caller, "->", callee, why @ ..] if !why.is_empty() => {
                     budget.allow.push((
@@ -1086,6 +1099,18 @@ fn seed(
                 report.roots.0 += 1;
                 queue.push_back(i);
             }
+        }
+    }
+    // A trait the budget says has no code yet: the day it has, the roots must
+    // follow (its methods are what a `&dyn` call reaches).
+    for (tr, why) in &budget.absent_traits {
+        if let Some(found) = (0..image.funcs.len())
+            .find(|&i| trait_of(&image.funcs[i].symbol, &image.funcs[i].path, tr))
+        {
+            report.problems.push(format!(
+                "the trait `{tr}` has code in the image now (`{}`), but the budget says it has none ({why}): replace `absent trait {tr}` with `root trait {tr}` and review what it reaches",
+                image.funcs[found].path
+            ));
         }
     }
     for table in &budget.tables {
