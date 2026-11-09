@@ -25,6 +25,29 @@ pub struct PluginCrate<'a> {
     pub version: &'a str,
 }
 
+/// What a first-party plugin crate's name begins with: the plugin's id
+/// follows.
+pub const CRATE_PREFIX: &str = "paperpaw-plugin-";
+/// The longest plugin id.
+pub const ID_MAX: usize = 64;
+
+impl PluginCrate<'_> {
+    /// The plugin id of the crate: `paperpaw-plugin-<id>` is `<id>` where that
+    /// is a plugin id (lower-case letters, digits and `-`, at most [`ID_MAX`]
+    /// bytes); `None` for any other crate, which neither the op 4 list nor
+    /// an update's check compares. Every first-party plugin crate is named
+    /// for its folder's id.
+    pub fn plugin_id(&self) -> Option<&str> {
+        let id = self.name.strip_prefix(CRATE_PREFIX)?;
+        let valid = !id.is_empty()
+            && id.len() <= ID_MAX
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        valid.then_some(id)
+    }
+}
+
 /// The code plugins built into a firmware image, so that an update can
 /// bring the same ones and the web flasher can choose them again.
 ///
@@ -154,6 +177,22 @@ mod tests {
                 version: "1.2.0",
             },
         ]
+    }
+
+    #[test]
+    fn a_plugin_crate_names_its_plugin_id() {
+        let id = |name| PluginCrate { name, version: "1" }.plugin_id();
+        assert_eq!(id("paperpaw-plugin-stats"), Some("stats"));
+        assert_eq!(id("paperpaw-plugin-hyphenation-de"), Some("hyphenation-de"));
+        assert_eq!(id("paperpaw-plugin-"), None);
+        assert_eq!(id("paperpaw-stats"), None);
+        assert_eq!(id("other-plugin-stats"), None);
+        assert_eq!(id("paperpaw-plugin-Stats"), None);
+        assert_eq!(id("paperpaw-plugin-a.b"), None);
+        let long = std::format!("paperpaw-plugin-{}", "x".repeat(64));
+        assert_eq!(id(&long).map(str::len), Some(64));
+        let longer = std::format!("paperpaw-plugin-{}", "x".repeat(65));
+        assert_eq!(id(&longer), None);
     }
 
     #[test]

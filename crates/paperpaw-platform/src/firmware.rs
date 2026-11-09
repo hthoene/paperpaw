@@ -23,6 +23,17 @@
 //! Only one job is open at a time: a second `begin_*` before the open one
 //! ended or was abandoned is a failure ([`Reason::OTHER`]); the kernel's
 //! queue never does it.
+//!
+//! **A job's life.** It is closed by a check's `Done` or `Failed`, by a write
+//! stage's `Failed`, and by `commit` whether it returns `Ok` or `Err`: the
+//! kernel then does not call [`FirmwareHost::abandon`], and a `begin_*` after
+//! a `Failed` works. `abandon` is for an open job (a shutdown, a card swap,
+//! a confirmation that ends while a check is under way) and does nothing
+//! where none is open. [`FirmwareHost::running`] keeps reporting the firmware
+//! that runs, the old one, after `commit` until the restart. A step may return
+//! `Progress` with `done == total`; only `Done` and `Failed` end a sequence
+//! of steps. The built-ins a check reports are plugin ids
+//! (`paperpaw_update::PluginCrate::plugin_id`), the key op 4 lists them by.
 
 use crate::Storage;
 
@@ -222,7 +233,7 @@ pub trait FirmwareHost {
 
     /// One bounded step of the check. For a signed update it reads the
     /// plugins the image has built in first and calls `built_in` with each
-    /// name once (at most [`BUILT_IN_MAX`] bytes, in the image's order; none
+    /// plugin id once (at most [`BUILT_IN_MAX`] bytes, in the image's order; none
     /// for another firmware's image, whose list PaperPaw cannot read; the
     /// shell keeps no list), then hashes and verifies the whole image.
     fn check_step(

@@ -258,18 +258,19 @@ impl FirmwareHost for FakeFirmware {
 
     fn commit(&mut self) -> Result<(), Reason> {
         self.log.push(Call::Commit);
+        // Ok or Err, the job is over.
+        let was = core::mem::replace(&mut self.open, Open::Nothing);
         if let Some(reason) = self.strike(Stage::Commit) {
-            self.open = Open::Nothing;
             return Err(reason);
         }
-        if self.open != Open::Written {
+        if was != Open::Written {
             return Err(Reason::OTHER);
         }
-        self.open = Open::Nothing;
         self.committed = true;
         Ok(())
     }
 
+    /// A no-op where nothing is open.
     fn abandon(&mut self) {
         self.log.push(Call::Abandon);
         self.open = Open::Nothing;

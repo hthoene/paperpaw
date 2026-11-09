@@ -44,6 +44,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 
 use paperpaw_platform::Storage;
+use paperpaw_platform::firmware::Reason;
 use paperpaw_sdk::firmware::{
     Check, Firmware, FirmwareState, ForeignCheck, ForeignImage, InstallFailure, Update,
 };
@@ -96,6 +97,8 @@ const STEP: u32 = ota::BLOCK;
 /// An update on trial is taken as good once it ran this long in all,
 /// across starts (its start and the book it opens at once behind it).
 pub const TRIAL_MS: u64 = 30_000;
+
+mod firmware_host;
 
 /// A partition of the flash: the flash in addresses of its own.
 struct Partition<'a, F> {
@@ -211,6 +214,11 @@ pub struct Updates<F> {
     /// An update did not start cleanly, and this firmware came back.
     undone: bool,
     install: Option<Install>,
+    /// The check or write the kernel drives (`FirmwareHost`), one at a time
+    /// and never beside `install` (interface 6's flow).
+    job: Option<firmware_host::Job>,
+    /// What `FirmwareHost::restart` does (the firmware's own restart).
+    restarter: Option<fn() -> Result<(), Reason>>,
     /// This is a declared dual-boot setup (`dual_boot`): the other app
     /// partition is another firmware's, nothing is installed there.
     dual: Option<Source>,
@@ -301,6 +309,8 @@ impl<F: Flash> Updates<F> {
             trial: None,
             undone: false,
             install: None,
+            job: None,
+            restarter: None,
             dual: None,
             pending: (plan != Start::Kept).then_some(ota_data),
             early: None,
@@ -479,7 +489,7 @@ impl<F: Flash> Updates<F> {
     /// Whether an install goes on (the device neither sleeps nor waits
     /// meanwhile).
     pub fn installing(&self) -> bool {
-        self.install.is_some()
+        self.install.is_some() || matches!(self.job, Some(firmware_host::Job::Write(_)))
     }
 
     /// Whether the start found something to write to the OTA data, held
