@@ -60,7 +60,9 @@ proposed and numbered without gaps at the records step.
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also
   removed when the book is no longer found, at the walk's clean-up). The host moves and removes
-  these folders; the plugin only writes inside them. At most 4 per plugin.
+  these folders; the plugin only writes inside them. At most 4 per plugin. `name` is one folder
+  name: 1-96 bytes of lowercase ASCII letters, digits and `-` (no `.`, no `/`), unique within the
+  plugin; anything else is refused at admission (`ERR_INVALID`, the declaration dropped).
 
 ## 2. The service `core.library` (major 1)
 
@@ -314,7 +316,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   op 26 `edit_receipt` (`lib_receipt_ask`: `transaction`, `cursor`), paged rows `lib_receipt`
   (`edit` the edit's index in the transaction, `id` the annotation's id, `action` what was done: 0
   added, 1 replaced, 2 removed, 3 updated by `client_key`) then `end`, 32 rows a page (the schema's
-  `page_rows`); the receipt is kept on the card until the plugin's next `edit_begin`, 10 minutes, or
+  `page_rows`; `end.generation` on every page is the book's `annotation_generation` that commit
+  answered, never 0, so the pages of one receipt carry the same value); the receipt is kept on the
+  card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
