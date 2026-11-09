@@ -73,6 +73,10 @@ impl Kernel {
                 if let InputEvent::Pointer(p) = event {
                     self.recognizers_lose(&p);
                 }
+                // As a touch does: the part it is in, and the screen a long
+                // press of it belongs to.
+                self.pane_touched(gesture.start);
+                self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
                 self.recognized(input::Recognized::Gesture(gesture));
                 self.run_commands();
                 Err(self.finish())

@@ -733,6 +733,19 @@ mod kernel {
     }
 
     #[test]
+    fn a_made_gesture_belongs_to_the_screen_on_top_not_to_the_last_one_touched() {
+        let (mut kernel, _) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        // A stale serial from an earlier touch of a screen that is gone.
+        kernel.input.pressed_on = Some(u32::MAX);
+        MODE.set(GESTURE);
+        kernel.handle(paperpaw_platform::Instant(10), press("up"));
+        let top = kernel.stack.last().map(|top| top.serial);
+        assert!(top.is_some());
+        assert_eq!(kernel.input.pressed_on, top);
+    }
+
+    #[test]
     fn the_native_chain_comes_first_and_a_take_ends_it() {
         let (mut kernel, calls) = world();
         kernel.handle(paperpaw_platform::Instant(10), press("up"));
