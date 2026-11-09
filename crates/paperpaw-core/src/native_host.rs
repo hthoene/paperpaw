@@ -216,6 +216,7 @@ pub(crate) mod staged_name;
 mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod widget_events;
 mod work_pump;
 
 const REGISTRATIONS: usize = 8;
@@ -333,6 +334,8 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/core_events.rs"]
+pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
 #[path = "native_host/native_menus.rs"]
