@@ -11,7 +11,7 @@
 use alloc::string::String;
 use paperpaw_sdk::{digest::md5::Md5, json, native::Error};
 use paperpaw_ui_kit::{
-    mem::wipe,
+    mem::{wipe, wipe_text},
     text::{concat, copy, decimal},
 };
 
@@ -73,7 +73,7 @@ pub const fn failure(status: u32) -> &'static str {
 ///
 /// # Errors
 /// `NoMemory` when the key cannot be kept.
-pub fn password_key(password: &str) -> Result<String, Error> {
+pub fn password_key(password: &str) -> Result<Secret, Error> {
     let mut digits = [0; 32];
     key_with(password, &mut digits)
 }
@@ -83,12 +83,51 @@ pub fn password_key(password: &str) -> Result<String, Error> {
 ///
 /// The MD5 state (it holds the password's last block) wipes itself when
 /// the digest is dropped (`paperpaw_digest`'s `Drop`, #451).
-fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<String, Error> {
+fn key_with(password: &str, digits: &mut [u8; 32]) -> Result<Secret, Error> {
     let mut md5 = Md5::new();
     md5.update(password.as_bytes());
-    let key = copy(md5.hex_into(digits));
+    let key = Secret::copy(md5.hex_into(digits));
     wipe(digits);
     key
+}
+
+/// A text that is a secret (the account's key, a typed text): zeroed when it
+/// is dropped, also on an early return, and never shown by `Debug`.
+#[derive(Default)]
+pub struct Secret(String);
+
+impl Secret {
+    /// Takes `text` over.
+    #[must_use]
+    pub const fn new(text: String) -> Self {
+        Self(text)
+    }
+
+    /// A copy of `text`.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn copy(text: &str) -> Result<Self, Error> {
+        copy(text).map(Self)
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        wipe_text(core::mem::take(&mut self.0));
+    }
+}
+
+impl core::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Secret(..)")
+    }
 }
 
 /// A progress as text, as `{progress}` writes it, for the key of a position
@@ -132,6 +171,35 @@ pub fn progress_text(progress: f64) -> Result<String, Error> {
         .and_then(|b| core::str::from_utf8(b).ok())
         .unwrap_or("0");
     copy(text)
+}
+
+/// A progress (0..1) as a whole percent, as `{:.0}` of the progress times 100
+/// writes it (a tie goes to the even number), for the offer's text.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn percent_text(progress: f64) -> Result<String, Error> {
+    let x = if progress.is_finite() {
+        progress * 100.0
+    } else {
+        0.0
+    };
+    let x = x.clamp(0.0, 999_999.0);
+    let floor = x - x % 1.0;
+    let rest = x - floor;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped above"
+    )]
+    let floor = floor as u32;
+    let whole = if rest > 0.5 || (rest == 0.5 && floor % 2 == 1) {
+        floor + 1
+    } else {
+        floor
+    };
+    let mut digits = [0; 20];
+    copy(decimal(whole as usize, &mut digits))
 }
 
 /// `text` as a JSON string literal.
@@ -369,60 +437,81 @@ pub fn send_left_behind(
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     use super::*;
-    use alloc::{format, string::ToString};
+    use alloc::format;
 
     #[test]
-    fn server_addresses_are_made_base_urls_as_before() {
-        for text in [
-            "",
-            "  ",
-            "sync.example.org",
-            "sync.example.org/",
-            "  https://sync.example.org// ",
-            "http://192.168.1.5:8080/",
-            "webdavs://x/y",
-            "ftp",
-            "1ab://x",
-            "a b",
-            "://x",
+    fn server_addresses_are_made_base_urls() {
+        for (text, want) in [
+            ("", DEFAULT_SERVER),
+            ("  ", DEFAULT_SERVER),
+            ("sync.example.org", "https://sync.example.org"),
+            ("sync.example.org/", "https://sync.example.org"),
+            ("  https://sync.example.org// ", "https://sync.example.org"),
+            ("http://192.168.1.5:8080/", "http://192.168.1.5:8080"),
+            ("webdavs://x/y", "webdavs://x/y"),
+            ("ftp", "https://ftp"),
+            ("1ab://x", "https://1ab://x"),
+            ("a b", "https://a b"),
+            ("://x", "https://://x"),
         ] {
-            assert_eq!(
-                normalize_server(text).unwrap(),
-                crate::normalize_server(text),
-                "{text:?}"
-            );
+            assert_eq!(normalize_server(text).unwrap(), want, "{text:?}");
         }
-        assert_eq!(
-            server_label("https://a.b"),
-            crate::server_label("https://a.b")
-        );
+        assert_eq!(server_label("https://a.b"), "a.b");
         assert_eq!(server_label("http://a.b"), "http://a.b");
     }
 
     #[test]
-    fn failures_name_the_same_texts_as_before() {
-        for status in [0u32, 200, 400, 401, 403, 404, 500, 502] {
-            assert_eq!(
-                failure(status),
-                crate::failure(&status.to_string()),
-                "{status}"
-            );
+    fn failures_name_the_texts_shown() {
+        for (status, want) in [
+            (0u32, "kosync.unreachable"),
+            (200, "kosync.server-error"),
+            (400, "kosync.server-error"),
+            (401, "kosync.wrong"),
+            (403, "kosync.wrong"),
+            (404, "kosync.server-error"),
+            (500, "kosync.server-error"),
+            (502, "kosync.server-error"),
+        ] {
+            assert_eq!(failure(status), want, "{status}");
         }
+    }
+
+    #[test]
+    fn a_secret_is_never_shown() {
+        let key = Secret::copy("900150983cd24fb0d6963f7d28e17f72").unwrap();
+        assert_eq!(key.as_str(), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(format!("{key:?}"), "Secret(..)");
+        let held = Some(password_key("abc").unwrap());
+        assert!(!format!("{held:?}").contains("9001"));
     }
 
     #[test]
     fn the_hex_digits_are_zeroed_once_the_key_is_made() {
         let mut digits = [0xAA; 32];
         let key = key_with("abc", &mut digits).unwrap();
-        assert_eq!(key, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(key.as_str(), "900150983cd24fb0d6963f7d28e17f72");
         assert_eq!(digits, [0; 32]);
+    }
+
+    #[test]
+    fn percent_is_written_as_the_format_macro_rounds_it() {
+        for progress in [
+            0.0, 0.004, 0.005, 0.0125, 0.125, 0.135, 0.5, 0.505, 0.994, 0.995, 1.0, 0.3333, 0.665,
+        ] {
+            assert_eq!(
+                percent_text(progress).unwrap(),
+                format!("{:.0}", progress * 100.0),
+                "{progress}"
+            );
+        }
+        assert_eq!(percent_text(f64::NAN).unwrap(), "0");
     }
 
     #[test]
     fn the_password_key_is_its_md5() {
         for text in ["", "secret", "pässwörd", "a very long password indeed"] {
             assert_eq!(
-                password_key(text).unwrap(),
+                password_key(text).unwrap().as_str(),
                 paperpaw_sdk::digest::md5::of(text)
             );
         }
@@ -502,26 +591,25 @@ mod tests {
     }
 
     #[test]
-    fn answers_are_read_as_before() {
-        for text in [
-            "{}",
-            "  { }  ",
-            "",
-            "[]",
-            "nonsense",
-            "{\"percentage\":0.5}",
-            "{\"percentage\":\"0.25\"}",
-            "{\"percentage\":1.5}",
-            "{\"percentage\":-0.1}",
-            "{\"percentage\":\"x\"}",
-            "{\"device\":\"Boox\"}",
-            "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
+    fn answers_are_read() {
+        for (text, want) in [
+            ("{}", Some(0.0)),
+            ("  { }  ", Some(0.0)),
+            ("", None),
+            ("[]", None),
+            ("nonsense", None),
+            ("{\"percentage\":0.5}", Some(0.5)),
+            ("{\"percentage\":\"0.25\"}", Some(0.25)),
+            ("{\"percentage\":1.5}", None),
+            ("{\"percentage\":-0.1}", None),
+            ("{\"percentage\":\"x\"}", None),
+            ("{\"device\":\"Boox\"}", Some(0.0)),
+            (
+                "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
+                Some(0.75),
+            ),
         ] {
-            assert_eq!(
-                remote_progress(text).unwrap(),
-                crate::remote_progress(text, &json::object(text)),
-                "{text:?}"
-            );
+            assert_eq!(remote_progress(text).unwrap(), want, "{text:?}");
         }
         let remote = read_answer(
             "{\"percentage\":0.75,\"device_id\":\"A\",\"device\":\"Boox\",\"progress\":\"/body\"}",
