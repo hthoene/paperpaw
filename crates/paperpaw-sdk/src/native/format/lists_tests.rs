@@ -22,14 +22,14 @@ fn a_page_of_sections_ends_with_the_end_record() {
     rows.section(0, 100, false).unwrap();
     rows.section(1, 7, true).unwrap();
     assert_eq!((rows.len(), rows.is_empty()), (2, false));
-    let n = rows.finish(PageEnd::last(2)).unwrap();
+    let n = rows.finish(PageEnd::last(2, 5)).unwrap();
     let got = records(&out[..n]);
     assert!(
         matches!(got[0], schema::Record::FmtSection(s) if (s.index, s.length, s.flags) == (0, 100, 0))
     );
     assert!(matches!(got[1], schema::Record::FmtSection(s) if (s.index, s.flags) == (1, 1)));
     assert!(
-        matches!(got[2], schema::Record::FmtEnd(e) if (e.flags, e.total, e.next, e.generation) == (1, 2, 0, 0))
+        matches!(got[2], schema::Record::FmtEnd(e) if (e.flags, e.total, e.next, e.generation) == (1, 2, 0, 5))
     );
     assert_eq!(got.len(), 3);
 }
@@ -51,6 +51,11 @@ fn a_continued_page_names_the_next_cursor_and_generation() {
     let c = call(9, &mut input);
     let rows = c.rows(&mut out).unwrap();
     assert_eq!(rows.finish(PageEnd::more(5, 1, 0)), Err(Error::Invalid));
+    // The generation is never 0, on the last page either.
+    let mut out = [0; 3840];
+    let c = call(9, &mut input);
+    let rows = c.rows(&mut out).unwrap();
+    assert_eq!(rows.finish(PageEnd::last(5, 0)), Err(Error::Invalid));
 }
 
 #[test]
@@ -102,7 +107,7 @@ fn a_toc_title_is_cut_at_a_character_and_flagged() {
     let c = call(9, &mut input);
     let mut rows = c.rows(&mut out).unwrap();
     rows.toc(3, 2, 4, 5, true, &"界".repeat(200)).unwrap();
-    let n = rows.finish(PageEnd::last(1)).unwrap();
+    let n = rows.finish(PageEnd::last(1, 5)).unwrap();
     let got = records(&out[..n]);
     let schema::Record::FmtToc(row) = got[0] else {
         panic!("not a toc row")
@@ -129,7 +134,7 @@ fn a_link_with_an_overlong_href_is_skipped_not_an_error() {
         Ok(true)
     );
     assert_eq!(rows.len(), 1);
-    let n = rows.finish(PageEnd::last(1)).unwrap();
+    let n = rows.finish(PageEnd::last(1, 5)).unwrap();
     let got = records(&out[..n]);
     assert!(matches!(got[0], schema::Record::FmtLink(l) if (l.kind, l.href.len()) == (2, 1024)));
 }

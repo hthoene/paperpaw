@@ -26,19 +26,22 @@ pub struct PageEnd {
     generation: u32,
 }
 impl PageEnd {
-    /// The last page of a list of `total` rows.
+    /// The last page of a list of `total` rows (the whole list's, not this page's).
+    /// `generation` is the format's own for this document, never 0 (`document.md`
+    /// 3): the same value on every page of one list.
     #[must_use]
-    pub const fn last(total: u32) -> Self {
+    pub const fn last(total: u32, generation: u32) -> Self {
         Self {
             last: true,
             total,
             next: 0,
-            generation: 0,
+            generation,
         }
     }
     /// A page the host continues: it asks again with `cursor` set to `next` and
-    /// the `generation` given here, which the provider checks on that call. The
-    /// provider keeps its list stable for that generation.
+    /// the `generation` given here, never 0. The provider checks it on that call
+    /// (`FormatCall::generation`) and answers `State` for a stale one, so the
+    /// host starts again at 0; a first call carries cursor 0 and generation 0.
     #[must_use]
     pub const fn more(total: u32, next: u32, generation: u32) -> Self {
         Self {
@@ -263,10 +266,10 @@ impl FormatRows<'_> {
     /// End the page and return the reply's length in the output buffer.
     ///
     /// # Errors
-    /// Invalid for a continued page with generation 0. Rows always leave room for
-    /// this record, so it is never short of space.
+    /// Invalid for generation 0. Rows always leave room for this record, so it is
+    /// never short of space.
     pub fn finish(mut self, end: PageEnd) -> Result<usize, Error> {
-        if !end.last && end.generation == 0 {
+        if end.generation == 0 {
             return Err(Error::Invalid);
         }
         self.writer

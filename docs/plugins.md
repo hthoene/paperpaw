@@ -2702,7 +2702,9 @@ into caller-owned output. Pass the returned bytes through `native::reply::Reply`
 Lists (sections, table of contents, links, fonts) are written with
 `FormatCall::rows(out)` and its typed row methods. A row that does not fit is
 `NoSpace`: end the page with `PageEnd::more(total, next, generation)`; the host asks
-again with `next` and that generation. The last page is `PageEnd::last(total)`.
+again with `next` and that generation. The last page is `PageEnd::last(total, generation)`. `total` is the whole list's row
+count and `generation` the format's own for this document, never 0, the same on every
+page; a call with a stale generation is answered `State`.
 Pages always keep room for their closing record. A link whose `href` is over 1,024
 bytes is skipped (`Ok(false)`). `reply_image` answers cover and image requests with
 the cache path, the picture's own index and size.

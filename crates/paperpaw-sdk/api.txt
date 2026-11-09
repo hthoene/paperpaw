@@ -4598,7 +4598,7 @@ pub const fn paperpaw_sdk::native::format::FormatState::preparing(u32) -> core::
 pub const fn paperpaw_sdk::native::format::FormatState::ready() -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::format::PageEnd
 impl paperpaw_sdk::native::format::PageEnd
-pub const fn paperpaw_sdk::native::format::PageEnd::last(u32) -> Self
+pub const fn paperpaw_sdk::native::format::PageEnd::last(u32, u32) -> Self
 pub const fn paperpaw_sdk::native::format::PageEnd::more(u32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::formatting
 #[non_exhaustive] pub enum paperpaw_sdk::native::formatting::Arg<'a>
