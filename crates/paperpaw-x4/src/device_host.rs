@@ -296,7 +296,8 @@ impl X4Device {
     /// The plugins this start could not install (op 14): `(id, reason)`, with
     /// reason 1 other author, 2 damaged, 3 revoked. At most
     /// [`MAX_NOT_INSTALLED`] are kept. False where the rows could not be kept
-    /// (no room): the list is then as it was.
+    /// (no room, or a visitor is reading the list): the list is then as it
+    /// was. The generation changes only where the list does.
     pub fn set_not_installed(&self, rows: &[(&str, u32)]) -> bool {
         let rows = &rows[..rows.len().min(MAX_NOT_INSTALLED as usize)];
         let mut kept = Vec::new();
