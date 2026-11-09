@@ -183,20 +183,36 @@ mod tests {
     }
 
     #[test]
-    fn it_reads_what_the_interface_6_plugin_reads() {
-        let samples = [
-            "",
-            "ssid = A",
-            "ssid = A\npassword = p\nssid = B\n",
-            "  ssid  =  A b  \n password=  p q \n",
-            "ssid = A = B\npassword = x = y\n",
-            "ssid = Ünï\npassword = pässword\r\nssid = C\r\n",
-            "junk\nssid\npassword\n=\nssid = D\n",
-            "SSID = A\nssid = E\nPassword = no\n",
+    fn it_reads_the_lines_as_beta_3_read_them() {
+        use alloc::vec;
+        // Trimmed names and values, the first `=` splits, a pair for each
+        // `ssid` line (its password the next `password` line, if any),
+        // lines that are neither skipped, the names are case sensitive.
+        let pair = |ssid: &str, password: &str| (ssid.to_string(), password.to_string());
+        let samples: [(&str, Vec<(String, String)>); 8] = [
+            ("", vec![]),
+            ("ssid = A", vec![pair("A", "")]),
+            (
+                "ssid = A\npassword = p\nssid = B\n",
+                vec![pair("A", "p"), pair("B", "")],
+            ),
+            (
+                "  ssid  =  A b  \n password=  p q \n",
+                vec![pair("A b", "p q")],
+            ),
+            (
+                "ssid = A = B\npassword = x = y\n",
+                vec![pair("A = B", "x = y")],
+            ),
+            (
+                "ssid = Ünï\npassword = pässword\r\nssid = C\r\n",
+                vec![pair("Ünï", "pässword"), pair("C", "")],
+            ),
+            ("junk\nssid\npassword\n=\nssid = D\n", vec![pair("D", "")]),
+            ("SSID = A\nssid = E\nPassword = no\n", vec![pair("E", "")]),
         ];
-        for text in samples {
-            let old = crate::wifi_file_networks(text.as_bytes());
-            assert_eq!(pairs(text.as_bytes()), old, "{text:?}");
+        for (text, expected) in samples {
+            assert_eq!(pairs(text.as_bytes()), expected, "{text:?}");
         }
     }
 

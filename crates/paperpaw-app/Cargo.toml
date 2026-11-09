@@ -57,6 +57,7 @@ native-linked = [
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
     "dep:paperpaw-plugin-setup",
+    "dep:paperpaw-plugin-wifi",
     "paperpaw-plugin-about/linked",
     "paperpaw-plugin-bluetooth/linked",
     "paperpaw-plugin-help/linked",
@@ -70,6 +71,7 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-wifi/linked",
 ]
 
 [build-dependencies]
@@ -95,7 +97,7 @@ paperpaw-plugin-format-mobi = { workspace = true, optional = true }
 paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }
 paperpaw-plugin-widgets = { workspace = true, optional = true }
-paperpaw-plugin-wifi.workspace = true
+paperpaw-plugin-wifi = { workspace = true, optional = true }
 paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-opds = { workspace = true, optional = true }
