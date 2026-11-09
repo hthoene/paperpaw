@@ -52,7 +52,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED DUAL-BOOT-FLAG/LEAVES-OUT: no dual-boot flag, no list of the plugins an update leaves out"]
+#[ignore = "BLOCKED DUAL-BOOT-FLAG/LEAVES-OUT: no dual-boot flag; the plugins an update leaves out wait for core.device op 16 leaves_out (device.md 5.1, #732) and its SDK wrapper"]
 fn update_from_the_card() {
     CASES[0].refuse().unwrap();
 }

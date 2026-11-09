@@ -99,10 +99,14 @@ step).
    own-key and foreign states, the offer at start (`offered.txt`) and the version line of `installing.txt`.
    Not yet: the update *file list* ordering by version (the page offers the newest only, as interface 6
    did) and everything that needs **the plugins an update leaves out** (2).
-2. **Plugins an update leaves out** (`update.leaves*`, `update.install-without`): the check record
-   (`dev_check`, `docs/abi/device.md` 5.1) has no list of the plugin crates an image lacks, and the plugin may
-   not read the update's trailer itself ("they never parse `.ppn` headers or update trailers themselves").
-   **Needs a contract item from Kernel** (a field or a query), then the *Update without them* choice. Until then an update is offered without saying which plugins it leaves out.
+2. **Plugins an update leaves out** (`update.leaves*`, `update.install-without`): the contract is
+   `docs/abi/device.md` 5.1 (Kernel, ships with #732): `check_file` (kind 1) on the downloaded image,
+   `dev_check.flags` bit 5 says the update leaves out plugins built in now, `core.device` op 16 `leaves_out`
+   pages them (`dev_builtin` rows: id and the running version); a foreign image answers `Unsupported`. The plugin
+   keeps what is its own: it filters out what comes back as fetched files (`fetch::comes_back`) and words the
+   choice from the server's `missing` reasons. **Blocked until** Kernel adds op 16 to the schema and Services
+   writes the SDK wrapper; then the *Update without them* choice. Until then an update is offered without saying
+   which plugins it leaves out (acceptance case `LEAVES-OUT`, ignored, note: op 16).
 3. **The dual-boot notice and its button** (`dual.rs`, `not_dual.rs`): the firmware's note is
    `.paperpaw/boot.txt`, which root 1 refuses; `paperpaw.ini` is a card file the button rewrites before a
    restart. Needs a flag for it in `dev_firmware` or `dev_device` (Kernel/Firmware). Until then the device's own
