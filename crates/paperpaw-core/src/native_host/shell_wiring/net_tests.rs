@@ -30,9 +30,6 @@ impl ShellNetwork for Nothing {
         true
     }
     fn network_demand(&self, _: bool) {}
-    fn power_end(&self, _: &str, _: bool) -> Option<NetPowerEnd> {
-        None
-    }
 }
 
 fn inputs() -> NetInputs {

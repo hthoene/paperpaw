@@ -27,8 +27,8 @@ mod sockets;
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
-    HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
-    NetReports, ServedDecision, ServedReply, ServerReason, ShellHttp, ShellNetwork,
+    HttpDone, HttpHeaders, HttpJob, HttpReason, NetInputs, NetLimits, NetReports, ServedDecision,
+    ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
@@ -273,7 +273,12 @@ impl HostResources {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
             let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
             hosts.wire_net(device.clone())?;
             wired.net = Some(NetReports(device));
         }
@@ -281,7 +286,12 @@ impl HostResources {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
             let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
+            let device = Rc::new(inputs.device(
+                pool,
+                hosts.in_use().clone(),
+                owners,
+                hosts.policy().clone(),
+            ));
             hosts.wire_sockets(device.clone())?;
             wired.sockets = Some(SockReports(device));
         }

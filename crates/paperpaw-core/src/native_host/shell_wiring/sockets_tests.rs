@@ -53,9 +53,6 @@ impl ShellNetwork for Shell {
         true
     }
     fn network_demand(&self, _: bool) {}
-    fn power_end(&self, _: &str, _: bool) -> Option<NetPowerEnd> {
-        None
-    }
 }
 
 fn inputs(limits: SockLimits, tls: bool) -> (SockInputs, Rc<Shell>) {

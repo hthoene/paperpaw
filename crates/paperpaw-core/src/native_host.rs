@@ -155,6 +155,7 @@ pub(crate) mod lookup_service;
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
 )]
+pub(crate) mod net_policy;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;

@@ -1310,3 +1310,30 @@ fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
     owner_stopped(&fake, OWNER).unwrap();
     assert_eq!(pool.used(), external, "replaced and stopped");
 }
+
+#[test]
+fn turning_a_plugins_network_off_ends_what_it_has_open_at_the_next_pass() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    assert_eq!(fake.started.borrow().len(), 1, "it runs");
+    // Offline and saving let a running request finish; "off" does not wait.
+    for later_end in [reason::OFFLINE, reason::SAVING] {
+        fake.power.set(Some(PowerEnd {
+            reason: later_end,
+            later: true,
+        }));
+        tick(&fake).unwrap();
+        assert_eq!(drain(&fake, OWNER), [], "{later_end}: left to finish");
+    }
+    fake.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&fake).unwrap();
+    assert_eq!(*fake.aborted.borrow(), [id], "the transport let go of it");
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 0, reason::NETWORK_OFF, 0, 0)]
+    );
+    assert_eq!(fake.pool_used(), 0);
+}

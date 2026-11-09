@@ -225,7 +225,16 @@ impl Inner {
     pub(super) fn cast_expire(&mut self, host: &dyn SockHost) {
         let now = host.now_ms();
         for index in 0..self.casts.len() {
-            if self.casts[index].live() && now >= self.casts[index].deadline {
+            if !self.casts[index].live() {
+                continue;
+            }
+            let (owner, background) = (self.casts[index].owner, self.casts[index].run.is_some());
+            if let Some(end) = host.power_end(owner, background)
+                && end.reason == reason::NETWORK_OFF
+            {
+                // The user turned the plugin's network off: no answer is waited for.
+                self.cast_end(host, index, cast_kind::FAILED, end.reason, true);
+            } else if now >= self.casts[index].deadline {
                 self.cast_end(host, index, cast_kind::DONE, reason::NONE, true);
             }
         }

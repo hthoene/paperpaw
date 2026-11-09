@@ -304,6 +304,24 @@ impl Inner {
         self.settle(host, index, done, true);
     }
 
+    /// A request that runs for a plugin whose network the user turned off
+    /// ends now (`network_off`), whatever its state: the setting is a privacy
+    /// choice and is not waited out. (Offline and saving end what has not
+    /// started only; what is on its way is let finish.)
+    fn end_network_off(&mut self, host: &dyn NetHost) {
+        for index in 0..self.reqs.len() {
+            let r = &self.reqs[index];
+            if r.state != State::Running {
+                continue;
+            }
+            if let Some(end) = host.power_end(r.owner, r.run.is_some())
+                && end.reason == reason::NETWORK_OFF
+            {
+                self.end_with(host, index, end.reason, 0);
+            }
+        }
+    }
+
     /// Start queued requests in order; stop at the first that must wait.
     pub(super) fn pump(&mut self, host: &dyn NetHost) {
         let profile = host.profile();
@@ -314,6 +332,7 @@ impl Inner {
                 r.net_wait = None;
             }
         }
+        self.end_network_off(host);
         let mut index = 0;
         while index < self.reqs.len() {
             if self.reqs[index].state != State::Queued {

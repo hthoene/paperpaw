@@ -319,10 +319,29 @@ impl Inner {
         }
     }
 
+    /// A socket of a plugin whose network the user turned off ends now
+    /// (`failed`, `network_off`), whatever its state: the setting is a privacy
+    /// choice and is not waited out. (Offline and saving end what has not
+    /// started only.)
+    fn end_network_off(&mut self, host: &dyn SockHost) {
+        for index in 0..self.socks.len() {
+            let s = &self.socks[index];
+            if !s.live() {
+                continue;
+            }
+            if let Some(end) = host.power_end(s.owner, s.run.is_some())
+                && end.reason == reason::NETWORK_OFF
+            {
+                self.end(host, index, kind::FAILED, end.reason, true);
+            }
+        }
+    }
+
     /// Start the sockets that wait, in order.
     fn pump(&mut self, host: &dyn SockHost) {
         let now = host.now_ms();
         let up = host.network_up();
+        self.end_network_off(host);
         for index in 0..self.socks.len() {
             if self.socks[index].state == State::Securing && !self.socks[index].tls.begun {
                 self.pump_session(host, index, now);

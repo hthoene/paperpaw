@@ -665,3 +665,30 @@ fn the_stopped_event_of_a_server_is_never_lost_to_an_allocation_failure() {
     }
     assert!(!fake.table.lock().unwrap().serving.any());
 }
+
+#[test]
+fn turning_a_plugins_network_off_stops_its_server_at_the_next_pass() {
+    let fake = Fake::x4();
+    *fake.listen_result.borrow_mut() = Some(Ok("192.168.1.2:80"));
+    serve(&fake, OWNER, &serve_rec(1, 80)).unwrap();
+    drain(&fake, OWNER);
+    fake.power.set(Some(PowerEnd {
+        reason: reason::SAVING,
+        later: true,
+    }));
+    tick(&fake).unwrap();
+    assert!(
+        fake.unlistened.borrow().is_empty(),
+        "saving: left listening"
+    );
+    fake.power.set(Some(PowerEnd {
+        reason: reason::NETWORK_OFF,
+        later: false,
+    }));
+    tick(&fake).unwrap();
+    assert_eq!(fake.unlistened.borrow().len(), 1, "it stopped listening");
+    assert_eq!(
+        drain(&fake, OWNER),
+        [server_event(1, 2, reason::NETWORK_OFF, "")]
+    );
+}

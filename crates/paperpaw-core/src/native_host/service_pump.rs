@@ -103,6 +103,12 @@ fn drain(
 impl crate::Kernel {
     /// Runs the services' clocks and delivers their events (see the module).
     pub(crate) fn native_service_pump(&mut self) {
+        // What the user decided about the network, before the services'
+        // clocks run: a plugin whose network was turned off loses what it
+        // has open in this pass.
+        if let Some(policy) = self.shared.native_instances.net_policy() {
+            self.refresh_net_policy(&policy);
+        }
         let env = self.shared.env(self.now);
         let instances = &self.shared.native_instances;
         let more = pump(instances, &instances.event_services(), &env);
