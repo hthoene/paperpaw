@@ -1,5 +1,5 @@
-//! What the interface-6 integration tests (`recording.rs`, `screens.rs`, `widgets.rs`,
-//! `sync.rs`, `books.rs`) prove with a whole kernel and the plugin in it. The data layer
+//! What the interface-6 integration tests (removed with the interface-6 plugin: `recording.rs`, `screens.rs`, `widgets.rs`,
+//! `sync.rs`, `books.rs`) proved with a whole kernel and the plugin in it. The data layer
 //! is tested in `src/store.rs`, `src/store/hostile_tests.rs` and `src/files.rs`; these need
 //! host services or ported parts that are not there yet and stay ignored. Each names the
 //! missing piece.
