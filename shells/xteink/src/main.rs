@@ -60,12 +60,12 @@ mod clock;
 mod crash;
 mod device;
 #[cfg(feature = "ppn5")]
-#[cfg(feature = "ppn5")]
 mod device_host;
 mod dual;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
+#[cfg(feature = "ppn5")]
 mod host_net;
 mod http;
 mod input;

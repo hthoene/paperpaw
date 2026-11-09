@@ -87,7 +87,7 @@ pub fn make(running: Option<&Running<'_>>, native: &Native, start: Start) -> Rc<
         })
         .collect();
     if !device.set_not_installed(&rows) {
-        warn!("device: the list of plugins not installed could not be kept");
+        log::warn!("device: the list of plugins not installed could not be kept");
     }
     device.set_memory_probe(memory_probe, clock_ms);
     device
