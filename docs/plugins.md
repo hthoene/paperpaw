@@ -2770,21 +2770,23 @@ buffer is 1,024 bytes for `book_key` and `position` and 2,048 bytes for `set_pos
 
 ### Pictures
 
-The host decodes and draws pictures; a plugin never holds one in memory. `CommandSender::image_prepare(&PrepareImage)`
-asks for a JPEG, PNG (not interlaced) or GIF of the plugin's data folder or, with
-`uses.storage`, the library (`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)`
-for the longest side, 0 being the screen's and a side above 1,600 being clamped, `.colour()`).
-Subscribe to `EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the
-cookie, an `ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`,
-`NoMemory`; an unknown value reads as `Damaged`), and for `Ready` the `ImageId` and the
-size made. At most 4 requests wait and 8 pictures are kept per plugin; give each back with
+The host decodes and draws pictures; a plugin never holds one in memory.
+`CommandSender::image_prepare(&PrepareImage)` asks for a JPEG, PNG (not interlaced) or GIF
+of the plugin's data folder or, with `uses.storage`, the library
+(`PrepareImage::new(PrepareRoot::Data, path, cookie)`, `.side(n)` for the longest side, 0
+being the screen's and a side above 1,600 being clamped, `.colour()`). Subscribe to
+`EventKind::ImageReady` first: the end is one `Event::ImageReady` carrying the cookie, an
+`ImageStatus` (`Ready`, `Unsupported`, `Damaged`, `TooLarge`, `CardFailure`, `NoMemory`;
+an unknown value reads as `Damaged`), and for `Ready` the `ImageId` and the size made. At
+most 4 requests wait and 8 pictures are kept per plugin; give each back with
 `image_release(id)`. `ImageInfo::read(host, id)` gives the size and whether it is colour
-(`image.info`; `not_decoded()` says the format has not decoded it yet, so ask again before drawing), and `Canvas::draw_image(id, rect, ImageStyle)` draws it scaled into the
-rectangle, centred, clipped by the canvas, only inside a draw callback (`State` elsewhere).
+(`image.info`; `not_decoded()` says the format has not decoded it yet), and
+`Canvas::draw_image(id, rect, ImageStyle)` draws it scaled into the rectangle, centred,
+clipped by the canvas, only inside a draw callback (`State` elsewhere).
 `ImageStyle::new().fill()` crops to fill, `.small()` keeps a small picture out of the
-ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound` is an ended id:
-prepare it again. The host reads the file in bands, so a card failure can leave the bands
-drawn so far.
+ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound` is an
+ended id: prepare it again. The host reads the file in bands, so a card failure can leave
+the bands drawn so far.
 
 ### Book fields and badges
 

@@ -116,8 +116,9 @@ impl ImageInfo {
         self.colour
     }
 
-    /// Whether the format has not decoded the picture yet: ask for it again
-    /// (`doc_image_ask`) before drawing. Other flag bits are ignored.
+    /// Whether the format has not decoded the picture yet: the document must
+    /// decode it (`document.md` 5, op 16) before it is drawn. Other flag bits are
+    /// ignored.
     #[must_use]
     pub const fn not_decoded(&self) -> bool {
         self.not_decoded
@@ -312,7 +313,8 @@ impl ImageReady {
             _ => ImageStatus::Damaged,
         };
         // A ready picture has an id; the id of any other answer is not one.
-        let image = if status == ImageStatus::Ready {
+        let ready = status == ImageStatus::Ready;
+        let image = if ready {
             Some(ImageId::new(r.image)?)
         } else {
             None
@@ -322,8 +324,8 @@ impl ImageReady {
             cookie: r.cookie,
             status,
             image,
-            width: r.width,
-            height: r.height,
+            width: if ready { r.width } else { 0 },
+            height: if ready { r.height } else { 0 },
         })
     }
 

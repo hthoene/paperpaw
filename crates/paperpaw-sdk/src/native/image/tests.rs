@@ -216,6 +216,9 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
                 .colour(),
         )
         .unwrap();
+    sender
+        .image_prepare(&PrepareImage::new(PrepareRoot::Data, &"p".repeat(512), 2))
+        .unwrap();
     let long = "p".repeat(513);
     assert_eq!(
         sender.image_prepare(&PrepareImage::new(PrepareRoot::Data, &long, 1)),
@@ -223,7 +226,7 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
     );
     sender.image_release(ImageId::new(3).unwrap()).unwrap();
     let batches = ctx.batches.borrow();
-    assert_eq!(batches.len(), 3, "the refused request stages nothing");
+    assert_eq!(batches.len(), 4, "the refused request stages nothing");
     let sent = |i: usize| {
         let commands = crate::native::wire::commands_wire::commands_decode(&batches[i]).unwrap();
         commands.iter().next().unwrap()
@@ -248,7 +251,7 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
             flags: 1
         }
     );
-    assert_eq!(sent(2), Command::ImageRelease { image: 3 });
+    assert_eq!(sent(3), Command::ImageRelease { image: 3 });
 }
 
 fn ready(status: u32, image: u32) -> Result<ImageReady, Error> {
@@ -292,6 +295,7 @@ fn image_ready_reads_every_status_and_an_unknown_one_as_damaged() {
     ] {
         let got = ready(code, 0).unwrap();
         assert_eq!((got.status(), got.image()), (status, None), "{code}");
+        assert_eq!((got.width(), got.height()), (0, 0), "{code}");
     }
     // A ready picture without an id breaks the contract.
     assert_eq!(ready(0, 0), Err(Error::Invalid));
