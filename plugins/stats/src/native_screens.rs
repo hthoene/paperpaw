@@ -113,10 +113,20 @@ pub(crate) fn open_book(host: &Host<'_>, ui: &Ui, id: u16) -> Result<(), Error> 
     open_with_book(host, ui, "stats.book", id)
 }
 
+/// Opens the settings of the statistics (where the daily goal is set).
+pub(crate) fn open_settings(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
+    open_with_id(host, ui, "core.settings", "stats.group")
+}
+
 /// Opens `screen` with the id of a book as its hand-over.
 pub(crate) fn open_with_book(host: &Host<'_>, ui: &Ui, screen: &str, id: u16) -> Result<(), Error> {
     let mut digits = [0u8; 20];
     let id = text::decimal(usize::from(id), &mut digits);
+    open_with_id(host, ui, screen, id)
+}
+
+/// Opens `screen` with `id` as its hand-over.
+fn open_with_id(host: &Host<'_>, ui: &Ui, screen: &str, id: &str) -> Result<(), Error> {
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
     let handover = ui.handover(host, &[Param::new(ID, id)?], &mut input, &mut output)?;

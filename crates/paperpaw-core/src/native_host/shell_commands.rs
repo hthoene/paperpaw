@@ -6,7 +6,7 @@ use crate::{
     native_host::commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage},
 };
 use core::pin::Pin;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, IdError, ScreenKey};
 
@@ -38,7 +38,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop), item_states) = {
+        let (status, owner, (commands, redraw, _hop), item_states, hints) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -72,6 +72,10 @@ impl Kernel {
                     target.screen,
                     target.hop,
                     self.screen_keys_remaining(),
+                )
+                .with_hint_labels(
+                    self.shared.stack_rows.labels(),
+                    !self.hint.buttons.is_empty(),
                 );
                 if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
                     stage = stage
@@ -88,12 +92,22 @@ impl Kernel {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
                 let item_states = stage.take_item_states();
+                let hints = stage.take_hint_sets();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output, item_states))
+                Ok::<_, Error>((status, owner, output, item_states, hints))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
         self.apply_item_states(&owner, item_states);
+        // The labels the callback set; room was taken when they were checked.
+        // Nothing holds the table across a callback, so a failed borrow is a
+        // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
+        if !hints.is_empty() {
+            let Ok(mut labels) = self.shared.stack_rows.labels().try_borrow_mut() else {
+                return Err(Error::Status(ERR_BUSY));
+            };
+            labels.apply(hints);
+        }
         Ok(status)
     }
 
