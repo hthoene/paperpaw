@@ -355,7 +355,7 @@ impl Kernel {
         if self.policy() == keymap::Policy::Off
             || self
                 .input_index()
-                .is_some_and(|index| self.stack[index].screen.holds_edges())
+                .is_some_and(|index| self.stack[index].holds_edges())
         {
             return None;
         }

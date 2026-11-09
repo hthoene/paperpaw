@@ -47,6 +47,7 @@ impl Kernel {
             item_states,
             presets,
             hints,
+            policies,
         ) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
@@ -114,6 +115,7 @@ impl Kernel {
                 let presets = stage.take_presets();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
+                let policies = stage.take_policies();
                 let output = stage.into_ui_output();
                 Ok::<_, Error>((
                     status,
@@ -124,9 +126,11 @@ impl Kernel {
                     item_states,
                     presets,
                     hints,
+                    policies,
                 ))
             })??
         };
+        self.native_screen_policies(&owner, owner_key, policies);
         self.drain_native_ui(&owner, commands, redraw);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);

@@ -143,6 +143,7 @@ pub struct CommandStage<'a> {
     room: core::cell::RefCell<Option<items::ItemRoom>>,
     /// The checked `command.set_hint` copies, applied after the callback.
     staged_hints: Vec<super::hint_labels::HintSet>,
+    staged_policies: Vec<nav::PolicyChange>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -183,6 +184,7 @@ impl<'a> CommandStage<'a> {
             staged_presets: Vec::new(),
             room: core::cell::RefCell::new(None),
             staged_hints: Vec::new(),
+            staged_policies: Vec::new(),
         }
     }
 
@@ -310,6 +312,10 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_hints(batch) {
             return error;
         }
+        let start_policies = self.staged_policies.len();
+        if let Err(error) = self.reserve_policies(batch) {
+            return error;
+        }
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
@@ -328,6 +334,7 @@ impl<'a> CommandStage<'a> {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
+            self.staged_policies.truncate(start_policies);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
@@ -402,7 +409,9 @@ impl<'a> CommandStage<'a> {
             .filter(|command| {
                 !matches!(
                     command,
-                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                    WireCommand::Redraw { .. }
+                        | WireCommand::SetHint { .. }
+                        | WireCommand::ScreenPolicy { .. }
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
@@ -466,6 +475,11 @@ impl<'a> CommandStage<'a> {
             }
             // Copied and listed ahead (`reserve_hints`).
             if matches!(command, WireCommand::SetHint { .. }) {
+                continue;
+            }
+            // Kept apart, applied before the others (`stage_policy`).
+            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+                self.stage_policy(&command)?;
                 continue;
             }
             if dev::is_dev(&command) {
