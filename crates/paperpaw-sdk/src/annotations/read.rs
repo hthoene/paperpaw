@@ -208,7 +208,7 @@ enum Role {
 
 /// Where the fields of a line of `fields` fields are, in a file of
 /// `version`; `None` for a shape that is no row.
-fn role(index: usize, fields: usize, version: u32) -> Option<Role> {
+fn field_role(index: usize, fields: usize, version: u32) -> Option<Role> {
     if version >= FILE_VERSION && fields != 15 {
         return None;
     }
@@ -455,7 +455,7 @@ pub fn try_rows(
     // field depends on how many there are), the second for the fields.
     loop {
         let start = reader.position();
-        let Some(shape) = measure(&mut reader, head.version)? else {
+        let Some(shape) = measure_shape(&mut reader, head.version)? else {
             break;
         };
         let Shape::Line { fields } = shape else {
@@ -504,7 +504,7 @@ enum Shape {
 
 /// Reads one line: how many fields it has, or what it is instead. `None` at
 /// the end of the file.
-fn measure(reader: &mut Reader<'_>, version: u32) -> Result<Option<Shape>, Error> {
+fn measure_shape(reader: &mut Reader<'_>, version: u32) -> Result<Option<Shape>, Error> {
     let most = match version {
         0..=1 => 10,
         2 => 13,
@@ -689,7 +689,7 @@ fn capture(
             index += 1;
             continue;
         }
-        let Some(role) = role(index, fields, version) else {
+        let Some(role) = field_role(index, fields, version) else {
             return Ok(None);
         };
         line.take(role, byte, scratch);

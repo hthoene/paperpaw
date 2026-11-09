@@ -9,7 +9,7 @@ use std::vec::Vec;
 
 const BOOK: &str = "books/a.epub";
 
-fn put(text: &str) -> MemoryStorage {
+fn stored(text: &str) -> MemoryStorage {
     MemoryStorage::new().with(&super::super::file(BOOK), text.as_bytes())
 }
 
@@ -70,7 +70,7 @@ fn a_file_of_version_2_has_ids_by_place_and_no_generation() {
          # book 5 abc\n\
          h\t5\t0\t5\t0\t50\t0\t0\t\t\t\tlast\t\n",
     );
-    let storage = put(&v2);
+    let storage = stored(&v2);
     let head = try_head(&storage, BOOK).unwrap();
     assert_eq!((head.version, head.generation), (2, 1));
     let first = rows(&storage, &wide()).unwrap();
@@ -96,14 +96,14 @@ fn a_file_of_version_2_has_ids_by_place_and_no_generation() {
 fn a_file_of_version_1_has_no_times_or_conversions() {
     let v1 = "b\t1\t0\t1\t0\t10\t5\t6\tshown\tnoted\n\
               h\t2\t0\t2\t4\t90\tshort\tn\n";
-    let got = rows(&put(v1), &wide()).unwrap();
+    let got = rows(&stored(v1), &wide()).unwrap();
     assert_eq!(
         got.iter().map(|r| (r.id, r.percent)).collect::<Vec<_>>(),
         [(1, 10), (2, 90)]
     );
     assert_eq!(got[0].text.0, "shown");
     assert_eq!(got[1].text.0, "short");
-    assert_eq!(try_head(&put(v1), BOOK).unwrap().version, 1);
+    assert_eq!(try_head(&stored(v1), BOOK).unwrap().version, 1);
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn a_file_of_version_3_has_ids_keys_and_a_generation() {
               b\t2\t0\t2\t0\t20\t0\t0\t\t\t\t\t\t8\t\n\
               h\t3\t0\t3\t4\t30\t0\t0\t\t\t\tv2 line\t\n\
               h\t4\t0\t4\t4\t30\t0\t0\t\t\t\tno id\t\t0\t\n";
-    let storage = put(v3);
+    let storage = stored(v3);
     let head = try_head(&storage, BOOK).unwrap();
     assert_eq!((head.version, head.generation), (3, 7));
     let got = rows(&storage, &wide()).unwrap();
@@ -126,8 +126,11 @@ fn a_file_of_version_3_has_ids_keys_and_a_generation() {
 
 #[test]
 fn a_later_version_is_refused_and_a_missing_file_has_no_rows() {
-    assert_eq!(try_head(&put("# format 4\n"), BOOK), Err(Error::Newer(4)));
-    assert_eq!(rows(&put("# format 4\n"), &wide()), Err(Error::Newer(4)));
+    assert_eq!(
+        try_head(&stored("# format 4\n"), BOOK),
+        Err(Error::Newer(4))
+    );
+    assert_eq!(rows(&stored("# format 4\n"), &wide()), Err(Error::Newer(4)));
     let none = MemoryStorage::new();
     assert_eq!(rows(&none, &wide()), Ok(Vec::new()));
     let head = try_head(&none, BOOK).unwrap();
@@ -139,7 +142,7 @@ fn a_long_note_is_read_in_pieces_cut_at_a_character_with_its_whole_length() {
     // 700 bytes of three-byte characters in the note.
     let note = "€".repeat(233);
     let file = format!("# format 2\nh\t1\t0\t1\t4\t10\t0\t0\t\t\t\tt\t{note}\n");
-    let storage = put(&file);
+    let storage = stored(&file);
     let got = rows(&storage, &wide()).unwrap();
     assert_eq!(got[0].note.1, 699);
     // 512 bytes hold 170 characters.
@@ -157,7 +160,7 @@ fn a_long_note_is_read_in_pieces_cut_at_a_character_with_its_whole_length() {
 #[test]
 fn a_visitor_may_stop_the_read_and_a_small_scratch_is_refused() {
     let file = "b\t1\t0\t1\t0\t1\ta\tb\nb\t2\t0\t2\t0\t1\ta\tb\nb\t3\t0\t3\t0\t1\ta\tb\n";
-    let storage = put(file);
+    let storage = stored(file);
     let mut scratch = std::vec![0_u8; 8];
     let mut ids = Vec::new();
     let seen = try_rows(
@@ -195,14 +198,14 @@ fn a_line_too_long_or_a_key_too_long_is_no_row() {
          b\t1\t0\t1\t0\t1\t0\t0\t\t\t\tt\t\t3\tok\n",
         "k".repeat(65)
     );
-    let got = rows(&put(&file), &wide()).unwrap();
+    let got = rows(&stored(&file), &wide()).unwrap();
     assert_eq!(got.iter().map(|r| r.id).collect::<Vec<_>>(), [3]);
 }
 
 #[test]
 fn reading_makes_no_allocation_but_the_file_name() {
     use crate::native::commands::menu_alloc_tests::refuse_nth;
-    let storage = put("# format 3\n# generation 2\nb\t1\t0\t1\t0\t1\t0\t0\t\t\t\tt\tn\t1\tk\n");
+    let storage = stored("# format 3\n# generation 2\nb\t1\t0\t1\t0\t1\t0\t0\t\t\t\tt\tn\t1\tk\n");
     let windows = wide();
     let mut scratch = std::vec![0_u8; windows.scratch().unwrap()];
     let mut read = || {
@@ -277,7 +280,7 @@ fn is_row_is_the_definition_try_rows_reads_by() {
             file.push_str(&line);
             file.push('\n');
         }
-        let storage = put(&file);
+        let storage = stored(&file);
         let got: Vec<u32> = rows(&storage, &wide())
             .unwrap()
             .into_iter()
@@ -305,7 +308,7 @@ fn caps_that_do_not_fit_a_scratch_are_refused_not_wrapped() {
         .note(huge)
         .key(huge)
         .xpointers(huge, huge);
-    let storage = put("# format 3\n");
+    let storage = stored("# format 3\n");
     let mut scratch = [0_u8; 16];
     let result = try_rows(&storage, BOOK, &windows, &mut scratch, &mut |_, _| {
         ControlFlow::Break(())

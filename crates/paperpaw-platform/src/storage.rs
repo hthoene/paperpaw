@@ -208,9 +208,11 @@ pub trait Storage {
     }
 
     /// Whether paths `a` and `b` name the same entry, however each is
-    /// spelt: on FAT a folder's short alias (`PAPERP~1`) or another case of
-    /// its name names the folder itself, so a check by spelling alone would
-    /// let a path past it. `Some(false)` where either names nothing or they
+    /// spelt. Where one entry answers to several spellings (another case of
+    /// its name on FAT, and a short alias such as `PAPERP~1` on storages
+    /// that resolve one, as Windows does; PaperPaw's FAT driver resolves
+    /// none), a check by spelling alone would let a path past it.
+    /// `Some(false)` where either names nothing or they
     /// name different entries; `None` where the storage cannot tell (the
     /// default, or a read failed): a caller then treats them as possibly the
     /// same. Storages that wrap another say what it says.

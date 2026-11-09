@@ -147,7 +147,7 @@ mod tests {
 
     use super::{is_cased, is_ignorable, push_lower};
 
-    fn lower(text: &str) -> String {
+    fn lowered_by_std(text: &str) -> String {
         let mut out = String::new();
         push_lower(&mut out, text).unwrap();
         out
@@ -230,7 +230,7 @@ mod tests {
             "Ω Σ Α",
         ];
         for text in corpus {
-            assert_eq!(lower(text), text.to_lowercase(), "{text:?}");
+            assert_eq!(lowered_by_std(text), text.to_lowercase(), "{text:?}");
         }
     }
 
@@ -251,7 +251,7 @@ mod tests {
             }
         }
         for text in &texts {
-            assert_eq!(lower(text), text.to_lowercase(), "{text:?}");
+            assert_eq!(lowered_by_std(text), text.to_lowercase(), "{text:?}");
         }
     }
 }
