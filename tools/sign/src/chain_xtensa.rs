@@ -43,8 +43,9 @@
 //! limit <bytes>                       the frame limit (2048 by default)
 //! root <family>                       extra roots: functions of the family
 //! root trait <path>                   extra roots: the methods of every impl
-//!                                     of the trait, `<_ as path>::f` (what a
-//!                                     `&dyn Trait` call can reach)
+//!                                     of the trait, `<_ as path>::f`, and
+//!                                     the trait's own default methods
+//!                                     (what a `&dyn Trait` call can reach)
 //! root impl <type>                    extra roots: the trait-impl methods of
 //!                                     a concrete type, `<type as Trait>::f`,
 //!                                     by the type's path (generics and
@@ -1010,12 +1011,19 @@ fn impl_of(symbol: &str, ty: &str) -> bool {
     after.starts_with("$u20$as$u20$") || after.starts_with("$LT$")
 }
 
-/// Whether the legacy symbol `symbol` is a method of an impl of the trait
-/// `tr` (`a::b::Trait`): `…$u20$as$u20$a..b..Trait$GT$` (or with generic
-/// arguments, `…Trait$LT$…`).
-fn trait_of(symbol: &str, tr: &str) -> bool {
+/// Whether the function is a method of an impl of the trait `tr` (`a::b::Trait`),
+/// or a default method of the trait itself. An impl method's symbol is
+/// `…$u20$as$u20$a..b..Trait$GT$…` (or with generic arguments,
+/// `…Trait$LT$…`); a default method (which the trait's vtable points at for
+/// every impl that does not override it) is `a::b::Trait::method`, with the
+/// trait's own path and the method after it: its path starts with
+/// `a::b::Trait::`.
+fn trait_of(symbol: &str, path: &str, tr: &str) -> bool {
     if !symbol.starts_with("_ZN") {
         return false;
+    }
+    if path.starts_with(&format!("{tr}::")) {
+        return true;
     }
     let want = format!("$u20$as$u20${}", tr.replace("::", ".."));
     symbol.match_indices(&want).any(|(at, _)| {
@@ -1066,7 +1074,7 @@ fn seed(
     }
     for tr in &budget.trait_roots {
         let members: Vec<usize> = (0..image.funcs.len())
-            .filter(|&i| trait_of(&image.funcs[i].symbol, tr))
+            .filter(|&i| trait_of(&image.funcs[i].symbol, &image.funcs[i].path, tr))
             .collect();
         if members.is_empty() {
             report

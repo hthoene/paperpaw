@@ -119,24 +119,40 @@ fn root_impl_names_the_trait_impl_methods_of_a_type_and_only_those() {
 }
 
 #[test]
-fn root_trait_names_the_methods_of_every_impl_of_a_trait() {
+fn root_trait_names_the_methods_of_every_impl_of_a_trait_and_its_default_methods() {
     let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
     let two = "_ZN45_$LT$a..Gen$LT$X$GT$$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
     let longer = "_ZN40_$LT$a..Type$u20$as$u20$a..TT$GT$1m17h0123456789abcdefE";
-    assert!(trait_of(one, "a::T") && trait_of(two, "a::T"));
+    // A default method of the trait, which the vtable of an impl that does not
+    // override it points at: the trait's path, then the method.
+    let default = "_ZN1a1T3dft17h0123456789abcdefE";
+    let nested = "_ZN1a1T3dft28_$u7b$$u7b$closure$u7d$$u7d$17h0123456789abcdefE";
+    let other = "_ZN1a2TT3dft17h0123456789abcdefE";
+    let p = |s: &str| crate::frames::path(s);
+    assert!(trait_of(one, &p(one), "a::T") && trait_of(two, &p(two), "a::T"));
+    assert!(trait_of(default, &p(default), "a::T") && trait_of(nested, &p(nested), "a::T"));
     assert!(
-        !trait_of(longer, "a::T"),
+        !trait_of(longer, &p(longer), "a::T"),
         "a longer trait name is not the trait"
     );
-    assert!(!trait_of("plain", "a::T"));
+    assert!(
+        !trait_of(other, &p(other), "a::T"),
+        "another trait's default method is not"
+    );
+    assert!(!trait_of("plain", "plain", "a::T"));
     let big = f(&[&entry(2032), &RETW_N]);
     let fine = f(&[&entry(32), &RETW_N]);
     let report = run(
-        &[(one, big), (two, fine.clone()), (longer, fine)],
+        &[
+            (one, big),
+            (two, fine.clone()),
+            (default, fine.clone()),
+            (longer, fine),
+        ],
         &[],
         "root trait a::T\n",
     );
-    assert_eq!(report.checked, 2);
+    assert_eq!(report.checked, 3);
     assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
     let report = run(
         &[("root", f(&[&entry(32), &RETW_N]))],
