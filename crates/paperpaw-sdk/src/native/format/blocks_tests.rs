@@ -263,3 +263,30 @@ fn a_block_that_is_not_last_ends_with_no_last_flag() {
     let got = fragments(&BlockReply::new(&block).next(5), 3840);
     assert_eq!(got.last(), Some(&Seen::End(0, 0, 0, 5)));
 }
+
+#[test]
+fn every_output_size_either_fits_the_fragment_or_refuses_it_whole() {
+    let mut block = paragraph("héllo wörld, a longer line of text for the sweep")
+        .runs(alloc::vec![Run::new(0, 5, TextStyle::default())])
+        .lang(Lang::parse("fa-IR"))
+        .inline_langs(&[Lang::parse("ar"), Lang::parse("en")]);
+    block
+        .annotations
+        .push(Annotation::new(0, 5, "yomi", AnnotationKind::Phonetic));
+    let reply = BlockReply::new(&block);
+    for size in 0..400 {
+        let mut input = [0; 256];
+        let mut out = alloc::vec![0xa5; size];
+        match call(8, 0, 0, &mut input).reply_block(&reply, &mut out) {
+            Ok(n) => {
+                assert!(n <= size, "size {size} wrote {n}");
+                let last = schema::reply_decode(&out[..n]).unwrap().last();
+                assert!(
+                    matches!(last, Some(Ok(schema::Record::FmtEnd(_)))),
+                    "size {size}"
+                );
+            }
+            Err(e) => assert_eq!(e, Error::NoSpace, "size {size}"),
+        }
+    }
+}

@@ -25,6 +25,10 @@ const TAG_BYTES: usize = 16;
 /// A block to answer with, and where it sits: the format's own picture number
 /// for an image block, whether it is the last block of its section and the source
 /// offset of the next block.
+///
+/// The record limits of `document.md` 4 apply without a refusal: an annotation's
+/// text is cut at 1,024 bytes (on a character boundary) and only the first 15
+/// inline languages are written.
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct BlockReply<'a> {
@@ -408,7 +412,7 @@ fn bound(record: &schema::Record<'_>) -> usize {
     let framing = 5;
     framing
         + match record {
-            schema::Record::FmtBlock(b) => 14 * 4 + 2 + b.lang.len(),
+            schema::Record::FmtBlock(b) => 16 * 4 + 2 + b.lang.len(),
             schema::Record::FmtTextPart(t) => 2 + t.text.len(),
             schema::Record::FmtRun(_) => 12,
             schema::Record::FmtMap(_) => 8,
