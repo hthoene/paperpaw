@@ -48,14 +48,10 @@ pub struct Chips {
 impl Chips {
     /// How many pixels high a fingertip is on a touch screen, `0` on one that
     /// is not: what [`Chips::height`] keeps chips at least as high as. The
-    /// same figure [`Style::read`] holds rows to.
+    /// figure [`Style::read`] holds rows to ([`crate::style::finger_px`]).
     #[must_use]
     pub fn finger(display: &Snapshot) -> u16 {
-        if !display.has_touch() {
-            return 0;
-        }
-        let pixels = (70 * u32::from(display.display_dpi()) + 127) / 254;
-        crate::geometry::clamp_u16(i64::from(pixels))
+        crate::geometry::clamp_u16(i64::from(crate::style::finger_px(display)))
     }
 
     /// The height of a row of chips: seven tenths of a list row, at least a
@@ -288,8 +284,38 @@ impl Chips {
         chosen: usize,
         focus: Option<usize>,
     ) -> Result<(), Error> {
+        self.frames_in(paint, chosen, focus, None)
+    }
+
+    /// Whether chip `index` (with the frame the focus draws round it) is in
+    /// `band`, the part of the screen drawn now: `true` without a band.
+    fn shows(&self, index: usize, band: Option<Rect>) -> bool {
+        let Some(band) = band else {
+            return true;
+        };
+        self.reach(index).is_some_and(|reach| {
+            reach.y < band.y.saturating_add(band.height)
+                && band.y < reach.y.saturating_add(reach.height)
+        })
+    }
+
+    /// [`Chips::frames`] for the chips in `band` only, where the screen is
+    /// drawn a band at a time (the draw callback's rows).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn frames_in(
+        &self,
+        paint: &mut Vec<Paint>,
+        chosen: usize,
+        focus: Option<usize>,
+        band: Option<Rect>,
+    ) -> Result<(), Error> {
         let border = u32::from(self.border);
         for (i, cell) in self.cells.iter().enumerate() {
+            if !self.shows(i, band) {
+                continue;
+            }
             let back = if i == chosen { self.ink } else { self.paper };
             let radius = self.radius(cell.height.min(cell.width));
             paint::push(paint, Paint::Focus(*cell, radius, None, back))?;
@@ -323,8 +349,28 @@ impl Chips {
         chosen: usize,
         focus: Option<usize>,
     ) -> Result<(), Error> {
-        self.frames(paint, chosen, focus)?;
+        self.prepare_in(paint, font, chosen, focus, None)
+    }
+
+    /// [`Chips::prepare`] for the chips in `band` only (see
+    /// [`Chips::frames_in`]): a chip outside it, its focus frame too, makes no
+    /// operation.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] or a refused font reply.
+    pub fn prepare_in(
+        &self,
+        paint: &mut Vec<Paint>,
+        font: &Font<'_>,
+        chosen: usize,
+        focus: Option<usize>,
+        band: Option<Rect>,
+    ) -> Result<(), Error> {
+        self.frames_in(paint, chosen, focus, band)?;
         for (i, (cell, label)) in self.cells.iter().zip(&self.labels).enumerate() {
+            if !self.shows(i, band) {
+                continue;
+            }
             let size = self.size_of(label);
             let pad = f32::from(self.gap).min(f32::from(cell.width) / 12.0);
             let room = (f32::from(cell.width) - 2.0 * pad).max(1.0);

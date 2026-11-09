@@ -207,3 +207,33 @@ fn a_refused_allocation_is_no_memory_and_nothing_else() {
         Ok(paint.len() + chips.len())
     });
 }
+
+#[test]
+fn only_the_chips_in_the_band_are_drawn() {
+    let style = style();
+    let height = Chips::height(&style, 0);
+    let wide = height * 2;
+    // Two rows of two chips, low enough for the frames round them to be whole.
+    let area = Rect::new(0, 100, 2 * wide + style.gap, 2 * height + style.gap);
+    let chips = Chips::from_widths(&style, 0, area, &[wide; 4]).unwrap();
+    let second_row = chips.cell(2).unwrap();
+    let mut all = Vec::new();
+    chips.frames(&mut all, 0, None).unwrap();
+    assert_eq!(all.len(), 8);
+    // A band over the second row only: its two chips, outline and fill each.
+    let mut some = Vec::new();
+    let band = Rect::new(0, second_row.y + height / 2, area.width, height);
+    chips.frames_in(&mut some, 0, None, Some(band)).unwrap();
+    assert_eq!(some.len(), 4);
+    // A band just above the second row still meets what the focus frame
+    // of its chips reaches outside them.
+    let mut framed = Vec::new();
+    let low = Rect::new(0, second_row.y - 1, area.width, 1);
+    chips.frames_in(&mut framed, 0, Some(2), Some(low)).unwrap();
+    assert_eq!(framed.len(), 5, "{framed:?}");
+    // A band above everything draws nothing.
+    let mut none = Vec::new();
+    let nowhere = Rect::new(0, area.y + area.height + 100, area.width, 10);
+    chips.frames_in(&mut none, 0, None, Some(nowhere)).unwrap();
+    assert!(none.is_empty());
+}
