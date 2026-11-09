@@ -82,6 +82,7 @@ fn staged_name(target: &str) -> Result<String, i32> {
 impl NetDevice {
     /// The host over `storage`, `http` and `network`, charging `pool` and
     /// holding its saves in `in_use`.
+    #[allow(clippy::too_many_arguments, reason = "one device, built in one place")]
     pub(crate) fn new(
         storage: Rc<dyn Storage>,
         http: Rc<dyn ShellHttp>,
