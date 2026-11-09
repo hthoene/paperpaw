@@ -95,7 +95,7 @@ pub(crate) fn tables(
 /// `[hyphenation]` names, relative to the folder, in the order written. `Err`
 /// where the loader refuses the whole plugin (a line that does not parse, an
 /// invalid id or version, formats from a later PaperPaw). Formats before 5 give
-/// no tables. It is the loader's own code (`parse_manifest` and [`tables`]), so
+/// no tables. It is the loader's own code (`parse_manifest` and `tables`), so
 /// a shell that has to tell a usable hyphenation plugin from one that is not
 /// (the default pack's seeding) cannot drift from it. Whether a table's file
 /// is there, or holds, is not looked at here.
