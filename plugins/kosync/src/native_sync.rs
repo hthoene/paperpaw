@@ -28,9 +28,10 @@ pub const MOST_UNSENT: usize = 4;
 /// Offers left without a choice, kept so they do not come again for the same
 /// position.
 pub const MOST_DISMISSED: usize = 4;
-/// Books whose progress is held back while it is fetched: the open one and the
-/// ones left, at most this many; the oldest goes first.
-pub const MOST_LEFT: usize = 4;
+/// Books left whose progress is held back while their fetch is out: the books
+/// switched from while Offline ([`MOST_UNSENT`]) and the book open when the
+/// network came back, so none is dropped; the oldest goes first beyond that.
+pub const MOST_LEFT: usize = MOST_UNSENT + 1;
 
 /// Where the reader is in which book.
 #[derive(Debug, PartialEq)]
@@ -153,7 +154,8 @@ pub enum Action {
         manual: bool,
     },
     /// Put the position to the server. When it cannot be made (the book
-    /// does not read) or fails, call [`Engine::not_sent`].
+    /// does not read) or fails, call [`Engine::not_sent`]. When a `Fetch`
+    /// cannot be made, call [`Engine::not_fetched`].
     Send(Position),
     /// Show the offer.
     Offer(Offer),
@@ -284,6 +286,15 @@ impl Engine {
     pub fn not_sent(&mut self) {
         self.sent = None;
         self.last_push = None;
+    }
+
+    /// The fetch of the book at `path` could not be made (it does not read):
+    /// asked again at the next chance, not after a minute. Its sending stays
+    /// held back, as when the fetch fails.
+    pub fn not_fetched(&mut self, path: &str) {
+        if self.last_pull.as_ref().is_some_and(|(p, _)| p == path) {
+            self.last_pull = None;
+        }
     }
 
     /// The account changed: what was learnt about the server's progress is

@@ -34,7 +34,7 @@ port.
 Interface 6's `State` (`lib.rs`) as a state machine with every allocation fallible: which book is
 open and where, what was sent and when (at most once a minute, again after a failure), the hold on
 sending until the server's progress is read, the offer, *declined* and *not now* (`dismissed`, at
-most 4 kept), the books left while their fetch was out (at most 4), the books switched from while
+most 4 kept), the books left while their fetch was out (at most 5), the books switched from while
 Offline (at most 4), the fetch at most once a minute per book, *Sync progress*. The caller gives
 the host's facts (`Ctx`: clock, network, *auto*, signed in, online, radio on anyway) and carries out
 the `Action`s: `Fetch`, `Send`, `Offer`, `Notice`, `PushLater` (declare the work). The decision on
@@ -45,8 +45,12 @@ Kept for the caller: the book's fingerprint and XPointer, the request and the ac
 declaration, the device id. `progress_text` is the key of an offered position (`{progress}`; a very
 small number in scientific form so it stays short).
 
-Differences from interface 6, all to make it bounded: the books left are capped at 4 (interface 6
-kept any number); the position's place is `(section, offset)` instead of a `Locator`.
+The engine reports `NoMemory` and may have pushed some actions already: after an `Err` the caller
+drops `out` and carries out none of it (the next event starts again). A `Fetch` or `Send` it cannot
+make (the book does not read) is reported back with `not_fetched` and `not_sent`.
+
+Differences from interface 6, all to make it bounded: the books left are capped at 5 (`MOST_LEFT`, the
+4 switched from offline and the open one; interface 6 kept any number); the position's place is `(section, offset)` instead of a `Locator`.
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
