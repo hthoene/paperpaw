@@ -16,23 +16,7 @@
     },
     {
       "kind": "host",
-      "name": "clock.micros"
-    },
-    {
-      "kind": "host",
       "name": "env.snapshot"
-    },
-    {
-      "kind": "host",
-      "name": "settings.read"
-    },
-    {
-      "kind": "host",
-      "name": "i18n.copy"
-    },
-    {
-      "kind": "host",
-      "name": "font.acquire"
     },
     {
       "kind": "host",
@@ -40,31 +24,7 @@
     },
     {
       "kind": "host",
-      "name": "canvas.fill_rect"
-    },
-    {
-      "kind": "host",
-      "name": "canvas.draw_line"
-    },
-    {
-      "kind": "host",
-      "name": "canvas.fill_round"
-    },
-    {
-      "kind": "host",
-      "name": "canvas.stroke_round"
-    },
-    {
-      "kind": "host",
-      "name": "text.measure"
-    },
-    {
-      "kind": "host",
-      "name": "text.draw"
-    },
-    {
-      "kind": "host",
-      "name": "commands.submit"
+      "name": "i18n.copy"
     },
     {
       "kind": "host",
@@ -72,19 +32,35 @@
     },
     {
       "kind": "host",
-      "name": "i18n.format"
+      "name": "services.query"
     },
     {
       "kind": "host",
-      "name": "text.metrics"
+      "name": "storage.append"
     },
     {
       "kind": "host",
-      "name": "text.ink"
+      "name": "storage.read_at"
     },
     {
       "kind": "host",
-      "name": "canvas.clip"
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
     },
     {
       "kind": "callback",
@@ -103,6 +79,20 @@
       "name": "input"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.device",
+    "core.document",
+    "core.library",
+    "core.ui"
+  ],
+  "features": [
+    {
+      "key": "uses.library",
+      "required": true
+    },
+    {
+      "key": "uses.storage",
+      "required": true
+    }
+  ]
 }

@@ -40,6 +40,9 @@ pub(crate) struct StackRows {
     cleanup_sweep: Cell<bool>,
     /// The screen callback on the stack: `(owner, instance)`, `(0, 0)` for none.
     running: Cell<(u64, u32)>,
+    /// What the open instances relabel in the row of button hints
+    /// (`command.set_hint`); an instance's labels go when it leaves the stack.
+    labels: core::cell::RefCell<super::hint_labels::HintLabels>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -51,6 +54,7 @@ impl Default for StackRows {
             close_error: Cell::new(0),
             cleanup_sweep: Cell::new(false),
             running: Cell::new((0, 0)),
+            labels: core::cell::RefCell::default(),
         }
     }
 }
@@ -196,6 +200,10 @@ impl StackRows {
     }
 
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.
+    /// The labels of `command.set_hint` of the open instances.
+    pub(crate) fn labels(&self) -> &core::cell::RefCell<super::hint_labels::HintLabels> {
+        &self.labels
+    }
     pub(crate) fn update(&self, rows: impl IntoIterator<Item = StackRow>) {
         let mut count = 0;
         for row in rows {
@@ -218,6 +226,13 @@ impl StackRows {
             {
                 pending.set(NO_PENDING);
             }
+        }
+        // Labels of instances that left the stack go with them. A labels
+        // call in progress (a hint being drawn) keeps what it has: the next
+        // change of the stack prunes.
+        if let Ok(mut labels) = self.labels.try_borrow_mut() {
+            let open = &self.rows[..count.min(STACK_MAX)];
+            labels.retain_open(|instance| open.iter().any(|row| row.get().instance == instance));
         }
         let generation = self.generation.get();
         self.generation.set(if generation == 0 {
@@ -301,6 +316,29 @@ mod tests {
         assert!(rows.instance(2, generation).is_none());
         assert!(rows.instance(1, rows.generation()).is_none());
         assert!(rows.instance(0, rows.generation()).is_none());
+    }
+    #[test]
+    fn set_hint_labels_go_when_their_instance_leaves_the_stack() {
+        use crate::native_host::hint_labels::{HintLabels, make};
+        let rows = StackRows::default();
+        let row = |instance| StackRow {
+            instance,
+            owner: 8,
+            flags: 0,
+        };
+        rows.update([row(1), row(2)]);
+        let sets = alloc::vec![
+            make("probe", 1, "probe.go", 1, "One").unwrap(),
+            make("probe", 2, "probe.go", 1, "Two").unwrap()
+        ];
+        rows.labels().borrow_mut().reserve(&sets).unwrap();
+        rows.labels().borrow_mut().apply(sets);
+        let hint = |labels: &HintLabels, instance| labels.hint(instance, "probe.go");
+        rows.update([row(1)]);
+        assert!(hint(&rows.labels().borrow(), 1).is_some());
+        assert!(hint(&rows.labels().borrow(), 2).is_none());
+        rows.update([]);
+        assert!(rows.labels().borrow().is_empty());
     }
     #[test]
     fn unknown_plugin_owner_and_overflow_are_secret_and_guarding() {

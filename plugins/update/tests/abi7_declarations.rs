@@ -4,7 +4,7 @@
 //! accept or refuse them as they should.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
-#[allow(dead_code, reason = "tokens the plugin uses later")]
+#[allow(dead_code, reason = "tokens the build script and the plugin use")]
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
@@ -178,4 +178,31 @@ fn the_first_run_step_is_the_registrations() {
     assert_eq!((new.6.as_str(), new.7.as_str()), ("", ""));
     assert_eq!(new.9, 0b11);
     assert_eq!(new.8, 8, "the Firmware need");
+}
+
+/// The card flow hears the start (to say how an install went), the end of an
+/// install and its progress: three subscriptions, each with its own token, in
+/// the batch the host's rules accept.
+#[test]
+fn the_events_are_the_start_the_end_and_the_progress_of_an_install() {
+    let all = batches(|d| declarations::events(d).unwrap());
+    assert_eq!(all.len(), 1);
+    let native = declared::native("update", &all);
+    // The lines are sorted by event tag, not by token.
+    let mut tokens: Vec<&str> = native
+        .events
+        .iter()
+        .map(|event| event.rsplit(':').next().unwrap())
+        .collect();
+    tokens.sort_unstable();
+    assert_eq!(
+        tokens,
+        [
+            declarations::STARTED,
+            declarations::INSTALL_DONE,
+            declarations::FIRMWARE_CHANGED
+        ]
+        .map(|token| token.to_string())
+    );
+    assert!(native.others.is_empty(), "{:?}", native.others);
 }

@@ -7,8 +7,9 @@
 //! The font a page shows is handed over as the screen's one parameter
 //! (`Font::to_param`), so that the page does not read the catalog again.
 use crate::{
-    declarations::{DOWNLOADED, FONT, LIST, OPEN, OWN},
+    declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN},
     native_catalog::{Catalog, Font},
+    native_job::Job,
     native_view::{Installed, Row, Trouble, rows, should_fetch},
 };
 use alloc::{string::String, vec::Vec};
@@ -48,6 +49,12 @@ const READING_FONT: &str = "core.reading-font";
 const STATUS_FONT: &str = "core.status-font";
 /// The plugin's number of the catalog's request, in its `http_done` event.
 const CATALOG_REQUEST: u32 = 1;
+/// The token of the font files' requests, and the numbers of the host
+/// requests (an install, a removal) in their `install_done`.
+const DOWNLOADED_FILE: u32 = 2;
+/// The first request number of an install; each download counts up from it.
+const INSTALL_REQUEST: u32 = 16;
+const REMOVE_REQUEST: u32 = 2;
 /// The catalog kept from the last visit, and the one coming in.
 const KEPT: &str = "catalog.json";
 const PART: &str = "catalog.json.part";
@@ -92,7 +99,15 @@ pub struct NativeFontsBrowser {
     screens: Screens<View>,
     /// The catalog's request in flight.
     fetching: Option<RequestId>,
+    /// The font being downloaded, and the request of its file in flight.
+    job: Option<Job>,
+    file_request: Option<RequestId>,
+    /// Downloads started so far: each has its own install request number.
+    started: u32,
 }
+
+#[path = "native_install.rs"]
+mod install;
 
 impl Plugin for NativeFontsBrowser {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
@@ -101,9 +116,17 @@ impl Plugin for NativeFontsBrowser {
             .chain(image::SETTINGS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::INSTALLS)
         {
             registrations::submit(host, batch)?;
         }
+        // Nothing is downloading yet, so whatever a cut-off run left is stale.
+        paperpaw_sdk::native::storage::remove(
+            host,
+            paperpaw_sdk::native::storage::Root::Data,
+            crate::native_plan::STAGING,
+        )
+        .ok();
         Ok(Self::default())
     }
 
@@ -118,6 +141,7 @@ impl Plugin for NativeFontsBrowser {
             incoming;
             kinds::ActionRun,
             kinds::HttpDone,
+            kinds::InstallDone,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed
@@ -142,9 +166,12 @@ impl Plugin for NativeFontsBrowser {
                 if done.token() == CATALOG_REQUEST && self.fetching == Some(done.id()) {
                     self.fetching = None;
                     self.catalog_done(host, &done)?;
+                } else if done.token() == DOWNLOADED_FILE {
+                    self.file_done(host, &done)?;
                 }
                 Ok(())
             }
+            Event::InstallDone(done) if token == INSTALLED => self.install_done(host, &done),
             Event::ScreenOpened { instance, .. } if token == LIST => self.open_list(host, instance),
             Event::ScreenOpened {
                 instance, handover, ..
@@ -226,7 +253,14 @@ impl Plugin for NativeFontsBrowser {
             View::Font(view) => {
                 let step = view.list.input(host, &input)?;
                 if let ItemStep::Chosen(index) = step {
-                    return Self::choose_row(host, view, index);
+                    let picked = match (&view.font, view.rows.get(index)) {
+                        (Some(font), Some(Some(row))) => Some((font.clone(), *row)),
+                        _ => None,
+                    };
+                    return match picked {
+                        Some((font, row)) => self.choose_row(host, &font, row),
+                        None => Ok(Handled::Yes),
+                    };
                 }
                 Ok(ItemList::handled(step))
             }
@@ -539,7 +573,13 @@ impl NativeFontsBrowser {
         }
         let font = Font::from_param(&text)?;
         let installed = self.installed(host)?;
-        let view = Self::font_view(host, font, &installed)?;
+        let downloading = self
+            .job
+            .as_ref()
+            .map(|job| copy(&job.plan.plugin))
+            .transpose()?;
+        let installing = self.job.as_ref().is_some_and(|job| job.installing());
+        let view = Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
         self.screens.open(instance, View::Font(view))
     }
 
@@ -548,6 +588,8 @@ impl NativeFontsBrowser {
         host: &Host<'_>,
         font: Option<Font>,
         installed: &Installed,
+        downloading: Option<&str>,
+        installing: bool,
     ) -> Result<FontView, Error> {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
@@ -592,11 +634,11 @@ impl NativeFontsBrowser {
         push(&mut items, Item::heading(&licence)?)?;
         push(&mut kinds, None)?;
         let here = font.plugin().ok().and_then(|id| installed.version(&id));
-        // Download, update and remove are not native yet (`choose_row`): not shown.
-        for row in rows(&font, here, false)?
-            .into_iter()
-            .filter(|row| matches!(row, Row::Read | Row::Status))
-        {
+        let busy = match (downloading, font.plugin()) {
+            (Some(plugin), Ok(own)) => plugin == own,
+            _ => false,
+        };
+        for row in rows(&font, here, busy, installing)? {
             let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
             let item = Item::row(&title, &value)?;
             push(&mut items, item)?;
@@ -652,21 +694,23 @@ impl NativeFontsBrowser {
     }
 
     /// What choosing a row of a font's page does.
-    fn choose_row(host: &Host<'_>, view: &mut FontView, index: usize) -> Result<Handled, Error> {
-        let (Some(font), Some(Some(row))) = (&view.font, view.rows.get(index)) else {
-            return Ok(Handled::Yes);
-        };
-        let setting = match row {
-            Row::Read => READING_FONT,
-            Row::Status => STATUS_FONT,
-            // BLOCKED (#228): downloading with `core.net`, checking each file's SHA-1
-            // and having the host install it (`CommandSender::install_plugin`, PR 621),
-            // removing it (`remove_plugin`): `PORTING-7.md`.
-            _ => return Err(Error::Unsupported),
-        };
-        let mut scratch = [0; 384];
-        CommandSender::new(host, &mut scratch)
-            .set_setting(setting, SettingValue::Text(&font.name))?;
+    fn choose_row(&mut self, host: &Host<'_>, font: &Font, row: Row) -> Result<Handled, Error> {
+        match row {
+            Row::Read | Row::Status => {
+                let setting = if row == Row::Read {
+                    READING_FONT
+                } else {
+                    STATUS_FONT
+                };
+                let mut scratch = [0; 384];
+                CommandSender::new(host, &mut scratch)
+                    .set_setting(setting, SettingValue::Text(&font.name))?;
+            }
+            Row::Download => self.download(host, font, false)?,
+            Row::Update => self.download(host, font, true)?,
+            Row::Stop => self.stop(host)?,
+            Row::Remove => self.remove(host, font)?,
+        }
         Ok(Handled::Yes)
     }
 }

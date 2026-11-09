@@ -13,7 +13,7 @@ fn root() -> PathBuf {
 }
 
 /// All thirteen built once, into a folder of the target directory.
-fn built() -> &'static Path {
+pub(crate) fn built() -> &'static Path {
     static OUT: OnceLock<PathBuf> = OnceLock::new();
     OUT.get_or_init(|| {
         let out = std::env::temp_dir().join(format!("pp-hyphenation-packs-{}", std::process::id()));
@@ -65,75 +65,25 @@ fn thirteen_packages_each_in_its_own_folder_and_all_clean() {
 }
 
 #[test]
-fn ids_are_the_interface_6_plugins_and_the_source_is_there() {
+fn the_pattern_sources_are_there() {
     for package in &PACKAGES {
         let source = root().join("plugins").join(package.id);
-        let cargo = fs::read_to_string(source.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains(&format!("name = \"paperpaw-plugin-{}\"", package.id)));
         assert!(source.join("patterns").join(package.patterns).exists());
+        if let Some(name) = package.exceptions {
+            assert!(source.join("patterns").join(name).exists());
+        }
+        // No code is left in a data plugin's folder.
+        for code in ["Cargo.toml", "build.rs", "src"] {
+            assert!(!source.join(code).exists(), "{}: {code}", package.id);
+        }
     }
 }
 
 #[test]
-fn a_package_is_newer_than_the_code_plugin_it_replaces() {
+fn a_package_is_newer_than_the_code_plugin_it_replaced() {
+    // The code plugins were at 1.0.3 (the English one at 1.1.1) in Beta 3.
     let new: Vec<u32> = VERSION.split('.').map(|p| p.parse().unwrap()).collect();
-    for package in &PACKAGES {
-        let cargo =
-            fs::read_to_string(root().join("plugins").join(package.id).join("Cargo.toml")).unwrap();
-        let old = cargo
-            .lines()
-            .find_map(|l| l.strip_prefix("version = "))
-            .unwrap()
-            .trim_matches('"');
-        let old: Vec<u32> = old.split('.').map(|p| p.parse().unwrap()).collect();
-        assert!(new > old, "{}: {VERSION} is not newer", package.id);
-    }
-}
-
-/// What the build script of the interface-6 plugin compiles, so that the
-/// package's table is the same table.
-#[test]
-fn inputs_follow_the_interface_6_build_scripts() {
-    for package in &PACKAGES {
-        let script =
-            fs::read_to_string(root().join("plugins").join(package.id).join("build.rs")).unwrap();
-        let (left, right) = package.minimums;
-        let own = format!("patterns/{}", package.patterns);
-        assert!(script.contains(&own), "{}: patterns", package.id);
-        if package.id == "hyphenation" {
-            assert!(script.contains(&format!("{left},")) && script.contains(&format!("{right},")));
-        } else {
-            assert!(
-                script.contains(&format!("const LEFT: u8 = {left};")),
-                "{}",
-                package.id
-            );
-            assert!(
-                script.contains(&format!("const RIGHT: u8 = {right};")),
-                "{}",
-                package.id
-            );
-        }
-        match package.exceptions {
-            Some(name) => assert!(
-                script.contains(&format!("patterns/{name}")),
-                "{}",
-                package.id
-            ),
-            None => assert!(!script.contains("hyp.txt"), "{}: exceptions", package.id),
-        }
-    }
-}
-
-#[test]
-fn languages_are_those_the_code_plugin_registers() {
-    for package in &PACKAGES {
-        let lib =
-            fs::read_to_string(root().join("plugins").join(package.id).join("src/lib.rs")).unwrap();
-        for &(tag, _) in package.languages {
-            assert!(lib.contains(&format!("\"{tag}\"")), "{}: {tag}", package.id);
-        }
-    }
+    assert!(new > vec![1, 1, 1], "{VERSION} is not newer");
 }
 
 #[test]
@@ -196,7 +146,7 @@ fn norwegian_names_one_table_for_both_tags() {
 }
 
 #[test]
-fn catalogs_and_texts_are_the_interface_6_plugins_unchanged() {
+fn catalogs_and_texts_are_the_sources_unchanged() {
     for package in &PACKAGES {
         for file in ["i18n/en.ini", "i18n/de.ini", "how/en.txt", "how/de.txt"] {
             let old = fs::read(root().join("plugins").join(package.id).join(file)).unwrap();

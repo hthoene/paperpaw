@@ -54,6 +54,14 @@ pub(crate) trait FilesHost {
     /// Required: a host that forgets it would let an alias reach them.
     fn excluded(&self, root: u32, first_segment: &str) -> bool;
 
+    /// Whether `plugin` is built into the firmware (a linked plugin). Its
+    /// install folder (root 2) counts as empty whatever the card holds at
+    /// `plugins/<id>/` (a leftover of an older install): every path in it is
+    /// `ERR_NOT_FOUND` and a listing of it has no rows.
+    ///
+    /// Required: a host that forgets it would let a leftover folder be read.
+    fn built_in(&self, plugin: &str) -> bool;
+
     /// Whether `access` to `path` (card relative) is `ERR_BUSY` now: the host
     /// holds it in use (the reader's book, a staged install, a download's
     /// file, a served request body) or the library's move job runs and says

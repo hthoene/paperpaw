@@ -486,18 +486,7 @@ fn cleanup_on_a_busy_store_is_busy_and_retried_never_dropped() {
 }
 
 #[test]
-fn the_small_heap_xteink_devices_share_the_x4_profile_and_nothing_else_does() {
-    for id in ["xteink-x4", "xteink-x3"] {
-        assert!(is_x4(id), "{id}");
-    }
-    for id in [
-        "",
-        "xteink-x4-pro",
-        "xteink-x",
-        "desktop",
-        "android",
-        "XTEINK-X4",
-    ] {
-        assert!(!is_x4(id), "{id}");
-    }
+fn only_the_small_memory_class_gets_the_x4_profile() {
+    assert!(is_x4(MemoryClass::Small));
+    assert!(!is_x4(MemoryClass::Large));
 }
