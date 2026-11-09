@@ -189,3 +189,214 @@ fn a_failed_start_ends_the_request_at_once_with_the_devices_reason() {
     assert!(matches!(event, Event::Ended(o) if o.reason == Reason::OTHER.0));
     assert_eq!(d.waiting(), 0);
 }
+
+/// Runs plugin 1's install to state 3 (request `request`).
+fn installed(d: &mut Driver, request: u32) {
+    d.submit_install(1, request, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(d) else {
+        panic!("always asked");
+    };
+    d.answer(ask.question(), Answer::Yes);
+    assert!(matches!(run(d), Event::Ended(o) if o.reason == 0));
+    // Its outcome is told and kept.
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+}
+
+#[test]
+fn a_restart_is_a_request_with_room_of_its_own_and_its_outcome_carries_the_number() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    // The restart takes a place in the table and room for its outcome.
+    let ask = d.request_restart(1).unwrap();
+    assert_eq!(d.waiting(), 1);
+    assert!(d.holds(1, 5));
+    // Three more fill the table; a fifth would be full.
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    d.submit_check(3, 1, "c.ppu").unwrap();
+    d.submit_check(4, 1, "d.ppu").unwrap();
+    assert_eq!(d.submit_check(5, 1, "e.ppu"), Err(ERR_FULL));
+    // "No" to the restart and a stop in the same pass: every sender is told
+    // exactly once, none is lost, the restart's outcome has its number.
+    let Event::Ended(declined) = d.answer(ask.question(), Answer::No) else {
+        panic!("a no ends it");
+    };
+    assert_eq!((declined.request, declined.reason), (5, 2));
+    d.abort_all();
+    let mut told = Vec::new();
+    while let Some(outcome) = d.take_ready() {
+        told.push((outcome.owner, outcome.request, outcome.reason));
+    }
+    told.sort_unstable();
+    assert_eq!(told, [(1, 5, 2), (2, 1, 20), (3, 1, 20), (4, 1, 20)]);
+    assert_eq!(d.lost, 0);
+}
+
+#[test]
+fn a_restart_waiting_for_its_answer_ends_with_reason_twenty_on_a_stop() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    d.request_restart(1).unwrap();
+    d.abort_all();
+    let outcome = d.take_ready().unwrap();
+    assert_eq!((outcome.owner, outcome.request, outcome.reason), (1, 5, 20));
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn an_outcome_only_fills_the_slot_of_its_own_request() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    let Event::Ended(first) = run(&mut d) else {
+        panic!("a check ends");
+    };
+    // The plugin asks again from the callback that is told of the first one:
+    // the late `delivered` of the first does not fill the second's slot.
+    d.submit_check(1, 2, "a.ppu").unwrap();
+    let first_told = d.take_ready().unwrap();
+    assert_eq!(first_told, first);
+    d.delivered(first_told);
+    assert_eq!(d.kept(1, KIND_CHECK), None);
+    let Event::Ended(second) = run(&mut d) else {
+        panic!("a check ends");
+    };
+    d.take_ready();
+    d.delivered(second);
+    assert_eq!(d.kept(1, KIND_CHECK).map(|o| o.request), Some(2));
+}
+
+#[test]
+fn slots_whose_outcome_never_came_are_evicted_for_new_plugins() {
+    let mut d = driver();
+    // Eight plugins each leave a slot with no outcome (their requests were
+    // taken back); a ninth is not refused for them.
+    for owner in 1..=8 {
+        d.submit_install(owner, 1, "a.ppu", None, 0).unwrap();
+        d.cancel(owner, 1);
+    }
+    assert_eq!(d.waiting(), 0);
+    d.submit_install(9, 1, "a.ppu", None, 0).unwrap();
+    assert!(d.holds(9, 1));
+}
+
+#[test]
+fn a_cancelled_check_gives_its_result_place_back() {
+    let mut d = driver();
+    for owner in 1..=4 {
+        d.submit_check(owner, 1, "a.ppu").unwrap();
+        d.cancel(owner, 1);
+    }
+    // Four cancelled checks do not keep the four result places.
+    d.submit_check(5, 1, "a.ppu").unwrap();
+}
+
+#[test]
+fn a_check_stopped_before_it_ran_leaves_a_result_not_a_busy_slot() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.abort_all();
+    let machine = d.machine();
+    let checked = machine.borrow().checked(1).unwrap();
+    assert_eq!((checked.request, checked.reason), (1, 20));
+}
+
+#[test]
+fn one_plugin_holds_at_most_two_places_so_others_keep_theirs() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(1, 2, "b.ppu").unwrap();
+    assert_eq!(d.submit_check(1, 3, "c.ppu"), Err(ERR_FULL));
+    assert_eq!(d.submit_install(1, 4, "c.ppu", None, 0), Err(ERR_FULL));
+    // Two places are left device-wide for other plugins.
+    d.submit_check(2, 1, "d.ppu").unwrap();
+    d.submit_check(3, 1, "e.ppu").unwrap();
+    assert_eq!(d.waiting(), 4);
+}
+
+#[test]
+fn a_stopped_owner_keeps_its_waiting_image_and_may_restart_it_later() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    d.sender_stopped(1);
+    // The image is a fact about the device: another plugin may not restart
+    // it, and its installs end with reason 21 until a reboot.
+    assert_eq!(d.request_restart(2).err(), Some(ERR_DENIED));
+    d.submit_install(2, 1, "b.ppu", None, 0).unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == 21));
+    // The owner starts again (same plugin id): its restart is accepted.
+    assert!(d.request_restart(1).is_ok());
+}
+
+#[test]
+fn a_request_counts_until_its_outcome_is_told() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(1, 2, "b.ppu").unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    // Ended but not told: still two open requests.
+    assert_eq!(d.submit_check(1, 3, "c.ppu"), Err(ERR_FULL));
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+    d.submit_check(1, 3, "c.ppu").unwrap();
+}
+
+#[test]
+fn an_answer_that_finds_the_machine_borrowed_is_counted() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    let ask = d.request_restart(1).unwrap();
+    let machine = d.machine();
+    let held = machine.borrow_mut();
+    assert_eq!(d.answer(ask.question(), Answer::Yes), Event::Quiet);
+    drop(held);
+    assert_eq!(d.skipped(), 1);
+}
+
+#[test]
+fn many_steps_between_two_looks_leave_one_changed_mark() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    d.answer(ask.question(), Answer::Yes);
+    assert_eq!(d.peek_changed(), None);
+    // Steps (far apart in time, so each one reports progress) mark the one
+    // request; nothing queues however many pass before anyone looks.
+    let mut marks = 0;
+    for now in (100..20_000).step_by(100) {
+        if matches!(d.pump(&NoStorage, &Names, now), Event::Progress { .. }) {
+            marks += 1;
+        }
+        if d.peek_changed().is_some() && marks >= 2 {
+            break;
+        }
+    }
+    assert!(marks >= 2, "progress came more than once");
+    assert_eq!(d.peek_changed(), Some((1, 1)));
+    d.clear_changed(1, 1);
+    assert_eq!(d.peek_changed(), None);
+}
+
+#[test]
+fn op_13_state_is_waiting_until_yes_then_running_then_ended() {
+    let mut d = driver();
+    d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
+    d.submit_check(2, 1, "b.ppu").unwrap();
+    // Queued.
+    assert_eq!(d.lookup(2, 1).unwrap().state, 0);
+    let Event::Ask(ask) = run(&mut d) else {
+        panic!("always asked");
+    };
+    // Its confirmation shows: still waiting.
+    assert_eq!(d.lookup(1, 1).unwrap().state, 0);
+    d.answer(ask.question(), Answer::Yes);
+    assert_eq!(d.lookup(1, 1).unwrap().state, 1);
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    let ended = d.lookup(1, 1).unwrap();
+    assert_eq!((ended.state, ended.outcome.is_some()), (2, true));
+    // Kept after its edge is told, too.
+    let outcome = d.take_ready().unwrap();
+    d.delivered(outcome);
+    assert_eq!(d.lookup(1, 1).unwrap().state, 2);
+}

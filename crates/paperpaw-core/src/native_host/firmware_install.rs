@@ -796,6 +796,21 @@ impl FirmwareInstall {
         }
     }
 
+    /// Whether the request runs for good: a check, or an install after the
+    /// user's yes (copy, check, write). Before that, and for a restart that
+    /// waits for its answer, it still waits (op 13 state 0).
+    pub(crate) fn runs(&self, owner: u64, request: u32) -> bool {
+        match &self.phase {
+            Phase::Writing(job, ..) | Phase::Reading(job, _) => {
+                (job.owner, job.request) == (owner, request)
+            }
+            Phase::Checking(job, _) => {
+                job.install.is_none() && (job.owner, job.request) == (owner, request)
+            }
+            Phase::Asking(..) | Phase::RestartAsking(_) | Phase::Idle => false,
+        }
+    }
+
     // ---- the restart ----
 
     /// The submit-time gates of `firmware_restart`, changing nothing.
@@ -808,6 +823,25 @@ impl FirmwareInstall {
             Some(waiting) if waiting.owner != owner => Err(ERR_DENIED),
             Some(_) => Ok(()),
         }
+    }
+
+    /// The request of the image that waits for its restart.
+    pub(crate) fn waiting_request(&self) -> Option<u32> {
+        self.waiting.map(|waiting| waiting.request)
+    }
+
+    /// `owner`'s check `request` was stopped before it ran: its result says
+    /// `reason` (no facts), so the result slot is not left running.
+    pub(crate) fn stopped_check(&mut self, owner: u64, request: u32, reason: u8) {
+        self.keep(
+            owner,
+            CheckResult {
+                request,
+                reason,
+                facts: None,
+                bits: Bits::NONE,
+            },
+        );
     }
 
     /// `firmware_restart` at submit: only the plugin whose install waits may
@@ -882,7 +916,16 @@ impl FirmwareInstall {
         let job = match core::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Checking(job, _) | Phase::Asking(job, _) => job,
             Phase::Writing(job, ..) | Phase::Reading(job, _) => job,
-            Phase::RestartAsking(_) | Phase::Idle => return None,
+            Phase::RestartAsking(request) => {
+                // The image keeps waiting; the plugin that asked is told.
+                return self.waiting.map(|waiting| Outcome {
+                    owner: waiting.owner,
+                    request,
+                    kind: KIND_FIRMWARE,
+                    reason: Reason::STOPPED.0,
+                });
+            }
+            Phase::Idle => return None,
         };
         firmware.abandon();
         Some(self.finish(job, Reason::STOPPED.0, None, Bits::NONE))

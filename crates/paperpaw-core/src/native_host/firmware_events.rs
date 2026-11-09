@@ -19,7 +19,7 @@
 use super::{
     codec,
     device_service::DeviceBuiltIns,
-    firmware_install::{BuiltIns, Event, KIND_CHECK, Outcome},
+    firmware_install::{BuiltIns, KIND_CHECK, Outcome},
     native_instances::InstanceState,
     registrations::{self as wire, Record},
 };
@@ -79,7 +79,7 @@ impl Kernel {
         }
         self.firmware_wire(&driver);
         self.native_outbox_run();
-        let event = {
+        {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
@@ -88,11 +88,10 @@ impl Kernel {
             match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => driver.pump(self.storage(), &DeviceBuiltIns(&*device.0), now),
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
-            }
-        };
-        if let Event::Progress { owner, request, .. } = event {
-            self.firmware_changed(&driver, owner, request);
+            };
         }
+        // Progress only marked the request (see `firmware_changes`).
+        self.firmware_changes(&driver);
         self.firmware_told(&driver);
         self.native_outbox_run();
         driver.try_borrow().map_or(true, |driver| driver.has_work())
@@ -115,20 +114,36 @@ impl Kernel {
         }
     }
 
-    /// `event.firmware_changed` to the plugin whose request advanced.
-    fn firmware_changed(
+    /// `event.firmware_changed` to the plugins whose requests are marked
+    /// (see [`super::firmware_driver::Driver::peek_changed`]): one event per
+    /// request however many steps passed, encoded from the state now. A
+    /// plugin that cannot be called keeps its mark for the next pass.
+    fn firmware_changes(
         &self,
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-        owner: u64,
-        request: u32,
     ) {
-        let state = driver.try_borrow().map_or(0, |driver| driver.state());
-        let record = Record::EventFirmwareChanged(wire::EventFirmwareChanged {
-            now_ms: self.now.millis(),
-            request,
-            state,
-        });
-        let _ = self.firmware_tell(owner, wire::EVENT_FIRMWARE_CHANGED_TAG, &record);
+        for _ in 0..PER_PASS {
+            let Some((owner, request)) = driver
+                .try_borrow()
+                .ok()
+                .and_then(|driver| driver.peek_changed())
+            else {
+                break;
+            };
+            let state = driver.try_borrow().map_or(0, |driver| driver.state());
+            let record = Record::EventFirmwareChanged(wire::EventFirmwareChanged {
+                now_ms: self.now.millis(),
+                request,
+                state,
+            });
+            if self.firmware_tell(owner, wire::EVENT_FIRMWARE_CHANGED_TAG, &record) == Err(ERR_BUSY)
+            {
+                break;
+            }
+            if let Ok(mut driver) = driver.try_borrow_mut() {
+                driver.clear_changed(owner, request);
+            }
+        }
     }
 
     /// Tells the plugins whose requests ended, a few a pass.
@@ -172,10 +187,10 @@ impl Kernel {
                 // Its plugin cannot be called now: on a later pass.
                 break;
             }
-            if let Ok(mut driver) = driver.try_borrow_mut() {
-                if let Some(done) = driver.take_ready() {
-                    driver.delivered(done);
-                }
+            if let Ok(mut driver) = driver.try_borrow_mut()
+                && let Some(done) = driver.take_ready()
+            {
+                driver.delivered(done);
             }
         }
     }

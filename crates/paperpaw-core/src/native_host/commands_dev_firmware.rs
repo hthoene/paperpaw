@@ -172,7 +172,7 @@ impl CommandStage<'_> {
             }
             WireCommand::FirmwareRestart {} => {
                 let ctx = self.firmware()?;
-                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
                 driver.restart_gate(ctx.owner).map(|()| 0)
             }
             _ => Ok(0),
