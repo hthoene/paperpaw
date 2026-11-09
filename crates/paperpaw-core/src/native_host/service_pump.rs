@@ -168,9 +168,11 @@ impl crate::Kernel {
         let work_more = self.native_work_pump();
         // Pictures a plugin asked for decode one a turn (`image_pump`).
         let image_more = self.native_image_pump();
+        // Changed settings reach the plugins that subscribed (`setting_events`).
+        let setting_more = self.native_setting_pump();
         self.shared
             .native_instances
-            .set_service_more(more || work_more || image_more);
+            .set_service_more(more || work_more || image_more || setting_more);
     }
 
     /// When the pump wants to run again: now while events remain, else at

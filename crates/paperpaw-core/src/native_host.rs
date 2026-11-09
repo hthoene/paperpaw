@@ -167,6 +167,8 @@ pub(crate) mod save_files;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;
+#[path = "native_host/setting_events.rs"]
+pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
 #[allow(

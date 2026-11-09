@@ -178,7 +178,9 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 
 #[test]
 fn pending_unsupported_events_do_not_enable_admission() {
-    for tag in 64..=74 {
+    // 64 has its delivery (`setting_events`); the hints 70-74 have none yet.
+    assert!(super::super::events::is_event_tag(64));
+    for tag in 65..=74 {
         assert!(!super::super::events::is_event_tag(tag));
     }
     let budget = EventBudget::try_new().unwrap();
