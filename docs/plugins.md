@@ -2898,7 +2898,7 @@ source knows and the book's file does not name, as calibre does for a book it se
 at most 512 bytes, series 256, number 32, up to 32 tags of 1 to 128 bytes one per line, 2,048 in
 all). Only the fields set are provided, the rest are left alone: a value is never empty or blank
 (only Unicode whitespace; nothing clears a field: leave it out) and has no control
-character (a tab or line break either; a tag list separates its tags by line breaks only), and tags replace the provider's whole tag list. Provided
+character (`char::is_control`: C0, DEL and C1, so a tab or line break either, and U+2028 and U+2029; a tag list separates its tags by line breaks only), and tags replace the provider's whole tag list. Provided
 values fill what the book's file does not name: where the file names a field, its own value wins
 on (re)index. The last provider's values replace earlier ones, and there is one tag list per
 book. They are kept with the book's data and follow it when the book moves. `input` is 4,096 bytes and `out` 64.

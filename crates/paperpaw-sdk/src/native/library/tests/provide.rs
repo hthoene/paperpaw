@@ -113,7 +113,19 @@ fn provided_fields_are_checked_before_the_host_and_an_empty_one_sends_nothing() 
     assert!(Provided::new().title(" Dune ").is_ok());
     // A control character (tab and line break too) is refused; the catalog is
     // tab-separated.
-    for bad in ["a\tb", "a\nb", "a\rb", "a\0b", "a\u{7f}b", "a\u{1f}b"] {
+    for bad in [
+        "a\tb",
+        "a\nb",
+        "a\rb",
+        "a\0b",
+        "a\u{7f}b",
+        "a\u{1f}b",
+        "a\u{80}b",
+        "a\u{85}b",
+        "a\u{9f}b",
+        "a\u{2028}b",
+        "a\u{2029}b",
+    ] {
         assert_eq!(Provided::new().title(bad), Err(Error::Invalid), "{bad:?}");
         assert_eq!(Provided::new().author(bad), Err(Error::Invalid));
         assert_eq!(Provided::new().series(bad), Err(Error::Invalid));
@@ -122,7 +134,17 @@ fn provided_fields_are_checked_before_the_host_and_an_empty_one_sends_nothing() 
     // In tags only the line break separates; another control character in a tag
     // is refused.
     assert!(Provided::new().tags("a\nb").is_ok());
-    for bad in ["a\tb", "a\rb\nc", "a\0", "a\u{7f}"] {
+    // The characters just outside the refused ranges are fine.
+    assert!(Provided::new().title("a\u{a0}b\u{2027}\u{202a}").is_ok());
+    for bad in [
+        "a\tb",
+        "a\rb\nc",
+        "a\0",
+        "a\u{7f}",
+        "a\u{85}",
+        "a\nb\u{2028}",
+        "\u{2029}x",
+    ] {
         assert_eq!(Provided::new().tags(bad), Err(Error::Invalid), "{bad:?}");
     }
 }
