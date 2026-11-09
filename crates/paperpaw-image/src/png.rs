@@ -385,7 +385,7 @@ pub(crate) fn decode(
                     return Err(ImageError::Unsupported("interlaced PNG"));
                 }
                 if width > 1 << 16 || height > 1 << 16 {
-                    return Err(ImageError::Unsupported("PNG too large"));
+                    return Err(ImageError::TooLarge);
                 }
                 header = Some(Header {
                     width,

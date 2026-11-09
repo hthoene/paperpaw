@@ -426,6 +426,9 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
+        // NOTE: this probe builds its own pool (and `core.ui` store). Real linked-
+        // plugin registration must share the loader's pool (`try_clone`, one
+        // `UiStore` per device, ui.md 1.1) so the device keeps one UI store; that comes with the stack gate being lifted (todo 150).
         let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), crate::native::new_resources())
         else {
             return;

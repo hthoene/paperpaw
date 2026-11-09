@@ -111,7 +111,7 @@ impl Plugin for NativeLock {
         };
         match event {
             Event::ActionRun { .. } if token == NOW => self.lock_now(host),
-            Event::Started { now_ms } if token == STARTED => self.started(host, now_ms),
+            Event::Started { now_ms, .. } if token == STARTED => self.started(host, now_ms),
             Event::Resume { .. } if token == RESUME => {
                 self.sync_door();
                 gate::woke(&HostDevice(host), &mut self.lock, &mut self.door)

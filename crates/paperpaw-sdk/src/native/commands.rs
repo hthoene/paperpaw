@@ -10,12 +10,13 @@ use paperpaw_native::host_glue::PpBytes;
 
 mod bluetooth;
 mod device;
+mod lookup;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]
 pub(crate) mod menu_alloc_tests;
 mod registry;
 mod uix;
-pub use device::PowerAction;
+pub use device::{InstallRoot, PowerAction};
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };

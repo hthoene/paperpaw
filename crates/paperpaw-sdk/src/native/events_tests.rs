@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
 use crate::native::declare::records_wire::Record;
+use alloc::format;
 use wire::{
     EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
 };
@@ -151,6 +152,7 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
     let mut bytes = [0; 256];
     let now_ms = 0x1234_5678_9abc_def0;
     let screen = Record::EventScreenShown(EventScreenShown {
+        last_input: 0,
         now_ms,
         screen: "demo.main",
         width: 0x1234_5678,
@@ -165,11 +167,12 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         width,
         height,
         instance,
+        last_input,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
-    assert_eq!(instance, None);
+    assert_eq!((instance, last_input), (None, None));
     assert_eq!(
         (got_ms, screen, width, height),
         (now_ms, "demo.main", 0x1234_5678, 0x9abc_def0)
@@ -193,9 +196,36 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
 }
 
 #[test]
+fn screen_shown_says_what_was_used_last_and_refuses_unknown_values() {
+    use crate::keys::InputMode;
+    let shown = |last_input| {
+        let mut bytes = [0; 128];
+        let record = Record::EventScreenShown(EventScreenShown {
+            last_input,
+            now_ms: 1,
+            screen: "demo.main",
+            width: 480,
+            height: 800,
+            instance: None,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        decode(&bytes[..len]).map(|event| match event {
+            Event::ScreenShown { last_input, .. } => last_input,
+            _ => panic!("not screen_shown"),
+        })
+    };
+    assert_eq!(shown(0), Ok(None));
+    assert_eq!(shown(1), Ok(Some(InputMode::Buttons)));
+    assert_eq!(shown(2), Ok(Some(InputMode::Touch)));
+    assert_eq!(shown(3), Ok(Some(InputMode::Pen)));
+    assert_eq!(shown(4), Err(Error::Invalid));
+}
+
+#[test]
 fn screen_and_action_events_refuse_bad_framing_and_utf8() {
     for record in [
         Record::EventScreenShown(EventScreenShown {
+            last_input: 0,
             now_ms: 9,
             screen: "demo.main",
             width: 800,
@@ -512,4 +542,77 @@ fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
     };
     assert_eq!(plugin, id);
     assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
+}
+
+#[test]
+fn lookup_ready_names_the_provider_that_kept_its_answer() {
+    let mut bytes = [0; 128];
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup",
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(
+        Event::decode(&bytes[..n]),
+        Ok(Event::LookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup"
+        })
+    );
+    // A provider name of the contract's full 64 bytes decodes whole.
+    let mut long = bytes;
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: &"p".repeat(64),
+        })],
+        &mut long,
+    )
+    .unwrap();
+    assert!(Event::decode(&long[..n]).is_ok());
+}
+
+#[test]
+fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
+    let encode = |flags| {
+        let mut bytes = [0; 128];
+        let n = wire::records_encode(
+            &[wire::Record::EventTextTyped(wire::EventTextTyped {
+                now_ms: 4,
+                text: "héllo wörld",
+                flags,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[..n].to_vec()
+    };
+    assert_eq!(
+        Event::decode(&encode(0)),
+        Ok(Event::TextTyped {
+            now_ms: 4,
+            text: TypedText::new("héllo wörld"),
+            done: false
+        })
+    );
+    // The text may be a password: `Debug` shows its length, never the text.
+    let shown = format!("{:?}", Event::decode(&encode(0)).unwrap());
+    assert!(
+        shown.contains("len: 13") && !shown.contains("llo"),
+        "{shown}"
+    );
+    assert!(matches!(
+        Event::decode(&encode(1)),
+        Ok(Event::TextTyped { done: true, .. })
+    ));
+    for flags in [2, 3, 0x8000_0000] {
+        assert_eq!(
+            Event::decode(&encode(flags)),
+            Err(Error::Invalid),
+            "{flags}"
+        );
+    }
 }

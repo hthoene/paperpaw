@@ -2,8 +2,9 @@
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Kind, MenuEntryDecl,
-    ScreenDecl, SpecDecl, StageDecl,
+    ScreenDecl, SpecDecl, StageDecl, WidgetDecl,
 };
+use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
@@ -15,6 +16,11 @@ pub const BOOK_TOKEN: u32 = 22;
 pub const CALENDAR_TOKEN: u32 = 23;
 /// The action that opens the overview.
 pub const OPEN_TOKEN: u32 = 30;
+/// The minute tick, for the widgets that must show a new day.
+pub const TICK_TOKEN: u32 = 2;
+/// The widgets' tokens.
+pub const TODAY_TOKEN: u32 = 40;
+pub const WEEK_TOKEN: u32 = 41;
 
 pub const GROUP: &str = "stats.group";
 
@@ -89,6 +95,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     ] {
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }
+    declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    declarations.subscribe_event(EventKind::SettingChanged, EVENTS_TOKEN)?;
     declarations.submit()
 }
 
@@ -100,4 +108,142 @@ pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     let mut declarations = Declarations::new(sink);
     declarations.stage(StageDecl::new("read-today", 1, 1, 8, 1))?;
     declarations.submit()
+}
+
+/// The choices of the daily goal: minutes, or none.
+pub const GOALS: [&str; 12] = [
+    "stats.goal.off",
+    "stats.goal.10",
+    "stats.goal.15",
+    "stats.goal.20",
+    "stats.goal.30",
+    "stats.goal.45",
+    "stats.goal.60",
+    "stats.goal.90",
+    "stats.goal.120",
+    "stats.goal.180",
+    "stats.goal.240",
+    "stats.goal.300",
+];
+
+/// Which days the week widget shows: the last 7, this week, the last 14 or 28.
+pub const PERIODS: [&str; 4] = [
+    "stats.period.7",
+    "stats.period.week",
+    "stats.period.14",
+    "stats.period.28",
+];
+/// The bars' ends: round or square.
+pub const SHAPES: [&str; 2] = ["stats.shape.round", "stats.shape.square"];
+
+/// A widget of the plugin.
+#[derive(Debug, Clone, Copy)]
+pub struct Def {
+    /// Relative to the plugin: `widget.today` is `stats.widget.today`.
+    pub name: &'static str,
+    pub token: u32,
+    /// The widget's own settings, in order: its look first, as interface 6
+    /// listed them.
+    pub options: &'static [Opt],
+}
+
+/// The look the widgets share, in the order interface 6 listed it, up to and
+/// without the size and the alignment (which follow, as each widget has them).
+const fn look() -> [Opt; 7] {
+    [
+        Opt::Frame("core.frame.none"),
+        Opt::Padding,
+        Opt::Paper,
+        Opt::Ink,
+        Opt::Corners,
+        Opt::FrameLine,
+        Opt::Shadow,
+    ]
+}
+
+const TODAY_OWN: &[Opt] = &[
+    Opt::Size("core.size.medium", true),
+    Opt::Align("core.align.left"),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::Part("pages", "stats.part.pages", true),
+    Opt::Part("bar", "stats.part.goal-bar", true),
+    Opt::Part("note", "stats.part.note", true),
+];
+
+const WEEK_OWN: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Choice(
+        "period",
+        "stats.setting.period",
+        &PERIODS,
+        "stats.period.7",
+        "stats.setting.period.help",
+    ),
+    Opt::Choice(
+        "shape",
+        "stats.setting.bars",
+        &SHAPES,
+        "stats.shape.round",
+        "stats.setting.bars.help",
+    ),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::Part("labels", "stats.part.weekdays", true),
+    Opt::Part("goal", "stats.part.goal-line", true),
+    Opt::Part("today", "stats.part.today", true),
+];
+
+/// The widgets, with their own settings (the shared look comes first).
+pub const WIDGETS: [Def; 2] = [
+    Def {
+        name: "widget.today",
+        token: TODAY_TOKEN,
+        options: TODAY_OWN,
+    },
+    Def {
+        name: "widget.week",
+        token: WEEK_TOKEN,
+        options: WEEK_OWN,
+    },
+];
+
+impl Def {
+    /// Every setting of the widget in order: the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
+    pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
+        look().into_iter().chain(self.options.iter().copied())
+    }
+}
+
+/// The daily goal, and the widgets with the group of settings each: *Read
+/// today* and *Reading per day* (the others follow).
+pub fn widgets(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut d = Declarations::new(sink);
+    let mut goal = SpecDecl::new(
+        "goal",
+        Kind::Choice {
+            default: GOALS[0],
+            choices: &GOALS,
+        },
+        GROUP,
+        "stats.setting.goal",
+    );
+    goal.help = "stats.setting.goal.help";
+    d.spec(goal)?;
+    d.submit()?;
+    for widget in WIDGETS {
+        let group = ["stats.", widget.name].concat();
+        d.group(GroupDecl::new(widget.name, &group))?;
+        let spec = WidgetDecl::new(widget.name, &group, "core.widgets.reading", widget.token)
+            .map_err(|_| DeclareError::TooLong("widget"))?
+            .live()
+            .previews(&group)
+            .map_err(|_| DeclareError::TooLong("widget preview"))?;
+        d.widget(spec)?;
+        declare_all(&mut d, widget.name, &group, widget.all())?;
+        d.submit()?;
+    }
+    Ok(())
 }
