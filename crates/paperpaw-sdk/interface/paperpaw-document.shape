@@ -26,6 +26,7 @@ const paperpaw_document::table::MAX_COLUMNS: usize = 16usize
 enum paperpaw_document::Align { Auto, Start, Center, End, Justify, Left, Right }
 enum paperpaw_document::AnnotationKind { Ruby, Phonetic, Gloss, Other(0: u16) }
 enum paperpaw_document::BlockKind { Paragraph, Heading(0: u8), Preformatted, Image, TableRow, Extended(0: u16) }
+enum paperpaw_document::CheckpointError { TooLarge, OutOfOrder, OutOfMemory }
 enum paperpaw_document::DocumentError { Storage(0: paperpaw_platform::storage::StorageError), Malformed(0: alloc::borrow::Cow<'static, str>), UnsupportedFormat, OutOfMemory, NotReady, Other(0: u16) }
 enum paperpaw_document::LineStyle { Solid, Double, Dotted, Wavy }
 enum paperpaw_document::LinkKind { Plain, NoteRef, Back, Other(0: u16) }

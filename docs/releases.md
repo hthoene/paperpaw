@@ -7,8 +7,12 @@ not mean its SDK and plugin crates are available to plugin authors.
 
 ## Before the tag
 
-1. Set the workspace version, the Android version code and the CHANGELOG
-   section. Every plugin has its own version: change its manifest, the
+1. Set the workspace version and the Android version code. Run
+   `python3 tools/changelog.py collect --version <version>` on the release
+   preparation branch and review the dated `CHANGELOG.md` section and
+   consumed fragments together, as [RELEASING.md](../RELEASING.md) describes.
+   `python3 tools/changelog.py check --release` must pass before tagging.
+   Every plugin has its own version: change its manifest, the
    workspace requirement and the lockfiles when its package sources
    changed. This applies to built-in plugins as well as store plugins.
    A source refactor or changed package resource needs a new crate
@@ -26,6 +30,12 @@ not mean its SDK and plugin crates are available to plugin authors.
    before a change it cannot tell, such as the library's folders split
    by key (#280): an older build of a plugin that reads the library would
    keep its books' details where no version reads them any more.
+   Run `tools/plugin-symbols.sh --events <kinds> <elf>...` on the files the
+   largest plugins (End of book, Battery, Profiles) are packed from, or give
+   them to `tools/flash-gate.sh` as `--plugin-elf <elf>`: it fails for a
+   plugin that links the whole records codec, the text-escaping tables
+   (`char`/`str` `Debug`, a failing `&str` slice) or, with `--events`, an
+   event decoder the plugin does not read. A stripped file is no proof (exit 2).
 3. Commit the prepared release. Run the checks in
    [CONTRIBUTING.md](../CONTRIBUTING.md) and review their GitHub results.
    Run `tools/release-gate.sh <previous-tag>` and complete the hardware

@@ -225,13 +225,13 @@ const STEP: Record<'static> = Record::SetupStep(SetupStep {
     page: "wifi.networks",
     applies_key: "",
     applies_value: "",
-    need: 1,
-    capability: 4,
+    need: 0,
+    capability: 0,
     flags: 1,
 });
 const OFFER: Record<'static> = Record::SlotOffer(SlotOffer {
     slot: "core.home",
-    screen: "shelf",
+    screen: "demo.shelf",
     priority: -3,
 });
 const BIND: Record<'static> = Record::KeyBind(KeyBind {
@@ -242,22 +242,28 @@ const BIND: Record<'static> = Record::KeyBind(KeyBind {
     when_value: "night",
 });
 const PRESET: Record<'static> = Record::PresetValue(PresetValue {
-    preset: "saver",
+    preset: "demo.saver",
     key: "core.refresh",
-    value: &[2, 6, 0, 0, 0, 0, 0, 0, 0],
-    flags: 0,
+    value: &[],
+    flags: 1,
 });
 
 #[test]
-fn registry_declarations_round_trip_and_wait_for_the_host() {
+fn registry_declarations_round_trip_and_the_host_admits_all_but_setup_steps() {
     let records = [STEP, OFFER, BIND, PRESET];
     let mut out = vec![0; 4096];
     let len = records_encode(&records, &mut out).unwrap();
     let batch = records_decode(&out[..len]).unwrap();
     assert_eq!(batch.iter().collect::<Vec<_>>(), records);
-    // Refused until the host admits them (Core hand-off).
+    // The host admits every one of them but `setup.step`, which stays
+    // refused until its own arm (Host, P6).
     for record in records {
-        assert_eq!(validate_record("demo", &record), Err(ERR_UNSUPPORTED));
+        let expected = if record == STEP {
+            Err(ERR_UNSUPPORTED)
+        } else {
+            Ok(())
+        };
+        assert_eq!(validate_record("demo", &record), expected, "{record:?}");
     }
 }
 

@@ -3,7 +3,7 @@
 //! start-up or waking), has a `sample` line each time the battery is
 //! measured (about once a minute) and ends with an `end` line (going to
 //! sleep or restarting). Besides the battery, each line has what the device did since
-//! PaperPaw started ([`Usage`]) and the pages turned, so the battery's use
+//! PaperPaw started (usage counters) and the pages turned, so the battery's use
 //! can be put down to what used it.
 //!
 //! What each plugin took goes into [`PLUGINS`], every ten minutes awake
@@ -13,12 +13,18 @@
 //! Each log is kept to [`MAX_BYTES`]: then it becomes its `.old` (replacing
 //! the one before) and a new one starts.
 
+use crate::mem;
+#[cfg(test)]
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
+use paperpaw_sdk::native::Error;
 
+#[cfg(test)]
 use paperpaw_sdk::Storage;
-use paperpaw_sdk::usage::{PluginUsage, Usage};
+#[cfg(test)]
+use paperpaw_sdk::usage::PluginUsage;
 
 /// The log, in the plugin's folder.
 pub(crate) const FILE: &str = "log.csv";
@@ -58,7 +64,7 @@ impl Kind {
     }
 }
 
-/// What the device did since start-up, of its [`Usage`].
+/// What the device did since start-up, from native usage counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Counts {
     pub refreshes: [u32; 3],
@@ -68,19 +74,6 @@ pub(crate) struct Counts {
 }
 
 impl Counts {
-    pub fn of(usage: &Usage) -> Self {
-        Self {
-            refreshes: [
-                usage.refreshes.fast,
-                usage.refreshes.partial,
-                usage.refreshes.full,
-            ],
-            pixels: usage.pixels,
-            inputs: usage.inputs,
-            panel_ms: usage.panel_ms,
-        }
-    }
-
     pub fn total_refreshes(&self) -> u32 {
         self.refreshes
             .iter()
@@ -101,15 +94,26 @@ pub(crate) struct Reading {
     pub unix: Option<i64>,
 }
 
-/// The line of a reading.
-pub(crate) fn line(kind: Kind, r: &Reading) -> String {
-    let opt = |v: Option<String>| v.unwrap_or_default();
-    format!(
+/// A number that is left out where there is none.
+struct Maybe<T>(Option<T>);
+
+impl<T: fmt::Display> fmt::Display for Maybe<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(value) => value.fmt(f),
+            None => Ok(()),
+        }
+    }
+}
+
+/// The line of a reading, `Error::NoMemory` where the heap refuses it.
+pub(crate) fn try_line(kind: Kind, r: &Reading) -> Result<String, Error> {
+    mem::format!(
         "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
         kind.name(),
         r.ms,
-        opt(r.millivolts.map(|v| format!("{v}"))),
-        opt(r.percent.map(|v| format!("{v}"))),
+        Maybe(r.millivolts),
+        Maybe(r.percent),
         u8::from(r.charging),
         r.usage.refreshes[0],
         r.usage.refreshes[1],
@@ -118,8 +122,14 @@ pub(crate) fn line(kind: Kind, r: &Reading) -> String {
         r.usage.inputs,
         r.usage.panel_ms,
         r.pages,
-        opt(r.unix.map(|v| format!("{v}"))),
+        Maybe(r.unix),
     )
+}
+
+/// The line of a reading.
+#[cfg(test)]
+pub(crate) fn line(kind: Kind, r: &Reading) -> String {
+    try_line(kind, r).unwrap()
 }
 
 /// A line read back; `None` for the header and anything else.
@@ -161,6 +171,7 @@ pub(crate) fn parse(line: &str) -> Option<(Kind, Reading)> {
 
 /// The lines of what each plugin took by `ms`, for those that took
 /// anything.
+#[cfg(test)]
 pub(crate) fn plugin_lines(ms: u64, plugins: &[PluginUsage]) -> String {
     let mut text = String::new();
     for p in plugins {
@@ -276,11 +287,20 @@ impl Sessions {
         }
     }
 
+    /// Sessions that have room for all the times awake they keep, so that
+    /// reading never allocates again.
+    pub fn try_new() -> Result<Self, Error> {
+        let mut sessions = Self::default();
+        mem::reserve(&mut sessions.ended, KEPT)?;
+        Ok(sessions)
+    }
+
     fn close(&mut self) {
         if let Some(session) = self.current.take() {
             if self.ended.len() == KEPT {
                 self.ended.remove(0);
             }
+            // Within the room `try_new` reserved (a test's `default` grows).
             self.ended.push(session);
         }
     }
@@ -295,6 +315,7 @@ impl Sessions {
     }
 
     /// Reads the old log, then the log, from `dir`, a piece at a time.
+    #[cfg(test)]
     pub fn read(storage: &dyn Storage, dir: &str) -> Self {
         let mut sessions = Self::default();
         for name in [OLD, FILE] {

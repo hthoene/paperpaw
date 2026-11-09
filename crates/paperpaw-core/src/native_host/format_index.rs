@@ -50,7 +50,7 @@ fn joined(plugin_id: &str, name: &str) -> Result<Box<str>, i32> {
 
 struct Format {
     reference: FormatRef,
-    plugin: usize,
+    plugin: u64,
     id: Box<str>,
     title: Box<str>,
     extensions: Box<str>,
@@ -115,7 +115,7 @@ impl FormatIndex {
     /// already claims, `ERR_NO_MEMORY`.
     pub(crate) fn declare_format(
         &mut self,
-        plugin: usize,
+        plugin: u64,
         plugin_id: &str,
         spec: &wire::FormatSpec<'_>,
     ) -> Result<FormatRef, i32> {
@@ -186,7 +186,7 @@ impl FormatIndex {
     /// (`format_stopped`).
     pub(crate) fn remove_plugin(
         &mut self,
-        plugin: usize,
+        plugin: u64,
         plugin_id: &str,
         mut gone: impl FnMut(FormatRef),
     ) {
@@ -290,9 +290,8 @@ impl FormatIndex {
             count += 1;
         }
         let list = &mut list[..count];
-        // Unstable on purpose: a stable sort allocates 4 KiB of stack. The unique
-        // reference is the last key, so the order is the same and total.
-        list.sort_unstable_by(|a, b| match (a, b) {
+        // The unique reference is the last key, so the order is total.
+        paperpaw_sort::sort_by(list, |a, b| match (a, b) {
             (Some(a), Some(b)) => b
                 .priority
                 .cmp(&a.priority)

@@ -1,7 +1,10 @@
 extern crate std;
 
 use super::*;
-use crate::abi7::context::{Error, FrameSlot};
+use crate::abi7::{
+    context::{Error, FrameSlot},
+    core_frame::CallbackStamp,
+};
 use alloc::{borrow::Cow, string::String};
 use core::{ops::ControlFlow, pin::pin};
 use paperpaw_platform::Instant;
@@ -9,8 +12,14 @@ use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
 
 fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
     CoreFrame {
+        callback: None,
+        instance: None,
         env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
@@ -210,4 +219,83 @@ fn localized_name_caps_preserve_utf8_and_exact_boundary_text() {
             .plugin_name("named", &mut |name| assert_eq!(name, &text[..expected]))
             .unwrap();
     }
+}
+
+#[test]
+fn caller_and_epoch_require_an_actual_nonzero_callback_stamp() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let mut frame = frame(&kernel, &env);
+    assert_eq!(frame.caller(), Err(paperpaw_native::host_glue::ERR_STATE));
+    assert_eq!(
+        frame.callback_epoch(),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+    frame.callback = Some(CallbackStamp { owner: 0, epoch: 0 });
+    assert_eq!(frame.caller(), Err(paperpaw_native::host_glue::ERR_STATE));
+    assert_eq!(
+        frame.callback_epoch(),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+    frame.callback = Some(CallbackStamp { owner: 0, epoch: 9 });
+    assert_eq!(frame.caller(), Ok(0));
+    assert_eq!(frame.callback_epoch(), Ok(9));
+}
+
+#[test]
+fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
+    use paperpaw_native::host_glue::ERR_STATE;
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("probe.screen"),
+        None,
+        false,
+        paperpaw_sdk::ScreenKey::new(7),
+    ));
+    kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+        Id::new_static("probe.overlay"),
+        None,
+        false,
+        paperpaw_sdk::ScreenKey::new(8),
+    ));
+    kernel.shared.stack_rows.update([7, 8].map(|instance| {
+        crate::native_host::stack_rows::StackRow {
+            instance,
+            owner: 5,
+            flags: 0,
+        }
+    }));
+    let env = kernel.shared.env(Instant(0));
+    let mut frame = frame(&kernel, &env);
+    assert_eq!(frame.calling_instance(), Err(ERR_STATE));
+    for (owner, epoch, instance, expected) in [
+        (5, 0, Some(7), Err(ERR_STATE)),
+        (5, 1, None, Err(ERR_STATE)),
+        (5, 1, Some(0), Err(ERR_STATE)),
+        (5, 1, Some(6), Err(ERR_STATE)),
+        (5, 1, Some(7), Ok(7)),
+        (5, 1, Some(8), Ok(8)),
+        (6, 1, Some(7), Err(ERR_STATE)),
+        (0, 1, Some(7), Err(ERR_STATE)),
+    ] {
+        frame.callback = Some(CallbackStamp { owner, epoch });
+        frame.instance = instance;
+        assert_eq!(frame.calling_instance(), expected);
+    }
+}
+
+#[test]
+fn shared_callback_stamp_constructor_refuses_epoch_zero() {
+    assert_eq!(
+        CallbackStamp::new(7, 0),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+    assert_eq!(
+        CallbackStamp::new(7, 9),
+        Ok(CallbackStamp { owner: 7, epoch: 9 })
+    );
 }

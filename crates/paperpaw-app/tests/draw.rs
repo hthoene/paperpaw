@@ -188,7 +188,7 @@ impl App {
             .storage(storage)
             .frame_rows(FRAME_ROWS)
             .row_align(8)
-            .user_config("[help]\nshow = false\n[core]\nlanguage = en\n");
+            .user_config("[core]\nlanguage = en\n");
         let mut kernel = add(paperpaw_app::install(builder, fonts()))
             .build()
             .unwrap();
@@ -477,6 +477,20 @@ fn walks() -> Vec<(String, Vec<Step>)> {
         (
             "the next chapter, its page in the status line",
             vec![
+                Set(
+                    "reader.status.bottom-left",
+                    "reader.status.chapter-page, reader.status.chapter-left",
+                ),
+                reader(),
+                Run(Id::new_static("reader.next-chapter")),
+            ],
+        ),
+        // Without patterns a book is counted in one step: the count ends
+        // before the first draw, and the status line asks the finished index.
+        (
+            "the next chapter, its page in the status line, without hyphenation",
+            vec![
+                Set("core.hyphenate", "off"),
                 Set(
                     "reader.status.bottom-left",
                     "reader.status.chapter-page, reader.status.chapter-left",

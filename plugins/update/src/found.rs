@@ -59,7 +59,7 @@ pub(crate) fn foreign(storage: &dyn Storage, firmware: &Firmware) -> Option<Fore
             }
         });
     }
-    paths.sort();
+    paperpaw_sdk::sort::sort(&mut paths);
     paths.into_iter().find_map(|path| {
         if Update::read(storage, &path).is_ok() {
             return None;

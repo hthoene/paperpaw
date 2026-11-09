@@ -30,8 +30,10 @@ impl BookView {
         let header = ui::Header::new(env, &style, true);
         let id = params.get(params::ID).and_then(|id| id.parse::<u16>().ok());
         let book = id.and_then(|id| store::books(env.storage()).into_iter().find(|b| b.id == id));
+        // Interface 6, replaced by the shell, which shows the error: a refused
+        // allocation shows no totals here, not partial ones.
         let totals = book.as_ref().map_or_else(BookTotals::default, |book| {
-            totals::of_book(env.storage(), book, |unix| fmt::day_of(env, unix))
+            totals::of_book(env.storage(), book, |unix| fmt::day_of(env, unix)).unwrap_or_default()
         });
         Self {
             style,

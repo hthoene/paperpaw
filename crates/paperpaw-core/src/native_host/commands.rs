@@ -24,6 +24,13 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 #[path = "commands_ui.rs"]
 mod ui;
 
+#[allow(
+    dead_code,
+    reason = "native screen dispatch installs DEV command authority next"
+)]
+#[path = "commands_dev.rs"]
+pub(crate) mod dev;
+
 /// Host-resolved authority for guarded settings, shared with the drain-time filter.
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
@@ -43,6 +50,30 @@ impl crate::Kernel {
     }
 }
 
+/// The most commands one callback may stage (the stage's `limit`): enough for a
+/// profile apply in one callback. Each is submitted in its
+/// own batch (the wire batch cap, `COMMAND_MAX_RECORDS`, is separate and
+/// unchanged); the staged commands live in a fallibly reserved heap `Vec`.
+/// A callback that returns an error drops the whole stage, so a profile apply
+/// stays atomic.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub const CALLBACK_COMMANDS: usize = 64;
+/// The most bytes of copied keys and text one callback may stage.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the production command path takes it with the shell wiring"
+    )
+)]
+pub const CALLBACK_COMMAND_BYTES: usize = 4096;
+
 /// Host staging for one callback: the submitting plugin's identity, the live
 /// settings registry used for validation, at most `limit` accepted commands,
 /// and at most `byte_limit` bytes of copied keys and text across them.
@@ -58,6 +89,7 @@ pub struct CommandStage<'a> {
     byte_limit: usize,
     bytes: usize,
     ui: Option<ui::UiContext<'a>>,
+    dev: Option<dev::DevStage<'a>>,
     redraw: Option<u32>,
     accepted: usize,
 }
@@ -86,6 +118,7 @@ impl<'a> CommandStage<'a> {
             byte_limit,
             bytes: 0,
             ui: None,
+            dev: None,
             redraw: None,
             accepted: 0,
         }
@@ -138,11 +171,25 @@ impl<'a> CommandStage<'a> {
         if let Err(status) = self.validate_open_budget(batch) {
             return status;
         }
+        // Wi-Fi and power commands (`commands_dev.rs`): features, limits,
+        // rules; their copied bytes count against the budget.
+        let dev_bytes = match self.validate_dev(batch) {
+            Ok(bytes) => bytes,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
-        let mut bytes = self.bytes;
+        let mut bytes = self.bytes.saturating_add(dev_bytes);
+        if bytes > self.byte_limit {
+            return ERR_NO_SPACE;
+        }
         for command in batch.iter() {
             let WireCommand::SetSetting { key, value } = command else {
-                match self.validate_ui(command) {
+                let checked = if dev::is_dev(&command) {
+                    Ok(0)
+                } else {
+                    self.validate_ui(command)
+                };
+                match checked {
                     Ok(extra) => bytes = bytes.saturating_add(extra),
                     Err(error) => return error,
                 }
@@ -174,24 +221,21 @@ impl<'a> CommandStage<'a> {
         }
         let stored = batch
             .iter()
-            .filter(|command| !matches!(command, WireCommand::Redraw { .. }))
+            .filter(|command| {
+                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
+            })
             .count();
         if self.staged.try_reserve(stored).is_err() {
             return ERR_NO_MEMORY;
         }
-        let start = self.staged.len();
-        for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. }) {
-                continue;
-            }
-            match self.owned(command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                Ok(command) => self.staged.push(command),
-                Err(error) => {
-                    self.staged.truncate(start);
-                    return error;
-                }
-            }
+        if let Err(error) = self.dev_reserve(batch) {
+            return error;
+        }
+        let (start, dev_start) = (self.staged.len(), self.dev_len());
+        if let Err(error) = self.push_batch(batch, dev_start) {
+            self.staged.truncate(start);
+            self.dev_rollback(dev_start);
+            return error;
         }
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -201,6 +245,24 @@ impl<'a> CommandStage<'a> {
         self.accepted += batch.len();
         self.bytes = bytes;
         OK
+    }
+
+    /// Keep every command of a validated batch in order (capacity is reserved)
+    /// and reserve the request entries of its DEV commands, last.
+    fn push_batch(&mut self, batch: &CommandBatch<'_>, dev_start: usize) -> Result<(), i32> {
+        for command in batch.iter() {
+            if matches!(command, WireCommand::Redraw { .. }) {
+                continue;
+            }
+            if dev::is_dev(&command) {
+                self.dev_push(command)?;
+                continue;
+            }
+            let owned = self.owned(command)?;
+            // Capacity is reserved, so this push cannot reallocate.
+            self.staged.push(owned);
+        }
+        self.dev_commit(dev_start)
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.
@@ -347,6 +409,10 @@ impl fmt::Debug for CommandScope {
         f.debug_struct("CommandScope").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "commands_limit_tests.rs"]
+mod limit_tests;
 
 #[cfg(test)]
 mod tests {

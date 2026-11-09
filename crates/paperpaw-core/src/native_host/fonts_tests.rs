@@ -40,8 +40,14 @@ fn kernel() -> crate::Kernel {
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
     let env = kernel.shared.env(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
@@ -291,4 +297,67 @@ fn ink_without_drawn_pixels_and_refusals_preserve_all_outputs() {
             assert_eq!(values, [91; 4]);
         }
     });
+}
+
+#[test]
+fn covers_answers_the_length_of_the_drawn_start_and_refuses_what_is_no_text() {
+    let kernel = kernel();
+    let resources = HostResources::try_new().unwrap();
+    let owner = resources.try_owner().unwrap();
+    scoped(&kernel, |scope| {
+        let handle = get(scope, &owner, "pack.face");
+        let ask = |text: &[u8]| {
+            // SAFETY: live readable text for the call.
+            unsafe { covers(scope, &owner, handle, bytes(text)) }
+        };
+        // The font draws only `a`: the length is where the first other
+        // character starts, in bytes, and case is not folded.
+        assert_eq!(ask(b""), 0);
+        assert_eq!(ask(b"a"), 1);
+        assert_eq!(ask(b"aab"), 2);
+        assert_eq!(ask(b"b"), 0);
+        assert_eq!(ask(b"aA"), 1);
+        assert_eq!(ask("aaéa".as_bytes()), 2);
+        assert_eq!(ask("éa".as_bytes()), 0);
+        // The bound: 1,024 bytes are read, one more is invalid; no text is
+        // ERR_UTF8 (also a cut character).
+        let all = [b'a'; 1024];
+        assert_eq!(ask(&all), 1024);
+        assert_eq!(ask(&[b'a'; 1025]), ERR_INVALID);
+        assert_eq!(ask(&[0xff]), ERR_UTF8);
+        assert_eq!(ask(&"é".as_bytes()[..1]), ERR_UTF8);
+        // Null with a length is no pair.
+        // SAFETY: the pair is refused before any read.
+        assert_eq!(
+            unsafe {
+                covers(
+                    scope,
+                    &owner,
+                    handle,
+                    PpBytes {
+                        ptr: core::ptr::null(),
+                        len: 3,
+                    },
+                )
+            },
+            ERR_INVALID
+        );
+        // An icon role with no icon font bound draws nothing.
+        let icons = get(scope, &owner, "role:icons");
+        // SAFETY: live readable text for the call.
+        assert_eq!(unsafe { covers(scope, &owner, icons, bytes(b"a")) }, 0);
+        // A stale or never given handle is ERR_STATE (the bad text still wins).
+        assert_eq!(release(&owner, handle), OK);
+        assert_eq!(ask(b"a"), ERR_STATE);
+        assert_eq!(ask(&[0xff]), ERR_UTF8);
+    });
+}
+
+#[test]
+fn covers_outside_an_environment_callback_fails_closed() {
+    let resources = HostResources::try_new().unwrap();
+    let owner = resources.try_owner().unwrap();
+    let scope = EnvironmentScope::new();
+    // SAFETY: live readable text for the call.
+    assert_eq!(unsafe { covers(&scope, &owner, 1, bytes(b"a")) }, ERR_STATE);
 }

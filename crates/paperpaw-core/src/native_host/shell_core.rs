@@ -24,8 +24,14 @@ impl Kernel {
     ) -> Result<i32, Error> {
         let env = self.shared.env(now);
         let frame = CoreFrame {
+            callback: None,
+            instance: None,
             env: &env,
             meter: &self.shared.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.shared.stack_rows.generation(),
+            stack_rows: &self.shared.stack_rows,
             font_removals: &self.shared.font_removals,
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,
@@ -59,8 +65,14 @@ impl Kernel {
         };
         let env = self.shared.env(now);
         let frame = CoreFrame {
+            callback: None,
+            instance: None,
             env: &env,
             meter: &self.shared.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.shared.stack_rows.generation(),
+            stack_rows: &self.shared.stack_rows,
             font_removals: &self.shared.font_removals,
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,

@@ -1834,17 +1834,16 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
-The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
-for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
-`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
-call; parameter text and transport buffers remain borrowed. This type-layout
-measurement does not replace the runtime X4 heap gate.
+The interface-7 SDK handover (`Ui::handover`) allocates nothing: it encodes
+at most 32 params and 1,024 content bytes straight into the caller's input
+buffer, and parameter text and transport buffers stay borrowed. A unit test
+counts its heap use at zero bytes with a counting allocator; the runtime X4
+heap gate stays open.
 
 Menu replacement temporarily allocates only its joined item bytes, at most
 2,048 bytes, and frees them after encoding into the caller's command buffer,
-before host submission. Empty and reset lists allocate nothing. The menu and
-handover temporaries are released before their host calls, so they do not
-overlap, including when both operations run in one callback.
+before host submission. Empty and reset lists allocate nothing. The menu
+temporary is released before its host call.
 
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
@@ -2635,6 +2634,18 @@ has the steps.
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
 
+### Document-scoped storage
+
+`native::storage::Root::Install` (root 2) reads the plugin's own install folder,
+read only, in any callback. During a permitted format callback, `Book` selects
+root 3, `UserCss` root 4 and `DocumentCache` root 6. An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats may read
+relative paths inside root 3. Root 3 is read only; root 4 is read only and
+available during `core.format` ops 2 and 3 only. The host enforces the callback scope,
+cache quota and reserved `.complete`/`.host/` cache paths. The host writes
+`.complete`; a format never writes it. Use the current callback's `Host`
+for storage calls and never retain it across callbacks.
+
 ### Extension stages and call services
 
 Declare an extension point with `native::declare::StageDecl` and subscribe with
@@ -2648,7 +2659,17 @@ A subscriber receives `native::events::Event::StageCall { stage, schema, payload
 at its declared token. Check the stage and schema, decode `payload` with the
 stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
-does not understand. The SDK leaves stage payloads opaque.
+does not understand. Plugin-defined stage payloads remain opaque.
+
+For `core.widget` major 1, use `native::ui::stages::WidgetCall::decode(payload)`
+to read measure, place and target requests. Reply with `reply_size`,
+`reply_place` or `reply_targets` into caller-owned scratch, then pass the encoded
+bytes to `Reply`. Targets stay in reading order; more than 32 returns
+`Error::NoSpace`. For `core.status` major 1, `StatusCall::decode(payload)` exposes
+borrowed requested item ids and context params. Build `StatusAnswer::text` or
+`StatusAnswer::drawn` values and encode with `StatusCall::reply`. Replies accept
+at most eight requested items and refuse duplicates. These adapters use the
+generated directional codecs and allocate no heap storage.
 
 `native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
 The host refuses another plugin running it with `Error::Denied`.
@@ -2685,13 +2706,62 @@ no strings and refuses offsets inside a character. `reply_position` preserves
 the provider's source section and offset without reader insert ordinals.
 
 During a permitted format callback, `native::storage::Root::DocumentCache`
-selects root 2, `Book` root 3 and `UserCss` root 4. An empty path names the book
+selects root 6, `Book` root 3 and `UserCss` root 4 (root 2 is the plugin's install folder). An empty path names the book
 file on root 3 or the CSS file on root 4. Folder and siblings formats read
 relative paths within root 3; for siblings, the call's `text()` names the
 opened file unless the operation uses text for an XPointer or href. Root 3 is
 read only. Root 4 is read only and available during open/prepare only. The host
 enforces the callback's scope, cache quota and reserved `.complete`/`.host/`
 paths. Never retain a callback's `Host`; `.complete` belongs to the host.
+
+### Secrets and device randomness
+
+Open `native::secrets::Secrets` once with the metadata-declared `core.secrets`
+service, use the current callback's `Host` for each operation and call `release`
+when finished. The handle retains no callback binding. `get` accepts an own
+unprefixed name; it cannot request another plugin's value. Names and labels
+preserve SSID tab, LF and CR characters while refusing other controls.
+
+`SecretWrite::new(SecretName::new(name)?, value)` saves a complete value, including
+an empty value. `.label(text)` replaces a label; an empty label preserves an
+existing one. `.changeable()` permits editing by the user. `keep` clears the
+encoded input buffer before returning, including after a refusal; its borrowed
+source value remains the caller's responsibility. `remove` accepts a `SecretName`.
+
+The settings editor declares `uses.secrets`. It lists `SecretList::all()`;
+ordinary plugins use `SecretList::own()`. A list page contains borrowed names,
+labels and changeable flags, never values. Continue from `page.end().next()`
+using the same query's `.from(cursor)`. Concurrent edits may change row order
+or totals between pages. `entry.target()` names an owner for removal, and
+`entry.replacement(value)` preserves its changeable flag for replacement.
+Other owners' values cannot be read, even by the editor.
+
+`random(host, len, input, out)` draws exactly 1-256 bytes. Inspect `bytes()` and
+`strong()` on the returned borrowed view. A host without a source refuses the
+call; the facade supplies no substitute source. Lock may use a weak draw as a
+salt under its contract; callers needing a strong key check the flag. Secret
+values and random bytes are redacted in Debug output.
+
+Input buffers of 1,280 bytes cover all calls. Output needs 4,096 bytes for list
+or 1,280 bytes for get, keep, remove and random. Views cannot outlive or reuse
+their output buffer while borrowed; a caller clears its value output after use.
+
+### Book fields and badges
+
+Declare an owned field with `native::declare::BookFieldDecl::new(name, title)`
+and `Declarations::book_field`; `.in_catalog()` also keeps short values in the
+catalog. `Declarations::book_badge(name, token)` registers the owner callback.
+The host supplies each name's plugin prefix. Badge stage payload codecs follow
+Kernel's `core.book-badge` schema.
+
+Read all owners' fields with `native::library::Library::fields`, passing a
+`BookRef` and `FieldCursor::start()` for the first page. `FieldPage::rows()`
+lends each complete id, translated title and value. Continue with
+`page.end().next()` until it is `None`; no value is silently shortened.
+The cursor carries this book's field generation. It is distinct from the
+catalog generation carried by a catalog-based `BookRef`. `Error::State` on
+continuation means restart from the first page. At most 64 fields belong to
+one book, in owning-plugin/name order; each page fits the service reply cap.
 
 ### Core event subscriptions
 
@@ -2751,6 +2821,18 @@ storage and translated output separately; neither buffer is allocated by the SDK
 `digits` maps ASCII digits. Both functions return the full required byte length,
 so retry when the result exceeds the output capacity.
 
+### Native Bluetooth
+
+Declare `uses.bluetooth` in the metadata for the commands; reads of the radio and the bonded devices
+(`Device::bluetooth`, `Device::bonded`) need none. `CommandSender::bt_scan(ms)`, `bt_stop_scan`,
+`bt_pair(device)`, `bt_connect`, `bt_disconnect`, `bt_forget`, `bt_give(device, plugin)`,
+`bt_take_back` and `bt_keys(device, on)` queue one command each and do not wait; the answers come as
+`Event::Bluetooth` to the plugin bound to the host slot `core.bluetooth` (offer a screen for the slot
+with `SlotOfferDecl`; no event subscription exists for it). Device ids are those of the reads. The
+event carries `kind` (`Changed`, `Found`, `ScanEnded`, `Connected`, `Disconnected`, `Paired`, `Done`,
+`Failed`), the device and its kind, the signal in dBm (`None` where not known) and a `reason` (`None`
+where none is said); unknown values read as `Other`. Its name borrows the event.
+
 ### Native library access
 
 Open `native::library::Library` during a callback and release the service handle
@@ -2768,6 +2850,21 @@ value removes it.
 The SDK leaves field enumeration out until the host contract supports lossless
 paging for all fields. Reply and input buffers belong to the caller; queries
 allocate no SDK heap storage.
+
+### Native device inventory
+
+Open `native::device::Device` from a callback after declaring `core.device` in
+metadata. Its inventory reads include `device`, `firmware`, `native`, `memory`,
+`values` and `builtins`; radio, power and request-status reads use the same handle.
+Call `release(host)` explicitly when the handle is no longer needed.
+Replies borrow the caller's output buffer, and the SDK allocates no reply storage.
+
+Use `DeviceCursor::start()` for a paged list and continue only with
+`page.end().next_cursor()`. A `State` error means restart from the first page.
+Hardware values and physical keys are complete unpaged lists; their terminal
+metadata is checked before rows are exposed. Optional memory readings return
+`None` when the host did not measure them. `FileCheck` is host evidence, not a
+local trust decision; installation still goes through the host confirmation flow.
 
 ### Native host wrappers for the Battery pilot
 
@@ -2839,3 +2936,27 @@ host refusal. The draw-frame clip remains the outer bound.
 `CommandSender` also opens screens, runs actions, queues a redraw with typed
 `RedrawMode`, and closes the submitting plugin's top screen. Screen and action
 ids are validated before encoding; each call stages one complete batch or none.
+
+### Reading annotations through interface 7
+
+Use `native::library::Library::annotations` with a `BookRef` and
+`AnnotationCursor::start()`. `page.end().total()` counts all annotations for
+that book, including bookmarks and highlights without notes. This count is
+available from the first page; a whole-library overview reads a first page for
+each catalog book. There is no count-only call or catalog has-notes filter.
+
+Annotation rows borrow the caller's reply buffer and include stable per-book
+ids, kind, source offsets, progress, timestamps and text/note previews. Each
+preview is at most 512 UTF-8 bytes. Continue with `page.end().next()` while
+keeping the same book reference. The cursor carries the book's annotation
+generation; a catalog reference carries a separate catalog generation. On
+`Error::State`, restart that book's annotation enumeration.
+
+For lossless exports, read cut previews with `Library::annotation_text` and
+`AnnotationTextQuery::new(id, AnnotationTextKind::Text)` or `Note`. The id is
+the annotation id, not the row index. Each part borrows at most 1,024 UTF-8 bytes;
+continue with `query.from(part.next_offset().unwrap())` only when the offset is
+present. Consume each borrowed part before reusing the output buffer. Text calls
+have no annotation-generation input, so a multi-call export must handle concurrent
+edits; it does not acquire a snapshot. A caller can recheck annotation generation
+and restart if it changed.

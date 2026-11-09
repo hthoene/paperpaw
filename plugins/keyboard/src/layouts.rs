@@ -20,6 +20,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use paperpaw_sdk::Env;
+use paperpaw_ui_kit::{mem::push, text::copy};
 
 /// The setting value (and list entry) for the UI language's layout.
 pub(crate) const AUTO: &str = "keyboard.layout.auto";
@@ -38,7 +39,7 @@ pub const MAX_VARIANTS: usize = 16;
 
 /// Whether `c` shows nothing or turns text around (controls, marks of
 /// direction, joiners): never a key.
-fn invisible(c: char) -> bool {
+pub(crate) fn invisible(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
 }
@@ -82,7 +83,7 @@ pub(crate) fn added(env: &Env<'_>) -> Vec<Added> {
 }
 
 /// A line of [`POINT`].
-fn parse(line: &str) -> Option<Added> {
+pub(crate) fn parse(line: &str) -> Option<Added> {
     let mut fields = line.split(';').map(str::trim);
     let id = fields.next().filter(|id| !id.is_empty())?;
     let code: String = fields
@@ -120,7 +121,7 @@ fn parse(line: &str) -> Option<Added> {
 
 /// Letters typed by holding another: pairs of a letter, `=` and them,
 /// separated by spaces (`e=éèë i=ïí`).
-fn held(pairs: &str) -> Vec<(char, String)> {
+pub(crate) fn held(pairs: &str) -> Vec<(char, String)> {
     pairs
         .split_whitespace()
         .filter_map(|pair| {
@@ -322,6 +323,96 @@ fn automatic(env: &Env<'_>, keys: bool) -> Chosen {
         (None, Some(letters)) => (code, Cow::Owned(letters.to_string()), Vec::new()),
         (None, None) => (code, Cow::Borrowed(LAYOUTS[0].letters), Vec::new()),
     }
+}
+
+/// The layouts chosen in the setting `value` for the native plugin: the same
+/// as [`chosen`], from the language (`core.language`) and the translation's
+/// own rows (`keyboard.letters`, empty for none) instead of an environment,
+/// with fallible allocation. Layouts other plugins add come by the stage
+/// `keyboard.layouts` (see [`chosen_with`]).
+#[cfg(test)]
+pub(crate) fn chosen_for(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    chosen_with(language, letters, value, keys, &[])
+}
+
+/// [`chosen_for`] with the layouts other plugins added (see
+/// `native_layouts`): an id in `value` that is none of the built-in ones
+/// takes the one added with it.
+pub(crate) fn chosen_with(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+    added: &[Added],
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    let mut layouts: Vec<Chosen> = Vec::new();
+    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        let one = if id == AUTO {
+            Some(automatic_for(language, letters, keys)?)
+        } else {
+            match LAYOUTS.iter().find(|l| l.id == id) {
+                Some(l) => Some(builtin_for(l, copy(l.code)?, keys)?),
+                None => match added.iter().find(|l| l.id == id) {
+                    Some(l) => Some(crate::native_layouts::chosen_of(l)?),
+                    None => None,
+                },
+            }
+        };
+        if let Some(one) = one {
+            push(&mut layouts, one)?;
+        }
+    }
+    if layouts.is_empty() {
+        push(&mut layouts, automatic_for(language, letters, keys)?)?;
+    }
+    Ok(layouts)
+}
+
+/// [`builtin`] with fallible allocation.
+fn builtin_for(
+    layout: &Layout,
+    code: String,
+    keys: bool,
+) -> Result<Chosen, paperpaw_sdk::native::Error> {
+    let mut variants: Vec<(char, String)> = Vec::new();
+    for pair in layout.held.split_whitespace() {
+        let Some((base, letters)) = pair.split_once('=') else {
+            continue;
+        };
+        let mut chars = base.chars();
+        let Some(base) = chars.next().filter(|_| chars.next().is_none()) else {
+            continue;
+        };
+        let base = base.to_lowercase().next().unwrap_or(base);
+        push(&mut variants, (base, copy(letters)?))?;
+    }
+    Ok((code, Cow::Borrowed(layout.rows(keys)), variants))
+}
+
+/// [`automatic`] from a language and the translation's rows.
+fn automatic_for(
+    language: &str,
+    letters: &str,
+    keys: bool,
+) -> Result<Chosen, paperpaw_sdk::native::Error> {
+    let base = language.split('-').next().unwrap_or(language);
+    let mut code = String::new();
+    code.try_reserve(base.len() * 2)
+        .map_err(|_| paperpaw_sdk::native::Error::NoMemory)?;
+    code.extend(base.chars().flat_map(char::to_uppercase));
+    let layout = LAYOUTS
+        .iter()
+        .find(|l| l.id.rsplit('.').next() == Some(base));
+    Ok(match layout {
+        Some(layout) => builtin_for(layout, code, keys)?,
+        None if !letters.is_empty() => (code, Cow::Owned(copy(letters)?), Vec::new()),
+        None => (code, Cow::Borrowed(LAYOUTS[0].letters), Vec::new()),
+    })
 }
 
 #[cfg(test)]

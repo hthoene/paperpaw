@@ -3,6 +3,7 @@
 //! Layout is prepared when the screen opens. Font leases, service records,
 //! settings text and the canvas remain confined to their callback.
 
+use crate::mem;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
@@ -18,6 +19,7 @@ use crate::log::Reading;
 mod content;
 mod header;
 mod history;
+pub use history::{HistorySummary, summary as history_summary};
 mod messages;
 mod rows;
 mod style;
@@ -65,7 +67,7 @@ impl NativeView {
         let style = Style::read(host, &display, &font)?;
         let mut messages = Messages::new(host)?;
         let (lines, footer) = content::lines(host, now, &mut messages)?;
-        let starts = paginate(&lines, &style, display.display_height());
+        let starts = paginate(&lines, &style, display.display_height())?;
         let title = messages.copy(host, "battery.title")?;
         let mut pages = Vec::new();
         pages
@@ -90,12 +92,12 @@ impl NativeView {
                 &mut page.paint,
                 &font,
                 &style,
-                &lines[first..last],
+                page_lines(&lines, first, last)?,
                 &footer,
                 display.display_width(),
                 display.display_height(),
             )?;
-            pages.push(page);
+            mem::push(&mut pages, page)?;
         }
         font.release()?;
         Ok(Self { pages, page: 0 })
@@ -189,6 +191,12 @@ impl NativeView {
     }
 }
 
+/// The lines of the page from `first` to `last`; a range the lines do not
+/// hold is a state error, never a panic.
+fn page_lines(lines: &[Line], first: usize, last: usize) -> Result<&[Line], Error> {
+    lines.get(first..last).ok_or(Error::State)
+}
+
 fn frame_rect(rect: Rect) -> FrameRect {
     FrameRect::new(
         i32::from(rect.x),
@@ -205,19 +213,20 @@ fn height(line: &Line, style: &Style) -> u16 {
     }
 }
 
-fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Vec<usize> {
+fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Result<Vec<usize>, Error> {
     let (top, bottom) = (
         u32::from(style.header),
         u32::from(screen_height.saturating_sub(style.row)),
     );
-    let mut pages = Vec::from([0]);
+    let mut pages = Vec::new();
+    mem::push(&mut pages, 0)?;
     let mut y = top;
     for (index, line) in lines.iter().enumerate() {
         let start = pages.last().copied().unwrap_or(0);
         if y + u32::from(height(line, style)) > bottom && index > start {
             let heading_last = index > start + 1 && matches!(lines[index - 1], Line::Heading(_));
             let first = if heading_last { index - 1 } else { index };
-            pages.push(first);
+            mem::push(&mut pages, first)?;
             y = top;
             if heading_last {
                 y += u32::from(height(&lines[first], style));
@@ -225,7 +234,7 @@ fn paginate(lines: &[Line], style: &Style, screen_height: u16) -> Vec<usize> {
         }
         y += u32::from(height(line, style));
     }
-    pages
+    Ok(pages)
 }
 
 #[allow(
@@ -293,4 +302,27 @@ fn prepare_body(
         style.note,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn a_bad_page_range_is_a_state_error_not_a_panic() {
+        let lines = [
+            Line::Heading("a".to_string()),
+            Line::Message("b".to_string()),
+        ];
+        assert_eq!(page_lines(&lines, 0, 2).map(<[Line]>::len), Ok(2));
+        assert_eq!(page_lines(&lines, 1, 1).map(<[Line]>::len), Ok(0));
+        for (first, last) in [(0, 3), (2, 1), (3, 3), (usize::MAX, 0), (0, usize::MAX)] {
+            assert_eq!(
+                page_lines(&lines, first, last).map(<[Line]>::len),
+                Err(Error::State),
+                "{first}..{last}"
+            );
+        }
+    }
 }

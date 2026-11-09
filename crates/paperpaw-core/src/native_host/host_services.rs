@@ -1,5 +1,5 @@
-//! The host views behind the service families `core.document`, `core.library`
-//! and `core.lookup`, kept once per device next to the handle table.
+//! The host views behind the service families `core.document`, `core.files`,
+//! `core.library` and `core.lookup`, kept once per device next to the handle table.
 //!
 //! A shell (or a test) wires each view once; until then the family answers
 //! `ERR_UNSUPPORTED` from its backend. The views are stateless to the
@@ -9,9 +9,13 @@
 //! and its annotation transactions.
 use super::{
     doc_service::{self, DocHost, DocServices},
+    files_service::{FilesHost, FilesServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    net_service::{self, NetHost, NetServices},
     secrets_service::SecretsServices,
+    sock_service::{self, SockHost, SockServices},
+    ui_service::UiServices,
     work_service::WorkServices,
 };
 use alloc::rc::Rc;
@@ -35,10 +39,21 @@ pub(crate) struct Caller<'a> {
 #[derive(Default)]
 pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
+    files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    ui: OnceCell<UiServices>,
+    device: OnceCell<super::device_service::DeviceServices>,
+    net: OnceCell<NetServices>,
+    sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The `core.format` calls under way (root 3 of the file service).
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    format_scope: super::format_scope::FormatScope,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -57,8 +72,13 @@ impl core::fmt::Debug for HostServices {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostServices")
             .field("documents", &self.documents.get().is_some())
+            .field("files", &self.files.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("ui", &self.ui.get().is_some())
+            .field("device", &self.device.get().is_some())
+            .field("net", &self.net.get().is_some())
+            .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
             .field("secrets", &self.secrets.get().is_some())
             .finish()
@@ -69,10 +89,16 @@ impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
             documents: OnceCell::new(),
+            files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            ui: OnceCell::new(),
+            device: OnceCell::new(),
+            net: OnceCell::new(),
+            sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -123,9 +149,11 @@ impl HostServices {
 
     /// Whether an owner still waits for its retirement.
     pub(crate) fn retirements_pending(&self) -> bool {
-        self.retiring
-            .try_borrow()
-            .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+        self.lost.get() != 0
+            || self
+                .retiring
+                .try_borrow()
+                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An
@@ -178,6 +206,11 @@ impl HostServices {
         self.documents.set(DocServices(host)).map_err(|_| ERR_STATE)
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.files` once.
+    pub(crate) fn wire_files(&self, host: Rc<dyn FilesHost>) -> Result<(), i32> {
+        self.files.set(FilesServices(host)).map_err(|_| ERR_STATE)
+    }
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.library` once.
     pub(crate) fn wire_library(&self, host: Rc<dyn LibHost>) -> Result<(), i32> {
         self.library.set(LibServices(host)).map_err(|_| ERR_STATE)
@@ -186,6 +219,47 @@ impl HostServices {
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
+    /// Wire `core.ui` once.
+    pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
+        self.ui.set(ui).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn ui(&self) -> Option<&UiServices> {
+        self.ui.get()
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.device` once.
+    pub(crate) fn wire_device(
+        &self,
+        host: Rc<dyn super::device_service::DeviceHost>,
+    ) -> Result<(), i32> {
+        self.device
+            .set(super::device_service::DeviceServices(host))
+            .map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.net` once.
+    pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
+        self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn net(&self) -> Option<&NetServices> {
+        self.net.get()
+    }
+
+    #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
+    /// Wire `core.sockets` once.
+    pub(crate) fn wire_sockets(&self, host: Rc<dyn SockHost>) -> Result<(), i32> {
+        self.sockets.set(SockServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn sockets(&self) -> Option<&SockServices> {
+        self.sockets.get()
     }
 
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
@@ -208,14 +282,29 @@ impl HostServices {
         self.secrets.get()
     }
 
+    /// The `core.format` calls under way: the document service enters one
+    /// around each call, the file service asks it for root 3.
+    #[allow(
+        dead_code,
+        reason = "entered by the DOC adapter, read by the file service"
+    )]
+    pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
+        &self.format_scope
+    }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    pub(crate) fn files(&self) -> Option<&FilesServices> {
+        self.files.get()
     }
     pub(crate) fn library(&self) -> Option<&LibServices> {
         self.library.get()
     }
     pub(crate) fn lookup(&self) -> Option<&LookupServices> {
         self.lookup.get()
+    }
+    pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
+        self.device.get()
     }
 
     /// The owner is retired (its callbacks are revoked and its handles
@@ -241,6 +330,16 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        // What the owner made for the screen stack is freed; no plugin is called.
+        if let Some(ui) = self.ui.get() {
+            result = result.and(ui.store.owner_stopped(owner));
+        }
+        if let Some(net) = self.net.get() {
+            result = result.and(net_service::owner_stopped(&*net.0, owner));
+        }
+        if let Some(sockets) = self.sockets.get() {
+            result = result.and(sock_service::owner_stopped(&*sockets.0, owner));
         }
         // Last: whatever the owner declared as work is gone (idempotent).
         if let Some(work) = self.work.get() {

@@ -352,7 +352,7 @@ pub fn build_pack_hinted(
         .copied()
         .filter(|&ch| font.has_char(ch))
         .collect();
-    keys.sort_unstable();
+    paperpaw_sort::sort(&mut keys);
     keys.dedup();
     let anchored: alloc::vec::Vec<_> = sizes
         .iter()

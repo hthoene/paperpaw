@@ -17,8 +17,11 @@ use super::{
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
+
+mod broker;
 
 /// `lookup_entry.flags`: bit 0 more pages follow, bit 1 pending (the provider
 /// answers later).
@@ -28,7 +31,10 @@ const ENTRY_FLAGS: u32 = 0b11;
 pub(crate) trait LookupHost {
     /// The entry of the `cursor`th provider page for this ask, in the user's
     /// order, written into `out` as one `lookup_entry`; `ERR_NOT_FOUND` past the
-    /// last provider. A provider that fails answers its own status.
+    /// last provider. A provider that fails answers its own status, but **a
+    /// provider's own `ERR_NOT_FOUND` never reaches the asker**: it would end
+    /// the asker's loop, so the broker turns it into an empty entry
+    /// ([`broker`]).
     fn ask(
         &self,
         owner: u64,
@@ -52,9 +58,7 @@ pub(crate) fn backend(
     if op.id != 1 {
         return Err(ERR_UNSUPPORTED);
     }
-    let Record::ServiceLookupAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceLookupAsk<'_> = codec::single(input)?;
     // The text is what is looked up; the language is a BCP 47 tag or empty.
     if ask.text.is_empty() || !language_ok(ask.language) {
         return Err(ERR_INVALID);
@@ -77,7 +81,7 @@ fn language_ok(tag: &str) -> bool {
 }
 
 fn check(reply: &[u8]) -> Result<(), i32> {
-    let (record, used) = wire::record_decode_prefix(reply).map_err(|_| ERR_INVALID)?;
+    let (record, used) = codec::decode_prefix(reply).map_err(|_| ERR_INVALID)?;
     match record {
         Record::ServiceLookupEntry(entry)
             if used == reply.len()

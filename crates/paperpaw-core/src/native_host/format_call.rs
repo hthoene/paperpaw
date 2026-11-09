@@ -19,6 +19,7 @@ use super::{
     registrations::{self as wire, Record},
     stage_wire,
 };
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
@@ -39,7 +40,7 @@ const REPLY_ROWS: u32 = 64;
 /// and the token it declared in `format.spec`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
-    pub(crate) plugin: usize,
+    pub(crate) plugin: u64,
     pub(crate) token: u32,
 }
 
@@ -78,12 +79,12 @@ pub(crate) fn call(
         schema: MAJOR,
         payload,
     });
-    let capacity = wire::record_framed_len(&record)?
+    let capacity = codec::framed_len(&record)?
         .checked_add(1)
         .filter(|length| *length <= CALL_MAX)
         .ok_or(ERR_NO_SPACE)?;
     let mut framed = scratch(capacity)?;
-    if wire::records_encode(&[record], &mut framed)? != capacity {
+    if codec::encode_batch(&[record], &mut framed)? != capacity {
         return Err(ERR_INVALID);
     }
     let mut reply = scratch(out.len().min(PAYLOAD_MAX))?;

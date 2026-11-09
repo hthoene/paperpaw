@@ -1,9 +1,8 @@
 //! Sums over the log, as KOReader's statistics compute them.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::Storage;
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::store::{self, Book, PageStat};
 
@@ -44,24 +43,37 @@ pub(crate) fn rescaled(page: u32, then: u32, pages: u32) -> core::ops::RangeIncl
 
 /// Marks the pages a stay on page `page` of `then` pages stands for in
 /// `read`, a bit per page of the book's `pages` (see [`rescaled`]).
-pub(crate) fn mark_read(read: &mut Vec<u8>, page: u32, then: u32, pages: u32) {
+pub(crate) fn mark_read(
+    read: &mut Vec<u8>,
+    page: u32,
+    then: u32,
+    pages: u32,
+) -> Result<(), StorageError> {
     for page in rescaled(page, then, pages) {
         let (byte, bit) = ((page / 8) as usize, page % 8);
         if read.len() <= byte {
+            read.try_reserve(byte + 1 - read.len())
+                .map_err(|_| StorageError::TooLarge)?;
             read.resize(byte + 1, 0);
         }
-        read[byte] |= 1 << bit;
+        if let Some(bits) = read.get_mut(byte) {
+            *bits |= 1 << bit;
+        }
     }
+    Ok(())
 }
 
 /// The totals of `book`; `day_of` turns Unix seconds into local days.
-/// Where the log cannot be read to the end, those of what could be.
+/// Where the log cannot be read to the end, those of what could be. A
+/// refused allocation is an error (`TooLarge`), never totals that lack
+/// stays.
 pub(crate) fn of_book(
     storage: &dyn Storage,
     book: &Book,
     day_of: impl Fn(u32) -> i32,
-) -> BookTotals {
+) -> Result<BookTotals, StorageError> {
     let mut totals = BookTotals::default();
+    let mut refused = false;
     // Pages read, as bits.
     let mut read: Vec<u8> = Vec::new();
     #[expect(
@@ -69,7 +81,7 @@ pub(crate) fn of_book(
         reason = "a log that cannot be read to the end counts what could be"
     )]
     let _ = store::scan(storage, |stat: &PageStat| {
-        if stat.book != book.id {
+        if stat.book != book.id || refused {
             return;
         }
         totals.seconds += u64::from(stat.duration);
@@ -78,31 +90,84 @@ pub(crate) fn of_book(
         } else {
             stat.pages
         };
-        mark_read(&mut read, stat.page, stat.pages, pages);
+        if mark_read(&mut read, stat.page, stat.pages, pages).is_err() {
+            refused = true;
+            return;
+        }
         let day = day_of(stat.start);
         match totals.days.binary_search_by_key(&day, |(d, _)| *d) {
-            Ok(i) => totals.days[i].1 = totals.days[i].1.saturating_add(u32::from(stat.duration)),
-            Err(i) => totals.days.insert(i, (day, u32::from(stat.duration))),
+            Ok(i) => {
+                if let Some(entry) = totals.days.get_mut(i) {
+                    entry.1 = entry.1.saturating_add(u32::from(stat.duration));
+                }
+            }
+            Err(i) => {
+                if totals.days.try_reserve(1).is_err() {
+                    refused = true;
+                    return;
+                }
+                totals.days.insert(i, (day, u32::from(stat.duration)));
+            }
         }
     });
+    if refused {
+        return Err(StorageError::TooLarge);
+    }
     totals.pages_read = read.iter().map(|b| b.count_ones()).sum();
-    totals
+    Ok(totals)
 }
 
 /// Reading time of each of `books` (sorted by id), for lists; where the
 /// log cannot be read to the end, that of what could be.
-pub(crate) fn seconds_per_book(storage: &dyn Storage, books: &[Book]) -> Vec<u64> {
-    let mut seconds = vec![0u64; books.len()];
+/// A refused allocation is an error (`TooLarge`).
+pub(crate) fn seconds_per_book(
+    storage: &dyn Storage,
+    books: &[Book],
+) -> Result<Vec<u64>, StorageError> {
+    seconds_by_id(storage, books.len(), |at| books.get(at).map(|b| b.id))
+}
+
+/// Reading time of `count` books sorted by id, `id_at` giving each one's id.
+pub(crate) fn seconds_by_id(
+    storage: &dyn Storage,
+    count: usize,
+    id_at: impl Fn(usize) -> Option<u16>,
+) -> Result<Vec<u64>, StorageError> {
+    let mut seconds = Vec::new();
+    seconds
+        .try_reserve_exact(count)
+        .map_err(|_| StorageError::TooLarge)?;
+    seconds.resize(count, 0u64);
     #[expect(
         clippy::let_underscore_must_use,
         reason = "a log that cannot be read to the end counts what could be, as said above"
     )]
     let _ = store::scan(storage, |stat| {
-        if let Ok(i) = books.binary_search_by_key(&stat.book, |b| b.id) {
-            seconds[i] += u64::from(stat.duration);
+        if let Ok(i) = binary_search(count, &id_at, stat.book)
+            && let Some(total) = seconds.get_mut(i)
+        {
+            *total += u64::from(stat.duration);
         }
     });
-    seconds
+    Ok(seconds)
+}
+
+/// `slice::binary_search_by_key` over `count` ids given by `id_at`.
+fn binary_search(
+    count: usize,
+    id_at: &impl Fn(usize) -> Option<u16>,
+    id: u16,
+) -> Result<usize, usize> {
+    let (mut low, mut high) = (0, count);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        match id_at(mid).map(|found| found.cmp(&id)) {
+            Some(core::cmp::Ordering::Less) => low = mid + 1,
+            Some(core::cmp::Ordering::Greater) => high = mid,
+            _ => return Ok(mid),
+        }
+    }
+    Err(low)
 }
 
 /// The days in a row up to `today` (or yesterday, while today has no
@@ -172,8 +237,8 @@ mod tests {
         assert_eq!(rescaled(1, u32::MAX, u32::MAX), 1..=1);
         assert_eq!(*rescaled(u32::MAX, u32::MAX, u32::MAX).end(), MOST_PAGES);
         let mut read = Vec::new();
-        mark_read(&mut read, u32::MAX, u32::MAX, u32::MAX);
-        mark_read(&mut read, 4_000_000_000, 0, 0);
+        mark_read(&mut read, u32::MAX, u32::MAX, u32::MAX).unwrap();
+        mark_read(&mut read, 4_000_000_000, 0, 0).unwrap();
         assert!(read.len() <= MOST_PAGES as usize / 8 + 1);
     }
 
@@ -204,11 +269,14 @@ mod tests {
             pages: 100,
             ..Book::default()
         };
-        let totals = of_book(&storage, &book(1), |unix| (unix / 500) as i32);
+        let totals = of_book(&storage, &book(1), |unix| (unix / 500) as i32).unwrap();
         assert_eq!(totals.seconds, 90);
         assert_eq!(totals.pages_read, 2);
         assert_eq!(totals.days, [(0, 70), (2, 20)]);
-        assert_eq!(seconds_per_book(&storage, &[book(1), book(2)]), [90, 50]);
+        assert_eq!(
+            seconds_per_book(&storage, &[book(1), book(2)]).unwrap(),
+            [90, 50]
+        );
     }
 
     #[test]

@@ -148,6 +148,18 @@ impl Screens {
         }
     }
 
+    pub(crate) fn remove_native_owner(&mut self, owner: &str) {
+        let mut at = 0;
+        while at < self.made.len() {
+            if self.titles[at].0.namespace() == owner && matches!(self.made[at], Made::Native(_)) {
+                self.titles.remove(at);
+                self.made.remove(at);
+            } else {
+                at += 1;
+            }
+        }
+    }
+
     fn title(&self, id: &str) -> Option<&str> {
         match self.find(id) {
             Ok(at) => Some(self.titles[at].1.as_ref()),
@@ -320,6 +332,8 @@ impl Subscriptions {
 /// which live in their own stores.
 #[derive(Debug, Default)]
 pub(crate) struct Registry {
+    pub(crate) native_declarations:
+        Option<crate::native_host::native_declarations::DirectoryHandle>,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     /// When screens show the row of hints, where they said.
@@ -344,6 +358,23 @@ impl Registry {
         self.hints.get(screen).copied().unwrap_or_default()
     }
 
+    /// How many screens are offered for slots.
+    pub(crate) fn offers(&self) -> usize {
+        self.candidates.len()
+    }
+
+    /// The priority of each offer, in the order made (for tests).
+    #[cfg(test)]
+    pub(crate) fn offer_priorities(&self) -> impl Iterator<Item = Priority> + '_ {
+        self.candidates.iter().map(|c| c.priority)
+    }
+
+    /// Forgets the offers of `owner`'s screens, when it is unloaded.
+    pub(crate) fn remove_native_offers(&mut self, owner: &str) {
+        self.candidates
+            .retain(|candidate| candidate.screen.namespace() != owner);
+    }
+
     /// Every slot some screen is bound to.
     pub(crate) fn bound_slots(&self) -> Vec<Id> {
         let mut slots: Vec<Id> = Vec::new();
@@ -358,6 +389,35 @@ impl Registry {
             }
         }
         slots
+    }
+
+    /// [`Registry::bound_slots`] where the heap may be short: `None` when it
+    /// has no room for the list (the caller keeps the list it has).
+    pub(crate) fn try_bound_slots(&self) -> Option<Vec<Id>> {
+        let mut slots: Vec<Id> = Vec::new();
+        // At most one slot for each offer and binding: reserved once, so the
+        // list never grows by doubling.
+        slots
+            .try_reserve_exact(self.candidates.len() + self.user_bindings.len())
+            .ok()?;
+        for slot in self
+            .candidates
+            .iter()
+            .map(|c| &c.slot)
+            .chain(self.user_bindings.iter().map(|(slot, _)| slot))
+        {
+            if !slots.contains(slot) && self.resolve_slot(slot.as_str()).is_some() {
+                slots.push(slot.try_clone()?);
+            }
+        }
+        Some(slots)
+    }
+
+    /// Keeps of `slots` those some screen is still bound to, without
+    /// allocating: where the list cannot be made anew, a slot whose last offer
+    /// went must not stay in it.
+    pub(crate) fn retain_bound(&self, slots: &mut Vec<Id>) {
+        slots.retain(|slot| self.resolve_slot(slot.as_str()).is_some());
     }
 
     /// The screen bound to `slot`: the user's choice if that screen exists,
@@ -437,7 +497,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
             .iter()
             .filter(|c| c.slot.as_str() == slot && self.screens.contains_key(c.screen.as_str()))
             .collect();
-        candidates.sort_by_key(|c| core::cmp::Reverse(c.priority));
+        paperpaw_sort::sort_by_key(&mut candidates, |c| core::cmp::Reverse(c.priority));
         let mut screens: Vec<&Id> = Vec::new();
         for candidate in candidates {
             if !screens.contains(&&candidate.screen) {
@@ -577,6 +637,38 @@ impl Staging {
         push_native(&mut self.native_screens, screen)
     }
 
+    /// Stages the offer of the plugin's screen `screen` for `slot`, without
+    /// infallible growth. A screen of another plugin is `ERR_INVALID`.
+    pub(crate) fn native_offer(
+        &mut self,
+        owner: &Id,
+        slot: Id,
+        screen: Id,
+        priority: Priority,
+    ) -> Result<(), i32> {
+        if screen.namespace() != owner.as_str() {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(
+            &mut self.candidates,
+            SlotCandidate {
+                slot,
+                screen,
+                priority,
+            },
+        )
+    }
+
+    /// How many actions, settings and setting groups are staged: what a
+    /// native publication must make room for before it merges.
+    pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
+        (
+            self.actions.len(),
+            self.settings.len(),
+            self.setting_groups.len(),
+        )
+    }
+
     /// Stage already decoded native contributions without infallible growth.
     /// The caller publishes only after every record has mapped successfully.
     #[allow(
@@ -672,6 +764,13 @@ impl Staging {
                     message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
         }
+        // The offers' room, before anything is moved.
+        registry
+            .candidates
+            .try_reserve(self.candidates.len())
+            .map_err(|_| RegisterError::Invalid {
+                message: NATIVE_CAPACITY_UNAVAILABLE.into(),
+            })?;
         for action in self.actions.drain(..) {
             actions.insert(action);
         }

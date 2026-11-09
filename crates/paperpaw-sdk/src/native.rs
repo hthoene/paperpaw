@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 20;
+pub const DRAFT: u16 = 28;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -97,6 +97,7 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_native",
     "paperpaw_lang",
     "paperpaw_table",
+    "paperpaw_sort",
 ];
 
 /// The layouts of the types that cross between a plugin and PaperPaw, as
@@ -193,7 +194,7 @@ pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 
             ids.push(String::from(id));
         }
     });
-    ids.sort_unstable();
+    paperpaw_sort::sort(&mut ids);
     ids.into_iter()
         .filter_map(|id| {
             let header = read_header(storage, &native.path(&fetched_folder(&id)))?;
@@ -319,6 +320,7 @@ pub fn remember_author(storage: &dyn Storage, plugin: &str, key: &[u8; 32]) -> b
 /// the Wi-Fi transfer nor plugins' own folders reach.
 const INSTALLED: &str = crate::data_path!("plugin-code.txt");
 
+mod batch;
 mod binding;
 #[doc(hidden)]
 pub use binding::entry as __entry;
@@ -330,16 +332,22 @@ pub mod canvas;
 pub mod clock;
 pub mod commands;
 pub mod declare;
+pub mod device;
 pub mod events;
+pub mod files;
 pub mod fonts;
 pub mod format;
 pub mod formatting;
+pub mod i18n;
 pub mod keys;
 pub mod library;
+pub mod lookup;
+pub mod net;
 pub mod registrations;
 /// Borrowed registry rows and lossless generation-bound paging.
 pub mod registry;
 pub mod reply;
+pub mod secrets;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
@@ -347,6 +355,7 @@ pub mod stages;
 pub mod storage;
 pub mod ui;
 mod wire;
+pub mod work;
 
 #[cfg(test)]
 #[path = "native/slot_limits_tests.rs"]
@@ -413,7 +422,7 @@ fn entry_in(text: &str, plugin: &str) -> Option<[u8; 32]> {
     let hex = text
         .lines()
         .find_map(|line| line.strip_prefix(plugin)?.strip_prefix('\t'))?;
-    paperpaw_digest::hex::decode(hex.trim())?.try_into().ok()
+    paperpaw_digest::hex::decode_array(hex.trim())
 }
 
 /// Keeps `value` for `plugin` in `file`, in place of what was kept. A

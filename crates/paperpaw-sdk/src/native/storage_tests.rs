@@ -246,6 +246,7 @@ fn document_roots_forward_scoped_paths_and_host_refusals() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     size(&host, Root::DocumentCache, "converted.txt").unwrap();
+    size(&host, Root::Install, "data/phone.txt").unwrap();
     size(&host, Root::Book, "").unwrap();
     size(&host, Root::UserCss, "").unwrap();
     let mut out = [0; 16];
@@ -254,14 +255,15 @@ fn document_roots_forward_scoped_paths_and_host_refusals() {
     assert_eq!(
         *ctx.calls.borrow(),
         vec![
-            Call("size", 2, "converted.txt".into(), vec![], 0),
+            Call("size", 6, "converted.txt".into(), vec![], 0),
+            Call("size", 2, "data/phone.txt".into(), vec![], 0),
             Call("size", 3, "".into(), vec![], 0),
             Call("size", 4, "".into(), vec![], 0),
             Call("read", 3, "".into(), vec![], 9),
         ]
     );
     ctx.calls.borrow_mut().clear();
-    for root in [Root::Data, Root::Files, Root::DocumentCache] {
+    for root in [Root::Data, Root::Files, Root::Install, Root::DocumentCache] {
         assert_eq!(size(&host, root, ""), Err(Error::Invalid));
     }
     for root in [Root::DocumentCache, Root::Book, Root::UserCss] {

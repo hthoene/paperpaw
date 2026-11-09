@@ -39,7 +39,7 @@ pub(crate) fn from_record(owner: &str, record: wire::Record<'_>) -> Result<Value
     normalize(owner, record, &mut checked_id)
 }
 
-fn checked_id(text: &str) -> Result<Id, i32> {
+pub(super) fn checked_id(text: &str) -> Result<Id, i32> {
     Id::try_parse(text).map_err(|error| match error {
         IdError::Invalid => ERR_INVALID,
         IdError::NoMemory => ERR_NO_MEMORY,
@@ -158,7 +158,7 @@ fn group_value(
     Ok(value)
 }
 
-fn qualified(
+pub(super) fn qualified(
     owner: &str,
     name: &str,
     id: &mut impl FnMut(&str) -> Result<Id, i32>,
@@ -177,7 +177,7 @@ fn qualified(
     id(text)
 }
 
-fn copy(text: &str) -> Result<String, i32> {
+pub(super) fn copy(text: &str) -> Result<String, i32> {
     let mut owned = String::new();
     owned
         .try_reserve_exact(text.len())

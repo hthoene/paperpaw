@@ -64,9 +64,14 @@ pub(crate) fn parse(line: &str) -> Option<Line> {
     };
     let bad = |why| Some(Line::Bad { n: Some(n), why });
     match words.next() {
-        Some("data") => match words.next().map(hex) {
-            Some(Some(bytes)) if bytes.len() <= DATA && words.next().is_none() => {
-                Some(Line::Data { n, bytes })
+        Some("data") => match (words.next(), words.next()) {
+            // Longer than `DATA` bytes of digits is refused before anything is reserved.
+            (Some(digits), None) if digits.len() <= DATA * 2 => {
+                match paperpaw_sdk::digest::hex::try_decode(digits) {
+                    Ok(Some(bytes)) => Some(Line::Data { n, bytes }),
+                    Ok(None) => bad("bad data"),
+                    Err(_) => bad("out of memory"),
+                }
             }
             _ => bad("bad data"),
         },
@@ -93,13 +98,6 @@ pub(crate) fn parse(line: &str) -> Option<Line> {
 
 fn is_method(word: &str) -> bool {
     !word.is_empty() && word.len() <= 8 && word.bytes().all(|b| b.is_ascii_uppercase())
-}
-
-fn hex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    paperpaw_sdk::digest::hex::decode(text)
 }
 
 /// After *Back* on its screen, the cable is opened again only by a
@@ -271,6 +269,25 @@ mod tests {
         let (_, cut) = cable.begin(2, 0);
         assert_eq!(cut, Some((1, first)));
         assert_eq!(cable.data(1, 10), None);
+    }
+
+    /// A data line holds at most `DATA` bytes; a longer one is refused as it
+    /// is read, and one with more words is too.
+    #[test]
+    fn a_data_line_is_cut_at_its_size_and_words() {
+        let full = alloc::format!("PPT/1 7 data {}", "ab".repeat(DATA));
+        assert!(matches!(parse(&full), Some(Line::Data { n: 7, bytes }) if bytes.len() == DATA));
+        for bad in [
+            alloc::format!("{full}ab"),
+            alloc::format!("{full} 00"),
+            String::from("PPT/1 7 data"),
+            String::from("PPT/1 7 data 00 00"),
+        ] {
+            assert!(
+                matches!(parse(&bad), Some(Line::Bad { n: Some(7), .. })),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

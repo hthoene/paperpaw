@@ -27,9 +27,10 @@ class Classify(unittest.TestCase):
         own, workspace, named, refused = store_update.classify(
             ["plugins/notes-vault/src/lib.rs", "tools/plugin-files/plugins.txt",
              "tools/plugin-files/src/bin/notes-vault.rs", "tools/plugin-files/Cargo.toml",
-             "tools/plugin-files/Cargo.lock", "CHANGELOG.md", "docs/data-files.md"],
+             "tools/plugin-files/Cargo.lock", "CHANGELOG.md", "docs/data-files.md",
+             "changelog.d/226-changelog-fragments.md"],
             "notes-vault")
-        self.assertEqual((len(own), workspace, named, refused), (7, [], [], []))
+        self.assertEqual((len(own), workspace, named, refused), (8, [], [], []))
 
     def test_the_scripts_and_the_workflows_are_never_the_branch_s(self):
         # What runs the checks, the build and the signing is the trusted checkout's.

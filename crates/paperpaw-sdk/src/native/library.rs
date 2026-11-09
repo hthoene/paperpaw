@@ -2,10 +2,18 @@
 use super::wire::services_wire::core_library_v1 as schema;
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    declare::records_wire::{self as wire, RawRecord, WireEncode, WireRecord},
     services::Service,
 };
 
+mod annotations;
+pub use annotations::{
+    Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,
+};
+mod annotation_text;
+pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
+mod fields;
+pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};
@@ -46,8 +54,8 @@ impl<'a> BookRef<'a> {
             key: Some(key),
         }))
     }
-    fn record(self) -> Record<'a> {
-        Record::ServiceLibRef(self.0)
+    fn record(&self) -> &dyn WireEncode {
+        &self.0
     }
 }
 
@@ -76,13 +84,13 @@ impl Library {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
-        let len = wire::records_encode_counted(
-            records,
+        let len = wire::records_encode_counted_of(
+            records.iter().copied(),
             usize::from(operation.input_rows),
             operation.max_input,
             input,
@@ -114,7 +122,7 @@ impl Library {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<LibraryPage<'a, Entry<'a>>, Error> {
-        let n = self.call(host, schema::OP_QUERY, &[query.record()], input, out)?;
+        let n = self.call(host, schema::OP_QUERY, &[&query.record()], input, out)?;
         rows::page(
             &out[..n],
             Some(query.cursor),
@@ -177,11 +185,11 @@ impl Library {
         out: &mut [u8],
     ) -> Result<(), Error> {
         super::ui::navigation::full_id(field)?;
-        let row = Record::ServiceLibFieldSet(wire::ServiceLibFieldSet { field, value });
+        let row = wire::ServiceLibFieldSet { field, value };
         self.mutate(
             host,
             schema::OP_SET_FIELD,
-            &[book.record(), row],
+            &[book.record(), &row],
             input,
             out,
         )
@@ -198,14 +206,14 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        let row = Record::ServiceLibStatus(wire::ServiceLibStatus {
+        let row = wire::ServiceLibStatus {
             set: u32::from(finished),
             clear: u32::from(!finished),
-        });
+        };
         self.mutate(
             host,
             schema::OP_SET_STATUS,
-            &[book.record(), row],
+            &[book.record(), &row],
             input,
             out,
         )
@@ -214,7 +222,7 @@ impl Library {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
@@ -224,8 +232,8 @@ impl Library {
         Ok(())
     }
 }
-fn one(bytes: &[u8]) -> Result<Record<'_>, Error> {
-    wire::record_decode_one(bytes).map_err(|_| Error::Invalid)
+fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
+    RawRecord::one(bytes).map_err(|_| Error::Invalid)
 }
 
 #[cfg(test)]

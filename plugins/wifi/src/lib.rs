@@ -14,6 +14,37 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+pub mod native_ini;
+pub mod native_known;
+#[doc(hidden)]
+pub mod native_model;
+pub mod native_own;
+pub mod native_phone;
+/// The interface-7 plugin.
+pub mod native_plugin;
+pub mod native_policy;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+#[cfg(test)]
+mod native_secret_tests;
+
 mod networks;
 mod page;
 mod phone;

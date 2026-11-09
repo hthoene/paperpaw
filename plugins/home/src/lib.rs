@@ -32,6 +32,38 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+pub mod native_add;
+pub mod native_add_screen;
+pub mod native_arrange;
+pub mod native_dash;
+pub mod native_dashboard;
+pub mod native_focus;
+pub mod native_grid;
+pub mod native_measure;
+pub mod native_pages;
+pub mod native_plugin;
+pub mod native_shown;
+pub mod native_source;
+
 mod add;
 mod blocks;
 mod covers;
