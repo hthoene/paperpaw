@@ -72,7 +72,7 @@ impl NativeFiles {
         let state = library
             .state(host, &mut input, &mut out)
             .map(|state| (state.phase(), state.books()));
-        let card = if unreadable || state.is_err() {
+        let card = if unreadable || state.as_ref().is_err_and(|error| *error != Error::Busy) {
             Self::card_present(host)?
         } else {
             true
