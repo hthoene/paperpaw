@@ -90,6 +90,9 @@ impl Emulator {
                 .write(path, bytes)
                 .map_err(|e| format!("{path}: {e:?}"))?;
         }
+        // English hyphenation, a data plugin the flasher would have put on a
+        // card (`paperpaw-default-packs`).
+        paperpaw_default_packs::seed_hyphenation(&files);
         // The first-run setup counts as done.
         files
             .write(".paperpaw/plugins/setup/done", b"")

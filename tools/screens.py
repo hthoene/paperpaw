@@ -44,7 +44,6 @@ SCREENS = [
     ("catalogs", "run:opds.open", []),
     ("fonts", "run:fonts-browser.open,wait:6000", FONTS),
     ("font", "run:fonts-browser.open,wait:6000,run:core.confirm,wait:3000", FONTS),
-    ("files", "run:file-manager.open", []),
     ("news", "run:news.open", []),
     ("battery", "run:battery.open", []),
     ("vocabulary", "run:vocabulary.open", []),

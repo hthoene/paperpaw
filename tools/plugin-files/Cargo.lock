@@ -143,31 +143,13 @@ dependencies = [
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",
  "paperpaw-plugin-format-mobi",
- "paperpaw-plugin-hyphenation-da",
- "paperpaw-plugin-hyphenation-de",
- "paperpaw-plugin-hyphenation-es",
- "paperpaw-plugin-hyphenation-fr",
- "paperpaw-plugin-hyphenation-it",
- "paperpaw-plugin-hyphenation-nb",
- "paperpaw-plugin-hyphenation-nl",
- "paperpaw-plugin-hyphenation-pl",
- "paperpaw-plugin-hyphenation-pt",
- "paperpaw-plugin-hyphenation-ru",
- "paperpaw-plugin-hyphenation-sv",
- "paperpaw-plugin-hyphenation-uk",
- "paperpaw-plugin-joplin",
- "paperpaw-plugin-koreader",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-read-later-cloud",
- "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
- "paperpaw-plugin-stats",
- "paperpaw-plugin-translate",
  "paperpaw-plugin-vocabulary",
- "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
 ]
@@ -210,118 +192,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-hyphenation-da"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-de"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-es"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-fr"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-it"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nb"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pt"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-ru"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-sv"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-uk"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-joplin"
-version = "1.0.7"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-xml",
-]
-
-[[package]]
-name = "paperpaw-plugin-koreader"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-mail"
 version = "1.0.4"
 dependencies = [
@@ -334,6 +204,7 @@ name = "paperpaw-plugin-news"
 version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -361,35 +232,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-reading-goal"
-version = "1.0.9"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
 name = "paperpaw-plugin-readwise"
 version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-stats"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-sqlite",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-translate"
-version = "1.0.6"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -400,13 +246,6 @@ dependencies = [
  "paperpaw-sqlite",
  "paperpaw-ui-kit",
  "paperpaw-zip",
-]
-
-[[package]]
-name = "paperpaw-plugin-weather"
-version = "1.0.7"
-dependencies = [
- "paperpaw-sdk",
 ]
 
 [[package]]

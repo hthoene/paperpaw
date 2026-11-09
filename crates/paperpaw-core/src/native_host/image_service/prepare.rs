@@ -24,6 +24,9 @@ pub(crate) const DAMAGED: u32 = 2;
 pub(crate) const TOO_LARGE: u32 = 3;
 pub(crate) const CARD: u32 = 4;
 pub(crate) const NO_MEMORY: u32 = 5;
+/// The source file is not there (any root; a built-in plugin's install
+/// folder is empty, so every path in it).
+pub(crate) const NOT_FOUND: u32 = 6;
 
 impl super::Inner {
     /// How many more requests `owner` may queue: every answer not yet told
@@ -85,6 +88,15 @@ impl Env {
     }
 }
 
+/// `status` for a card read that failed: a missing file is its own status.
+fn card_status(error: paperpaw_platform::StorageError) -> u32 {
+    if error == paperpaw_platform::StorageError::NotFound {
+        NOT_FOUND
+    } else {
+        CARD
+    }
+}
+
 /// Whether the file at `path` is a PNG whose source row (its width in bits
 /// a pixel, rounded up to bytes) is over `max`, from its first 33 bytes.
 fn png_row_over(storage: &dyn Storage, path: &str, max: usize) -> bool {
@@ -116,10 +128,10 @@ const JPEG_SEGMENTS_MAX: usize = 256;
 /// The pixel count the header of the JPEG, PNG or GIF at `path` declares,
 /// from a few small reads and no allocation: `Ok(None)` for a format this
 /// does not read (the decoder refuses it), `Err(status)` for a header that
-/// cannot be read or has no size (`DAMAGED`; `CARD` where the card fails).
+/// cannot be read or has no size (`DAMAGED`; `NOT_FOUND` for a missing file; `CARD` where the card fails).
 fn source_pixels(storage: &dyn Storage, path: &str) -> Result<Option<u64>, u32> {
     let mut head = [0_u8; 33];
-    let n = storage.read_at(path, 0, &mut head).map_err(|_| CARD)?;
+    let n = storage.read_at(path, 0, &mut head).map_err(card_status)?;
     let head = &head[..n];
     let size = match Format::detect(head) {
         Some(Format::Png) => {
@@ -158,7 +170,7 @@ const GIF_BLOCKS_MAX: usize = 1024;
 /// ends first, goes on too long, or the frame has no size.
 fn gif_frame(storage: &dyn Storage, path: &str) -> Result<(u32, u32), u32> {
     let mut flags = [0_u8; 1];
-    if storage.read_at(path, 10, &mut flags).map_err(|_| CARD)? != 1 {
+    if storage.read_at(path, 10, &mut flags).map_err(card_status)? != 1 {
         return Err(DAMAGED);
     }
     // The header, the screen descriptor and the global colour table.
@@ -170,7 +182,7 @@ fn gif_frame(storage: &dyn Storage, path: &str) -> Result<(u32, u32), u32> {
     while steps < GIF_BLOCKS_MAX {
         steps += 1;
         let mut block = [0_u8; 9];
-        let n = storage.read_at(path, at, &mut block).map_err(|_| CARD)?;
+        let n = storage.read_at(path, at, &mut block).map_err(card_status)?;
         match block.first() {
             // An image descriptor: `2C left(2) top(2) width(2) height(2)`.
             Some(0x2c) if n == 9 => {
@@ -190,7 +202,7 @@ fn gif_frame(storage: &dyn Storage, path: &str) -> Result<(u32, u32), u32> {
                     steps += 1;
                     let mut len = [0_u8; 1];
                     if steps > GIF_BLOCKS_MAX
-                        || storage.read_at(path, at, &mut len).map_err(|_| CARD)? != 1
+                        || storage.read_at(path, at, &mut len).map_err(card_status)? != 1
                     {
                         return Err(DAMAGED);
                     }
@@ -213,7 +225,7 @@ fn jpeg_size(storage: &dyn Storage, path: &str) -> Result<Option<(u32, u32)>, u3
     let mut at = 2_u64;
     for _ in 0..JPEG_SEGMENTS_MAX {
         let mut seg = [0_u8; 9];
-        let n = storage.read_at(path, at, &mut seg).map_err(|_| CARD)?;
+        let n = storage.read_at(path, at, &mut seg).map_err(card_status)?;
         if n < 2 || seg[0] != 0xff {
             return Err(DAMAGED);
         }

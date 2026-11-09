@@ -153,6 +153,19 @@ impl Kernel {
                 let Some(action) = self.resolve(&InputKey::Button(Cow::Borrowed(button))) else {
                     return Hint::Hidden;
                 };
+                // What a native screen relabelled with `command.set_hint` wins
+                // over what its `hint` says.
+                let relabelled = top.and_then(|t| {
+                    self.shared
+                        .stack_rows
+                        .labels()
+                        .try_borrow()
+                        .ok()?
+                        .hint(t.serial, action.as_str())
+                });
+                if let Some(hint) = relabelled {
+                    return hint;
+                }
                 match top.map_or(Hint::Default, |t| t.screen.hint(action, &env)) {
                     // Nowhere to go back to from the first screen.
                     Hint::Default if *action == actions::BACK && self.stack.len() < 2 => {

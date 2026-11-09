@@ -18,6 +18,7 @@ import zipfile
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "ci"))
 import espflash  # noqa: E402
+import prune_caches  # noqa: E402
 
 
 class Espflash(unittest.TestCase):
@@ -540,6 +541,38 @@ exit 2
         result = self.run_job()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no release of PaperPaw before", result.stdout)
+
+
+class PruneCaches(unittest.TestCase):
+    def entry(self, number, key, ref="refs/heads/abi7/integration", created="2026-11-09T08:00:00Z"):
+        return {"id": number, "key": key, "ref": ref, "created_at": created, "size_in_bytes": 1}
+
+    def test_the_older_entry_of_a_prefix_goes_and_the_newest_stays(self):
+        entries = [
+            self.entry(1, "v0-rust-x4-pro-firmware-Linux-x64-6d4f8e32-6f6f3ce5", created="2026-11-09T07:00:00Z"),
+            self.entry(2, "v0-rust-x4-pro-firmware-Linux-x64-6d4f8e32-8629a0a7", created="2026-11-09T10:00:00Z"),
+            self.entry(3, "v0-rust-x3-firmware-Linux-x64-c942fa7c-8629a0a7"),
+        ]
+        self.assertEqual(prune_caches.stale(entries), [1])
+
+    def test_other_caches_and_other_branches_are_never_touched(self):
+        entries = [
+            self.entry(1, "esp-Linux-1.97.0.0-14.2.0_20241119-0.17.1", created="2026-11-09T07:00:00Z"),
+            self.entry(2, "esp-Linux-1.97.0.0-14.2.0_20241119-0.17.2"),
+            self.entry(3, "apt-debs-Linux-clang-18-b265fc2d", created="2026-11-09T07:00:00Z"),
+            self.entry(4, "apt-debs-Linux-clang-18-b265fc2e"),
+            self.entry(5, "v0-rust-check-Linux-x64-fc21961f-79722096", ref="refs/heads/main", created="2026-11-01T00:00:00Z"),
+            self.entry(6, "v0-rust-check-Linux-x64-fc21961f-79722096"),
+            self.entry(7, "v0-rust-odd-key"),
+        ]
+        self.assertEqual(prune_caches.stale(entries), [])
+
+    def test_a_job_name_that_looks_like_another_is_its_own_prefix(self):
+        entries = [
+            self.entry(1, "v0-rust-x4-firmware-Linux-x64-c942fa7c-8629a0a7"),
+            self.entry(2, "v0-rust-x4-pro-firmware-Linux-x64-6d4f8e32-8629a0a7"),
+        ]
+        self.assertEqual(prune_caches.stale(entries), [])
 
 
 if __name__ == "__main__":
