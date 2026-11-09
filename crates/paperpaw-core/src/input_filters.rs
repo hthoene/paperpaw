@@ -102,4 +102,33 @@ impl Kernel {
             },
         }
     }
+
+    /// What the recognizer made of the input, through the native filters first
+    /// where it is a gesture an `input.gesture` record can describe (a tap, a
+    /// long press, a swipe): they may pass it, replace it by another gesture,
+    /// take or cancel it, run an action or raise an input of their plugin's.
+    /// A gesture a filter made, or a raised input, goes on without them
+    /// ([`Self::recognized`]), so none can loop.
+    pub(crate) fn recognized_filtered(&mut self, recognized: input::Recognized) {
+        use native_host::input_chain::Native;
+        let input::Recognized::Gesture(gesture) = recognized else {
+            return self.recognized(recognized);
+        };
+        match self.native_gesture(self.now, &gesture) {
+            // A replace that made a key or a finger is not a gesture: the
+            // original goes on (the count of refusals told it).
+            Native::Pass | Native::Replaced(_) => self.recognized(recognized),
+            Native::Gesture(made) => self.recognized(input::Recognized::Gesture(made)),
+            Native::Taken | Native::Cancelled => {}
+            Native::Run(action) => {
+                if let Ok(action) = Id::parse(&action) {
+                    self.dispatch(action);
+                }
+            }
+            Native::Raise(name) => match InputKey::parse(&name) {
+                Some(key) => self.route_key(key),
+                None => self.warn_runtime(format!("a filter raised unknown input `{name}`")),
+            },
+        }
+    }
 }

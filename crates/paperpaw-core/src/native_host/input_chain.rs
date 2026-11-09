@@ -106,6 +106,27 @@ pub(crate) fn record_of(event: &InputEvent, now_ms: u64) -> Option<Record<'stati
     }
 }
 
+/// A gesture the kernel recognized as the stage's `input.gesture` record;
+/// `None` for the kinds the record has none for (a pinch, a double tap, two
+/// fingers), which no filter sees.
+pub(crate) fn gesture_record(gesture: &Gesture, now_ms: u64) -> Option<Record<'static>> {
+    let kind = match gesture.kind {
+        GestureKind::Tap => 0,
+        GestureKind::LongPress => 1,
+        GestureKind::Swipe(Direction::Left) => 2,
+        GestureKind::Swipe(Direction::Right) => 3,
+        GestureKind::Swipe(Direction::Up) => 4,
+        GestureKind::Swipe(Direction::Down) => 5,
+        _ => return None,
+    };
+    Some(Record::InputGesture(wire::InputGesture {
+        now_ms,
+        kind,
+        x: gesture.start.x,
+        y: gesture.start.y,
+    }))
+}
+
 /// The input a filter's `replace` made, as an event the kernel can route:
 /// `None` where it cannot be one (an unknown key name, a gesture, a state or
 /// phase that is none of ours), and the input then passes as it was.
@@ -198,6 +219,77 @@ pub(crate) fn gesture_of(
 pub(crate) struct FilterCache {
     revision: u64,
     filters: Vec<Subscription<'static>>,
+    /// How many inputs in a row each filter's call failed (the same order).
+    failures: Vec<u8>,
+}
+
+/// A filter whose call failed this many inputs in a row is left out of the
+/// list (until the declarations change), so that one that keeps failing costs
+/// no call, no list read and no warning at every key.
+const GIVE_UP: u8 = 3;
+
+impl FilterCache {
+    fn new(revision: u64, filters: Vec<Subscription<'static>>) -> Result<Self, i32> {
+        let mut failures = Vec::new();
+        failures
+            .try_reserve_exact(filters.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        failures.resize(filters.len(), 0);
+        Ok(Self {
+            revision,
+            filters,
+            failures,
+        })
+    }
+
+    /// One input later: `failed` are the filters whose call failed. Counts
+    /// them, clears the others' counts and drops any that reached
+    /// [`GIVE_UP`]; says whether one was dropped.
+    fn settle(&mut self, failed: &[(u64, u32)]) -> bool {
+        let mut dropped = false;
+        let mut at = 0;
+        while let (Some(filter), Some(count)) = (self.filters.get(at), self.failures.get_mut(at)) {
+            if failed.contains(&(filter.plugin, filter.token)) {
+                *count = count.saturating_add(1);
+            } else {
+                *count = 0;
+            }
+            if *count >= GIVE_UP {
+                self.filters.remove(at);
+                self.failures.remove(at);
+                dropped = true;
+            } else {
+                at += 1;
+            }
+        }
+        dropped
+    }
+}
+
+/// A runner that notes which filters' calls failed (at most
+/// [`super::ui_input::MAX_FILTERS`]).
+struct Watching<R> {
+    inner: R,
+    failed: [(u64, u32); super::ui_input::MAX_FILTERS],
+    count: usize,
+}
+
+impl<R: FilterRunner> FilterRunner for Watching<R> {
+    fn call(
+        &mut self,
+        filter: &Subscription<'_>,
+        payload: &[u8],
+        reply: &mut [u8],
+    ) -> Result<usize, i32> {
+        let answer = self.inner.call(filter, payload, reply);
+        if answer.is_err()
+            && let Some(slot) = self.failed.get_mut(self.count)
+        {
+            *slot = (filter.plugin, filter.token);
+            self.count += 1;
+        }
+        answer
+    }
 }
 
 /// The subscribers of `core.input-filter` in stage order, at most
@@ -254,21 +346,37 @@ pub(crate) fn declared_input(
 /// One input through the chain with `runner`: what it made of it, and how
 /// many filters were refused (failed or invalid callbacks, replies and
 /// verdicts: the input passed them).
+#[cfg(test)]
 pub(crate) fn run_chain(
     chain: &mut InputFilters,
     runner: &mut dyn FilterRunner,
     filters: &[Subscription<'_>],
     policy: &Policy<'_>,
     event: &InputEvent,
-    (now_ms, display, device_keys): (u64, (u16, u16), &[&'static str]),
+    context @ (now_ms, ..): (u64, (u16, u16), &[&'static str]),
 ) -> (Native, usize) {
-    let Some(record) = record_of(event, now_ms) else {
-        return (Native::Pass, 0);
-    };
+    match record_of(event, now_ms) {
+        Some(record) => run_record(chain, runner, filters, policy, &record, event, context),
+        None => (Native::Pass, 0),
+    }
+}
+
+/// [`run_chain`] for `record`, an input as the stage's record. `event` is the
+/// input it stands for (what a replace changes: a gesture stands for the
+/// finger that made it).
+pub(crate) fn run_record(
+    chain: &mut InputFilters,
+    runner: &mut dyn FilterRunner,
+    filters: &[Subscription<'_>],
+    policy: &Policy<'_>,
+    record: &Record<'_>,
+    event: &InputEvent,
+    (_, display, device_keys): (u64, (u16, u16), &[&'static str]),
+) -> (Native, usize) {
     let Ok(Dispatched {
         routed,
         mut refused,
-    }) = chain.dispatch(runner, filters, policy, &record)
+    }) = chain.dispatch(runner, filters, policy, record)
     else {
         return (Native::Pass, 0);
     };
@@ -303,18 +411,52 @@ impl crate::Kernel {
         now: paperpaw_platform::Instant,
         event: &InputEvent,
     ) -> Native {
-        if record_of(event, 0).is_none() {
-            return Native::Pass;
+        match record_of(event, now.millis()) {
+            Some(record) => self.native_chain(now, &record, event),
+            None => Native::Pass,
         }
+    }
+
+    /// The native filters' verdict on a gesture the kernel recognized.
+    pub(crate) fn native_gesture(
+        &mut self,
+        now: paperpaw_platform::Instant,
+        gesture: &Gesture,
+    ) -> Native {
+        let Some(record) = gesture_record(gesture, now.millis()) else {
+            return Native::Pass;
+        };
+        // The finger that made it, for what a replace keeps of it.
+        let finger = InputEvent::Pointer(PointerEvent::new(
+            0,
+            PointerPhase::Up,
+            gesture.end,
+            gesture.tool,
+            1000,
+        ));
+        self.native_chain(now, &record, &finger)
+    }
+
+    fn native_chain(
+        &mut self,
+        now: paperpaw_platform::Instant,
+        record: &Record<'_>,
+        event: &InputEvent,
+    ) -> Native {
         // The captures are the chain's only state: taken out for the call, so
         // that the rest of the kernel can be read meanwhile.
         let mut chain = core::mem::take(&mut self.shared.native_input);
         let mut cache = self.shared.native_filters.take();
-        let (native, refused) = self.native_input_run(&mut chain, &mut cache, now, event);
+        let (native, refused, failed) =
+            self.native_input_run(&mut chain, &mut cache, now, record, event);
         self.shared.native_input = chain;
-        // A filter that failed may be one that stopped: read the list again
-        // at the next input.
-        self.shared.native_filters = cache.filter(|_| refused == 0);
+        // A filter that fails input after input is left out until the
+        // declarations change.
+        let gave_up = cache.as_mut().is_some_and(|cache| cache.settle(&failed));
+        self.shared.native_filters = cache;
+        if gave_up {
+            self.warn_runtime("a native input filter failed at every input: left out");
+        }
         // Told once while filters keep failing, not at every key.
         if refused > 0 && !self.shared.native_input_refused {
             self.warn_runtime("a native input filter failed or answered badly: its input passed");
@@ -328,14 +470,16 @@ impl crate::Kernel {
         chain: &mut InputFilters,
         cache: &mut Option<FilterCache>,
         now: paperpaw_platform::Instant,
+        record: &Record<'_>,
         event: &InputEvent,
-    ) -> (Native, usize) {
+    ) -> (Native, usize, Vec<(u64, u32)>) {
+        let none = |native, refused| (native, refused, Vec::new());
         let shared = &self.shared;
         let (Some(directory), Some(depth)) = (
             shared.registry.native_declarations.as_deref(),
             shared.native_depth.as_ref(),
         ) else {
-            return (Native::Pass, 0);
+            return none(Native::Pass, 0);
         };
         // The store is released before any filter runs.
         let Ok(()) = directory
@@ -346,27 +490,31 @@ impl crate::Kernel {
                 Some(kept) if kept.revision == store.revision() => Ok(()),
                 _ => {
                     let revision = store.revision();
-                    subscriptions(&store).map(|filters| {
-                        *cache = Some(FilterCache { revision, filters });
-                    })
+                    subscriptions(&store)
+                        .and_then(|filters| FilterCache::new(revision, filters))
+                        .map(|made| *cache = Some(made))
                 }
             })
         else {
-            return (Native::Pass, 1);
+            return none(Native::Pass, 1);
         };
         let Some(filters) = cache.as_ref().map(|kept| kept.filters.as_slice()) else {
-            return (Native::Pass, 0);
+            return none(Native::Pass, 0);
         };
         if filters.is_empty() {
-            return (Native::Pass, 0);
+            return none(Native::Pass, 0);
         }
         let env = shared.env(now);
         let stage_schema = schema();
-        let mut runner = BrokerRunner {
-            schema: &stage_schema,
-            depth: depth.as_depth(),
-            registry: &shared.native_instances,
-            env: &env,
+        let mut runner = Watching {
+            inner: BrokerRunner {
+                schema: &stage_schema,
+                depth: depth.as_depth(),
+                registry: &shared.native_instances,
+                env: &env,
+            },
+            failed: [(0, 0); super::ui_input::MAX_FILTERS],
+            count: 0,
         };
         let stack: &dyn UiStackView = &*shared.stack_rows;
         // The interface-6 screens are not in the native stack rows: until they
@@ -396,14 +544,22 @@ impl crate::Kernel {
             declared: &declared,
         };
         let display = (shared.device.display.width, shared.device.display.height);
-        run_chain(
+        let (native, refused) = run_record(
             chain,
             &mut runner,
             filters,
             &policy,
+            record,
             event,
             (now.millis(), display, shared.device.input.keys),
-        )
+        );
+        let failed = runner.failed.get(..runner.count).unwrap_or_default();
+        let mut noted = Vec::new();
+        // No room to note them: nothing is given up this time.
+        if noted.try_reserve_exact(failed.len()).is_ok() {
+            noted.extend_from_slice(failed);
+        }
+        (native, refused, noted)
     }
 }
 
