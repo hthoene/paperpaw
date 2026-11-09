@@ -513,6 +513,8 @@ const paperpaw_sdk::native::binding::heap::ABORT_ALLOCATION: i32 = 2i32
 const paperpaw_sdk::native::binding::heap::ABORT_MESSAGE_BYTES: usize = 96usize
 const paperpaw_sdk::native::binding::heap::ABORT_PANIC: i32 = 1i32
 const paperpaw_sdk::native::binding::heap::NAMES: (&str, &str, &str) = (HEAP_SYMBOL, HEAP_ALIAS, HEAP_SECTION)
+const paperpaw_sdk::native::commands::evidence::MAX_REVOCATIONS: usize = 16usize
+const paperpaw_sdk::native::commands::evidence::MAX_ROTATIONS: usize = 8usize
 const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize = 8usize
 const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize = 64usize
@@ -2769,6 +2771,9 @@ struct paperpaw_sdk::native::canvas::Canvas<'cb> { host: &'cb paperpaw_sdk::nati
 struct paperpaw_sdk::native::canvas::clip::ClipGuard<'a, 'cb> { canvas: &'a mut paperpaw_sdk::native::canvas::Canvas<'cb>, previous: paperpaw_sdk::native::callbacks::FrameRect, restored: bool }
 struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, scratch: &'buf mut [u8] }
 struct paperpaw_sdk::native::commands::device::FirmwareOptions<'a> { allow_older: bool, foreign: bool, key: core::option::Option<&'a [u8; 32]> }
+struct paperpaw_sdk::native::commands::evidence::Evidence<'a> { author: core::option::Option<&'a [u8; 32]>, recovery: core::option::Option<&'a [u8; 32]>, rotations: &'a [paperpaw_sdk::native::commands::evidence::Rotation<'a>] }
+struct paperpaw_sdk::native::commands::evidence::Revocation<'a> { plugin: &'a str, key: &'a [u8; 32], signature: &'a [u8; 64] }
+struct paperpaw_sdk::native::commands::evidence::Rotation<'a> { to: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::registry::PreviewSetting<'a> { key: &'a str, value: paperpaw_sdk::native::settings::SettingValue<'a> }
 struct paperpaw_sdk::native::declare::ActionDecl<'a> { name: &'a str, title: &'a str, token: u32, needs_screen: bool }
 struct paperpaw_sdk::native::declare::Declarations<F> { sink: F, bytes: alloc::vec::Vec<u8>, used: usize, count: usize, total: usize, failed: core::option::Option<paperpaw_sdk::native::declare::Latched>, abort_sent: bool }
