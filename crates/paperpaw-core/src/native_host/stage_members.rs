@@ -87,6 +87,12 @@ impl StageMembers {
         }
     }
 
+    /// Frees every list, whatever callback froze it.
+    pub(crate) fn end_all(&mut self) {
+        self.epoch = 0;
+        self.stages = Vec::new();
+    }
+
     /// Whether nothing is frozen.
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
@@ -103,7 +109,20 @@ pub(crate) struct Release<'a> {
 }
 
 impl<'a> Release<'a> {
-    pub(crate) fn new(directory: Option<&'a NativeDeclarations>, epoch: u64) -> Self {
+    /// For the callback `epoch`. `outermost` is a callback that starts with no
+    /// other running: whatever an earlier one left frozen (a path that did not
+    /// release, a callback that ended abnormally) is freed at once.
+    pub(crate) fn new(
+        directory: Option<&'a NativeDeclarations>,
+        epoch: u64,
+        outermost: bool,
+    ) -> Self {
+        if outermost
+            && let Some(directory) = directory
+            && let Ok(mut members) = directory.members.try_borrow_mut()
+        {
+            members.end_all();
+        }
         Self { directory, epoch }
     }
 }

@@ -116,6 +116,12 @@ impl FlatDepth {
         &self.0
     }
 
+    /// Whether `other` is this very counter (one device has one).
+    #[must_use]
+    pub(crate) fn is_same_counter(&self, other: &Self) -> bool {
+        core::ptr::eq(self.as_depth(), other.as_depth())
+    }
+
     /// Retain the budget without allocating; None means count overflow.
     #[must_use]
     pub fn try_clone(&self) -> Option<Self> {

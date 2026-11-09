@@ -101,6 +101,8 @@ pub(crate) mod ui_widget_ops;
 )]
 pub(crate) mod ui_compose_host;
 
+#[path = "native_host/input_chain.rs"]
+pub(crate) mod input_chain;
 #[path = "native_host/ui_input.rs"]
 #[allow(
     dead_code,

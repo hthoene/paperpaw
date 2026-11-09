@@ -11,7 +11,7 @@ use super::{
 };
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services,
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
 };
 use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
@@ -200,6 +200,19 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        // The first plugin's depth is the shell's device-wide one, and every
+        // later plugin brings the same: a host stage run enters it, so a
+        // second counter would let nested dispatch past the budget.
+        match self.shared.native_depth.as_ref() {
+            None => {
+                self.shared.native_depth = Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
+            }
+            Some(first) if !first.is_same_counter(&depth) => {
+                self.warn_runtime("a native plugin brought its own callback depth counter");
+                return Err(shell::Error::Status(ERR_STATE));
+            }
+            Some(_) => {}
+        }
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());

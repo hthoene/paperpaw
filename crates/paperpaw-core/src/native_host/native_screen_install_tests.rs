@@ -420,6 +420,14 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
     }
     .unwrap()
 }
+/// The device's depth counter: the first plugin's, once there is one.
+fn device_depth(kernel: &crate::Kernel) -> FlatDepth {
+    match kernel.shared.native_depth.as_ref() {
+        Some(depth) => depth.try_clone().unwrap(),
+        None => FlatDepth::try_new().unwrap(),
+    }
+}
+
 /// Installs with the resource records of mode `res`, in the plugin's folder.
 fn install_resources(
     kernel: &mut crate::Kernel,
@@ -427,12 +435,7 @@ fn install_resources(
     folder: Option<&str>,
 ) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.register_native_in(
-        host(0),
-        &FlatDepth::try_new().unwrap(),
-        folder,
-        |_, _, _| {},
-    );
+    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -442,18 +445,30 @@ fn install_resources(
 /// the admission.
 fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.admit_native(
-        host(0),
-        &FlatDepth::try_new().unwrap(),
-        folder,
-        |_, _, _| {},
-    );
+    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
 
+#[test]
+fn a_plugin_with_a_depth_counter_of_its_own_is_refused() {
+    let mut kernel = kernel(1 << 1);
+    let depth = device_depth(&kernel);
+    // The device's counter again is fine; another one would double the budget.
+    for name in ["one", "two"] {
+        let hosted = host_named(name, 0);
+        kernel
+            .register_native(hosted, &depth, |_, _, _| {})
+            .unwrap();
+    }
+    let other = FlatDepth::try_new().unwrap();
+    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _| {});
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_STATE))));
+    assert!(kernel.shared.native_instances.find("three").is_none());
+}
+
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
-    kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
+    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
@@ -818,11 +833,7 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     let mut kernel = kernel(1 << 1);
     for owner in ["base", "other"] {
         kernel
-            .register_native(
-                host_named(owner, 0),
-                &FlatDepth::try_new().unwrap(),
-                |_, _, _| {},
-            )
+            .register_native(host_named(owner, 0), &device_depth(&kernel), |_, _, _| {})
             .unwrap();
     }
     kernel.open_screen(

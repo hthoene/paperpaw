@@ -585,11 +585,11 @@ fn the_frozen_lists_are_freed_when_the_callback_ends() {
             ask(frame, STAGE, 0, b"", &mut out).unwrap();
             assert!(!fixture.directory.members.borrow().is_empty());
             // A nested callback's end (another epoch) leaves the list alone.
-            drop(Release::new(Some(&fixture.directory), 8));
+            drop(Release::new(Some(&fixture.directory), 8, false));
             assert!(!fixture.directory.members.borrow().is_empty());
         },
     );
-    drop(Release::new(Some(&fixture.directory), 7));
+    drop(Release::new(Some(&fixture.directory), 7, false));
     assert!(fixture.directory.members.borrow().is_empty());
     // The next callback freezes a fresh list from the store.
     with_frame_at(
@@ -603,6 +603,31 @@ fn the_frozen_lists_are_freed_when_the_callback_ends() {
             assert_eq!(reply(&out, count).subscriber, "first");
         },
     );
+}
+
+#[test]
+fn an_outermost_callback_frees_what_an_earlier_path_left_frozen() {
+    use crate::native_host::stage_members::Release;
+    let fixture = Fixture::new();
+    // A list frozen in a callback whose path had no release (epoch 4).
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (4, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            ask(frame, STAGE, 0, b"", &mut out).unwrap();
+        },
+    );
+    assert!(!fixture.directory.members.borrow().is_empty());
+    // A nested callback starting (another one is running) leaves it alone.
+    drop(Release::new(Some(&fixture.directory), 5, false));
+    assert!(!fixture.directory.members.borrow().is_empty());
+    // An outermost callback starting frees it, whatever its epoch.
+    let outer = Release::new(Some(&fixture.directory), 6, true);
+    assert!(fixture.directory.members.borrow().is_empty());
+    drop(outer);
 }
 
 #[test]

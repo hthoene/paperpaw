@@ -500,36 +500,11 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // Plugins' input filters come first; while a screen guards the
-        // device, or a PIN or a password is entered, only those of its
-        // plugin.
-        let (verdict, delivered) = {
-            let asking = self.secret_owner();
-            let env = self.shared.env(now);
-            self.shared
-                .input_filters
-                .filter_of(&env, &event, asking.as_deref())
-        };
-        let event = match verdict {
-            InputVerdict::Take => {
-                // Taken from the recognizers that follow the finger too.
-                if let InputEvent::Pointer(p) = delivered {
-                    self.recognizers_lose(&p);
-                }
-                return self.finish();
-            }
-            InputVerdict::Run(action) => {
-                self.dispatch(action);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Cancel => {
-                self.cancel_input(&delivered);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Replace(other) => other,
-            _ => event,
+        // The native input filters first, then the interface-6 ones (while a
+        // screen guards the device or a secret is typed, only its plugin's).
+        let event = match self.filtered(now, event) {
+            Ok(event) => event,
+            Err(effects) => return effects,
         };
         self.shared.last_input = match event {
             InputEvent::Button { .. } => paperpaw_sdk::keys::InputMode::Buttons,
@@ -567,6 +542,77 @@ impl Kernel {
         self.run_commands();
         self.speak_focus();
         self.finish()
+    }
+
+    /// `event` after the native filters and then the interface-6 ones, or the
+    /// effects of an input one of them took, cancelled or ran an action for.
+    fn filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        let event = self.native_filtered(now, event)?;
+        self.legacy_filtered(now, event)
+    }
+
+    /// The interface-6 filters: while a screen guards the device, or a PIN or
+    /// a password is entered, only those of its plugin.
+    fn legacy_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        let (verdict, delivered) = {
+            let asking = self.secret_owner();
+            let env = self.shared.env(now);
+            self.shared
+                .input_filters
+                .filter_of(&env, &event, asking.as_deref())
+        };
+        let event = match verdict {
+            InputVerdict::Take => {
+                // Taken from the recognizers that follow the finger too.
+                if let InputEvent::Pointer(p) = delivered {
+                    self.recognizers_lose(&p);
+                }
+                return Err(self.finish());
+            }
+            InputVerdict::Run(action) => {
+                self.dispatch(action);
+                self.run_commands();
+                return Err(self.finish());
+            }
+            InputVerdict::Cancel => {
+                self.cancel_input(&delivered);
+                self.run_commands();
+                return Err(self.finish());
+            }
+            InputVerdict::Replace(other) => other,
+            _ => event,
+        };
+        Ok(event)
+    }
+
+    /// What the native input filters made of `event`: the input to go on with
+    /// (as it was, or replaced), or the effects of one that was taken,
+    /// cancelled or turned into an action.
+    fn native_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
+        use native_host::input_chain::Native;
+        match self.native_input(now, &event) {
+            Native::Pass => Ok(event),
+            Native::Replaced(other) => Ok(other),
+            Native::Taken => {
+                if let InputEvent::Pointer(p) = event {
+                    self.recognizers_lose(&p);
+                }
+                Err(self.finish())
+            }
+            Native::Cancelled => {
+                self.cancel_input(&event);
+                self.run_commands();
+                Err(self.finish())
+            }
+            Native::Run(action) => match Id::parse(&action) {
+                Ok(action) => {
+                    self.dispatch(action);
+                    self.run_commands();
+                    Err(self.finish())
+                }
+                Err(_) => Ok(event),
+            },
+        }
     }
 
     /// `event` with the page buttons the other way round while reading,
@@ -1180,6 +1226,8 @@ impl Kernel {
     /// [`events::SUSPEND`].
     pub fn suspend(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        // Fingers and keys held under a native filter's capture are let go.
+        self.shared.native_input.clear();
         self.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
@@ -1215,6 +1263,7 @@ impl Kernel {
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
         self.woke(now);
         self.finish()
     }
@@ -1283,6 +1332,15 @@ struct Shared {
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,
+    /// The captures of the native `core.input-filter` chain.
+    native_input: native_host::ui_input::InputFilters,
+    /// The native input filters read from the declarations, until they change.
+    native_filters: Option<native_host::input_chain::FilterCache>,
+    /// Whether the last input had a native filter refused (told once).
+    native_input_refused: bool,
+    /// The shells' device-wide callback depth, kept from the first native
+    /// plugin: the host's own stage runs enter it at depth 0.
+    native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
