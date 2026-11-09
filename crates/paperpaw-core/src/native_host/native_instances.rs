@@ -561,6 +561,12 @@ impl NativeInstances {
         )
     }
 
+    /// The host resources `test_insert` made, to wire services into.
+    #[cfg(test)]
+    pub(crate) fn test_resources(&self) -> Option<&super::HostResources> {
+        self.fixture_pool.as_ref()
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_rows(&self) -> (usize, usize) {
         (self.entries.len(), self.entries.capacity())

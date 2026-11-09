@@ -10,14 +10,14 @@
 //!
 //! The snapshot is rebuilt only when the settings changed (a version) or the
 //! mode did, so an ordinary call costs three comparisons. Every allocation is
-//! fallible; when the snapshot cannot be made the policy is *closed*: every
-//! plugin's network is off until it can be made (a privacy setting is never
-//! guessed open).
+//! fallible. The policy is *closed* until it has been filled once and when the
+//! snapshot cannot be made: every plugin's network is off until it can be (a
+//! privacy setting is never guessed open), and the kernel tries again at every
+//! pass.
 use super::net_service::{PowerEnd, reason};
 use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 
-#[derive(Default)]
 struct Snapshot {
     /// The version of the kernel's settings this was made from.
     version: u32,
@@ -35,8 +35,9 @@ struct Snapshot {
     closed: bool,
 }
 
-/// The device's network policy (see the module).
-#[derive(Default)]
+/// The device's network policy (see the module). It is *closed* until the
+/// kernel has filled it once: a plugin that asks before is answered as if its
+/// network were off, never as if the user had allowed it.
 pub(crate) struct NetPolicy {
     snapshot: RefCell<Snapshot>,
 }
@@ -56,9 +57,18 @@ fn copy_all<'a>(names: impl Iterator<Item = &'a str>) -> Option<Vec<String>> {
 }
 
 impl NetPolicy {
-    /// An open policy: nothing is off, held or offline until the kernel says.
+    /// A closed policy: nothing goes out until the kernel has filled it.
     pub(crate) fn new() -> Self {
-        Self::default()
+        Self {
+            snapshot: RefCell::new(Snapshot {
+                version: 0,
+                offline: false,
+                mode_offline: false,
+                off: Vec::new(),
+                held: Vec::new(),
+                closed: true,
+            }),
+        }
     }
 
     /// Whether the snapshot is out of date for these inputs: no allocation.

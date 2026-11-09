@@ -21,8 +21,22 @@ fn why(policy: &NetPolicy, plugin: &str, background: bool) -> Option<(u32, bool)
 }
 
 #[test]
-fn an_open_policy_ends_nothing() {
+fn a_policy_nobody_has_filled_is_closed_and_asks_to_be_filled() {
     let policy = NetPolicy::new();
+    assert_eq!(
+        why(&policy, "mail", true),
+        Some((reason::NETWORK_OFF, false))
+    );
+    assert_eq!(
+        why(&policy, "mail", false),
+        Some((reason::NETWORK_OFF, false))
+    );
+    assert!(policy.needs(0, false, false), "even for the first version");
+}
+
+#[test]
+fn a_filled_policy_with_nothing_decided_ends_nothing() {
+    let policy = made(0, false, false, &[], &[]);
     assert_eq!(why(&policy, "mail", true), None);
     assert_eq!(why(&policy, "mail", false), None);
 }

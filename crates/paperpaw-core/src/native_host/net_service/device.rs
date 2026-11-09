@@ -280,9 +280,9 @@ impl NetHost for NetDevice {
             .paths
             .plugin_of(owner, &mut |id| end = self.policy.end_for(id, background))
         {
-            // A table in use is asked again at the next pass.
-            Ok(()) | Err(ERR_BUSY) => end,
-            // A plugin whose id is not known is not let out.
+            Ok(()) => end,
+            // A plugin whose id cannot be had (not known, or the table in use)
+            // is not let out: the answer is the safe one.
             Err(_) => Some(PowerEnd {
                 reason: reason::NETWORK_OFF,
                 later: false,

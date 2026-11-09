@@ -542,9 +542,13 @@ impl Kernel {
                 self.close_ended_runs();
             }
             Command::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
-            Command::Wear(wear) => self.wear(wear),
+            Command::Wear(wear) => {
+                self.wear(wear);
+                self.sync_net_policy();
+            }
             Command::GoOnline => {
                 self.works.online_for = self.stack.last().map(|top| top.id.clone());
+                self.sync_net_policy();
                 // What waited may go on this connection.
                 self.output.commands.push(events::WORK_ALLOWED.emit(()));
             }
@@ -554,6 +558,7 @@ impl Kernel {
                 let how_long = how_long.min(paperpaw_sdk::power::MAX_ONLINE_FOR);
                 let millis = u64::try_from(how_long.as_millis()).unwrap_or(u64::MAX);
                 self.works.online_until = Some(self.now.add_millis(millis));
+                self.sync_net_policy();
                 self.output.commands.push(events::WORK_ALLOWED.emit(()));
             }
             _ => {}
@@ -771,6 +776,17 @@ impl Kernel {
         self.works.policy_version = self.works.policy_version.wrapping_add(1);
     }
 
+    /// Gives the native services the network policy as it is now. Called
+    /// wherever what it follows changes (a setting, the power mode, going
+    /// online) and at the end of every call, so that the next callback of a
+    /// plugin, in this call or the next, is answered by what the user has
+    /// just decided, never by what he had decided before.
+    pub(crate) fn sync_net_policy(&mut self) {
+        if let Some(policy) = self.shared.native_instances.net_policy() {
+            self.refresh_net_policy(&policy);
+        }
+    }
+
     /// Gives the network policy of the native services (`core.net`,
     /// `core.sockets`) what the user decided: the mode and each plugin's own
     /// setting, as interface 6 applies them to a plugin's network use. Cheap
@@ -780,8 +796,8 @@ impl Kernel {
         policy: &crate::native_host::net_policy::NetPolicy,
     ) {
         self.read_policy();
-        let offline = self.base_power().level == PowerLevel::Offline;
         let mode_offline = self.shared.power.level == PowerLevel::Offline;
+        let offline = mode_offline && !self.went_online();
         let version = self.works.policy_version;
         if !policy.needs(version, offline, mode_offline) {
             return;

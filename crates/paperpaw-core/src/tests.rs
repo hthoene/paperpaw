@@ -3276,6 +3276,7 @@ mod input;
 mod input_kinds;
 mod kernel_calls;
 mod library_catalog;
+mod net_policy_wiring;
 mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;
