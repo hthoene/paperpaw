@@ -45,7 +45,6 @@ store-plugins = [
     "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-joplin",
     "dep:paperpaw-plugin-mail",
-    "dep:paperpaw-plugin-wallabag",
     "dep:paperpaw-plugin-hyphenation-da",
     "dep:paperpaw-plugin-hyphenation-de",
     "dep:paperpaw-plugin-hyphenation-es",
@@ -154,7 +153,6 @@ paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-koreader = { workspace = true, optional = true }
-paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-weather = { workspace = true, optional = true }
