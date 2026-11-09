@@ -510,13 +510,13 @@ asker learns its request id at once and long texts move in pages, never cut.
   - **Input.** Only the guard's plugin's input filters are called (the others are skipped, not
     called and ignored); keys and pointers then go to the top instance, which is the guard's
     plugin's. `raise_input` from any other plugin is `ERR_DENIED`.
-  - **Key maps.** Only the own key layer (`set_key_layer`) of the guard instance or of the top
-    guard dialog, and bindings to host actions or to the guard's plugin's own actions, apply. What
-    decides is the action's owner, never the layer's name (#843): a binding in any layer, the
-    guard's own included, that names another plugin's action or input does nothing while the guard
-    is up (logged), whoever put it there (a declared `key.bind`, the user, a preset), so a key map
-    can never run another plugin's code past the lock. Plugin ids `core` and `core.*` are
-    reserved, so no plugin's action passes for a host one.
+  - **Key maps.** While the guard is up, a key runs only host actions and the guard's plugin's
+    own actions, checked when the key is dispatched. What decides is the action's owner, never the
+    layer (#843): a binding in any layer, the guard's own key layer (`set_key_layer`) included,
+    that names another plugin's action or input does nothing while the guard is up (logged),
+    whoever put it there (a declared `key.bind`, the user, a preset), so a key map can never run
+    another plugin's code past the lock. Plugin ids `core` and `core.*` are reserved, so no
+    plugin's action passes for a host one.
   - **Closing.** Only the guard's plugin closes the guarding instance or any instance above it
     (`close`, `back_to`: `ERR_DENIED` for others), except a guard dialog closing itself, so no
     other plugin closes the lock's keyboard.
