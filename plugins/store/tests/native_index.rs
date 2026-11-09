@@ -60,7 +60,7 @@ fn list(plugins: &[Fixture], sections: &str) -> String {
             updated % 28 + 1,
         ));
     }
-    text.push_str("]");
+    text.push(']');
     text.push_str(sections);
     text.push('}');
     text

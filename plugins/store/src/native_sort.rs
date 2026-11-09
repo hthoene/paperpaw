@@ -88,7 +88,8 @@ impl Cursor {
             }
             let entries = got / KEYED;
             let filled = bytes.get(..entries * KEYED)?;
-            for (slot, chunk) in self.read.iter_mut().zip(filled.chunks_exact(KEYED)) {
+            let (chunks, _) = filled.as_chunks::<KEYED>();
+            for (slot, chunk) in self.read.iter_mut().zip(chunks) {
                 let mut key = [0u8; 8];
                 let mut n = [0u8; 4];
                 key.copy_from_slice(chunk.get(..8)?);

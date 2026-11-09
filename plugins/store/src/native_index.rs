@@ -245,6 +245,9 @@ fn write_head(
     storage.write(path, text.as_bytes()).map_err(|_| Error::Io)
 }
 
+/// What a view keeps of each plugin: its rank, or `None` to leave it out.
+pub type Keep<'a> = dyn FnMut(usize, &Entry) -> Result<Option<u32>, Error> + 'a;
+
 /// The order a view of the plugins shows them in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Order {
@@ -523,7 +526,7 @@ impl Index {
     fn pick_best(
         &self,
         storage: &dyn Storage,
-        keep: &mut dyn FnMut(usize, &Entry) -> Result<Option<u32>, Error>,
+        keep: &mut Keep<'_>,
         key: &dyn Fn(&Entry, u32) -> u64,
         most: usize,
         mut out: Output<'_>,
@@ -554,7 +557,7 @@ impl Index {
     fn pick_merged(
         &self,
         storage: &dyn Storage,
-        keep: &mut dyn FnMut(usize, &Entry) -> Result<Option<u32>, Error>,
+        keep: &mut Keep<'_>,
         key: &dyn Fn(&Entry, u32) -> u64,
         most: usize,
         mut out: Output<'_>,
