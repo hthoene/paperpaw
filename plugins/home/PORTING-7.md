@@ -346,8 +346,51 @@ Differences from interface 6 (each deliberate):
 
 ### Gaps
 
-- The status line is still interface 6 (`blocks.rs`): the next slice (it is composed through
-  `ui.compose`, #827).
+- The status line is slice 4c (below).
+
+## Slice 4c: the status line
+
+Base: this slice merges #827 (`ui.compose`, `b5f82e6e7`) and #860 (`core.widget` ops,
+`478a782bc`), both approved and in train 7, onto #864. It cannot merge before them.
+
+`declarations.rs`: the widget `home.status` (category *Device*, live: redrawn each minute) with
+its group of settings as interface 6 had them (the three lists *left*, *centre* and *right*,
+each edited on home's items screen, the chosen whole *line*, and the frame's look), and the status
+place `status-line` that names the three lists. `tests/widgets_declarations.rs` compares the settings,
+the id, the title and the category with the interface-6 registration; `tests/scripted_widgets.rs`
+has a status instance.
+
+`src/native_status_layout.rs` is the pure arithmetic of `blocks.rs`: the three parts (left, centre
+and right) and the dropping of the items of the lowest priority (of equal ones the centre's, then the left's,
+then the right's) until the line fits, with 0.4 of a text size between items; a text that is
+still too wide is shortened to its room.
+It has unit tests of its own (no host).
+
+`src/native_status.rs` is the widget. It reads the registry's status declarations once
+(`registry.status`, scope *items*: the item's owner, priority, least width, tap action) for the
+items the lists name, asks the host for their values (`ui.status_values`, eight items per
+call, two buffers), draws the texts itself and composes the values the owners draw
+(`ui.compose` with the item's handle, inside the same draw callback; a refusal leaves the place
+empty). A whole line chosen by the user (`ui.status_line`, op 15) is composed over the full
+area; one that is gone, or is the caller's own, draws nothing. A tap on an item with an action of
+its owner's runs that action (the target is the item's place from 1 in reading order); the tick
+reads the values and tells its maker when the line changed.
+
+Differences from interface 6 (each deliberate):
+
+- The step "drop the battery percentage first" is gone: an owner draws its own value (a symbol
+  and its text) and says its least width; the layout drops by priority and width only.
+- The picker screen of the setting `home.status.line` is not ported: the setting is a text that
+  holds an id; it is not chosen from a list. (The three lists use home's items screen.)
+- Items another plugin owns and says it draws itself (`is_own`) are left to it and not shown;
+  hidden private values (`is_hidden`) are left out.
+- The status bar above the grid (a line the dashboard shows by itself) waits until the dashboard
+  composes widgets; this slice is the widget.
+
+On the device (gates, not measured): the line reads at most 64 registry rows and asks for at
+most 16 items; a draw takes two 4 KiB buffers (the values) and one 4 KiB (the input); a tap
+and the target list lay the line out again (two 4 KiB buffers more); allocation refusals fail
+the draw, not the screen.
 
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 

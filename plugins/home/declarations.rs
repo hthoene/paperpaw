@@ -4,8 +4,8 @@
 //! and the help hints follow (`PORTING-7.md`).
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
-    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetDecl,
-    WidgetLayout, WidgetPlaceDecl,
+    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StatusPlaceDecl,
+    WidgetDecl, WidgetLayout, WidgetPlaceDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
@@ -23,6 +23,7 @@ pub const DATE: u32 = 20;
 pub const CLOCK: u32 = 21;
 pub const CARD: u32 = 22;
 pub const SHELF: u32 = 23;
+pub const STATUS_WIDGET: u32 = 24;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 8;
@@ -331,6 +332,90 @@ pub const WIDGETS: &[Def] = &[
     },
 ];
 
+/// The status line's parts, each a list of status items chosen on their
+/// picker: the line shown instead (none), the time on the left, nothing in the
+/// centre, and Wi-Fi and the battery on the right. Name (relative to the
+/// widget), default, title, help, and whether the picker is home's items screen.
+pub const STATUS_PARTS: &[(&str, &str, &str, &str, bool)] = &[
+    (
+        "line",
+        "",
+        "home.status.line",
+        "home.status.line.help",
+        false,
+    ),
+    (
+        "left",
+        "core.status.clock",
+        "home.status.left",
+        "home.status.part.help",
+        true,
+    ),
+    (
+        "center",
+        "",
+        "home.status.center",
+        "home.status.part.help",
+        true,
+    ),
+    (
+        "right",
+        "lock.touch-status, wifi.status, power.status, core.status.battery",
+        "home.status.right",
+        "home.status.part.help",
+        true,
+    ),
+];
+
+/// The look of the status line's frame (it has no alignment: its parts sit left,
+/// centre and right).
+pub const STATUS_LOOK: [Opt; 7] = [
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+];
+
+/// The status line widget, its group of settings (the parts, then the look)
+/// and the place that names the three settings that list its items.
+fn status<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<(), DeclareError> {
+    d.group(GroupDecl::new("status", "home.widget.status"))?;
+    let spec = WidgetDecl::new(
+        "status",
+        "home.widget.status",
+        "core.widgets.device",
+        STATUS_WIDGET,
+    )
+    .map_err(|_| DeclareError::TooLong("widget"))?
+    .live();
+    d.widget(spec)?;
+    for &(name, default, title, help, items) in STATUS_PARTS {
+        let name = ["status.", name].concat();
+        let mut part = SpecDecl::new(&name, Kind::List(default), "home.status", title);
+        part.help = help;
+        d.spec(part)?;
+        if items {
+            let mut extra = ExtraDecl::new(&name);
+            extra.editor = Some(EditorDecl::Screen("status-items"));
+            d.extra(extra)?;
+        }
+    }
+    declare_all(d, "status", "home.status", STATUS_LOOK)?;
+    let place = StatusPlaceDecl::new(
+        "status-line",
+        "home.widget.status",
+        "status.left",
+        "status.center",
+        "status.right",
+    )
+    .map_err(|_| DeclareError::TooLong("status place"))?;
+    d.status_place(place)?;
+    d.submit()
+}
+
 /// The built-in widgets: each has a group of settings
 /// of its own, named as it is.
 pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -348,5 +433,5 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
-    Ok(())
+    status(d)
 }
