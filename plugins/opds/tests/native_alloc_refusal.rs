@@ -191,6 +191,9 @@ impl Files for Head {
     fn remove(&self, _: &str) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
+    fn rename(&self, _: &str, _: &str) -> Result<(), Error> {
+        Err(Error::Unsupported)
+    }
 }
 
 #[test]
@@ -198,6 +201,23 @@ fn checking_a_download_survives_refused_allocations() {
     fail_alloc::sweep(|| {
         assert!(download::may_be_book(&Head(b"PK\x03\x04"), "f", "a.epub")?);
         assert!(!download::may_be_book(&Head(b"<html>"), "f", "a.txt")?);
+        Ok(())
+    });
+}
+
+#[test]
+fn the_covers_survive_refused_allocations() {
+    use paperpaw_plugin_opds::native_covers::{Covers, cache_name};
+    use paperpaw_sdk::native::image::ImageId;
+    let image = ImageId::new(3).unwrap();
+    fail_alloc::sweep(|| {
+        let mut covers = Covers::new(1, 20)?;
+        covers.preparing(2);
+        let cookie = covers.cookie(2);
+        covers.ready(cookie, Some((image, 10, 10)));
+        let ids = covers.release_all()?;
+        assert_eq!(ids.len(), 1);
+        cache_name("https://a.example/c.jpg")?;
         Ok(())
     });
 }

@@ -29,6 +29,8 @@ pub mod native_browse;
 #[doc(hidden)]
 pub mod native_catalogs;
 #[doc(hidden)]
+pub mod native_covers;
+#[doc(hidden)]
 pub mod native_dav;
 #[doc(hidden)]
 pub mod native_download;

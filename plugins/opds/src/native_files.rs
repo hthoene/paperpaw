@@ -56,6 +56,11 @@ pub trait Files {
     /// # Errors
     /// What the host says; a file that is not there is `NotFound` or fine.
     fn remove(&self, name: &str) -> Result<(), Error>;
+    /// Renames the file `from` to `to`, replacing a file there.
+    ///
+    /// # Errors
+    /// What the host says.
+    fn rename(&self, from: &str, to: &str) -> Result<(), Error>;
 }
 
 /// The data folder through the host.
@@ -101,6 +106,10 @@ impl Files for DataFiles<'_, '_> {
 
     fn remove(&self, name: &str) -> Result<(), Error> {
         storage::remove(self.0, Root::Data, name)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
+        storage::rename(self.0, Root::Data, from, to)
     }
 }
 

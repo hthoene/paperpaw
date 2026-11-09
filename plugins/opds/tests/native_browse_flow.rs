@@ -41,6 +41,7 @@ const ACTIVATE: u32 = 4;
 const BACK: u32 = 5;
 const STOP: u32 = 6;
 const TERMS: u32 = 7;
+const COVER_OF: u32 = 8;
 
 /// How the probe's catalog is set up.
 #[derive(Clone)]
@@ -106,6 +107,9 @@ impl Files for Disk {
     }
     fn remove(&self, name: &str) -> Result<(), Error> {
         DISK.with(|d| d.remove(name))
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
+        DISK.with(|d| d.rename(from, to))
     }
 }
 
@@ -236,6 +240,13 @@ impl Probe {
             STOP => {
                 if let Some(browser) = &mut self.browser {
                     browser.stop_download(host, &mut self.web, &Disk);
+                }
+            }
+            COVER_OF => {
+                let url = ARG.with(|a| a.borrow().0.clone());
+                if let Some(browser) = &self.browser {
+                    let id = browser.cover_request(host, &mut self.web, &url);
+                    say(format!("cover {}", id.is_ok()));
                 }
             }
             TERMS => {
@@ -1070,6 +1081,42 @@ fn credentials_go_only_to_the_catalog() {
         assert!(!line.contains("s3cret") && !line.contains("bWU6"), "{line}");
     }
     drop(plugin);
+}
+
+#[test]
+fn a_cover_is_asked_for_to_its_own_file_and_gets_the_account_only_at_home() {
+    let host = ScriptedHost::new();
+    setup(&host, "https://books.example.org/opds");
+    configure(|c| {
+        c.user = "me".to_string();
+        c.password = "s3cret".to_string();
+    });
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    opened_without_check(&plugin);
+    for (url, authorized) in [
+        ("https://books.example.org/covers/1.jpg", true),
+        ("https://cdn.example.net/covers/1.jpg", false),
+    ] {
+        ARG.with(|a| a.borrow_mut().0 = url.to_string());
+        plugin.event(COVER_OF, &nothing()).unwrap();
+        let asked = log();
+        assert!(
+            asked[0].starts_with(&format!("GET {url} #{}", web::COVER)),
+            "{asked:?}"
+        );
+        assert!(
+            asked[0].ends_with(&format!("file cover.tmp max_file {}", web::COVER_BYTES)),
+            "{asked:?}"
+        );
+        assert_eq!(asked[0].contains("Authorization"), authorized, "{asked:?}");
+    }
+    drop(plugin);
+}
+
+/// A browsing started, its first request left unanswered.
+fn opened_without_check(plugin: &paperpaw_scripted_host::Plugin<'_>) {
+    plugin.event(START, &nothing()).unwrap();
+    log();
 }
 
 #[test]

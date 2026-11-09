@@ -10,21 +10,25 @@ use paperpaw_sdk::native::{
     Error, Host,
     callbacks::{DrawFrame, Input},
     commands::CommandSender,
+    fonts::{Font, FontRole},
     formatting::Arg,
-    image::ImageReady,
+    image::{ImageReady, ImageStatus, ImageStyle, PrepareImage, PrepareRoot},
     net::{HttpDone, HttpProgress},
+    snapshot,
     ui::{Instance, Open, Param, Question},
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages,
+    Footer, Item, ItemList, ItemStep, Messages, Style,
     mem::{SERVICE_BUFFER, buffer, join, push},
+    paint::frame_rect,
     text::{concat, copy, decimal_u64},
 };
 
 use super::{Ask, NativeOpds, Pending, View};
 use crate::native_browse::{Browser, Note, Row, Step};
 use crate::native_catalogs as catalogs;
-use crate::native_files::DataFiles;
+use crate::native_covers::{self as covers, Covers, MAX_LIVE};
+use crate::native_files::{DataFiles, Files};
 use crate::native_web::{self as web, BOOK, COVER, DESCRIPTION, FEED, FILES};
 
 /// The browse screen: the browsing, its rows and the line below.
@@ -34,6 +38,10 @@ pub(super) struct BrowseView {
     list: ItemList,
     rows: Vec<Row>,
     note: String,
+    /// The covers of the feed shown, where the device has them.
+    covers: Option<Covers>,
+    /// A column for covers: some entry of the feed has a picture.
+    column: bool,
 }
 
 impl BrowseView {
@@ -49,7 +57,69 @@ impl BrowseView {
         } else {
             Footer::Note(&self.note)
         };
-        self.list.draw_with(host, &mut frame, &title, true, footer)
+        self.list
+            .draw_with(host, &mut frame, &title, true, footer)?;
+        self.draw_covers(host, &mut frame)
+    }
+
+    /// The entries whose rows were drawn in the last frame (the first few
+    /// before any was drawn).
+    fn visible(&self) -> Vec<usize> {
+        let first = usize::from(self.browser.feed().search.is_some());
+        let count = self.browser.feed().entries.len();
+        let drawn: Vec<usize> = (0..count)
+            .filter(|i| self.list.rect_of(i + first).is_some())
+            .collect();
+        if drawn.is_empty() {
+            (0..count.min(MAX_LIVE)).collect()
+        } else {
+            drawn
+        }
+    }
+
+    /// The covers over the column their rows keep for them. The kit's rows have
+    /// no place for a picture, so a row's tap-zone column is the room kept, and
+    /// the picture (or the plain ground, where there is none yet) is drawn
+    /// over what the kit drew there.
+    fn draw_covers(&self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        let Some(covers) = self.covers.as_ref().filter(|_| self.column) else {
+            return Ok(());
+        };
+        let first = usize::from(self.browser.feed().search.is_some());
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let style = Style::read(host, &display, &font);
+        font.release()?;
+        let style = style?;
+        let canvas = frame.draw_canvas()?;
+        for i in 0..self.browser.feed().entries.len() {
+            let Some(row) = self.list.rect_of(i + first) else {
+                continue;
+            };
+            let band = row.height.min(style.row);
+            let cell = (band / 6).max(4);
+            let side = cell * 3;
+            let x = row.x.saturating_add(style.margin);
+            let y = row.y.saturating_add(band.saturating_sub(side) / 2);
+            let ground = if i + first == self.list.focus() && !style.ring {
+                paperpaw_sdk::Color::BLACK
+            } else {
+                style.paper
+            };
+            let area = paperpaw_sdk::Rect::new(x, y, side, side);
+            canvas.fill_rectangle(frame_rect(area), ground)?;
+            if let Some((image, _, _)) = covers.image(i) {
+                // A cover is taller than wide: as high as the row lets it be.
+                let high = (side + side / 2).min(band.saturating_sub(2));
+                let top = row.y.saturating_add(band.saturating_sub(high) / 2);
+                let place = paperpaw_sdk::Rect::new(x, top, side, high);
+                match canvas.draw_image(image, frame_rect(place), ImageStyle::new().small()) {
+                    Ok(()) | Err(Error::NotFound) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The rows and the line below, as the browsing is now.
@@ -65,13 +135,28 @@ impl BrowseView {
         items
             .try_reserve_exact(rows.len())
             .map_err(|_| Error::NoMemory)?;
+        self.column = self.covers.is_some()
+            && self
+                .browser
+                .feed()
+                .entries
+                .iter()
+                .any(|e| e.thumbnail.is_some());
         for row in &rows {
             let item = match row {
                 Row::Search => Item::row(&say.copy(host, "opds.search")?, "›")?,
                 Row::More => Item::row(&say.copy(host, "opds.more")?, "›")?,
                 Row::Entry(_) => {
                     let (title, value, note) = self.browser.text_of(*row, extensions)?;
-                    Item::noted(title.as_deref().unwrap_or_default(), &value, &note)?
+                    let mut item =
+                        Item::noted(title.as_deref().unwrap_or_default(), &value, &note)?;
+                    if self.column
+                        && let Item::Row(row) = &mut item
+                    {
+                        // Keeps the room for a cover (see `draw_covers`).
+                        row.zone = Some(0);
+                    }
+                    item
                 }
             };
             push(&mut items, item)?;
@@ -238,11 +323,19 @@ impl NativeOpds {
         let password = catalogs::password(&self.vault(host), &catalog)?;
         let mut browser = Browser::new(catalog, password, &self.folder, self.small)?;
         browser.start(host, &mut self.web)?;
+        // Covers need the memory of a device that is not a small one.
+        let with_covers = !self.small && Self::switch_setting(host, "opds.covers", true);
         let mut view = BrowseView {
             browser,
             list: ItemList::default(),
             rows: Vec::new(),
             note: String::new(),
+            covers: if with_covers {
+                Some(Covers::new(0, 0)?)
+            } else {
+                None
+            },
+            column: false,
         };
         view.rebuild(host, &self.extensions, self.touch)?;
         self.screens.open(instance, View::Browse(view))
@@ -289,6 +382,8 @@ impl NativeOpds {
         if let ItemStep::Chosen(index) = step {
             self.browse_activate(host, index)?;
         }
+        // A page turned or a row focused: the covers of the page shown.
+        self.covers_step(host)?;
         Ok(ItemList::handled(step))
     }
 
@@ -409,12 +504,145 @@ impl NativeOpds {
         self.extensions = extensions;
         rebuilt?;
         self.browse_step(host, step)?;
+        // A new feed: its covers.
+        self.covers_step(host)?;
         Self::redraw(host)
     }
 
     /// The end of a request that is not a browse screen's: a cover or the sync's.
-    fn other_done(&mut self, _host: &Host<'_>, _done: &HttpDone) -> Result<(), Error> {
+    fn other_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+        match done.token() {
+            web::COVER => self.cover_done(host, done),
+            _ => Ok(()),
+        }
+    }
+
+    /// What the covers of the screen on show do next: those of a feed left
+    /// are let go of, and the next one the page shown wants is asked for, or
+    /// decoded where it is kept.
+    fn covers_step(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let files = DataFiles::new(host);
+        let Some(View::Browse(view)) = self.screens.top(crate::declarations::BROWSE_SCREEN) else {
+            return Ok(());
+        };
+        if view.covers.is_none() {
+            return Ok(());
+        }
+        let visible = view.visible();
+        let (generation, count) = (view.browser.generation(), view.browser.feed().entries.len());
+        let Some(held) = view.covers.as_mut() else {
+            return Ok(());
+        };
+        if held.generation() != generation {
+            let ids = held.release_all()?;
+            *held = Covers::new(generation, count)?;
+            Self::release_images(host, &ids);
+        }
+        let entries = &view.browser.feed().entries;
+        let wants = |i: usize| entries.get(i).is_some_and(|e| e.thumbnail.is_some());
+        let Some(i) = held.pick(visible, wants) else {
+            return Ok(());
+        };
+        let Some(url) = entries.get(i).and_then(|e| e.thumbnail.as_deref()) else {
+            return Ok(());
+        };
+        let name = covers::cache_name(url)?;
+        if covers::cached(&files, &name) {
+            held.preparing(i);
+            let cookie = held.cookie(i);
+            return match Self::prepare_cover(host, &name, cookie) {
+                Ok(()) => Ok(()),
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                Err(_) => {
+                    held.failed(i);
+                    Ok(())
+                }
+            };
+        }
+        match view.browser.cover_request(host, &mut self.web, url) {
+            Ok(id) => held.fetching(i, id),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // No network or no room for a request: this cover is left out.
+            Err(_) => held.failed(i),
+        }
         Ok(())
+    }
+
+    /// Has the host decode the cover kept in `name`.
+    fn prepare_cover(host: &Host<'_>, name: &str, cookie: u32) -> Result<(), Error> {
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .image_prepare(&PrepareImage::new(PrepareRoot::Data, name, cookie).side(covers::SIDE))
+    }
+
+    /// Gives pictures back to the host; one it no longer has is not an error.
+    fn release_images(host: &Host<'_>, ids: &[paperpaw_sdk::native::image::ImageId]) {
+        for id in ids {
+            let mut scratch = [0; 64];
+            match CommandSender::new(host, &mut scratch).image_release(*id) {
+                Ok(()) | Err(_) => {}
+            }
+        }
+    }
+
+    /// A cover arrived: kept, then decoded.
+    fn cover_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+        let files = DataFiles::new(host);
+        let mut found = None;
+        for view in self.screens.all() {
+            if let View::Browse(view) = view
+                && let Some(held) = view.covers.as_mut()
+                && let Some(i) = held.fetched(done.id())
+            {
+                let url = view
+                    .browser
+                    .feed()
+                    .entries
+                    .get(i)
+                    .and_then(|e| e.thumbnail.as_deref())
+                    .map(copy)
+                    .transpose()?;
+                found = Some((i, url));
+                break;
+            }
+        }
+        let Some((i, url)) = found else {
+            // Not a cover of a feed shown now.
+            crate::native_files::remove(&files, web::COVER_FILE);
+            return Ok(());
+        };
+        let kept = match (web::ended(done), url) {
+            (web::Ended::Fine, Some(url)) => {
+                let name = covers::cache_name(&url)?;
+                match files.rename(web::COVER_FILE, &name) {
+                    Ok(()) => {
+                        covers::remember(&files, &name)?;
+                        Some(name)
+                    }
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    Err(_) => None,
+                }
+            }
+            _ => None,
+        };
+        crate::native_files::remove(&files, web::COVER_FILE);
+        if let Some(View::Browse(view)) = self.screens.top(crate::declarations::BROWSE_SCREEN)
+            && let Some(held) = view.covers.as_mut()
+        {
+            match kept {
+                Some(name) => {
+                    held.preparing(i);
+                    let cookie = held.cookie(i);
+                    match Self::prepare_cover(host, &name, cookie) {
+                        Ok(()) => {}
+                        Err(Error::NoMemory) => return Err(Error::NoMemory),
+                        Err(_) => held.failed(i),
+                    }
+                }
+                None => held.failed(i),
+            }
+        }
+        self.covers_step(host)
     }
 
     /// How far a download came.
@@ -435,18 +663,37 @@ impl NativeOpds {
         Ok(())
     }
 
-    pub(super) fn image_ready(
-        &mut self,
-        _host: &Host<'_>,
-        _ready: &ImageReady,
-    ) -> Result<(), Error> {
-        Ok(())
+    /// A cover is decoded.
+    pub(super) fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        let image = match (ready.status(), ready.image()) {
+            (ImageStatus::Ready, Some(id)) => Some((id, ready.width(), ready.height())),
+            _ => None,
+        };
+        let mut release = None;
+        if let Some(View::Browse(view)) = self.screens.top(crate::declarations::BROWSE_SCREEN)
+            && let Some(held) = view.covers.as_mut()
+        {
+            release = held.ready(ready.cookie(), image);
+        } else if let Some((id, ..)) = image {
+            // Nobody wants it any more.
+            release = Some(id);
+        }
+        if let Some(id) = release {
+            Self::release_images(host, &[id]);
+        }
+        self.covers_step(host)?;
+        Self::redraw(host)
     }
 
-    /// A browse screen closed: what it waits for is not waited for.
+    /// A browse screen closed: what it waits for is not waited for, and its
+    /// pictures are given back.
     pub(super) fn close_browse(&mut self, host: &Host<'_>, instance: Instance) {
-        if !matches!(self.screens.get(instance), Some(View::Browse(_))) {
-            return;
+        let ids = match self.screens.get(instance) {
+            Some(View::Browse(view)) => view.covers.as_mut().map(Covers::release_all),
+            _ => return,
+        };
+        if let Some(Ok(ids)) = ids {
+            Self::release_images(host, &ids);
         }
         let files = DataFiles::new(host);
         for kind in [FEED, DESCRIPTION, BOOK, COVER] {

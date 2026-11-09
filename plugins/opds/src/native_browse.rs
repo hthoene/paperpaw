@@ -39,8 +39,8 @@ use crate::native_keep::Secret;
 use crate::native_model::{self as model, Feed, Limits, Search};
 use crate::native_search;
 use crate::native_web::{
-    self as web, BOOK, BOOK_BYTES, BOOK_FILE, Call, DESCRIPTION, DESCRIPTION_FILE, Ended, FEED,
-    FEED_FILE, SMALL_FILE, Web,
+    self as web, BOOK, BOOK_BYTES, BOOK_FILE, COVER, COVER_BYTES, COVER_FILE, Call, DESCRIPTION,
+    DESCRIPTION_FILE, Ended, FEED, FEED_FILE, SMALL_FILE, Web,
 };
 
 /// The feeds a screen goes back through, at most: the oldest is let go of.
@@ -163,6 +163,8 @@ pub struct Browser {
     describing: Option<paperpaw_sdk::native::net::RequestId>,
     download: Option<Download>,
     note: Note,
+    /// How many feeds were installed: told apart by the covers of each.
+    generation: u16,
 }
 
 impl Browser {
@@ -196,6 +198,7 @@ impl Browser {
             describing: None,
             download: None,
             note: Note::Empty,
+            generation: 0,
         })
     }
 
@@ -209,6 +212,27 @@ impl Browser {
     #[must_use]
     pub const fn feed(&self) -> &Feed {
         &self.feed
+    }
+
+    /// Which feed is shown: it changes each time a feed is installed.
+    #[must_use]
+    pub const fn generation(&self) -> u16 {
+        self.generation
+    }
+
+    /// Asks for the cover at `url` (it goes to the file of covers, and only
+    /// the catalog's own address gets its password).
+    ///
+    /// # Errors
+    /// What `Web::send` says.
+    pub fn cover_request(
+        &self,
+        host_: &Host<'_>,
+        web: &mut Web,
+        url: &str,
+    ) -> Result<paperpaw_sdk::native::net::RequestId, Error> {
+        let call = Call::new(COVER, url, COVER_FILE, COVER_BYTES);
+        web.send(host_, &self.catalog, self.auth.as_ref(), &call)
     }
 
     /// The line below the list.
@@ -405,6 +429,7 @@ impl Browser {
             self.template = None;
         }
         self.feed = feed;
+        self.generation = self.generation.wrapping_add(1);
         self.note = Note::Empty;
         Ok(Step::Nothing)
     }

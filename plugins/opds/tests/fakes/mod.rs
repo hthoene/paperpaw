@@ -91,6 +91,13 @@ impl Files for Mem {
             .map(|_| ())
             .ok_or(Error::NotFound)
     }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
+        let mut files = self.files.borrow_mut();
+        let bytes = files.remove(from).ok_or(Error::NotFound)?;
+        files.insert(to.to_string(), bytes);
+        Ok(())
+    }
 }
 
 /// The secrets in memory: name to (label, value).
