@@ -26,6 +26,29 @@ pub(crate) struct CommandTarget {
 /// `event.registry_changed.what` bit 0: menus and the item states they show.
 const REGISTRY_MENUS: u32 = 1;
 
+impl crate::Shared {
+    /// The frame a command-staging callback runs with: no callback, instance,
+    /// directory, depth or screen of its own.
+    fn command_frame<'a>(&'a self, env: &'a crate::Env<'a>) -> CoreFrame<'a> {
+        CoreFrame {
+            callback: None,
+            instance: None,
+            env,
+            meter: &self.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.stack_rows.generation(),
+            stack_rows: &self.stack_rows,
+            font_removals: &self.font_removals,
+            registry_generation: &self.registry_generation,
+            usage: &self.usage,
+            plugins: &self.plugins,
+            work: &self.work_states,
+            ui: None,
+        }
+    }
+}
+
 impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
@@ -50,22 +73,7 @@ impl Kernel {
             policies,
         ) = {
             let env = self.shared.env(now);
-            let frame = CoreFrame {
-                callback: None,
-                instance: None,
-                env: &env,
-                meter: &self.shared.meter,
-                depth: None,
-                directory: None,
-                stack_generation: self.shared.stack_rows.generation(),
-                stack_rows: &self.shared.stack_rows,
-                font_removals: &self.shared.font_removals,
-                registry_generation: &self.shared.registry_generation,
-                usage: &self.shared.usage,
-                plugins: &self.shared.plugins,
-                work: &self.shared.work_states,
-                ui: None,
-            };
+            let frame = self.shared.command_frame(&env);
             batch.dispatch_owner(depth, |context| {
                 let owner = Id::try_parse(&context.id).map_err(|error| match error {
                     IdError::NoMemory => Error::Allocation,
