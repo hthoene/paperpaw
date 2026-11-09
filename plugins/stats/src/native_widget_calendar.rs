@@ -18,7 +18,7 @@ use paperpaw_ui_kit::widget::{Cx, Look};
 use paperpaw_ui_kit::{Paint, geometry, paint, text};
 
 /// What the calendar shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct Shown {
     /// The first day shown: the start of a week.
     first: i32,
@@ -105,24 +105,30 @@ fn levels(
     Ok((out, total))
 }
 
-/// The figures, from the cache where nothing changed.
-fn shown(cx: &mut Cx<'_>, cache: &Cache) -> Result<Option<Shown>, Error> {
+/// Makes the cache hold the figures for what the calendar is drawn for (worked
+/// out again only where something changed); whether it holds them (not where
+/// the device does not know the time). Nothing is copied: the draw reads them
+/// in the cache.
+fn refresh(cx: &mut Cx<'_>, cache: &Cache) -> Result<bool, Error> {
     let heat = cx
         .settings
         .with_text("style", |v| v == CALENDAR_STYLES[1])?;
     let (weeks, first_day) = (weeks_set(cx)?, cx.week_start()?);
     let goal = goal(cx.host)?;
     let key = (stamp(cx.host)?, goal.unwrap_or(0), heat, weeks, first_day);
-    if let Some((kept, shown)) = cache.0.borrow().as_ref()
-        && *kept == key
+    if cache
+        .0
+        .borrow()
+        .as_ref()
+        .is_some_and(|(kept, _)| *kept == key)
     {
-        return Ok(Some(shown.clone()));
+        return Ok(true);
     }
-    let made = work_out(cx, goal, heat, (weeks, first_day))?;
-    if let Some(shown) = &made {
-        *cache.0.borrow_mut() = Some((key, shown.clone()));
-    }
-    Ok(made)
+    let Some(made) = work_out(cx, goal, heat, (weeks, first_day))? else {
+        return Ok(false);
+    };
+    *cache.0.borrow_mut() = Some((key, made));
+    Ok(true)
 }
 
 fn work_out(
@@ -141,12 +147,14 @@ fn work_out(
         let start = month_start(today);
         (week_start_of(start, first_day), month_end(today), 0)
     };
-    let (levels, _) = levels(&days, (first, last), goal)?;
-    // The total of the month itself, or of the weeks shown.
-    let counted = if heat { first } else { month_start(today) };
-    let total = (counted..=today.min(last))
-        .map(|day| u64::from(seconds_on(&days, day)))
-        .sum();
+    let (levels, mut total) = levels(&days, (first, last), goal)?;
+    // The total of the month itself, or of the weeks shown: of the month the
+    // days of the week before its first are left out (at most six).
+    if !heat {
+        total -= (first..month_start(today))
+            .map(|day| u64::from(seconds_on(&days, day)))
+            .sum::<u64>();
+    }
     Ok(Some(Shown {
         first,
         today,
@@ -478,13 +486,17 @@ pub fn draw(
     slot: &crate::native_widgets::Slot,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let Some(shown) = shown(cx, &slot.calendar)? else {
+    if !refresh(cx, &slot.calendar)? {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
+    }
+    let kept = slot.calendar.0.borrow();
+    let Some((_, shown)) = kept.as_ref() else {
+        return Err(Error::State);
     };
     if shown.weeks == 0 {
-        draw_month(cx, out, &look, &shown)
+        draw_month(cx, out, &look, shown)
     } else {
-        draw_weeks(cx, out, &look, &shown)
+        draw_weeks(cx, out, &look, shown)
     }
 }
 
