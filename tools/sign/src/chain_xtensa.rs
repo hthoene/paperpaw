@@ -51,6 +51,9 @@
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
+//! allow form <caller> <form> <why>    the caller uses a privileged form that
+//!                                     leaves a1 alone (`rsil`, `waiti`,
+//!                                     `wsr`, `xsr`, `l32e`, `s32e`)
 //! ```
 //!
 //! The roots come from the tables themselves (Kernel's ruling on todo 206):
@@ -70,6 +73,15 @@
 //! `frames_xtensa` does not know (`l32e`, `rotw`, the MAC16 forms, the S3's
 //! `ee.*`) fails, as does an `entry` of a register other than `a1`. A `jx` is
 //! counted with the indirect calls.
+//!
+//! Firmware code (a critical section's `rsil`, an idle `waiti`, a `wsr` or an
+//! `xsr` of a special register) uses forms the packer refuses in a plugin.
+//! They are not an unknown: each is named by [`named_form`], knows what it
+//! writes (`rsil`, `xsr` and `l32e` write `at`, the others no `a` register),
+//! and fails unless the budget has an `allow form` line for that function and
+//! form, with a reason; one that writes `a1` is a change of the stack pointer
+//! and is judged as such, whatever the line says. `rotw`, the `rf*` returns,
+//! MAC16 and the S3's `ee.*` forms stay unknown: no line can allow them.
 //!
 //! **Assumption: literals lie outside the functions.** A function's bytes are
 //! decoded from its symbol's start for its size; the linker script puts the
@@ -103,7 +115,13 @@ pub enum Allow {
     Sp { caller: String },
     /// `name` is assembly with no size.
     NoSize { name: String },
+    /// `caller` uses the privileged form `form` (one of [`FORMS`]), which
+    /// leaves `a1` alone.
+    Form { caller: String, form: String },
 }
+
+/// The privileged forms an `allow form` line may name.
+pub const FORMS: [&str; 6] = ["rsil", "waiti", "wsr", "xsr", "l32e", "s32e"];
 
 /// What the budget asks.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -174,6 +192,21 @@ impl Budget {
                     },
                     why.join(" "),
                 )),
+                ["allow", "form", caller, form, why @ ..] if !why.is_empty() => {
+                    if !FORMS.contains(form) {
+                        return Err(format!(
+                            "line {at}: `{form}` is not a form a line can allow (one of {})",
+                            FORMS.join(", ")
+                        ));
+                    }
+                    budget.allow.push((
+                        Allow::Form {
+                            caller: (*caller).to_string(),
+                            form: (*form).to_string(),
+                        },
+                        why.join(" "),
+                    ))
+                }
                 _ => return Err(bad()),
             }
         }
@@ -211,8 +244,11 @@ struct Reads {
     /// An instruction this scan does not know how long it is.
     unreadable: Option<u32>,
     /// An instruction of a form this scan does not classify (default deny, as
-    /// the packer's): `l32e`, `rotw`, MAC16, the S3's `ee.*` and the rest.
+    /// the packer's): `rotw`, `rf*`, MAC16, the S3's `ee.*` and the rest.
     unknown: Option<u32>,
+    /// The named privileged forms (see [`named_form`]) with the first address
+    /// of each: they leave `a1` alone, and the budget must allow each.
+    forms: BTreeMap<&'static str, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
 }
@@ -234,6 +270,34 @@ fn callx_t(w: u32) -> Option<u32> {
     let t = (w >> 4) & 0xF;
     let rst0_snm0 = w & 0xF == 0 && (w >> 12) & 0xF == 0 && (w >> 16) & 0xFF == 0;
     (rst0_snm0 && t >= 0xC).then_some(t)
+}
+
+/// A privileged form that `wide_class` leaves unknown but whose effect is
+/// known: its name (one of [`FORMS`]) and the `a` register it writes, if any.
+/// `op0` is 0 (QRST) in all of them. Encodings as the S3 toolchain's
+/// assembler makes them (`tests.rs`).
+fn named_form(w: u32) -> Option<(&'static str, Option<u32>)> {
+    let t = (w >> 4) & 0xF;
+    let r = (w >> 12) & 0xF;
+    let (op1, op2) = ((w >> 16) & 0xF, (w >> 20) & 0xF);
+    if w & 0xF != 0 {
+        return None;
+    }
+    match (op1, op2) {
+        // RST0 `st0`: `rsil at, imm` (r = 6) writes `at`; `waiti imm`
+        // (r = 7, t = 0) writes no `a` register.
+        (0, 0) if r == 6 => Some(("rsil", Some(t))),
+        (0, 0) if r == 7 && t == 0 => Some(("waiti", None)),
+        // RST3: `wsr at, sr` (op2 = 1) writes a special register.
+        (3, 1) => Some(("wsr", None)),
+        // RST1: `xsr at, sr` (op2 = 6) swaps `at` with a special register.
+        (1, 6) => Some(("xsr", Some(t))),
+        // LSC4 (op1 = 9): `l32e at, as, imm` (op2 = 0) writes `at`;
+        // `s32e at, as, imm` (op2 = 4) writes memory.
+        (9, 0) => Some(("l32e", Some(t))),
+        (9, 4) => Some(("s32e", None)),
+        _ => None,
+    }
 }
 
 fn read_function(code: &[u8], start_addr: u32) -> Reads {
@@ -288,9 +352,18 @@ fn read_function(code: &[u8], start_addr: u32) -> Reads {
                     Class::Writes => {
                         reads.writes_sp.get_or_insert(pc);
                     }
-                    Class::Unknown => {
-                        reads.unknown.get_or_insert(pc);
-                    }
+                    Class::Unknown => match named_form(w) {
+                        // A written `a1` is a change of the stack pointer.
+                        Some((_, Some(1))) => {
+                            reads.writes_sp.get_or_insert(pc);
+                        }
+                        Some((name, _)) => {
+                            reads.forms.entry(name).or_insert(pc);
+                        }
+                        None => {
+                            reads.unknown.get_or_insert(pc);
+                        }
+                    },
                 }
             }
         } else {
@@ -588,6 +661,18 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             "`{}` has an `entry` of a register other than a1 ({pc:#x}): its frame cannot be bounded",
             f.path
         ));
+    }
+    for (&form, &pc) in &reads.forms {
+        if !allowed(
+            budget,
+            used,
+            &|a| matches!(a, Allow::Form { caller: c, form: n } if *c == f.path && n == form),
+        ) {
+            report.problems.push(format!(
+                "`{}` uses `{form}` ({pc:#x}): it leaves a1 alone, but the budget does not say so (name it with `allow form`)",
+                f.path
+            ));
+        }
     }
     if let Some(pc) = reads.unknown {
         report.problems.push(format!(
