@@ -15,7 +15,7 @@ use paperpaw_sdk::native::{CodeRoom, Native, NotInstalledReason, SafeModeReason}
 use paperpaw_sdk::power::{PowerControls, Start};
 use paperpaw_sdk::wifi::{Wifi, WifiState as Radio};
 
-use crate::device_host::{BluetoothState, Bonded, NativeState, WifiState};
+use crate::device_host::{BluetoothState, NativeState, WifiState};
 
 /// What differs between X4 builds, for `dev_device.caps`.
 #[derive(Clone, Copy, Debug, Default)]
