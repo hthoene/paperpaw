@@ -2086,6 +2086,7 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
