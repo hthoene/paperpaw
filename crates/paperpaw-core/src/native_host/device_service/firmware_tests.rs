@@ -230,3 +230,60 @@ fn op_3_with_no_machine_is_the_hosts_facts_unchanged() {
         },
     );
 }
+
+#[test]
+fn op_3_tells_the_caller_only_its_own_request_and_op_16_pages_past_a_zero_request() {
+    let ids = ["a"];
+    // Another plugin's install waits for the user: this caller sees no request.
+    checked(&ids, image(&["a"]), 9, |view, machine| {
+        let mut fw = image(&["a"]);
+        let host = host(&ids);
+        let mut machine = machine.try_borrow_mut().unwrap();
+        machine.start(Job::install(OWNER, 8, "u.ppu", None, 0).unwrap(), &mut fw);
+        assert!(matches!(drive(&mut machine, &mut fw, &host), Event::Ask(_)));
+        drop(machine);
+        let reply = run(view, 3, &[0]).unwrap();
+        let Record::ServiceDevFirmware(f) = records(&reply)[0] else {
+            panic!("not firmware");
+        };
+        assert_eq!((f.state, f.request, f.reason), (1, 0, 0));
+    });
+    // 40 built-ins, all left out, a check with request 0: the second page
+    // follows the `end`'s generation (never 0) and ends the list.
+    let names: Vec<String> = (0..40).map(|n| alloc::format!("p{n}")).collect();
+    let ids: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut machine = FirmwareInstall::new();
+    let mut fw = image(&[]);
+    machine.reserve_check(OWNER).unwrap();
+    machine.start(Job::check(OWNER, 0, "update.ppu").unwrap(), &mut fw);
+    assert!(matches!(
+        drive(&mut machine, &mut fw, &host(&ids)),
+        Event::Ended(_)
+    ));
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_device(Rc::new(host(&ids))).unwrap();
+    hosts
+        .wire_firmware_install(Rc::new(RefCell::new(machine)))
+        .unwrap();
+    let view = View {
+        env: &env,
+        hosts,
+        owner: OWNER,
+    };
+    let first = run(&view, 16, &query(0, 0)).unwrap();
+    let rows = records(&first);
+    let end = end_of(&rows);
+    assert_eq!((rows.len(), end.total, end.flags), (33, 40, 0));
+    assert_ne!(end.generation, 0);
+    let second = run(&view, 16, &query(end.next, end.generation)).unwrap();
+    let rows = records(&second);
+    assert_eq!(
+        (rows.len(), end_of(&rows).flags),
+        (9, 1),
+        "8 rows and the end"
+    );
+}

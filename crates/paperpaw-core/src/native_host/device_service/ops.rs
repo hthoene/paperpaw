@@ -668,7 +668,7 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
                 Ok(machine) => {
                     facts.state = machine.state().number();
                     (facts.done, facts.total) = machine.progress();
-                    let (request, reason) = machine.last();
+                    let (request, reason) = machine.last(who.owner);
                     facts.request = request;
                     facts.reason = u32::from(reason);
                 }
@@ -753,7 +753,9 @@ fn leaves_out(
     }
     let machine = machine.try_borrow().map_err(|_| ERR_BUSY)?;
     let checked = machine.leaves_out_of(who.owner)?;
-    let generation = checked.request;
+    // Never 0: 0 asks for the first page (a request number is the sender's own
+    // and non-zero, but the paging does not depend on it).
+    let generation = checked.request.max(1);
     if query.generation != 0 && query.generation != generation
         || query.generation == 0 && query.cursor != 0
     {
