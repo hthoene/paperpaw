@@ -459,3 +459,92 @@ fn a_value_fits_a_kind_as_the_sdk_parses_it() {
         }
     }
 }
+
+/// The commands `plan` makes, chunk after chunk.
+fn planned(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperpaw_sdk::Command> {
+    let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
+    let mut all = std::vec::Vec::new();
+    for from in (0..).step_by(16) {
+        if !presets_plan(settings, widgets, preset, from, &mut all).unwrap() {
+            break;
+        }
+    }
+    all
+}
+
+/// The commands the SDK makes of the same preset (`Preset::changes` with the
+/// covered set of its kind, then `presets::commands`): what interface 6's
+/// plugins sent, which `plan` must stay equal to.
+fn sdk_commands(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperpaw_sdk::Command> {
+    let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
+    let changes = match preset.kind.as_str() {
+        presets::THEME => presets::theme_changes(settings, preset),
+        presets::WIDGET_LOOK => presets::widget_look_changes(settings, widgets, preset),
+        _ => preset.changes(settings, &[]),
+    };
+    presets::commands(settings, &changes)
+}
+
+#[test]
+fn the_commands_planned_are_those_of_the_sdk() {
+    use paperpaw_sdk::SettingValue;
+    let mut kernel = kernel_of_kinds();
+    // A theme: one reset, one set, one that holds already, a value that
+    // does not fit, one outside the set.
+    add(
+        &mut kernel,
+        preset(
+            "fake.mixed",
+            presets::THEME,
+            "fake.look0 = on\nfake.lookt = held\nfake.lookc = nonsense\nfake.outside = on\nui.size = 3\n",
+        ),
+    );
+    let settings = &mut kernel.shared.settings;
+    settings
+        .set("fake.look1", SettingValue::Bool(true))
+        .unwrap();
+    settings
+        .set("fake.lookt", SettingValue::Text("held".into()))
+        .unwrap();
+    settings
+        .set("fake.lookc", SettingValue::Text("fake.two".into()))
+        .unwrap();
+    // The widget look: a named setting and one left out, as the apply test.
+    let looks: std::vec::Vec<(std::string::String, std::string::String, SettingValue)> = {
+        let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
+        settings
+            .specs()
+            .filter(|spec| preset_covers(presets::WIDGET_LOOK, settings, widgets, spec))
+            .filter_map(|spec| {
+                other_than_default(spec).map(|(text, value)| (spec.id.as_str().into(), text, value))
+            })
+            .collect()
+    };
+    assert!(looks.len() >= 2);
+    let values: &'static str =
+        std::boxed::Box::leak(std::format!("{} = {}\n", looks[0].0, looks[0].1).into_boxed_str());
+    add(
+        &mut kernel,
+        preset("fake.shape", presets::WIDGET_LOOK, values),
+    );
+    kernel
+        .shared
+        .settings
+        .set(&looks[1].0, looks[1].2.clone())
+        .unwrap();
+    // Another kind: named values, one held, one that does not fit.
+    add(
+        &mut kernel,
+        preset(
+            "fake.named",
+            "fake.kind",
+            "fake.outside = on\nfake.look2 = nonsense\nfake.lookt = held\nfake.nothing = 1\n",
+        ),
+    );
+    for id in ["fake.mixed", "fake.shape", "fake.named", "fake.kinds"] {
+        let found = kernel.shared.settings.presets().get(id).unwrap();
+        let (ours, sdk) = (planned(&kernel, found), sdk_commands(&kernel, found));
+        assert!(!sdk.is_empty(), "{id}: there is something to change");
+        assert_eq!(std::format!("{ours:?}"), std::format!("{sdk:?}"), "{id}");
+    }
+}
