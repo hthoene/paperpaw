@@ -931,3 +931,101 @@ fn a_borrowed_declaration_store_is_busy_not_a_panic() {
         );
     }
 }
+
+/// Presets a native plugin declared are listed by ops 16 to 18, a key the
+/// preset sets back to default with `reg_value` bit 0.
+#[test]
+fn native_presets_are_listed_with_their_values_and_resets() {
+    use crate::abi7::settings_wire::{SettingValueRef, settings_encode};
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut specs = kernel.settings().specs();
+    let on = specs
+        .find(|spec| matches!(spec.kind, SettingKind::Bool))
+        .unwrap()
+        .id
+        .as_str()
+        .to_owned();
+    let other = specs
+        .find(|spec| matches!(spec.kind, SettingKind::Bool))
+        .unwrap()
+        .id
+        .as_str()
+        .to_owned();
+    let mut encoded = [core::mem::MaybeUninit::<u8>::uninit(); 8];
+    let used = settings_encode(SettingValueRef::Bool(true), &mut encoded).unwrap();
+    // SAFETY: the encoder initialised the first `used` bytes.
+    let bytes: Vec<u8> = encoded[..used]
+        .iter()
+        .map(|b| unsafe { b.assume_init() })
+        .collect();
+    let directory = declarations(&[
+        Record::PresetSpec(wire::PresetSpec {
+            name: "night",
+            kind: "core.power-mode",
+            title: "Night",
+            help: "Dark and quiet.",
+        }),
+        Record::PresetValue(wire::PresetValue {
+            preset: "nat.night",
+            key: &on,
+            value: &bytes,
+            flags: 0,
+        }),
+        Record::PresetValue(wire::PresetValue {
+            preset: "nat.night",
+            key: &other,
+            value: &[],
+            flags: 1,
+        }),
+        Record::PresetValue(wire::PresetValue {
+            preset: "nat.night",
+            key: "nat.unknown",
+            value: &bytes,
+            flags: 0,
+        }),
+    ]);
+    let rows = rows_of(
+        &kernel,
+        Some(&directory),
+        schema::OP_PRESETS,
+        "core.power-mode",
+        0,
+    );
+    assert_eq!(rows, vec!["item nat.night nat 0 Night"]);
+    assert!(
+        rows_of(
+            &kernel,
+            Some(&directory),
+            schema::OP_PRESETS,
+            "core.other",
+            0
+        )
+        .is_empty()
+    );
+    let reply = super::tests::call_in(
+        &kernel,
+        Some(&directory),
+        schema::OP_PRESET,
+        &super::tests::key("nat.night"),
+        4096,
+    )
+    .unwrap();
+    assert_eq!(
+        read(&reply).0,
+        vec!["item nat.night nat 0 Night", "text Dark and quiet."]
+    );
+    let values = rows_of(&kernel, Some(&directory), schema::OP_VALUES, "nat.night", 0);
+    // The unknown setting is left out; the reset carries bit 0 and no value.
+    assert_eq!(values.len(), 2, "{values:?}");
+    assert!(
+        values
+            .iter()
+            .any(|v| v.starts_with(&format!("value {on} [")) && v.ends_with(" 0"))
+    );
+    assert!(
+        values.contains(&format!("value {other} [] 1")),
+        "{values:?}"
+    );
+}

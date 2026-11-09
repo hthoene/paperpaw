@@ -165,7 +165,7 @@ pub(super) fn query_flags(scope: &str, cursor: u32, generation: u32, flags: u32)
     input
 }
 
-fn key(key: &str) -> Vec<u8> {
+pub(super) fn key(key: &str) -> Vec<u8> {
     let record = Record::ServiceRegKey(wire::ServiceRegKey { key });
     let mut input = std::vec![0; 512];
     let used = wire::records_encode_counted(&[record], 1, 256, &mut input).unwrap();
@@ -211,6 +211,7 @@ pub(super) fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
                 r.update
             ),
             Record::ServiceRegText(r) => format!("text {}", r.text),
+            Record::ServiceRegValue(r) => format!("value {} {:?} {}", r.key, r.value, r.flags),
             Record::ServiceRegMenuRow(r) => format!(
                 "row {} kind={} flags={} order={} by={} title={} icon={} badge={} describe={}",
                 r.item, r.kind, r.flags, r.order, r.by, r.title, r.icon, r.badge, r.describe
