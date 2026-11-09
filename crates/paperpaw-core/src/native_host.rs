@@ -159,6 +159,7 @@ pub(crate) mod net_policy;
 pub(crate) mod net_pool;
 #[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
 pub(crate) mod net_service;
+mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
 pub(crate) mod save_files;

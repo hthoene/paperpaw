@@ -494,3 +494,23 @@ fn a_host_that_cannot_allocate_the_owner_name_refuses_the_read_and_holds_nothing
         assert_eq!(f.device.table().pool().used(), 0, "gate {nth}");
     }
 }
+
+#[test]
+fn a_plugin_that_is_off_or_offline_creates_no_demand_and_it_ends_with_the_last_socket() {
+    for (offline, off) in [(false, &["mail"][..]), (true, &[][..])] {
+        let f = fixture(false);
+        decide(&f, 1, offline, off);
+        connect(&f, 0).unwrap();
+        assert!(!f.device.table().pool().wants(), "refused: no demand");
+        assert!(f.shell.demand.borrow().is_empty(), "the shell hears none");
+    }
+    let f = fixture(false);
+    let id = open(&f);
+    assert!(f.device.table().pool().wants());
+    table::close(&f.device, OWNER, id).unwrap();
+    drain(&f);
+    assert!(
+        !f.device.table().pool().wants(),
+        "idle after the last socket"
+    );
+}
