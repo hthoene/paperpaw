@@ -76,8 +76,8 @@ pub use wire::{
 pub(crate) use wire::EVENT_SETTING_CHANGED_OLD_MAX_BYTES;
 pub use wire::{
     REGISTRATION_STAGE_TAG, RegistrationStage, SERVICE_ECHO_TAG, STAGE_CALL_PAYLOAD_MAX_BYTES,
-    STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
-    StageCall, StageReply, StageSpec,
+    STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_SUBSCRIBER_MAX_BYTES,
+    STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho, StageCall, StageReply, StageSpec,
 };
 // Core events of family 1b (64-74, `docs/abi/core-events.md`); hosts admit
 // their registrations once a producer is wired.
