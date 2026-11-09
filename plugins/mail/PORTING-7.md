@@ -1,4 +1,4 @@
-# Mail on interface 7 (slices 1 to 4, partly ported)
+# Mail on interface 7 (slices 1 to 5, partly ported)
 
 Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
 store and the widgets) is still in place beside the native one. It is removed in the PR that
@@ -100,6 +100,44 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   buffer that wipes itself (`Secret`), send it from there, and wipe it; the same for `AUTH PLAIN`
   (`smtp::auth_plain` already makes it so). No `format!` with the password.
 
+## Ported in slice 5
+
+- `src/native_model/session.rs` (with `session/imap_session.rs` and `session/smtp_session.rs`;
+  `tests/native_session.rs`): the IMAP and SMTP sessions as state machines, fallible and bounded.
+  Bytes and socket notices go in (`step`), what to send and read goes out through the `Io` trait,
+  what happened comes back as `Event`s (`Stage`, `Done`, `Failed`, `Untrusted`). Same lines sent,
+  same events, same files on the card as interface 6 on the same fake servers (the interface-6
+  `Fake` of `tests/fake.rs` plays the server for both): the whole read (folders, headers, a message,
+  a flag) over TLS from the start and with STARTTLS in pieces of 1 to 100,000 bytes, SASL-IR, LOGIN,
+  LOGINDISABLED, a wrong password, an untrusted server, no clock, an empty folder, a message over
+  `MAX_FETCH` read into a file, a server that hangs up, and SMTP over both with AUTH PLAIN and AUTH
+  LOGIN, no STARTTLS, a refused recipient, a message too large for the server.
+  `tests/native_model_alloc_refusal.rs` refuses every allocation of a whole IMAP session (all four
+  tasks) and a whole SMTP session in turn, on a card and a server double that never allocate: each
+  ends `Failed(NoMemory)` (the socket closed) or succeeds.
+  `tests/native_session_starttls.rs`: bytes behind the STARTTLS OK (IMAP) or 220 (SMTP) and bytes
+  that arrive while the switch is under way are never parsed: the session ends `Failed(Unsafe)`; so
+  does a `start_tls` the socket refuses with `Error::State` (the SDK reader still holds bytes of the
+  plain stream). The slice that adds the `Io` over `native::sockets` must pass that refusal through.
+- Differences from interface 6, on purpose: a refused allocation ends the session and is told as
+  `Failure::NoMemory` (it never aborts); the password is a `Secret` and every line that carries it
+  (the final `LOGIN`, `AUTHENTICATE`, the credentials after a `+`, `AUTH PLAIN`, the password of
+  `AUTH LOGIN`) is built in a buffer that wipes itself and wiped as soon as `Io::send` returns
+  (`Io::send` copies what it keeps, and the implementation wipes that copy once sent); a line or
+  response past the bounds of slice 3 (`Fault::TooLong`) closes the connection as
+  `Failure::Protocol` (tested); an `Io` call that fails ends the session as `NoTls` (`Unsupported`),
+  `Busy`, `NoMemory` or a network failure (tested); the pinned key is a `[u8; 32]`, and why a
+  certificate is not trusted and why a socket failed are the SDK's `Untrusted` and `Reason`;
+  `Endpoint`, `Task` and the rest are `#[non_exhaustive]` and not `Clone` (the endpoint holds the
+  password); `Imap::receiving` and the `Saved` notice are as before; the scratch file of a large
+  message is `<file>.<n>` in the data folder (`core.sockets` reads a file into the data folder).
+- What the connection slice (6) must do with it: an `Io` over `native::sockets` (`Sockets`,
+  `Reader::fill` and `Outbox::pump` in the callback of each socket event, the `Tls` pins from
+  `Io`'s `pin`, `SocketEvent` kinds as `Input`), one socket per screen kind, the password read from
+  the secrets facade into a `Secret` (and `Kept::Unsupported` shown as `core.secrets-unsupported`),
+  the `{n}` literals a body part reads into a file by `FileRead`, and the driver and job
+  (`driver.rs`, `job.rs`, still interface 6).
+
 ## The interface-6 files on the card
 
 Interface-6 Mail keeps its files on the card under `.paperpaw/plugins/mail/` (`aN/…`). The folders, lists,
@@ -114,8 +152,7 @@ old folder (cache and all), once, and say so here. Until then the old files stay
 
 ## Still interface 6
 
-- `session.rs`, `driver.rs`, `job.rs` (the connection and the commands, on the sockets host and the SDK
-  facade it still lacks; Services has it assigned), `render.rs` and `store.rs` (the interface-6 ones stay
+- `driver.rs`, `job.rs` (the connection and the commands over `native::sockets`; the sessions themselves are native since slice 5) and `session.rs` (the interface-6 one stays until they are replaced), `render.rs` and `store.rs` (the interface-6 ones stay
   as the old sessions and screens use them; the native ones of slice 4 take their place with the sessions),
   then the screens. They are the next slices; the pieces above are what they will call.
 
@@ -123,7 +160,7 @@ old folder (cache and all), once, and say so here. Until then the old files stay
 
 | Piece | Waits for |
 | --- | --- |
-| The connection (IMAP, SMTP, STARTTLS, TLS, pinned keys), `session.rs`, `driver.rs`, `job.rs` | the sockets host and facade (`docs/abi/sockets.md` is a draft) |
+| The connection over the socket (IMAP, SMTP, STARTTLS, TLS, pinned keys): `driver.rs`, `job.rs` | the connection slice over `native::sockets` (#587) |
 | The password read, used and wiped | the secrets facade (#367 is open) |
 | The connection of a screen ending with it | the work service (`docs/abi/work.md`) |
 | Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
