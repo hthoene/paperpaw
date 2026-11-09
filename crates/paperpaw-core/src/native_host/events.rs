@@ -176,16 +176,17 @@ fn sound(progress_ppm: u32, page: Option<u32>, pages: Option<u32>) -> bool {
         && !matches!((page, pages), (Some(page), Some(pages)) if page > pages)
 }
 
-/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+/// The `event.page_turned` record for `turn`, each string cut to its cap at a
+/// char boundary. Nothing is encoded or allocated.
 ///
 /// # Errors
 /// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
-/// page past the count; `ERR_NO_SPACE` when `out` is too small.
-pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+/// page past the count.
+pub(crate) fn page_turned_record<'a>(turn: &PageTurn<'a>) -> Result<EventPageTurned<'a>, i32> {
     if !sound(turn.progress_ppm, turn.page, turn.pages) {
         return Err(ERR_INVALID);
     }
-    let record = EventPageTurned {
+    Ok(EventPageTurned {
         now_ms: turn.now_ms,
         section: turn.section,
         offset: turn.offset,
@@ -197,8 +198,16 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         pages: turn.pages,
         // The kernel reader inserts no content: every page starts in text (N5).
         insert: None,
-    };
-    encode(&Record::EventPageTurned(record), out)
+    })
+}
+
+/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+///
+/// # Errors
+/// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
+/// page past the count; `ERR_NO_SPACE` when `out` is too small.
+pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    encode(&Record::EventPageTurned(page_turned_record(turn)?), out)
 }
 
 /// Whether the batch's leading count is a whole, canonical varint above

@@ -330,6 +330,8 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/core_events.rs"]
+pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
 #[path = "native_host/native_menus.rs"]

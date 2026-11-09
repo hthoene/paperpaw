@@ -33,7 +33,7 @@ pub(super) fn deliver(
     invoke(instance, depth, host, index, env, &bytes[..len])
 }
 
-fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {
+pub(in crate::native_host) fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {
     if let Some(reading) = params.carried::<paperpaw_sdk::builtin::events::Reading>() {
         let (page, pages) = counters(reading.page, reading.pages);
         return Some(events::PageTurn {

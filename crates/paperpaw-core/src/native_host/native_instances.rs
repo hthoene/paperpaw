@@ -695,6 +695,12 @@ impl NativeInstances {
         let _ = self.callbacks.enter_outer();
     }
 
+    /// Ends the callback [`Self::test_enter_callback`] entered.
+    #[cfg(test)]
+    pub(crate) fn test_leave_callback(&self) {
+        self.callbacks.leave();
+    }
+
     /// The `index`th running instance, in order of installation: its key and
     /// its lease. `None` past the last.
     pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
