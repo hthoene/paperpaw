@@ -95,9 +95,11 @@ pub fn encode(
     wire::reply_encode(&records, output).map_err(Error::Wire)
 }
 
-/// The word that stands for a picture without a caption of its own, in the
-/// language the reader asks for (a BCP 47 tag): `Bild` for German, else
-/// `Picture`; the texts of `i18n/*.ini` (`aids.picture`).
+/// The word that stands for a picture without a caption of its own when the
+/// host's catalog has none for the language (a BCP 47 tag) the reader asks
+/// for: `Bild` for German, else `Picture`; the texts of `i18n/*.ini`
+/// (`aids.picture`). The catalog's own text (`aids.picture`, any language
+/// pack that has it) is taken first, as the interface-6 filter did.
 #[must_use]
 pub fn caption_word(language: &str) -> &'static str {
     let primary = language.split('-').next().unwrap_or("");
@@ -110,7 +112,9 @@ pub fn caption_word(language: &str) -> &'static str {
 
 /// Answers one ask of the `reader.filter` stage: the rules of the settings
 /// (`bold`, the `replacements` list, the `pictures` choice) in the reply
-/// schema, the caption word in the language asked for. A book with nothing
+/// schema, the caption word `catalog` (the host's text of `aids.picture`)
+/// where it has one, else the one of [`caption_word`] for the language
+/// asked for. A book with nothing
 /// but pictures keeps them whatever the choice. Nothing is written to
 /// `output` when it refuses.
 ///
@@ -122,6 +126,7 @@ pub fn answer(
     bold: bool,
     replacements: &str,
     pictures: &str,
+    catalog: Option<&str>,
     output: &mut [u8],
 ) -> Result<usize, Error> {
     let mut asked = wire::input_decode(ask).map_err(Error::Wire)?;
@@ -137,7 +142,9 @@ pub fn answer(
         bold,
         replacements,
         pictures,
-        caption_word(ask.language),
+        catalog
+            .filter(|word| !word.is_empty())
+            .unwrap_or_else(|| caption_word(ask.language)),
         output,
     )
 }

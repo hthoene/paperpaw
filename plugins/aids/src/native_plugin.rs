@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     events::{Event, Incoming, kinds},
+    formatting::copy_message,
     registrations,
     reply::Reply,
     settings::{self, SettingValue},
@@ -91,14 +92,17 @@ fn rules(host: &Host<'_>, ask: &[u8], reply: &mut Reply<'_>) -> Result<(), Error
         SettingValue::Text(text) => text,
         _ => crate::pictures::SHOW,
     };
+    // The word for a picture is the host catalog's, in the language of the
+    // device (the catalog of a language pack has it too); a missing key or one
+    // that does not fit leaves the plugin's own English and German.
+    let mut word = [0u8; 96];
+    let catalog = copy_message(host, "aids.picture", &mut word).ok();
     let mut out = buffer(REPLY)?;
-    let written =
-        reader_filter::answer(ask, bold, replacements, pictures, &mut out).map_err(|error| {
-            match error {
-                reader_filter::Error::NoMemory => Error::NoMemory,
-                reader_filter::Error::Limit | reader_filter::Error::Wire(_) => Error::NoSpace,
-                _ => Error::Invalid,
-            }
+    let written = reader_filter::answer(ask, bold, replacements, pictures, catalog, &mut out)
+        .map_err(|error| match error {
+            reader_filter::Error::NoMemory => Error::NoMemory,
+            reader_filter::Error::Limit | reader_filter::Error::Wire(_) => Error::NoSpace,
+            _ => Error::Invalid,
         })?;
     reply.write(out.get(..written).ok_or(Error::NoSpace)?)
 }

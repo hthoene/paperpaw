@@ -18,7 +18,7 @@ host activates native plugins (then the interface-6 text filters go, no shim).
 - `declarations.rs`: *Bold word beginnings*, *Replace words* (advanced, kept on reset) and
   *Pictures* in the reading aids group, with their defaults, choices, titles and help.
   `tests/abi7_declarations.rs` compares them with the interface-6 registration.
-- Already in place (`src/reader_filter*`, feature `reader-filter`, `READER-FILTER.md`): the rules
+- Already in place (`src/reader_filter*`, `READER-FILTER.md`): the rules
   payload (`reader.filter` schema 1: encode, the whole-payload check before any block changes, the
   caption word, source positions), with fallible allocation and refusal sweeps
   (`tests/filter_allocation.rs`).
@@ -29,7 +29,7 @@ host activates native plugins (then the interface-6 text filters go, no shim).
   `make` subscribes (`declarations::subscriptions`, a host that does not admit it yet answers
   `ERR_UNSUPPORTED` and the plugin goes on). `NativeAids::event` answers each `Event::StageCall` of
   `reader.filter` from the settings as they are then: `filter.rules` (signature of the canonical rules,
-  bold, pictures policy, caption word in the asked language: `Bild` for `de`, else `Picture`; a book of
+  bold, pictures policy, caption word: the host catalog's `aids.picture` as the interface-6 filter used (every language pack that has the key, `i18n.copy`), else `Bild` for the asked `de`, `Picture` for the rest; a book of
   pictures only keeps them) and up to 32 `filter.pair`. Rules the reply cannot hold (over 32 pairs, a
   string over 96 bytes, over 3,840 bytes) refuse the call (`ERR_NO_SPACE`), so the reader applies none
   of this plugin's rules. Buffers are heap (4 KiB setting, 3,840 B reply), fallibly allocated; frames

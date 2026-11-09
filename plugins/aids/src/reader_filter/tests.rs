@@ -250,6 +250,7 @@ fn answered(language: &str, image_only: u32, pictures: &str) -> Vec<u8> {
         true,
         "a=b",
         pictures,
+        None,
         &mut bytes,
     )
     .unwrap();
@@ -306,9 +307,51 @@ fn the_caption_words_are_the_texts_of_the_catalogs() {
 fn a_hostile_ask_is_refused_and_an_oversize_one_leaves_the_output_alone() {
     let mut out = alloc::vec![7u8; 3840];
     for bad in [&[][..], &[0xff; 9][..], &[1, 2][..]] {
-        assert!(answer(bad, true, "", crate::pictures::SHOW, &mut out).is_err());
+        assert!(answer(bad, true, "", crate::pictures::SHOW, None, &mut out).is_err());
     }
     let list: String = (0..33).map(|n| alloc::format!("w{n}=x;")).collect();
-    assert!(answer(&ask("en", 0), false, &list, crate::pictures::SHOW, &mut out).is_err());
+    assert!(
+        answer(
+            &ask("en", 0),
+            false,
+            &list,
+            crate::pictures::SHOW,
+            None,
+            &mut out
+        )
+        .is_err()
+    );
     assert!(out.iter().all(|&b| b == 7));
+}
+
+#[test]
+fn the_catalogs_word_is_taken_first_whatever_the_language() {
+    // A language pack's text (Arabic, Spanish, ...) is the host catalog's.
+    for word in ["صورة", "Imagen"] {
+        let mut bytes = alloc::vec![0; 3840];
+        let len = answer(
+            &ask("ar", 0),
+            false,
+            "",
+            crate::pictures::CAPTION,
+            Some(word),
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(caption_of(&bytes[..len]).1, word);
+    }
+    // No text (or an empty one): the plugin's own by language.
+    for none in [None, Some("")] {
+        let mut bytes = alloc::vec![0; 3840];
+        let len = answer(
+            &ask("de", 0),
+            false,
+            "",
+            crate::pictures::CAPTION,
+            none,
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(caption_of(&bytes[..len]).1, "Bild");
+    }
 }

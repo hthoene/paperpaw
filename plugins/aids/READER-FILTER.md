@@ -5,8 +5,7 @@ The reader owns the stage; the plugin subscribes and answers each ask with the r
 
 ## Preparation notes
 
-Opt-in `reader-filter` feature; default registrations still use the existing
-interface. No stage broker, native activation, or settings validation UI is
+The interface-6 registrations still use the existing text filters until host activation. No stage broker, native activation, or settings validation UI is
 claimed. This is the reader-owned payload implementation housed with its first
 consumer while the reader port is pending.
 
