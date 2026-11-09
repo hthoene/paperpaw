@@ -17,3 +17,6 @@ rules
 weather
 reading-goal
 translate
+koreader
+lock
+wikipedia

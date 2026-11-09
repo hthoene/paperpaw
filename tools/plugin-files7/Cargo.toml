@@ -250,6 +250,54 @@ path = "src/bin/translate.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "aids"
+path = "src/bin/aids.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "browser"
+path = "src/bin/browser.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "home"
+path = "src/bin/home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "mail"
+path = "src/bin/mail.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "news"
+path = "src/bin/news.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "notes-vault"
+path = "src/bin/notes-vault.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "store"
+path = "src/bin/store.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wifi"
+path = "src/bin/wifi.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
@@ -291,6 +339,14 @@ paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-en
 paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
+paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
+paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
+paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
+paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
+paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"] }
+paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }
+paperpaw-plugin-store = { path = "../../plugins/store", features = ["native-entry"] }
+paperpaw-plugin-wifi = { path = "../../plugins/wifi", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]
