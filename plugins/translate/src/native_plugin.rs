@@ -59,11 +59,11 @@ pub struct NativeTranslate {
 
 impl Plugin for NativeTranslate {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        // `image::SETTINGS` is submitted when a choice may have 33 values
-        // (draft 29); `PORTING-7.md` says what that costs until then. The
-        // offer comes after the screen it names.
-        for batch in image::SCREEN
+        // The language setting (33 choices, a `setting.spec` takes 64 since
+        // draft 29), then the screen, then the offer that names it.
+        for batch in image::SETTINGS
             .iter()
+            .chain(image::SCREEN)
             .chain(image::OFFER)
             .chain(image::EVENTS)
         {

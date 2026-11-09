@@ -76,7 +76,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 1 | `settings` | `reg_query` (`scope`: group id, plugin id or empty for all) | `reg_setting`*, `end` | registry order |
 | 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`? | one setting in full (help text) |
 | 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
-| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
+| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | a group's children; empty: every group, each row with its `parent` |
 | 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
 | 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`? | description; requirements are op 20 |
 | 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
@@ -178,6 +178,14 @@ Field meanings:
   is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
+- [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
+  admitted this run, which it keeps with the plugin's registry row: the validated view where its
+  bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
+  bytes (`metadata::MAX_BYTES`) made at admission; features from
+  `metadata::Checked::requested_features` (unavailable optional ones too), services from `services`.
+  Kind 2 from the plugin's `requires` (`plugin.ini`), which the host keeps for every plugin it
+  lists. A plugin whose metadata was not admitted this run (off, refused, a data plugin) has kind 2
+  rows only; why it did not load is `reg_plugin.problem`.
 - `reg_item.flags` (actions, screens, inputs, menus): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
   3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),
@@ -231,7 +239,7 @@ key and text bytes within the stage budget.
 
 - [D] **Grants are out of reach.** No REG write touches a `core.grant.*` setting: `reset_setting`
   (every flag), `apply_preset` and `preview_setting` skip them in group, plugin and all resets and
-  refuse a single grant key with `ERR_INVALID`; declarations 25 and 28 naming one are dropped at
+  refuse a single grant key with `ERR_DENIED`; declarations 25 and 28 naming one are dropped at
   admission. Grants change only through the host's own settings screen (decisions 126, 131).
 - [D] **Checked again when applied.** Between submit and apply, an item, screen, slot or setting a
   staged REG command names can go (a plugin stopped). The host checks every REG command of a batch

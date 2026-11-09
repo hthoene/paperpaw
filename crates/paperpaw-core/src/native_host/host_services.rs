@@ -325,6 +325,21 @@ impl HostServices {
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
+    /// The device's network pool, if a service has made it.
+    pub(crate) fn pool_made(&self) -> Option<&Rc<super::net_pool::NetPool>> {
+        self.pool.get()
+    }
+
+    /// Tells the shell that the combined demand for the network changed
+    /// (through the service that is wired).
+    pub(crate) fn tell_demand(&self, wanted: bool) {
+        if let Some(net) = self.net() {
+            net.0.network_demand(wanted);
+        } else if let Some(sockets) = self.sockets() {
+            sockets.0.network_demand(wanted);
+        }
+    }
+
     /// Asks the work scheduler again for the closes of runs' resources it
     /// could not take (see `OwnerDirectory::retry_closes`).
     pub(crate) fn retry_run_closes(&self, now_ms: u64) {

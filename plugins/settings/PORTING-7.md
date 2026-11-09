@@ -30,9 +30,9 @@ link them until the host activates native plugins; then they go together (no shi
   checks that a replaced secret exists and is changeable. What is typed is read through buffers that
   are wiped, and the text copy is wiped after the host has it. The calls that use the service
   (`keep`, `remove`) are run over the scripted host (`tests/scripted_secrets.rs`): the question for
-  a removal and its yes/no, a value typed anew (kept as typed, nothing typed leaves the secret), and
+  a removal and its yes/no, a value typed anew (kept byte for byte as typed, white space trimmed; nothing typed leaves the secret), and
   a secret no longer kept removed without asking. The list runs page after page and every refusal of
-  the host is swept; the rows' allocations are swept. Not run: drawing, moving the focus and going
+  the host is swept; the rows' allocations are swept. That the typed and read buffers are wiped is not asserted by a test: they are freed straight after (`wipe_typed`, `mem::wipe`), so no memory can be read back without undefined behaviour; the wiping calls are on every path (`read_typed`, `change`, `wipe_typed`) and the kit's own `mem::wipe` is unit-tested. Not run: drawing, moving the focus and going
   back, which are screen commands the scripted host refuses (BLOCKED H1).
   Secret *text settings* stay out of the pages as in interface 6 (they are secrets, listed here).
 

@@ -40,6 +40,7 @@ pub mod native_phone;
 /// The interface-7 plugin.
 pub mod native_plugin;
 pub mod native_policy;
+pub mod native_radio;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 #[cfg(test)]

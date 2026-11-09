@@ -20,6 +20,13 @@ ignore = [
     # same secret again and again. To go when trouble-host moves to a p256
     # on crypto-bigint 0.7.
     { id = "RUSTSEC-2026-0387", reason = "BLE pairing ECDH with fresh keys, via trouble-host's p256 0.13" },
+    # SQLite before 3.54 (libsqlite3-sys 0.38, bundled by rusqlite 0.40): a
+    # database read with a foreign `-wal` file may show uninitialised memory.
+    # A dev-dependency of paperpaw-sqlite alone: its tests open files our own
+    # writer made. Nothing of it is in a build of the firmware or the app.
+    # To go when the oldest Rust (1.88) allows rusqlite 0.41, which needs
+    # libsqlite3-sys 0.39.
+    { id = "RUSTSEC-2026-0459", reason = "tests only: rusqlite is a dev-dependency of paperpaw-sqlite, files our own writer made" },
 ]
 
 [licenses]

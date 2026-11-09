@@ -397,10 +397,7 @@ impl ImageSink for Discard {
 fn downscaling_more_than_its_sums_hold_is_refused() {
     // 4200 × 4200 pixels of white in one: their sum is past 32 bits.
     match Downscaler::new(4200, 4200, (1, 1), 1) {
-        Err(e) => assert_eq!(
-            e,
-            ImageError::Unsupported("image this large made this small")
-        ),
+        Err(e) => assert_eq!(e, ImageError::TooLarge),
         Ok(mut scaler) => {
             let row = vec![255u8; 4200];
             for _ in 0..4200 {

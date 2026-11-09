@@ -201,13 +201,13 @@ fn a_search_without_hits_says_so_and_an_empty_one_opens_nothing() {
 fn advanced_settings_are_found_only_once_shown() {
     for device in DEVICES {
         let mut app = settings(device, "");
-        // The progress sync's server is an advanced setting.
-        search(&mut app, "server");
+        // The address of Calibre (or of Joplin) is an advanced setting.
+        search(&mut app, "address");
         let before = titles(&mut app);
         app.run(actions::BACK);
         choose(&mut app, "Advanced settings");
         assert!(app.kernel.settings().bool("settings.advanced"));
-        search(&mut app, "server");
+        search(&mut app, "address");
         let after = titles(&mut app);
         assert!(after.len() > before.len(), "{before:?} {after:?}");
     }

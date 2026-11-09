@@ -190,6 +190,7 @@ impl crate::Kernel {
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
+            .chain(self.native_demand_due().map(|at| at.millis()))
             .min()
             .map(Instant)
     }

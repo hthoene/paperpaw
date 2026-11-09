@@ -17,7 +17,7 @@ fn the_screens_show_time_streaks_calendar_and_books() {
 }
 
 #[test]
-#[ignore = "needs the widget and status stages (host call, Core todo 76)"]
+#[ignore = "the widgets of today and the week are native (tests/scripted_widgets.rs, widgets_parity.rs); their pixels need a kernel-backed harness, and the ring, streak, calendar and year widgets and the status item are not ported yet"]
 fn the_widgets_and_the_status_item_show_todays_reading() {
     unreachable!("today, week, ring, streak, calendar, year widgets; left.rs status item");
 }

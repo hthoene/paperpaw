@@ -463,7 +463,25 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
     source += rest + '}\nOk(())\n}\n}\n'
     source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n'
     source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
-    source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if any(f['optional'] for r in declared for f in r['fields']) else 'write_varint(0, out, &mut offset);')
+    bitmap = ('record.write_bitmap(out, &mut offset);'
+              if any(f['optional'] for r in declared for f in r['fields'])
+              else 'write_varint(0, out, &mut offset);')
+    source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', bitmap)
+    # Row by row, no slice of records: the count prefix is one byte while
+    # both sides hold at most 127 rows (schemas allow 64).
+    input_rows = stage.get('input_rows', 1)
+    _require(stage['reply_rows'] <= 127 and input_rows <= 127,
+             f'{stage["key"]}: a batch writer needs at most 127 rows a side')
+    for side, title, cap, rows, tags in (
+            ('reply', 'Reply', 'MAX_REPLY', 'REPLY_ROWS', 'REPLY_TAGS'),
+            ('input', 'Input', 'MAX_INPUT', 'INPUT_ROWS' if 'input_rows' in stage else '1',
+             'INPUT_TAGS')):
+        source += (BATCH_WRITER_TEMPLATE.replace('@SIDE@', side).replace('@TITLE@', title)
+                   .replace('@CAP@', cap).replace('@ROWS@', rows).replace('@TAGS@', tags)
+                   .replace('@RECORD@', "Record<'_>" if borrowed else 'Record')
+                   .replace('@BITMAP@', bitmap)
+                   .replace('@EMPTY@', '' if side == 'reply'
+                            else '        if self.rows == 0 { return Err(-2); }\n'))
     for r in declared:
         title, borrows = _camel(r['name']), _lifetime(r)
         source += f"impl<'a> {title}<'a> {{\n" if borrows else f'impl {title} {{\n'
@@ -529,6 +547,58 @@ fn decode_with<'a>(bytes: &'a [u8], cap: usize, rows: usize, tags: &[u32]) -> Re
     }
     reader.finish()?;
     Ok(RecordStream { bytes: records, remaining: count })
+}
+'''
+BATCH_WRITER_TEMPLATE = '''/// Writes one @SIDE@ batch record by record, straight into `out`: the
+/// bytes [`@SIDE@_encode`] would write for the same records, without a
+/// slice of them. Each [`push`](Self::push) checks the record before it
+/// writes; a refused one leaves the rows before it as they were.
+#[derive(Debug)]
+pub struct @TITLE@Writer<'w> {
+    out: &'w mut [u8],
+    offset: usize,
+    rows: usize,
+}
+impl<'w> @TITLE@Writer<'w> {
+    /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+    pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+        let first = out.first_mut().ok_or(-3)?;
+        *first = 0;
+        Ok(Self { out, offset: 1, rows: 0 })
+    }
+    /// Records written so far.
+    pub fn len(&self) -> usize { self.rows }
+    /// Whether no record is written yet.
+    pub fn is_empty(&self) -> bool { self.rows == 0 }
+    /// Append `record`: -2 for a tag of the other side, a field out of its
+    /// bounds or one row too many; -3 when it does not fit the byte cap or
+    /// `out`. Nothing is written then.
+    pub fn push(&mut self, record: &@RECORD@) -> Result<(), i32> {
+        if self.rows >= @ROWS@ { return Err(-2); }
+        if !@TAGS@.is_empty() && !@TAGS@.contains(&record.tag()) { return Err(-2); }
+        record.validate()?;
+        let body = record.body_len()?;
+        let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+        let end = self.offset.checked_add(need).ok_or(-3)?;
+        if end > @CAP@ || end > self.out.len() { return Err(-3); }
+        let out = &mut *self.out;
+        let mut offset = self.offset;
+        write_varint(record.tag(), out, &mut offset);
+        write_varint(body as u32, out, &mut offset);
+        @BITMAP@
+        record.write(out, &mut offset);
+        self.offset = offset;
+        self.rows += 1;
+        Ok(())
+    }
+    /// The batch's length in `out`, its count written; -2 for an input
+    /// batch of no record.
+    pub fn finish(self) -> Result<usize, i32> {
+@EMPTY@        let count = u8::try_from(self.rows).map_err(|_| -2)?;
+        let first = self.out.first_mut().ok_or(-3)?;
+        *first = count;
+        Ok(self.offset)
+    }
 }
 '''
 ENCODE_TEMPLATE = '''/// Tooling-only, side-agnostic encoding. Runtime callers use a direction.

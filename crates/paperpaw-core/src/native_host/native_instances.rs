@@ -661,6 +661,18 @@ impl NativeInstances {
             .map_or([None, None], |pool| pool.hosts().event_services())
     }
 
+    /// The device's network pool and the services' hosts, once a service
+    /// made it.
+    pub(crate) fn net_demand(
+        &self,
+    ) -> Option<(
+        &alloc::rc::Rc<super::net_pool::NetPool>,
+        &super::host_services::HostServices,
+    )> {
+        let hosts = self.pool.as_ref()?.hosts();
+        Some((hosts.pool_made()?, hosts))
+    }
+
     /// The closes the work scheduler could not take are asked again.
     pub(crate) fn retry_run_closes(&self, now_ms: u64) {
         if let Some(pool) = self.pool.as_ref() {

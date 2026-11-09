@@ -125,6 +125,14 @@ fn the_form_of_a_question_kinds_flags_and_choices() {
     assert_eq!(ok(2, ONLY_YES, "Read\n"), Ok(()));
     assert_eq!(ok(2, ONLY_YES, ""), Ok(()));
     assert_eq!(ok(2, ONLY_YES, "Read\nNo").err(), Some(ERR_INVALID));
+    // Focus on yes (bit 9, for the dialog plugin to honour): with the
+    // default words, with words, with only-yes; not on other kinds.
+    let focus_yes = 1 << 9;
+    assert_eq!(ok(2, focus_yes, ""), Ok(()));
+    assert_eq!(ok(2, focus_yes, "Delete\nKeep"), Ok(()));
+    assert_eq!(ok(2, focus_yes | ONLY_YES, "Read\n"), Ok(()));
+    assert_eq!(ok(0, focus_yes, "").err(), Some(ERR_INVALID));
+    assert_eq!(ok(1, focus_yes, "a").err(), Some(ERR_INVALID));
     // Kinds 0 and 3 take no choices.
     assert_eq!(ok(0, 0, "a").err(), Some(ERR_INVALID));
     assert_eq!(ok(3, 0, "a").err(), Some(ERR_INVALID));
