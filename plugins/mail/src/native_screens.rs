@@ -586,6 +586,21 @@ impl NativeMail {
         }
     }
 
+    /// What a reader or the compose window says of a server that is not
+    /// trusted: where the list asks, to open the list; else why it is not
+    /// offered ([`texts::pin_message`]).
+    pub(crate) fn pin_say(
+        &mut self,
+        host: &Host<'_>,
+        number: u8,
+        smtp: bool,
+    ) -> Result<Say<'static>, Error> {
+        self.services(host)?;
+        let secrets = self.secrets.as_ref().ok_or(Error::State)?;
+        let offered = offer(&HostValues { host, secrets }, number, smtp)?;
+        Ok(Say::Key(texts::pin_message(offered)))
+    }
+
     /// A server whose certificate no authority vouches for: the reader is
     /// asked once whether to trust its key (a provider's server, or one whose
     /// trusted key changed, is not offered: said so, not connected).
@@ -601,13 +616,8 @@ impl NativeMail {
         self.services(host)?;
         let secrets = self.secrets.as_ref().ok_or(Error::State)?;
         let offered = offer(&HostValues { host, secrets }, number, smtp)?;
-        let say = match offered {
-            Offer::Ask => None,
-            Offer::Changed => Some("mail.pin.changed"),
-            _ => Some("mail.pin.attack"),
-        };
-        if let Some(key) = say {
-            return self.say_in(host, owner, Say::Key(key));
+        if offered != Offer::Ask {
+            return self.say_in(host, owner, Say::Key(texts::pin_message(offered)));
         }
         let mut messages = Messages::new()?;
         let hex = pin_text(&key)?;

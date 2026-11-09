@@ -491,9 +491,17 @@ impl NativeMail {
                 self.check = None;
                 self.say_writer(host, instance, texts::failure(&failure))
             }
-            Run::Untrusted { .. } => {
+            Run::Untrusted { smtp, .. } => {
                 self.check = None;
-                self.say_writer(host, instance, Say::Key("mail.pin.open-list"))
+                let number = self
+                    .writers
+                    .get(instance)
+                    .and_then(|w| w.account().map(|a| a.number));
+                let say = match number {
+                    Some(number) => self.pin_say(host, number, smtp)?,
+                    None => return Ok(()),
+                };
+                self.say_writer(host, instance, say)
             }
             _ => Ok(()),
         }

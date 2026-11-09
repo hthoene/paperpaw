@@ -190,6 +190,11 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   provider fill-in, the widgets and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
   a native plugin end to end yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks,
   the words and the times are tested without one.
+- A reader or the compose window that meets an untrusted server says what `account::offer` allows, as Beta 3 did: *open the
+  list* where the list can ask, *the key changed* or *a provider's server* where nothing is offered (`texts::pin_message`,
+  tested for the three keys). **Known gap, as in Beta 3:** only the compose window starts SMTP and the list checks IMAP
+  only, so an untrusted SMTP server (*Ask*) is told to open the list, which never asks about it. Asking in the compose
+  window with `Question::confirm` and sending again after the answer is a follow-up, not done here.
 - Interface 7 has no event for a screen of another plugin put above one of Mail's, so a connection is not let go then as
   it is when a Mail screen opens above (interface 6 did not either: it lets go only when its own screens open or close);
   the host's `idle_ms` ends a connection nobody serves, and a screen that closes closes its socket.
