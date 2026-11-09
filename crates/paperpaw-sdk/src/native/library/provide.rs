@@ -1,5 +1,5 @@
 //! Provided metadata (`docs/abi/library.md` 5, op 24): what another source (calibre)
-//! knows better than the book's file.
+//! knows and the book's file does not name.
 use super::{Error, Host, wire, *};
 
 /// The tag list of `lib_provided`: at most 32 tags of at most 128 bytes.
@@ -15,9 +15,10 @@ const TAGS: u32 = 1 << 4;
 
 /// Metadata a plugin provides for one book: only the fields set here are
 /// provided, the rest are left alone. A provided value is never empty (nothing
-/// clears a field: leave it out). Provided values win over the file's; the
-/// user's own edits win over provided ones, and the last provider wins among
-/// providers.
+/// clears a field: leave it out). Provided values fill what the book's file
+/// does not name: where the file names a field, the file's own value wins on
+/// (re)index. The last provider's values replace earlier ones; there is one
+/// tag list per book.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Provided<'a> {
