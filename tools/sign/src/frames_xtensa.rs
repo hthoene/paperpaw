@@ -415,7 +415,7 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)]) -> Option<Finding> {
     scan_ranges_in(code, ranges, None).0
 }
 
-/// [`scan_ranges`], and with `reach` (what the rest of the image points at)
+/// `scan_ranges` (tests only), and with `reach` (what the rest of the image points at)
 /// a dead word ([`dead`]) is let through; the second value is the `.text`
 /// offsets of those words.
 pub fn scan_ranges_in(
