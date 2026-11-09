@@ -1430,4 +1430,7 @@ mod native_battery_pixel_tests;
 
 /// The host's own plugin id: no installed, linked or native plugin may take
 /// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
+/// The same literal is refused by `paperpaw_native::bundle` (`Bundle::read`),
+/// `paperpaw_sdk::install::is_plugin_name` and the hyphenation-packs check;
+/// change them together.
 pub(crate) const RESERVED_PLUGIN_ID: &str = "core";

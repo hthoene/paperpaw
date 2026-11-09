@@ -101,7 +101,8 @@ pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
 }
 
 /// Whether `id` can be a data plugin's id and its folder's name: lower-case
-/// letters, digits and `-`, and not the host's own id `core` (reserved).
+/// letters, digits and `-`, and not the host's own id `core` (reserved, as
+/// `paperpaw-core`'s `RESERVED_PLUGIN_ID`).
 pub fn is_plugin_name(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 40

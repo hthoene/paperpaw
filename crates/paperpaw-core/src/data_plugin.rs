@@ -1028,7 +1028,8 @@ fn parse_manifest(source: &str, folder: &str) -> Result<(Manifest, u32), String>
         .ok()
         .filter(|id| id.as_str() == id.namespace())
         .ok_or_else(|| format!("invalid id `{id}`"))?;
-    // Records name plugins in 64 bytes; `core` is the host's (ui.md 4.3).
+    // Records name plugins in 64 bytes (installers keep their folder names to
+    // 40, a card folder may be longer); `core` is the host's (ui.md 4.3).
     if id.as_str().len() > 64 || id.as_str() == crate::RESERVED_PLUGIN_ID {
         return Err(format!("invalid id `{id}`: over 64 bytes or reserved"));
     }

@@ -207,7 +207,8 @@ impl Bundle {
         for (entry, _) in &entries {
             let id = layout.text(le32(entry, 0), le16(entry, 8))?;
             let version = layout.text(le32(entry, 4), le16(entry, 10))?;
-            // `core` is the host's own id: no bundle installs a plugin by it.
+            // `core` is the host's own id (`paperpaw-core`'s
+            // `RESERVED_PLUGIN_ID`): no bundle installs a plugin by it.
             if !is_plugin_id(&id)
                 || id == "core"
                 || !is_version(&version)
