@@ -131,6 +131,8 @@ pub struct CommandStage<'a> {
     staged_presets: Vec<alloc::boxed::Box<str>>,
     /// Entries of room this callback holds in the item-state table.
     room: core::cell::RefCell<Option<items::ItemRoom>>,
+    /// The checked `command.set_hint` copies, applied after the callback.
+    staged_hints: Vec<super::hint_labels::HintSet>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -168,6 +170,7 @@ impl<'a> CommandStage<'a> {
             staged_items: Vec::new(),
             staged_presets: Vec::new(),
             room: core::cell::RefCell::new(None),
+            staged_hints: Vec::new(),
         }
     }
 
@@ -269,22 +272,17 @@ impl<'a> CommandStage<'a> {
             return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = batch
-            .iter()
-            .filter(|command| {
-                !matches!(command, WireCommand::Redraw { .. })
-                    && !dev::is_dev(command)
-                    && !Self::is_item_state(command)
-                    && !Self::is_preset(command)
-            })
-            .count()
-            - image_commands;
+        let stored = Self::stored_count(batch) - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
             || self.staged_items.try_reserve(item_states.len()).is_err()
             || self.staged_presets.try_reserve(presets.len()).is_err()
         {
             return ERR_NO_MEMORY;
+        }
+        let start_hints = self.staged_hints.len();
+        if let Err(error) = self.reserve_hints(batch) {
+            return error;
         }
         if let Err(error) = self
             .dev_reserve(batch)
@@ -303,6 +301,7 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
+            self.staged_hints.truncate(start_hints);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
@@ -358,6 +357,21 @@ impl<'a> CommandStage<'a> {
         Ok(())
     }
 
+    /// How many of `batch` go to the staged `Command`s (before the images).
+    fn stored_count(batch: &CommandBatch<'_>) -> usize {
+        batch
+            .iter()
+            .filter(|command| {
+                !matches!(
+                    command,
+                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                ) && !dev::is_dev(command)
+                    && !Self::is_item_state(command)
+                    && !Self::is_preset(command)
+            })
+            .count()
+    }
+
     /// One `set_setting` of a batch: its bytes counted against the budget, the
     /// setting registered and this plugin's to set, a scalar in its range.
     fn validate_setting(
@@ -410,6 +424,10 @@ impl<'a> CommandStage<'a> {
                 || Self::is_item_state(&command)
                 || Self::is_preset(&command)
             {
+                continue;
+            }
+            // Copied and listed ahead (`reserve_hints`).
+            if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
             if dev::is_dev(&command) {
@@ -583,7 +601,9 @@ fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
         .then_some(ERR_DENIED)
 }
 
-/// Whether `command` writes a user grant (`core.grant.*`).
+/// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
+/// a preset by id only and writes nothing here; what a preset sets is checked
+/// where presets resolve (REG), where a grant key must be dropped as well.
 fn touches_grant(command: WireCommand<'_>) -> bool {
     match command {
         WireCommand::SetSetting { key, .. }
@@ -608,6 +628,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_hint_tests.rs"]
+mod hint_tests;
 
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]

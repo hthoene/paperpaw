@@ -1,25 +1,30 @@
 //! The interface-7 file manager: one screen that browses the card, with
 //! questions of the host for what to do with an entry, a new name, a new
-//! folder and deleting. Opening books, and telling the library of a book that
-//! moved, wait for the library service (see `PORTING-7.md`).
+//! folder and deleting. A book opens in the reader the user chose (or in
+//! another one), and is deleted through the library with what is kept for it;
+//! the host follows moves and renames on the card itself (`PORTING-7.md`).
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input, InputGestureKind};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
+use paperpaw_sdk::native::document::{Documents, ReaderCursor};
 use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming};
 use paperpaw_sdk::native::formatting::Arg;
+use paperpaw_sdk::native::library::{BookRef, Library};
 use paperpaw_sdk::native::settings::{self, SettingValue};
-use paperpaw_sdk::native::ui::{Open, Question, RequestId, TextWrite, Ui};
+use paperpaw_sdk::native::ui::{Open, Param, Question, RequestId, TextWrite, Ui};
 use paperpaw_sdk::native::{Error, Host, Plugin, registrations, reply::Reply};
 use paperpaw_sdk::{Point, Storage};
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer, push};
 use paperpaw_ui_kit::text::{concat, copy};
 use paperpaw_ui_kit::{Messages, Screens, uitext};
 
 use crate::browser::{Browser, Button, is_own_data};
 use crate::card::{with_card, with_card_noted};
+use crate::model::folder::Entry;
 use crate::native_draw::{self, Hits};
 
 mod image {
@@ -31,20 +36,31 @@ const BROWSER: u32 = crate::declarations::BROWSER_TOKEN;
 const HIDDEN: &str = "file-manager.hidden";
 /// The longest name the keyboard takes.
 const NAME_LIMIT: usize = 256;
-/// What can be done with an entry (the labels are `file-manager.option.*`).
-const OPTIONS: [&str; 4] = ["rename", "move", "copy", "delete"];
+/// Every option an entry can have (the labels are `file-manager.option.*`).
+const OPTIONS: [&str; 6] = ["open", "open-with", "rename", "move", "copy", "delete"];
+/// Reading apps listed for "Open with" at most.
+const MOST_READERS: usize = 12;
+/// The reading apps' list, a page of it: the request and the reply.
+const READERS_INPUT: usize = 256;
 
 /// What an open question is for.
 #[derive(Debug, PartialEq, Eq)]
 enum Asked {
-    /// What to do with the entry at `path`.
-    Options { path: String },
+    /// What to do with the entry at `path`: one of `options`, as listed;
+    /// `book` where the library takes it for a book.
+    Options {
+        path: String,
+        options: Vec<&'static str>,
+        book: bool,
+    },
+    /// Which reading app opens the book at `path`: the screens, as listed.
+    With { path: String, screens: Vec<String> },
     /// A new name for the entry at `path`.
     Rename { path: String },
     /// The name of a new folder.
     NewFolder,
-    /// Whether to delete the entry at `path`.
-    Delete { path: String },
+    /// Whether to delete the entry at `path`, a book with what is kept for it.
+    Delete { path: String, book: bool },
 }
 
 /// The screen: the folder on show and where it was drawn.
@@ -58,6 +74,11 @@ struct View {
 #[derive(Debug, Default)]
 pub struct NativeFileManager {
     ui: Option<Ui>,
+    /// Opened at the first entry offered; where the host has none, entries
+    /// are plain files (no book is opened from here, a file is deleted on
+    /// the card).
+    library: Option<Library>,
+    documents: Option<Documents>,
     screens: Screens<View>,
     asked: Option<(RequestId, Asked)>,
 }
@@ -327,13 +348,28 @@ impl NativeFileManager {
         let Some(view) = self.screens.top(BROWSER) else {
             return Ok(());
         };
-        let Some((path, _)) = view.browser.path_of(index)? else {
+        let Some((path, is_dir)) = view.browser.path_of(index)? else {
             return Ok(());
         };
         let name = copy(crate::model::path::name(&path))?;
+        // A file the library takes for a book opens; where more than one
+        // reading app reads it, it also opens with another.
+        let book = !is_dir && self.is_book(host, &path)?;
+        let with = book && self.readers_for(host, &path)?.len() > 1;
+        let mut options: Vec<&'static str> = Vec::new();
+        for option in OPTIONS {
+            let wanted = match option {
+                "open" => book,
+                "open-with" => with,
+                _ => true,
+            };
+            if wanted {
+                push(&mut options, option)?;
+            }
+        }
         let mut messages = Messages::new()?;
         let mut choices = String::new();
-        for (n, option) in OPTIONS.iter().enumerate() {
+        for (n, option) in options.iter().enumerate() {
             let label = messages.copy(host, &concat(&["file-manager.option.", option])?)?;
             let separator = if n > 0 { "\n" } else { "" };
             choices = concat(&[&choices, separator, &label])?;
@@ -341,7 +377,175 @@ impl NativeFileManager {
         // The question borrows the path; the answer needs it owned.
         let owned = copy(&path)?;
         let question = Question::choice(&name, &path, &choices)?;
-        self.ask(host, question, Asked::Options { path: owned })
+        self.ask(
+            host,
+            question,
+            Asked::Options {
+                path: owned,
+                options,
+                book,
+            },
+        )
+    }
+
+    /// Opens the services of the library and the documents, where the host
+    /// has them; an entry is a plain file where it has not.
+    fn services(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.library.is_none() {
+            match Library::open(host) {
+                Ok(library) => self.library = Some(library),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
+        if self.documents.is_none() {
+            match Documents::open(host) {
+                Ok(documents) => self.documents = Some(documents),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the library takes the file at `path` for a book (a format
+    /// reads it): the preflight of a delete answers `OK` for a book and
+    /// `Invalid` for any other file. Anything it cannot answer is a plain file.
+    fn is_book(&mut self, host: &Host<'_>, path: &str) -> Result<bool, Error> {
+        self.services(host)?;
+        let Some(library) = &self.library else {
+            return Ok(false);
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        match library.can_delete(host, &[path], &mut input, &mut out) {
+            Ok(report) => Ok(report.rows().next().is_some_and(|row| row.status().is_ok())),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// The reading apps that read the book at `path` (those of its format
+    /// where the library knows it, else all): their screens and titles, at
+    /// most `MOST_READERS`.
+    fn readers_for(&mut self, host: &Host<'_>, path: &str) -> Result<Vec<(String, String)>, Error> {
+        self.services(host)?;
+        let Some(documents) = &self.documents else {
+            return Ok(Vec::new());
+        };
+        let mut format = String::new();
+        if let Some(library) = &self.library {
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            match BookRef::path(path)
+                .and_then(|book| library.book(host, book, &mut input, &mut out))
+            {
+                Ok(book) => format = copy(book.format())?,
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
+        let (mut input, mut out) = (buffer(READERS_INPUT)?, buffer(SERVICE_BUFFER)?);
+        let mut found: Vec<(String, String)> = Vec::new();
+        let mut cursor = ReaderCursor::start();
+        // The list may change between pages: start again once, then give up.
+        let mut again = true;
+        loop {
+            let page = match documents.readers(host, &format, cursor, &mut input, &mut out) {
+                Ok(page) => page,
+                Err(Error::State) if again => {
+                    again = false;
+                    found.clear();
+                    cursor = ReaderCursor::start();
+                    continue;
+                }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => return Ok(Vec::new()),
+            };
+            for reader in page.rows() {
+                if found.len() >= MOST_READERS {
+                    return Ok(found);
+                }
+                push(&mut found, (copy(reader.screen())?, copy(reader.title())?))?;
+            }
+            match page.end().next() {
+                Some(next) => cursor = next,
+                None => return Ok(found),
+            }
+        }
+    }
+
+    /// Opens the book at `path`: in the reader the user bound to
+    /// `core.reader`, or in the one whose screen is `screen`.
+    fn open_book(&self, host: &Host<'_>, path: &str, screen: Option<&str>) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let params = [Param::new("path", path)?];
+        let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
+        let open = match screen {
+            Some(screen) => Open::in_slot(screen, "core.reader")?,
+            None => Open::slot("core.reader")?,
+        };
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(open.handover(handover))
+    }
+
+    /// Asks which reading app opens the book at `path` (the screens named in
+    /// the answer's order).
+    fn ask_with(&mut self, host: &Host<'_>, path: String) -> Result<(), Error> {
+        let readers = self.readers_for(host, &path)?;
+        if readers.is_empty() {
+            return Ok(());
+        }
+        let name = copy(crate::model::path::name(&path))?;
+        let mut choices = String::new();
+        let mut screens: Vec<String> = Vec::new();
+        for (n, (screen, title)) in readers.into_iter().enumerate() {
+            let separator = if n > 0 { "\n" } else { "" };
+            choices = concat(&[&choices, separator, &title])?;
+            push(&mut screens, screen)?;
+        }
+        let owned = copy(&path)?;
+        let question = Question::choice(&name, &path, &choices)?;
+        self.ask(
+            host,
+            question,
+            Asked::With {
+                path: owned,
+                screens,
+            },
+        )
+    }
+
+    /// Deletes the book at `path` through the library, with everything kept
+    /// for it (the reader said so in the question); a file the library does
+    /// not take for a book goes from the card as any other.
+    fn delete_book(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+        let at = Entry::new(crate::model::path::name(path), false, 0).ok();
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let result = match library.delete(host, &[path], true, &mut input, &mut out) {
+            Ok(report) => report
+                .rows()
+                .next()
+                .map_or(Err(Error::Invalid), |row| row.status()),
+            Err(error) => Err(error),
+        };
+        match result {
+            // Not a book after all: a file on the card.
+            Err(Error::Invalid) => {
+                self.browse(host, |browser, card| browser.delete(card, path))?;
+            }
+            // Gone already: the library only forgot it.
+            Err(Error::NotFound) | Ok(()) => {
+                self.browse(host, |browser, card| {
+                    browser.deleted(card, path, at, Ok(()))
+                })?;
+            }
+            Err(error) => {
+                self.browse(host, |browser, card| {
+                    browser.deleted(card, path, at, Err(error));
+                })?;
+            }
+        }
+        Ok(())
     }
 
     fn ask(&mut self, host: &Host<'_>, question: Question<'_>, asked: Asked) -> Result<(), Error> {
@@ -379,7 +583,7 @@ impl NativeFileManager {
 
     /// Asks whether to delete the entry at `path`; the answer starts on the
     /// safe side. PaperPaw's own folder is not asked about: it is not deleted.
-    fn ask_delete(&mut self, host: &Host<'_>, path: String) -> Result<(), Error> {
+    fn ask_delete(&mut self, host: &Host<'_>, path: String, book: bool) -> Result<(), Error> {
         let (own, folder) = with_card(host, |card| {
             Ok((
                 is_own_data(card, &path),
@@ -393,6 +597,8 @@ impl NativeFileManager {
         let mut messages = Messages::new()?;
         let key = if folder {
             "file-manager.delete-folder-question"
+        } else if book {
+            "file-manager.delete-book-question"
         } else {
             "file-manager.delete-question"
         };
@@ -411,7 +617,7 @@ impl NativeFileManager {
             &messages.copy(host, "file-manager.option.cancel")?,
         ])?;
         let question = Question::confirm(&title, "")?.confirm_labels(&labels)?;
-        self.ask(host, question, Asked::Delete { path })
+        self.ask(host, question, Asked::Delete { path, book })
     }
 
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
@@ -428,7 +634,13 @@ impl NativeFileManager {
             return Ok(());
         }
         match asked {
-            Asked::Options { path } => match OPTIONS.get(answer.choice() as usize) {
+            Asked::Options {
+                path,
+                options,
+                book,
+            } => match options.get(answer.choice() as usize) {
+                Some(&"open") => self.open_book(host, &path, None),
+                Some(&"open-with") => self.ask_with(host, path),
                 Some(&"rename") => {
                     let title = Messages::new()?.copy(host, "file-manager.rename")?;
                     let name = copy(crate::model::path::name(&path))?;
@@ -442,8 +654,12 @@ impl NativeFileManager {
                     self.browse(host, |browser, card| browser.pick(card, &path, true))?;
                     Ok(())
                 }
-                Some(&"delete") => self.ask_delete(host, path),
+                Some(&"delete") => self.ask_delete(host, path, book),
                 _ => Ok(()),
+            },
+            Asked::With { path, screens } => match screens.get(answer.choice() as usize) {
+                Some(screen) => self.open_book(host, &path, Some(screen)),
+                None => Ok(()),
             },
             Asked::Rename { path } => {
                 let typed = uitext::read_all(self.ui()?, host, request.text(), NAME_LIMIT)?;
@@ -455,7 +671,10 @@ impl NativeFileManager {
                 self.browse(host, |browser, card| browser.new_folder(card, &typed))?;
                 Ok(())
             }
-            Asked::Delete { path } if answer.choice() == 1 => {
+            Asked::Delete { path, book: true } if answer.choice() == 1 => {
+                self.delete_book(host, &path)
+            }
+            Asked::Delete { path, .. } if answer.choice() == 1 => {
                 self.browse(host, |browser, card| browser.delete(card, &path))?;
                 Ok(())
             }

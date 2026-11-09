@@ -1,11 +1,12 @@
 //! Op 13 `bindings` (`registry.md` 2.2): the key bindings in effect, per layer.
-//! The environment's `KeyBindings` answers one layer at a time and does not
-//! name its layers, so the layers read are the ones a binding can name
-//! (`command.bind_key`: a screen or slot id, or `global`).
+//! The environment's `KeyBindings` walks its layers and each layer's bindings
+//! without a list (`each_layer`, `each_binding`), so an empty scope reaches
+//! every layer, whatever a binding names it (a screen, a slot, `global`, a
+//! layer of its own).
 use super::{Row, sources::Sources};
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
-use paperpaw_sdk::{builtin::GLOBAL_KEYMAP_LAYER, keys::BindingOrigin};
+use paperpaw_sdk::keys::BindingOrigin;
 
 /// `reg_binding.origin` is interface 6's `BindingOrigin` in order.
 fn origin(origin: BindingOrigin) -> u32 {
@@ -17,55 +18,42 @@ fn origin(origin: BindingOrigin) -> u32 {
     }
 }
 
-/// One layer's bindings.
+/// One layer's bindings. Nothing is allocated (`each_binding` names the
+/// inputs on the stack).
 fn layer(
     sources: &Sources<'_>,
     layer: &str,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
-    // `bindings` collects the one layer's bindings: at most one an input of
-    // the device (a few dozen) at about 32 bytes, however many plugins bind.
-    for (input, action, from) in sources.env.keys().bindings(layer) {
-        let row = Record::ServiceRegBinding(wire::ServiceRegBinding {
-            layer,
-            input: &input,
-            action: action.as_ref().map_or("", |id| id.as_str()),
-            origin: origin(from),
-        });
-        visit(&row)?;
-    }
-    ControlFlow::Continue(())
+    sources
+        .env
+        .keys()
+        .each_binding(layer, &mut |input, action, from| {
+            let row = Record::ServiceRegBinding(wire::ServiceRegBinding {
+                layer,
+                input,
+                action: action.map_or("", |id| id.as_str()),
+                origin: origin(from),
+            });
+            visit(&row)
+        })
 }
 
-/// Op 13: layer `scope`, or with an empty scope `global`, then the slots and
-/// the screens; a layer nothing binds in gives no row.
+/// Op 13: layer `scope`, or with an empty scope every layer that has a
+/// binding, in the keymap's stable (sorted) order; a layer nothing binds in
+/// gives no row.
 pub(super) fn rows(
     sources: &Sources<'_>,
     scope: &str,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
-    let _end = walk(sources, scope, visit);
+    let _end = if scope.is_empty() {
+        sources
+            .env
+            .keys()
+            .each_layer(&mut |name| layer(sources, name, visit))
+    } else {
+        layer(sources, scope, visit)
+    };
     Ok(())
-}
-
-fn walk(
-    sources: &Sources<'_>,
-    scope: &str,
-    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
-) -> ControlFlow<()> {
-    if !scope.is_empty() {
-        return layer(sources, scope, visit);
-    }
-    let env = sources.env;
-    layer(sources, GLOBAL_KEYMAP_LAYER, visit)?;
-    for slot in env.slots() {
-        layer(sources, slot.as_str(), visit)?;
-    }
-    for (screen, _) in env.screens().iter() {
-        // A screen can also be a slot's id: its layer is read once.
-        if !env.slots().iter().any(|slot| slot == screen) {
-            layer(sources, screen.as_str(), visit)?;
-        }
-    }
-    ControlFlow::Continue(())
 }

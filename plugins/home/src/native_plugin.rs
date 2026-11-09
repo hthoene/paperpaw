@@ -33,16 +33,15 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, EDIT_PAGES, STATUS_ITEMS};
+use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS};
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::Dashboard;
+use crate::native_drawer::{self as drawer, Drawer};
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
 /// The screen the editor is declared as.
 const ITEMS_SCREEN: &str = "home.status-items";
-/// The screens whose slices come later.
-const LATER_SCREENS: [&str; 1] = ["home.drawer"];
 const DASHBOARD_SCREEN: &str = "home.dashboard";
 /// Space for the two commands that open a screen.
 const COMMANDS: usize = 512;
@@ -71,6 +70,7 @@ enum Slot {
     Items(Editor),
     Dashboard(Dashboard),
     Add(AddScreen),
+    Drawer(Drawer),
 }
 
 impl Plugin for NativeHome {
@@ -121,11 +121,23 @@ impl Plugin for NativeHome {
             } if token == ADD => self.screens.shown(ADD, instance),
             Event::ScreenShown {
                 instance: Some(instance),
+                last_input,
+                ..
+            } if token == DRAWER => {
+                self.screens.shown(DRAWER, instance)?;
+                if let Some(Slot::Drawer(drawer)) = self.screens.get(instance) {
+                    drawer.shown(last_input);
+                }
+                Ok(())
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                last_input,
                 ..
             } if token == DASHBOARD => {
                 self.screens.shown(DASHBOARD, instance)?;
                 if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
-                    dashboard.shown();
+                    dashboard.shown(last_input);
                 }
                 Ok(())
             }
@@ -148,6 +160,7 @@ impl Plugin for NativeHome {
             Slot::Items(editor) => editor.view.draw(host, &mut frame),
             Slot::Dashboard(dashboard) => dashboard.draw(host, ui, &mut frame),
             Slot::Add(add) => add.draw(host, &mut frame),
+            Slot::Drawer(drawer) => drawer.draw(host, &mut frame),
         }
     }
 
@@ -158,6 +171,7 @@ impl Plugin for NativeHome {
             Some(Slot::Items(editor)) => editor.view.input(host, &editor.setting, &input),
             Some(Slot::Dashboard(dashboard)) => dashboard.input(host, ui, &input),
             Some(Slot::Add(add)) => add.input(host, ui, &input),
+            Some(Slot::Drawer(drawer)) => drawer.input(host, &input),
             None => Ok(Handled::No),
         }
     }
@@ -195,13 +209,14 @@ impl NativeHome {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        if LATER_SCREENS.contains(&screen) {
-            return Err(Error::Unsupported);
-        }
         // Opened to edit (`mode` = `edit`) starts editing.
         if screen == DASHBOARD_SCREEN {
             let edit = self.edits(host, handover)?;
             return open_dashboard(&mut self.screens, instance, edit);
+        }
+        if screen == drawer::SCREEN {
+            let drawer = Drawer::new(host, None)?;
+            return self.screens.open(instance, Slot::Drawer(drawer));
         }
         if screen == add_screen::SCREEN {
             let add = self.add_screen(host, handover)?;

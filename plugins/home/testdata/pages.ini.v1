@@ -1,5 +1,5 @@
 [home]
-page-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, tool:file-manager.open 3/0 1x1, home.clock@1 0/1 4x1, home.continue 0/2 4x2
+page-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, tool:store.open 3/0 1x1, home.clock@1 0/1 4x1, home.continue 0/2 4x2
 page-2 = home.tools
 columns = 4
 rows = 6
