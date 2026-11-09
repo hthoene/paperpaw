@@ -104,9 +104,15 @@ impl Plugin for NativeVocabulary {
                 ..
             } => self.widgets.stage(host, payload, reply),
             Event::Resume { .. } if token == RESUME_TOKEN => self.woke(host),
-            Event::ScreenOpened { instance, .. } if token == SLEEP_TOKEN => self
-                .asleep
-                .open(instance, crate::native_sleep_card::read(host)?),
+            Event::ScreenOpened { instance, .. } if token == SLEEP_TOKEN => {
+                // A card that cannot be read leaves the screen saying that none
+                // is due: the sleep screen must not be dead.
+                let asleep = match crate::native_sleep_card::read(host) {
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    other => other.unwrap_or_default(),
+                };
+                self.asleep.open(instance, asleep)
+            }
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
             Event::StageCall {
@@ -461,9 +467,10 @@ impl NativeVocabulary {
         let data = DataStorage::new(host);
         let folder = DataFolder(&data);
         let mut scratch = [0u8; 64];
+        // A setting that is absent or refused: the sleep card was not chosen.
         let asleep = matches!(
-            read_setting(host, "sleep.show", &mut scratch)?,
-            SettingValue::Text(chosen) if chosen == SLEEP_CARD
+            read_setting(host, "sleep.show", &mut scratch),
+            Ok(SettingValue::Text(chosen)) if chosen == SLEEP_CARD
         );
         let shown = if asleep {
             crate::native_sleep_card::shown(&folder)
@@ -472,8 +479,8 @@ impl NativeVocabulary {
         };
         if shown.is_none() {
             let wanted = matches!(
-                read_setting(host, "vocabulary.review-on-wake", &mut scratch)?,
-                SettingValue::Bool(true)
+                read_setting(host, "vocabulary.review-on-wake", &mut scratch),
+                Ok(SettingValue::Bool(true))
             );
             let time = HostTime::read(host, &folder)?;
             if !wanted || due_now(&folder, &time, settings(host)?.new_per_day) == 0 {

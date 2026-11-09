@@ -313,4 +313,8 @@ native screens replace these callers.
   or, with `vocabulary.review-on-wake`, where cards are due. The decisions (`next`, `shown`) are host-free and
   tested, with every allocation refused. Not proved here: the slot shown and the wake on a scripted host
   (hosted construction, #944; the ignored case says so).
+- The colours are the theme's (`style.paper`, `style.ink`, `style.note`), not Beta 3's fixed white and black: on a
+  dark theme the card is light on dark, like the other screens.
+- A refused read of the card leaves the sleep screen saying that none is due; a refused read of `sleep.show` or
+  of `vocabulary.review-on-wake` counts as "not chosen"/"off", never ends the wake.
 
