@@ -15,14 +15,14 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        events::{Event, Incoming},
+        events::{Event, Incoming, kinds},
         net::Net,
         registrations,
         reply::Reply,
         ui::Ui,
     },
 };
-use paperpaw_ui_kit::Screens;
+use paperpaw_ui_kit::{Screens, read_event};
 
 #[expect(
     dead_code,
@@ -101,7 +101,16 @@ impl Plugin for NativeWikipedia {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        match incoming.decode()? {
+        let Some(event) = read_event!(
+            incoming;
+            kinds::ScreenOpened,
+            kinds::ScreenShown,
+            kinds::ScreenClosed,
+            kinds::HttpDone
+        ) else {
+            return Ok(());
+        };
+        match event {
             Event::ScreenOpened {
                 instance, handover, ..
             } => self.open(host, instance, handover),

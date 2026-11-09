@@ -2294,7 +2294,6 @@ dependencies = [
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
  "paperpaw-plugin-wifi",
- "paperpaw-plugin-wikipedia",
 ]
 
 [[package]]
