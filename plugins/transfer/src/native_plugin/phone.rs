@@ -179,10 +179,10 @@ impl NativeTransfer {
         }
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).back()?;
-        if let Some(page) = self.screens.top(PHONE) {
-            if let Some(phone) = page.phone.as_mut() {
-                phone.wipe();
-            }
+        if let Some(page) = self.screens.top(PHONE)
+            && let Some(phone) = page.phone.as_mut()
+        {
+            phone.wipe();
         }
         redraw(host, RedrawMode::Partial)
     }

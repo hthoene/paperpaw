@@ -50,12 +50,7 @@ pub fn build(host: &Host<'_>) -> Result<Vec<u8>, Error> {
         json.push(':');
         push_json(&mut json, &messages.copy(host, key)?)?;
     }
-    let name = setting_text(host, DEVICE_NAME)?;
-    let name = if name.is_empty() {
-        copy(FALLBACK)?
-    } else {
-        name
-    };
+    let name = device_name(host)?;
     let library = setting_text(host, LIBRARY)?;
     join(&mut json, ",name:", &name)?;
     join(&mut json, ",library:", library.trim_matches('/'))?;
@@ -114,6 +109,19 @@ fn read_extensions(host: &Host<'_>, documents: &Documents) -> Result<Vec<String>
         }
     }
     Ok(found)
+}
+
+/// The device's name, as the page and the reader's own network call it.
+///
+/// # Errors
+/// `NoMemory`, or what the settings refuse.
+pub fn device_name(host: &Host<'_>) -> Result<String, Error> {
+    let name = setting_text(host, DEVICE_NAME)?;
+    if name.is_empty() {
+        copy(FALLBACK)
+    } else {
+        Ok(name)
+    }
 }
 
 fn join(json: &mut String, name: &str, text: &str) -> Result<(), Error> {

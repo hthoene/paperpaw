@@ -7,8 +7,10 @@
 //! native yet (the phone's keyboard, the cable, the offer to go online, the
 //! own network, installing plugins and moving files) is named in `PORTING-7.md`.
 use crate::{
-    declarations::{INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT},
-    native_draw::draw_address,
+    declarations::{
+        INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT, WIFI_DONE, WORK,
+    },
+    native_draw::{Join, draw_address},
     native_files::HostCard,
     native_install::{self, Installs},
     native_install_host::{self, HostPlugins},
@@ -39,11 +41,12 @@ use paperpaw_sdk::{
         secrets::{Secrets, wipe},
         storage::{self, Root},
         ui::{Open, ScreenPolicy, Ui},
+        work::Work,
     },
     served::Guard,
 };
 use paperpaw_ui_kit::{
-    Footer, ItemList, Messages, Screens,
+    Footer, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, wipe_text},
     read_event,
     text::format,
@@ -58,6 +61,7 @@ const SERVER: u32 = 1;
 const PHONE_SERVER: u32 = 2;
 /// The port asked for; the host takes the next free one if it is in use.
 const PORT: u16 = 8080;
+mod own;
 mod phone;
 
 /// What the host's `serve` and `stop_serving` reply with, at most.
@@ -74,6 +78,8 @@ enum View {
     Failed(String),
     /// No network: `true` where PaperPaw runs the Wi-Fi (its settings join one).
     NoNetwork(bool),
+    /// The offline power mode: the reader is offered the network for this.
+    Offline,
 }
 
 /// One open transfer screen.
@@ -90,6 +96,8 @@ struct Page {
     started: bool,
     /// The keyboard's question, for the phone's screen.
     phone: Option<Dialog>,
+    /// The reader's own network, once chosen (*Without a router*).
+    own: Option<own::Own>,
 }
 
 /// The interface-7 transfer plugin.
@@ -102,6 +110,9 @@ pub struct NativeTransfer {
     secrets: Option<Secrets>,
     registry: Option<Registry>,
     ui: Option<Ui>,
+    work: Option<Work>,
+    /// Whether the plugin opened the reader's own network and left it open.
+    own_open: bool,
     /// The plugins sent from the computer: what is staged and how each stands.
     installs: Installs,
 }
@@ -139,6 +150,8 @@ impl Plugin for NativeTransfer {
             kinds::Server,
             kinds::ServedRequest,
             kinds::InstallDone,
+            kinds::WifiDone,
+            kinds::WorkDue,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed
@@ -154,6 +167,8 @@ impl Plugin for NativeTransfer {
                 CommandSender::new(host, &mut scratch).open(Open::screen("transfer.screen")?)
             }
             Event::InstallDone(done) if token == INSTALL_DONE => self.install_done(host, &done),
+            Event::WifiDone(done) if token == WIFI_DONE => self.wifi_done(host, &done),
+            Event::WorkDue(due) if token == WORK => self.idle_due(host, due.key()),
             Event::ScreenOpened {
                 instance, handover, ..
             } if token == SCREEN || token == PHONE => {
@@ -169,6 +184,7 @@ impl Plugin for NativeTransfer {
                     last: None,
                     started: false,
                     phone,
+                    own: None,
                 };
                 if page.phone.as_ref().is_some_and(|phone| phone.secret) {
                     let mut scratch = [0; 64];
@@ -190,6 +206,9 @@ impl Plugin for NativeTransfer {
                 }) = self.screens.get(instance)
                 {
                     phone.wipe();
+                }
+                if let Some(Page { own: Some(own), .. }) = self.screens.get(instance) {
+                    own.wipe();
                 }
                 self.screens.close(instance);
                 self.end(host, token)
@@ -220,6 +239,21 @@ impl Plugin for NativeTransfer {
             View::Serving { url, qr } => {
                 page.list
                     .draw_with(host, &mut frame, title, true, Footer::None)?;
+                let joining = match &page.own {
+                    Some(own) => Some((
+                        messages.copy(host, "transfer.own.join")?,
+                        own_note(host, own)?,
+                    )),
+                    None => None,
+                };
+                let join = joining
+                    .as_ref()
+                    .zip(page.own.as_ref())
+                    .map(|((title, note), own)| Join {
+                        qr: own.qr.as_ref(),
+                        title,
+                        note,
+                    });
                 return draw_address(
                     host,
                     &mut frame,
@@ -227,7 +261,14 @@ impl Plugin for NativeTransfer {
                     url,
                     qr.as_ref(),
                     page.last.as_deref(),
+                    join.as_ref(),
                 );
+            }
+            View::Offline => {
+                let words = messages.copy(host, "core.offline.text")?;
+                return page
+                    .list
+                    .draw_with(host, &mut frame, title, true, Footer::Note(&words));
             }
             View::Starting => ("transfer.starting", String::new()),
             View::NoNetwork(managed) => {
@@ -258,6 +299,11 @@ impl Plugin for NativeTransfer {
             return Ok(Handled::No);
         };
         let step = page.list.input(host, &input)?;
+        if let ItemStep::Chosen(index) = step
+            && token == SCREEN
+        {
+            self.chosen(host, index)?;
+        }
         Ok(ItemList::handled(step))
     }
 }
@@ -273,6 +319,23 @@ const fn token_of(server: u32) -> u32 {
 
 const fn server_of(token: u32) -> u32 {
     if token == PHONE { PHONE_SERVER } else { SERVER }
+}
+
+/// The name and the password of the own network, to type where the code cannot
+/// be scanned.
+fn own_note(host: &Host<'_>, own: &own::Own) -> Result<String, Error> {
+    let password = paperpaw_sdk::random::grouped(&own.password);
+    let arguments = [
+        Arg::Text {
+            name: "ssid",
+            value: &own.ssid,
+        },
+        Arg::Text {
+            name: "password",
+            value: &password,
+        },
+    ];
+    Messages::new()?.format(host, "transfer.own.network", &arguments)
 }
 
 /// A copy of `words`.
@@ -294,6 +357,10 @@ impl NativeTransfer {
         // What an earlier time of serving left staged goes.
         if token == SCREEN {
             self.clean_staging(host)?;
+            // The offline power mode: the reader allows the network first.
+            if self.is_offline(host)? {
+                return self.show(host, token, View::Offline);
+            }
         }
         let started = self.start(host, token);
         match started {
@@ -344,6 +411,7 @@ impl NativeTransfer {
             )
         } else {
             self.clean_staging(host)?;
+            self.leave_own(host)?;
             (
                 SERVER,
                 [native_web::PAGE_FILE, native_install::LISTING_FILE],
@@ -374,8 +442,14 @@ impl NativeTransfer {
 
     /// Shows `view` on the screen that is open, and draws it.
     fn show(&mut self, host: &Host<'_>, token: u32, view: View) -> Result<(), Error> {
+        let rows = if token == SCREEN {
+            Self::rows(host, &view)?
+        } else {
+            alloc::vec::Vec::new()
+        };
         if let Some(page) = self.screens.top(token) {
             page.view = view;
+            page.list.replace(rows);
             redraw(host, RedrawMode::Partial)?;
         }
         Ok(())
@@ -486,6 +560,9 @@ impl NativeTransfer {
     /// the callback ends well: nothing a computer on the network sends may
     /// fail the plugin.
     fn on_request(&mut self, host: &Host<'_>, request: &ServedRequest<'_>) -> Result<(), Error> {
+        if request.server() == SERVER {
+            self.touched(host, request.now_ms())?;
+        }
         let answered = if request.server() == PHONE_SERVER {
             self.answer_phone(host, request)
         } else {

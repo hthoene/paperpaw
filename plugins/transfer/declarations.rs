@@ -21,6 +21,10 @@ pub const SERVER_EVENT: u32 = 2;
 pub const SERVED_REQUEST: u32 = 3;
 /// The end of an install of a plugin sent from the computer.
 pub const INSTALL_DONE: u32 = 4;
+/// The end of hosting the reader's own network, and the idle timer that closes
+/// it.
+pub const WIFI_DONE: u32 = 5;
+pub const WORK: u32 = 6;
 
 /// The transfer screen, one at a time, and the phone's keyboard screen (kept
 /// per parameters) with the slot it is offered for.
@@ -68,6 +72,8 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::Server, SERVER_EVENT)?;
     d.subscribe_event(EventKind::ServedRequest, SERVED_REQUEST)?;
     d.subscribe_event(EventKind::InstallDone, INSTALL_DONE)?;
+    d.subscribe_event(EventKind::WifiDone, WIFI_DONE)?;
+    d.subscribe_event(EventKind::WorkDue, WORK)?;
     d.submit()?;
     Ok(())
 }

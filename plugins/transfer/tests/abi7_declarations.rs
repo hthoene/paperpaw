@@ -143,6 +143,8 @@ fn what_is_submitted_offers_the_phone_not_the_cable_and_hears_the_events() {
         declarations::SERVER_EVENT,
         declarations::SERVED_REQUEST,
         declarations::INSTALL_DONE,
+        declarations::WIFI_DONE,
+        declarations::WORK,
     ]
     .map(|t| t.to_string());
     want.sort_unstable();
