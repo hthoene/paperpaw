@@ -34,6 +34,9 @@ use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
 pub(crate) const REQUESTS_MAX: usize = 4;
+/// Most requests one plugin has waiting (the restart's own included), so one
+/// plugin cannot take every device-wide place.
+pub(crate) const PER_PLUGIN_MAX: usize = 2;
 /// Most outcomes kept for op 13 (one per plugin and kind).
 pub(crate) const KEPT_MAX: usize = 8;
 /// Reason 20 (`ERR_CANCELLED`): the host stopped the job.
@@ -68,6 +71,9 @@ pub(crate) struct Driver {
     kept: Vec<Kept>,
     /// Outcomes that found no room (never in practice: see [`Self::end`]).
     lost: u32,
+    /// Answers and aborts that found the machine borrowed and did nothing
+    /// (never from a callback; counted so a test or a log can see it).
+    skipped: u32,
 }
 
 impl Driver {
@@ -81,7 +87,14 @@ impl Driver {
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
+            skipped: 0,
         }
+    }
+
+    /// How many answers and aborts found the machine borrowed and did nothing.
+    #[cfg(test)]
+    pub(crate) fn skipped(&self) -> u32 {
+        self.skipped
     }
 
     /// How many requests wait (the running one included).
@@ -103,7 +116,9 @@ impl Driver {
         if request == 0 || self.holds(owner, request) {
             return Err(ERR_INVALID);
         }
-        if self.entries.len() >= REQUESTS_MAX {
+        if self.entries.len() >= REQUESTS_MAX
+            || self.entries.iter().filter(|e| e.owner == owner).count() >= PER_PLUGIN_MAX
+        {
             return Err(ERR_FULL);
         }
         let has_slot = self
@@ -283,7 +298,10 @@ impl Driver {
     pub(crate) fn answer(&mut self, question: Question, answer: Answer) -> Event {
         let event = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.answer(question, answer, &mut *self.host),
-            Err(_) => return Event::Quiet,
+            Err(_) => {
+                self.skipped = self.skipped.saturating_add(1);
+                return Event::Quiet;
+            }
         };
         self.note(event)
     }
@@ -373,7 +391,10 @@ impl Driver {
     pub(crate) fn abort_all(&mut self) {
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
-            Err(_) => None,
+            Err(_) => {
+                self.skipped = self.skipped.saturating_add(1);
+                None
+            }
         };
         if let Some(outcome) = aborted {
             self.end(outcome);
@@ -431,6 +452,9 @@ impl Driver {
                 let _ = machine.abort(&mut *self.host);
             }
             machine.forget(owner);
+            machine.drop_waiting(owner);
+        } else {
+            self.skipped = self.skipped.saturating_add(1);
         }
         self.entries.retain(|entry| entry.owner != owner);
         self.ready.retain(|outcome| outcome.owner != owner);

@@ -299,3 +299,42 @@ fn a_check_stopped_before_it_ran_leaves_a_result_not_a_busy_slot() {
     let checked = machine.borrow().checked(1).unwrap();
     assert_eq!((checked.request, checked.reason), (1, 20));
 }
+
+#[test]
+fn one_plugin_holds_at_most_two_places_so_others_keep_theirs() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    d.submit_check(1, 2, "b.ppu").unwrap();
+    assert_eq!(d.submit_check(1, 3, "c.ppu"), Err(ERR_FULL));
+    assert_eq!(d.submit_install(1, 4, "c.ppu", None, 0), Err(ERR_FULL));
+    // Two places are left device-wide for other plugins.
+    d.submit_check(2, 1, "d.ppu").unwrap();
+    d.submit_check(3, 1, "e.ppu").unwrap();
+    assert_eq!(d.waiting(), 4);
+}
+
+#[test]
+fn a_stopped_owner_frees_the_image_that_waited_for_its_restart() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    // The image waits: another plugin's install ends with reason 21.
+    d.submit_install(2, 1, "b.ppu", None, 0).unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == 21));
+    d.take_ready().unwrap();
+    d.sender_stopped(1);
+    assert_eq!(d.request_restart(1), Err(ERR_STATE));
+    d.submit_install(2, 2, "b.ppu", None, 0).unwrap();
+    assert!(matches!(run(&mut d), Event::Ask(_)));
+}
+
+#[test]
+fn an_answer_that_finds_the_machine_borrowed_is_counted() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    let ask = d.request_restart(1).unwrap();
+    let machine = d.machine();
+    let held = machine.borrow_mut();
+    assert_eq!(d.answer(ask.question(), Answer::Yes), Event::Quiet);
+    drop(held);
+    assert_eq!(d.skipped(), 1);
+}
