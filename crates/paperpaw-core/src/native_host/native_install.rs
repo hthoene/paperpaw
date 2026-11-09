@@ -311,6 +311,8 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
+        // Its firmware requests and its confirmation go with it.
+        self.firmware_sender_stopped(key);
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );

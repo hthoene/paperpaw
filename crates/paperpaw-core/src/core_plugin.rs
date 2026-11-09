@@ -807,7 +807,7 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 9] = [
+    static SCREENS: [FixedScreen; 10] = [
         FixedScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -846,6 +846,15 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
             screens::FINISHING_UPDATE,
             "core.finishing-update.title",
             |_, params| Box::new(finishing::Finishing::new(params)),
+        ),
+        FixedScreen::new(
+            crate::native_host::firmware_confirm::SCREEN,
+            "core.firmware.title",
+            |env, params| {
+                Box::new(crate::native_host::firmware_confirm::HostConfirm::new(
+                    env, params,
+                ))
+            },
         ),
         FixedScreen::new(
             screens::FOLDER_EDITOR,

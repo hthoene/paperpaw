@@ -1165,9 +1165,9 @@ impl Kernel {
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
+        self.firmware_suspend();
         let effects = self.finish();
-        // Asleep, no word is hyphenated: the tables open give their heap
-        // back (and the card may be another on waking).
+        // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.

@@ -498,3 +498,17 @@ fn only_the_outcome_that_was_told_is_taken() {
     // The other outcome is not marked delivered in its place.
     assert_eq!(d.peek_ready().unwrap().owner, 2);
 }
+
+#[test]
+fn a_stop_clears_a_restart_that_waits_for_the_kernel() {
+    let mut d = driver();
+    installed(&mut d, 5);
+    let ask = d.request_restart(1).unwrap();
+    assert!(matches!(
+        d.answer(ask.question(), Answer::Yes),
+        Event::Restart
+    ));
+    assert!(d.restart_wanted());
+    d.abort_all();
+    assert!(!d.restart_wanted(), "sleep between the passes: no restart");
+}
