@@ -73,3 +73,4 @@
 33 Storage::entry_identity (paperpaw-platform, a defaulted trait method: the storage's identity of an entry, kept by a rename or a move; FAT first cluster, a computer folder's file id) for the library's journalled moves (#797), the storages that wrap another forward it and same_entry, and MemoryStorage keeps identities: a public trait grows, so the next draft (#228)
 33 Documents::metadata and Documents::text (DocTextQuery, DocTextPart, Metadata: title, author, series, language, sections) and Library::book_text, Library::set_favourite (BookTextQuery, BookTextPart), added to the SDK (#814)
 33 Params::try_set and Params::try_clone, the fallible copies of the plugin's parameters (#855)
+34 native::library::Book::missing (lib_book.flags bit 8, the book's file is not on the card now) for home's recent shelf (#864): a public SDK type grows a method, so the next draft (#228)
