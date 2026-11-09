@@ -88,6 +88,36 @@ impl View {
         }
     }
 
+    /// Wraps the entries at the first draw, when the font is there to measure with.
+    fn ensure_panel(
+        &mut self,
+        host: &Host<'_>,
+        font: &Font<'_>,
+        style: &Style,
+        width: u16,
+        messages: &mut Messages,
+    ) -> Result<(), Error> {
+        if self.panel.is_some() {
+            return Ok(());
+        }
+        let empty = messages.format(
+            host,
+            "dictionary.not-found",
+            &[Arg::Text {
+                name: "word",
+                value: &self.word,
+            }],
+        )?;
+        let wide = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
+        self.panel = Some(Panel::new(
+            &self.entries,
+            &empty,
+            |t| font.measure_text(style.text, t),
+            wide,
+        )?);
+        Ok(())
+    }
+
     /// Draws the panel over the lower part of the screen.
     ///
     /// # Errors
@@ -111,23 +141,7 @@ impl View {
             .saturating_sub(style.gap);
         let rows = usize::from(room / line).max(1);
         let mut messages = Messages::new()?;
-        if self.panel.is_none() {
-            let empty = messages.format(
-                host,
-                "dictionary.not-found",
-                &[Arg::Text {
-                    name: "word",
-                    value: &self.word,
-                }],
-            )?;
-            let wide = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
-            self.panel = Some(Panel::new(
-                &self.entries,
-                &empty,
-                |t| font.measure_text(style.text, t),
-                wide,
-            )?);
-        }
+        self.ensure_panel(host, &font, &style, width, &mut messages)?;
         let panel = self.panel.as_ref().ok_or(Error::State)?;
         let mut body = Vec::new();
         push(&mut body, Paint::Fill(region, style.paper))?;
