@@ -142,8 +142,7 @@ impl MoveHost for CardMoves {
     }
 
     fn within(&self, path: &str, folder: &str) -> bool {
-        folder.is_empty()
-            || super::files_service::within(self.storage.ignores_case(), path, folder)
+        folder.is_empty() || super::files_service::within(self.storage.ignores_case(), path, folder)
     }
 
     fn discard_replaced(&self, to: &str) -> Result<(), i32> {

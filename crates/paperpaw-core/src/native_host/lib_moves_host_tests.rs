@@ -167,9 +167,15 @@ fn a_folder_move_journals_renames_carries_every_phase_and_clears_the_entry() {
     // The journal was written before the rename and holds the move.
     assert!(card.inner.exists(JOURNAL));
     assert!(card.inner.exists("Books/new/a.epub") && !card.inner.exists("Books/old/a.epub"));
-    assert!(host.open_entry(&mut |e| assert_eq!((e.from, e.to), ("Books/old", "Books/new"))).unwrap());
+    assert!(
+        host.open_entry(&mut |e| assert_eq!((e.from, e.to), ("Books/old", "Books/new")))
+            .unwrap()
+    );
     run(&moves, &host);
-    assert!(!card.inner.exists(JOURNAL), "cleared when everything is carried");
+    assert!(
+        !card.inner.exists(JOURNAL),
+        "cleared when everything is carried"
+    );
     let calls = carry.calls.borrow();
     assert!(calls[0].starts_with("Books(") && calls.last().unwrap().starts_with("Events("));
     assert!(calls.iter().any(|c| c.starts_with("Assignments")));
@@ -209,7 +215,10 @@ fn a_cut_before_the_rename_drops_the_entry_and_nothing_is_carried() {
     run(&moves, &host);
     assert!(!card.inner.exists(JOURNAL));
     assert!(card.inner.exists("Books/old/a.epub"));
-    assert!(carry.calls.borrow().is_empty(), "nothing moved, nothing carried");
+    assert!(
+        carry.calls.borrow().is_empty(),
+        "nothing moved, nothing carried"
+    );
 }
 
 #[test]
@@ -234,7 +243,10 @@ fn a_storage_that_cannot_tell_same_entry_refuses_and_one_that_can_does_not() {
     });
     card.put("Books/a.epub", b"A");
     let host = CardMoves::new(card.clone(), Some(card.clone()), carry);
-    assert_eq!(host.same_entry("Books/a.epub", "books/A.EPUB"), Err(ERR_UNSUPPORTED));
+    assert_eq!(
+        host.same_entry("Books/a.epub", "books/A.EPUB"),
+        Err(ERR_UNSUPPORTED)
+    );
     let told = library();
     let host = CardMoves::new(told.clone(), Some(told.clone()), Rc::new(Carry::default()));
     assert_eq!(host.same_entry("Books/old", "books/OLD"), Ok(true));
@@ -266,7 +278,11 @@ fn folders_spelling_and_within_follow_the_storage() {
     assert_eq!(host.is_folder("Books/other.epub"), Ok(false));
     assert_eq!(host.is_folder("Books/nothing"), Ok(false));
     assert_eq!(host.spelled_as("Books/old"), Ok(true));
-    assert_eq!(host.spelled_as("Books/OLD"), Ok(false), "the stored spelling is exact");
+    assert_eq!(
+        host.spelled_as("Books/OLD"),
+        Ok(false),
+        "the stored spelling is exact"
+    );
     assert_eq!(host.spelled_as("Books/none"), Ok(false));
     assert_eq!(host.spelled_as("Nowhere/x"), Ok(false));
     // Case folds as the storage says; the top is every path's folder.

@@ -152,14 +152,14 @@ pub(crate) mod hyphen_service;
 pub(crate) mod image_service;
 #[allow(
     dead_code,
-    reason = "the card's MoveHost uses it (library moves, next slice)"
-)]
-pub(crate) mod lib_moves_journal;
-#[allow(
-    dead_code,
     reason = "the library host composes it with the catalog carry (library moves, next slice)"
 )]
 pub(crate) mod lib_moves_host;
+#[allow(
+    dead_code,
+    reason = "the card's MoveHost uses it (library moves, next slice)"
+)]
+pub(crate) mod lib_moves_journal;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
