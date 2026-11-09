@@ -1,8 +1,11 @@
 pub mod paperpaw_digest
 pub mod paperpaw_digest::hex
 pub fn paperpaw_digest::hex::decode(&str) -> core::option::Option<alloc::vec::Vec<u8>>
+pub fn paperpaw_digest::hex::decode_array<const N: usize>(&str) -> core::option::Option<[u8; N]>
+pub fn paperpaw_digest::hex::decode_into<'o>(&str, &'o mut [u8]) -> core::option::Option<&'o [u8]>
 pub fn paperpaw_digest::hex::encode(&[u8]) -> alloc::string::String
 pub fn paperpaw_digest::hex::push(&mut alloc::string::String, u8)
+pub fn paperpaw_digest::hex::try_decode(&str) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, alloc::collections::TryReserveError>
 pub mod paperpaw_digest::md5
 pub struct paperpaw_digest::md5::Md5
 impl paperpaw_digest::md5::Md5

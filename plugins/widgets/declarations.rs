@@ -2,18 +2,25 @@
 //! each, and the tick that keeps clocks right. Callback tokens are stable
 //! within this plugin; every widget's settings are declared here, none at
 //! run time.
-use paperpaw_sdk::native::declare::{Declarations, DeclareError, EventKind, GroupDecl, WidgetDecl};
+use paperpaw_sdk::native::declare::{
+    ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, ScreenDecl, WidgetDecl,
+};
 pub use paperpaw_ui_kit::widget::options::Opt;
 use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
+/// The callback token of the to-do list's screen.
+pub const TODO_SCREEN: u32 = 10;
+/// The callback token of the action that opens it.
+pub const TODO_OPEN: u32 = 11;
 
 /// The widget categories of the host's catalogue.
 pub mod category {
     pub const TIME: &str = "core.widgets.time";
     pub const PERSONAL: &str = "core.widgets.personal";
     pub const WORDS: &str = "core.widgets.words";
+    pub const DEVICE: &str = "core.widgets.device";
 }
 
 /// A widget of the pack.
@@ -235,6 +242,24 @@ const ANALOGUE_OPTIONS: &[Opt] = &[
     Opt::Part("centre", "widgets.setting.centre-dot", true),
 ];
 
+const BATTERY_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.battery.lying",
+            "widgets.battery.standing",
+            "widgets.battery.ring",
+        ],
+        "widgets.battery.lying",
+        "widgets.battery.style.help",
+    ),
+    Opt::Part("percent", "widgets.books.part.percent", true),
+    Opt::Part("charging", "widgets.books.part.charging", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
 const MOON_OPTIONS: &[Opt] = &[
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
@@ -449,6 +474,37 @@ const QUOTE_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const TODO_OPTIONS: &[Opt] = &[
+    Opt::Number(
+        "count",
+        "widgets.todo.setting.count",
+        1,
+        12,
+        5,
+        "widgets.todo.count.help",
+    ),
+    Opt::Choice(
+        "done",
+        "widgets.todo.setting.done",
+        &["widgets.todo.done.struck", "widgets.todo.done.hidden"],
+        "widgets.todo.done.struck",
+        "widgets.todo.done.help",
+    ),
+    Opt::Choice(
+        "box",
+        "widgets.todo.setting.box",
+        &[
+            "widgets.todo.box.circle",
+            "widgets.todo.box.square",
+            "widgets.todo.box.none",
+        ],
+        "widgets.todo.box.circle",
+        "widgets.todo.box.help",
+    ),
+    Opt::Part("caption", "widgets.todo.setting.caption", true),
+    Opt::Size("core.size.small", false),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -559,6 +615,24 @@ pub const WIDGETS: &[Def] = &[
         look_last: true,
         options: QUOTE_OPTIONS,
     },
+    Def {
+        name: "todo",
+        token: 112,
+        category: category::PERSONAL,
+        live: true,
+        align: "core.align.left",
+        look_last: true,
+        options: TODO_OPTIONS,
+    },
+    Def {
+        name: "battery",
+        token: 113,
+        category: category::DEVICE,
+        live: true,
+        align: "core.align.center",
+        look_last: false,
+        options: BATTERY_OPTIONS,
+    },
 ];
 
 /// The widgets and their settings groups and settings.
@@ -582,6 +656,25 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.submit()?;
     }
     Ok(())
+}
+
+/// The to-do list's own screen.
+pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.screen(
+        ScreenDecl::new("todo.list", "widgets.todo", TODO_SCREEN).instances(Instances::Single),
+    )?;
+    d.submit()
+}
+
+/// The action that opens it, with its icon.
+pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.action(ActionDecl::new("todo.open", "widgets.todo", TODO_OPEN))?;
+    d.icon("widgets.todo.open", "list-check")?;
+    d.submit()
 }
 
 /// The minute tick, for widgets that show the time.

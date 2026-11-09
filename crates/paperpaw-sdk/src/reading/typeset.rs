@@ -1128,7 +1128,7 @@ fn reordered_boxes(
             }
         }
     }
-    boxes.sort_by_key(|(ordinal, _, _)| *ordinal);
+    paperpaw_sort::sort_by_key(&mut boxes, |(ordinal, _, _)| *ordinal);
     // Without the controls that set text apart (an EPUB's `dir`), which
     // draw nothing: a word of them alone is none.
     boxes

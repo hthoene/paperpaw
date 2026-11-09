@@ -190,6 +190,16 @@ pub(crate) fn sweep(
     run: impl Fn(&Quiet) -> Result<(), Error>,
     intact: impl Fn(&Quiet),
 ) {
+    sweep_on(name, make, run, intact);
+}
+
+/// [`sweep`] on any storage that does its own allocations out of the count.
+pub(crate) fn sweep_on<S>(
+    name: &str,
+    make: impl Fn() -> S,
+    run: impl Fn(&S) -> Result<(), Error>,
+    intact: impl Fn(&S),
+) {
     let storage = fixture(&make);
     let (whole, count) = armed(usize::MAX, || run(&storage));
     whole.unwrap_or_else(|error| panic!("{name}: {error:?} with nothing refused"));

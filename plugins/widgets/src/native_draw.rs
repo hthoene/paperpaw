@@ -85,6 +85,17 @@ pub fn day_mark(t: &LocalTime) -> u64 {
     u64::from(t.year.unsigned_abs()) * 10_000 + u64::from(t.month) * 100 + u64::from(t.day) + 1
 }
 
+/// The day number the time reads, in days since 1970 (0 where it is not
+/// known).
+///
+/// # Errors
+/// Host refusals.
+pub fn epoch_day(host: &Host<'_>) -> Result<i64, Error> {
+    Ok(local_time_now(host)?.map_or(0, |t| {
+        crate::native_dates::days_from_civil(t.year, t.month, t.day)
+    }))
+}
+
 /// The most bytes a text setting holds (what the editor allows): a text is
 /// read whole, never refused for being longer than a smaller guess.
 pub const TEXT_MAX: usize = 4096;

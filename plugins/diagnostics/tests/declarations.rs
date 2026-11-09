@@ -67,11 +67,10 @@ fn the_ui_names_what_the_interface_6_plugin_registered() {
     }
 }
 
-/// The host does not admit menu entries, needs, icons and key bindings yet
-/// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
-/// fail only that way, and these are the only ones that do.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     let mut waiting = Vec::new();
     for (name, build) in BUILDERS {
         for batch in batches(build) {
@@ -87,14 +86,9 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(
-        waiting,
-        [
-            "ui: MenuEntry",
-            "ui: MenuNeed",
-            "ui: IconSpec",
-            "ui: KeyBind"
-        ]
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
     );
 }
 

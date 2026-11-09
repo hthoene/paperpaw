@@ -41,8 +41,8 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's quote, to-do, picture and logo widgets, and the books
-family. Ported from the words family so far: greeting (by time of day) and
+The words family's picture and logo widgets, and the books family except the battery (see below):
+Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
 every widget is ported; then the last commit deletes it, its app wiring and
 its tests together (no shim).
@@ -124,3 +124,63 @@ reading and by the kit's own sweeps.
   language the English, and the quotation marks follow the tag. "Another each time it shows" counts showings in
   memory, once for all made within a minute.
 
+## To-do list (widget)
+
+- The widget shows the first items of `todo.txt` (data folder) with boxes; a tap
+  on an item ticks it off or on (a target for each, named by what the item says
+  and whether it is done, so a tap meets the item that was shown even if the list
+  changed since). The file is read up to 32 KiB, written back whole (replaced
+  atomically); a file that is no text or too large is left as it is and the widget
+  says so. The settings (`count` is the first number setting of the pack) are
+  checked by `settings_parity`.
+- The list's own screen (`native_todo_screen`): *Add* first, then the items with
+  *Done* in the value column of those ticked (the box and the strike-through of
+  interface 6 are not drawn in the kit's list); a tap ticks an item off or on, a
+  hold or the menu button offers tick, edit, move up/down and remove (host
+  questions with the original words); the heading, "more" and an empty list of
+  the widget open it (action `widgets.todo.open`, icon `list-check`). One
+  question is open at a time. The widgets showing the list are told when it
+  changes. Ignored case `widgets-todo-screen-adds-ticks-and-moves` (H1/H2/H4).
+  Two differences from interface 6, both without a visible effect: the screen is
+  declared `Single` (interface 6: `PER_PARAMS`; the action opens it without
+  parameters, so one list is open either way), and the options of an item at the
+  top or the bottom of the list leave out *up* or *down* (interface 6 offered them
+  as no-ops). `tests/todo_declarations.rs` compares the screen, the action and the
+  icon with interface 6's.
+  If the rows cannot be rebuilt after a change (memory refused), they are dropped
+  and the screen says *The list could not be shown. It is saved; open it again.*
+  (`widgets.todo.not-shown`, also as the notice of a tap or the menu button) until
+  it is opened again, which reads the card (where the change was saved): a tap can
+  then never act on another item than the one shown.
+- Metadata now lists the `storage.*` host calls the quote and the to-do list use.
+- Pure model (`native_todo_list`) is tested with the interface-6 properties (round
+  trip, any bytes, huge years, version 1 file); drawing and file calls need a host
+  and have no refusal sweep until a mock host exists. Ignored case
+  `widgets-todo-ticks-on-tap` (H1/H3/H4).
+
+
+## No writable statics
+
+A native plugin file may have no writable `.data` or `.bss` (the interface-7 file pipeline,
+`tools/plugin-files7`, refuses to pack it). The quote's count of showings (`SHOWINGS` and
+`COUNTED_AT`, two atomics) was the only such state; it is now `native_quote::Showings` held by
+`NativeWidgets` beside the to-do `Cache`, passed to the quote's drawing and tick code
+(`draw_with`, `shows_with`) as the to-do list's cache is. The rule is unchanged (a showing counts once a
+minute at most, in memory only); the count now starts at zero with each plugin instance. Checked with
+`tools/plugin-files7/build.sh x4 <out> --only widgets`: packs, no writable data symbols left.
+
+## Battery (widget)
+
+- The battery (`widgets.battery`, category device): the charge large beside a
+  battery drawn to scale (lying or standing) or inside a ring, a bolt while it
+  charges, shaded when it is at or below `core.battery-low`, an optional caption;
+  read from the device snapshot (`battery_percent`, `is_charging`), redrawn when
+  the charge or the charging changes (`live`, the minute tick). Where the device
+  reports no battery the widget says so. No time left is shown (no service offers it),
+  as before. The settings are the interface-6 ones (`settings_parity`).
+- Shapes (`native_battery_shapes`): the battery, the ring and the bolt are unit-tested
+  and have an allocation sweep (`refusals_tests`); the layout needs fonts and the host,
+  so it has no sweep until a mock host exists. Ignored case
+  `widgets-battery-draws-each-style` (H1/H3).
+- Differences: the bolt and the rounded battery are made of rounded rectangles and span
+  fills (no smooth edges); the low charge is a plain gray (110), not a dither.

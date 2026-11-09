@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         registrations,
         reply::Reply,
@@ -20,7 +20,9 @@ use paperpaw_sdk::{
         },
     },
 };
-use paperpaw_ui_kit::paint;
+use paperpaw_ui_kit::{Screens, paint, read_event};
+
+use crate::native_todo_screen::{self, TodoView};
 use paperpaw_ui_kit::widget::Cx;
 
 mod image {
@@ -37,21 +39,40 @@ const SETTINGS_SLOT: &str = "core.settings";
 const REPLY: usize = 1280;
 
 #[derive(Debug)]
-struct Item {
-    instance: Instance,
-    token: u32,
+pub(crate) struct Item {
+    pub(crate) instance: Instance,
+    pub(crate) token: u32,
     /// The widget's id as the host names it, with its placement.
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
 }
 
+/// What an open question is for.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// The text of the setting with this id.
+    Setting(String),
+    /// A new to-do.
+    Add,
+    /// New words for to-do `index`.
+    Edit { index: usize },
+    /// What to do with to-do `index` (worded `title` when asked).
+    Options { index: usize, title: String },
+}
+
 /// The widget pack.
 #[derive(Debug, Default)]
 pub struct NativeWidgets {
-    items: Vec<Item>,
-    /// The text asked for on the keyboard, and the setting it is for.
-    asked: Option<(RequestId, String)>,
+    pub(crate) items: Vec<Item>,
+    /// The question open, and what it is for.
+    pub(crate) asked: Option<(RequestId, Asked)>,
+    /// The to-do list's screens open.
+    pub(crate) screens: Screens<TodoView>,
+    /// The to-do list as last read.
+    pub(crate) todo: crate::native_todo::Cache,
+    /// How often a quote was shown.
+    showings: crate::native_quote::Showings,
 }
 
 impl NativeWidgets {
@@ -84,7 +105,12 @@ impl NativeWidgets {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
                 let mut cx = Cx::open(host, &item.widget)?;
-                let height = (behaviour.height)(&mut cx, u16::try_from(width).unwrap_or(u16::MAX))?;
+                let width = u16::try_from(width).unwrap_or(u16::MAX);
+                let height = if item.token == crate::native_todo::TOKEN {
+                    crate::native_todo::height_with(&mut cx, width, &self.todo)?
+                } else {
+                    (behaviour.height)(&mut cx, width)?
+                };
                 call.reply_size(u32::from(height), u32::from(height), &mut out)?
             }
             WidgetCall::Place { instance, .. } => {
@@ -93,8 +119,13 @@ impl NativeWidgets {
             }
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
-                let tapped = behaviour(item.token).is_some_and(|b| b.tap != Tap::None);
-                if tapped {
+                let tap = behaviour(item.token).map(|b| b.tap);
+                if tap == Some(Tap::TickItems) {
+                    let cx = Cx::open(host, &item.widget)?;
+                    let area = frame_to_area(rect);
+                    let targets = crate::native_todo::targets(&cx, area, &self.todo)?;
+                    call.reply_targets(&targets, &mut out)?
+                } else if tap.is_some_and(|tap| tap != Tap::None) {
                     call.reply_targets(&[WidgetTarget::new(SETTINGS_TARGET, rect)], &mut out)?
                 } else {
                     call.reply_targets(&[], &mut out)?
@@ -113,8 +144,11 @@ impl NativeWidgets {
         if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some((request, setting)) = self.asked.take() else {
+        let Some((request, asked)) = self.asked.take() else {
             return Ok(());
+        };
+        let Asked::Setting(setting) = asked else {
+            return self.todo_answered(host, (request, asked), answer);
         };
         if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
@@ -147,11 +181,14 @@ impl NativeWidgets {
                 continue;
             };
             let instance = item.instance;
-            settle(
-                &mut item.shown,
-                (behaviour.shows)(host, &item.widget),
-                || commands.widget_changed(instance),
-            );
+            let shown = if item.token == crate::native_todo::TOKEN {
+                crate::native_todo::shows_with(host, &item.widget, &self.todo)
+            } else if item.token == crate::native_quote::TOKEN {
+                crate::native_quote::shows_with(host, &item.widget, &self.showings)
+            } else {
+                (behaviour.shows)(host, &item.widget)
+            };
+            settle(&mut item.shown, shown, || commands.widget_changed(instance));
         }
         Ok(())
     }
@@ -177,7 +214,12 @@ fn settle(
 
 impl Plugin for NativeWidgets {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::WIDGETS.iter().chain(image::EVENTS) {
+        for batch in image::WIDGETS
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -187,9 +229,13 @@ impl Plugin for NativeWidgets {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::WidgetMade {
                 widget,
@@ -198,7 +244,7 @@ impl Plugin for NativeWidgets {
                 ..
             } => {
                 if paperpaw_ui_kit::widget::settings::base(widget) == "widgets.quote" {
-                    crate::native_quote::made(now_ms);
+                    self.showings.made(now_ms);
                 }
                 self.made(widget, instance)
             }
@@ -213,6 +259,19 @@ impl Plugin for NativeWidgets {
             } => self.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK => self.tick(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::ActionRun {
+                action: native_todo_screen::OPEN_ACTION,
+                ..
+            } if token == native_todo_screen::OPEN => Self::open_todo_screen(host),
+            Event::ScreenOpened { instance, .. } => self.todo_opened(host, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => self.screens.shown(native_todo_screen::SCREEN, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -223,6 +282,9 @@ impl Plugin for NativeWidgets {
         _token: u32,
         mut frame: DrawFrame<'_>,
     ) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Screen {
+            return self.todo_draw(host, frame);
+        }
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
@@ -236,7 +298,13 @@ impl Plugin for NativeWidgets {
             paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
         );
         let mut out = Vec::new();
-        (behaviour.draw)(&mut cx, &mut out, area)?;
+        if item.token == crate::native_todo::TOKEN {
+            crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
+        } else if item.token == crate::native_quote::TOKEN {
+            crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
+        } else {
+            (behaviour.draw)(&mut cx, &mut out, area)?;
+        }
         let bold = if out
             .iter()
             .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
@@ -248,10 +316,13 @@ impl Plugin for NativeWidgets {
         paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
     }
 
-    fn input(&mut self, host: &Host<'_>, _: u32, input: Input<'_>) -> Result<Handled, Error> {
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == native_todo_screen::SCREEN {
+            return self.todo_input(host, input);
+        }
         let Input::Widget {
             instance,
-            target: SETTINGS_TARGET,
+            target,
             kind: WidgetInputKind::Tap,
             ..
         } = input
@@ -260,7 +331,31 @@ impl Plugin for NativeWidgets {
         };
         let item = self.find(instance.get()).ok_or(Error::NotFound)?;
         let base = paperpaw_ui_kit::widget::settings::base(&item.widget);
-        match behaviour(item.token).map(|b| b.tap) {
+        let tap = behaviour(item.token).map(|b| b.tap);
+        if tap == Some(Tap::TickItems) {
+            // The heading, "more" and an empty list open the list's own
+            // screen, which is not ported yet: a tap there does nothing.
+            if target == crate::native_todo::OPEN_TARGET {
+                return Ok(Handled::No);
+            }
+            // A tick that fails says so, as before, and the widget is drawn
+            // again either way (it shows what the card holds).
+            if let Err(error) = crate::native_todo::tick(host, target, &self.todo) {
+                let key = if error == Error::Unsupported {
+                    "widgets.todo.unreadable"
+                } else {
+                    "widgets.todo.not-saved"
+                };
+                let _ = notify(host, key);
+            }
+            self.todo.forget();
+            CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
+            return Ok(Handled::Yes);
+        }
+        if target != SETTINGS_TARGET {
+            return Ok(Handled::No);
+        }
+        match tap {
             Some(Tap::Settings) => open_settings(host, base)?,
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
@@ -270,13 +365,31 @@ impl Plugin for NativeWidgets {
                 // One request at a time: the keyboard of the first is still
                 // open, and its answer is the one that counts.
                 if self.asked.is_none() {
-                    self.asked = Some(ask_text(host, base, key, title)?);
+                    let (request, setting) = ask_text(host, base, key, title)?;
+                    self.asked = Some((request, Asked::Setting(setting)));
                 }
             }
             _ => return Ok(Handled::No),
         }
         Ok(Handled::Yes)
     }
+}
+
+/// Says `key` (a translation key) in a notice.
+fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
+    let text = paperpaw_ui_kit::Messages::new()?.copy(host, key)?;
+    let mut scratch = paperpaw_ui_kit::mem::buffer(1024)?;
+    CommandSender::new(host, &mut scratch).notify(paperpaw_sdk::native::ui::Notify::new(&text)?)
+}
+
+/// The rectangle of a stage call as the plugin's drawing rectangle.
+fn frame_to_area(rect: paperpaw_sdk::native::callbacks::FrameRect) -> Rect {
+    Rect::new(
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.x)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.y)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.width)),
+        paperpaw_ui_kit::geometry::clamp_u16(i64::from(rect.height)),
+    )
 }
 
 /// Asks for the text of the setting `<widget>.<key>` on the keyboard, the

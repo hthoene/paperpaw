@@ -120,6 +120,13 @@ pub(crate) fn track<T>(refuse: bool, operation: impl FnOnce() -> T) -> (T, Count
     (result, counts)
 }
 
+/// Share the existing thread-local allocator probe with other SDK unit tests.
+pub(crate) fn no_alloc<T>(operation: impl FnOnce() -> T) -> T {
+    let (value, count) = track(false, operation);
+    assert_eq!(count.peak, 0);
+    value
+}
+
 unsafe extern "C" fn submit(ctx: *mut c_void, _: PpBytes) -> i32 {
     assert_eq!(
         COUNTS.with(|cell| cell.get().live),

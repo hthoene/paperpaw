@@ -53,7 +53,23 @@ mod files;
 mod fsrs;
 mod lines;
 mod marks;
+#[allow(
+    dead_code,
+    reason = "the view waits for its registration and the screens it opens (PORTING-7.md); the tests use it"
+)]
+mod native_decks;
 mod native_entry;
+#[allow(
+    dead_code,
+    reason = "the review's decisions and the screen's drawing: the tests use what the shell does not"
+)]
+mod native_review;
+mod native_review_screen;
+#[allow(
+    dead_code,
+    reason = "used by the native screens, which wait (PORTING-7.md)"
+)]
+mod native_words;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.

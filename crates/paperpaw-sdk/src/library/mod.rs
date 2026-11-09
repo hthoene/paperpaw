@@ -10,7 +10,7 @@
 //!   digits of the hash; its cover made small beside, in
 //!   `.paperpaw/library/thumbs/<h>/<hash>.thumb`. (Earlier versions kept
 //!   them in `books/<hash>.ini` and `covers/<hash>.thumb`: read there
-//!   until the kernel moved them, [`split`](mod@split).)
+//!   until the kernel moved them, `split`.)
 //! - The books opened last, most recent first (`opened.txt`), and the
 //!   favourites (`favourites.txt`).
 //! - The catalog of all books under the library folder ([`catalog`]),
@@ -384,7 +384,7 @@ struct Kept<'a> {
 
 /// Moves what is kept for the book `from` in folders `data` to `to`:
 /// where it was, in the folder itself or in the part of its key
-/// ([`split`]).
+/// (`split`).
 pub fn move_data(storage: &dyn Storage, data: &[BookData], from: &str, to: &str) {
     let (old, new) = (key(from), key(to));
     for folder in data {

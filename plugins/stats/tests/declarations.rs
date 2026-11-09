@@ -104,11 +104,10 @@ fn the_stage_tells_today_with_a_day_and_the_seconds() {
     assert!(all.contains("read-today"), "{all}");
 }
 
-/// Every record is well formed for the host. The host does not admit icons and stages yet
-/// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
-/// fail only that way, and these are the only ones that do.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let builders: [(&str, Build); 4] = [
@@ -132,5 +131,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(waiting, ["ui: IconSpec", "stages: StageSpec"]);
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
+    );
 }

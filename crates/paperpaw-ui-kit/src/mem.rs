@@ -141,14 +141,14 @@ pub fn replace_char(text: &str, from: char, to: char) -> Result<String, Error> {
     Ok(result)
 }
 
-/// Sorts `items` stably in place: an insertion sort
-/// by binary search, so it needs no scratch allocation. Order is that of
-/// `sort_by` with the same comparison.
-pub fn stable_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> core::cmp::Ordering) {
-    for at in 1..items.len() {
-        let place = items[..at].partition_point(|item| compare(item, &items[at]).is_le());
-        items[place..=at].rotate_right(1);
-    }
+/// Sorts `items` stably, in the shared sorter ([`paperpaw_sdk::sort`]):
+/// order is that of `sort_by` with the same comparison. Up to 12 items it
+/// allocates nothing; beyond, it asks for at most `4 * items.len()` bytes and
+/// sorts in place when the heap refuses them. Where `compare` is no total
+/// order the order is not said, but no item is lost or repeated and nothing
+/// panics.
+pub fn stable_sort_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> core::cmp::Ordering) {
+    paperpaw_sdk::sort::sort_by(items, compare);
 }
 
 /// A vector holding `item` alone, with fallible allocation.
@@ -207,6 +207,24 @@ mod tests {
         expected.sort_by_key(|a| a.0);
         stable_sort_by(&mut items, |a, b| a.0.cmp(&b.0));
         assert_eq!(items, expected);
+    }
+
+    #[test]
+    fn longer_lists_are_sorted_stably_like_the_standard_sort() {
+        let mut seed = 5_u32;
+        for len in [13_usize, 40, 257, 1_000] {
+            let mut items: alloc::vec::Vec<(u8, u32)> = (0..len as u32)
+                .map(|at| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    // Few distinct keys: stability decides the order.
+                    ((seed >> 28) as u8 % 5, at)
+                })
+                .collect();
+            let mut expected = items.clone();
+            expected.sort_by_key(|a| a.0);
+            stable_sort_by(&mut items, |a, b| a.0.cmp(&b.0));
+            assert_eq!(items, expected, "{len} items");
+        }
     }
 
     #[test]

@@ -789,6 +789,24 @@ impl<'a> RegistryWidget<'a> {
     pub fn title(&self) -> &'a str {
         self.row.title
     }
+    /// The columns and rows it declared (`widget.spec.cells`), 0 each where
+    /// the place decides.
+    #[must_use]
+    pub fn cells(&self) -> (u8, u8) {
+        let [columns, rows, _, _] = self.row.cells.to_le_bytes();
+        (columns, rows)
+    }
+    /// The least columns and rows it is shown in, at least 1 each.
+    #[must_use]
+    pub fn min_cells(&self) -> (u8, u8) {
+        let [_, _, columns, rows] = self.row.cells.to_le_bytes();
+        (columns.max(1), rows.max(1))
+    }
+    /// It stays as wide as it is high (`flags` bit 2).
+    #[must_use]
+    pub fn square(&self) -> bool {
+        self.row.flags & 4 != 0
+    }
 }
 
 fn validate_value(bytes: &[u8], withheld: bool) -> Result<(), Error> {

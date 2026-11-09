@@ -166,7 +166,7 @@ impl CbzDocument {
         base: &str,
         fit: Fit,
     ) -> Option<ImageRef> {
-        if !crate::pictures::has(storage, base, self.color) {
+        if !crate::pictures::has(storage, base, self.color).ok()? {
             if crate::pictures::failed(storage, base) {
                 return None;
             }
@@ -201,7 +201,7 @@ fn list_pages(
     let mut bytes = 0;
     let mut info = NO_INFO;
     let keep = |pages: &mut Vec<(String, u32)>, count: usize| {
-        pages.sort_by(|a, b| natural(&a.0, &b.0));
+        paperpaw_sdk::sort::sort_by(pages, |a, b| natural(&a.0, &b.0));
         pages.truncate(count);
         pages
             .iter()

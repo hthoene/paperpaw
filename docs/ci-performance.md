@@ -84,8 +84,12 @@ Clippy, security checks or reproducibility comparisons.
 GitHub Actions minutes are limited, so a run is only started when its
 result is wanted:
 
-- A newer push to the same branch or pull request cancels the run before it
-  (`concurrency` in `ci.yml`, `codeql.yml`); `main` always finishes.
+- A newer push to the same pull request or branch cancels the run before it
+  (`concurrency` in `ci.yml`; `codeql.yml` and `changelog.yml` for pull
+  requests). That includes `integration` and `abi7/integration`, which get one
+  push per merge: the newest commit's run is the one that counts, and merge
+  tools check the checks of the exact head SHA. `main` always finishes a full
+  run per commit. A red push run on an integration branch is triaged by QA.
 - Changes only to `docs/`, `CHANGELOG.md`, `changelog.d/`, `README.md`,
   `CONTRIBUTING.md`, `RELEASING.md`, `AGENTS.md` or `.claude/` skip full CI.
   A separate lightweight changelog check still runs for every pull request.

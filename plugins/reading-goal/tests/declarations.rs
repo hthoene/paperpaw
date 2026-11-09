@@ -91,8 +91,8 @@ fn the_events_are_the_ones_the_figure_is_written_at() {
     for batch in batches(|sink| declarations::events(sink)) {
         count += records_decode(&batch).unwrap().len();
     }
-    // A book opened and closed, suspend and stopping.
-    assert_eq!(count, 4);
+    // A book opened and closed, suspend and stopping, and the minute tick.
+    assert_eq!(count, 5);
 }
 
 #[test]
@@ -110,12 +110,10 @@ fn the_figure_is_asked_by_a_stage_of_its_own() {
     assert!(all.contains("max_records: 1"), "{all}");
 }
 
-/// Every record is well formed for the host. The host does not admit stages
-/// yet (`native_host/declarations.rs`: checked, then
-/// `ERR_UNSUPPORTED`); they must fail only that way, and these are the only ones
-/// that do.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let builders: [(&str, Build); 3] = [
@@ -138,5 +136,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(waiting, ["stages: StageSpec"]);
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
+    );
 }

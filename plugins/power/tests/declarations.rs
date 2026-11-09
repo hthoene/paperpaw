@@ -119,13 +119,10 @@ fn the_events_are_the_ones_the_mode_follows() {
     assert_eq!(count, 6);
 }
 
-/// Every record is well formed for the host. The host does not admit menu
-/// entries, icons, key bindings and stage subscriptions yet (status items are
-/// admitted now)
-/// (`native_host/declarations.rs`: checked, then `ERR_UNSUPPORTED`); they must
-/// fail only that way, and these are the only ones that do.
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     type Build = fn(
@@ -157,14 +154,8 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
-    assert_eq!(
-        waiting,
-        [
-            "ui: MenuEntry",
-            "ui: IconSpec",
-            "ui: IconSpec",
-            "ui: KeyBind",
-            "events: RegistrationStage"
-        ]
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
     );
 }

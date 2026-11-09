@@ -239,10 +239,7 @@ mod tests {
                 Err(ERR_INVALID)
             );
         }
-        assert_eq!(
-            validate_record("fixture", &Record::SetupStep(base)),
-            Err(ERR_UNSUPPORTED)
-        );
+        assert_eq!(validate_record("fixture", &Record::SetupStep(base)), Ok(()));
         assert_eq!(
             setup_step(
                 "fixture",

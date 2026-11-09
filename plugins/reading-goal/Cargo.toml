@@ -25,9 +25,11 @@ native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
@@ -39,6 +41,7 @@ paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-sleep.workspace = true
 paperpaw-plugin-stats.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 
 [lints]
 workspace = true

@@ -31,7 +31,6 @@ mod flag {
     /// Title, author, series cut: bits 5-7.
     pub(super) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
     /// The book's file is not on the card now (`lib_book` only).
-    pub(super) const MISSING: u32 = 1 << 8;
 }
 
 /// What of a line `book` keeps beyond the path and the number (copied into
@@ -131,7 +130,6 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
         None => "",
     };
     let indexed = indexed(reads, path, line.size)?;
-    let missing = file_is_gone(reads, path)?;
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
     let mut flags = 0;
@@ -141,7 +139,6 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
         (status.progress == Some(100), flag::FINISHED),
         (is_new(reads, line.added, opened), flag::NEW),
         (indexed, flag::INDEXED),
-        (missing, flag::MISSING),
         (bytes(title) < line.title_bytes, flag::CUT[0]),
         (bytes(author) < line.author_bytes, flag::CUT[1]),
         (bytes(series) < line.series_bytes, flag::CUT[2]),
@@ -172,7 +169,8 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
     Ok(())
 }
 
-/// Whether the book's file is gone from the card (`lib_book.flags` bit 8).
+/// Whether the book's file is on the card (op 3 sets `lib_book.flags` bit 8
+/// `missing` from the answer; the record's own flags never carry it).
 ///
 /// In turn, stopping at the first that finds it:
 /// 1. `size` of the path (a file);
@@ -202,26 +200,26 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
 /// book that is gone; unmeasured on the X4. A list page does not call this
 /// per row (it has `lib_entry` rows; op 3 is for the one book the plugin
 /// shows).
-fn file_is_gone(reads: &CatalogReads, path: &str) -> Result<bool, i32> {
+pub(super) fn file_present(reads: &CatalogReads, path: &str) -> Result<bool, i32> {
     let nothing =
         |error: StorageError| matches!(error, StorageError::NotFound | StorageError::InvalidPath);
     match reads.storage.size(path) {
-        Ok(_) => return Ok(false),
+        Ok(_) => return Ok(true),
         Err(error) if nothing(error) => {}
         Err(error) => return Err(fail(error.into())),
     }
     if reads.storage.modified(path).is_some() {
-        return Ok(false);
+        return Ok(true);
     }
     match reads.storage.list_from(path, 0, &mut |_| false) {
-        Ok(_) => return Ok(false),
+        Ok(_) => return Ok(true),
         Err(error) if nothing(error) => {}
         Err(error) => return Err(fail(error.into())),
     }
     // Not found by any: gone, but only on a storage that is there at all.
     // No root is `ERR_IO`; a probe that ran out of memory is not that.
     match reads.storage.list_from("", 0, &mut |_| false) {
-        Ok(_) => Ok(true),
+        Ok(_) => Ok(false),
         Err(StorageError::OutOfMemory) => Err(ERR_NO_MEMORY),
         Err(_) => Err(ERR_IO),
     }

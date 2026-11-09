@@ -4,13 +4,13 @@
 //! allocation: a refused allocation ends the reading in
 //! [`Error::NoMemory`] and nothing is returned in part.
 //!
-//! The JSON text itself is read by `paperpaw_json::stream::Parser`, whose
-//! own allocations are bounded (64 levels, 4,096 bytes a string) but not
-//! fallible; [`Catalog::event`] takes what it reports, so that everything
-//! this plugin allocates is swept (see `PORTING-7.md`).
+//! The JSON text itself is read by `paperpaw_json::stream::Parser` with
+//! `try_feed`/`try_finish`, whose allocations are bounded (64 levels,
+//! 4,096 bytes a string) and fallible: a refusal ends the read in
+//! [`Error::NoMemory`]. [`Catalog::event`] takes what it reports.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::json::stream::{Event, Parser};
-use paperpaw_sdk::{Version, native::Error};
+use paperpaw_sdk::{Storage, StorageError, Version, native::Error};
 use paperpaw_ui_kit::{
     mem::{push, stable_sort_by},
     text::{cmp_lowercase, concat, copy},
@@ -303,9 +303,54 @@ impl<'a> Catalog<'a> {
         let mut catalog = Catalog::new(base, outlines);
         let mut parser = Parser::default();
         for piece in text.chunks(2048) {
-            parser.feed(piece, &mut |event| catalog.event(event));
+            parser
+                .try_feed(piece, &mut |event| catalog.event(event))
+                .map_err(|_| Error::NoMemory)?;
         }
-        parser.finish(&mut |event| catalog.event(event));
+        parser
+            .try_finish(&mut |event| catalog.event(event))
+            .map_err(|_| Error::NoMemory)?;
+        catalog.finish()
+    }
+
+    /// Reads the catalog in the file `path` of `storage`, 2,048 bytes at a
+    /// time (the file may be 512 KiB: it is never held whole).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`]; [`Error::Io`] when the storage fails; `Ok(None)`
+    /// when there is no file, or it is no catalog this plugin reads.
+    pub fn read_file(
+        base: &str,
+        outlines: bool,
+        storage: &dyn Storage,
+        path: &str,
+    ) -> Result<Option<Vec<Font>>, Error> {
+        let mut catalog = Catalog::new(base, outlines);
+        let mut parser = Parser::default();
+        let mut piece = Vec::new();
+        piece.try_reserve_exact(2048).map_err(|_| Error::NoMemory)?;
+        piece.resize(2048, 0);
+        let mut at = 0u64;
+        loop {
+            let n = match storage.read_at(path, at, &mut piece) {
+                Ok(n) => n,
+                Err(StorageError::NotFound) if at == 0 => return Ok(None),
+                Err(_) => return Err(Error::Io),
+            };
+            if n == 0 {
+                break;
+            }
+            let Some(part) = piece.get(..n) else {
+                return Err(Error::Invalid);
+            };
+            parser
+                .try_feed(part, &mut |event| catalog.event(event))
+                .map_err(|_| Error::NoMemory)?;
+            at += n as u64;
+        }
+        parser
+            .try_finish(&mut |event| catalog.event(event))
+            .map_err(|_| Error::NoMemory)?;
         catalog.finish()
     }
 

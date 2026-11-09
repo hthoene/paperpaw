@@ -17,6 +17,8 @@ extern crate std;
 
 mod books;
 mod native_analogue;
+mod native_battery;
+mod native_battery_shapes;
 mod native_calendar;
 mod native_countdown;
 mod native_dates;
@@ -31,6 +33,11 @@ mod native_note;
 pub mod native_plugin;
 mod native_quote;
 mod native_tiles;
+mod native_todo;
+mod native_todo_list;
+#[cfg(test)]
+mod native_todo_list_tests;
+mod native_todo_screen;
 mod native_word_clock;
 mod native_world;
 mod native_year;

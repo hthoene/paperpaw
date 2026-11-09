@@ -368,7 +368,7 @@ fn write(
     unread: &[String],
     fingerprint: Option<&Fingerprint>,
 ) -> Result<(), Error> {
-    all.sort_by_cached_key(|(a, _)| (a.mark.start, a.mark.end));
+    paperpaw_sort::sort_by_cached_key(&mut all, |(a, _)| (a.mark.start, a.mark.end));
     // After the version, wherever it was (PaperPaw of before put it
     // last).
     let (books, unread): (Vec<&String>, Vec<&String>) =

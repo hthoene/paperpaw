@@ -225,7 +225,7 @@ fn progress_in(source: &str) -> (u64, Option<u8>) {
     (size, progress)
 }
 
-/// [`status_of`](super::status_of) with the memory error: how far the book
+/// `status_of` with the memory error: how far the book
 /// at `path` is read (its details, when they are of this file), whether it
 /// is a favourite and whether it was opened.
 ///

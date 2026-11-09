@@ -30,7 +30,7 @@ use paperpaw_core::native_host::{
 };
 use paperpaw_platform::Battery as Charge;
 use paperpaw_plugin_battery::native_plugin::NativeBattery;
-use paperpaw_sdk::native::{Error, Host, Plugin, events::Event, reply::Reply};
+use paperpaw_sdk::native::{Error, Host, Plugin, events::Incoming, reply::Reply};
 
 /// The production plugin behind the host's token routing, plus one extra
 /// token that reads the history as the screen does.
@@ -49,7 +49,7 @@ impl Plugin for Probe {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        event: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         if token == HISTORY {

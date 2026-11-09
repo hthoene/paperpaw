@@ -26,7 +26,8 @@
 //!
 //! Not here yet: the book key of a book whose path hashes like another's
 //! (the writes round owns key allocation, so op 25 answers the plain
-//! FNV-1a key) and the `missing` flag (todo 96). The generation of an
+//! FNV-1a key). The `missing` flag of op 3 is the service's, from
+//! [`LibQuery::book_file_present`]. The generation of an
 //! annotation list is the file's own number, never 0 (`annotations::generation_of`).
 use super::lib_service::{BookRef, LibQuery, One, Rows};
 use crate::abi7::context::RowsEnd;
@@ -159,6 +160,10 @@ impl LibQuery for CatalogReads {
 
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         book::book(self, book, visit)
+    }
+
+    fn book_file_present(&self, path: &str) -> Result<bool, i32> {
+        book::file_present(self, path)
     }
 
     fn text(

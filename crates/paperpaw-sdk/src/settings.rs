@@ -754,6 +754,16 @@ impl core::ops::Deref for SettingGroup {
     }
 }
 
+impl SettingGroup {
+    /// A group made at run time, from a spec the caller boxed (and so could
+    /// allocate fallibly).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn from_boxed(group: Box<SettingGroupSpec>) -> Self {
+        Self(GroupAt::Owned(group))
+    }
+}
+
 impl From<&'static SettingGroupSpec> for SettingGroup {
     fn from(group: &'static SettingGroupSpec) -> Self {
         Self(GroupAt::Fixed(group))
@@ -843,7 +853,7 @@ pub struct Settings {
     presets: crate::presets::Presets,
     /// The plugins whose defaults are in force, by setting (see
     /// [`Settings::default_from`]).
-    defaults_by: VecMap<Id, Id>,
+    defaults_by: VecMap<Id, declared::DefaultBy>,
 }
 
 impl Settings {
@@ -927,7 +937,7 @@ impl Settings {
                 self.limits.insert(id, value);
             }
         }
-        touched.sort_unstable();
+        paperpaw_sort::sort(&mut touched);
         touched.dedup();
         touched
     }
@@ -1254,7 +1264,10 @@ impl Settings {
     /// the default is the setting's own or the device's. The default only:
     /// the reader's own value may be set over it ([`Settings::is_set`]).
     pub fn default_from(&self, id: &str) -> Option<&Id> {
-        self.defaults_by.get(id)
+        self.defaults_by
+            .get(id)
+            .and_then(|set| set.layers.last())
+            .map(|layer| &layer.by)
     }
 
     paperpaw_table::shared! {

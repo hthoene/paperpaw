@@ -5,6 +5,7 @@ use crate::native_data::{self, Reader};
 use crate::native_model::{
     self as model, Context, Detail, Group, Kind, PageRow, Setting, Val, flag,
 };
+use crate::native_secrets::{self, Choice, SecretView, SecretsView, Typed};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
@@ -12,7 +13,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, PreviewSetting, RedrawMode, ResetTarget},
-        events::{AnswerOutcome, Answered, Event},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         formatting::Arg,
         registrations,
         reply::Reply,
@@ -20,6 +21,7 @@ use paperpaw_sdk::{
         ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
+use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
@@ -47,8 +49,14 @@ pub const CHOOSE: u32 = 12;
 pub const THEMES: u32 = 13;
 /// Search results.
 pub const SEARCH: u32 = 14;
+/// Passwords and keys.
+pub const SECRETS: u32 = 15;
+/// One password or key.
+pub const SECRET: u32 = 16;
 /// The event subscriptions' token.
 pub const EVENTS: u32 = 3;
+/// The action that opens the passwords and keys.
+pub const OPEN_SECRETS: u32 = 4;
 
 /// The longest search text.
 const QUERY_LIMIT: usize = 256;
@@ -226,6 +234,8 @@ enum View {
     Choose(ChooseView),
     Themes(ThemesView),
     Search(SearchView),
+    Secrets(SecretsView),
+    Secret(SecretView),
 }
 
 impl View {
@@ -236,6 +246,8 @@ impl View {
             Self::Choose(v) => &mut v.list,
             Self::Themes(v) => &mut v.list,
             Self::Search(v) => &mut v.list,
+            Self::Secrets(v) => &mut v.list,
+            Self::Secret(v) => &mut v.list,
         }
     }
 
@@ -246,6 +258,8 @@ impl View {
             Self::Choose(v) => &mut v.stale,
             Self::Themes(v) => &mut v.stale,
             Self::Search(v) => &mut v.stale,
+            Self::Secrets(v) => &mut v.stale,
+            Self::Secret(v) => &mut v.stale,
         }
     }
 }
@@ -261,6 +275,10 @@ enum Asked {
     Text(String),
     /// What to search for.
     Search,
+    /// A new value for the secret `name` of owner `plugin`.
+    Secret { plugin: String, name: String },
+    /// Whether to remove that secret.
+    RemoveSecret { plugin: String, name: String },
 }
 
 /// The interface-7 settings plugin.
@@ -289,10 +307,14 @@ impl Plugin for NativeSettings {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        event: Event<'_>,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ActionRun, kinds::SettingChanged, kinds::PluginsChanged, kinds::RegistryChanged, kinds::PreviewChanged, kinds::Answered)
+        else {
+            return Ok(());
+        };
         match event {
             Event::ScreenOpened {
                 screen,
@@ -313,6 +335,9 @@ impl Plugin for NativeSettings {
                 self.changed(host, "")
             }
             Event::PreviewChanged { .. } if token == EVENTS => Self::redraw(host),
+            Event::ActionRun { .. } if token == OPEN_SECRETS => {
+                self.open(host, "settings.secrets", &[])
+            }
             Event::Answered { answer, .. } => self.answered(host, answer),
             _ => Ok(()),
         }
@@ -339,6 +364,24 @@ impl Plugin for NativeSettings {
             }
             View::Themes(v) => {
                 let title = messages.copy(host, "settings.theme")?;
+                v.list
+                    .draw_with(host, &mut frame, &title, true, Footer::None)
+            }
+            View::Secrets(v) => {
+                let title = messages.copy(host, "settings.secrets")?;
+                let none = messages.copy(host, "settings.secrets.none")?;
+                let footer = if v.kept.is_empty() {
+                    Footer::Empty {
+                        title: &none,
+                        text: "",
+                    }
+                } else {
+                    Footer::None
+                };
+                v.list.draw_with(host, &mut frame, &title, true, footer)
+            }
+            View::Secret(v) => {
+                let title = copy(&v.title)?;
                 v.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
@@ -539,6 +582,21 @@ impl NativeSettings {
                 build_themes(host, reader, &mut view)?;
                 View::Themes(view)
             }
+            "settings.secrets" => {
+                let mut view = SecretsView::default();
+                view.build(host)?;
+                View::Secrets(view)
+            }
+            "settings.secret" => {
+                let (plugin, name) = native_secrets::split_id(&id).ok_or(Error::Invalid)?;
+                let mut view = SecretView {
+                    plugin: copy(plugin)?,
+                    name: copy(name)?,
+                    ..SecretView::default()
+                };
+                view.build(host)?;
+                View::Secret(view)
+            }
             "settings.search" => {
                 let mut view = SearchView {
                     query: copy(text.trim())?,
@@ -560,6 +618,8 @@ impl NativeSettings {
             View::Choose(v) => build_choose(host, &mut reader, v),
             View::Themes(v) => build_themes(host, &mut reader, v),
             View::Search(_) => Ok(()),
+            View::Secrets(v) => v.build(host),
+            View::Secret(v) => v.build(host),
         };
         reader.finish(made)?;
         *view.stale() = false;
@@ -633,7 +693,71 @@ impl NativeSettings {
             View::Choose(_) => self.choose_chosen(host, token, index),
             View::Themes(_) => self.themes_chosen(host, token, index),
             View::Search(_) => self.search_chosen(host, token, index),
+            View::Secrets(_) => self.secrets_chosen(host, token, index),
+            View::Secret(_) => self.secret_chosen(host, token, index),
         }
+    }
+
+    /// A secret of the list: what can be done with it.
+    fn secrets_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::Secrets(v)) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let Some(secret) = v.kept.get(index) else {
+            return Ok(());
+        };
+        let id = native_secrets::id_of(&secret.plugin, &secret.name)?;
+        self.open(host, "settings.secret", &[("id", &id)])
+    }
+
+    /// Type a secret anew, or remove it (asked first: it cannot be had back).
+    fn secret_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::Secret(v)) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let Some(choice) = v.choices.get(index).copied() else {
+            return Ok(());
+        };
+        let (plugin, name, title) = (copy(&v.plugin)?, copy(&v.name)?, copy(&v.title)?);
+        match choice {
+            Choice::Change => {
+                // Typed as a password: masked, never put on the clipboard.
+                let question = Question::text(&title, "")?.secret()?;
+                self.ask(host, question, Asked::Secret { plugin, name })
+            }
+            // One that is not kept (any more) only goes back.
+            Choice::Remove if title.is_empty() => {
+                native_secrets::remove(host, &plugin, &name)?;
+                self.secrets_gone(host)
+            }
+            Choice::Remove => {
+                let mut say = Messages::new()?;
+                let question = say.format(
+                    host,
+                    "settings.secret.remove.question",
+                    &[Arg::Text {
+                        name: "name",
+                        value: &title,
+                    }],
+                )?;
+                let text = say.copy(host, "settings.secret.remove.text")?;
+                let yes = say.copy(host, "settings.secret.remove")?;
+                let no = say.copy(host, "settings.secret.keep")?;
+                let labels = concat(&[&yes, "\n", &no])?;
+                let question = Question::confirm(&question, &text)?.confirm_labels(&labels)?;
+                self.ask(host, question, Asked::RemoveSecret { plugin, name })
+            }
+        }
+    }
+
+    /// The secrets changed: the pages that show them are made anew when they
+    /// show, and the screen of the secret goes.
+    fn secrets_gone(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        for view in self.screens.all() {
+            *view.stale() = true;
+        }
+        let mut scratch = buffer(64)?;
+        CommandSender::new(host, &mut scratch).back()
     }
 
     fn list_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
@@ -1024,6 +1148,33 @@ impl NativeSettings {
                 CommandSender::new(host, &mut scratch)
                     .set_setting(&key, SettingValue::Text(text.trim()))
             }
+            Asked::Secret { plugin, name } => {
+                let typed = native_secrets::read_typed(self.ui()?, host, request)?;
+                let done = match &typed {
+                    Typed::Value(value) => native_secrets::change(host, &plugin, &name, value),
+                    Typed::TooLong => {
+                        native_secrets::wipe_typed(typed);
+                        return Self::notify(host, "settings.secret.too-long");
+                    }
+                    // Nothing typed keeps the secret as it was.
+                    Typed::Nothing => Ok(()),
+                };
+                native_secrets::wipe_typed(typed);
+                match done {
+                    Ok(()) => self.secrets_gone(host),
+                    Err(Error::NoMemory) => Err(Error::NoMemory),
+                    // Not saved (card away, secret gone, not changeable): said.
+                    Err(_) => Self::notify(host, "settings.secret.failed"),
+                }
+            }
+            Asked::RemoveSecret { plugin, name } if answer.choice() == 1 => {
+                match native_secrets::remove(host, &plugin, &name) {
+                    Ok(()) => self.secrets_gone(host),
+                    Err(Error::NoMemory) => Err(Error::NoMemory),
+                    Err(_) => Self::notify(host, "settings.secret.failed"),
+                }
+            }
+            Asked::RemoveSecret { .. } => Ok(()),
             Asked::Search => {
                 let text = uitext::read_all(self.ui()?, host, request.text(), QUERY_LIMIT)?;
                 let text = text.trim();

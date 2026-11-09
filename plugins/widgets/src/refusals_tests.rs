@@ -4,11 +4,13 @@
 //! by the SDK's and the kit's sweeps of what they call, and by reading; the
 //! SDK has no mock host yet.)
 
+use crate::native_battery_shapes::{battery, bolt, ring};
 use crate::native_moon::lit_spans_for_tests;
 use crate::native_tiles::tiles;
 use crate::native_word_clock::{capitalised, lit, upper};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::time::LocalTime;
+use paperpaw_sdk::{Color, Point, Rect};
 
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
@@ -57,4 +59,31 @@ fn the_kit_note_helpers_survive_refusals() {
     fail_alloc::sweep(|| paperpaw_ui_kit::text::join_notes(&notes).map(|_| ()));
     fail_alloc::sweep(|| paperpaw_ui_kit::mem::strs(&notes).map(|_| ()));
     fail_alloc::sweep(|| paperpaw_ui_kit::mem::one(7_u8).map(|_| ()));
+}
+
+#[test]
+fn the_battery_shapes_survive_refusals() {
+    let ink = Color::BLACK;
+    let colours = (ink, Color::WHITE);
+    let total = fail_alloc::sweep(|| {
+        let mut out = Vec::new();
+        battery(
+            &mut out,
+            colours,
+            Rect::new(0, 0, 106, 50),
+            (60, true, false),
+            1,
+        )?;
+        battery(
+            &mut out,
+            colours,
+            Rect::new(0, 0, 50, 100),
+            (60, false, true),
+            1,
+        )?;
+        ring(&mut out, ink, (Point::new(40, 40), 30, 6), 60, 1)?;
+        bolt(&mut out, Rect::new(0, 0, 20, 40), ink)?;
+        Ok(out.len())
+    });
+    assert!(total > 0);
 }

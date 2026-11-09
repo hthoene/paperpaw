@@ -18,6 +18,9 @@ pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
 }
 
 impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
+    /// An instance whose event tags are read from its registrations, which
+    /// the tests that install nothing do.
+    #[cfg(test)]
     pub(crate) fn new(
         instance: Retained<S, M>,
         depth: FlatDepth,
@@ -26,6 +29,18 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         identity: super::native_instances::NativeIdentity,
     ) -> Self {
         let events = event_tags(&instance, &depth);
+        Self::with_events(instance, depth, host, report, identity, events)
+    }
+
+    /// An instance with the event tags its install admitted.
+    pub(crate) fn with_events(
+        instance: Retained<S, M>,
+        depth: FlatDepth,
+        host: FlatHost,
+        report: fn(&S, u32, i32),
+        identity: super::native_instances::NativeIdentity,
+        events: super::event_tags::EventTags,
+    ) -> Self {
         Self {
             instance,
             depth,
@@ -110,6 +125,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.identity.take_open_info()
+    }
+
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }
@@ -178,6 +197,7 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
 
 /// The event tags the committed registrations name, read once at the start.
 /// A failed read or a tag beyond the set leaves the owner unsubscribed to it.
+#[cfg(test)]
 fn event_tags<S: Services + 'static, M: 'static>(
     instance: &Retained<S, M>,
     depth: &FlatDepth,

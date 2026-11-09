@@ -157,7 +157,12 @@ fn book(reads: &CatalogReads, book: BookRef<'_>) -> Result<Got, i32> {
             bytes: (b.title_bytes, b.author_bytes, b.series_bytes),
         });
     })?;
-    Ok(got.unwrap())
+    let mut got = got.unwrap();
+    // As the service does for op 3: bit 8 `missing` from the file lookup.
+    if !reads.book_file_present(&got.path)? {
+        got.flags |= 1 << 8;
+    }
+    Ok(got)
 }
 
 fn text(

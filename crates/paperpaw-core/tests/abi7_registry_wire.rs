@@ -249,19 +249,15 @@ const PRESET: Record<'static> = Record::PresetValue(PresetValue {
 });
 
 #[test]
-fn registry_declarations_round_trip_and_wait_for_the_host() {
+fn registry_declarations_round_trip_and_the_host_admits_them_all() {
     let records = [STEP, OFFER, BIND, PRESET];
     let mut out = vec![0; 4096];
     let len = records_encode(&records, &mut out).unwrap();
     let batch = records_decode(&out[..len]).unwrap();
     assert_eq!(batch.iter().collect::<Vec<_>>(), records);
-    // Refused until the host admits them (Core hand-off).
+    // The host admits every one of them, `setup.step` included (Host, P6).
     for record in records {
-        assert_eq!(
-            validate_record("demo", &record),
-            Err(ERR_UNSUPPORTED),
-            "{record:?}"
-        );
+        assert_eq!(validate_record("demo", &record), Ok(()), "{record:?}");
     }
 }
 

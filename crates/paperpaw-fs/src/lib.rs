@@ -5,10 +5,11 @@
 // a result left unread says why (see CONTRIBUTING.md).
 #![deny(clippy::let_underscore_must_use)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::tree::{DESCENT, MAX_READS, MAX_REMOVALS, TreeStep};
@@ -24,7 +25,15 @@ pub struct DirStorage {
     ignores_case: bool,
     /// What it says it has free instead of the file system's, where set.
     free: Option<u64>,
+    /// When the root was last looked at for a read from the open file.
+    looked: Cell<Option<Instant>>,
 }
+
+/// How long a read from the open file goes without looking at the root again.
+/// The look is a `stat` (about 3 µs here, against 6 µs for a 4 KiB read; it
+/// is more where a share is served by a helper process, as Android's shared
+/// storage is), and a pulled volume is told a few reads later all the same.
+const LOOK_EVERY: Duration = Duration::from_millis(50);
 
 impl DirStorage {
     /// The directory the storage is rooted at.
@@ -40,6 +49,7 @@ impl DirStorage {
             root,
             open: RefCell::new(None),
             free: None,
+            looked: Cell::new(None),
         })
     }
 
@@ -55,12 +65,31 @@ impl DirStorage {
     /// operation then says [`StorageError::CARD_GONE`], not "not found",
     /// so that a book on it is never taken for deleted, and a write never
     /// makes the mount point again on the wrong disk.
+    ///
+    /// - A root that is missing, or is not a folder, is gone.
+    /// - A root the system refuses to look at (`PermissionDenied`: an
+    ///   access revoked, as a shared storage can be) is as unusable as a
+    ///   missing one, and is gone too: the library then reports a read
+    ///   error (`ERR_IO`), not an unsupported call.
+    /// - Any other failure of the look is [`StorageError::Io`].
+    ///
+    /// The root is made once, by [`DirStorage::new`]. One deleted while the
+    /// app runs is not made again until the storage is made again (the next
+    /// start); a volume that comes back by itself (a card put in again)
+    /// works again as soon as its folder is there.
     fn live(&self) -> Result<(), StorageError> {
         match fs::metadata(&self.root) {
             Ok(metadata) if metadata.is_dir() => Ok(()),
             Ok(_) => Err(StorageError::CARD_GONE),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Err(StorageError::CARD_GONE),
-            Err(e) => Err(error(e)),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                Err(StorageError::CARD_GONE)
+            }
+            Err(_) => Err(StorageError::Io),
         }
     }
 
@@ -336,9 +365,27 @@ fn same_entry(a: &Path, b: &Path) -> bool {
 impl Storage for DirStorage {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         let mut open = self.open.borrow_mut();
+        // Also for the file read last, kept open: a volume pulled since says
+        // so, it is not read from a handle that may still answer. A new
+        // handle looks at the root in `resolve`; one in use, at most every
+        // `LOOK_EVERY`.
+        if open.as_ref().is_some_and(|(p, _)| p == path)
+            && self
+                .looked
+                .get()
+                .is_none_or(|at| at.elapsed() >= LOOK_EVERY)
+        {
+            if let Err(gone) = self.live() {
+                *open = None;
+                self.looked.set(None);
+                return Err(gone);
+            }
+            self.looked.set(Some(Instant::now()));
+        }
         if open.as_ref().is_none_or(|(p, _)| p != path) {
             let file = File::open(self.resolve(path)?).map_err(error)?;
             *open = Some((path.to_string(), file));
+            self.looked.set(Some(Instant::now()));
         }
         let Some((_, file)) = open.as_mut() else {
             return Err(StorageError::Io);
@@ -458,7 +505,7 @@ impl Storage for DirStorage {
             };
             entries.push((name, metadata.is_dir(), size, seconds(&metadata)));
         }
-        entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        paperpaw_sort::sort_by(&mut entries, |a, b| a.0.cmp(&b.0));
         for (name, is_dir, size, modified) in &entries {
             visit(DirEntry::new(name, *is_dir, *size).with_modified(*modified));
         }

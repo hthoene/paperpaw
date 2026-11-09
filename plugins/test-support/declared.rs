@@ -146,6 +146,22 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
                     | Record::StatusLine(_)
                     | Record::StatusPlace(_)
                     | Record::Registration(_)
+                    | Record::MenuEntry(_)
+                    | Record::IconSpec(_)
+                    | Record::MenuNeed(_)
+                    | Record::MenuSection(_)
+                    | Record::MenuHide(_)
+                    | Record::MenuDescribe(_)
+                    | Record::SlotSpec(_)
+                    | Record::SlotOffer(_)
+                    | Record::KeyBind(_)
+                    | Record::PresetSpec(_)
+                    | Record::SettingDefault(_)
+                    | Record::SettingChoice(_)
+                    | Record::PresetValue(_)
+                    | Record::StageSpec(_)
+                    | Record::RegistrationStage(_)
+                    | Record::SetupStep(_)
             );
             match validate_record(plugin, &record) {
                 Ok(()) => assert!(admitted, "{record:?}"),
@@ -229,7 +245,9 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
 }
 
 /// What the interface-6 registration of `plugin` says, in the same lines:
-/// the group `group` (a full id) and the settings in it.
+/// the group `group` (a full id) and the settings in it. An empty `group` is
+/// for plugins whose settings sit in the kernel's groups (the reader): it
+/// takes the settings of every group and no group record.
 pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Lines {
     let prefix = format!("{plugin}.");
     let relative = |id: &str| id.strip_prefix(&prefix).unwrap_or(id).to_string();
@@ -337,7 +355,9 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
         }
     }
     for s in specs {
-        if s.group.as_str() != group {
+        // An empty `group` takes the settings of every group (a plugin whose
+        // settings sit in the kernel's groups).
+        if !group.is_empty() && s.group.as_str() != group {
             continue;
         }
         let name = relative(s.id.as_str());
