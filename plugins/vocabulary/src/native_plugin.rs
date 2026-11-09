@@ -7,7 +7,7 @@ use alloc::string::String;
 
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
-    callbacks::{DrawFrame, Input},
+    callbacks::{DrawFrame, DrawPurpose, Input},
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
     registrations,
@@ -31,6 +31,7 @@ use crate::native_decks::{DecksView, Numbers};
 use crate::native_list::{self, WordRows, WordsView};
 use crate::native_review::{self, due_now};
 use crate::native_review_screen::{HostTime, ReviewScreen, settings};
+use crate::native_widgets::Tap;
 use crate::native_words::{HostWords, Words};
 use crate::store::Word;
 use crate::{cards, store, sync};
@@ -46,6 +47,8 @@ pub struct NativeVocabulary {
     decks: Screens<DecksView>,
     reviews: Screens<ReviewScreen>,
     words: Screens<WordsView>,
+    /// The widgets screens show.
+    widgets: crate::native_widgets::Widgets,
     /// The card files' menu, and the screens that update from them or save.
     pub(crate) sd_menus: Screens<crate::native_sd::MenuView>,
     pub(crate) sd_runs: Screens<crate::native_sd::Run>,
@@ -59,6 +62,7 @@ impl Plugin for NativeVocabulary {
             .iter()
             .chain(image::EVENTS)
             .chain(image::STAGES)
+            .chain(image::WIDGETS)
             .chain(image::UI)
         {
             registrations::submit(host, batch)?;
@@ -72,9 +76,9 @@ impl Plugin for NativeVocabulary {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -83,6 +87,18 @@ impl Plugin for NativeVocabulary {
                 recover(&DataStorage::new(host));
                 Ok(())
             }
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(host, widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
             Event::StageCall {
@@ -144,6 +160,9 @@ impl Plugin for NativeVocabulary {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         match token {
             DECKS_TOKEN => self
                 .decks
@@ -171,6 +190,15 @@ impl Plugin for NativeVocabulary {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a widget opens the list of words, or the flash cards.
+        if let Some(tap) = self.widgets.tapped(&input) {
+            let screen = match tap {
+                Tap::Words => native_list::SCREEN,
+                Tap::Cards => native_decks_screen(),
+            };
+            CommandSender::new(host, &mut [0; 128]).open_screen(screen)?;
+            return Ok(Handled::Yes);
+        }
         match token {
             DECKS_TOKEN => {
                 let Some(view) = self.decks.top(token) else {
@@ -406,11 +434,14 @@ impl NativeVocabulary {
             let said = HostWords::new(host)?.copy("vocabulary.save-failed")?;
             CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
         }
+        // The widgets show the words: ask them again.
+        self.widgets.changed(host);
         Ok(())
     }
 
     /// The minute tick: a card answered *Again* may be due in the review.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.widgets.tick(host);
         let Some(instance) = self.reviews.top_instance(REVIEW_TOKEN) else {
             return Ok(());
         };

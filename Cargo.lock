@@ -2515,6 +2515,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-sqlite",
  "paperpaw-ui-kit",
