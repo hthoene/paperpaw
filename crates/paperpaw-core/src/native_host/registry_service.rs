@@ -41,7 +41,7 @@ mod menus_tests;
 mod ordered;
 mod plugins;
 mod presets;
-mod rules;
+pub(in crate::native_host) mod rules;
 mod settings;
 #[cfg(test)]
 mod settings_tests;

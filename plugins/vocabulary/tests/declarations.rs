@@ -66,7 +66,10 @@ fn the_settings_and_the_start_are_declared() {
     for batch in batches(|sink| declarations::events(sink)) {
         count += records_decode(&batch).unwrap().len();
     }
-    assert_eq!(count, 2, "the start and the minute tick");
+    assert_eq!(
+        count, 3,
+        "the start, the minute tick and the work of the card files"
+    );
 }
 
 #[test]
@@ -79,6 +82,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
         "vocabulary.review.title",
         "\"flash-cards\"",
         "\"list\"",
+        "\"sd-menu\"",
+        "\"sd-card\"",
+        "vocabulary.sd.title",
         "\"open\"",
         "vocabulary.open",
         "vocabulary.title",
@@ -89,8 +95,8 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
     // Nothing is offered that ends in a refusal: the phone,
-    // the SD card, the sleep card and the widget are declared with their ports.
-    for absent in ["phone", "sd-menu", "sleep-card", "widget", "scan-card"] {
+    // the sleep card and the widget are declared with their ports.
+    for absent in ["phone", "sleep-card", "widget", "scan-card"] {
         assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
     }
 }

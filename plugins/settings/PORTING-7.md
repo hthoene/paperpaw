@@ -103,3 +103,11 @@ search, secrets, restart).
   X4 is not measured: device gate open.
 - Settings is built into the firmware (no `.ppn`), so there is no store-file size to record; the
   native packing waits for the shared 6→7 linker migration.
+
+## Right-to-left (`ar`: a regression against Beta 3 until this is done)
+
+Beta 3 mirrored the interface where its language is written right to left (Arabic). The UI kit now
+does so for what it draws (`Style::rtl`, read from `core.language`: header, list rows, items, dialog,
+chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
+draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
+takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).

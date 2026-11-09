@@ -11028,6 +11028,7 @@ pub fn paperpaw_sdk::MemoryStorage::with(self, &str, impl core::convert::Into<al
 impl paperpaw_platform::storage::Storage for paperpaw_sdk::MemoryStorage
 pub fn paperpaw_sdk::MemoryStorage::append(&self, &str, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::MemoryStorage::create_dir(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_sdk::MemoryStorage::entry_identity(&self, &str) -> core::result::Result<core::option::Option<u64>, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::MemoryStorage::list(&self, &str, &mut dyn core::ops::function::FnMut(paperpaw_platform::storage::DirEntry<'_>)) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::MemoryStorage::read_at(&self, &str, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::MemoryStorage::remove(&self, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>

@@ -222,12 +222,19 @@ pub fn pager(
         return Ok(());
     }
     let side = bar.height.max(style.row).min(bar.width / 4);
-    let prev = Rect::new(bar.x, bar.y, side, bar.height);
-    let next = Rect::new(bar.x + bar.width - side, bar.y, side, bar.height);
-    for (rect, glyph, on) in [
-        (prev, "\u{2039}", page > 0),
-        (next, "\u{203a}", page + 1 < pages),
-    ] {
+    // The first page's arrow at the start side: the right one where the
+    // interface runs right to left, pointing the other way.
+    let prev = style.flip(bar, Rect::new(bar.x, bar.y, side, bar.height));
+    let next = style.flip(
+        bar,
+        Rect::new(bar.x + bar.width - side, bar.y, side, bar.height),
+    );
+    let (back, on_glyph) = if style.rtl {
+        ("\u{203a}", "\u{2039}")
+    } else {
+        ("\u{2039}", "\u{203a}")
+    };
+    for (rect, glyph, on) in [(prev, back, page > 0), (next, on_glyph, page + 1 < pages)] {
         let color = if on { style.ink } else { style.disabled };
         let at = f32::from(rect.x)
             + (f32::from(rect.width) - font.measure_text(style.text, glyph)?) / 2.0;
@@ -237,7 +244,7 @@ pub fn pager(
     header.pager = Some((
         prev,
         Rect::new(
-            prev.x + side,
+            bar.x + side,
             bar.y,
             bar.width.saturating_sub(2 * side),
             bar.height,

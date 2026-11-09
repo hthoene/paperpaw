@@ -323,10 +323,13 @@ file's size, 2.1).
   `refused`, and its server slot is free again, so a plugin never waits for requests that cannot
   come.
 - [D] **A server lives on a screen** (interface 6 tied servers to the screen that started them):
-  `serve` is only allowed from a callback of one of the plugin's own screen instances that is
-  showing (`ERR_STATE` elsewhere: no background server the user cannot see, and none that keeps
-  the device awake unseen). The server is tied to that instance and stops (`stopped`) when it
-  closes. transfer, vocabulary and wifi all serve from the screen that shows the address.
+  `serve` is only allowed while one of the plugin's own screen instances is showing, not covered,
+  from any of the plugin's callbacks but a work run's (`work.md` section 2): a screen's own, or a
+  plugin event such as `event.wifi_changed` once its own network is up (`ERR_STATE` elsewhere: no
+  background server the user cannot see, and none that keeps the device awake unseen). The server
+  is tied to that instance (from a screen's callback, that screen; else the plugin's topmost
+  showing one) and stops (`stopped`) when it closes. transfer, vocabulary and wifi all serve while
+  the screen that shows the address is up.
 - [D] Anyone on the network can reach a server: guarding it is the plugin's work. The SDK's
   `served::key` and `Guard` (section 6) give the shown address a key; the host does not check it.
 
@@ -407,7 +410,7 @@ file's size, 2.1).
 
 | Plugin | Uses | Methods | Options |
 | --- | --- | --- | --- |
-| browser | request | GET | save to file |
+| browser | request | GET | save to file, `max_file` 0 (64 MiB) for pages and downloads |
 | fonts-browser | request | GET | save, `max_file` 512 KiB / 1 MiB |
 | joplin | request | GET, POST, PUT, PROPFIND | save, send a file, `Authorization` |
 | kosync | request | GET, PUT, POST | `x-auth-user` / `x-auth-key` headers |
