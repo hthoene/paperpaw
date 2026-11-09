@@ -33,7 +33,7 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
-    pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) meter: &'a alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
     pub(crate) usage: &'a Usage,
@@ -44,6 +44,17 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        full_stage: &str,
+        cursor: u32,
+        input: &[u8],
+        out: &mut [core::mem::MaybeUninit<u8>],
+    ) -> Result<usize, i32> {
+        crate::native_host::stage_run::run(self, full_stage, cursor, input, out)
+    }
+
     fn caller(&self) -> Result<u64, i32> {
         self.callback
             .filter(|stamp| stamp.epoch != 0)
@@ -73,6 +84,10 @@ impl Frame for CoreFrame<'_> {
     fn callback_depth(&self) -> Result<u8, i32> {
         self.callback_epoch()?;
         self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
+    }
+
+    fn kernel_env(&self) -> Option<&Env<'_>> {
+        Some(self.env)
     }
 
     fn with_stack(

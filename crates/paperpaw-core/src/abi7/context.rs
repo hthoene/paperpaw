@@ -106,6 +106,13 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
+    /// The kernel's `Env` for this call, where the frame has one: `core.device`
+    /// answers Wi-Fi, Bluetooth and power from its models (ops 8, 10, 11, 12).
+    /// A fixture frame has none and the shell's host answers.
+    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+        None
+    }
+
     fn with_stack(&self, _visit: &mut dyn FnMut(&dyn ui_guard::UiStackView)) -> Result<(), i32> {
         Err(ERR_STATE)
     }

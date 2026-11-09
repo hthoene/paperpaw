@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 8] = [
     // A book opens at the position it was left at, in the reading font and
     // the settings of the book (the user's reading settings win over a
     // plugin's defaults, decision 131), pages turn, the page index builds in
@@ -61,6 +61,15 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["DOC-open-layout", "H1"],
     },
+    // A word looked up in a book runs the stage `reader.word-looked-up@1`
+    // once, a subscriber (vocabulary) gets word, sentence, the book's file and
+    // title and the place; the lookup goes on whatever it answers. The input
+    // is `native_words` (tested without a host); the run needs the stage host.
+    Case {
+        name: "reader-word-looked-up-run",
+        golden: None,
+        blocked_by: &["stage-run-host", "H4"],
+    },
 ];
 
 #[test]
@@ -113,4 +122,10 @@ fn stages() {
 #[ignore = "BLOCKED DOC-open-layout, H1: no document host to check the place against, no native screen to open"]
 fn open_at_place() {
     CASES[6].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED stage-run-host (#828), H4: the host does not run stages for plugins yet, and the native selection flow is not there"]
+fn word_looked_up_run() {
+    CASES[7].refuse().unwrap();
 }

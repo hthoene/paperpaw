@@ -175,12 +175,14 @@ events 83, 88 and 90 are free).
   one of the submitter's own instances; other bits `ERR_INVALID`, another plugin's instance
   `ERR_DENIED`. **Turning `guards` on** is allowed only for the submitter's own top instance (the
   top of the whole stack, so no other plugin's screen is above it; the host's own `core.sleep`
-  instance does not count, so a lock that locks while the sleep screen shows guards at once):
-  anywhere else `ERR_STATE`, and the whole batch is refused. Turning it off, and bits 4 and 5 either
-  way, work on any own instance. The declared flags are the state at opening; a screen declared
-  `guards` that opens below a guard waits there (section 4.3) and never has screens of others above
-  it. A change takes effect when the batch is applied, before the next input is routed. Core's tests
-  cover both cases (own top: guards at once; not top: `ERR_STATE`, nothing changed).
+  instance does not count, so a lock that locks while the sleep screen shows guards at once), and
+  only while no other plugin's instance guards (Senior on #829: a keyboard above a lock may not take
+  the guard over and close the lock): anywhere else `ERR_STATE`, and the whole batch is refused.
+  Turning it off, and bits 4 and 5 either way, work on any own instance. The declared flags are the
+  state at opening; a screen declared `guards` that opens below a guard waits there (section 4.3)
+  and never has screens of others above it. A change takes effect when the batch is applied, before
+  the next input is routed. Core's tests cover both cases (own top: guards at once; not top:
+  `ERR_STATE`, nothing changed).
 - [D] **Secret** (interface 6 `Screen::secret`): an instance is secret when it says so, when it
   guards, and when it lies above a guarding instance. While the top instance is secret, input
   goes to the input filters of its own plugin and of the topmost guarding plugin only (others are
@@ -405,6 +407,8 @@ asker learns its request id at once and long texts move in pages, never cut.
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
   addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
+  `dispatch_event` passes `token` 0 for 82 (the ask names no token); the plugin routes it by its
+  tag and `request`, never by the token, which may equal one of its own.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
   has (`core-events.md` 3.3), so the held-event store being full never drops it. The one
@@ -467,7 +471,10 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] **A replaced input** (verdict 4) is checked as plugin input: one `input.key`,
   `input.pointer` or `input.gesture` record, whole, else the verdict counts as pass (logged). Key
   names are not checked against a table (`screens-input.md` 2.2: unknown names pass through):
-  `key` is 1 to 32 bytes of UTF-8 without control characters. A replace may not make `power`
+  `key` is 1 to 32 bytes of UTF-8 without control characters. Until the key path takes names it
+  does not know (post-1.0), a replaced key whose name is not one of the device's keys
+  (`core.device` op 15, the platform's button names) counts as pass (logged), as interface 6
+  filters could only make those. A replace may not make `power`
   (it counts as pass): the Power key's escape and power actions come from the physical button
   only. The router clamps a replaced pointer's `x` and `y` to the screen's pane.
 - [D] Cost: one callback per filter per input; on the X4 key presses only (no touch). Counts
@@ -503,11 +510,13 @@ asker learns its request id at once and long texts move in pages, never cut.
   - **Input.** Only the guard's plugin's input filters are called (the others are skipped, not
     called and ignored); keys and pointers then go to the top instance, which is the guard's
     plugin's. `raise_input` from any other plugin is `ERR_DENIED`.
-  - **Key maps.** Only the own key layer (`set_key_layer`) of the guard instance or of the top
-    guard dialog, and bindings to host actions or to the guard's plugin's own actions, apply; a
-    binding in the slot or global layer that names another plugin's action or input does nothing
-    while the guard is up (logged), so a key map can never run another plugin's code past the
-    lock.
+  - **Key maps.** While the guard is up, a key runs only host actions and the guard's plugin's
+    own actions, checked when the key is dispatched. What decides is the action's owner, never the
+    layer (#843): a binding in any layer, the guard's own key layer (`set_key_layer`) included,
+    that names another plugin's action or input does nothing while the guard is up (logged),
+    whoever put it there (a declared `key.bind`, the user, a preset), so a key map can never run
+    another plugin's code past the lock. Plugin ids `core` and `core.*` are reserved, so no
+    plugin's action passes for a host one.
   - **Closing.** Only the guard's plugin closes the guarding instance or any instance above it
     (`close`, `back_to`: `ERR_DENIED` for others), except a guard dialog closing itself, so no
     other plugin closes the lock's keyboard.
@@ -634,6 +643,14 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **Updates.** The owner says its widget shows something new with `command.widget_changed`
   (own instances); the host sends `event.widget_changed` (a hint, coalesced per instance) to the
   plugin whose screen made it, which measures and draws again. The minute tick stays `event.tick`.
+  86 is registrable: the maker subscribes with `registration.event` and gets it at that token
+  (a maker that did not subscribe is not told). The host delivers it between callbacks, never
+  inside one, once per instance however often the owner said `command.widget_changed`, and only
+  while the instance lives. A guard does not hold it (a hint); what the maker then does to its
+  screen follows the stack's rules (`redraw` of a screen not on top is `ERR_STATE`).
+  `command.widget_changed` names only the submitter's own instances: an unknown or dropped one is
+  `ERR_NOT_FOUND`, another plugin's `ERR_DENIED`, and a shell without a widget table answers
+  `ERR_UNSUPPORTED` (todo 361, #845).
 - [D] **Input.** The showing screen forwards a tap or long press with op 6 (`widget_input`); the
   owner gets `input.widget` through `input` (`kind` 0 tap, 1 long press; `target` from op 7, 0 for
   none). Moving between targets with buttons stays the showing screen's.
@@ -751,7 +768,10 @@ or guard rule: only the maker drops its instances.
 | 1057 | `service.ui_param` | `key: str 32`, `value: str 1024` |
 | 1058 | `service.ui_handle` | `handle: u32` |
 
-- [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance is above it), 3
+- [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance listed to the caller
+  is above it: under a guard another plugin sees the guard row without it, and only
+  `service.end.flags` bit 2 says rows were left out; the guard's plugin sees it for the instances
+  above its guard), 3
   waits ready and not yet ready, 4 secret. `owner` is host-stamped.
 - [D] No feature is needed: what is on screen is not private (guarded parts are left out), and
   every op that touches a request, an instance or a handle checks that it is the caller's.
@@ -779,13 +799,14 @@ or guard rule: only the maker drops its instances.
 - [D] **Help.** `help.hint` declares a hint for any screen (own or another's, full id): `input` 0
   any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the box;
   `x + width` and `y + height` at most 1,000, added with overflow checks (a sum that overflows is
-  over 1,000), else `ERR_INVALID` at admission, and a reader treats a `ui_hint` row that breaks it
-  as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says
-  whose catalog). The help plugin reads them with op 3, subscribes to `event.screen_ready` (an edge,
-  registrable) and to 81. A screen declared `waits_ready` sends `command.screen_ready` once its
-  first page is drawn (own top instance, else `ERR_STATE`); for other screens the host raises 87
-  itself after the first `draw` of each instance. The help plugin closes its own overlay by instance
-  (section 1.3) and resets "seen" in its own data.
+  over 1,000), else `ERR_INVALID` at admission; the same hint (`screen`, `input`, `text`) twice in a
+  plugin's declarations is `ERR_INVALID` for the batch (#818), and a reader treats a `ui_hint` row
+  that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner`
+  in op 3 says whose catalog). The help plugin reads them with op 3, subscribes to
+  `event.screen_ready` (an edge, registrable) and to 81. A screen declared `waits_ready` sends
+  `command.screen_ready` once its first page is drawn (own top instance, else `ERR_STATE`); for
+  other screens the host raises 87 itself after the first `draw` of each instance. The help plugin
+  closes its own overlay by instance (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
   guard closes, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also

@@ -1,10 +1,6 @@
-//! The plugin is constructed in the real registered scope of the kernel's
-//! native host. `make` there has no live frame, so it must not open services
-//! (it registers its declarations; `core.ui` opens in the first callback).
-//!
-//! The host admits every declaration home makes (the setting-changed and tick
-//! events among them) and activates them: `make` runs to the end in the real
-//! registered scope.
+//! The plugin is constructed in the real registered scope of the kernel's native host,
+//! installed through `Kernel::register_linked`: `make` submits its declarations (it opens no
+//! service: there is no live frame in `make`) and the host admits them all.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
