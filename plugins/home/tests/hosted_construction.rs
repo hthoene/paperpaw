@@ -33,10 +33,10 @@ fn make_runs_in_a_real_registered_scope() {
 }
 
 #[test]
-fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
+fn until_the_views_are_wired_make_is_refused_at_the_commit() {
     let refused = construct().unwrap_err();
     assert_eq!(
-        refused, "Factory(-1)",
+        refused, "Lifecycle(DeclarationViewsUnavailable)",
         "not a service-state refusal from make"
     );
 }
