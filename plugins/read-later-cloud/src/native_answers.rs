@@ -36,16 +36,19 @@ struct Feed<S: Sink> {
     parser: Parser,
     sink: S,
     fed: usize,
+    /// The most bytes of the answer that are read.
+    cap: usize,
     /// The reading is over: memory was refused or the answer is too long.
     spent: Option<Error>,
 }
 
 impl<S: Sink> Feed<S> {
-    fn new(sink: S) -> Self {
+    fn new(sink: S, cap: usize) -> Self {
         Self {
             parser: Parser::default(),
             sink,
             fed: 0,
+            cap,
             spent: None,
         }
     }
@@ -53,7 +56,7 @@ impl<S: Sink> Feed<S> {
     fn feed(&mut self, piece: &[u8]) -> Result<(), Error> {
         self.check()?;
         self.fed = self.fed.saturating_add(piece.len());
-        if self.fed > MAX_LIST {
+        if self.fed > self.cap {
             self.spent = Some(Error::NoSpace);
             return self.check();
         }
@@ -181,13 +184,16 @@ pub struct Listed(Feed<ListedSink>);
 impl Listed {
     /// A reading that keeps the first `max` articles with an id.
     pub fn new(max: usize) -> Self {
-        Self(Feed::new(ListedSink {
-            max,
-            items: Vec::new(),
-            whole: false,
-            keeping: false,
-            failed: None,
-        }))
+        Self(Feed::new(
+            ListedSink {
+                max,
+                items: Vec::new(),
+                whole: false,
+                keeping: false,
+                failed: None,
+            },
+            MAX_LIST,
+        ))
     }
 
     /// The next piece of the file.
@@ -285,15 +291,25 @@ pub struct Asked<'a>(Feed<AskedSink<'a>>);
 
 impl<'a> Asked<'a> {
     pub fn new(id: &'a str) -> Self {
-        Self(Feed::new(AskedSink {
-            id,
-            whole: false,
-            count: 0,
-            same: false,
-            location: String::new(),
-            author: String::new(),
-            failed: None,
-        }))
+        Self::with_cap(id, MAX_LIST)
+    }
+
+    /// A reading that takes at most `cap` bytes of the answer: [`MAX_ANSWER`]
+    /// for the answer that holds the article's text, whose text the parser
+    /// passes by.
+    pub fn with_cap(id: &'a str, cap: usize) -> Self {
+        Self(Feed::new(
+            AskedSink {
+                id,
+                whole: false,
+                count: 0,
+                same: false,
+                location: String::new(),
+                author: String::new(),
+                failed: None,
+            },
+            cap,
+        ))
     }
 
     /// The next piece of the file.

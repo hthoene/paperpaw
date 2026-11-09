@@ -39,10 +39,17 @@ pub mod html;
 pub mod native_answers;
 #[cfg(test)]
 mod native_answers_tests;
+pub mod native_fetch;
+#[cfg(test)]
+mod native_fetch_tests;
+pub mod native_lists;
 #[cfg(test)]
 mod native_parity_tests;
 pub mod native_read_later;
+pub mod native_secret;
 mod screen;
+#[cfg(test)]
+mod test_volume;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

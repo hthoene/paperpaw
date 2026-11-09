@@ -2320,6 +2320,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
