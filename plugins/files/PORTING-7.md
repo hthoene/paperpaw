@@ -4,8 +4,10 @@ Status: **native only.** The interface-6 plugin (`Files`, its list, shelves, nam
 folder chooser screens) and its kernel tests are removed; the native plugin is linked
 (`NATIVE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`. Host acceptance of the native
 screens waits for the activation of native plugins (#944, #417; `tests/acceptance_pending.rs`). The
-native code's size on the X4 and its peak memory are **not measured** yet. Version 1.0.7 is above
-Beta 3 (1.0.6): no bump.
+X4 file builds and packs (`tools/plugin-files7/build.sh x4 <out> --only files`: format 5, 147,692 B
+of code, 23,888 B of data, 174,116 B in all, no frame of 2,048 B or more); its size against the
+Beta 3 file (the flash gate) and its peak memory on a device, with covers, are **not measured** yet.
+Version 1.0.7 is above Beta 3 (1.0.6): no bump.
 
 ## What is here
 
