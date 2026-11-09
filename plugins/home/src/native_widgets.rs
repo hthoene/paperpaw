@@ -129,7 +129,10 @@ impl Widgets {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 let mut found: Vec<WidgetTarget> = Vec::new();
                 match item.token {
-                    CARD => found.push(WidgetTarget::new(native_card::TARGET, rect)),
+                    CARD => paperpaw_ui_kit::mem::push(
+                        &mut found,
+                        WidgetTarget::new(native_card::TARGET, rect),
+                    )?,
                     SHELF => {
                         let mut cx = Cx::open(host, &item.widget)?;
                         let clamp = paperpaw_ui_kit::geometry::clamp_u16;

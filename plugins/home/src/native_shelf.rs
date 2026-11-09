@@ -64,7 +64,7 @@ fn labels(cx: &Cx<'_>) -> Result<(u16, u16), Error> {
     let (small, gap) = (cx.style().small, cx.style().gap);
     let label = geometry::line_px(&cx.font, small)?;
     let heading = if cx.settings.shows("heading")? {
-        label + gap / 2
+        label.saturating_add(gap / 2)
     } else {
         0
     };
@@ -92,8 +92,11 @@ pub fn height(cx: &Cx<'_>, width: u16) -> Result<(u16, u16), Error> {
         .saturating_add(title)
         .saturating_add(cx.shape.frame_height());
     // Covers a third as high, where there is less room.
-    let covers = full.saturating_sub(heading + title);
-    Ok((full, heading + title + covers / 3))
+    let covers = full.saturating_sub(heading.saturating_add(title));
+    Ok((
+        full,
+        heading.saturating_add(title).saturating_add(covers / 3),
+    ))
 }
 
 /// Where the parts of the shelf go: the heading, and each book's place for its
@@ -122,14 +125,15 @@ fn parts(cx: &mut Cx<'_>, area: Rect, count: usize) -> Result<Parts, Error> {
     if !heading_fits {
         heading = 0;
     }
-    let covers = area.height.saturating_sub(heading + title) >= 2 * label;
+    let covers =
+        area.height.saturating_sub(heading.saturating_add(title)) >= label.saturating_mul(2);
     if !covers {
         title = label;
-        if area.height < heading + title {
+        if area.height < heading.saturating_add(title) {
             heading = 0;
         }
     }
-    let room = area.height.saturating_sub(heading + title);
+    let room = area.height.saturating_sub(heading.saturating_add(title));
     // Covers 3:4, as wide as the columns or as high as the room allows.
     let column = area.width / columns;
     let (w, h) = if covers {
@@ -138,16 +142,28 @@ fn parts(cx: &mut Cx<'_>, area: Rect, count: usize) -> Result<Parts, Error> {
     } else {
         (column.saturating_sub(gap), 0)
     };
-    let total = heading + h + title;
-    let top = area.y + area.height.saturating_sub(total) / 2;
-    let left = area.x + area.width.saturating_sub(column * columns) / 2;
+    let total = heading.saturating_add(h).saturating_add(title);
+    let top = area.y.saturating_add(area.height.saturating_sub(total) / 2);
+    let left = area
+        .x
+        .saturating_add(area.width.saturating_sub(column.saturating_mul(columns)) / 2);
     let heading = (heading > 0).then(|| Rect::new(area.x, top, area.width, label));
-    let top = top + heading.map_or(0, |_| label + gap / 2);
+    let top = top.saturating_add(heading.map_or(0, |_| label.saturating_add(gap / 2)));
     let mut places = Vec::new();
     for i in 0..columns {
-        let start = left + i * column;
-        let cover = Rect::new(start + (column - w) / 2, top, w, h);
-        let row = Rect::new(start + gap / 2, top + h, column.saturating_sub(gap), title);
+        let start = left.saturating_add(i.saturating_mul(column));
+        let cover = Rect::new(
+            start.saturating_add(column.saturating_sub(w) / 2),
+            top,
+            w,
+            h,
+        );
+        let row = Rect::new(
+            start.saturating_add(gap / 2),
+            top.saturating_add(h),
+            column.saturating_sub(gap),
+            title,
+        );
         paperpaw_ui_kit::mem::push(&mut places, (cover, (title > 0).then_some(row)))?;
     }
     Ok(Parts { heading, places })

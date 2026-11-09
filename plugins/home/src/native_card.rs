@@ -70,7 +70,12 @@ fn parts(
         let beside = room.width.saturating_sub(at.width.saturating_add(gap));
         if beside >= least {
             parts.cover = Some(at);
-            text = Rect::new(room.x + at.width + gap, room.y, beside, room.height);
+            text = Rect::new(
+                room.x.saturating_add(at.width).saturating_add(gap),
+                room.y,
+                beside,
+                room.height,
+            );
         } else if room.width < least {
             // No room for text: the cover alone, in the middle.
             parts.cover = Some(native_recent::fitted(size, room, 0.5, 0.5));
@@ -83,18 +88,22 @@ fn parts(
     let caption_fits = cx.font.measure_text(small, &caption)? <= f32::from(text.width);
     // Half a gap between the rows; none where only that keeps all three (the
     // small rows have room above their letters anyway).
-    let all = |gap: u16| caption_fits && line + 2 * (gap + small_line) <= text.height;
+    let all = |gap: u16| {
+        caption_fits
+            && line.saturating_add(2u16.saturating_mul(gap.saturating_add(small_line)))
+                <= text.height
+    };
     let half = if all(gap / 2) || !all(0) { gap / 2 } else { 0 };
     parts.gap = half;
     let mut left = text.height;
-    parts.progress =
-        cx.settings.shows("progress").unwrap_or(true) && left >= line + half + small_line;
+    parts.progress = cx.settings.shows("progress").unwrap_or(true)
+        && left >= line.saturating_add(half).saturating_add(small_line);
     if parts.progress {
-        left -= half + small_line;
+        left = left.saturating_sub(half.saturating_add(small_line));
     }
-    parts.caption = caption_fits && left >= line + half + small_line;
+    parts.caption = caption_fits && left >= line.saturating_add(half).saturating_add(small_line);
     if parts.caption {
-        left -= half + small_line;
+        left = left.saturating_sub(half.saturating_add(small_line));
     }
     // Two lines at most; in a flat card, down to the small size.
     let title_line = geometry::line_px(&cx.font, title_size)?;
@@ -176,7 +185,7 @@ fn text_column(
     };
     let label = geometry::line_px(&cx.font, small)?;
     let total = column(cx, parts)?;
-    let mut y = room.y + room.height.saturating_sub(total) / 2;
+    let mut y = room.y.saturating_add(room.height.saturating_sub(total) / 2);
     let align = cx.settings.align()?;
     let row = |y: u16, height: u16| Rect::new(room.x, y, room.width, height);
     if parts.caption {
@@ -190,13 +199,13 @@ fn text_column(
             &caption,
             look.faint,
         )?;
-        y = y.saturating_add(label + gap);
+        y = y.saturating_add(label.saturating_add(gap));
     }
     let title = parts.title.height(&cx.font)?;
     parts
         .title
         .draw(out, &cx.font, row(y, title), align, look.ink)?;
-    y = y.saturating_add(title + gap);
+    y = y.saturating_add(title.saturating_add(gap));
     if !parts.progress {
         return Ok(());
     }
@@ -264,7 +273,7 @@ fn empty(
         true,
     )?;
     let title_h = words.height(&cx.font)?;
-    let below = area.height.saturating_sub(title_h + gap);
+    let below = area.height.saturating_sub(title_h.saturating_add(gap));
     let text = Wrapped::fitting(
         &cx.font,
         &message,
@@ -275,20 +284,31 @@ fn empty(
     let text_h = text.height(&cx.font)?;
     let icon_size = title_size * 2.4;
     let icon_h = icon_size as u16;
-    let lines = title_h + if text_h > 0 { gap + text_h } else { 0 };
+    let lines = title_h.saturating_add(if text_h > 0 {
+        gap.saturating_add(text_h)
+    } else {
+        0
+    });
     let glyph = icons::glyph(cx.host, "books")?.filter(|_| icons.is_some());
     // The icon where there is room for it too.
-    let with_icon = glyph.is_some() && lines + gap + icon_h <= area.height;
-    let total = lines + if with_icon { gap + icon_h } else { 0 };
-    let mut y = area.y + area.height.saturating_sub(total) * 2 / 5;
+    let with_icon =
+        glyph.is_some() && lines.saturating_add(gap).saturating_add(icon_h) <= area.height;
+    let total = lines.saturating_add(if with_icon {
+        gap.saturating_add(icon_h)
+    } else {
+        0
+    });
+    let mut y = area
+        .y
+        .saturating_add(area.height.saturating_sub(total).saturating_mul(2) / 5);
     if let (true, Some(glyph), Some(font)) = (with_icon, glyph.as_ref(), icons) {
         let row = Rect::new(area.x, y, area.width, icon_h);
         icons::draw_centred(out, font, glyph, icon_size, row, look.faint)?;
-        y += icon_h + gap;
+        y = y.saturating_add(icon_h).saturating_add(gap);
     }
     let row = |y: u16, height: u16| Rect::new(area.x, y, area.width, height);
     words.draw(out, &cx.font, row(y, title_h), Align::Center, look.ink)?;
-    y += title_h + gap;
+    y = y.saturating_add(title_h).saturating_add(gap);
     if text_h > 0 {
         text.draw(out, &cx.font, row(y, text_h), Align::Center, look.faint)?;
     }

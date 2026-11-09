@@ -323,8 +323,15 @@ Differences from interface 6 (each deliberate):
   (the widget tells its maker it changed); an image id the host ended is asked for again on the next
   draw. The plugin may hold 8 image ids: a card and a shelf of six use seven, so a second shelf
   on the screen may show titles alone.
-- A book gone from the card is not left out of the list (interface 6 checked each file); the
-  library's catalog says so when it walks again. A tap on it opens nothing.
+- A book gone from the card is not left out of the card or the shelf (interface 6 checked each
+  file): a card whose newest book is gone shows that book where interface 6 showed the next one, and
+  a tap on a gone book does nothing. The host tells a gone book only on library op 3
+  (`lib_book.flags` bit 8 `missing`), which the SDK's `library::Book` does not expose yet (asked of
+  Kernel: `Book::missing()`); the follow-up reads op 3 for the books of a draw (not of a tick, so the
+  tick's library cost stays one query per instance) with fallible buffers.
+- Each tick asks the library once per card or shelf instance, and each draw takes two 4 KiB buffers
+  for the query and one 1 KiB and one 4 KiB for each cover: both are measured on the device before
+  activation (they are on the activation gate list).
 - The titles are the library's row titles (cut by the host at 128 bytes), not the file's.
 - The book count of the shelf is limited by one library page (at most 9 books after the current
   one; the setting's largest is 8).
