@@ -3226,6 +3226,9 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut co
 impl<'a> paperpaw_sdk::native::commands::PreviewSetting<'a>
 pub const fn paperpaw_sdk::native::commands::PreviewSetting<'a>::new(&'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
 pub mod paperpaw_sdk::native::declare
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::BookDataKind
+pub paperpaw_sdk::native::declare::BookDataKind::Cache
+pub paperpaw_sdk::native::declare::BookDataKind::UserData
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::DeclareError
 pub paperpaw_sdk::native::declare::DeclareError::Choices
 pub paperpaw_sdk::native::declare::DeclareError::Default
@@ -3342,6 +3345,7 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::book_badge(&mut self, &str, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::book_data(&mut self, &str, paperpaw_sdk::native::declare::BookDataKind) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::book_field(&mut self, paperpaw_sdk::native::declare::BookFieldDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::describe_item(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -4680,6 +4684,17 @@ pub paperpaw_sdk::native::library::Sort::Author
 pub paperpaw_sdk::native::library::Sort::RecentlyOpened
 pub paperpaw_sdk::native::library::Sort::Series
 pub paperpaw_sdk::native::library::Sort::Title
+pub struct paperpaw_sdk::native::library::Anchor<'a>(_)
+impl<'a> paperpaw_sdk::native::library::Anchor<'a>
+pub const fn paperpaw_sdk::native::library::Anchor<'a>::conversion(&self) -> core::option::Option<u64>
+pub const fn paperpaw_sdk::native::library::Anchor<'a>::id(&self) -> u32
+pub const fn paperpaw_sdk::native::library::Anchor<'a>::xpointers(&self) -> core::option::Option<(&'a str, &'a str)>
+pub struct paperpaw_sdk::native::library::AnchorPage<'a>
+impl<'a> paperpaw_sdk::native::library::AnchorPage<'a>
+pub const fn paperpaw_sdk::native::library::AnchorPage<'a>::end(&self) -> paperpaw_sdk::native::library::AnnotationPageEnd
+pub const fn paperpaw_sdk::native::library::AnchorPage<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::AnchorPage<'a>::len(&self) -> usize
+pub fn paperpaw_sdk::native::library::AnchorPage<'a>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::library::Anchor<'a>> + use<'a>
 pub struct paperpaw_sdk::native::library::Annotation<'a>(_)
 impl<'a> paperpaw_sdk::native::library::Annotation<'a>
 pub const fn paperpaw_sdk::native::library::Annotation<'a>::client_key(self) -> &'a str
@@ -4836,6 +4851,8 @@ pub const fn paperpaw_sdk::native::library::FieldPageEnd::generation(self) -> u3
 pub fn paperpaw_sdk::native::library::FieldPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::library::FieldCursor>
 pub const fn paperpaw_sdk::native::library::FieldPageEnd::total(self) -> u32
 pub struct paperpaw_sdk::native::library::Library
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::anchors<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::AnnotationCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::AnchorPage<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
 pub fn paperpaw_sdk::native::library::Library::annotation_text<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, paperpaw_sdk::native::library::AnnotationTextQuery, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::AnnotationTextPart<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::library::Library
