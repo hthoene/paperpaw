@@ -43,7 +43,9 @@ fn targets(count: u32) -> Vec<u8> {
 }
 
 impl World<'_> {
+    /// An instance of `widget` for `ME`; Core's drain is wired, so op 6 is served.
     fn made(&self, widget: &str) -> u32 {
+        self.hosts.ui().unwrap().widget_input_drained().unwrap();
         self.make(ME, widget).unwrap().0
     }
     fn measure(&self, owner: u64, instance: u32) -> Result<(u32, u32), i32> {
@@ -385,5 +387,39 @@ fn a_refused_allocation_is_no_memory_and_leaves_nothing_queued_or_called() {
             Ok(None)
         );
         assert_eq!(w.tap(ME, id, 0), Ok(()));
+    });
+}
+
+#[test]
+fn op_6_is_unsupported_until_the_drain_is_wired_and_ops_7_12_13_never_lay_out_an_own_instance() {
+    world(|w| {
+        // No drain: not even a malformed tap is looked at.
+        assert_eq!(w.tap(ME, 1, 0), Err(ERR_UNSUPPORTED));
+        assert_eq!(w.call(ME, 6, &[]).err(), Some(ERR_UNSUPPORTED));
+        assert_eq!(
+            w.hosts.ui().unwrap().next_widget_input(A, 0, &mut [0; 64]),
+            Ok(None)
+        );
+        let id = w.made("a.w");
+        assert_eq!(w.tap(ME, id, 0), Ok(()));
+        // An instance whose owner is its maker: ERR_BUSY before any call.
+        let own = w
+            .hosts
+            .ui()
+            .unwrap()
+            .widgets
+            .handles
+            .try_borrow_mut()
+            .unwrap()
+            .make_widget(ME, ME, 10, 9, false)
+            .unwrap();
+        for op in [7_u32, 12, 13] {
+            assert_eq!(
+                w.call(ME, op, &[call_record(op, own)]).err(),
+                Some(ERR_BUSY),
+                "op {op}"
+            );
+        }
+        assert_eq!(w.widget_calls(), 0);
     });
 }

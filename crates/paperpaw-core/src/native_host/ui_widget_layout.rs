@@ -16,14 +16,19 @@
 //!   comes back as nothing: op 12 height 0 ("nothing to show"), op 7 no
 //!   targets, op 13 `OK`; the owner is told it was dropped and the caller goes
 //!   on (as op 14 does).
-//! - **Op 6** runs nothing inside the caller: the tap is queued for the owner's
+//! - **Op 6** is `ERR_UNSUPPORTED` until Core's dispatcher drains the queue
+//!   ([`UiServices::widget_input_drained`]). It runs nothing inside the
+//!   caller: the tap is queued for the owner's
 //!   `input` callback ([`WidgetInputs`], at most 8 entries, 2 on the X4, one
 //!   fallible allocation made at the first tap; `ERR_FULL` when it is full).
 //!   Core's dispatcher drains it like the widget drops
 //!   ([`UiServices::next_widget_input`]); an entry whose instance was dropped
 //!   meanwhile, or whose owner stopped, is never delivered.
 //!
-//! Memory: no op allocates beyond the call's reply buffer (`native_widget`);
+//! An instance of the caller's own widget is `ERR_BUSY` for ops 7, 12 and 13
+//! too, before any call.
+//!
+//! Memory: no op allocates beyond the one reply buffer of the call (`native_widget`);
 //! op 7's rows go straight to the reply (32 x 25 bytes and the `end`).
 use super::{
     registrations::{self as wire, Record},
@@ -66,6 +71,9 @@ pub(crate) struct PendingInput {
 pub(crate) struct WidgetInputs {
     queue: Vec<PendingInput>,
     cap: usize,
+    /// Core's dispatcher drains the queue. Until it says so (`false`) op 6
+    /// is `ERR_UNSUPPORTED`: a tap nothing delivers must not be accepted.
+    drained: bool,
 }
 
 impl WidgetInputs {
@@ -73,6 +81,7 @@ impl WidgetInputs {
         Self {
             queue: Vec::new(),
             cap: if x4 { INPUTS_MAX_X4 } else { INPUTS_MAX },
+            drained: false,
         }
     }
 
@@ -98,6 +107,20 @@ impl WidgetInputs {
 }
 
 impl UiServices {
+    /// Core's dispatcher drains the taps of op 6 ([`Self::next_widget_input`]
+    /// and [`Self::widget_input_delivered`]): op 6 is served from now on.
+    /// Its delivery must apply the guard rule of ui.md 4.3 again at the time
+    /// of delivery (a guard may have come up since the tap was queued).
+    #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
+    pub(crate) fn widget_input_drained(&self) -> Result<(), i32> {
+        self.widgets
+            .inputs
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .drained = true;
+        Ok(())
+    }
+
     /// The next tap for `owner` whose instance is still made, as the
     /// `input.widget` record for its token, in `out`: the length, with the
     /// entry to give back to [`Self::widget_input_delivered`]. `None` when
@@ -152,6 +175,22 @@ fn nested_gate(frame: &dyn Frame) -> Result<(), i32> {
     Ok(())
 }
 
+/// The instance `id` as `who` may lay it out under a nested call (ops 7, 12,
+/// 13): one of the caller's own widgets is `ERR_BUSY` up front, as instance 0
+/// is (the owner cannot be called from inside itself).
+fn locate_nested(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    who: &Caller<'_>,
+    id: u32,
+) -> Result<WidgetRef, i32> {
+    let found = locate(frame, ui, who, id)?;
+    if found.owner == who.owner {
+        return Err(ERR_BUSY);
+    }
+    Ok(found)
+}
+
 /// The instance `id` as `who` may lay it out.
 fn locate(frame: &dyn Frame, ui: &UiServices, who: &Caller<'_>, id: u32) -> Result<WidgetRef, i32> {
     let found = ui
@@ -183,6 +222,15 @@ pub(super) fn widget_input(
     who: &Caller<'_>,
     input: &[u8],
 ) -> Result<(), i32> {
+    if !ui
+        .widgets
+        .inputs
+        .try_borrow()
+        .map_err(|_| ERR_BUSY)?
+        .drained
+    {
+        return Err(ERR_UNSUPPORTED);
+    }
     let Record::ServiceUiWidgetInput(tap) = wire::records_decode_single(input)? else {
         return Err(ERR_INVALID);
     };
@@ -216,7 +264,7 @@ pub(super) fn widget_measure(
 ) -> Result<usize, i32> {
     let area = area(input)?;
     nested_gate(frame)?;
-    let found = locate(frame, ui, who, area.instance)?;
+    let found = locate_nested(frame, ui, who, area.instance)?;
     let call = widget::Record::WidgetMeasure(widget::WidgetMeasure::new(area.instance, area.width));
     let (mut height, mut least) = (0, 0);
     if let Some(reply) = ask(frame, &found, &call)? {
@@ -245,7 +293,7 @@ pub(super) fn widget_place(
 ) -> Result<(), i32> {
     let area = area(input)?;
     nested_gate(frame)?;
-    let found = locate(frame, ui, who, area.instance)?;
+    let found = locate_nested(frame, ui, who, area.instance)?;
     let call = widget::Record::WidgetPlace(widget::WidgetPlace::new(
         area.instance,
         area.x,
@@ -267,7 +315,7 @@ pub(super) fn widget_targets(
 ) -> Result<usize, i32> {
     let area = area(input)?;
     nested_gate(frame)?;
-    let found = locate(frame, ui, who, area.instance)?;
+    let found = locate_nested(frame, ui, who, area.instance)?;
     let call = widget::Record::WidgetTargets(widget::WidgetTargets::new(
         area.instance,
         area.x,

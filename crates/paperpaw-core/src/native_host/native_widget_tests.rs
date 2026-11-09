@@ -73,6 +73,11 @@ impl Dispatch for Target {
             .borrow_mut()
             .extend(records.map(|record| record.unwrap()));
         let answer = self.answer.borrow();
+        // A reply that does not fit the caller's buffer is the stage's own
+        // refusal (the host hands it the caller's buffer as it is).
+        if out.len() < answer.len() {
+            return Err(paperpaw_native::host_glue::ERR_NO_SPACE);
+        }
         out[..answer.len()].copy_from_slice(&answer);
         Ok(i32::try_from(answer.len()).unwrap())
     }

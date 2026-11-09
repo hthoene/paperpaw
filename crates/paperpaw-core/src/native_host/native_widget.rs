@@ -17,8 +17,9 @@
 //!
 //! No declaration borrow crosses the owner's code. Memory: the input is the
 //! caller's encoded record inside one fallible heap call (about 100 bytes)
-//! and the reply is one fallible 3,840-byte buffer freed at the return; a
-//! refused allocation is `ERR_NO_MEMORY` with nothing called. A reply the
+//! and the reply goes straight into the caller's buffer (the op's one
+//! fallible 3,840-byte buffer), so the call adds no second one; a refused
+//! allocation is `ERR_NO_MEMORY` with nothing called. A reply the
 //! stage's codec refuses (a wrong tag, more than 32 rows, too long) is dropped
 //! to the owner and is this call's failure.
 use super::{
@@ -63,16 +64,14 @@ pub(crate) fn call(
         return Err(ERR_BUSY);
     }
     let input = input(payload)?;
-    let mut reply = scratch(widget::MAX_REPLY)?;
+    // The owner writes straight into the caller's buffer (the one 3,840-byte
+    // buffer of the op); the reply is checked where it lies.
     let result = lease
-        .stage(token, &input, &mut reply, frame.env)
+        .stage(token, &input, out, frame.env)
         .and_then(|length| {
             let length = usize::try_from(length).map_err(|_| length)?;
-            let bytes = reply.get(..length).ok_or(ERR_INVALID)?;
+            let bytes = out.get(..length).ok_or(ERR_INVALID)?;
             widget::reply_decode(bytes)?;
-            out.get_mut(..length)
-                .ok_or(ERR_NO_SPACE)?
-                .copy_from_slice(bytes);
             Ok(length)
         });
     if let Err(error) = result {
