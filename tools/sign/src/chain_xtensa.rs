@@ -42,6 +42,14 @@
 //! ```text
 //! limit <bytes>                       the frame limit (2048 by default)
 //! root <family>                       extra roots: functions of the family
+//! root trait <path>                   extra roots: the methods of every impl
+//!                                     of the trait, `<_ as path>::f` (what a
+//!                                     `&dyn Trait` call can reach)
+//! root impl <type>                    extra roots: the trait-impl methods of
+//!                                     a concrete type, `<type as Trait>::f`,
+//!                                     by the type's path (generics and
+//!                                     lifetimes left out); the methods a
+//!                                     table reaches through a trait object
 //! table <symbol>                      a static (the host, heap or shared
 //!                                     table) whose words are function
 //!                                     pointers: each is a root
@@ -151,6 +159,10 @@ const SR_PS: u32 = 230;
 pub struct Budget {
     pub limit: u32,
     pub roots: Vec<String>,
+    /// `root impl <type>`: the trait impls of a concrete type (see [`impl_of`]).
+    pub impl_roots: Vec<String>,
+    /// `root trait <path>`: the methods of every impl of the trait (see [`trait_of`]).
+    pub trait_roots: Vec<String>,
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
@@ -184,6 +196,8 @@ impl Budget {
                     }
                 }
                 ["root", family] => budget.roots.push((*family).to_string()),
+                ["root", "impl", ty] => budget.impl_roots.push((*ty).to_string()),
+                ["root", "trait", tr] => budget.trait_roots.push((*tr).to_string()),
                 ["table", symbol] => budget.tables.push((*symbol).to_string()),
                 ["allow", "call", caller, "->", callee, why @ ..] if !why.is_empty() => {
                     budget.allow.push((
@@ -233,7 +247,11 @@ impl Budget {
                 _ => return Err(bad()),
             }
         }
-        if budget.roots.is_empty() && budget.tables.is_empty() {
+        if budget.roots.is_empty()
+            && budget.impl_roots.is_empty()
+            && budget.trait_roots.is_empty()
+            && budget.tables.is_empty()
+        {
             return Err("the budget names no root and no table".into());
         }
         Ok(budget)
@@ -902,6 +920,40 @@ fn follow(
     }
 }
 
+/// Whether the legacy symbol `symbol` is a method of a trait impl of the type
+/// `ty` (`a::b::Type`): `_ZN<n>_$LT$a..b..Type$u20$as$u20$…` for a type without
+/// generics, `…Type$LT$…$GT$$u20$as…` for one with. A path cannot name these
+/// (`path` drops what is not a plain identifier), and they are what a trait
+/// object's vtable points at.
+fn impl_of(symbol: &str, ty: &str) -> bool {
+    let Some(rest) = symbol.strip_prefix("_ZN") else {
+        return false;
+    };
+    let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    let Some(rest) = rest.strip_prefix("_$LT$") else {
+        return false;
+    };
+    let dotted = ty.replace("::", "..");
+    let Some(after) = rest.strip_prefix(dotted.as_str()) else {
+        return false;
+    };
+    after.starts_with("$u20$as$u20$") || after.starts_with("$LT$")
+}
+
+/// Whether the legacy symbol `symbol` is a method of an impl of the trait
+/// `tr` (`a::b::Trait`): `…$u20$as$u20$a..b..Trait$GT$` (or with generic
+/// arguments, `…Trait$LT$…`).
+fn trait_of(symbol: &str, tr: &str) -> bool {
+    if !symbol.starts_with("_ZN") {
+        return false;
+    }
+    let want = format!("$u20$as$u20${}", tr.replace("::", ".."));
+    symbol.match_indices(&want).any(|(at, _)| {
+        let after = &symbol[at + want.len()..];
+        after.starts_with("$GT$") || after.starts_with("$LT$")
+    })
+}
+
 /// Puts the budget's roots and the words of its tables in `queue`.
 fn seed(
     image: &Image<'_>,
@@ -918,6 +970,38 @@ fn seed(
             report
                 .problems
                 .push(format!("the root `{root}` matches no function"));
+        }
+        for i in members {
+            if seen.insert(i) {
+                report.roots.0 += 1;
+                queue.push_back(i);
+            }
+        }
+    }
+    for ty in &budget.impl_roots {
+        let members: Vec<usize> = (0..image.funcs.len())
+            .filter(|&i| impl_of(&image.funcs[i].symbol, ty))
+            .collect();
+        if members.is_empty() {
+            report
+                .problems
+                .push(format!("the root `impl {ty}` matches no function"));
+        }
+        for i in members {
+            if seen.insert(i) {
+                report.roots.0 += 1;
+                queue.push_back(i);
+            }
+        }
+    }
+    for tr in &budget.trait_roots {
+        let members: Vec<usize> = (0..image.funcs.len())
+            .filter(|&i| trait_of(&image.funcs[i].symbol, tr))
+            .collect();
+        if members.is_empty() {
+            report
+                .problems
+                .push(format!("the root `trait {tr}` matches no function"));
         }
         for i in members {
             if seen.insert(i) {

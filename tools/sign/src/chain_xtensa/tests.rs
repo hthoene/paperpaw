@@ -86,6 +86,72 @@ fn a_call_chain_is_followed_from_the_roots_and_its_frames_are_read() {
 }
 
 #[test]
+fn root_impl_names_the_trait_impl_methods_of_a_type_and_only_those() {
+    // `<a::Type as T>::m` and `<a::Gen<X> as T>::m`: the symbols a path cannot name.
+    let plain = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let generic = "_ZN45_$LT$a..Gen$LT$X$GT$$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let other = "_ZN40_$LT$a..TypeTwo$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    assert!(impl_of(plain, "a::Type") && !impl_of(plain, "a::Gen"));
+    assert!(impl_of(generic, "a::Gen") && !impl_of(generic, "a::Type"));
+    assert!(
+        !impl_of(other, "a::Type"),
+        "a longer type name is not the type"
+    );
+    assert!(!impl_of("a_plain_name", "a::Type"));
+    // A frame of 2,048 in the impl method is found, through the root alone.
+    let big = f(&[&entry(2032), &RETW_N]);
+    let fine = f(&[&entry(32), &RETW_N]);
+    let report = run(&[(plain, big), (other, fine)], &[], "root impl a::Type\n");
+    assert_eq!(report.checked, 1);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    // A type with no impl in the image fails, so a rename cannot go unseen.
+    let report = run(
+        &[("root", f(&[&entry(32), &RETW_N]))],
+        &["root"],
+        "root impl a::Gone\n",
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("`impl a::Gone` matches no function"))
+    );
+}
+
+#[test]
+fn root_trait_names_the_methods_of_every_impl_of_a_trait() {
+    let one = "_ZN36_$LT$a..Type$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let two = "_ZN45_$LT$a..Gen$LT$X$GT$$u20$as$u20$a..T$GT$1m17h0123456789abcdefE";
+    let longer = "_ZN40_$LT$a..Type$u20$as$u20$a..TT$GT$1m17h0123456789abcdefE";
+    assert!(trait_of(one, "a::T") && trait_of(two, "a::T"));
+    assert!(
+        !trait_of(longer, "a::T"),
+        "a longer trait name is not the trait"
+    );
+    assert!(!trait_of("plain", "a::T"));
+    let big = f(&[&entry(2032), &RETW_N]);
+    let fine = f(&[&entry(32), &RETW_N]);
+    let report = run(
+        &[(one, big), (two, fine.clone()), (longer, fine)],
+        &[],
+        "root trait a::T\n",
+    );
+    assert_eq!(report.checked, 2);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    let report = run(
+        &[("root", f(&[&entry(32), &RETW_N]))],
+        &["root"],
+        "root trait a::None\n",
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("`trait a::None` matches no function"))
+    );
+}
+
+#[test]
 fn a_frame_of_the_limit_in_a_function_reached_is_refused_and_one_not_reached_is_not() {
     let a = BASE;
     let root = f(&[&entry(32), &call(12, a + 3, a + 16), &RETW_N]);
