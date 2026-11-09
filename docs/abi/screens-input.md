@@ -163,7 +163,8 @@ input(state: pointer, token: u32, input: bytes) -> i32
   used last before the screen was shown, as the host saw it (interface 6 `Env::last_input`): 0
   not known, 1 buttons or keys, 2 touch, 3 pen. A screen decides from it whether to show a
   focus at once (a focus for buttons, none for a finger). Other values are refused by decoders;
-  hosts never send them.
+  hosts never send them: a kind of input a later draft or minor adds goes as 0 (not known) to a
+  plugin built for an earlier one (its metadata's `needs_minor`).
 - [D] Unknown enum values (state, phase, kind) are refused by decoders like every wire rule;
   producers never send them.
 

@@ -137,12 +137,12 @@ impl Plugin for NativeStats {
             return Ok(());
         }
         let told = match event {
-            Event::Started { now_ms } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
-            Event::Resume { now_ms } => {
+            Event::Started { now_ms, .. } => with_cx(host, now_ms, |cx| self.recorder.started(cx)),
+            Event::Resume { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
                 return Ok(());
             }
-            Event::Suspend { now_ms } | Event::Stopping { now_ms } => {
+            Event::Suspend { now_ms, .. } | Event::Stopping { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
                 return Ok(());
             }
@@ -173,10 +173,10 @@ impl Plugin for NativeStats {
                 });
                 return Ok(());
             }
-            Event::BookMoved { now_ms, from, path } => {
-                with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path))
-            }
-            Event::StatusChanged { now_ms } => {
+            Event::BookMoved {
+                now_ms, from, path, ..
+            } => with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path)),
+            Event::StatusChanged { now_ms, .. } => {
                 with_cx(host, now_ms, |cx| self.recorder.clock_changed(cx))
             }
             _ => return Ok(()),

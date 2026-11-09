@@ -56,7 +56,7 @@ impl native::Plugin for ScreenProbe {
         r: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Test-only trigger: screen routing is Core #944, not this pixel fixture.
-        let Event::Started { now_ms } = e.decode()? else {
+        let Event::Started { now_ms, .. } = e.decode()? else {
             return Err(Error::Invalid);
         };
         assert!(native::snapshot::capture_snapshot(h).is_ok());

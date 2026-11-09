@@ -6,6 +6,17 @@ use paperpaw_sdk::native::Error;
 
 use super::{EVENTS, Edge, answer_of, edge, figure};
 use crate::model::Kept;
+use paperpaw_core::native_host::registrations::{
+    EventResume, EventStopping, EventSuspend, Record, records_encode,
+};
+
+/// `record` as the host frames it, decoded as the plugin sees it (event
+/// variants are not built by hand outside the SDK).
+fn delivered(record: Record<'_>, check: impl FnOnce(&Event<'_>)) {
+    let mut bytes = [0_u8; 64];
+    let len = records_encode(&[record], &mut bytes).unwrap();
+    check(&Event::decode(&bytes[..len]).unwrap());
+}
 
 fn told(day: i32, seconds: u32) -> [u8; 8] {
     let mut bytes = [0u8; 8];
@@ -42,19 +53,24 @@ fn no_figure_leaves_what_was_kept_and_the_next_answer_replaces_it() {
 
 #[test]
 fn other_events_and_tokens_are_not_edges() {
-    assert_eq!(edge(EVENTS, &Event::Resume { now_ms: 1 }), None);
-    assert_eq!(edge(7, &Event::Suspend { now_ms: 1 }), None);
+    delivered(Record::EventResume(EventResume { now_ms: 1 }), |event| {
+        assert_eq!(edge(EVENTS, event), None);
+    });
+    delivered(Record::EventSuspend(EventSuspend { now_ms: 1 }), |event| {
+        assert_eq!(edge(7, event), None);
+    });
 }
 
 #[test]
 fn the_device_sleeping_or_stopping_is_an_edge() {
-    assert_eq!(
-        edge(EVENTS, &Event::Suspend { now_ms: 1 }),
-        Some(Edge::Sleeping)
-    );
-    assert_eq!(
-        edge(EVENTS, &Event::Stopping { now_ms: 1 }),
-        Some(Edge::Sleeping)
+    delivered(Record::EventSuspend(EventSuspend { now_ms: 1 }), |event| {
+        assert_eq!(edge(EVENTS, event), Some(Edge::Sleeping));
+    });
+    delivered(
+        Record::EventStopping(EventStopping { now_ms: 1 }),
+        |event| {
+            assert_eq!(edge(EVENTS, event), Some(Edge::Sleeping));
+        },
     );
 }
 

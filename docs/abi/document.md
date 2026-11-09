@@ -82,15 +82,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
-- [D] **Opening at a place** (interface 6 `events::GOTO` after `readers::open`: notes overview,
-  an annotation's start): the hand-over may also carry `section` and `offset` (decimal `u32`, both
-  or neither), the `doc_at` position of section 2. The reader opens the book there; they win over
-  `page`. A position the book does not have (a section past its last one, an offset past the
-  section's end), only one of the two, or a value that is not a decimal `u32` is not an error: the
-  reader opens the book where it would without them (its saved place, or `page`).
-- [D] **Opening a book at a place** (interface 6: open, then the reader's `goto`; notes-overview,
-  vocabulary, stats, search, todo 167): the hand-over may also carry `section` and `offset` (decimal
-  `u32`, the format's text coordinates as in `lib_position` and `lib_annotation`'s start) and
+- [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
+  annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
+  and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
+  text coordinates as in `lib_position` and `lib_annotation`'s start) and
   optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
   opens the book there instead of at its last position, as if the user had jumped there (the place
   is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
@@ -460,7 +455,7 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.

@@ -244,6 +244,7 @@ fn secret_screen(host: &ScriptedHost) -> Screen<'_> {
         width: 480,
         height: 800,
         instance: Some(INSTANCE),
+        last_input: None,
     }))
     .unwrap();
     assert_eq!(plugin.event(SECRET_TOKEN, &shown).unwrap().status, 0);
