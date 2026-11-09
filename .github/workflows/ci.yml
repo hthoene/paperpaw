@@ -539,6 +539,8 @@ jobs:
         # plugins/about/src/stages.rs from plugins/about/stages/*.def by
         # tools/stage-codec.py (needs rustfmt, which this job has).
         run: python3 tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check
+      - name: Joplin's copy of the reader's export stage codec is the schema's
+        run: python3 tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check
       - name: The plugin store's rules are the site's
         # tools/publish/store-rules.json, which paperpaw-dev and
         # paperpaw-sign check by, against paperpaw.org's own (where it
