@@ -1,18 +1,24 @@
 //! `event.wifi_done` (93) to the plugin whose join or host request ended
-//! (`docs/abi/device.md` 4): one event per request, told once, never dropped.
+//! (`docs/abi/device.md` 4): one event per request, called at most once.
 //!
 //! * **Never inside a callback.** The pump does nothing while a native
 //!   callback is on the stack, and a batch a callback staged runs before the
 //!   next callback is called.
 //! * **Told to the sender only.** The record waits in the request table, in the
 //!   room reserved when the request was accepted, until its plugin can be
-//!   called. It is released once the callback was called, whatever it
-//!   answered, or at once for a plugin that stopped or did not subscribe
-//!   (four entries are held device-wide, so none may wait for nobody).
+//!   called. The entry is released once the callback was called, whatever it
+//!   answered (only a busy answer is tried again, so a failing callback does
+//!   not get the event twice), and at once for a plugin that stopped or did
+//!   not subscribe: four entries are held device-wide, so none may wait for
+//!   nobody.
 //! * **One plugin does not hold up another.** A plugin that cannot be called
-//!   now (its callback is busy, or it is started first) is left alone for
-//!   [`RETRY_MS`] (the deadline `native_wifi_due` gives the main loop, so the
-//!   device may idle meanwhile) and the next ended request is tried.
+//!   now (its callback is busy, or it is not started) is not tried again for
+//!   [`RETRY_MS`], which every waiting request shares: the main loop wakes at
+//!   `native_wifi_due` and the device may idle until then. The next ended
+//!   request is tried in the same pass.
+//! * **A plugin that never starts does not keep its entry.** The host asks
+//!   for its start at most [`MAX_STARTS`] times; then the entry is released
+//!   and the event is lost.
 use super::{
     native_instances::InstanceState,
     radio_requests::{MAX_REQUESTS, RadioRequests},
@@ -25,6 +31,8 @@ use paperpaw_native::host_glue::ERR_BUSY;
 const RECORD_BYTES: usize = 128;
 /// How long a plugin that could not be called is left alone.
 const RETRY_MS: u64 = 1_000;
+/// How often a plugin that is not started is asked to start for its event.
+const MAX_STARTS: u8 = 3;
 
 impl Kernel {
     /// Tells the plugins whose Wi-Fi requests ended. `true` while something is
@@ -101,10 +109,16 @@ impl Kernel {
                         return Some(false);
                     }
                 }
-                // Not started yet: it is started and told on a later pass.
-                Ok(InstanceState::Lazy) if instances.request_start(key).is_ok() => {
-                    self.wifi_hold_back(table, now);
-                    return Some(false);
+                // Not started: ask for its start and tell it on a later pass, up
+                // to `MAX_STARTS` times (else its entry is released below).
+                Ok(InstanceState::Lazy) => {
+                    let starts = table
+                        .try_borrow_mut()
+                        .map_or(u8::MAX, |mut table| table.note_start(nth, request));
+                    if starts <= MAX_STARTS && instances.request_start(key).is_ok() {
+                        self.wifi_hold_back(table, now);
+                        return Some(false);
+                    }
                 }
                 // Stopped: nobody to tell.
                 _ => {}

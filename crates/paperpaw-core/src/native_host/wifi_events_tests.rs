@@ -208,3 +208,23 @@ fn the_due_time_is_none_when_nothing_waits() {
     let w = world(true, true);
     assert_eq!(w.kernel.native_wifi_due(), None);
 }
+
+#[test]
+fn a_plugin_that_never_starts_is_asked_three_times_and_then_loses_its_entry() {
+    let mut w = world(true, true);
+    ended(&w, "c", 1, "home", reason::TIMEOUT);
+    for (round, at) in [10, 1_010, 2_010].into_iter().enumerate() {
+        w.kernel.now = crate::Instant(at);
+        w.kernel.native_wifi_pump();
+        assert!(
+            w.kernel.shared.native_instances.take_start().is_some(),
+            "start {round} is asked for"
+        );
+        assert_eq!(held(&w), 1, "the entry waits");
+    }
+    w.kernel.now = crate::Instant(3_010);
+    assert!(!w.kernel.native_wifi_pump());
+    assert!(w.kernel.shared.native_instances.take_start().is_none());
+    assert_eq!(held(&w), 0, "given up: the room is free again");
+    assert_eq!(w.kernel.native_wifi_due(), None);
+}
