@@ -1,6 +1,6 @@
 screen menu.list
 Text "Alice's Adventures in Wonderland"
-Text "1 / 442"
+Text "1 / 447"
 Button "Font" (focused)
 Button "Contents"
 Button "Search"

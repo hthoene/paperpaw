@@ -17,14 +17,14 @@ const HOME: &str = "home.dashboard";
 /// Two pages: tools and a wide block on the first, a tool alone on the
 /// second.
 const PAGES: &str = "[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, \
-                     tool:file-manager.open 0/1 1x1, home.continue 0/3 4x2\n\
+                     tool:store.open 0/1 1x1, home.continue 0/3 4x2\n\
                      page-2 = tool:core.library 0/0 1x1\n";
 
 /// The home screen with two pages, being arranged (a long press on the page).
 fn arranging() -> App {
     let mut app = App::new(TOUCH, Shared::memory(PAGES, &[]));
     assert_eq!(app.screen(), HOME);
-    assert!(app.shows("Files"), "{}", app.described());
+    assert!(app.shows("Plugin store"), "{}", app.described());
     app.long_press(Point::new(400, 300));
     assert!(app.shows("Done"), "{}", app.described());
     app
@@ -33,13 +33,13 @@ fn arranging() -> App {
 /// Still page 1, still being arranged, still the home screen.
 fn stays(app: &mut App, what: &str) {
     assert_eq!(app.screen(), HOME, "{what}");
-    assert!(app.shows("Files"), "{what}: {}", app.described());
+    assert!(app.shows("Plugin store"), "{what}: {}", app.described());
     assert!(app.shows("Done"), "{what}: {}", app.described());
 }
 
 /// Where nothing is: between the tools and the block below them.
 fn empty(app: &mut App) -> i32 {
-    let files = app.find("Files").unwrap();
+    let files = app.find("Plugin store").unwrap();
     let library = app.find("Library").unwrap();
     files.y + (files.y - library.y)
 }
@@ -81,7 +81,7 @@ fn done_is_a_button_a_finger_finds() {
     app.tap(Point::new(done.x - 50, done.y + 20));
     assert!(!app.shows("Done"), "{}", app.described());
     assert_eq!(app.screen(), HOME);
-    assert!(app.shows("Files"), "{}", app.described());
+    assert!(app.shows("Plugin store"), "{}", app.described());
 }
 
 #[test]

@@ -169,23 +169,32 @@ impl Policy {
 impl InputKey {
     /// Its name as written in key maps, as [`InputKey::parse`] reads it.
     pub(crate) fn name(&self) -> String {
+        let mut name = String::new();
+        // A `String` never refuses.
+        let _ = self.write_name(&mut name);
+        name
+    }
+
+    /// [`name`](Self::name) written into `out`, which can refuse (a buffer
+    /// too small).
+    pub(crate) fn write_name(&self, out: &mut dyn core::fmt::Write) -> core::fmt::Result {
         match self {
-            InputKey::Button(name) => format!("button.{name}"),
-            InputKey::LongButton(name) => format!("long.{name}"),
-            InputKey::DoubleButton(name) => format!("double.{name}"),
-            InputKey::Tap(zone) => format!("tap.{}", zone.id()),
-            InputKey::LongTap(zone) => format!("long-tap.{}", zone.id()),
-            InputKey::DoubleTap(zone) => format!("double-tap.{}", zone.id()),
-            InputKey::Swipe(direction) => format!("swipe.{}", direction.id()),
-            InputKey::Edge(side) => format!("edge.{}", side_id(*side)),
-            InputKey::Pinch(out) => String::from(if *out { "pinch.out" } else { "pinch.in" }),
-            InputKey::Tap2 => String::from("tap2"),
-            InputKey::Chord(buttons) => format!("chord.{buttons}"),
-            InputKey::ZoneTap(false, name) => format!("tap.{name}"),
-            InputKey::ZoneTap(true, name) => format!("long-tap.{name}"),
-            InputKey::Named(id) => format!("input.{id}"),
-            InputKey::Gesture(id) => format!("gesture.{id}"),
-            InputKey::Policy => String::from("gestures.policy"),
+            InputKey::Button(name) => write!(out, "button.{name}"),
+            InputKey::LongButton(name) => write!(out, "long.{name}"),
+            InputKey::DoubleButton(name) => write!(out, "double.{name}"),
+            InputKey::Tap(zone) => write!(out, "tap.{}", zone.id()),
+            InputKey::LongTap(zone) => write!(out, "long-tap.{}", zone.id()),
+            InputKey::DoubleTap(zone) => write!(out, "double-tap.{}", zone.id()),
+            InputKey::Swipe(direction) => write!(out, "swipe.{}", direction.id()),
+            InputKey::Edge(side) => write!(out, "edge.{}", side_id(*side)),
+            InputKey::Pinch(out_) => out.write_str(if *out_ { "pinch.out" } else { "pinch.in" }),
+            InputKey::Tap2 => out.write_str("tap2"),
+            InputKey::Chord(buttons) => write!(out, "chord.{buttons}"),
+            InputKey::ZoneTap(false, name) => write!(out, "tap.{name}"),
+            InputKey::ZoneTap(true, name) => write!(out, "long-tap.{name}"),
+            InputKey::Named(id) => write!(out, "input.{id}"),
+            InputKey::Gesture(id) => write!(out, "gesture.{id}"),
+            InputKey::Policy => out.write_str("gestures.policy"),
         }
     }
 
@@ -272,22 +281,89 @@ impl paperpaw_sdk::keys::KeyBindings for Keymap {
         &self,
         layer: &str,
     ) -> Vec<(String, Option<Id>, paperpaw_sdk::keys::BindingOrigin)> {
-        use paperpaw_sdk::keys::BindingOrigin;
         let Some(bindings) = self.layers.get(layer) else {
             return Vec::new();
         };
         bindings
             .iter()
             .map(|(key, binding)| {
-                let origin = match binding.origin {
-                    Origin::Plugin => BindingOrigin::Plugin,
-                    Origin::Device => BindingOrigin::Device,
-                    Origin::Preset => BindingOrigin::Preset,
-                    Origin::User => BindingOrigin::User,
-                };
-                (key.name(), binding.action.clone(), origin)
+                (
+                    key.name(),
+                    binding.action.clone(),
+                    binding_origin(binding.origin),
+                )
             })
             .collect()
+    }
+
+    fn each_layer(
+        &self,
+        visit: &mut dyn FnMut(&str) -> core::ops::ControlFlow<()>,
+    ) -> core::ops::ControlFlow<()> {
+        for (layer, _) in self.layers.iter() {
+            visit(layer)?;
+        }
+        core::ops::ControlFlow::Continue(())
+    }
+
+    /// Nothing is allocated: each name is written on the stack. A name over
+    /// 64 bytes cannot be a registry row and is left out, as every walk
+    /// leaves out a row over its caps.
+    fn each_binding(
+        &self,
+        layer: &str,
+        visit: &mut paperpaw_sdk::keys::BindingVisit<'_>,
+    ) -> core::ops::ControlFlow<()> {
+        let Some(bindings) = self.layers.get(layer) else {
+            return core::ops::ControlFlow::Continue(());
+        };
+        for (key, binding) in bindings.iter() {
+            let mut name = StackName {
+                bytes: [0; NAME_CAP],
+                len: 0,
+            };
+            if key.write_name(&mut name).is_err() {
+                continue;
+            }
+            let Ok(name) = core::str::from_utf8(&name.bytes[..name.len]) else {
+                continue;
+            };
+            visit(
+                name,
+                binding.action.as_ref(),
+                binding_origin(binding.origin),
+            )?;
+        }
+        core::ops::ControlFlow::Continue(())
+    }
+}
+
+/// The longest input name a registry row carries (`reg_binding.input`).
+const NAME_CAP: usize = 64;
+
+/// An input's name on the stack: a name over [`NAME_CAP`] bytes is refused.
+struct StackName {
+    bytes: [u8; NAME_CAP],
+    len: usize,
+}
+
+impl core::fmt::Write for StackName {
+    fn write_str(&mut self, text: &str) -> core::fmt::Result {
+        let end = self.len.checked_add(text.len()).ok_or(core::fmt::Error)?;
+        let room = self.bytes.get_mut(self.len..end).ok_or(core::fmt::Error)?;
+        room.copy_from_slice(text.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+fn binding_origin(origin: Origin) -> paperpaw_sdk::keys::BindingOrigin {
+    use paperpaw_sdk::keys::BindingOrigin;
+    match origin {
+        Origin::Plugin => BindingOrigin::Plugin,
+        Origin::Device => BindingOrigin::Device,
+        Origin::Preset => BindingOrigin::Preset,
+        Origin::User => BindingOrigin::User,
     }
 }
 
@@ -610,6 +686,50 @@ mod tests {
         let lines: Vec<u32> = problems.iter().map(|p| p.line).collect();
         // A layer of words is a section, but no layer: its entries are refused.
         assert_eq!(lines, [2, 4, 5, 6, 8]);
+    }
+
+    /// The walks of the registry visit what the lists hold, in layer order,
+    /// and leave out a name over 64 bytes (it cannot be a registry row).
+    #[test]
+    fn the_walks_match_the_lists_and_leave_out_a_long_name() {
+        use core::ops::ControlFlow;
+        use paperpaw_sdk::keys::KeyBindings;
+        let long = "x".repeat(70);
+        let mut map = Keymap::default();
+        let source = format!(
+            "[keymap.b]\nbutton.menu = demo.one\n[keymap.a]\nswipe.left = none\nbutton.{long} = demo.two\n"
+        );
+        let problems = map.load(&source, Origin::User, false);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut layers = Vec::new();
+        let end = map.each_layer(&mut |layer| {
+            layers.push(layer.to_string());
+            ControlFlow::Continue(())
+        });
+        assert_eq!(
+            (layers.as_slice(), end),
+            (&["a".into(), "b".into()][..], ControlFlow::Continue(()))
+        );
+        let mut walked = Vec::new();
+        let end = map.each_binding("a", &mut |input, action, _| {
+            walked.push((input.to_string(), action.map(|id| id.as_str().to_string())));
+            ControlFlow::Continue(())
+        });
+        assert!(end.is_continue());
+        // The list has both; the walk has the one that can be a row.
+        assert_eq!(map.bindings("a").len(), 2);
+        assert_eq!(walked, [("swipe.left".to_string(), None)]);
+        // `Break` ends the walk and is the result.
+        let mut seen = 0;
+        let end = map.each_layer(&mut |_| {
+            seen += 1;
+            ControlFlow::Break(())
+        });
+        assert_eq!((seen, end), (1, ControlFlow::Break(())));
+        assert!(
+            map.each_binding("none", &mut |_, _, _| ControlFlow::Break(()))
+                .is_continue()
+        );
     }
 
     /// Every input's name reads back as the same input.

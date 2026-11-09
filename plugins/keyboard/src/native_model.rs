@@ -7,6 +7,7 @@ use crate::keys::{Key, Layer, Slot, button_scale, height_of, size_of, try_rows_f
 use crate::{SHAPE_ROUND, SHAPE_TALL, SHAPE_WIDE, SIZE_LARGE, SIZE_MEDIUM, SIZE_SMALL};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{Point, Rect, native::Error};
+use paperpaw_ui_kit::mem::wipe_text;
 
 /// Longest text the keyboard takes, in characters: room for long web
 /// addresses and keys; a request takes at most 24,576 bytes (8,192 secret).
@@ -555,7 +556,10 @@ impl Board {
                 .filter(|c| !c.is_control() || (self.asked.multiline && *c == '\n'))
                 .filter(|c| self.layer != Layer::Digits || c.is_ascii_digit()),
         );
-        self.insert(&kept, true)
+        // What was typed may be a password: the copy is zeroed, not just freed.
+        let result = self.insert(&kept, true);
+        wipe_text(kept);
+        result
     }
 
     /// Inserts pasted text: one line (several where lines are typed), digits
@@ -582,7 +586,9 @@ impl Board {
                 line.push(c);
             }
         }
-        self.insert(line.trim(), false)
+        let result = self.insert(line.trim(), false);
+        wipe_text(line);
+        result
     }
 
     /// Replaces the text with pasted text (the phone's answer): the text so
@@ -593,7 +599,10 @@ impl Board {
     pub fn replace_pasted(&mut self, text: &str) -> Result<Pressed, Error> {
         let before = core::mem::take(&mut self.text);
         match self.pasted(text) {
-            Ok(pressed) => Ok(pressed),
+            Ok(pressed) => {
+                wipe_text(before);
+                Ok(pressed)
+            }
             Err(error) => {
                 self.text = before;
                 self.shift = self.auto_shift();

@@ -7,7 +7,7 @@
 //! write the same as the old code.
 //!
 //! What a hostile file costs is bounded by the caller: it reads at most
-//! [`crate::max_file`] bytes of KOReader's file, and a table nests at most
+//! [`MAX_FILE`](crate::native_plugin::MAX_FILE) bytes of KOReader's file, and a table nests at most
 //! [`MAX_DEPTH`] deep.
 use alloc::string::String;
 use alloc::vec::Vec;

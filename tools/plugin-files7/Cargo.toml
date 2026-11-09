@@ -59,6 +59,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "joplin"
+path = "src/bin/joplin.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "keys"
 path = "src/bin/keys.rs"
 test = false
@@ -137,6 +143,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "weather"
+path = "src/bin/weather.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "widgets"
 path = "src/bin/widgets.rs"
 test = false
@@ -202,6 +214,18 @@ path = "src/bin/update.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "transfer"
+path = "src/bin/transfer.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "sleep"
+path = "src/bin/sleep.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
@@ -211,6 +235,7 @@ paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = [
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
 paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
 paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
+paperpaw-plugin-joplin = { path = "../../plugins/joplin", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
@@ -219,11 +244,12 @@ paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
-paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
 paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-weather = { path = "../../plugins/weather", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-bluetooth = { path = "../../plugins/bluetooth", features = ["native-entry"] }
 paperpaw-plugin-dictionary = { path = "../../plugins/dictionary", features = ["native-entry"] }
@@ -235,6 +261,8 @@ paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entr
 paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
 paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
+paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
+paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]
