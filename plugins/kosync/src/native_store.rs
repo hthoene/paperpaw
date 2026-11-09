@@ -4,7 +4,7 @@
 //! kept in `account.ini`. The parts that read a text are host-free; the calls
 //! use the facades with caller-owned buffers, and every buffer that held the key
 //! is wiped.
-use alloc::string::String;
+use alloc::{borrow::Cow, string::String};
 
 pub use crate::native_model::Secret;
 
@@ -18,7 +18,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    mem::{buffer, wipe},
+    mem::{buffer, wipe, wipe_text},
     text::{concat, copy},
 };
 
@@ -48,7 +48,12 @@ pub fn value_of(text: &str, key: &str) -> Result<Option<String>, Error> {
         return Ok(None);
     };
     let value = entry.value.try_as_str().map_err(|_| Error::NoMemory)?;
-    copy(&value).map(Some)
+    let kept = copy(&value);
+    // An escaped value is a copy of its own: the key's, when it is one.
+    if let Cow::Owned(owned) = value {
+        wipe_text(owned);
+    }
+    kept.map(Some)
 }
 
 /// The text of `device.ini` for the id `id`.

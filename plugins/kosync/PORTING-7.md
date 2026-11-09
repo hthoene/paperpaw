@@ -37,21 +37,23 @@ named below and in `tests/acceptance_pending.rs`.
 
 ## What waits (each an ignored case in `tests/acceptance_pending.rs`)
 
-- **The book's fingerprint** (`core.library` op 25 `book_key`) and **a place's XPointer** (`core.document`
-  `xpointer`) have no SDK facade yet (`src/native_backing.rs` answers "unavailable"): the plugin then
-  makes no fetch and sends nothing, as interface 6 did for a book it could not read. Signing in, the key,
-  the account screen, *Sync progress*'s account prompt and sign out all work. Services' PR #651 now has
-  `Library::book_key`, `position` and `set_position`; `native_backing.rs` takes them over once it merges
-  and is blessed. The `core.document` client (`xpointer`, `locate`) follows.
-- **Sync progress is a silent no-op until the facades land.** With no book key and no XPointer the menu
-  entry, the page-turn and book-close events and *Sync now* do nothing the reader can see, and the 30-minute
-  push work (`Action::PushLater`) is not declared at all (`native_backing::can_send`), so the radio is not
-  woken for nothing. Signing in, signing out, the key and the account screen work.
-- **Go there** needs `core.document` `locate`; without it the offer is treated as closed (*not now*).
-  It opens the book through `core.reader` with `path`, `section` and `offset` (the reader reads them
-  since #629).
-- **Stored positions** (`core.library` ops 13 and 14, written with `sync` and, after *Go there*, `confirmed`)
-  have no facade: the sync does not write the position it fetched into the library.
+- **The book's fingerprint, a place's XPointer and the place of an XPointer** are asked through
+  `src/native_backing.rs`: `Library::book_key` (op 25) for the KOReader fingerprint, and
+  `Documents::open_book`, `xpointer` / `locate` and `close` (`core.document`, root 1 with `uses.storage`) for
+  the XPointers. A service the device does not offer, a book the library does not know, a book still being
+  prepared (`Busy`: tried again at the next chance) and a format without XPointers (the progress is sent
+  alone, as interface 6 did) all answer "unavailable"; nothing aborts. The host's side of these calls is
+  not wired (Host #417, #944): until it is, they answer `Unsupported` and the sync is a **silent no-op**:
+  no fetch, no send, and the 30-minute push work (`Action::PushLater`) is not declared
+  (`Backing::can_send` needs the library). Signing in, signing out, the key and the account screen work.
+- **Go there** opens the book through `core.reader` with `path`, `section` and `offset` (the reader reads them
+  since #629). Where `locate` cannot place the XPointer, interface 6 went by the percentage
+  (`at_progress`, the section sizes); the document service gives no section sizes yet, so the offer is then
+  treated as closed (*not now*). Ask Kernel/Services for a size read if it is wanted.
+- **No library position is written.** Interface 6 did not write one either: *Go there* hands the place to the
+  reader, which keeps its own. `Library::position` and `set_position` (`sync`, `confirmed`) are not used.
+- The book is opened for its XPointer with the host's defaults, not with the reader's options
+  (publisher styles, picture size): a place is a section and an offset in the source, which do not depend on them.
 - **Not linked into the app yet** (`NATIVE_PLUGINS`; waits for device activation, #944/#417): the app's
   interface-6 install and its `NETWORK_SETTINGS` entry are gone, so the *Progress sync* row is missing from
   the settings snapshot until then (`tests/snapshots/settings.txt` updated, as for notes-overview).

@@ -8,14 +8,14 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 4] = [
+const CASES: [Case; 3] = [
     // A book opened is fetched by its fingerprint and, where another device is
     // further, offered; the position is sent while reading and when the book
     // closes, with the XPointer where the format has one.
     Case {
         name: "a-book-opened-fetches-and-offers-a-further-position",
         golden: None,
-        blocked_by: &["library-book-key-facade", "document-xpointer-facade"],
+        blocked_by: &["library-host-book-key", "document-host-xpointer"],
     },
     // *Go there* opens the book at the other device's place: the XPointer is
     // located in the book (or the percentage turned into a place) and the
@@ -23,7 +23,7 @@ const CASES: [Case; 4] = [
     Case {
         name: "go-there-opens-the-book-at-the-other-devices-place",
         golden: None,
-        blocked_by: &["document-locate-facade", "reader-opens-at-place-host"],
+        blocked_by: &["document-host-locate", "reader-opens-at-place-host"],
     },
     // The account screen over a scripted host: typing the fields, signing in
     // and creating an account against the network service, the key kept among
@@ -32,13 +32,6 @@ const CASES: [Case; 4] = [
         name: "the-account-screen-signs-in-creates-and-signs-out",
         golden: None,
         blocked_by: &["ui-host-h1", "net-host"],
-    },
-    // The position the sync wrote reads back from the library as a sync write
-    // (`set_position` with `sync`, `confirmed` after *Go there*).
-    Case {
-        name: "a-synced-position-is-stored-as-a-sync-write",
-        golden: None,
-        blocked_by: &["library-position-facade"],
     },
 ];
 
@@ -50,13 +43,13 @@ fn every_case_still_has_its_reference() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the SDK has no facade for a book's fingerprint (core.library op 25) or a place's XPointer (core.document)"]
+#[ignore = "BLOCKED: the host does not answer core.library op 25 (book_key) or core.document xpointer yet"]
 fn syncing_with_the_server() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: no core.document locate facade, no reader that reads section and offset"]
+#[ignore = "BLOCKED: the host does not answer core.document locate yet; the reader's open-at-place needs the document host (H1)"]
 fn going_there() {
     CASES[1].refuse().unwrap();
 }
@@ -65,10 +58,4 @@ fn going_there() {
 #[ignore = "BLOCKED: core.ui and core.net hosts on the scripted host"]
 fn the_account() {
     CASES[2].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED: no core.library position facade (ops 13 and 14)"]
-fn stored_positions() {
-    CASES[3].refuse().unwrap();
 }

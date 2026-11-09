@@ -133,6 +133,8 @@
   ],
   "services": [
     "core.device",
+    "core.document",
+    "core.library",
     "core.net",
     "core.secrets",
     "core.ui",
@@ -140,7 +142,15 @@
   ],
   "features": [
     {
+      "key": "uses.library",
+      "required": false
+    },
+    {
       "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
       "required": false
     },
     {

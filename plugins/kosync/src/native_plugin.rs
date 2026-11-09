@@ -33,7 +33,7 @@ use crate::declarations::{
     SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
-use crate::native_backing as backing;
+use crate::native_backing::Backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
 use crate::native_model::{self, MAX_ANSWER, Remote, Secret, failure, percent_text, progress_body};
 use crate::native_store as store;
@@ -83,6 +83,8 @@ pub struct NativeKosync {
     secrets: Option<Secrets>,
     work: Option<Work>,
     device: Option<Device>,
+    /// The book's fingerprint and places, where the device offers the services.
+    backing: Backing,
     /// The services were tried; `net` is `None` where the device has no network.
     opened: bool,
     screens: Screens<View>,
@@ -133,10 +135,10 @@ impl Plugin for NativeKosync {
                     engine.page_turned(ctx, position(&reading)?, out)
                 })
             }
-            Event::Suspend { now_ms } if token == SUSPEND => {
+            Event::Suspend { now_ms, .. } if token == SUSPEND => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.send_now(ctx, out))
             }
-            Event::Resume { now_ms } if token == RESUME => {
+            Event::Resume { now_ms, .. } if token == RESUME => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.resumed(ctx, out))
             }
             Event::WorkDue(due) if token == WORK_DUE && due.key() == PUSH_WORK => {
@@ -144,12 +146,12 @@ impl Plugin for NativeKosync {
                     engine.send_now(ctx, out)
                 })
             }
-            Event::WorkAllowed { now_ms } if token == WORK_ALLOWED => {
+            Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
             Event::HttpDone(done) if token == HTTP_DONE => self.http_done(host, &done),
-            Event::Answered { answer, now_ms } => self.answered(host, now_ms, answer),
+            Event::Answered { answer, now_ms, .. } => self.answered(host, now_ms, answer),
             Event::ScreenOpened { instance, .. } if token == ACCOUNT => {
                 self.opened_account(host, instance)
             }
@@ -228,6 +230,7 @@ impl NativeKosync {
         self.secrets = optional(Secrets::open(host))?;
         self.work = optional(Work::open(host))?;
         self.device = optional(Device::open(host))?;
+        self.backing = Backing::open(host)?;
         Ok(())
     }
 
@@ -480,7 +483,7 @@ impl NativeKosync {
         local: f64,
         manual: bool,
     ) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, path)? else {
+        let Some(digest) = self.backing.digest(host, path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
@@ -520,17 +523,18 @@ impl NativeKosync {
     }
 
     fn start_send(&mut self, host: &Host<'_>, position: &Position) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, &position.path)? else {
+        let Some(digest) = self.backing.digest(host, &position.path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
             return Ok(false);
         };
-        let (xpointer, progress) = match backing::xpointer(host, &position.path, position.at)? {
-            Some(found) => found,
-            // The book gives none (a format without XPointers): the reader's progress.
-            None => (String::new(), position.progress),
-        };
+        // The book gives none (a format without XPointers): the progress alone.
+        let xpointer = self
+            .backing
+            .xpointer(host, &position.path, position.at)?
+            .unwrap_or_default();
+        let progress = position.progress;
         let model = self.model(host)?;
         let id = match &self.engine {
             Some(engine) => copy(engine.device_id())?,
@@ -599,7 +603,7 @@ impl NativeKosync {
     }
 
     fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !backing::can_send() {
+        if !self.backing.can_send() {
             return Ok(());
         }
         let Some(work) = &self.work else {
@@ -825,9 +829,7 @@ impl NativeKosync {
     /// Opens the book where the other device is, in the reader the user bound.
     /// `false` where the place cannot be found (it is then as if closed).
     fn go_there(&mut self, host: &Host<'_>, offer: &Offer) -> Result<bool, Error> {
-        let progress = offer.percentage.parse::<f64>().unwrap_or(0.0);
-        let Some((section, offset)) =
-            backing::locate(host, &offer.path, &offer.xpointer, progress)?
+        let Some((section, offset)) = self.backing.locate(host, &offer.path, &offer.xpointer)?
         else {
             return Ok(false);
         };

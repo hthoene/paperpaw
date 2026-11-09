@@ -208,35 +208,45 @@ pub fn percent_text(progress: f64) -> Result<String, Error> {
 /// `NoMemory` when the literal cannot be kept.
 pub fn json_string(text: &str) -> Result<String, Error> {
     let mut out = String::new();
-    // Most text needs no escape: the quotes and a few more bytes.
-    out.try_reserve(text.len().saturating_add(8))
-        .map_err(|_| Error::NoMemory)?;
+    write_json_string(&mut out, text)?;
+    Ok(out)
+}
+
+/// The bytes `c` takes as part of a JSON string literal.
+const fn json_len(c: char) -> usize {
+    match c {
+        '"' | '\\' | '\n' | '\r' | '\t' => 2,
+        c if (c as u32) < 0x20 => 6,
+        c => c.len_utf8(),
+    }
+}
+
+fn write_json_string(out: &mut String, text: &str) -> Result<(), Error> {
+    // All of it is reserved at once: the string never grows, so no earlier,
+    // smaller copy of a secret is left behind in the heap by a move.
+    let total = text
+        .chars()
+        .fold(2usize, |total, c| total.saturating_add(json_len(c)));
+    out.try_reserve_exact(total).map_err(|_| Error::NoMemory)?;
     out.push('"');
     for c in text.chars() {
-        let escaped: Option<&str> = match c {
-            '"' => Some("\\\""),
-            '\\' => Some("\\\\"),
-            '\n' => Some("\\n"),
-            '\r' => Some("\\r"),
-            '\t' => Some("\\t"),
-            _ => None,
-        };
-        let need = escaped.map_or(c.len_utf8().max(6), str::len);
-        out.try_reserve(need).map_err(|_| Error::NoMemory)?;
-        match escaped {
-            Some(text) => out.push_str(text),
-            None if (c as u32) < 0x20 => {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
                 const HEX: &[u8; 16] = b"0123456789abcdef";
                 out.push_str("\\u00");
                 out.push(char::from(HEX[(c as usize >> 4) & 15]));
                 out.push(char::from(HEX[c as usize & 15]));
             }
-            None => out.push(c),
+            c => out.push(c),
         }
     }
-    out.try_reserve(1).map_err(|_| Error::NoMemory)?;
     out.push('"');
-    Ok(out)
+    Ok(())
 }
 
 /// `progress` (0..1) as the body writes it: four decimals, a tie rounding to
