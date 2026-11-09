@@ -162,9 +162,9 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
     let widget = WidgetDecl::new(WIDGET, WIDGET_GROUP, "core.widgets.reading", WIDGET_TOKEN)
         .map_err(|_| DeclareError::TooLong("widget"))?
         .live()
-        .cells(2, 2)
-        .previews(WIDGET_GROUP)
-        .map_err(|_| DeclareError::TooLong("widget preview"))?;
+        .cells(2, 2);
+    // No `previews`: a widget that previews a settings group is never offered
+    // in the Add picker (Kernel ruling, #228), and Beta 3 declared none.
     d.widget(widget)?;
     declare_all(d, WIDGET, WIDGET_GROUP, WIDGET_OPTIONS)?;
     d.submit()
