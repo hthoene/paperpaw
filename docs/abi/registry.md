@@ -212,11 +212,11 @@ Field meanings:
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
   `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
   `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
-  (draft 32): a settings page lists the widgets whose `previews` is its group. With `reg_query.flags`
-  bit 0 op 19 lists those that preview `scope` in its order (the host's own, then declarations by
-  plugin slot, a plugin's own by name), and a page shows the last. Interface 6 took the last added;
-  where two plugins preview one group the shown one may differ (accepted for 1.0: no first-party
-  group has two).
+  (draft 32): a settings page lists the widgets whose `previews` is its group. With
+  `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
+  then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
+  6 took the last added; where two plugins preview one group the shown one may differ (accepted
+  for 1.0: no first-party group has two).
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
