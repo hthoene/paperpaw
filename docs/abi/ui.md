@@ -407,6 +407,8 @@ asker learns its request id at once and long texts move in pages, never cut.
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
   addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
+  `dispatch_event` passes `token` 0 for 82 (the ask names no token); the plugin routes it by its
+  tag and `request`, never by the token, which may equal one of its own.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
   has (`core-events.md` 3.3), so the held-event store being full never drops it. The one
