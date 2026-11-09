@@ -167,7 +167,6 @@ dependencies = [
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
  "paperpaw-plugin-stats",
- "paperpaw-plugin-translate",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wallabag",
  "paperpaw-plugin-weather",
@@ -398,14 +397,6 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-translate"
-version = "1.0.6"
-dependencies = [
- "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
 

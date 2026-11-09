@@ -32,7 +32,6 @@ store-plugins = [
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
-    "dep:paperpaw-plugin-translate",
     "dep:paperpaw-plugin-reading-goal",
     "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
@@ -148,7 +147,6 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-translate = { workspace = true, optional = true }
 paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-joplin = { workspace = true, optional = true }
