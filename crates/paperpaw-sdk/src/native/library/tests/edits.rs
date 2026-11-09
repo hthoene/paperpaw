@@ -175,8 +175,9 @@ fn a_short_edit_is_one_call_and_a_removal_carries_only_its_id() {
 fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
     setup!(table, log, host, lib);
     let mut tx = begin(&log, &lib, &host);
-    // 'é' is two bytes: 1,600 of them are 3,200 bytes, over one part of 3,072.
-    let text = "é".repeat(1_600);
+    // One ASCII byte then 1,600 two-byte 'é': 3,201 bytes, so the 3,072-byte cut
+    // falls inside a character (byte 3,071 starts one) and must move back to it.
+    let text = alloc::format!("a{}", "é".repeat(1_600));
     let note = "n".repeat(600);
     let edit = AnnotationEdit::add(AnnotationKind::Highlight, (0, 1), (0, 9))
         .text(&text)
@@ -193,10 +194,11 @@ fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
     };
     assert_eq!(
         (e.text, e.note, e.text_bytes, e.note_bytes),
-        ("", "", 3200, 600)
+        ("", "", 3201, 600)
     );
     assert_eq!(e.flags, 1 | 1 << 4, "noted and has XPointers");
     let mut joined = String::new();
+    let mut text_parts = Vec::new();
     let mut offsets = Vec::new();
     for at in 1..calls {
         let (op, rows) = sent(&log, at);
@@ -209,12 +211,15 @@ fn long_texts_and_every_xpointer_travel_in_parts_cut_on_character_boundaries() {
         offsets.push((p.field, p.offset, p.flags));
         if p.field == 0 {
             joined.push_str(p.data);
+            text_parts.push(p.data.len());
         }
     }
     assert_eq!(joined, text, "parts join to the text");
+    // The first part stops before the split character, the second carries all of it.
+    assert_eq!(text_parts, [3071, 130]);
     assert_eq!(
         offsets,
-        [(0, 0, 0), (0, 3072, 1), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
+        [(0, 0, 0), (0, 3071, 1), (1, 0, 1), (2, 0, 1), (3, 0, 1)]
     );
 }
 
