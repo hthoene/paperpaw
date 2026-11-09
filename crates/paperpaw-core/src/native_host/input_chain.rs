@@ -10,12 +10,12 @@
 //! a failed or invalid filter passes the input (fail open, logged by the
 //! count of refusals); a replaced key whose name is not one of the device's or
 //! platform's known buttons passes unchanged (the key path takes `&'static`
-//! names), a replaced pointer is clamped to the display, and a replaced
-//! gesture, like a `raise`, waits for the plugins' gesture declarations
-//! (`BLOCKED UIX-input-spec`: the host does not admit `input.spec` yet, so no
-//! plugin has an input or gesture to raise).
+//! names), a replaced pointer is clamped to the display, a replaced gesture
+//! is the kernel's own gesture at the clamped point, and a `raise` names an
+//! input or gesture the filter's plugin declared with `input.spec`
+//! (`ui.md` 2 and 4.1): the layers shown run what they bind it to.
 use super::{
-    declaration_store::DeclarationStore,
+    declaration_store::{DeclarationStore, Kind},
     registrations::{self as wire, Record},
     stage_broker::Subscription,
     stages_wire::core_input_filter_v1 as stage,
@@ -27,6 +27,7 @@ use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::{
     ButtonState, InputEvent, Point, PointerEvent, PointerPhase, PointerTool, buttons,
 };
+use paperpaw_sdk::{Direction, Gesture, GestureKind};
 
 /// What the native filters made of one input.
 #[derive(Debug, PartialEq, Eq)]
@@ -41,6 +42,13 @@ pub(crate) enum Native {
     Cancelled,
     /// Run this action instead (an action id).
     Run(String),
+    /// Raise this input of the filter's plugin (`input.<plugin>.<name>` or
+    /// `gesture.<plugin>.<name>`) as key maps write it: what the layers shown
+    /// bind it to runs, and no filter sees it.
+    Raise(String),
+    /// A gesture in place of the input (a replace that made an
+    /// `input.gesture`): the screens get it as the kernel's own.
+    Gesture(Gesture),
 }
 
 /// The buttons the platform names: the only key names a filter can make.
@@ -135,14 +143,7 @@ pub(crate) fn event_of(
                 3 => PointerPhase::Cancel,
                 _ => return None,
             };
-            let (width, height) = display;
-            // A display of no width or height (a shell that has not sized it
-            // yet) has no last pixel: the point goes to 0 (`clamp` panics when
-            // its upper bound is below its lower).
-            let point = Point::new(
-                pointer.x.clamp(0, (i32::from(width) - 1).max(0)),
-                pointer.y.clamp(0, (i32::from(height) - 1).max(0)),
-            );
+            let point = clamped(pointer.x, pointer.y, display);
             let id = u8::try_from(pointer.contact.unwrap_or(0)).ok()?;
             Some(InputEvent::Pointer(match *original {
                 InputEvent::Pointer(was) => was.with_id(id).with_phase(phase).with_point(point),
@@ -151,6 +152,44 @@ pub(crate) fn event_of(
         }
         _ => None,
     }
+}
+
+/// `x`, `y` on the display. A display of no width or height (a shell that has
+/// not sized it yet) has no last pixel: the point goes to 0 (`clamp` panics
+/// when its upper bound is below its lower).
+fn clamped(x: i32, y: i32, (width, height): (u16, u16)) -> Point {
+    Point::new(
+        x.clamp(0, (i32::from(width) - 1).max(0)),
+        y.clamp(0, (i32::from(height) - 1).max(0)),
+    )
+}
+
+/// The gesture a filter's `replace` made (`input.gesture`: 0 tap, 1 long
+/// press, 2-5 swipe left, right, up, down), at a point on the display, with the
+/// tool of the pointer it replaces; `None` for any other record or kind.
+pub(crate) fn gesture_of(
+    record: &Record<'_>,
+    original: &InputEvent,
+    display: (u16, u16),
+) -> Option<Gesture> {
+    let Record::InputGesture(made) = record else {
+        return None;
+    };
+    let kind = match made.kind {
+        0 => GestureKind::Tap,
+        1 => GestureKind::LongPress,
+        2 => GestureKind::Swipe(Direction::Left),
+        3 => GestureKind::Swipe(Direction::Right),
+        4 => GestureKind::Swipe(Direction::Up),
+        5 => GestureKind::Swipe(Direction::Down),
+        _ => return None,
+    };
+    let tool = match original {
+        InputEvent::Pointer(was) => was.tool,
+        _ => PointerTool::Finger,
+    };
+    let point = clamped(made.x, made.y, display);
+    Some(Gesture::new(kind, point, point, tool))
 }
 
 /// The subscribers of `core.input-filter`, kept with the declaration store's
@@ -183,6 +222,35 @@ pub(crate) fn subscriptions(store: &DeclarationStore) -> Result<Vec<Subscription
     Ok(rows)
 }
 
+/// Whether `plugin` declared the input or gesture `name` (`input.<plugin>.<name>`
+/// or `gesture.<plugin>.<name>`, as key maps write it) with `input.spec` of
+/// the matching kind.
+pub(crate) fn declared_input(
+    store: &core::cell::RefCell<DeclarationStore>,
+    plugin: &str,
+    name: &str,
+) -> bool {
+    let (kind, rest) = match (name.strip_prefix("input."), name.strip_prefix("gesture.")) {
+        (Some(rest), _) => (0, rest),
+        (_, Some(rest)) => (1, rest),
+        _ => return false,
+    };
+    let Some(own) = rest
+        .strip_prefix(plugin)
+        .and_then(|rest| rest.strip_prefix('.'))
+    else {
+        return false;
+    };
+    let Ok(store) = store.try_borrow() else {
+        return false;
+    };
+    let mut found = false;
+    store.find(plugin, Kind::InputSpec, own, &mut |record| {
+        found |= matches!(record, Record::InputSpec(spec) if spec.kind == kind);
+    });
+    found
+}
+
 /// One input through the chain with `runner`: what it made of it, and how
 /// many filters were refused (failed or invalid callbacks, replies and
 /// verdicts: the input passed them).
@@ -206,12 +274,12 @@ pub(crate) fn run_chain(
     };
     let native = match routed {
         Routed::Pass => Native::Pass,
-        Routed::Replaced(next) => match next
-            .record()
-            .ok()
-            .and_then(|record| event_of(&record, event, display, device_keys))
-        {
-            Some(next) => Native::Replaced(next),
+        Routed::Replaced(next) => match next.record().ok().and_then(|record| {
+            gesture_of(&record, event, display)
+                .map(Native::Gesture)
+                .or_else(|| event_of(&record, event, display, device_keys).map(Native::Replaced))
+        }) {
+            Some(native) => native,
             None => {
                 refused += 1;
                 Native::Pass
@@ -220,9 +288,8 @@ pub(crate) fn run_chain(
         Routed::Taken => Native::Taken,
         Routed::Cancelled => Native::Cancelled,
         Routed::Run(action) => Native::Run(String::from(action.as_str())),
-        // No plugin can declare an input or gesture yet, so `declared`
-        // answers no and a raise never gets here.
-        Routed::Raise { .. } => Native::Pass,
+        // Only a name the filter's plugin declared gets here (`declared`).
+        Routed::Raise { input, .. } => Native::Raise(String::from(input.as_str())),
     };
     (native, refused)
 }
@@ -316,7 +383,12 @@ impl crate::Kernel {
                         .is_some_and(|id| id.namespace() == owner)
                 })
         };
-        let declared = |_: u64, _: &str| false;
+        let declared = |plugin: u64, name: &str| {
+            shared
+                .native_instances
+                .id(plugin)
+                .is_some_and(|id| declared_input(&directory.store, id.as_str(), name))
+        };
         let policy = Policy {
             touch: shared.device.input.touch || shared.device.input.pen,
             secret: legacy.is_some() || super::ui_guard::top_is_secret(stack),
