@@ -42,11 +42,13 @@ mod kept;
 mod locks;
 mod markdown;
 pub mod native_joplin;
+pub mod native_keep;
 pub mod native_kept;
 #[cfg(test)]
 mod native_kept_tests;
 pub mod native_locks;
 pub mod native_note;
+pub mod native_send;
 #[cfg(test)]
 mod native_note_tests;
 #[cfg(test)]
