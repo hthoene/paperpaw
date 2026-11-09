@@ -9,8 +9,9 @@ use super::{CommandSender, Error, InstallRoot, wire};
 /// Most commands one batch holds (the wire's `COMMAND_MAX_RECORDS`).
 const RECORDS: usize = wire::COMMAND_MAX_RECORDS;
 
-/// Most rotation statements one install carries (the store's `MAX_STEPS`).
-pub const MAX_ROTATIONS: usize = 8;
+/// Most rotation statements one install carries (a wire batch holds 8 commands: the install,
+/// the author record and 6 rotations).
+pub const MAX_ROTATIONS: usize = 6;
 /// Most revocations one call of [`CommandSender::trust_revoked`] takes (the host's limit per
 /// batch, `docs/abi/device.md` 3).
 pub const MAX_REVOCATIONS: usize = 16;
@@ -69,7 +70,7 @@ impl<'a> Evidence<'a> {
     }
 
     /// The catalog's rotation statements, in the author's order; at most [`MAX_ROTATIONS`]
-    /// (more are refused as `Invalid` when the install is sent).
+    /// (more are refused as `Invalid` when the install is sent), with or without keys.
     #[must_use]
     pub const fn rotations(mut self, rotations: &'a [Rotation<'a>]) -> Self {
         self.rotations = rotations;
@@ -106,15 +107,11 @@ impl CommandSender<'_, '_> {
     /// `evidence` names either, then each rotation in order. The host applies pins and
     /// rotations only when the install commits.
     ///
-    /// A wire batch holds 8 commands, so the install, the keys and the rotations share them:
-    /// with a key 6 rotations fit, without 7, though the contract allows [`MAX_ROTATIONS`]
-    /// (8) (asked of Kernel).
     ///
     /// # Errors
     /// Returns `Invalid` for a zero request, an empty path, or more than [`MAX_ROTATIONS`]
-    /// rotations; `NoSpace` for a path over 512 bytes, rotations that do not fit the batch
-    /// or a scratch buffer too small for it (about 1 KiB for the most); or the host's
-    /// refusal (`Denied` without `uses.install`). Nothing is sent on a local refusal.
+    /// rotations; `NoSpace` for a path over 512 bytes or a scratch buffer too small for the
+    /// batch (about 1 KiB for the most); or the host's refusal (`Denied` without `uses.install`). Nothing is sent on a local refusal.
     pub fn install_plugin_with(
         &mut self,
         request: u32,
@@ -128,10 +125,6 @@ impl CommandSender<'_, '_> {
             return Err(Error::Invalid);
         }
         if path.len() > 512 {
-            return Err(Error::NoSpace);
-        }
-        let keys = usize::from(evidence.author.is_some() || evidence.recovery.is_some());
-        if 1 + keys + evidence.rotations.len() > RECORDS {
             return Err(Error::NoSpace);
         }
         let mut batch = [wire::Command::FirmwareRestart {}; RECORDS];

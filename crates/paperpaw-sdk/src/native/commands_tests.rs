@@ -1216,7 +1216,6 @@ fn an_install_with_evidence_refuses_what_does_not_fit_before_the_host() {
     let mut scratch = [0; 1024];
     let key = [1_u8; 32];
     let signature = [2_u8; 64];
-    let nine = [Rotation::new(&key, &signature); 9];
     let seven = [Rotation::new(&key, &signature); 7];
     let none = Evidence::new();
     let mut sender = CommandSender::new(&host, &mut scratch);
@@ -1226,38 +1225,26 @@ fn an_install_with_evidence_refuses_what_does_not_fit_before_the_host() {
     assert_eq!(send(0, "a", &none), Err(Error::Invalid));
     assert_eq!(send(1, "", &none), Err(Error::Invalid));
     assert_eq!(send(1, &"p".repeat(513), &none), Err(Error::NoSpace));
+    // More than MAX_ROTATIONS (6) is refused, with a key or without.
     assert_eq!(
-        send(1, "a", &Evidence::new().rotations(&nine)),
+        send(1, "a", &Evidence::new().rotations(&seven)),
         Err(Error::Invalid)
     );
-    // 1 install + 1 author + 7 rotations is 9 commands: more than a batch holds.
     assert_eq!(
         send(1, "a", &Evidence::new().author(&key).rotations(&seven)),
-        Err(Error::NoSpace)
+        Err(Error::Invalid)
     );
     assert!(ctx.batches.borrow().is_empty());
-    // 1 + 7 fits without a key; 1 + 1 + 6 fits with one.
+    // 6 rotations fit with a key (install + author + 6 = 8) and without.
     let mut sender = CommandSender::new(&host, &mut scratch);
-    sender
-        .install_plugin_with(
-            1,
-            InstallRoot::Data,
-            "a",
-            false,
-            false,
-            &Evidence::new().rotations(&seven),
-        )
-        .unwrap();
-    sender
-        .install_plugin_with(
-            2,
-            InstallRoot::Data,
-            "a",
-            false,
-            false,
-            &Evidence::new().author(&key).rotations(&seven[..6]),
-        )
-        .unwrap();
+    for (request, evidence) in [
+        (1, Evidence::new().rotations(&seven[..6])),
+        (2, Evidence::new().author(&key).rotations(&seven[..6])),
+    ] {
+        sender
+            .install_plugin_with(request, InstallRoot::Data, "a", false, false, &evidence)
+            .unwrap();
+    }
     assert_eq!(ctx.batches.borrow().len(), 2);
     // A scratch buffer too small for the batch leaves the sender untouched.
     let mut small = [0_u8; 32];
