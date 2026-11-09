@@ -337,7 +337,7 @@ pub fn targets(cx: &Cx<'_>, ui: &Ui, area: Rect) -> Result<Vec<(u32, Rect)>, Err
     ];
     let line = lay_out(cx, ui, area, &mut buffers)?;
     let mut tappable = tapped(&line);
-    tappable.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+    tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
     let reach = cx.style().small * 0.2;
     let (left, right) = (f32::from(area.x), f32::from(area.x) + f32::from(area.width));
     let mut found = Vec::new();
@@ -387,7 +387,7 @@ pub fn action(cx: &Cx<'_>, ui: &Ui, area: Rect, target: u32) -> Result<Option<St
     ];
     let line = lay_out(cx, ui, area, &mut buffers)?;
     let mut tappable = tapped(&line);
-    tappable.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+    tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
     let at = usize::try_from(target).unwrap_or(0).saturating_sub(1);
     tappable.get(at).map(|(_, tap)| copy(tap)).transpose()
 }
@@ -447,14 +447,19 @@ pub fn draw_widget(
         || cx.settings.is_chosen("paper")?
         || cx.settings.is_chosen("ink")?;
     let color = if own { look.faint } else { cx.style().note };
-    draw(
+    // A host that does not answer the status calls (the compose family on the
+    // X4 until its stack gate passes) leaves an empty line, not a failed draw.
+    match draw(
         &mut cx,
         ui,
         &mut out,
         &mut placed,
         &mut buffers,
         (look.area, color),
-    )?;
+    ) {
+        Err(Error::Unsupported) => {}
+        other => other?,
+    }
     paint::replay(frame, &cx.font, out.iter())?;
     for item in &placed {
         // An owner that cannot draw now (busy, gone) leaves its place empty.

@@ -125,7 +125,7 @@ pub fn layout(size: f32, (x0, room): (f32, f32), mut parts: Parts) -> Vec<Laid> 
     let gap = if gaps == 0 {
         size
     } else {
-        ((room - inked) / gaps as f32).clamp(size * 0.4, size)
+        ((room - inked) / gaps as f32).max(size * 0.4).min(size)
     };
     let width = |items: &[Listed]| -> f32 {
         items.iter().map(|i| i.width).sum::<f32>() + gap * items.len().saturating_sub(1) as f32

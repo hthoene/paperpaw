@@ -387,10 +387,24 @@ Differences from interface 6 (each deliberate):
 - The status bar above the grid (a line the dashboard shows by itself) waits until the dashboard
   composes widgets; this slice is the widget.
 
-On the device (gates, not measured): the line reads at most 64 registry rows and asks for at
-most 16 items; a draw takes two 4 KiB buffers (the values) and one 4 KiB (the input); a tap
-and the target list lay the line out again (two 4 KiB buffers more); allocation refusals fail
-the draw, not the screen.
+Allocation refusals: where a list cannot grow (the placed items, the tappable ones) the item
+is left out silently, as a line too narrow would leave it out; the draw does not fail for it.
+
+The compose family (`ui.status_values`, `ui.status_line`, `ui.compose`) answers `Unsupported` on
+the X4 until its stack gate passes: the line is then drawn empty (frame only), not as a failed
+draw. **Activation gate:** the stack gate for those calls on the X4.
+
+Touch only (Kernel ruling): interface 6 made the line's targets touch-only. A `ui_target` has no
+focus meaning (ui.md §5.2): moving between targets with the buttons is the showing screen's
+business, and home is that screen. The status line's targets therefore stay out of home's button
+focus order and only taps (`widget_input` kinds 0 and 1) are forwarded to them; no flag is needed.
+Home's dashboard does not compose widgets yet, so this binds the slice that does.
+
+On the device (gates, not measured): a draw peaks at about 17 KiB (the two 4 KiB value buffers,
+the 4 KiB input, the registry read and the paint), and the tick repeats the read (registry and
+values) per status instance each minute; both are on the X4 measurement list. The line reads at
+most 64 registry rows and asks for at most 16 items; a tap and the target list lay the line out
+again (two 4 KiB buffers more). A refused allocation elsewhere fails the draw, not the screen.
 
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
