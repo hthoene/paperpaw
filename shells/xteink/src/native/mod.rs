@@ -227,11 +227,6 @@ pub type Placed5 = flash::Placed5;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
-    /// The nesting budget every interface-7 plugin of this device shares: the
-    /// device's one counter (`DeviceTable::depth`, the linked probe takes the
-    /// same), taken with the first plugin (a fallible allocation: `NoRoom`).
-    #[cfg(feature = "ppn5")]
-    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     /// The device-wide table of handles the plugins' owners share (made with
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
@@ -303,8 +298,6 @@ impl Loader {
         Self {
             place,
             #[cfg(feature = "ppn5")]
-            depth: None,
-            #[cfg(feature = "ppn5")]
             resources: DeviceTable::new(device.clone()),
             #[cfg(feature = "ppn5")]
             host_net,
@@ -340,19 +333,18 @@ impl Loader {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
             }
-            // The depth is the device's one, shared with the linked probe.
-            if self.depth.is_none() {
-                self.depth = self.resources.depth();
-                if self.depth.is_none() {
-                    return Err(PluginProblem::NoRoom);
-                }
-            }
+            // The nesting budget every interface-7 plugin of this device
+            // shares: the device's one counter (the linked probe takes the same),
+            // made at the first use (a fallible allocation: `NoRoom`).
+            let Some(depth) = self.resources.depth() else {
+                return Err(PluginProblem::NoRoom);
+            };
             let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
                 return Err(PluginProblem::NoRoom);
             };
             let loaded = ppn5::load(
                 &mut self.place,
-                &mut self.depth,
+                &depth,
                 &mut resources,
                 &self.device,
                 storage,
