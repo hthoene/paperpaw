@@ -567,7 +567,12 @@ impl Kernel {
                     && let Some(action) = self.own_zone(gesture.start, long)
                 {
                     self.route_key_pending();
-                    return self.dispatch(action);
+                    let index = self.input_index();
+                    let action = match index {
+                        Some(_) => self.zone_action(action),
+                        None => Some(action),
+                    };
+                    return action.map_or((), |action| self.dispatch(action));
                 }
                 let key = match gesture.kind {
                     GestureKind::Tap | GestureKind::DoubleTap => {
@@ -593,7 +598,12 @@ impl Kernel {
     /// first, as it came first.
     pub(crate) fn route_key(&mut self, key: InputKey) {
         self.route_key_pending();
-        if let Some(action) = self.resolve(&key).cloned() {
+        let action = match self.input_index() {
+            Some(index) => self.bound_action(index, &key),
+            // No screen: the global layer alone, with no guard to keep.
+            None => self.resolve(&key).cloned(),
+        };
+        if let Some(action) = action {
             self.dispatch(action);
         }
     }
@@ -620,8 +630,7 @@ impl Kernel {
         let Some(index) = index else {
             return;
         };
-        let (layers, count) = self.layers_of(index);
-        if let Some(action) = self.shared.keymap.resolve(&layers[..count], &key).cloned() {
+        if let Some(action) = self.bound_action(index, &key) {
             self.dispatch(action);
         }
     }
@@ -699,7 +708,7 @@ impl Kernel {
 
     /// The key map layers of open screen `index`, the most specific
     /// first (see [`Self::layers`]).
-    fn layers_of(&self, index: usize) -> ([&str; 4], usize) {
+    pub(crate) fn layers_of(&self, index: usize) -> ([&str; 4], usize) {
         let mut layers = [GLOBAL_KEYMAP_LAYER; 4];
         let mut count = 0;
         let top = self.stack.get(index);

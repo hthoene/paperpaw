@@ -59,6 +59,7 @@ mod hints;
 mod hyphen_feed;
 mod input;
 mod io;
+mod key_guard;
 mod keymap;
 mod meter;
 pub mod native_host;
@@ -1290,6 +1291,8 @@ struct Shared {
     translator: Translator,
     fonts: Fonts,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
+    /// The refused bindings told of while a screen guarded ([`key_guard`]).
+    key_guard_warned: key_guard::Warned,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     /// The generation of `core.registry`, bumped when a list it reads changes.
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
