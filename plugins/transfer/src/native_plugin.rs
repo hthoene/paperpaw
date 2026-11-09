@@ -7,12 +7,15 @@
 //! native yet (the phone's keyboard, the cable, the offer to go online, the
 //! own network, installing plugins and moving files) is named in `PORTING-7.md`.
 use crate::{
-    declarations::{OPEN_TOKEN, SCREEN, SERVED_REQUEST, SERVER_EVENT},
+    declarations::{INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT},
     native_draw::draw_address,
     native_files::HostCard,
+    native_install::{self, Installs},
+    native_install_host::{self, HostPlugins},
     native_key, native_page,
+    native_phone::{self, Dialog, MAX_TEXT},
     native_transfer::urls,
-    native_web::{self, Answer, Body, Done, Request},
+    native_web::{self, Answer, Body, Done, Parts, Request},
 };
 use alloc::string::String;
 use paperpaw_qr::QrCode;
@@ -22,8 +25,8 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
-        device::{Device, WifiState},
-        events::{Event, Incoming, kinds},
+        device::{Device, DeviceOutcome, InstallKind, WifiState},
+        events::{Event, Incoming, InstallDone, kinds},
         files::Files,
         formatting::Arg,
         net::{
@@ -31,10 +34,11 @@ use paperpaw_sdk::{
             ServerState,
         },
         registrations,
+        registry::Registry,
         reply::Reply,
         secrets::{Secrets, wipe},
         storage::{self, Root},
-        ui::Open,
+        ui::{Open, ScreenPolicy, Ui},
     },
     served::Guard,
 };
@@ -49,10 +53,13 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/transfer_declarations.rs"));
 }
 
-/// The plugin's number for its one server.
+/// The plugin's number for the transfer's server, and for the phone's.
 const SERVER: u32 = 1;
+const PHONE_SERVER: u32 = 2;
 /// The port asked for; the host takes the next free one if it is in use.
 const PORT: u16 = 8080;
+mod phone;
+
 /// What the host's `serve` and `stop_serving` reply with, at most.
 const SERVE_OUT: usize = 1536;
 
@@ -81,6 +88,8 @@ struct Page {
     last: Option<String>,
     /// Whether serving was asked for (once for each time the screen opens).
     started: bool,
+    /// The keyboard's question, for the phone's screen.
+    phone: Option<Dialog>,
 }
 
 /// The interface-7 transfer plugin.
@@ -91,6 +100,10 @@ pub struct NativeTransfer {
     files: Option<Files>,
     device: Option<Device>,
     secrets: Option<Secrets>,
+    registry: Option<Registry>,
+    ui: Option<Ui>,
+    /// The plugins sent from the computer: what is staged and how each stands.
+    installs: Installs,
 }
 
 /// The handle in `slot`, opened on first use.
@@ -125,6 +138,7 @@ impl Plugin for NativeTransfer {
             kinds::ActionRun,
             kinds::Server,
             kinds::ServedRequest,
+            kinds::InstallDone,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed
@@ -139,32 +153,54 @@ impl Plugin for NativeTransfer {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("transfer.screen")?)
             }
-            Event::ScreenOpened { instance, .. } if token == SCREEN => {
+            Event::InstallDone(done) if token == INSTALL_DONE => self.install_done(host, &done),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == SCREEN || token == PHONE => {
+                let phone = if token == PHONE {
+                    Some(self.open_phone(host, handover)?)
+                } else {
+                    None
+                };
                 let page = Page {
                     view: View::Starting,
                     list: ItemList::new(alloc::vec::Vec::new()),
                     guard: None,
                     last: None,
                     started: false,
+                    phone,
                 };
+                if page.phone.as_ref().is_some_and(|phone| phone.secret) {
+                    let mut scratch = [0; 64];
+                    CommandSender::new(host, &mut scratch)
+                        .screen_policy(Some(instance), ScreenPolicy::new().secret())?;
+                }
                 self.screens.open(instance, page)
             }
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } if token == SCREEN => {
+            } if token == SCREEN || token == PHONE => {
                 self.screens.shown(token, instance)?;
-                self.begin(host)
+                self.begin(host, token)
             }
-            Event::ScreenClosed { instance, .. } if token == SCREEN => {
+            Event::ScreenClosed { instance, .. } if token == SCREEN || token == PHONE => {
+                if let Some(Page {
+                    phone: Some(phone), ..
+                }) = self.screens.get(instance)
+                {
+                    phone.wipe();
+                }
                 self.screens.close(instance);
-                self.end(host)
+                self.end(host, token)
             }
-            Event::Server(event) if token == SERVER_EVENT && event.server() == SERVER => {
-                self.on_server(host, event.state())
+            Event::Server(event)
+                if token == SERVER_EVENT && matches!(event.server(), SERVER | PHONE_SERVER) =>
+            {
+                self.on_server(host, event.server(), event.state())
             }
             Event::ServedRequest(request)
-                if token == SERVED_REQUEST && request.server() == SERVER =>
+                if token == SERVED_REQUEST && matches!(request.server(), SERVER | PHONE_SERVER) =>
             {
                 self.on_request(host, &request)
             }
@@ -175,11 +211,23 @@ impl Plugin for NativeTransfer {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         let page = self.screens.top(token).ok_or(Error::State)?;
         let mut messages = Messages::new()?;
+        let (title, hint) = if page.phone.is_some() {
+            ("transfer.phone.title", "transfer.phone.hint")
+        } else {
+            ("transfer.title", "transfer.hint")
+        };
         let (head, words) = match &page.view {
             View::Serving { url, qr } => {
                 page.list
-                    .draw_with(host, &mut frame, "transfer.title", true, Footer::None)?;
-                return draw_address(host, &mut frame, url, qr.as_ref(), page.last.as_deref());
+                    .draw_with(host, &mut frame, title, true, Footer::None)?;
+                return draw_address(
+                    host,
+                    &mut frame,
+                    hint,
+                    url,
+                    qr.as_ref(),
+                    page.last.as_deref(),
+                );
             }
             View::Starting => ("transfer.starting", String::new()),
             View::NoNetwork(managed) => {
@@ -196,7 +244,7 @@ impl Plugin for NativeTransfer {
         page.list.draw_with(
             host,
             &mut frame,
-            "transfer.title",
+            title,
             true,
             Footer::Empty {
                 title: &head,
@@ -214,6 +262,19 @@ impl Plugin for NativeTransfer {
     }
 }
 
+/// The screen a server belongs to, and the server of a screen.
+const fn token_of(server: u32) -> u32 {
+    if server == PHONE_SERVER {
+        PHONE
+    } else {
+        SCREEN
+    }
+}
+
+const fn server_of(token: u32) -> u32 {
+    if token == PHONE { PHONE_SERVER } else { SERVER }
+}
+
 /// A copy of `words`.
 fn own(words: &str) -> Result<String, Error> {
     paperpaw_ui_kit::text::copy(words)
@@ -222,20 +283,25 @@ fn own(words: &str) -> Result<String, Error> {
 impl NativeTransfer {
     /// The screen is shown the first time: its page is written and the server
     /// asked for (a server lives on a screen that shows, `network.md` 5.1).
-    fn begin(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let Some(page) = self.screens.top(SCREEN) else {
+    fn begin(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
+        let Some(page) = self.screens.top(token) else {
             return Ok(());
         };
         if page.started {
             return Ok(());
         }
         page.started = true;
-        let started = self.start(host);
+        // What an earlier time of serving left staged goes.
+        if token == SCREEN {
+            self.clean_staging(host)?;
+        }
+        let started = self.start(host, token);
         match started {
             Ok(()) => Ok(()),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(error) => self.show(
                 host,
+                token,
                 View::Failed(failed(host, "transfer.failed", word(error))?),
             ),
         }
@@ -248,40 +314,67 @@ impl NativeTransfer {
     }
 
     /// Checks that a key can be drawn, writes the page and starts the server.
-    fn start(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    fn start(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
         // A device with no source of random numbers serves nothing: no weaker key.
         match self.draw_key(host) {
             Err(Error::Unsupported | Error::NotFound | Error::Denied) => {
-                return self.show(host, View::Failed(no_random(host)?));
+                return self.show(host, token, View::Failed(no_random(host)?));
             }
             Err(error) => return Err(error),
             Ok(key) => key.map_or((), wipe_text),
         }
-        native_page::write(host)?;
-        let server = Server::new(SERVER, PORT)?.max_body(MAX_SERVED_BODY)?;
+        let server = if token == PHONE {
+            self.write_phone_page(host)?;
+            Server::new(PHONE_SERVER, PORT)?.max_body(MAX_TEXT as u64)?
+        } else {
+            native_page::write(host)?;
+            Server::new(SERVER, PORT)?.max_body(MAX_SERVED_BODY)?
+        };
         let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
         handle(&mut self.net, || Net::open(host))?.serve(host, &server, &mut input, &mut out)
     }
 
     /// The screen closed: the server stops (the host does it too; stopping is
     /// idempotent) and the page is removed.
-    fn end(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    fn end(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
+        let (server, files) = if token == PHONE {
+            (
+                PHONE_SERVER,
+                [native_phone::PAGE_FILE, native_phone::PAGE_FILE],
+            )
+        } else {
+            self.clean_staging(host)?;
+            (
+                SERVER,
+                [native_web::PAGE_FILE, native_install::LISTING_FILE],
+            )
+        };
         if let Some(net) = &self.net {
             let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
             // Nothing to do where it was stopped already.
-            if let Err(Error::NoMemory) = net.stop_serving(host, SERVER, &mut input, &mut out) {
+            if let Err(Error::NoMemory) = net.stop_serving(host, server, &mut input, &mut out) {
                 return Err(Error::NoMemory);
             }
         }
-        match storage::remove(host, Root::Data, native_web::PAGE_FILE) {
-            Err(Error::NoMemory) => Err(Error::NoMemory),
-            _ => Ok(()),
+        for file in files {
+            if let Err(Error::NoMemory) = storage::remove(host, Root::Data, file) {
+                return Err(Error::NoMemory);
+            }
         }
+        Ok(())
+    }
+
+    /// Removes the files of plugins staged for installing, but those the host
+    /// is asked about (it copies them while it asks).
+    fn clean_staging(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let files = handle(&mut self.files, || Files::open(host))?;
+        self.installs.forget_idle();
+        native_install_host::remove_unknown_staging(host, files, &self.installs)
     }
 
     /// Shows `view` on the screen that is open, and draws it.
-    fn show(&mut self, host: &Host<'_>, view: View) -> Result<(), Error> {
-        if let Some(page) = self.screens.top(SCREEN) {
+    fn show(&mut self, host: &Host<'_>, token: u32, view: View) -> Result<(), Error> {
+        if let Some(page) = self.screens.top(token) {
             page.view = view;
             redraw(host, RedrawMode::Partial)?;
         }
@@ -289,18 +382,26 @@ impl NativeTransfer {
     }
 
     /// The server started, failed or stopped.
-    fn on_server(&mut self, host: &Host<'_>, state: ServerState<'_>) -> Result<(), Error> {
+    fn on_server(
+        &mut self,
+        host: &Host<'_>,
+        server: u32,
+        state: ServerState<'_>,
+    ) -> Result<(), Error> {
+        let token = token_of(server);
         let serving = matches!(
-            self.screens.top(SCREEN).map(|page| &page.view),
+            self.screens.top(token).map(|page| &page.view),
             Some(View::Serving { .. })
         );
         match state {
-            ServerState::Started { address } => self.serving(host, address),
-            ServerState::Failed { reason } => self.not_serving(host, "transfer.failed", reason),
+            ServerState::Started { address } => self.serving(host, token, address),
+            ServerState::Failed { reason } => {
+                self.not_serving(host, token, "transfer.failed", reason)
+            }
             // Asked for by the plugin: nothing to say. Ended by the network:
             // said as it was before it served.
             ServerState::Stopped { reason } => match stopped_key(serving, reason) {
-                Some(key) => self.not_serving(host, key, reason),
+                Some(key) => self.not_serving(host, token, key, reason),
                 None => Ok(()),
             },
             _ => Ok(()),
@@ -309,43 +410,49 @@ impl NativeTransfer {
 
     /// The server runs at `address`: the key is drawn now (on the X4 the radio
     /// makes it fully random) and the address shown with it.
-    fn serving(&mut self, host: &Host<'_>, address: &str) -> Result<(), Error> {
+    fn serving(&mut self, host: &Host<'_>, token: u32, address: &str) -> Result<(), Error> {
         let key = match self.draw_key(host) {
             Ok(Some(key)) => key,
             Ok(None) | Err(Error::Unsupported | Error::NotFound | Error::Denied) => {
-                self.stop(host)?;
-                return self.show(host, View::Failed(no_random(host)?));
+                self.stop(host, server_of(token))?;
+                return self.show(host, token, View::Failed(no_random(host)?));
             }
             Err(error) => return Err(error),
         };
         let reach = self.reach(host)?;
         let (url, scanned) = urls(reach.as_deref(), address, &key)?;
         let qr = QrCode::new(scanned.as_bytes());
-        if let Some(page) = self.screens.top(SCREEN) {
+        if let Some(page) = self.screens.top(token) {
             page.guard = Some(Guard::new(key));
         }
-        self.show(host, View::Serving { url, qr })
+        self.show(host, token, View::Serving { url, qr })
     }
 
-    fn stop(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    fn stop(&mut self, host: &Host<'_>, server: u32) -> Result<(), Error> {
         let Some(net) = &self.net else {
             return Ok(());
         };
         let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
-        net.stop_serving(host, SERVER, &mut input, &mut out)
+        net.stop_serving(host, server, &mut input, &mut out)
     }
 
     /// The server did not start or ended: no network is its own screen.
-    fn not_serving(&mut self, host: &Host<'_>, key: &str, reason: Reason) -> Result<(), Error> {
-        if let Some(page) = self.screens.top(SCREEN) {
+    fn not_serving(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        key: &str,
+        reason: Reason,
+    ) -> Result<(), Error> {
+        if let Some(page) = self.screens.top(token) {
             page.guard = None;
         }
         if reason == Reason::NoNetwork {
             let managed = self.wifi(host)?.is_some();
-            return self.show(host, View::NoNetwork(managed));
+            return self.show(host, token, View::NoNetwork(managed));
         }
         let words = failed(host, key, reason_word(reason))?;
-        self.show(host, View::Failed(words))
+        self.show(host, token, View::Failed(words))
     }
 
     /// The radio's state and addresses, none where PaperPaw does not manage it.
@@ -379,7 +486,12 @@ impl NativeTransfer {
     /// the callback ends well: nothing a computer on the network sends may
     /// fail the plugin.
     fn on_request(&mut self, host: &Host<'_>, request: &ServedRequest<'_>) -> Result<(), Error> {
-        match self.answer(host, request) {
+        let answered = if request.server() == PHONE_SERVER {
+            self.answer_phone(host, request)
+        } else {
+            self.answer(host, request)
+        };
+        match answered {
             Ok(()) => Ok(()),
             Err(error) => {
                 let status = if error == Error::NoMemory { 503 } else { 500 };
@@ -426,7 +538,13 @@ impl NativeTransfer {
             };
             return self.send(host, request.request(), &words);
         };
-        let (answer, done) = native_web::answer(&mut card, guard, &asked);
+        let mut plugins = HostPlugins::new(host, files, &mut self.registry);
+        let mut parts = Parts {
+            card: &mut card,
+            plugins: &mut plugins,
+            installs: &mut self.installs,
+        };
+        let (answer, done) = native_web::answer(&mut parts, guard, &asked);
         self.send(host, request.request(), &answer)?;
         if let Some((done, name)) = done {
             let said = said(host, done, &name)?;
@@ -438,13 +556,45 @@ impl NativeTransfer {
         Ok(())
     }
 
+    /// The host ended an install this plugin asked for: the state the page
+    /// reads is set, and the device says what came of it.
+    fn install_done(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
+        let Some(request) = done.request() else {
+            return Ok(());
+        };
+        if done.kind() != InstallKind::Plugin {
+            return Ok(());
+        }
+        let result = if done.status().is_ok() && done.outcome() == DeviceOutcome::Ok {
+            Ok(done.at_next_start())
+        } else {
+            Err(native_install::why(done.status(), done.outcome()))
+        };
+        let files = handle(&mut self.files, || Files::open(host))?;
+        let mut plugins = HostPlugins::new(host, files, &mut self.registry);
+        let Some(ended) = self.installs.ended(&mut plugins, request.get(), result) else {
+            return Ok(());
+        };
+        let key = match ended.result {
+            Ok(false) => "transfer.plugin-installed",
+            Ok(true) => "transfer.plugin-restart",
+            Err(_) => "transfer.plugin-not-installed",
+        };
+        let said = say_name(host, key, &ended.id)?;
+        if let Some(page) = self.screens.top(SCREEN) {
+            page.last = Some(said);
+            redraw(host, RedrawMode::Fast)?;
+        }
+        Ok(())
+    }
+
     /// Sends `answer` to request `number`.
     fn send(&mut self, host: &Host<'_>, number: u32, answer: &Answer) -> Result<(), Error> {
         let mut response = Response::new(number, answer.status)?.content_type(answer.kind)?;
         response = match &answer.body {
             Body::Text(words) => response.body(words.as_bytes())?,
             Body::Owned(words) => response.body(words.as_bytes())?,
-            Body::Page => response.send_file(FileRoot::Data, native_web::PAGE_FILE)?,
+            Body::Data(file) => response.send_file(FileRoot::Data, file)?,
             Body::File(path) => response.send_file(FileRoot::Files, path)?,
         };
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(SERVE_OUT)?);
@@ -528,6 +678,11 @@ fn said(host: &Host<'_>, done: Done, name: &str) -> Result<String, Error> {
         Done::Deleted => "transfer.deleted",
         Done::NotReceived => "transfer.not-received",
     };
+    say_name(host, key, name)
+}
+
+/// The text `key`, with `name` where it names it.
+fn say_name(host: &Host<'_>, key: &str, name: &str) -> Result<String, Error> {
     let arguments = [Arg::Text {
         name: "name",
         value: name,

@@ -93,6 +93,7 @@ pub fn qr_rects(
 pub fn draw_address(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
+    hint: &str,
     url: &str,
     qr: Option<&QrCode>,
     last: Option<&str>,
@@ -103,8 +104,16 @@ pub fn draw_address(
     let display = snapshot::capture_snapshot(host)?;
     let font = Font::acquire_role(host, FontRole::Ui)?;
     let style = Style::read(host, &display, &font)?;
-    let drawn = lay_out(host, &font, &style, &display, url, qr.is_some(), last)
-        .and_then(|(ops, code)| paint::replay(frame, &font, ops.iter()).map(|()| code));
+    let drawn = lay_out(
+        host,
+        &font,
+        &style,
+        &display,
+        (hint, url),
+        qr.is_some(),
+        last,
+    )
+    .and_then(|(ops, code)| paint::replay(frame, &font, ops.iter()).map(|()| code));
     let released = font.release();
     let code = drawn?;
     released?;
@@ -154,13 +163,13 @@ fn lay_out(
     font: &Font<'_>,
     style: &Style,
     display: &snapshot::Snapshot,
-    url: &str,
+    (hint, url): (&str, &str),
     has_code: bool,
     last: Option<&str>,
 ) -> Result<(Vec<Paint>, Option<Rect>), Error> {
     let (width, height) = (display.display_width(), display.display_height());
     let inner = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
-    let hint = Messages::new()?.copy(host, "transfer.hint")?;
+    let hint = Messages::new()?.copy(host, hint)?;
     let wrap = |size: f32, words: &str, most: usize| {
         text::wrap_with(|line| font.measure_text(size, line), words, inner, most)
     };
