@@ -180,6 +180,7 @@ abs pow sqrt floor ceil round signum saturating_sub saturating_add checked_sub c
 wrapping_add wrapping_sub min_value max_value as_str as_bytes with_capacity reserve clear
 binary_search sort sort_by sort_by_key windows chunks join concat repeat replace parse
 to_lowercase to_uppercase is_char_boundary rfind find_char hash write write_str fmt
+then then_some
 """.split())
 
 # Methods of workspace crates that are not hashed, which shared bodies call

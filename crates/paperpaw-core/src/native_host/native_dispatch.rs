@@ -125,6 +125,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.identity.take_open_info()
+    }
+
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Event(bytes))
     }

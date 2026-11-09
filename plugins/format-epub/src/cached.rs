@@ -80,6 +80,38 @@ fn read_block(
     read_entry(storage, paths, entry, end, color)
 }
 
+/// The runs and the inline languages a record holds after its text.
+fn decode_lists(
+    text: &[u8],
+    len: usize,
+    runs_len: usize,
+    filled: usize,
+) -> Result<(Vec<Run>, Vec<Lang>), DocumentError> {
+    let lang_bytes = text.get(len + runs_len..filled).unwrap_or_default();
+    let mut inline_langs: Vec<Lang> = Vec::new();
+    crate::fallible::reserve_exact(&mut inline_langs, lang_bytes.len() / 4)?;
+    inline_langs.extend(
+        lang_bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| Lang::from_bits(u32::from_le_bytes(*b)).unwrap_or(Lang::NONE)),
+    );
+    let run_bytes = text
+        .get(len..filled.min(len + runs_len))
+        .unwrap_or_default();
+    let mut runs: Vec<Run> = Vec::new();
+    crate::fallible::reserve_exact(&mut runs, run_bytes.len() / convert::RUN)?;
+    runs.extend(run_bytes.as_chunks::<{ convert::RUN }>().0.iter().map(|r| {
+        Run::new(
+            u32::from(u16::from_le_bytes([r[0], r[1]])),
+            u32::from(u16::from_le_bytes([r[2], r[3]])),
+            TextStyle::from_bits(u32::from_le_bytes([r[4], r[5], r[6], r[7]])),
+        )
+    }));
+    Ok((runs, inline_langs))
+}
+
 /// Reads the block of index entry `entry`, ending at `end`.
 fn read_entry(
     storage: &dyn Storage,
@@ -113,7 +145,7 @@ fn read_entry(
     }
     // The text, its runs and its inline languages after it, read at once.
     let runs_len = run_count * convert::RUN;
-    let mut text = alloc::vec![0u8; len + runs_len + langs * 4];
+    let mut text = crate::fallible::zeroed(len + runs_len + langs * 4)?;
     let mut filled = 0;
     while filled < text.len() {
         let n = storage.read_at(
@@ -126,48 +158,34 @@ fn read_entry(
         }
         filled += n;
     }
-    let inline_langs: Vec<Lang> = text
-        .get(len + runs_len..filled)
-        .unwrap_or_default()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| Lang::from_bits(u32::from_le_bytes(*b)).unwrap_or(Lang::NONE))
-        .collect();
-    let runs = text
-        .get(len..filled.min(len + runs_len))
-        .unwrap_or_default()
-        .as_chunks::<{ convert::RUN }>()
-        .0
-        .iter()
-        .map(|r| {
-            Run::new(
-                u32::from(u16::from_le_bytes([r[0], r[1]])),
-                u32::from(u16::from_le_bytes([r[2], r[3]])),
-                TextStyle::from_bits(u32::from_le_bytes([r[4], r[5], r[6], r[7]])),
-            )
-        })
-        .collect();
-    text.truncate(filled.min(len));
-    // The block keeps its text, not the room the runs took.
-    text.shrink_to_fit();
+    let (runs, inline_langs) = decode_lists(&text, len, runs_len, filled)?;
+    // The block keeps its text, not the room the runs took: a copy of
+    // exactly its size where the buffer held more.
+    let text_bytes = &text[..filled.min(len)];
+    let mut kept = Vec::new();
+    crate::fallible::reserve_exact(&mut kept, text_bytes.len())?;
+    kept.extend_from_slice(text_bytes);
+    drop(text);
+    let text = kept;
     let mut kind = convert::decode_kind(header[0], header[1]);
-    let mut text = String::from_utf8(text)
-        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+    let mut text = match String::from_utf8(text) {
+        Ok(text) => text,
+        Err(e) => crate::fallible::lossy(e.as_bytes())?.into_owned(),
+    };
     let mut image = None;
     if kind == BlockKind::Image {
         // `cache name<TAB>alternative text`, the picture in either kind,
         // or noted to be decoded when its page shows.
         let (path, alt) = text.split_once('\t').unwrap_or((&text, ""));
-        image = crate::pictures::open_or_noted(storage, path, color);
-        let alt = String::from(alt);
+        image = crate::pictures::open_or_noted(storage, path, color)?;
+        let alt = crate::fallible::string(alt)?;
         if image.is_none() {
             // Not decodable: its alternative text instead.
             kind = BlockKind::Paragraph;
         }
         text = alt;
     }
-    Ok(Block::new(kind, start, end, text)
+    let mut block = Block::new(kind, start, end, text)
         .continues(convert::continues(header[2]))
         .continued(convert::continued(header[2]))
         .map(OffsetMap::IDENTITY)
@@ -188,9 +206,11 @@ fn read_entry(
             .unwrap_or(Lang::NONE),
         )
         .dir(convert::dir_from_bits(entry[20]))
-        .inline_langs(&inline_langs)
         .drop_cap(entry[22])
-        .image(image))
+        .image(image);
+    // The list as a boxed slice of exactly its size (no growth to refuse).
+    block.inline_langs = (!inline_langs.is_empty()).then(|| inline_langs.into_boxed_slice());
+    Ok(block)
 }
 
 /// The block of a converted chapter containing `offset`, or the first
@@ -261,9 +281,14 @@ const MAX_LINE: usize = 2048;
 
 /// Calls `visit` with each line of a cache file until it returns
 /// `false`, reading in small pieces: without its line break, invalid
-/// UTF-8 replaced, cut at [`MAX_LINE`] bytes.
-pub(crate) fn lines(storage: &dyn Storage, path: &str, mut visit: impl FnMut(&str) -> bool) {
-    lines_from(storage, path, 0, |line, _| visit(line));
+/// UTF-8 replaced, cut at [`MAX_LINE`] bytes. No room for a line is
+/// `OutOfMemory`; a file that cannot be read ends the lines.
+pub(crate) fn lines(
+    storage: &dyn Storage,
+    path: &str,
+    mut visit: impl FnMut(&str) -> bool,
+) -> Result<(), DocumentError> {
+    lines_from(storage, path, 0, |line, _| visit(line))
 }
 
 /// As [`lines`], from byte `from` on (where a line starts); `visit` also
@@ -273,18 +298,18 @@ pub(crate) fn lines_from(
     path: &str,
     from: u64,
     mut visit: impl FnMut(&str, u64) -> bool,
-) {
+) -> Result<(), DocumentError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
     let mut offset = from;
     loop {
         let Ok(n) = storage.read_at(path, offset, &mut chunk) else {
-            return;
+            return Ok(());
         };
         for (i, &byte) in chunk[..n].iter().enumerate() {
             if byte != b'\n' {
                 if line.len() < MAX_LINE {
-                    line.push(byte);
+                    crate::fallible::push(&mut line, byte)?;
                 }
                 continue;
             }
@@ -292,17 +317,17 @@ pub(crate) fn lines_from(
                 line.pop();
             }
             let next = offset + i as u64 + 1;
-            if !visit(&String::from_utf8_lossy(&line), next) {
-                return;
+            if !visit(&crate::fallible::lossy(&line)?, next) {
+                return Ok(());
             }
             line.clear();
         }
         offset += n as u64;
         if n == 0 {
             if !line.is_empty() {
-                visit(&String::from_utf8_lossy(&line), offset);
+                visit(&crate::fallible::lossy(&line)?, offset);
             }
-            return;
+            return Ok(());
         }
     }
 }
@@ -337,7 +362,8 @@ pub(crate) fn anchor(
     let mut found = None;
     for (start, end) in [(from, u64::MAX), (0, from)] {
         let mut at = start;
-        lines_from(storage, &paths.anchors, start, |line, next| {
+        // No room for a line finds no anchor here.
+        let _ = lines_from(storage, &paths.anchors, start, |line, next| {
             if at >= end {
                 return false;
             }
@@ -360,7 +386,8 @@ pub(crate) fn anchor(
 /// The links of a converted chapter that overlap `from..to`, in order.
 pub(crate) fn links(storage: &dyn Storage, paths: &CachePaths, from: u32, to: u32) -> Vec<Link> {
     let mut links = Vec::new();
-    lines(storage, &paths.links, |line| {
+    // No room for a line leaves the links read so far.
+    let _ = lines(storage, &paths.links, |line| {
         let mut parts = line.splitn(3, '\t');
         let (Some(start), Some(end), Some(href)) = (parts.next(), parts.next(), parts.next())
         else {

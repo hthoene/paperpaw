@@ -58,8 +58,9 @@ before 1.0.
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
    limited, and a draft pull request skips full CI; the lightweight
-   changelog check still runs. Push runs on `main` and the integration
-   branches are never cancelled; a red one is triaged by QA, who names the
+   changelog check still runs. A newer push to a pull request or integration
+   branch cancels the older run; `main` keeps one full run per commit. A red
+   push run on an integration branch is triaged by QA, who names the
    failing jobs and their owners.
 
    The full run includes the inactive stable ABI's `abi` group. Set

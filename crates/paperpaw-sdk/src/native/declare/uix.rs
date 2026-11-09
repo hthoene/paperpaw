@@ -181,9 +181,24 @@ impl<'a> WidgetDecl<'a> {
         self
     }
     /// Declare grid columns and rows; zero requests the place's natural size.
+    /// The least size ([`min_cells`](Self::min_cells)) is kept.
     #[must_use]
     pub const fn cells(mut self, columns: u8, rows: u8) -> Self {
-        self.0.cells = columns as u32 | (rows as u32) << 8;
+        self.0.cells = self.0.cells & 0xffff_0000 | columns as u32 | (rows as u32) << 8;
+        self
+    }
+    /// The least columns and rows the widget is shown in (zero: one); a home
+    /// screen never shrinks it below them. A declared size under its least
+    /// is refused when the plugin is admitted.
+    #[must_use]
+    pub const fn min_cells(mut self, columns: u8, rows: u8) -> Self {
+        self.0.cells = self.0.cells & 0xffff | (columns as u32) << 16 | (rows as u32) << 24;
+        self
+    }
+    /// Keep the widget as wide as it is high (a clock face, a cover).
+    #[must_use]
+    pub const fn square(mut self) -> Self {
+        self.0.flags |= 4;
         self
     }
     /// Preview this full settings group id.

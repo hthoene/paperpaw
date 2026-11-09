@@ -3,18 +3,18 @@
 //! as browsers read HTML: only the reading matter, links made absolute
 //! with the page's address (from its `<base href>`).
 
-use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{Block, Document, DocumentError, Link, Locator, Metadata};
-use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
-use paperpaw_sdk::{Env, Storage};
+use paperpaw_sdk::xml::{Token, Tokenizer, local_name, try_decode};
 
 use crate::PLUGIN;
 use crate::cached;
 use crate::convert::{self, CachePaths, INDEX, Source};
+use crate::fallible::{self, TryPush, TryPushStr};
 
 /// Changes whenever pages are read differently (e.g. what counts as
 /// page furniture), so converted pages are converted again.
@@ -62,44 +62,75 @@ struct Scan {
     base: Option<String>,
 }
 
-/// Reads the title, language, address and reading matter of a page.
-fn scan(storage: &dyn Storage, path: &str) -> Result<Scan, DocumentError> {
-    let mut found = Scan::default();
-    let (mut main, mut article) = (false, false);
-    let mut title: Option<String> = None;
-    let mut handle = |token: Token<'_>| match token {
-        Token::Start { name, attrs, .. } => match local_name(name).to_ascii_lowercase().as_str() {
-            "html" => {
-                found.language = attrs
-                    .get("lang")
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| l.len() <= MAX_LANGUAGE);
+/// What [`scan`] holds while it reads.
+#[derive(Default)]
+struct Scanning {
+    found: Scan,
+    main: bool,
+    article: bool,
+    title: Option<String>,
+}
+
+impl Scanning {
+    /// One token of the page; a copy that finds no room is `OutOfMemory`.
+    fn token(&mut self, token: Token<'_>) -> Result<(), DocumentError> {
+        match token {
+            Token::Start { name, attrs, .. } => {
+                let local = local_name(name);
+                let is = |tag: &str| local.eq_ignore_ascii_case(tag);
+                if is("html") {
+                    let language = attrs.get("lang");
+                    self.found.language = match language
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|l| l.len() <= MAX_LANGUAGE)
+                    {
+                        Some(language) => Some(fallible::string(language)?),
+                        None => None,
+                    };
+                } else if is("title") && self.found.title.is_none() {
+                    self.title = Some(String::new());
+                } else if is("main") {
+                    self.main = true;
+                } else if is("article") {
+                    self.article = true;
+                } else if is("base") && self.found.base.is_none() {
+                    self.found.base = match attrs.get("href").filter(|h| h.len() <= MAX_BASE) {
+                        Some(href) => Some(fallible::string(&href)?),
+                        None => None,
+                    };
+                }
             }
-            "title" if found.title.is_none() => title = Some(String::new()),
-            "main" => main = true,
-            "article" => article = true,
-            "base" if found.base.is_none() => {
-                found.base = attrs
-                    .get("href")
-                    .filter(|h| h.len() <= MAX_BASE)
-                    .map(|h| h.into_owned());
+            Token::End { name } if local_name(name).eq_ignore_ascii_case("title") => {
+                if let Some(text) = self.title.take() {
+                    let text = fallible::words(&text)?;
+                    self.found.title = (!text.is_empty()).then_some(text);
+                }
+            }
+            Token::Text(text) => {
+                if let Some(title) = self.title.as_mut()
+                    && title.len() < TITLE
+                {
+                    let text = try_decode(&text).map_err(|_| fallible::OOM)?;
+                    title.try_push_str(&text)?;
+                }
             }
             _ => {}
-        },
-        Token::End { name } if local_name(name).eq_ignore_ascii_case("title") => {
-            if let Some(text) = title.take() {
-                let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                found.title = (!text.is_empty()).then_some(text);
-            }
         }
-        Token::Text(text) => {
-            if let Some(title) = title.as_mut()
-                && title.len() < TITLE
-            {
-                title.push_str(&decode(&text));
-            }
+        Ok(())
+    }
+}
+
+/// Reads the title, language, address and reading matter of a page.
+fn scan(storage: &dyn Storage, path: &str) -> Result<Scan, DocumentError> {
+    let mut scanning = Scanning::default();
+    let mut refused = None;
+    let mut handle = |token: Token<'_>| {
+        if refused.is_none()
+            && let Err(error) = scanning.token(token)
+        {
+            refused = Some(error);
         }
-        _ => {}
     };
     let mut tokenizer = Tokenizer::html();
     let mut chunk = [0u8; 1024];
@@ -115,6 +146,15 @@ fn scan(storage: &dyn Storage, path: &str) -> Result<Scan, DocumentError> {
         at += n as u64;
     }
     tokenizer.finish(&mut handle);
+    if let Some(error) = refused {
+        return Err(error);
+    }
+    let Scanning {
+        mut found,
+        main,
+        article,
+        ..
+    } = scanning;
     found.focus = if main {
         Some("main")
     } else if article {
@@ -131,9 +171,8 @@ const MAX_BASE: usize = 2000;
 const MAX_LANGUAGE: usize = 64;
 
 /// What [`scan`] found, as kept in the cache: `key<TAB>value` lines.
-fn save_scan(found: &Scan) -> String {
+fn save_scan(found: &Scan) -> Result<String, DocumentError> {
     let mut out = String::new();
-    let one = |s: &str| s.replace(['\t', '\n', '\r'], " ");
     for (key, value) in [
         ("title", found.title.as_deref()),
         ("language", found.language.as_deref()),
@@ -141,25 +180,50 @@ fn save_scan(found: &Scan) -> String {
         ("base", found.base.as_deref()),
     ] {
         if let Some(value) = value {
-            out.push_str(&format!("{key}\t{}\n", one(value)));
+            out.try_push_str(key)?;
+            out.try_push('\t')?;
+            for c in value.chars() {
+                out.try_push(if matches!(c, '\t' | '\n' | '\r') {
+                    ' '
+                } else {
+                    c
+                })?;
+            }
+            out.try_push('\n')?;
         }
     }
-    out
+    Ok(out)
 }
 
 /// What [`scan`] found, from the cache.
 fn load_scan(storage: &dyn Storage, path: &str) -> Option<Scan> {
-    let data = paperpaw_sdk::read_file(storage, path, 4 * 1024).ok()?;
-    let text = core::str::from_utf8(&data).ok()?;
+    // On the heap, not the stack: a book is opened deep in the call stack.
+    const CACHE_MAX: usize = 4 * 1024;
+    let mut data = fallible::zeroed(CACHE_MAX).ok()?;
+    let mut filled = 0;
+    while filled < data.len() {
+        match storage
+            .read_at(path, filled as u64, &mut data[filled..])
+            .ok()?
+        {
+            0 => break,
+            n => filled += n,
+        }
+    }
+    if filled == data.len() {
+        // Larger than the cache ever holds.
+        return None;
+    }
+    let text = core::str::from_utf8(&data[..filled]).ok()?;
     let mut found = Scan::default();
     for line in text.lines() {
         let (key, value) = line.split_once('\t')?;
         match key {
-            "title" => found.title = Some(value.to_string()),
-            "language" => found.language = Some(value.to_string()),
+            "title" => found.title = Some(fallible::string(value).ok()?),
+            "language" => found.language = Some(fallible::string(value).ok()?),
             "focus" if value == "main" => found.focus = Some("main"),
             "focus" if value == "article" => found.focus = Some("article"),
-            "base" => found.base = Some(value.to_string()),
+            "base" => found.base = Some(fallible::string(value).ok()?),
             _ => {}
         }
     }
@@ -169,8 +233,7 @@ fn load_scan(storage: &dyn Storage, path: &str) -> Option<Scan> {
 impl HtmlDocument {
     /// Opens an HTML file; without `styles` its CSS is ignored.
     pub fn open(storage: &dyn Storage, path: &str, styles: bool) -> Result<Self, DocumentError> {
-        let cache =
-            paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "html-", path);
+        let cache = fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "html-", path)?;
         Self::open_as(storage, path, styles, false, cache)
     }
 
@@ -195,39 +258,44 @@ impl HtmlDocument {
     ) -> Result<Self, DocumentError> {
         let size = storage.size(path)?;
         if !styles {
-            cache.push_str("/plain");
+            cache.try_push_str("/plain")?;
         }
-        let paths = CachePaths::new(&cache, "0");
+        let paths = CachePaths::new(&cache, "0")?;
         // Read and converted again when the file or the cache format
         // changed, and then nothing made of it before stays; what a look
         // at the page finds is kept meanwhile.
-        let stamp = format!(
+        let stamp = fallible::try_format!(
             "{}.{HTML_VERSION} {}\n",
             crate::package::CACHE_VERSION,
-            crate::fingerprint(storage, path)?
-        );
-        let stamp_path = format!("{cache}/source");
-        let page_path = format!("{cache}/page.txt");
-        let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 256).ok()
-            == Some(stamp.clone().into_bytes());
+            fallible::fingerprint(storage, path)?
+        )?;
+        let stamp_path = fallible::try_format!("{cache}/source")?;
+        let page_path = fallible::try_format!("{cache}/page.txt")?;
+        let fresh = fallible::file_is(storage, &stamp_path, stamp.as_bytes());
         let found = match fresh.then(|| load_scan(storage, &page_path)).flatten() {
             Some(found) => found,
             None => {
                 let _ = storage.remove_dir_all(&cache);
                 let found = scan(storage, path)?;
-                storage.write(&page_path, save_scan(&found).as_bytes())?;
+                storage.write(&page_path, save_scan(&found)?.as_bytes())?;
                 storage.write(&stamp_path, stamp.as_bytes())?;
                 found
             }
         };
         let name = path.rsplit('/').next().unwrap_or(path);
         let name = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+        let title = match found.title {
+            Some(title) => title,
+            None => fallible::string(name)?,
+        };
+        let mut authors = Vec::new();
+        authors.try_reserve(0).map_err(|_| fallible::OOM)?;
         let metadata = Metadata::default()
-            .title(found.title.or_else(|| Some(name.to_string())))
-            .authors(Vec::new())
+            .title(Some(title))
+            .authors(authors)
             .language(found.language);
         Ok(Self {
-            path: path.to_string(),
+            path: fallible::string(path)?,
             paths,
             last: core::cell::Cell::new(None),
             anchors: cached::AnchorHint::default(),
@@ -274,7 +342,13 @@ impl HtmlDocument {
                     convert::IMAGE_FIT,
                     convert::BookText::default(),
                 );
-                converted.inspect_err(|_| self.length.set(FAILED))?
+                // Short of memory, it is tried again: with more free, it may
+                // convert.
+                converted.inspect_err(|e| {
+                    if !matches!(e, DocumentError::OutOfMemory) {
+                        self.length.set(FAILED);
+                    }
+                })?
             }
         };
         self.length.set(length);

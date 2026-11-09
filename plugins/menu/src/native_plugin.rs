@@ -7,6 +7,7 @@ use crate::native_data::Reader;
 use crate::native_model::{
     self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, with_unit,
 };
+use crate::native_panel_screen::{self as panel_screen, Outcome, PanelView};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
@@ -34,6 +35,8 @@ mod image {
 
 /// The screen's token, as declared.
 pub const LIST: u32 = 10;
+/// The quick panel's token, as declared.
+pub const PANEL: u32 = 11;
 /// The event subscriptions' token.
 pub const EVENTS: u32 = 3;
 
@@ -71,6 +74,8 @@ impl ListView {
 pub struct NativeMenu {
     ui: Option<Ui>,
     screens: Screens<ListView>,
+    /// The quick panels open.
+    panels: Screens<PanelView>,
 }
 
 impl Plugin for NativeMenu {
@@ -80,6 +85,7 @@ impl Plugin for NativeMenu {
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
         }
@@ -101,6 +107,12 @@ impl Plugin for NativeMenu {
         };
         match event {
             Event::ScreenOpened {
+                screen: "menu.panel",
+                instance,
+                handover,
+                ..
+            } => self.panel_opened(host, instance, handover),
+            Event::ScreenOpened {
                 instance, handover, ..
             } => self.opened(host, instance, handover),
             Event::ScreenShown {
@@ -109,6 +121,7 @@ impl Plugin for NativeMenu {
             } => self.shown(host, instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
+                self.panels.close(instance);
                 Ok(())
             }
             Event::SettingChanged { .. }
@@ -123,6 +136,11 @@ impl Plugin for NativeMenu {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == PANEL {
+            let view = self.panels.top(PANEL).ok_or(Error::State)?;
+            view.draw(host, &mut frame, true)?;
+            return Ok(());
+        }
         let view = self.screens.top(token).ok_or(Error::State)?;
         if view.rows.is_empty() {
             // Nothing to list: the sheet says so.
@@ -140,6 +158,9 @@ impl Plugin for NativeMenu {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
+        if token == PANEL {
+            return self.panel_input(host, &input);
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
@@ -225,6 +246,56 @@ impl NativeMenu {
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
     }
 
+    /// A panel opened: which menu, and where it hangs.
+    fn panel_opened(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        handover: Option<HandoverId>,
+    ) -> Result<(), Error> {
+        let (mut menu, mut mode) = (String::new(), String::new());
+        if let Some(handover) = handover {
+            let mut input = buffer(SERVICE_BUFFER)?;
+            let mut output = buffer(SERVICE_BUFFER)?;
+            for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
+                let param = param?;
+                match param.key() {
+                    model::PARAM_MENU => menu = copy(param.value())?,
+                    panel_screen::PARAM_MODE => mode = copy(param.value())?,
+                    _ => {}
+                }
+            }
+        }
+        if menu.is_empty() {
+            menu = copy(model::MAIN)?;
+        }
+        let view = PanelView::new(host, &menu, &mode)?;
+        self.panels.open(instance, view)
+    }
+
+    /// Input for the top panel; what it asks to open is opened here, where
+    /// the hand-over service is.
+    fn panel_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.panels.top(PANEL) else {
+            return Ok(Handled::No);
+        };
+        match view.input(host, input)? {
+            Outcome::Handled(handled) => Ok(handled),
+            Outcome::Screen { screen, key } => {
+                self.open(host, &screen, &[("id", &key)])?;
+                Ok(Handled::Yes)
+            }
+            Outcome::Slot { slot, param, value } => {
+                self.open_slot(host, slot, &[(param, &value)])?;
+                Ok(Handled::Yes)
+            }
+            Outcome::SettingSlot { slot, key } => {
+                self.open_slot(host, &slot, &[("id", &key)])?;
+                Ok(Handled::Yes)
+            }
+        }
+    }
+
     /// Opens `screen` with the hand-over `params`.
     fn open(&self, host: &Host<'_>, screen: &str, params: &[(&str, &str)]) -> Result<(), Error> {
         let open = Open::screen(screen)?;
@@ -290,6 +361,12 @@ impl NativeMenu {
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        if let Some(panel) = self.panels.get(instance) {
+            if panel.is_stale() {
+                panel.read(host)?;
+            }
+            return self.panels.shown(PANEL, instance);
+        }
         self.screens.shown(LIST, instance)?;
         if let Some(view) = self.screens.get(instance)
             && view.stale
@@ -386,6 +463,13 @@ impl NativeMenu {
     /// The setting or the registry changed: the menu on top is made anew, the
     /// others when they show.
     fn changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        for panel in self.panels.all() {
+            panel.mark_stale();
+        }
+        if let Some(panel) = self.panels.top(PANEL) {
+            panel.read(host)?;
+            Self::redraw(host)?;
+        }
         let top = self.screens.top_instance(LIST);
         for view in self.screens.all() {
             view.stale = true;
@@ -561,7 +645,7 @@ impl NativeMenu {
 }
 
 /// The value of a setting as its row shows it.
-fn value_text(info: &SettingInfo, on: &str, off: &str) -> Result<String, Error> {
+pub(crate) fn value_text(info: &SettingInfo, on: &str, off: &str) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),

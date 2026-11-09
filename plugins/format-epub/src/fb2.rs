@@ -532,7 +532,7 @@ impl Fb2Document {
         if !styles {
             cache.push_str("/plain");
         }
-        let paths = CachePaths::new(&cache, "0");
+        let paths = CachePaths::new(&cache, "0")?;
         // Read again when the file or the way it is read changed, and then
         // nothing made of it before stays (its pictures).
         let stamp = format!("{}.{FB2_VERSION} {book}\n", crate::package::CACHE_VERSION);
@@ -620,7 +620,13 @@ impl Fb2Document {
                     self.image_fit,
                     convert::BookText::of(self.metadata.language.as_deref()),
                 );
-                converted.inspect_err(|_| self.length.set(FAILED))?
+                // Short of memory, it is tried again: with more free, it may
+                // convert.
+                converted.inspect_err(|e| {
+                    if !matches!(e, DocumentError::OutOfMemory) {
+                        self.length.set(FAILED);
+                    }
+                })?
             }
         };
         self.length.set(length);

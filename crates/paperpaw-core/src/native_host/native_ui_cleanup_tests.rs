@@ -3,44 +3,24 @@
 extern crate std;
 use super::{
     HostResources,
-    ui_guard::UiStackView,
-    ui_service::{UiHost, UiServices},
+    shared::Shared,
+    ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };
-use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Id;
 
-struct Host;
-impl UiHost for Host {
-    fn callback_epoch(&self) -> u64 {
-        1
-    }
-    fn calling_instance(&self, _: u64) -> Option<u32> {
-        None
-    }
-    fn with_stack(&self, _: &mut dyn FnMut(&dyn UiStackView)) {}
-    fn x4(&self) -> bool {
-        false
-    }
-    fn close_dialog(&self, _: u32) {
-        unreachable!()
-    }
-}
-fn pool(store: &Rc<UiStore>) -> HostResources {
+fn pool(store: &Shared<UiStore>) -> HostResources {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
-        .wire_ui(UiServices {
-            store: Rc::clone(store),
-            host: Rc::new(Host),
-        })
+        .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
         .unwrap();
     pool
 }
 
 #[test]
 fn busy_instance_cleanup_stays_queued_until_a_later_main_loop_pass() {
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -71,7 +51,7 @@ fn busy_instance_cleanup_stays_queued_until_a_later_main_loop_pass() {
 
 #[test]
 fn busy_owner_cleanup_leaves_the_stopped_owner_for_ordered_unload_retry() {
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -168,7 +148,7 @@ fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instance
             ))
         }
     }
-    let store = Rc::new(UiStore::new(Limits::ELSEWHERE));
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
