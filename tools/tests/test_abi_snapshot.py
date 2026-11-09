@@ -137,7 +137,7 @@ mod tests {
             bytes[8] = presence;
             assert_eq!(snapshot_decode(&bytes), Err(-2));
         }
-        for bit in 3..32 {
+        for bit in 4..32 {
             let mut bytes = canonical;
             bytes[8..12].copy_from_slice(&(1_u32 << bit).to_le_bytes());
             assert_eq!(snapshot_decode(&bytes), Err(-1));
@@ -156,6 +156,35 @@ mod tests {
             bytes[43] = percent;
             assert_eq!(snapshot_decode(&bytes), Err(-2));
         }
+    }
+
+    #[test]
+    fn utc_offset_presence_range_and_absent_zero() {
+        let mut snapshot = base();
+        for minutes in [-720_i16, -1, 0, 60, 345, 840] {
+            snapshot.utc_offset_minutes = Some(minutes);
+            let bytes = encode(&snapshot);
+            assert_eq!(bytes[8], 8);
+            assert_eq!(&bytes[49..51], &minutes.to_le_bytes());
+            assert_eq!(bytes[51], 0);
+            assert_eq!(snapshot_decode(&bytes), Ok(snapshot));
+        }
+        for minutes in [i16::MIN, -721, 841, i16::MAX] {
+            snapshot.utc_offset_minutes = Some(minutes);
+            let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
+            assert_eq!(snapshot_encode(&snapshot, &mut out), Err(-2));
+            assert!(out.into_iter().all(|byte| unsafe { byte.assume_init() } == 0xa5));
+            let mut bytes = encode(&base());
+            bytes[8] = 8;
+            bytes[49..51].copy_from_slice(&minutes.to_le_bytes());
+            assert_eq!(snapshot_decode(&bytes), Err(-2));
+        }
+        // Absent requires zero: a present zero differs from none.
+        let mut bytes = encode(&base());
+        bytes[49] = 60;
+        assert_eq!(snapshot_decode(&bytes), Err(-2));
+        snapshot.utc_offset_minutes = Some(0);
+        assert_ne!(encode(&snapshot), encode(&base()));
     }
 
     #[test]

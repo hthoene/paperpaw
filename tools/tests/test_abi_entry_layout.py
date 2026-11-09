@@ -48,7 +48,8 @@ class EntryLayoutTests(unittest.TestCase):
         schema = json.loads((ROOT / 'abi/abi.def').read_text())
         profiles = {p['name']: p for p in schema['metadata']['profiles']}
         expected = {'linux-x86_64-sysv64-le': (64, 32, 8),
-                    'esp32c3-riscv32imc-ilp32-soft-le': (32, 20, 4)}
+                    'esp32c3-riscv32imc-ilp32-soft-le': (32, 20, 4),
+                    'esp32s3-xtensa-lx7-ilp32-windowed-le': (32, 20, 4)}
         self.assertEqual(set(profiles), set(expected))
         for name, values in expected.items():
             with self.subTest(profile=name):
@@ -99,6 +100,19 @@ class EntryLayoutTests(unittest.TestCase):
                     self.assertEqual([int(value) for value in values], expected)
 
     def test_x4_no_std_entry_layouts_match_known_32_bit_values(self):
+        self.no_std_entry_layouts(['rustc'], 'riscv32imc-unknown-none-elf')
+
+    def test_x4_pro_no_std_entry_layouts_match_known_32_bit_values(self):
+        # The X4 Pro and X4 Classic (ESP32-S3, Xtensa LX7, windowed ABI):
+        # only where the esp toolchain is installed (CI builds the S3 shells).
+        rustup = shutil.which('rustup')
+        if rustup is None or subprocess.run(
+                [rustup, 'run', 'esp', 'rustc', '--print', 'target-list'],
+                capture_output=True, text=True).stdout.find('xtensa-esp32s3-none-elf') < 0:
+            self.skipTest('the esp toolchain (xtensa-esp32s3-none-elf) is not installed')
+        self.no_std_entry_layouts([rustup, 'run', 'esp', 'rustc'], 'xtensa-esp32s3-none-elf')
+
+    def no_std_entry_layouts(self, rustc, target):
         assertions = ['#![no_std]', raw_module(), 'const _: () = {']
         for kind, size, align, offsets in (
                 ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
@@ -118,8 +132,9 @@ class EntryLayoutTests(unittest.TestCase):
             base = Path(directory)
             source = base / 'x4.rs'
             source.write_text('\n'.join(assertions))
-            compile_rust(source, base / 'x4.rlib', '--crate-type=lib',
-                         '--target', 'riscv32imc-unknown-none-elf')
+            subprocess.run([*rustc, '--edition=2024', '-Dwarnings', '--crate-type=lib',
+                            '--target', target, str(source), '-o', str(base / 'x4.rlib')],
+                           check=True)
 
     def test_x4_freestanding_c_entry_layouts_match_known_32_bit_values(self):
         clang = shutil.which('clang')

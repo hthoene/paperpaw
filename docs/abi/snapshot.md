@@ -36,10 +36,18 @@ There is no alignment padding.
 | 46 | 1 | Charging Boolean |
 | 47 | 1 | Battery saver Boolean |
 | 48 | 1 | Touch input Boolean |
-| 49 | 3 | Reserved, zero |
+| 49 | 2 | UTC offset in minutes, signed (draft 29) |
+| 51 | 1 | Reserved, zero |
 
-Presence bits are battery `1`, voltage `2` and Unix time `4`. Voltage requires
-battery presence. An absent Unix time requires zero seconds. An absent battery
+Presence bits are battery `1`, voltage `2`, Unix time `4` and UTC offset `8`.
+Voltage requires battery presence. An absent Unix time requires zero seconds.
+The UTC offset is the minutes the user's time zone is ahead of UTC now (east
+of it, summer time included): `core.time-zone`, else the system's zone, as the
+SDK's local time reads it; -720 through 840 (UTC-12:00 to UTC+14:00), absent
+while the device knows no time or the offset is outside that range (never
+clamped). An absent offset requires zero; a value outside the range is
+`ERR_INVALID` in both directions. Stats and reading goals take a day's
+boundary from it (`unix + 60 * offset`). An absent battery
 requires zero percentage and false charging and saver flags. An absent voltage
 requires zero millivolts. These canonical zeros preserve the distinction
 between absence and a present zero value. Battery percentages are 0 through
@@ -69,7 +77,11 @@ depths or codes, invalid Booleans, invalid percentages, nonzero reserved bytes
 and inconsistent declared lengths return `ERR_INVALID`.
 
 The descriptor is closed. Adding it must respect the ABI minor release floor;
-an existing descriptor cannot be removed or changed. Lock format 5 records
+an existing descriptor cannot be removed or changed. Draft 29 is the last
+change inside the 52-byte prefix (the UTC offset in the tail's reserved
+bytes, presence bit 8): after 1.0 the snapshot grows only by trailing
+extension bytes under version 1, read by the length the host declares, and
+never changes a byte of the prefix. Lock format 5 records
 its separate emitted source as `emitted_snapshot`. Lock formats 1 through 4
 remain readable without this field. Generation does not insert snapshot
 facades or codecs into the existing raw Rust module.
