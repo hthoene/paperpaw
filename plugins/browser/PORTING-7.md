@@ -14,8 +14,8 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   root 0 to root 1 (`uses.storage`), each with the first free name of ninety-nine (`State` for a taken
   name, never a replace). `Unsupported` for a font says `browser.no-fonts` (a host without a card
   root has no fonts folder to give).
-- `uses.library` and `uses.storage` are not required: without them a download says
-  `browser.cannot-save`; pages and bookmarks still work.
+- `uses.library` and `uses.storage` are not required: without them (`Denied`) a download says
+  `browser.no-permission`; ninety-nine taken names say `browser.name-taken`; pages and bookmarks still work.
 - Differences from interface 6: (1) a book keeps the server's file name; interface 6 renamed it after
   its author and title. That needs the document service's metadata (`doc_meta`, op 3): the SDK has no
   wrapper yet and the host piece is **DOC-metadata**, so it is an ignored case, not faked. (2) The

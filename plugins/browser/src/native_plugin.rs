@@ -696,7 +696,10 @@ impl NativeBrowser {
     /// A book, a font or another file: from the download file to where it
     /// belongs; told, and a book offered to be read.
     fn keep_download(&mut self, host: &Host<'_>, kind: Kind, url: &str) -> Result<(), Error> {
-        let name = paperpaw_sdk::web::try_file_name(url).map_err(|_| Error::NoMemory)?;
+        let Ok(name) = paperpaw_sdk::web::try_file_name(url) else {
+            let _ = DataStorage::new(host).remove(store::DOWNLOAD);
+            return Err(Error::NoMemory);
+        };
         let result = match kind {
             Kind::Book => self.save_book(host, &name),
             Kind::Font => self.save_card(host, save::FONTS, &name),
@@ -710,6 +713,10 @@ impl NativeBrowser {
             Err(Error::Unsupported) if kind == Kind::Font => {
                 return self.say(host, "browser.no-fonts", &[]);
             }
+            // The user did not allow the library or the card to this plugin.
+            Err(Error::Denied) => return self.say(host, "browser.no-permission", &[]),
+            // Ninety-nine files of this name are saved already.
+            Err(Error::State) => return self.say(host, "browser.name-taken", &[]),
             Err(_) => return self.say(host, "browser.cannot-save", &[]),
         };
         let name = Arg::Text {
