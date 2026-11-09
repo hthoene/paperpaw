@@ -43,10 +43,29 @@ impl crate::Kernel {
     /// [`WORK_WISH_MS`], long enough for the network manager to bring one up
     /// and for the work to ask for it itself, and lapses then or when one is
     /// up. The network manager hears `event.network_wanted` at the end of this
-    /// call. Nothing without `core.net` or `core.sockets` wired.
+    /// call.
+    ///
+    /// Nothing without `core.net` or `core.sockets` wired, nothing while the
+    /// policy is closed or the offline mode is on (the network manager is
+    /// never told to bring up a network the user has ruled out), and nothing
+    /// when a network is up or the system manages it (the wish would lapse in
+    /// the same call: `wanted` and `idle` for nothing). A plugin whose own
+    /// network is off or on hold is the scheduler's to hold back: it never
+    /// raises the flag for work of such a plugin.
     #[allow(dead_code, reason = "the work pump calls it (todo 265)")]
     pub(crate) fn native_work_wish(&mut self) {
         let now = self.now.millis();
+        if self.native_online() {
+            return;
+        }
+        let allowed = self
+            .shared
+            .native_instances
+            .net_policy()
+            .is_some_and(|policy| policy.allows_use());
+        if !allowed {
+            return;
+        }
         let Some((pool, hosts)) = self.shared.native_instances.net_demand() else {
             return;
         };

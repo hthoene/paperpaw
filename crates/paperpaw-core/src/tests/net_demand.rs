@@ -121,6 +121,90 @@ fn a_network_that_comes_ends_the_wish_of_work() {
     assert_eq!(count(&log, "wk wanted"), 1);
 }
 
+/// Whether a wish was taken: the work demand stands.
+fn wished(kernel: &Kernel) -> bool {
+    kernel
+        .shared
+        .native_instances
+        .net_demand()
+        .is_some_and(|(pool, _)| pool.work_deadline().is_some())
+}
+
+#[test]
+fn a_wish_is_not_taken_while_the_policy_is_closed_or_the_mode_is_offline() {
+    // Not yet filled: closed, as for every plugin.
+    let (mut kernel, _, log) = booting_with(MemoryStorage::new(), true);
+    kernel.now = Instant(1_000);
+    kernel.native_work_wish();
+    kernel.finish();
+    assert!(!wished(&kernel), "closed policy");
+    kernel.start(Instant(2_000));
+    log.borrow_mut().clear();
+    // The offline mode: the network manager is not asked for a network.
+    kernel.shared.power = paperpaw_sdk::power::Power::new(
+        paperpaw_sdk::power::PowerLevel::Offline,
+        paperpaw_sdk::power::OFFLINE,
+        false,
+        4,
+    );
+    kernel.sync_net_policy();
+    kernel.now = Instant(3_000);
+    kernel.native_work_wish();
+    kernel.finish();
+    assert!(!wished(&kernel), "offline mode");
+    assert_eq!(count(&log, "wk wanted"), 0);
+    assert_eq!(flags(&kernel), (false, false));
+    // Out of the offline mode it is taken.
+    kernel.shared.power = paperpaw_sdk::power::Power::default();
+    kernel.sync_net_policy();
+    kernel.native_work_wish();
+    kernel.finish();
+    assert!(wished(&kernel));
+    assert_eq!(count(&log, "wk wanted"), 1);
+}
+
+#[test]
+fn a_wish_is_nothing_when_a_network_is_up_or_the_system_manages_it() {
+    // Up: no `wanted`, no `idle`, and the shell hears nothing of it.
+    let (mut kernel, log) = started();
+    online(&mut kernel, 1_000);
+    log.borrow_mut().clear();
+    kernel.now = Instant(2_000);
+    kernel.native_work_wish();
+    kernel.finish();
+    assert!(!wished(&kernel));
+    assert!(log.borrow().is_empty());
+    // A shell that does not manage Wi-Fi: always "up".
+    let (mut kernel, _, log) = booting_with(MemoryStorage::new(), false);
+    kernel.start(Instant(0));
+    log.borrow_mut().clear();
+    kernel.now = Instant(1_000);
+    kernel.native_work_wish();
+    kernel.finish();
+    assert!(!wished(&kernel));
+    assert!(log.borrow().is_empty());
+}
+
+#[test]
+fn a_request_that_still_waits_is_announced_again_once_per_wait() {
+    // `NETWORK_WAIT_MS` after the manager was told, the kernel's wait fails;
+    // what still waits (a native request has its own wait, from when it was
+    // stored, and ends itself then) is announced once more, not more often.
+    use paperpaw_sdk::wifi::NETWORK_WAIT_MS as WAIT;
+    let (mut kernel, log) = started();
+    demand(&kernel, DEMAND_NET, true);
+    kernel.tick(Instant(1_000));
+    assert_eq!(count(&log, "wk wanted"), 1);
+    kernel.tick(Instant(1_000 + WAIT - 1));
+    assert_eq!(count(&log, "wk wanted"), 1, "within the wait: once");
+    kernel.tick(Instant(1_000 + WAIT));
+    assert_eq!(count(&log, "wk wanted"), 2, "after the wait failed: again");
+    kernel.tick(Instant(1_000 + WAIT + 1_000));
+    assert_eq!(count(&log, "wk wanted"), 2, "and once for that wait");
+    kernel.tick(Instant(1_000 + 2 * WAIT + 1_000));
+    assert_eq!(count(&log, "wk wanted"), 3, "once per wait, not in a loop");
+}
+
 #[test]
 fn a_service_that_stays_live_keeps_the_demand_after_the_wish_lapses() {
     let (mut kernel, log) = started();
