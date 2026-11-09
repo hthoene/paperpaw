@@ -78,8 +78,8 @@ give is the list of blocked cases at the end.
 - Memory is short: `title` says `Error::NoMemory` where interface 6 said "no title"; the screen falls
   back to the host name in the same case, explicitly.
 - Saving a list reports the storage's refusal (`StoreError`); interface 6 ignored it.
-- `paperpaw_sdk::xml::try_decode` is now exported (a one-line SDK change); the SDK's `web::try_file_name`
-  (PR #506) is used for the address's file name. This PR is stacked on #506 until it merges.
+- `paperpaw_sdk::xml::try_decode` is exported and the SDK's `web::try_file_name` is used for the
+  address's file name (both merged with PR #506).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
