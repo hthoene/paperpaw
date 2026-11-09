@@ -258,9 +258,9 @@ fn reading_and_home_keep_the_book_opened() {
 
     // The book opened in the reader, as the library would.
     let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
-    let effects = app
-        .kernel
-        .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
     app.settle(effects);
     assert_eq!(app.screen(), "reader.screen");
     for _ in 0..3 {
