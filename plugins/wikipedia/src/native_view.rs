@@ -11,7 +11,7 @@ use paperpaw_sdk::{
     Handled, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, Input},
+        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         formatting::Arg,
@@ -35,6 +35,9 @@ enum Body {
     Loading,
     /// Why there is none (the key of the text).
     Message(&'static str),
+    /// The device is offline and the user's window to ask was missed: confirm
+    /// (or a tap) goes online and asks again, back closes.
+    Offer,
     /// The summary, with the article's title when the answer had one.
     Summary { title: Option<String>, text: String },
 }
@@ -133,9 +136,8 @@ impl View {
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Err(_) => Body::Message("wikipedia.failed"),
             },
-            Reason::Offline | Reason::Saving | Reason::NetworkOff => {
-                Body::Message("wikipedia.no-network")
-            }
+            Reason::Offline => Body::Offer,
+            Reason::Saving | Reason::NetworkOff => Body::Message("wikipedia.no-network"),
             Reason::NoNetwork | Reason::Dns | Reason::Tls | Reason::Timeout | Reason::Refused => {
                 Body::Message("wikipedia.unreachable")
             }
@@ -159,7 +161,15 @@ impl View {
     ///
     /// # Errors
     /// The host's refusals.
-    pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+    pub fn input(
+        &mut self,
+        host: &Host<'_>,
+        input: &Input<'_>,
+        net: Option<&Net>,
+    ) -> Result<Handled, Error> {
+        if matches!(self.body, Body::Offer) && wants_online(self.layout.region, input) {
+            return self.go_online(host, net);
+        }
         let Some(page) = self.page.as_mut() else {
             return Ok(Handled::No);
         };
@@ -180,6 +190,23 @@ impl View {
         }
     }
 
+    /// The user chose *Go online*: the network is asked for within the host's
+    /// input window (this input), and the summary is asked for again.
+    fn go_online(&mut self, host: &Host<'_>, net: Option<&Net>) -> Result<Handled, Error> {
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        self.page = None;
+        self.body = Body::Loading;
+        match (sender.go_online(GO_ONLINE_MS), net) {
+            (Ok(()), Some(net)) => self.fetch(host, net)?,
+            (Err(Error::NoMemory), _) => return Err(Error::NoMemory),
+            _ => self.body = Body::Message("wikipedia.no-network"),
+        }
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        Ok(Handled::Yes)
+    }
+
     /// The name above the text: the article's title where the answer had one.
     fn heading(&self) -> &str {
         match &self.body {
@@ -196,6 +223,7 @@ impl View {
         match &self.body {
             Body::Loading => messages.copy(host, "wikipedia.loading"),
             Body::Message(key) => messages.copy(host, key),
+            Body::Offer => messages.copy(host, "wikipedia.offer"),
             Body::Summary { text, .. } => {
                 let address = native_model::article_url(&self.language, self.heading())?;
                 let from = messages.format(
@@ -340,6 +368,22 @@ fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, Erro
     String::from_utf8(bytes).map_err(|_| Error::Invalid)
 }
 
+/// How long the network is asked for when the user chooses *Go online*.
+const GO_ONLINE_MS: u32 = 120_000;
+
+/// Whether `input` is the choice to go online: confirm, or a tap on the screen.
+fn wants_online(region: Rect, input: &Input<'_>) -> bool {
+    match *input {
+        Input::Action { action, .. } => action == "core.confirm",
+        Input::Gesture {
+            position,
+            kind: InputGestureKind::Tap,
+            ..
+        } => region.contains(position),
+        _ => false,
+    }
+}
+
 /// The most bytes of a word a request carries, and of a language.
 const MAX_WORD: usize = 256;
 const MAX_LANGUAGE: usize = 35;
@@ -376,6 +420,23 @@ fn read_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirm_or_a_tap_on_the_screen_goes_online_and_nothing_else_does() {
+        use paperpaw_sdk::Point;
+        let region = Rect::new(0, 100, 200, 100);
+        let action = |action| Input::Action { now_ms: 0, action };
+        let tap = |x, y| Input::Gesture {
+            now_ms: 0,
+            position: Point::new(x, y),
+            kind: InputGestureKind::Tap,
+        };
+        assert!(wants_online(region, &action("core.confirm")));
+        assert!(!wants_online(region, &action("core.back")));
+        assert!(!wants_online(region, &action("core.next-page")));
+        assert!(wants_online(region, &tap(50, 150)));
+        assert!(!wants_online(region, &tap(50, 50)));
+    }
 
     #[test]
     fn a_long_word_is_cut_at_a_character() {

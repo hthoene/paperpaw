@@ -473,6 +473,11 @@ impl Image {
         self.done
     }
 
+    /// The first word, kept back until [`Image::finish`].
+    pub fn head(&self) -> [u8; HEAD] {
+        self.head
+    }
+
     /// Writes the image's next `len` bytes, at the start of `buf` (which
     /// has room for them rounded up to a word), erasing each block as it
     /// is reached. `buf` is changed: the first word kept back, the end

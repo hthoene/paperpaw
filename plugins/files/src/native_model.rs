@@ -131,10 +131,14 @@ pub enum Scope {
     Folder(String),
     /// Books whose title, author, series, tag or file name has the words.
     Search(String),
+    /// The next book of each series begun (not a host query: see
+    /// [`crate::native_shelves::collect_next`]).
+    Next,
 }
 
 /// A scope's names as the screen's parameters carry them.
-const KINDS: [(&str, u8); 6] = [
+const KINDS: [(&str, u8); 7] = [
+    ("next", 6),
     ("favourites", 0),
     ("author", 1),
     ("series", 2),
@@ -155,6 +159,7 @@ impl Scope {
             Self::Tag(value) => ("tag", value),
             Self::Folder(value) => ("folder", value),
             Self::Search(value) => ("search", value),
+            Self::Next => ("next", ""),
         }
     }
 
@@ -174,6 +179,7 @@ impl Scope {
             Some(3) => Self::Tag(copy(value)?),
             Some(4) => Self::Folder(copy(value)?),
             Some(5) => Self::Search(copy(value)?),
+            Some(6) => Self::Next,
             _ => Self::Library,
         })
     }
@@ -208,6 +214,9 @@ impl Selection {
             Scope::Tag(name) => query = query.tag(name)?,
             Scope::Folder(path) => query = query.folder(path)?,
             Scope::Search(words) => query = query.words(words)?,
+            // Read by `collect_next`, not by one query: the books of the
+            // series begun, whichever way they are shown.
+            Scope::Next => query = query.show(Show::Reading),
         }
         Ok(query)
     }
@@ -256,11 +265,11 @@ impl BookLine {
     }
 }
 
-/// The books of a list read so far. `C` is the host's cursor (the model is
+/// The rows of a list (books, or names of a shelf) read so far. `C` is the host's cursor (the model is
 /// generic over it so the reading is tested without a host).
 #[derive(Debug)]
-pub struct Window<C = CatalogCursor> {
-    pub books: Vec<BookLine>,
+pub struct Window<C = CatalogCursor, T = BookLine> {
+    pub books: Vec<T>,
     /// Where the window's first reply was read from.
     pub start: C,
     /// The catalog generation the books were read in.
@@ -271,7 +280,7 @@ pub struct Window<C = CatalogCursor> {
     pub next: Option<C>,
 }
 
-impl<C: Copy> Window<C> {
+impl<C: Copy, T> Window<C, T> {
     /// An empty window that will be read from `start`.
     #[must_use]
     pub const fn new(start: C) -> Self {
@@ -299,21 +308,21 @@ impl<C: Copy> Window<C> {
 
 /// One reply of the host's query.
 #[derive(Debug)]
-pub struct Replied<C> {
-    pub books: Vec<BookLine>,
+pub struct Replied<C, T = BookLine> {
+    pub books: Vec<T>,
     pub generation: u32,
     pub total: u32,
     pub next: Option<C>,
 }
 
 /// Where replies come from: the host's library service.
-pub trait Source<C> {
+pub trait Source<C, T = BookLine> {
     /// The reply that continues at `from`; `Error::State` when the catalog
     /// changed since the cursor was given.
     ///
     /// # Errors
     /// The host's refusal or `NoMemory`.
-    fn read(&mut self, from: C) -> Result<Replied<C>, Error>;
+    fn read(&mut self, from: C) -> Result<Replied<C, T>, Error>;
 }
 
 /// Reads replies into a window from `start` until it holds `want` books
@@ -326,12 +335,12 @@ pub trait Source<C> {
 ///
 /// # Errors
 /// The source's refusal.
-pub fn read_window<C: Copy>(
-    source: &mut impl Source<C>,
+pub fn read_window<C: Copy, T>(
+    source: &mut impl Source<C, T>,
     start: C,
     first: C,
     want: usize,
-) -> Result<(Window<C>, bool), Error> {
+) -> Result<(Window<C, T>, bool), Error> {
     let mut window = Window::new(start);
     let mut restarted = false;
     let mut cursor = start;
@@ -368,6 +377,12 @@ pub trait Say {
     /// # Errors
     /// The host's refusal or `NoMemory`.
     fn say(&mut self, key: &str) -> Result<String, Error>;
+
+    /// The catalog's plural text for `key` and `count` (`files.books`).
+    ///
+    /// # Errors
+    /// The host's refusal or `NoMemory`.
+    fn count(&mut self, key: &str, count: i64) -> Result<String, Error>;
 }
 
 /// A book's row: its title, how far it is read (or *Finished*, or *New*)
@@ -435,6 +450,9 @@ mod tests {
         fn say(&mut self, key: &str) -> Result<String, Error> {
             copy(key)
         }
+        fn count(&mut self, key: &str, _: i64) -> Result<String, Error> {
+            copy(key)
+        }
     }
 
     fn book() -> BookLine {
@@ -486,6 +504,7 @@ mod tests {
             Scope::Tag("sf".into()),
             Scope::Folder("books/Archive".into()),
             Scope::Search("two words".into()),
+            Scope::Next,
         ] {
             let (kind, value) = scope.params();
             assert_eq!(Scope::from_params(kind, value).unwrap(), scope);
@@ -505,6 +524,7 @@ mod tests {
             Scope::Tag("sf".into()),
             Scope::Folder("books".into()),
             Scope::Search("words".into()),
+            Scope::Next,
         ] {
             let selection = Selection {
                 scope,

@@ -98,3 +98,24 @@ fn turning_pages_never_overflows() {
     // Wraps to 0, which is a multiple of the interval.
     assert!(speed.turned());
 }
+
+#[test]
+fn a_number_that_is_not_finite_is_skipped() {
+    for bad in ["inf", "-inf", "NaN"] {
+        assert_eq!(
+            context(&[("pages", bad), ("progress", "10")]).pages_left(false),
+            None
+        );
+        assert_eq!(
+            context(&[("pages", "10"), ("progress", bad)]).pages_left(false),
+            None
+        );
+    }
+}
+
+#[test]
+fn the_status_items_have_a_token_of_their_own() {
+    use crate::declarations::{HTTP_TOKEN, STATUS_TOKEN, TICK_TOKEN};
+    assert_ne!(STATUS_TOKEN, HTTP_TOKEN);
+    assert_ne!(STATUS_TOKEN, TICK_TOKEN);
+}

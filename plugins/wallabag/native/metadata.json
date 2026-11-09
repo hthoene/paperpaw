@@ -92,6 +92,34 @@
     },
     {
       "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
+      "kind": "host",
       "name": "blob.read"
     },
     {
@@ -116,8 +144,19 @@
     }
   ],
   "services": [
+    "core.library",
+    "core.net",
     "core.secrets",
     "core.ui"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.library",
+      "required": false
+    },
+    {
+      "key": "uses.network",
+      "required": false
+    }
+  ]
 }
