@@ -118,6 +118,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-aids"
+version = "1.1.5"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-battery"
 version = "1.0.9"
 dependencies = [
@@ -127,6 +134,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-bluetooth"
 version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-browser"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -186,8 +201,10 @@ name = "paperpaw-plugin-files7"
 version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-about",
+ "paperpaw-plugin-aids",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
+ "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
@@ -200,16 +217,19 @@ dependencies = [
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
+ "paperpaw-plugin-home",
  "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
  "paperpaw-plugin-koreader",
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-lock",
+ "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-menu-editor",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-overview",
+ "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
@@ -222,12 +242,15 @@ dependencies = [
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
+ "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
+ "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wallabag",
  "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
+ "paperpaw-plugin-wifi",
  "paperpaw-plugin-wikipedia",
 ]
 
@@ -243,6 +266,14 @@ dependencies = [
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-epub"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
  "paperpaw-sdk",
 ]
 
@@ -270,6 +301,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-help"
 version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-home"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -325,6 +364,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-mail"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-menu"
 version = "1.0.6"
 dependencies = [
@@ -352,6 +399,15 @@ dependencies = [
 name = "paperpaw-plugin-notes-overview"
 version = "1.0.3"
 dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-notes-vault"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
@@ -453,10 +509,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-store"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-transfer"
 version = "1.0.4"
 dependencies = [
  "paperpaw-qr",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-translate"
+version = "1.0.6"
+dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
@@ -499,6 +571,15 @@ dependencies = [
 name = "paperpaw-plugin-widgets"
 version = "1.0.9"
 dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-wifi"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-qr",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

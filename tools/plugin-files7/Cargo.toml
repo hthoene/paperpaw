@@ -305,12 +305,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "news"
-path = "src/bin/news.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "notes-vault"
 path = "src/bin/notes-vault.rs"
 test = false
@@ -378,7 +372,6 @@ paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"
 paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
 paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
 paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
-paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"] }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }
 paperpaw-plugin-store = { path = "../../plugins/store", features = ["native-entry"] }
 paperpaw-plugin-wifi = { path = "../../plugins/wifi", features = ["native-entry"] }
