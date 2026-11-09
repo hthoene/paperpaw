@@ -21,6 +21,7 @@ pub const TICK_TOKEN: u32 = 2;
 /// The widgets' tokens.
 pub const TODAY_TOKEN: u32 = 40;
 pub const WEEK_TOKEN: u32 = 41;
+pub const RING_TOKEN: u32 = 42;
 
 pub const GROUP: &str = "stats.group";
 
@@ -136,6 +137,11 @@ pub const PERIODS: [&str; 4] = [
 /// The bars' ends: round or square.
 pub const SHAPES: [&str; 2] = ["stats.shape.round", "stats.shape.square"];
 
+/// The ring's look: a whole ring, or three quarters of one open at the bottom.
+pub const RING_STYLES: [&str; 2] = ["stats.ring.full", "stats.ring.gauge"];
+/// How thick the ring is.
+pub const RING_LINES: [&str; 3] = ["stats.line.thin", "stats.line.medium", "stats.line.thick"];
+
 /// A widget of the plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Def {
@@ -192,8 +198,35 @@ const WEEK_OWN: &[Opt] = &[
     Opt::Part("today", "stats.part.today", true),
 ];
 
+const RING_OWN: &[Opt] = &[
+    Opt::Size("core.size.fit", true),
+    Opt::Align("core.align.center"),
+    Opt::Choice(
+        "style",
+        "stats.setting.ring",
+        &RING_STYLES,
+        "stats.ring.full",
+        "stats.setting.ring.help",
+    ),
+    Opt::Choice(
+        "line",
+        "stats.setting.line",
+        &RING_LINES,
+        "stats.line.medium",
+        "stats.setting.line.help",
+    ),
+    Opt::Part("caption", "stats.part.caption", true),
+    Opt::Part("unit", "stats.part.unit", true),
+    Opt::PartHelp(
+        "note",
+        "stats.part.streak-left",
+        true,
+        "stats.part.streak-left.help",
+    ),
+];
+
 /// The widgets, with their own settings (the shared look comes first).
-pub const WIDGETS: [Def; 2] = [
+pub const WIDGETS: [Def; 3] = [
     Def {
         name: "widget.today",
         token: TODAY_TOKEN,
@@ -203,6 +236,11 @@ pub const WIDGETS: [Def; 2] = [
         name: "widget.week",
         token: WEEK_TOKEN,
         options: WEEK_OWN,
+    },
+    Def {
+        name: "widget.goal",
+        token: RING_TOKEN,
+        options: RING_OWN,
     },
 ];
 
