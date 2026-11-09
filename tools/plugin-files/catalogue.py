@@ -39,7 +39,7 @@ names and summaries from data.toml.
 Name and summary come from each plugin's translations
 (`<id>.plugin.name`, `<id>.plugin.description`, English and German), the
 author's key from the files' signatures (all must have the same), the
-fingerprint (`abi`) from each file's header, How it works from the
+`abi` from each file's header (the fingerprint of a format-4 file, `7.<needs_minor>` of a format-5 file), How it works from the
 plugin's `how/<lang>.txt` (the files its manifest names). Nothing is
 invented: a plugin without a file, a name, a How it works in English or
 a signature fails.
@@ -100,17 +100,52 @@ def message(plugin, language, key):
     return None
 
 
+FORMAT_4 = 4  # interface 6: a fingerprint in the header (8..16)
+FORMAT_5 = 5  # interface 7 (abi/ppn5.md): no fingerprint
+# The chip each device's file is for (`target`, bytes 6..8 of a format-5 header).
+CHIP = {"x4": 5, "x4-pro": 9, "x4-classic": 9}
+
+
 def ppn(path):
-    """The fingerprint (16 hex digits) and the author's key (64 hex digits)
-    of a signed plugin file."""
+    """What a signed plugin file says: `(abi, key, format, target)`.
+
+    `abi` is what the plugin library's entry says (`abi = ...`):
+    - format 4 (interface 6): the firmware's fingerprint, 16 hex digits, from
+      bytes 8..16;
+    - format 5 (interface 7): `"7.<needs_minor>"`, decimal, from `abi_major`
+      (bytes 8..10) and `needs_minor` (10..12); no fingerprint exists. The
+      device's store checks the target, then the major, then `needs_minor`
+      against the host's minor; there is no draft check (Kernel's ruling on
+      #228, todo 169).
+    `key` is the author's (64 hex digits). A header of any other format fails.
+    """
     data = path.read_bytes()
     if data[:4] != b"PPNP":
         fail(f"{path}: not a plugin file")
-    fingerprint = struct.unpack_from("<Q", data, 8)[0]
+    if len(data) < 12:
+        fail(f"{path}: not a plugin file")
+    format, target = struct.unpack_from("<HH", data, 4)
+    if format == FORMAT_5:
+        header_len = 96
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 5 has {header_len} bytes)")
+        major, minor = struct.unpack_from("<HH", data, 8)
+        if major != 7:
+            fail(f"{path}: interface {major}, not 7")
+        abi = f"{major}.{minor}"
+    elif format == FORMAT_4:
+        header_len = 80
+        # Bytes 8..16 are the fingerprint: a file of 12 to 15 bytes has its
+        # format but not that.
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 4 has {header_len} bytes)")
+        abi = f"{struct.unpack_from('<Q', data, 8)[0]:016x}"
+    else:
+        fail(f"{path}: plugin file format {format} (4 and 5 are known)")
     trailer = data[-SIGNATURE_LEN:]
-    if len(data) < 80 + SIGNATURE_LEN or trailer[:4] != b"PPNS":
+    if len(data) < header_len + SIGNATURE_LEN or trailer[:4] != b"PPNS":
         fail(f"{path}: not signed")
-    return f"{fingerprint:016x}", trailer[12:44].hex()
+    return abi, trailer[12:44].hex(), format, target
 
 
 def sha256(path):
@@ -292,16 +327,24 @@ def main():
         if "how/en.txt" not in dict(how):
             fail(f"{plugin}: no How it works in English (plugins/{plugin}/how/en.txt)")
         builds = []
+        formats = set()
         for device in DEVICES:
             path = dist / f"{plugin}-{version}-{device}.ppn"
             if path.exists():
-                abi, key = ppn(path)
+                abi, key, file_format, target = ppn(path)
+                if file_format == FORMAT_5 and target != CHIP[device]:
+                    fail(f"{path}: a format-5 file for chip {target}, not {CHIP[device]} (the {device})")
+                formats.add(file_format)
                 keys.add(key)
                 digest = sha256(path)
                 sums.append((digest, path.name))
                 builds.append((device, abi, url_of(path.name, digest), digest))
         if not builds:
             fail(f"{plugin}: no file built for any reader")
+        if len(formats) != 1:
+            fail(f"{plugin}: files of formats {sorted(formats)} (one entry has one format)")
+        # Where the files are built from: interface 7's are not tools/plugin-files'.
+        source_path = "tools/plugin-files7" if formats == {FORMAT_5} else "tools/plugin-files"
         plugin_ini = (
             "[plugin]\n"
             f"id = {plugin}\n"
@@ -346,7 +389,7 @@ def main():
             "[versions.source]",
             f"repository = {toml(REPOSITORY)}",
             f"revision = {toml(tag)}",
-            'path = "tools/plugin-files"',
+            f"path = {toml(source_path)}",
             f"bin = {toml(plugin)}",
         ]
         for device, abi, url, digest in builds:

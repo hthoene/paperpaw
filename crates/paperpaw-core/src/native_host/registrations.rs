@@ -5,14 +5,20 @@
 //! bytes are retained as fallible host copies; submitted addresses are metadata.
 //! A refused submission poisons construction even if the plugin ignores it.
 
+#[path = "registrations/subset.rs"]
+mod subset;
 #[path = "../abi7/records_wire.rs"]
 #[allow(
     clippy::all,
     clippy::pedantic,
     missing_docs,
-    reason = "schema-generated bounded wire codec"
+    dead_code,
+    reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
+#[cfg(test)]
+pub(super) use subset::decode_any;
+pub(super) use subset::{as_wire, decode_record, unexpected};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
@@ -59,10 +65,11 @@ pub use wire::{
 // `docs/abi/screens-input.md`.
 pub use wire::{
     ACTION_SPEC_TAG, ActionSpec, DRAW_FRAME_PAYLOAD_MAX_BYTES, DRAW_FRAME_TAG, DrawFrame,
-    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun, EventScreenShown,
-    I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr, I18nCount,
-    INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
-    InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_TEXT_TYPED_TEXT_MAX_BYTES, EventActionRun,
+    EventScreenShown, EventTextTyped, I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG,
+    I18nArgInt, I18nArgStr, I18nCount, INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG,
+    INPUT_POINTER_TAG, InputAction, InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG,
+    ScreenSpec,
 };
 // Stages (19, 20, 512, 513) and the test-only service record 1024
 // (`docs/abi/stages-services.md`).
@@ -272,6 +279,12 @@ pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, recor
 pub use wire::{
     host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
     host_records_visit,
+};
+// The typed codec (#364): decode and encode one record type, linking no other
+// record's code. The host reads and writes records through `codec` (todo 129).
+pub use wire::{
+    RawRecord, WireEncode, WireRecord, record_encode_of, record_framed_len_of,
+    records_encode_counted_of, records_encode_of,
 };
 // Counted service inputs above the registration limit (`ServiceOp::input_rows`).
 pub use wire::{records_encode_counted, records_encode_counted_iter};

@@ -7,6 +7,7 @@ use super::{
     table::{Inner, Pick},
     wire::{self, Record},
 };
+use crate::native_host::codec;
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
@@ -653,7 +654,7 @@ pub(super) fn encode(
                 reason: e.why,
                 address: &e.address,
             });
-            let used = wire::record_encode_one(&record, out)?;
+            let used = codec::encode_one(&record, out)?;
             inner.serving.events.remove(index);
             Ok(used)
         }
@@ -673,7 +674,7 @@ pub(super) fn encode(
                 flags: u32::from(s.body_len > 0),
                 body_len: s.body_len,
             });
-            let used = wire::record_encode_one(&record, out)?;
+            let used = codec::encode_one(&record, out)?;
             s.stage = Stage::Open { since: now };
             Ok(used)
         }

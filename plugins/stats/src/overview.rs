@@ -424,7 +424,7 @@ pub(crate) fn distinct_pages(env: &Env<'_>, day: i32) -> u32 {
             pages.push((stat.book, stat.page));
         }
     });
-    pages.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pages);
     pages.dedup();
     pages.len() as u32
 }

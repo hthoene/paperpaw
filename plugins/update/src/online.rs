@@ -115,7 +115,7 @@ pub(crate) struct Offer {
 }
 
 /// Whether `version` is a pre-release (`0.5.0-beta.1`, `0.5.0-dev`).
-fn is_pre_release(version: &str) -> bool {
+pub(crate) fn is_pre_release(version: &str) -> bool {
     version.split('+').next().is_some_and(|v| v.contains('-'))
 }
 

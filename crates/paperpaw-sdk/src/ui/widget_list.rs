@@ -361,7 +361,7 @@ impl AddScreen {
                 order.unwrap_or(usize::MAX),
             )
         };
-        offered.sort_by_cached_key(|(id, _)| rank(id));
+        paperpaw_sort::sort_by_cached_key(&mut offered, |(id, _)| rank(id));
         Self {
             widgets: offered,
             list: ListView::readable(env, &style, area, style.row).focus_on_keys(env),

@@ -11,7 +11,8 @@ use alloc::vec::Vec;
 use paperpaw_sdk::document::{DocumentError, Metadata};
 use paperpaw_sdk::{Storage, read_file};
 
-use crate::text::Encoding;
+use crate::mem::{self, Refused};
+use crate::text::{Encoding, decode_into};
 
 /// Bytes of the first record read: both headers and the EXTH records fit
 /// where any book is made by a known tool.
@@ -83,23 +84,35 @@ pub(crate) fn record_range(
     records: u32,
     size: u64,
     index: u32,
-) -> Option<(u64, u64)> {
+) -> Result<Option<(u64, u64)>, DocumentError> {
     if index >= records {
-        return None;
+        return Ok(None);
     }
-    let start = u64::from(record_start(storage, path, index).ok()?);
+    // A list of records that stops short is no record; a card that fails is
+    // an error.
+    let at = |index| match record_start(storage, path, index) {
+        Ok(start) => Ok(Some(u64::from(start))),
+        Err(DocumentError::Malformed(_)) => Ok(None),
+        Err(error) => Err(error),
+    };
+    let Some(start) = at(index)? else {
+        return Ok(None);
+    };
     let end = if index + 1 < records {
-        u64::from(record_start(storage, path, index + 1).ok()?)
+        let Some(end) = at(index + 1)? else {
+            return Ok(None);
+        };
+        end
     } else {
         size
     };
-    (start <= end && end <= size).then_some((start, end))
+    Ok((start <= end && end <= size).then_some((start, end)))
 }
 
-fn text(bytes: &[u8], encoding: Encoding) -> String {
+fn text(bytes: &[u8], encoding: Encoding) -> Result<String, Refused> {
     let mut out = String::new();
-    crate::text::decode_into(bytes, encoding, &mut out);
-    out.trim().into()
+    decode_into(bytes, encoding, &mut out)?;
+    mem::string(out.trim())
 }
 
 /// The language tag of a Windows locale's low byte, for the common ones.
@@ -138,10 +151,12 @@ impl Header {
         if !(2..=MOST_RECORDS).contains(&records) || u64::from(records) * 8 + 78 > size {
             return Err(malformed("the list of records is wrong"));
         }
-        let (start, end) = record_range(storage, path, records, size, 0)
+        let (start, end) = record_range(storage, path, records, size, 0)?
             .ok_or_else(|| malformed("the first record is wrong"))?;
         let want = (end - start).min(FIRST_RECORD as u64) as usize;
-        let mut first = vec![0u8; want];
+        let mut first: Vec<u8> = Vec::new();
+        first.try_reserve_exact(want).map_err(|_| Refused)?;
+        first.resize(want, 0);
         let n = storage.read_at(path, start, &mut first)?;
         first.truncate(n);
         Self::parse(&first, records, storage, path, size)
@@ -211,7 +226,10 @@ impl Header {
             Encoding::Windows1252
         };
         let locale = be32(first, 92).unwrap_or(0);
-        header.metadata.language = locale_language(locale).map(String::from);
+        header.metadata.language = match locale_language(locale) {
+            Some(language) => Some(mem::string(language)?),
+            None => None,
+        };
         header.first_image = be32(first, 108).filter(|&i| i < records).unwrap_or(0);
         if length >= 0xe4 {
             header.extra_flags = be16(first, 0xf2).unwrap_or(0);
@@ -223,23 +241,23 @@ impl Header {
                 .and_then(|end| first.get(at as usize..end))
             && !bytes.is_empty()
         {
-            header.metadata.title = Some(text(bytes, header.encoding)).filter(|t| !t.is_empty());
+            header.metadata.title = Some(text(bytes, header.encoding)?).filter(|t| !t.is_empty());
         }
         let has_exth = be32(first, 128).is_some_and(|flags| flags & 0x40 != 0);
         if has_exth {
-            header.exth(first, 16 + length);
+            header.exth(first, 16 + length)?;
         }
         // A text record that points past the file is not a book.
-        if crate::header::record_range(storage, path, records, size, text_records).is_none() {
+        if record_range(storage, path, records, size, text_records)?.is_none() {
             return Err(malformed("the text is cut off"));
         }
         Ok(header)
     }
 
     /// The EXTH records at `at`: what the book says of itself.
-    fn exth(&mut self, data: &[u8], at: usize) {
+    fn exth(&mut self, data: &[u8], at: usize) -> Result<(), Refused> {
         if data.get(at..at + 4) != Some(b"EXTH") {
-            return;
+            return Ok(());
         }
         let count = be32(data, at + 8).unwrap_or(0).min(MOST_EXTH);
         let mut pos = at + 12;
@@ -254,14 +272,25 @@ impl Header {
                 break;
             };
             pos += len;
-            let string = || Some(text(body, self.encoding)).filter(|s| !s.is_empty());
+            let encoding = self.encoding;
+            let string = || -> Result<Option<String>, Refused> {
+                Ok(Some(text(body, encoding)?).filter(|s| !s.is_empty()))
+            };
             match kind {
-                100 => authors.extend(string()),
-                103 => self.metadata.description = string(),
-                105 => self.metadata.subjects.extend(string()),
+                100 => {
+                    if let Some(author) = string()? {
+                        mem::push(&mut authors, author)?;
+                    }
+                }
+                103 => self.metadata.description = string()?,
+                105 => {
+                    if let Some(subject) = string()? {
+                        mem::push(&mut self.metadata.subjects, subject)?;
+                    }
+                }
                 201 => cover = be32(body, 0),
-                503 => self.metadata.title = string().or(self.metadata.title.take()),
-                524 => self.metadata.language = string().or(self.metadata.language.take()),
+                503 => self.metadata.title = string()?.or(self.metadata.title.take()),
+                524 => self.metadata.language = string()?.or(self.metadata.language.take()),
                 _ => {}
             }
         }
@@ -269,6 +298,7 @@ impl Header {
         self.cover = cover
             .and_then(|offset| self.first_image.checked_add(offset))
             .filter(|&record| self.first_image > 0 && record < self.records);
+        Ok(())
     }
 }
 

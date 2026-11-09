@@ -1274,8 +1274,11 @@ fn the_toolchains_named_are_the_releases() {
         "tools/interface.py and ci.yml name the same nightly"
     );
     let public_api = value(&script, "PUBLIC_API");
+    // The `cargo-tool` action step names the tool and its version.
     assert!(
-        ci.contains(&format!("cargo-public-api@{public_api}")),
+        ci.contains(&format!(
+            "tool: cargo-public-api\n          version: {public_api}\n"
+        )),
         "tools/interface.py and ci.yml name the same cargo-public-api"
     );
 }

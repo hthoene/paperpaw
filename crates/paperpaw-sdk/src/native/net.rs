@@ -13,7 +13,8 @@
 use super::wire::services_wire::core_net_v1 as schema;
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    batch::{self, AsWire},
+    declare::records_wire::{self as wire, RawRecord, WireEncode},
     services::Service,
 };
 
@@ -597,10 +598,10 @@ impl Net {
         out: &mut [u8],
     ) -> Result<usize, Error>
     where
-        I: Iterator<Item = Record<'r>> + Clone,
+        I: Iterator<Item = Row<'r>> + Clone,
     {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
-        let len = wire::records_encode_counted_iter(
+        let len = batch::encode_counted(
             records,
             usize::from(operation.input_rows),
             operation.max_input,
@@ -630,7 +631,7 @@ impl Net {
     ) -> Result<RequestId, Error> {
         // The rows are walked in place, never copied into an array (a record
         // is over 100 bytes on the device's stack).
-        let head = Record::ServiceNetRequest(wire::ServiceNetRequest {
+        let head = Row::Request(wire::ServiceNetRequest {
             token: request.token,
             method: request.method,
             url: request.url,
@@ -639,9 +640,9 @@ impl Net {
             max_body: request.max_body,
             max_file: request.max_file,
         });
-        fn file(role: u32, file: Option<(FileRoot, &str)>) -> Option<Record<'_>> {
+        fn file(role: u32, file: Option<(FileRoot, &str)>) -> Option<Row<'_>> {
             file.map(|(root, path)| {
-                Record::ServiceNetFile(wire::ServiceNetFile {
+                Row::File(wire::ServiceNetFile {
                     role,
                     root: root.wire(),
                     path,
@@ -650,21 +651,22 @@ impl Net {
         }
         let rows = core::iter::once(head)
             .chain(request.headers.iter().map(|header| {
-                Record::ServiceNetHeader(wire::ServiceNetHeader {
+                Row::Header(wire::ServiceNetHeader {
                     name: header.name,
                     value: header.value,
                 })
             }))
             .chain(file(0, request.send))
             .chain(file(1, request.save))
-            .chain((!request.body.is_empty()).then_some(Record::ServiceNetBody(
-                wire::ServiceNetBody { data: request.body },
-            )));
+            .chain(
+                (!request.body.is_empty())
+                    .then_some(Row::Body(wire::ServiceNetBody { data: request.body })),
+            );
         let n = self.call(host, schema::OP_REQUEST, rows, input, out)?;
-        match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
-            Record::ServiceNetStarted(started) => RequestId::new(started.id),
-            _ => Err(Error::Invalid),
-        }
+        let started = one(&out[..n])?
+            .decode::<wire::ServiceNetStarted>()
+            .map_err(|_| Error::Invalid)?;
+        RequestId::new(started.id)
     }
 
     /// Ends every request of this plugin with `token`, each with one
@@ -679,7 +681,7 @@ impl Net {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        let row = Record::ServiceNetToken(wire::ServiceNetToken { token });
+        let row = Row::Token(wire::ServiceNetToken { token });
         if self.call(host, schema::OP_CANCEL, core::iter::once(row), input, out)? != 0 {
             return Err(Error::Invalid);
         }
@@ -698,12 +700,12 @@ impl Net {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<Answer<'a>, Error> {
-        let row = Record::ServiceNetId(wire::ServiceNetId { id: id.0 });
+        let row = Row::Id(wire::ServiceNetId { id: id.0 });
         let n = self.call(host, schema::OP_ANSWER, core::iter::once(row), input, out)?;
-        match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
-            Record::ServiceNetAnswer(answer) => Ok(Answer(answer)),
-            _ => Err(Error::Invalid),
-        }
+        let answer = one(&out[..n])?
+            .decode::<wire::ServiceNetAnswer<'a>>()
+            .map_err(|_| Error::Invalid)?;
+        Ok(Answer(answer))
     }
 
     /// Up to [`BODY_PART`] bytes of the memory body from `offset`; empty at
@@ -719,11 +721,43 @@ impl Net {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<&'a [u8], Error> {
-        let row = Record::ServiceNetRead(wire::ServiceNetRead { id: id.0, offset });
+        let row = Row::Read(wire::ServiceNetRead { id: id.0, offset });
         let n = self.call(host, schema::OP_BODY, core::iter::once(row), input, out)?;
-        match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
-            Record::ServiceNetBytes(bytes) if bytes.data.len() <= BODY_PART => Ok(bytes.data),
-            _ => Err(Error::Invalid),
+        let bytes = one(&out[..n])?
+            .decode::<wire::ServiceNetBytes<'a>>()
+            .map_err(|_| Error::Invalid)?;
+        if bytes.data.len() > BODY_PART {
+            return Err(Error::Invalid);
+        }
+        Ok(bytes.data)
+    }
+}
+
+fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
+    RawRecord::one(bytes).map_err(|_| Error::Invalid)
+}
+
+/// The rows a `core.net` request is made of; each is encoded as its own record type.
+#[derive(Clone, Copy)]
+enum Row<'a> {
+    Request(wire::ServiceNetRequest<'a>),
+    Header(wire::ServiceNetHeader<'a>),
+    File(wire::ServiceNetFile<'a>),
+    Body(wire::ServiceNetBody<'a>),
+    Token(wire::ServiceNetToken),
+    Id(wire::ServiceNetId),
+    Read(wire::ServiceNetRead),
+}
+impl AsWire for Row<'_> {
+    fn wire(&self) -> &dyn WireEncode {
+        match self {
+            Self::Request(row) => row,
+            Self::Header(row) => row,
+            Self::File(row) => row,
+            Self::Body(row) => row,
+            Self::Token(row) => row,
+            Self::Id(row) => row,
+            Self::Read(row) => row,
         }
     }
 }

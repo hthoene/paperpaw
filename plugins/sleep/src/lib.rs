@@ -34,6 +34,17 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+pub mod native_sleep;
 pub mod overlay;
 
 use alloc::borrow::Cow;
@@ -359,7 +370,7 @@ pub(crate) fn next_from_folder(env: &Env<'_>) -> Option<String> {
     if pictures.is_empty() {
         return None;
     }
-    pictures.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pictures);
     // One after the other, from where the last sleep left off.
     let next = next_picture(env.storage());
     let name = &pictures[next % pictures.len()];

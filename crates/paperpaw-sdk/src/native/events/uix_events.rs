@@ -1,5 +1,5 @@
 //! UIX events retain only validated host identifiers and borrowed strings.
-use super::{Error, Event, Record, core_events};
+use super::{Error, Event, wire};
 use crate::native::ui::{HandoverId, Instance, QuestionKind, RequestId};
 
 /// A request's current outcome. Unknown future outcomes cancel the request.
@@ -81,73 +81,90 @@ pub enum SpeechStatus {
     Unsupported,
 }
 
-pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
-    Ok(match record {
-        Record::EventScreenOpened(r) => Event::ScreenOpened {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
-            slot: r.slot,
-            handover: if r.handover == 0 {
-                None
-            } else {
-                Some(HandoverId::new(r.handover).ok_or(Error::Invalid)?)
-            },
-            params: r.params,
-            text_bytes: r.text_bytes,
-            again: r.flags & 1 != 0,
-            restored: r.flags & 2 != 0,
+event_fn!(screen_opened, wire::EventScreenOpened<'_>, |r| {
+    Event::ScreenOpened {
+        now_ms: r.now_ms,
+        screen: r.screen,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+        slot: r.slot,
+        handover: if r.handover == 0 {
+            None
+        } else {
+            Some(HandoverId::new(r.handover).ok_or(Error::Invalid)?)
         },
-        Record::EventScreenClosed(r) => Event::ScreenClosed {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+        params: r.params,
+        text_bytes: r.text_bytes,
+        again: r.flags & 1 != 0,
+        restored: r.flags & 2 != 0,
+    }
+});
+
+event_fn!(screen_closed, wire::EventScreenClosed<'_>, |r| {
+    Event::ScreenClosed {
+        now_ms: r.now_ms,
+        screen: r.screen,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+    }
+});
+
+event_fn!(stack_changed, wire::EventStackChanged, |r| {
+    Event::StackChanged { now_ms: r.now_ms }
+});
+
+event_fn!(answered, wire::EventAnswered, |r| Event::Answered {
+    now_ms: r.now_ms,
+    answer: Answered {
+        request: RequestId::new(r.request).ok_or(Error::Invalid)?,
+        kind: QuestionKind::decode(r.kind)?,
+        outcome: match r.outcome {
+            0 => AnswerOutcome::Answered,
+            2 => AnswerOutcome::Typing,
+            _ => AnswerOutcome::Cancelled,
         },
-        Record::EventStackChanged(r) => Event::StackChanged { now_ms: r.now_ms },
-        Record::EventAnswered(r) => Event::Answered {
-            now_ms: r.now_ms,
-            answer: Answered {
-                request: RequestId::new(r.request).ok_or(Error::Invalid)?,
-                kind: QuestionKind::decode(r.kind)?,
-                outcome: match r.outcome {
-                    0 => AnswerOutcome::Answered,
-                    2 => AnswerOutcome::Typing,
-                    _ => AnswerOutcome::Cancelled,
-                },
-                choice: r.choice,
-                length: r.length,
-                flags: r.flags,
-            },
-        },
-        Record::EventWidgetMade(r) => Event::WidgetMade {
-            now_ms: r.now_ms,
-            widget: r.widget,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
-            place: r.place,
-        },
-        Record::EventWidgetDropped(r) => Event::WidgetDropped {
-            now_ms: r.now_ms,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
-        },
-        Record::EventWidgetChanged(r) => Event::WidgetChanged {
-            now_ms: r.now_ms,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
-        },
-        Record::EventScreenReady(r) => Event::ScreenReady {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
-        },
-        Record::EventSpoken(r) => Event::Spoken {
-            now_ms: r.now_ms,
-            cookie: r.cookie,
-            status: match r.status {
-                0 => SpeechStatus::Spoken,
-                1 => SpeechStatus::Stopped,
-                2 => SpeechStatus::NoVoice,
-                _ => SpeechStatus::Unsupported,
-            },
-        },
-        other => core_events::decode(other)?,
-    })
-}
+        choice: r.choice,
+        length: r.length,
+        flags: r.flags,
+    },
+});
+
+event_fn!(widget_made, wire::EventWidgetMade<'_>, |r| {
+    Event::WidgetMade {
+        now_ms: r.now_ms,
+        widget: r.widget,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+        place: r.place,
+    }
+});
+
+event_fn!(widget_dropped, wire::EventWidgetDropped, |r| {
+    Event::WidgetDropped {
+        now_ms: r.now_ms,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+    }
+});
+
+event_fn!(widget_changed, wire::EventWidgetChanged, |r| {
+    Event::WidgetChanged {
+        now_ms: r.now_ms,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+    }
+});
+
+event_fn!(screen_ready, wire::EventScreenReady<'_>, |r| {
+    Event::ScreenReady {
+        now_ms: r.now_ms,
+        screen: r.screen,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+    }
+});
+
+event_fn!(spoken, wire::EventSpoken, |r| Event::Spoken {
+    now_ms: r.now_ms,
+    cookie: r.cookie,
+    status: match r.status {
+        0 => SpeechStatus::Spoken,
+        1 => SpeechStatus::Stopped,
+        2 => SpeechStatus::NoVoice,
+        _ => SpeechStatus::Unsupported,
+    },
+});

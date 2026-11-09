@@ -18,6 +18,7 @@
 //! made it and read (op 10) only by the owning instance; they are wiped when
 //! freed and never in a `Debug` or a log.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
@@ -401,7 +402,7 @@ impl UiStore {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
-            framed += wire::record_framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
+            framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
             }))?;
@@ -422,7 +423,7 @@ impl UiStore {
                 key: param.key,
                 value: param.value,
             });
-            used += wire::record_encode_one(&record, &mut block.0[used..])?;
+            used += codec::encode_one(&record, &mut block.0[used..])?;
         }
         inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;

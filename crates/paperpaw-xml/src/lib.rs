@@ -24,7 +24,7 @@ use alloc::collections::TryReserveError;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-pub use entities::decode;
+pub use entities::{decode, try_decode};
 
 /// Writes `text` onto `out` safe as XML or HTML text and attribute values:
 /// `&`, `<`, `>` and `"` as entities.
@@ -87,6 +87,18 @@ impl<'a> Attrs<'a> {
             .find(|(n, _)| *n == name)
             .map(|(_, value)| decode(value))
     } @ data::XML_ATTRS_GET
+    }
+
+    /// As [`Attrs::get`], with the memory error instead of an abort
+    /// ([`try_decode`]): the value takes at most its raw length.
+    ///
+    /// # Errors
+    /// [`TryReserveError`] where the heap cannot hold the decoded value.
+    pub fn try_get(&self, name: &str) -> Result<Option<Cow<'a, str>>, TryReserveError> {
+        self.iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, value)| try_decode(value))
+            .transpose()
     }
 
     /// `(name, raw value)` pairs; malformed attributes are skipped.

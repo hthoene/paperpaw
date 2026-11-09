@@ -1,8 +1,11 @@
 pub mod paperpaw_digest
 pub mod paperpaw_digest::hex
 pub fn paperpaw_digest::hex::decode(&str) -> core::option::Option<alloc::vec::Vec<u8>>
+pub fn paperpaw_digest::hex::decode_array<const N: usize>(&str) -> core::option::Option<[u8; N]>
+pub fn paperpaw_digest::hex::decode_into<'o>(&str, &'o mut [u8]) -> core::option::Option<&'o [u8]>
 pub fn paperpaw_digest::hex::encode(&[u8]) -> alloc::string::String
 pub fn paperpaw_digest::hex::push(&mut alloc::string::String, u8)
+pub fn paperpaw_digest::hex::try_decode(&str) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, alloc::collections::TryReserveError>
 pub mod paperpaw_digest::md5
 pub struct paperpaw_digest::md5::Md5
 impl paperpaw_digest::md5::Md5
@@ -12,6 +15,8 @@ pub fn paperpaw_digest::md5::Md5::new() -> Self
 pub fn paperpaw_digest::md5::Md5::update(&mut self, &[u8])
 impl core::default::Default for paperpaw_digest::md5::Md5
 pub fn paperpaw_digest::md5::Md5::default() -> Self
+impl core::ops::drop::Drop for paperpaw_digest::md5::Md5
+pub fn paperpaw_digest::md5::Md5::drop(&mut self)
 pub fn paperpaw_digest::md5::of(&str) -> alloc::string::String
 pub fn paperpaw_digest::md5::partial(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<alloc::string::String>
 pub fn paperpaw_digest::md5::partial_into<'o>(&dyn paperpaw_platform::storage::Storage, &str, &'o mut [u8; 32]) -> core::option::Option<&'o str>
@@ -24,6 +29,8 @@ pub fn paperpaw_digest::sha1::Sha1::new() -> Self
 pub fn paperpaw_digest::sha1::Sha1::update(&mut self, &[u8])
 impl core::default::Default for paperpaw_digest::sha1::Sha1
 pub fn paperpaw_digest::sha1::Sha1::default() -> Self
+impl core::ops::drop::Drop for paperpaw_digest::sha1::Sha1
+pub fn paperpaw_digest::sha1::Sha1::drop(&mut self)
 pub fn paperpaw_digest::sha1::hex(&[u8]) -> alloc::string::String
 pub mod paperpaw_digest::sha256
 pub struct paperpaw_digest::sha256::Sha256
@@ -34,6 +41,8 @@ pub const fn paperpaw_digest::sha256::Sha256::new() -> Self
 pub fn paperpaw_digest::sha256::Sha256::update(&mut self, &[u8])
 impl core::default::Default for paperpaw_digest::sha256::Sha256
 pub fn paperpaw_digest::sha256::Sha256::default() -> Self
+impl core::ops::drop::Drop for paperpaw_digest::sha256::Sha256
+pub fn paperpaw_digest::sha256::Sha256::drop(&mut self)
 pub fn paperpaw_digest::sha256::digest(&[u8]) -> [u8; 32]
 pub fn paperpaw_digest::sha256::hex(&[u8]) -> alloc::string::String
 pub struct paperpaw_digest::Fnv1a64(_)

@@ -1,0 +1,42 @@
+# How an interface-7 native plugin for the X4 is built (`abi/ppn5.md`):
+# linked with `paperpaw-plugin7.x` (the copy beside this folder, as the
+# PaperPaw release has it), its relocations kept for the packer. Never set
+# RUSTFLAGS: it would replace the flags below, which link the plugin.
+[alias]
+x4 = "build --release --target riscv32imc-unknown-none-elf"
+x4pro = "build --release --target xtensa-esp32s3-none-elf"
+
+[target.riscv32imc-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=-Tpaperpaw-plugin7.x",
+    "-C", "link-arg=--emit-relocs",
+    # Calls stay `auipc` and `jalr`, which the packer can patch where they
+    # reach across the edge of hot code.
+    "-C", "link-arg=--no-relax",
+    "-C", "code-model=medium",
+    "-C", "relocation-model=static",
+    # No jump tables in the plugin's own code: the packer's stack frame scan
+    # reads a table from `.rodata` and follows every entry, and refuses one
+    # it cannot read; with none, there is nothing to read. Every interface-7
+    # plugin build sets this.
+    "-C", "jump-tables=no",
+]
+
+# The X4 Pro and the X4 Classic (ESP32-S3, Xtensa), with espup's `esp`
+# toolchain, `cargo +esp x4pro`, against the core libraries of the PaperPaw
+# release (tools/xtensa-std), as tools/plugin-files does for interface 6. The
+# linker script is the same: the Xtensa-specific parts of it (`.literal`)
+# are already in it. Packing for target 9 waits for the profile of
+# `abi/ppn5.md` (Kernel, decision 142): until then this is built and checked,
+# not packed.
+[target.xtensa-esp32s3-none-elf]
+rustflags = [
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-nostdlib",
+    "-C", "link-arg=-Wl,-Tpaperpaw-plugin7.x",
+    "-C", "link-arg=-Wl,--emit-relocs",
+    # The heap word (`native_plugin!`) is `global_asm!`, which rustc gates on
+    # Xtensa; espup's compiler is a nightly, so the feature is opened for the
+    # build here, not in every plugin crate.
+    "-Z", "crate-attr=feature(asm_experimental_arch)",
+]

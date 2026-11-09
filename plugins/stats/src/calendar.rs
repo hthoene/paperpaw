@@ -187,9 +187,9 @@ impl Calendar {
                 }
             });
         }
-        pages.sort_unstable();
+        paperpaw_sdk::sort::sort(&mut pages);
         pages.dedup();
-        per_book.sort_by_key(|(_, s)| core::cmp::Reverse(*s));
+        paperpaw_sdk::sort::sort_by_key(&mut per_book, |(_, s)| core::cmp::Reverse(*s));
         self.day_pages = pages.len() as u32;
         self.day_books = per_book
             .into_iter()

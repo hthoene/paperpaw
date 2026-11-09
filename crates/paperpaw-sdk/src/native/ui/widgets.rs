@@ -1,5 +1,5 @@
 //! Opaque composition handles and the widget service operations.
-use super::{Error, Host, Instance, Ui, UiPage, one, schema, wire};
+use super::{Error, Host, Instance, Ui, UiPage, expect, one, schema, wire};
 use crate::native::callbacks::FrameRect as Rect;
 
 /// A widget instance returned by the host, including its own-widget marker.
@@ -99,10 +99,8 @@ impl WidgetTarget {
     pub const fn rect(self) -> Rect {
         self.rect
     }
-    fn decode(record: wire::Record<'_>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiTarget(row) = record else {
-            return Err(Error::State);
-        };
+    fn decode(record: wire::RawRecord<'_>) -> Result<Self, Error> {
+        let row: wire::ServiceUiTarget = expect(record)?;
         Ok(Self {
             target: row.target,
             rect: Rect::new(row.x, row.y, row.width, row.height),
@@ -126,16 +124,11 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_MAKE,
-            &[wire::Record::ServiceUiWidgetRef(wire::ServiceUiWidgetRef {
-                widget,
-                place,
-            })],
+            &[&wire::ServiceUiWidgetRef { widget, place }],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiInstance(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiInstance = expect(one(&out[..count])?)?;
         Ok(WidgetHandle {
             instance: Instance::new(row.instance).ok_or(Error::Invalid)?,
             own: row.flags & 1 != 0,
@@ -155,10 +148,10 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_DROP,
-            &[wire::Record::ServiceUiInstance(wire::ServiceUiInstance {
+            &[&wire::ServiceUiInstance {
                 instance: widget.instance.get(),
                 flags: 0,
-            })],
+            }],
             input,
             out,
         )?;
@@ -189,15 +182,13 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_INPUT,
-            &[wire::Record::ServiceUiWidgetInput(
-                wire::ServiceUiWidgetInput {
-                    instance: widget.instance.get(),
-                    target,
-                    x: point.x,
-                    y: point.y,
-                    kind,
-                },
-            )],
+            &[&wire::ServiceUiWidgetInput {
+                instance: widget.instance.get(),
+                target,
+                x: point.x,
+                y: point.y,
+                kind,
+            }],
             input,
             out,
         )?;
@@ -218,13 +209,11 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_MEASURE,
-            &[area(widget, Rect::new(0, 0, width, 0))],
+            &[&area(widget, Rect::new(0, 0, width, 0))],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiSize(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiSize = expect(one(&out[..count])?)?;
         Ok(WidgetSize {
             height: row.height,
             min_height: row.min_height,
@@ -245,7 +234,7 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_PLACE,
-            &[area(widget, rect)],
+            &[&area(widget, rect)],
             input,
             out,
         )?;
@@ -267,7 +256,7 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_TARGETS,
-            &[area(widget, rect)],
+            &[&area(widget, rect)],
             input,
             out,
         )?;
@@ -306,14 +295,14 @@ impl Ui {
         })
     }
 }
-fn area(widget: WidgetHandle, rect: Rect) -> wire::Record<'static> {
-    wire::Record::ServiceUiWidgetArea(wire::ServiceUiWidgetArea {
+fn area(widget: WidgetHandle, rect: Rect) -> wire::ServiceUiWidgetArea {
+    wire::ServiceUiWidgetArea {
         instance: widget.instance.get(),
         x: rect.x,
         y: rect.y,
         width: rect.width,
         height: rect.height,
-    })
+    }
 }
 pub(super) fn empty(count: usize) -> Result<(), Error> {
     if count == 0 {

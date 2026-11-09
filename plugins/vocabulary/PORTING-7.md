@@ -118,18 +118,54 @@ native screens replace these callers.
   `create_dir`): the native adapter over `core.files` (SDK `native::files`, PR #384) is the
   shell's, and an ignored case names it.
 
+## Ported (the native shell, first part): `src/native_plugin.rs`, `declarations.rs`
+
+- `NativeVocabulary` (`native_plugin!`, features `linked` and `native-entry`, metadata in `native/`
+  — regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+  --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`;
+  `tools/tests/test_abi_plugin_metadata.py` fails on a stale one). Declares `uses.storage`.
+- The eight settings (`declarations::settings`, pinned in `testdata/declarations.bin.v1`, compared
+  field by field with what interface 6 registered in `tests/settings_parity.rs`): `collect`, `mark`,
+  `new-per-day`, `retention`, `cards-from-lookups`, `review-on-wake`, `sd-auto`, `sd-folder`, all in
+  `core.group.reading`. The seven settings of the role of the marked words (`vocabulary.learning.*`)
+  come with the marks.
+- The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
+  `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
+- Not declared yet: `uses.network` (the phone page), the menu entries, actions, screens, the sleep
+  choice, the help hints, the widget and the events for the words looked up and the wake (the
+  native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
-- Screens (word list, decks, card files, review, sleep card) on `core.ui`.
+- The rest of the native shell: the actions, menu entries, icons, screens, events and help.
+- Screens (word list, card files, review, sleep card) on `core.ui`; the decks' screen is a view (above), not yet registered.
 - The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
   `widget::{cx,names,options}`; no drawing of its own.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (decorations).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: `core.files` (#339).
+
+## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
+
+- The rows of the screen (*Review* with the cards due, *Edit with your phone*, *Cards on the SD card*
+  with what its folder holds, then the decks with their sizes) are made from owned `Numbers` over a
+  `Words` trait (the host's catalog behind `HostWords`), so they are tested in both languages without a
+  host; the texts and the five states of the files row are those of interface 6's `decks.rs`. The decks
+  and sizes are read by `Numbers::read` over `cards::decks` and `cards::sizes` (a refused allocation is
+  `TooLarge`, as there); the cards due, the folder and what it holds are the shell's to give (they depend
+  on the clock, the settings and `sdcard`, which are still interface 6).
+- `DecksView` draws the list (`ItemList`, title `vocabulary.cards.title`) and, on a chosen row, opens the
+  screen of its `Target` with a hand-over (a deck is named under `deck`); `tests` pin that the screen ids
+  and the key are those of the interface-6 screens. `native_decks_tests.rs` refuses each allocation of the
+  rows and of the numbers in turn.
+- Not in the image: the view is not registered (the screen declaration, the menu entry and the `on_show`
+  refresh that reloads the numbers come with the shell), and the screens it opens (review, phone, SD menu)
+  are interface 6. Differences from interface 6, on purpose: no `take_lookups` at opening (the shell calls it
+  where it loads the numbers), and the automatic update of the decks at opening (`SD_AUTO`) is the shell's.
+  `paperpaw-ui-kit` joins the dependencies (the lock files of the plugin's three workspaces).
 
 ## Ported: save to card (`export.rs`, host-free over `Storage`)
 
