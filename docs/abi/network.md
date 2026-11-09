@@ -320,7 +320,12 @@ file's size, 2.1).
   without a body waits up to 5 s for the server's `started` (else 503), one with a body is
   answered 503 at once (its data lines are not kept). After the plugin stopped the server, a
   request before the protocol's 10 s pause is answered 403. A `respond` with a file is refused on
-  the cable (`ERR_UNSUPPORTED`, the computer gets 500), as in interface 6.
+  the cable (`ERR_UNSUPPORTED`, the computer gets 500), as in interface 6. The cable has one
+  server: the first plugin that serves port 0 from its showing screen holds it until it stops
+  (normally the screen that fills `core.cable`); another's `serve` port 0 ends `failed`,
+  `refused`. The computer is an outside party: the rest of a refused body is passed over without
+  an answer per line, and at most 8 answers (16 KiB of bodies) wait to be sent; what does not
+  fit is not answered (a plugin's `respond` then fails with `ERR_NO_MEMORY`).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.

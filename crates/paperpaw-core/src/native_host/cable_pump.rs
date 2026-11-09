@@ -72,7 +72,7 @@ impl Kernel {
             } => {
                 if link.started().is_none() {
                     if link.ended() && !paused {
-                        let _ = link.proto(|c| c.refuse(n, 403, "ended on the device"));
+                        let _ = link.proto(|c| c.refuse_upload(n, len, 403, "ended on the device"));
                         return None;
                     }
                     if link.held_until().is_none() {
@@ -101,7 +101,8 @@ impl Kernel {
                         until: self.now.millis().saturating_add(HOLD_MS),
                     }),
                     None => {
-                        let _ = link.proto(|c| c.refuse(n, 503, "nothing serves the cable"));
+                        let _ = link
+                            .proto(|c| c.refuse_upload(n, len, 503, "nothing serves the cable"));
                     }
                 }
             }
@@ -175,6 +176,11 @@ impl Kernel {
         let Some(link) = device.cable() else {
             return;
         };
+        // The rest of a refused body is passed over, not answered a line at
+        // a time (the answers to the computer stay bounded).
+        if link.proto(|c| c.swallowed(n, bytes.len())) != Ok(false) {
+            return;
+        }
         let Ok(Some((number, last))) = link.proto(|c| c.data(n, bytes.len())) else {
             // Its request, if any, is cut short: its body goes.
             if let Ok(Some(number)) = link.proto(|c| c.cut(n))

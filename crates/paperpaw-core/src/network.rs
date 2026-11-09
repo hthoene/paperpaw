@@ -267,7 +267,7 @@ impl Kernel {
                     // pause) opens it again.
                     if self.io.servers.cable.ended && !paused {
                         let cable = &mut self.io.servers.cable;
-                        cable.refuse(n, 403, "ended on the device");
+                        cable.refuse_upload(n, len, 403, "ended on the device");
                         return self.finish();
                     }
                     self.io.servers.cable.ended = false;
@@ -280,12 +280,15 @@ impl Kernel {
                     self.io
                         .servers
                         .cable
-                        .refuse(n, 503, "nothing serves the cable");
+                        .refuse_upload(n, len, 503, "nothing serves the cable");
                     return self.finish();
                 };
                 let storage = &*self.shared.storage;
                 if storage.free_space().is_some_and(|free| len > free) {
-                    self.io.servers.cable.refuse(n, 507, "not enough room");
+                    self.io
+                        .servers
+                        .cable
+                        .refuse_upload(n, len, 507, "not enough room");
                     return self.finish();
                 }
                 let (request, cut) = self.io.servers.cable.begin(n, len);
@@ -309,6 +312,9 @@ impl Kernel {
                     .servers
                     .event(event, storage, &mut self.output.commands);
             }
+            // The rest of a refused body is passed over, not answered a line
+            // at a time.
+            Line::Data { n, bytes } if self.io.servers.cable.swallowed(n, bytes.len()) => {}
             Line::Data { n, bytes } => match self.io.servers.cable.data(n, bytes.len()) {
                 Some((request, last)) => {
                     let event = ServerEvent::Body {
