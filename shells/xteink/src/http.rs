@@ -47,8 +47,11 @@ fn now_ms() -> u64 {
 
 /// Where a body goes.
 enum Sink {
-    /// Up to so many bytes, the rest cut.
-    Memory(Vec<u8>, usize),
+    /// Up to so many bytes, the rest cut; whether the room is taken once
+    /// (core's requests, whose limit is reserved from the network pool) or
+    /// grown from the size of the pieces (interface 6, whose default limit
+    /// is 64 KiB and mostly not needed).
+    Memory(Vec<u8>, usize, bool),
     File {
         /// The `.part` file written.
         part: String,
@@ -185,7 +188,7 @@ impl Calls {
                 buf: Vec::new(),
                 started: false,
             },
-            None => Sink::Memory(Vec::new(), call.max_response),
+            None => Sink::Memory(Vec::new(), call.max_response, staged),
         };
         let deadline = now_ms() + u64::from(call.timeout_ms);
         self.calls.push(Call {
@@ -642,7 +645,7 @@ impl Call {
     /// made whole (the old one replaced only then).
     fn finish(self, mut answer: HttpResponse, storage: &dyn Storage) -> HttpResponse {
         match self.sink {
-            Sink::Memory(body, _) => {
+            Sink::Memory(body, ..) => {
                 // Kept to the most the request takes.
                 answer.truncated = self.got > body.len() as u64;
                 answer.body = body;
@@ -814,7 +817,7 @@ fn receive(
             && !head.is_redirect()
             && matches!(sink, Sink::File { .. })
         {
-            *sink = Sink::Memory(Vec::new(), ERROR_BODY);
+            *sink = Sink::Memory(Vec::new(), ERROR_BODY, false);
         }
         let redirect = parser.head().is_some_and(|head| head.is_redirect());
         if !early.is_empty() && !redirect {
@@ -846,17 +849,29 @@ fn keep(
 ) -> Result<(), &'static str> {
     *got += piece.len() as u64;
     match sink {
-        Sink::Memory(body, limit) => {
+        Sink::Memory(body, limit, once) => {
             let piece = &piece[..paperpaw_x4::body_room::fit(body.len(), piece.len(), *limit)];
-            // The room is taken once (what the request reserved), or in exact
-            // steps: never doubled, never past the limit, and without failing
+            // Core's requests take the room once (what the request reserved),
+            // or in exact steps; interface 6 grows from the pieces (a small
+            // answer stays small). Never past the limit, and without failing
             // hard where memory ends.
-            if let Some(capacity) = paperpaw_x4::body_room::capacity_for(
-                body.capacity(),
-                body.len(),
-                piece.len(),
-                *limit,
-            ) && body.try_reserve_exact(capacity - body.len()).is_err()
+            let capacity = if *once {
+                paperpaw_x4::body_room::capacity_for(
+                    body.capacity(),
+                    body.len(),
+                    piece.len(),
+                    *limit,
+                )
+            } else {
+                paperpaw_x4::body_room::capacity_grown(
+                    body.capacity(),
+                    body.len(),
+                    piece.len(),
+                    *limit,
+                )
+            };
+            if let Some(capacity) = capacity
+                && body.try_reserve_exact(capacity - body.len()).is_err()
             {
                 return Err("the answer is too large for the memory of this device");
             }
