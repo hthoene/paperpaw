@@ -22,7 +22,12 @@ pub struct Features {
     pub touch: bool,
     /// The row of hints under the screen (the buttons of the X4 and Classic).
     pub button_row: bool,
-    /// A Bluetooth radio the kernel uses (the `bluetooth` build).
+    /// Ops 8 and 9 are answered: the firmware tells the device the Wi-Fi radio
+    /// (`X4Device::set_wifi`).
+    pub wifi: bool,
+    /// Ops 10 and 11 are answered: a Bluetooth radio the kernel uses (the
+    /// `bluetooth` build) that the firmware tells the device
+    /// (`X4Device::set_bluetooth`).
     pub bluetooth: bool,
     /// A front light (the X4 Pro).
     pub frontlight: bool,
@@ -38,7 +43,7 @@ pub struct Features {
 pub fn caps_for(features: &Features) -> u64 {
     let bit = |on: bool, bit: u64| if on { bit } else { 0 };
     caps::NETWORK
-        | caps::WIFI
+        | bit(features.wifi, caps::WIFI)
         | caps::SLEEP
         | caps::ROTATION
         | caps::POWER_OFF
@@ -169,6 +174,7 @@ mod tests {
     #[test]
     fn caps_follow_the_build() {
         let x4 = caps_for(&Features {
+            wifi: true,
             button_row: true,
             firmware: true,
             ..Features::default()
@@ -301,6 +307,7 @@ mod tests {
 
         use crate::device_host::{BluetoothState, WifiState};
         let features = Features {
+            wifi: true,
             button_row: true,
             bluetooth: true,
             firmware: true,
@@ -342,5 +349,68 @@ mod tests {
             .device(&mut |facts| seen = Some((facts.class, facts.controls)))
             .unwrap();
         assert_eq!(seen, Some((0, 0b0100)));
+    }
+    /// A device made the way the shell makes it today (no Wi-Fi or Bluetooth
+    /// part told to it yet) says so in its caps, on every X4 build; a bit
+    /// without its part is what the check catches.
+    #[test]
+    fn the_caps_of_the_shells_devices_agree_with_what_it_tells_them() {
+        use paperpaw_platform::firmware::Running;
+        let builds = [
+            Features {
+                button_row: true,
+                firmware: true,
+                ..Features::default()
+            },
+            Features {
+                touch: true,
+                frontlight: true,
+                firmware: true,
+                ..Features::default()
+            },
+            Features {
+                button_row: true,
+                ..Features::default()
+            },
+        ];
+        for features in builds {
+            let device = X4Device::new(
+                Identity {
+                    id: "xteink-x4",
+                    model: "Xteink X4",
+                    catalog: "x4",
+                    class: class_of(MemoryClass::Small),
+                    caps: caps_for(&features),
+                    controls: 0,
+                    tls_sessions: 1,
+                    keys: &[],
+                    values: &[],
+                },
+                &[],
+            );
+            if features.firmware {
+                device.set_firmware(&Running::new("0.6.0", "paperpaw-xteink", 5, 0, false));
+            }
+            assert_eq!(check_caps_agree(&device), Ok(()), "{features:?}");
+            // The bit before its part is a disagreement.
+            let early = X4Device::new(
+                Identity {
+                    id: "xteink-x4",
+                    model: "Xteink X4",
+                    catalog: "x4",
+                    class: 0,
+                    caps: caps_for(&Features {
+                        wifi: true,
+                        ..features
+                    }),
+                    controls: 0,
+                    tls_sessions: 1,
+                    keys: &[],
+                    values: &[],
+                },
+                &[],
+            );
+            assert!(check_caps_agree(&early).is_err());
+        }
     }
 }
