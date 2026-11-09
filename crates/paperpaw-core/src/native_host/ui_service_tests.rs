@@ -196,15 +196,13 @@ fn an_unwired_family_and_the_ops_not_yet_here_are_unsupported() {
     });
     view(|v| {
         let schema = services_wire::service_schema("core.ui", 1).unwrap();
-        for op in [6] {
-            let op = schema.op(op).unwrap();
-            assert_eq!(
-                v.call_raw(1, op, &[0]).err(),
-                Some(ERR_UNSUPPORTED),
-                "op {}",
-                op.id
-            );
-        }
+        let op = schema.op(6).unwrap();
+        assert_eq!(
+            v.call_raw(1, op, &[0]).err(),
+            Some(ERR_UNSUPPORTED),
+            "op {}",
+            op.id
+        );
         // Ops 7, 12 and 13 are served (`ui_widget_layout`): a malformed input
         // is refused as such, no longer as unsupported. Op 6 waits for the
         // drain of Core's dispatcher.
