@@ -26,7 +26,11 @@ struct Probe {
     log: Rc<RefCell<Vec<(u32, u32)>>>,
     answer: Rc<Cell<Result<i32, i32>>>,
     running: Cell<bool>,
+    /// What the owner does inside its callback (given its running flag).
+    hook: Hook,
 }
+
+type Hook = Rc<RefCell<Option<Rc<dyn Fn(&Cell<bool>)>>>>;
 
 impl Dispatch for Probe {
     fn event(&self, token: u32, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
@@ -34,6 +38,10 @@ impl Dispatch for Probe {
             return Err(ERR_INVALID);
         };
         self.log.borrow_mut().push((token, event.instance));
+        let hook = self.hook.borrow().clone();
+        if let Some(hook) = hook {
+            hook(&self.running);
+        }
         self.answer.get()
     }
     fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
@@ -61,7 +69,8 @@ impl NativeInstance for Probe {
 }
 
 struct World {
-    pool: HostResources,
+    pool: Rc<HostResources>,
+    hook: Hook,
     kernel: crate::Kernel,
     key: u64,
     log: Rc<RefCell<Vec<(u32, u32)>>>,
@@ -69,7 +78,7 @@ struct World {
 }
 
 fn world() -> World {
-    let pool = HostResources::try_new().unwrap();
+    let pool = Rc::new(HostResources::try_new().unwrap());
     pool.hosts()
         .wire_ui(UiServices::new(
             Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
@@ -82,10 +91,12 @@ fn world() -> World {
         .unwrap();
     let log = Rc::new(RefCell::new(Vec::new()));
     let answer = Rc::new(Cell::new(Ok(OK)));
+    let hook: Hook = Rc::new(RefCell::new(None));
     let lease = NativeLease::try_new(Probe {
         log: Rc::clone(&log),
         answer: Rc::clone(&answer),
         running: Cell::new(true),
+        hook: Rc::clone(&hook),
     })
     .unwrap();
     let key = kernel
@@ -100,6 +111,7 @@ fn world() -> World {
         .unwrap();
     World {
         pool,
+        hook,
         kernel,
         key,
         log,
@@ -229,4 +241,49 @@ fn the_record_fits_its_buffer_and_a_buffer_too_small_leaves_the_notice() {
     assert!(len < 64 / 2, "the record is {len} bytes");
     w.ui().widget_dropped_delivered(&notice).unwrap();
     assert_eq!(w.waiting(), None);
+}
+
+#[test]
+fn a_callback_that_drops_a_widget_or_stops_its_owner_ends_its_own_entry_once() {
+    // The callback makes and drops a widget of its own: that notice is told
+    // by a later round, and the entry being told is over exactly once.
+    let mut w = world();
+    let first = w.dropped(5);
+    let pool = Rc::clone(&w.pool);
+    let key = w.key;
+    let more = Rc::new(Cell::new(true));
+    *w.hook.borrow_mut() = Some(Rc::new(move |_| {
+        if more.replace(false) {
+            let ui = pool.hosts().ui().unwrap();
+            ui.widgets
+                .handles
+                .borrow_mut()
+                .make_widget(key, key, 6, TOKEN, false)
+                .unwrap();
+            assert_eq!(ui.screen_closed(6), Ok(1));
+        }
+    }));
+    w.kernel.run_commands();
+    let told = w.log.borrow().len();
+    assert!((1..=2).contains(&told), "{told} told");
+    assert_eq!(w.log.borrow()[0].1, first);
+    w.kernel.run_commands();
+    assert_eq!(w.log.borrow().len(), 2, "the second drop is told, once");
+    assert_eq!(w.waiting(), None);
+    w.kernel.run_commands();
+    assert_eq!(w.log.borrow().len(), 2);
+
+    // The callback stops its own owner: the entry ends with the call, and the
+    // notice that is left is dropped with no second call.
+    let mut w = world();
+    w.dropped(5);
+    w.dropped(6);
+    *w.hook.borrow_mut() = Some(Rc::new(|running: &Cell<bool>| running.set(false)));
+    w.kernel.run_commands();
+    assert_eq!(
+        w.log.borrow().len(),
+        1,
+        "a stopped owner is not called again"
+    );
+    assert_eq!(w.waiting(), None, "and does not pin the widget cap");
 }

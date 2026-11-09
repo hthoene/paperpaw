@@ -9,8 +9,11 @@
 
 use super::native_instances::InstanceState;
 use super::native_screen::Dispatch;
+use paperpaw_native::host_glue::ERR_BUSY;
 
-/// The room of one record of event 85 (a batch of one: it is well below it).
+/// The room of one record of event 85: a batch of one, the largest values
+/// included, takes well under half of it (the test
+/// `the_record_fits_its_buffer_and_a_buffer_too_small_leaves_the_notice`).
 const RECORD_BYTES: usize = 64;
 
 /// Notices told in one pass: the most the device-wide widget table holds.
@@ -34,11 +37,18 @@ impl crate::Kernel {
             };
             let mut record = [0u8; RECORD_BYTES];
             let now = self.now;
-            let Ok(Some((notice, len))) = ui.next_widget_dropped(owner, now.millis(), &mut record)
-            else {
-                // Nothing for this owner after all, a table in use or no room
-                // for the record: the notice stays, the next pass tries again.
-                break;
+            let (notice, len) = match ui.next_widget_dropped(owner, now.millis(), &mut record) {
+                Ok(Some(told)) => told,
+                other => {
+                    // Nothing for this owner after all, or the table is in
+                    // use (`ERR_BUSY`): the notice stays, the next pass tries
+                    // again. A record that does not fit the buffer is a bug.
+                    debug_assert!(
+                        other.is_ok() || other == Err(ERR_BUSY),
+                        "an event.widget_dropped record fits {RECORD_BYTES} bytes: {other:?}"
+                    );
+                    break;
+                }
             };
             if let Ok(InstanceState::Running(lease)) = self.shared.native_instances.state(owner) {
                 let env = self.shared.env(now);
