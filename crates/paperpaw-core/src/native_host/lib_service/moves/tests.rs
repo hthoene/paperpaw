@@ -847,6 +847,13 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
     hosts
         .register_library_moves(moves.clone(), w.clone())
         .unwrap();
+    // Not yet: the document service has not said it reports its books.
+    assert!(
+        resources
+            .wire(HostWiring::new().files(card.clone()))
+            .is_err()
+    );
+    hosts.register_reader_book_reporting().unwrap();
     resources.wire(HostWiring::new().files(card)).unwrap();
     let files = &hosts.files().unwrap().0;
     assert!(!files.moving() && !files.busy("Books/old", Access::Remove));
@@ -867,14 +874,16 @@ fn the_library_job_and_the_readers_book_are_what_core_files_answers_busy_for() {
     assert!(!files.busy("Books/b.epub", Access::Remove));
     // Counted per path: two documents of one book hold it until both end.
     hosts.reader_book_opened("Books/a.epub").unwrap();
-    hosts.reader_book_closed("Books/a.epub");
+    assert!(hosts.reader_book_closed("Books/a.epub"));
     assert!(files.busy("Books/a.epub", Access::Remove));
-    hosts.reader_book_closed("Books/a.epub");
+    assert!(hosts.reader_book_closed("Books/a.epub"));
     assert!(!files.busy("Books/a.epub", Access::Remove));
+    // A close with no hold is unbalanced and says so.
+    assert!(!hosts.reader_book_closed("Books/a.epub"));
     // A plugin owner's claim and the reader's are told apart.
     hosts.in_use().claim(7, "Books/a.epub").unwrap();
     hosts.reader_book_opened("Books/a.epub").unwrap();
-    hosts.reader_book_closed("Books/a.epub");
+    assert!(hosts.reader_book_closed("Books/a.epub"));
     assert!(
         files.busy("Books/a.epub", Access::Remove),
         "the plugin's claim stays"

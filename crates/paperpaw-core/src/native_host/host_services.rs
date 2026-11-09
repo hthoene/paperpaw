@@ -367,23 +367,43 @@ impl HostServices {
         self.in_use.get_or_init(Default::default)
     }
 
-    /// Makes the in-use table a source of the busy answers of `core.files`,
-    /// once for the device, for both kinds it answers: what `core.net` and
-    /// `core.sockets` hold, and the books the document service has open
-    /// ([`reader_book_opened`](Self::reader_book_opened): "the reader's book"
-    /// is every book a plugin has open through the document service).
+    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
+    /// source of the busy answers of `core.files`, once for the device.
     ///
     /// # Errors
     /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
     pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
-        use super::storage_files::BusyKind;
         let sources = self.busy_sources();
-        for kind in [BusyKind::Network, BusyKind::ReaderBook] {
-            if !sources.has(kind) {
-                sources.register(kind, self.in_use().clone())?;
-            }
+        if sources.has(super::storage_files::BusyKind::Network) {
+            return Ok(());
         }
-        Ok(())
+        sources.register(
+            super::storage_files::BusyKind::Network,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The document service reports the books it has open
+    /// ([`reader_book_opened`](Self::reader_book_opened) and
+    /// [`reader_book_closed`](Self::reader_book_closed)): the in-use table is
+    /// the reader-book source of `core.files`. Called once, by the document
+    /// service's wiring, and only where it makes those calls: without them
+    /// "no book is open" would be a wrong answer, so `core.files` stays
+    /// unwired until this has been called.
+    ///
+    /// # Errors
+    /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
+    /// sources is in use; `ERR_NO_MEMORY`.
+    #[allow(dead_code, reason = "the document service's wiring calls it (Host Engineer, train 6)")]
+    pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::ReaderBook) {
+            return Err(ERR_STATE);
+        }
+        sources.register(
+            super::storage_files::BusyKind::ReaderBook,
+            self.in_use().clone(),
+        )
     }
 
     /// The library's move job is a busy source of `core.files`: called by the
@@ -405,9 +425,11 @@ impl HostServices {
     }
 
     /// A document of the book at `path` was opened through the document
-    /// service: the host holds the book until the document ends
-    /// ([`reader_book_closed`](Self::reader_book_closed)). Counted per path:
-    /// several documents may hold one book. The document service calls it once
+    /// service: plugins' writes, moves and removals of the book (and of a
+    /// folder holding it) answer `ERR_BUSY` until the document ends
+    /// ([`reader_book_closed`](Self::reader_book_closed)); the host's own
+    /// reads of it are not held back. Counted per path: several documents may
+    /// hold one book. The document service calls it once
     /// when a document opens and refuses the open on an error, so a book is
     /// never left unguarded.
     ///
