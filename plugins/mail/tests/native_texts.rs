@@ -2,8 +2,9 @@
 //! catalog, and the messages that take words get them.
 #![allow(clippy::unwrap_used, reason = "tests unwrap what they just made")]
 
+use paperpaw_plugin_mail::native_model::account::Offer;
 use paperpaw_plugin_mail::native_model::session::{Failure, Stage};
-use paperpaw_plugin_mail::native_model::texts::{Say, distrust, failure, stage};
+use paperpaw_plugin_mail::native_model::texts::{Say, distrust, failure, pin_message, stage};
 use paperpaw_sdk::native::sockets::{Reason, Untrusted};
 
 #[test]
@@ -128,4 +129,13 @@ fn every_key_the_native_screens_use_is_in_both_languages() {
         }
     }
     assert!(checked > 30, "found only {checked} keys");
+}
+
+#[test]
+fn an_untrusted_server_is_said_by_what_may_be_offered() {
+    // Where the list asks, a reader or the compose window says to open it; a
+    // changed key or a provider's server must not be told to "trust".
+    assert_eq!(pin_message(Offer::Ask), "mail.pin.open-list");
+    assert_eq!(pin_message(Offer::Changed), "mail.pin.changed");
+    assert_eq!(pin_message(Offer::Attack), "mail.pin.attack");
 }

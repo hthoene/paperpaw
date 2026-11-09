@@ -236,10 +236,16 @@ impl NativeMail {
                 self.check = None;
                 self.say_reader(host, instance, texts::failure(&failure))
             }
-            Run::Untrusted { .. } => {
+            Run::Untrusted { smtp, .. } => {
                 self.check = None;
-                // A reader cannot ask: the list does.
-                self.say_reader(host, instance, Say::Key("mail.pin.open-list"))
+                // A reader cannot ask: the list does (a key that changed, or a
+                // provider's server, is not offered at all).
+                let number = self.readers.get(instance).map(|r| r.account);
+                let say = match number {
+                    Some(number) => self.pin_say(host, number, smtp)?,
+                    None => return Ok(()),
+                };
+                self.say_reader(host, instance, say)
             }
             _ => Ok(()),
         }
