@@ -2351,6 +2351,7 @@ enum paperpaw_sdk::native::events::states::WifiLinkState { Off, On, Connecting, 
 enum paperpaw_sdk::native::events::uix_events::AnswerOutcome { Answered, Cancelled, Typing }
 enum paperpaw_sdk::native::events::uix_events::SpeechStatus { Spoken, Stopped, NoVoice, Unsupported }
 enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
+enum paperpaw_sdk::native::format::request::FormatOp { Sniff, Open, Prepare, Close, Meta, MetaText, Sections, Block, Toc, TocTarget, PageLabel, Xpointer, Locate, Links, LinkTarget, Fonts, Cover, Image, Progress }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
@@ -3051,6 +3052,11 @@ struct paperpaw_sdk::native::files::Space { free: u64, total: u64, flags: u32 }
 struct paperpaw_sdk::native::fonts::Font<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
 struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
+struct paperpaw_sdk::native::format::replies::FormatFeatures(0: u32)
+struct paperpaw_sdk::native::format::replies::FormatState { state: u32, progress: u32, status: i32 }
+struct paperpaw_sdk::native::format::request::FormatCall<'a> { row: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCall<'a>, op: paperpaw_sdk::native::format::request::FormatOp, options: paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a> }
+struct paperpaw_sdk::native::format::request::FormatOption<'a>(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtOption<'a>)
+struct paperpaw_sdk::native::format::request::FormatOptions<'a>(0: paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a>)
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
