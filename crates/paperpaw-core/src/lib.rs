@@ -1484,15 +1484,6 @@ fn hovering(event: &InputEvent) -> bool {
     )
 }
 
-/// `text` cut to what the clipboard holds, at a character boundary.
-fn clipped(text: &str) -> String {
-    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    String::from(&text[..end])
-}
-
 /// Whether this build renders OpenType/TrueType fonts.
 fn paperpaw_text_outlines() -> bool {
     paperpaw_sdk::text::OUTLINES

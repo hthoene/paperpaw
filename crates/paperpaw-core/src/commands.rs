@@ -1157,5 +1157,14 @@ pub(crate) fn vet_reserved(
     out.len() != before
 }
 
+/// `text` cut to what the clipboard holds, at a character boundary.
+pub(crate) fn clipped(text: &str) -> String {
+    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    String::from(&text[..end])
+}
+
 #[cfg(test)]
 mod catalog_tests;
