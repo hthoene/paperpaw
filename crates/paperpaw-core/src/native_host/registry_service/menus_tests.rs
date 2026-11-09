@@ -952,6 +952,56 @@ fn op_14_lists_the_natively_declared_inputs_the_device_meets() {
 }
 
 #[test]
+fn op_14_pages_over_the_device_inputs_and_forty_declared_ones() {
+    let kernel = kernel();
+    let names: Vec<String> = (0..40).map(|n| format!("in{n}")).collect();
+    let records: Vec<Record<'_>> = names
+        .iter()
+        .map(|name| {
+            Record::InputSpec(wire::InputSpec {
+                name,
+                title: "nat.input.title",
+                kind: 0,
+                need: 0,
+                capability: 0,
+                flags: 0,
+            })
+        })
+        .collect();
+    let directory = declarations(&records);
+    // The first page is full and says more follow, under one generation.
+    let first = call_in(
+        &kernel,
+        Some(&directory),
+        schema::OP_INPUTS,
+        &query_flags("", 0, 0, 0),
+        4096,
+    )
+    .unwrap();
+    let (rows, end) = read(&first);
+    let end = end.unwrap();
+    assert_eq!((end.flags & 1, rows.len()), (0, 32));
+    assert!(
+        end.total > 40,
+        "the device's inputs come too: {}",
+        end.total
+    );
+    // Every page together is every row once, the declared ones in order.
+    let all = rows_of(&kernel, Some(&directory), schema::OP_INPUTS, "", 0);
+    assert_eq!(all.len(), end.total as usize);
+    let declared: Vec<&String> = all.iter().filter(|row| row.contains(".nat.")).collect();
+    assert_eq!(declared.len(), 40);
+    for name in &names {
+        let id = format!("input.nat.{name} ");
+        assert_eq!(
+            all.iter().filter(|row| row.contains(&id)).count(),
+            1,
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn a_borrowed_declaration_store_is_busy_not_a_panic() {
     let kernel = kernel();
     let directory = native_menus();

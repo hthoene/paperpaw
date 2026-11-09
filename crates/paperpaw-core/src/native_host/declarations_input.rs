@@ -66,7 +66,11 @@ fn help(hint: &HelpHint<'_>) -> Result<(), i32> {
     if !screen.contains('.') || text.is_empty() || *input > INPUT_BUTTONS {
         return Err(ERR_INVALID);
     }
-    // All 0 is no zone. A sum that overflows is over the screen, never clamped.
+    // All 0 is no zone; any other zone has an area (a start with no size
+    // marks nothing). A sum that overflows is over the screen, never clamped.
+    if (*x, *y, *width, *height) != (0, 0, 0, 0) && (*width == 0 || *height == 0) {
+        return Err(ERR_INVALID);
+    }
     let on_screen = |start: u32, size: u32| start.checked_add(size).is_some_and(|end| end <= WHOLE);
     if !on_screen(*x, *width) || !on_screen(*y, *height) {
         return Err(ERR_INVALID);
@@ -173,24 +177,40 @@ mod tests {
             },
             HelpHint { text: "", ..hint() },
             HelpHint { input: 3, ..hint() },
+            // A start with no size (any zone of no area).
+            HelpHint { x: 1, ..hint() },
+            HelpHint {
+                y: 5,
+                width: 10,
+                ..hint()
+            },
+            HelpHint {
+                x: 5,
+                width: 10,
+                ..hint()
+            },
             // Over the screen, and a sum that overflows.
             HelpHint {
                 x: 500,
                 width: 501,
+                height: 10,
                 ..hint()
             },
             HelpHint {
                 y: 1,
                 height: 1_000,
+                width: 10,
                 ..hint()
             },
             HelpHint {
                 x: u32::MAX,
                 width: 2,
+                height: 1,
                 ..hint()
             },
             HelpHint {
                 width: u32::MAX,
+                height: 1,
                 y: 1,
                 ..hint()
             },
