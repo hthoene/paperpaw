@@ -159,7 +159,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "fonts-browser",
     "mail",
     "news",
-    "opds",
     "read-later-cloud",
     "store",
     "transfer",
@@ -232,10 +231,6 @@ pub fn install_with(
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_transfer::Transfer);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_opds::Opds);
-    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);

@@ -2927,6 +2927,14 @@ character (`char::is_control`: C0, DEL and C1, so a tab or line break either, an
 values fill what the book's file does not name: where the file names a field, its own value wins
 on (re)index. The last provider's values replace earlier ones, and there is one tag list per
 book. They are kept with the book's data and follow it when the book moves. `input` is 4,096 bytes and `out` 64.
+`Documents::format_for(host, root, path, sniff, input, out)` tells which format reads a file
+(`Root::Data`, or `Root::Library` for the user's files, which needs `uses.storage`): by its extension,
+and when none matches and `sniff` is set, by the file's first 512 bytes. The answer is a `Format`
+(`id()`, `title()`, `extensions()`, `priority()`); `NotFound` means no format reads it, so a file
+manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
+the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
+pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
+`formats`; `out` 4,096 for both.
 
 ### Book fields and badges
 
