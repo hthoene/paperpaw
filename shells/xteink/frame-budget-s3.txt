@@ -26,12 +26,74 @@
 # covers the instances whose site it describes (`allow indirect` by its count, `allow call` by its
 # callee); an instance with another count needs its own line. A line whose path matches more than
 # one function reached is an error. A line changes only when the code behind it does.
+# Roots: besides the host table, the impls behind the trait objects the host's paths call through
+# (`root trait`: every impl method and default method of a trait; `root impl`: one type's). Not
+# rooted, and why: `&dyn Frame` (`abi7::context::Frame`) has no impl in this image (the dispatch
+# frames, `Env` and `CoreFrame`, are not instantiated until the linked-plugin path of todo 150 is
+# wired: add `root trait paperpaw_core::abi7::context::Frame` with it; the root fails while it
+# matches nothing, so it cannot be forgotten); the registration sink (`Target<T>` of
+# registration_scope.rs) has no symbol of its own for its methods (generic over the make closure,
+# merged into the registration closures), so its calls are listed here and left to device test S4.
+#
+# Regenerate this file from CI's ELF: build in CI's checkout path (`/home/runner/work/paperpaw/paperpaw`,
+# CI's command, as above) and scan it. The same commit built in another directory can differ by a
+# line or two (LLVM's inlining depends on the build's layout); the CI path is the one that counts.
 # To refresh the lines after a change: run the scan, read what it reports, and decide for
 # each site (a new indirect call needs its reason, not a number changed).
 
 table PAPERPAW_HOST_TABLE_ANCHOR
+root trait paperpaw_platform::storage::Storage
+root trait paperpaw_text::stored::Pack
+root trait paperpaw_text::stored::PackSource
+root trait paperpaw_text::cache::Cache
+root trait paperpaw_text::font::Font
+root trait paperpaw_core::native_host::registrations::wire::WireEncode
+root trait paperpaw_image::ImageSink
+root trait paperpaw_image::Source
+root trait core::fmt::Display
+root trait core::fmt::Write
+root esp_alloc
 
 # Calls into the chip's ROM: not in the image, so not scanned here. Each is named by its symbol.
+allow call esp_alloc::EspHeap::add_region -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call esp_alloc::EspHeap::stats -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call esp_alloc::EspHeap::stats -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call esp_alloc::malloc::realloc_with_caps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10free_space -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$12list_bounded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$8modified -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$9list_from -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN76_$LT$paperpaw_text..stored..Paged$u20$as$u20$paperpaw_text..stored..Pack$GT$7advance -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call render -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call glyph -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call anchors -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_text::font::Font::largest_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_text::font::Font::anchors -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_text::font::Font::anchors -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN80_$LT$paperpaw_image..color..ColorWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN79_$LT$paperpaw_sdk..ui..thumbnail..Pack$u20$as$u20$paperpaw_image..ImageSink$GT$5start -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN59_$LT$$RF$$u5b$u8$u5d$$u20$as$u20$paperpaw_image..Source$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN87_$LT$paperpaw_plugin_format_epub..convert..Headed$u20$as$u20$paperpaw_image..Source$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN64_$LT$paperpaw_x4..probe..Probe$u20$as$u20$core..fmt..Display$GT$3fmt -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN64_$LT$paperpaw_xteink..crash..Cut$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN86_$LT$core..net..display_buffer..DisplayBuffer$LT$_$GT$$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN4core3fmt5Write10write_char -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::settings_read -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::settings_read -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::settings_read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -72,6 +134,44 @@ allow call paperpaw_core::native_host::shell::service_open -> memcpy the chip's 
 allow call paperpaw_core::native_host::shell::service_call -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::ui_compose::compose -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::text_covers::covers -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::settle_moves -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::create_dirs -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::free::Free::geometry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::free::Free::geometry -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_fat::dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::begins_entry -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call fatfs::dir::iter_from -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call fatfs::dir::iter_from -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN12paperpaw_fat6listed8visit_on -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir_entry::to_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call core::iter::traits::iterator::Iterator::find -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::close -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::remove_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::remove_tree -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN12paperpaw_fat4walk52_$LT$impl$u20$paperpaw_fat..FatStorage$LT$IO$GT$$GT$9walk_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::set_note -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::set_note -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6remove -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call paperpaw_fat::find_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call alloc::slice::to_owned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::write_whole -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN74_$LT$fatfs..file..File$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$fatfs..io..Seek$GT$4seek -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call paperpaw_fat::remove_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settled -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::Temps::of -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::rename_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::replace -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::found::lookup_with -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call core::slice::copy_from_slice_impl -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_text::bitmap::BitmapFont::glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_text::cache::Lru::shrink_to -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_text::cache::Lru::shrink_to -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call paperpaw_text::anchors::Anchors::read -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_text::anchors::Anchors::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_zip::EntryReader::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::id::Text::try_copy -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::fonts::resolve_role -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::abi7::handles::insert_limited -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -80,19 +180,65 @@ allow call paperpaw_graphics::canvas::Canvas::draw_line -> __udivdi3 the ROM's 6
 allow call paperpaw_core::native_host::fonts::resolve -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::abi7::commands_wire::commands_decode -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::presets::Presets::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage_slots::put -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_i18n::Translator::lookup_plural -> __umoddi3 the ROM's 64-bit unsigned modulo (libgcc): not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_message -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call _ZN4core6option15Option$LT$T$GT$3map -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN67_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$core..clone..Clone$GT$5clone -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::write_move -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::unlink -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::point_up -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call fatfs::dir::create_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::create_dir -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::settle_folder -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::settle_folder -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::settle_folder -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call _ZN84_$LT$fatfs..dir..DirRawStream$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$core..clone..Clone$GT$5clone -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::seek_from -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call fatfs::dir_entry::DirEntryEditor::flush -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call fatfs::dir_entry::ShortName::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN99_$LT$fatfs..dir..DirIter$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::remove_found -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::damaged::is_damaged -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_fat::damaged::unlink_damaged -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::remove_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::damaged::sweep -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::damaged::sweep -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call paperpaw_fat::walk::open_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::walk::descend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN12paperpaw_fat4walk52_$LT$impl$u20$paperpaw_fat..FatStorage$LT$IO$GT$$GT$9walk_tree28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::walk::work -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::walk::finish_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir_entry::to_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::create_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN4core6result19Result$LT$T$C$E$GT$8and_then -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::rename -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::clean_old -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::clean_old -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::clean_old -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_fat::settle::clean_old -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN114_$LT$core..iter..adapters..flatten..FlatMap$LT$I$C$U$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::fnv -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::rename_found -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::find_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::ShortNameGenerator::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::ShortNameGenerator::add_existing -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call fatfs::dir::ShortNameGenerator::generate -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::write_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::write_entry -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN75_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Read$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::is_old_temp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN4core4iter8adapters7flatten17and_then_or_clear -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call core::alloc::global::GlobalAlloc::realloc -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_zip::EntryReader::more -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::micros -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Settings::placed_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call core::slice::copy_from_slice_impl -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::get -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::index_of -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
@@ -112,35 +258,59 @@ allow call _ZN4core3str21_$LT$impl$u20$str$GT$12strip_suffix -> memcmp the chip'
 allow call _ZN90_$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call _ZN4core3str21_$LT$impl$u20$str$GT$11starts_with -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage::StorageAdapter::check_room -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_xteink::crash::handle -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_xteink::crash::handle -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_fat::damaged::is_whole -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::point_up -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::check_for_existence -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::create_sfn_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call write_blocks -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call write_blocks -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call write_blocks -> Cache_Suspend_DCache_Autoload the ROM's data-cache autoload suspend (SD/PSRAM access): not scanned here (device test S4)
+allow call write_blocks -> rom_Cache_WriteBack_Addr the ROM's data-cache write-back by address: not scanned here (device test S4)
+allow call write_blocks -> Cache_Resume_DCache_Autoload the ROM's data-cache autoload resume (SD/PSRAM access): not scanned here (device test S4)
+allow call write_blocks -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call core::str::pattern::StrSearcher::new -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_fat::walk::child -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN76_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Write$GT$5write -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir_entry::DirEntryData::deserialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call fatfs::dir_entry::DirEntryData::deserialize -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::ShortNameGenerator::build_prefixed_name -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir::find_free_entries -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call fatfs::dir_entry::DirLfnEntryData::serialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call fatfs::dir_entry::DirFileEntryData::serialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call core::slice::strip_prefix -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call miniz_oxide::inflate::core::decompress_with_limit -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call miniz_oxide::inflate::core::decompress_with_limit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Settings::scoped_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::specs::Specs::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::catalog::Catalog::cmp_key -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_i18n::built::Built::key_cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call _ZN5alloc3vec9from_elem -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN4core6option15Option$LT$T$GT$3map -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::font::Font::largest_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::family_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::family_face -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::Fonts::proposed -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$11extend_with -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_text::bidi::reset_line_end -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_text::around::measure_in -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::bitmap::BitmapFont::glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::fonts::FontHandle::draw_toned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::Choices::position -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_xteink::crash::handle -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_xteink::crash::handle -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::best_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_text::bidi::walk::Carry::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN64_$LT$paperpaw_xteink..crash..Cut$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call core::str::pattern::StrSearcher::new -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call esp_backtrace::arch::backtrace -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::safe_mode::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_xteink::safe_mode::write -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call esp_hal::system::software_reset -> software_reset the ROM's reset (does not return): not scanned here (device test S4)
+allow call paperpaw_xteink::power::working -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call esp_hal::sdmmc::EngineSession::select_and_apply -> ets_delay_us the ROM's busy-wait delay (`ets_delay_us`): not scanned here (device test S4)
+allow call esp_hal::delay::Delay::delay -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
+allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> Cache_Invalidate_Addr the ROM's data-cache invalidate by address: not scanned here (device test S4)
+allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call miniz_oxide::inflate::core::init_tree -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call miniz_oxide::inflate::core::transfer -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_sdk::fonts::Fonts::best_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_text::bidi::walk::Carry::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$4peek -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -149,18 +319,40 @@ allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$4peek -> memcpy the chip's
 # `rsil aN, 5` raises the interrupt level and saves PS in aN; `wsr.scompare1` sets the compare
 # value of the atomic `s32c1i`; `wsr.ps aN` restores the PS saved by the `rsil` of the same
 # function. None writes a1, WINDOWBASE or WINDOWSTART.
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_alloc::EspHeap::add_region rsil raises INTLEVEL and saves PS in an `a` register
+allow form esp_alloc::EspHeap::add_region wsr.ps restores the PS that the `rsil` of this function saved
+allow form esp_alloc::EspHeap::add_region wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_alloc::EspHeap::free rsil raises INTLEVEL and saves PS in an `a` register
+allow form esp_alloc::EspHeap::free wsr.ps restores the PS that the `rsil` of this function saved
+allow form esp_alloc::EspHeap::free wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_alloc::EspHeap::used rsil raises INTLEVEL and saves PS in an `a` register
+allow form esp_alloc::EspHeap::used wsr.ps restores the PS that the `rsil` of this function saved
+allow form esp_alloc::EspHeap::used wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_alloc::EspHeap::stats rsil raises INTLEVEL and saves PS in an `a` register
+allow form esp_alloc::EspHeap::stats wsr.ps restores the PS that the `rsil` of this function saved
+allow form esp_alloc::EspHeap::stats wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with rsil raises INTLEVEL and saves PS in an `a` register
 allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with wsr.ps restores the PS that the `rsil` of this function saved
-allow form paperpaw_xteink::crash::handle rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form paperpaw_xteink::crash::handle wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
-allow form paperpaw_xteink::crash::handle wsr.ps restores the PS that the `rsil` of this function saved
-allow form esp_println::Printer::write_bytes rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form esp_println::Printer::write_bytes wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
+allow form _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_println::Printer::write_bytes rsil raises INTLEVEL and saves PS in an `a` register
 allow form esp_println::Printer::write_bytes wsr.ps restores the PS that the `rsil` of this function saved
-allow form _critical_section_1_0_acquire rsil raises INTLEVEL to 5 and saves PS (an `a` register only)
-allow form _critical_section_1_0_acquire wsr `wsr.scompare1`, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_println::Printer::write_bytes wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form paperpaw_xteink::crash::handle rsil raises INTLEVEL and saves PS in an `a` register
+allow form paperpaw_xteink::crash::handle wsr.ps restores the PS that the `rsil` of this function saved
+allow form paperpaw_xteink::crash::handle wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form _critical_section_1_0_acquire rsil raises INTLEVEL and saves PS in an `a` register
 allow form _critical_section_1_0_acquire wsr.ps restores the PS that the `rsil` of this function saved
+allow form _critical_section_1_0_acquire wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form paperpaw_xteink::power::working wsr.ps restores the PS that the `rsil` of this function saved
+allow form embassy_sync::mutex::try_lock rsil raises INTLEVEL and saves PS in an `a` register
+allow form embassy_sync::mutex::try_lock wsr.ps restores the PS that the `rsil` of this function saved
+allow form embassy_sync::mutex::try_lock wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form esp_hal::sdmmc::EngineSession::select_and_apply rsil raises INTLEVEL and saves PS in an `a` register
+allow form esp_hal::sdmmc::EngineSession::select_and_apply wsr.ps restores the PS that the `rsil` of this function saved
+allow form esp_hal::sdmmc::EngineSession::select_and_apply wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
+allow form _ZN4core3ptr106drop_glue$LT$embassy_sync..mutex..MutexGuard$LT$esp_sync..RawMutex$C$esp_hal..sdmmc..EngineSession$GT$$GT$ rsil raises INTLEVEL and saves PS in an `a` register
+allow form _ZN4core3ptr106drop_glue$LT$embassy_sync..mutex..MutexGuard$LT$esp_sync..RawMutex$C$esp_hal..sdmmc..EngineSession$GT$$GT$ wsr.ps restores the PS that the `rsil` of this function saved
+allow form _ZN4core3ptr106drop_glue$LT$embassy_sync..mutex..MutexGuard$LT$esp_sync..RawMutex$C$esp_hal..sdmmc..EngineSession$GT$$GT$ wsr.scompare1 sets SCOMPARE1, the compare value of the atomic `s32c1i` (no `a` register)
 
 # Changes of the stack pointer other than by `entry`.
 allow sp esp_backtrace::arch::sp esp-backtrace's `sp()` spills the register windows with `rotw` and reads a1; it runs on the panic path only, which ends in the crash handler and never returns to a plugin
@@ -169,79 +361,251 @@ allow sp esp_backtrace::arch::sp esp-backtrace's `sp()` spills the register wind
 # slot loaded from a trait object and called; `jump table`: a `jx` through a table of
 # addresses inside the same function (a `match`), not a call out; `literal`: a call whose
 # `l32r` literal differs on some path, so the scan cannot prove its target.
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10create_dir 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10free_space 1 1 call(s) through a register reloaded from this function's own stack at fat/free.rs:188: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 4 vtable or fn-pointer call at alloc/boxed.rs:2289, core/iter/adapters/map.rs:107: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls; 2 call(s) through a register reloaded from this function's own stack at core/iter/adapters/map.rs:107, core/iter/traits/iterator.rs:2493: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at fat/lib.rs:186
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$14remove_dir_all 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$16remove_tree_step 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list 2 1 call(s) through a register reloaded from this function's own stack at core/iter/adapters/map.rs:107: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at fat/lib.rs:186
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list28_$u7b$$u7b$closure$u7d$$u7d$ 1 vtable or fn-pointer call at fat/lib.rs:1163: the FAT code's calls on the card's block device (`IO`) or a closure in the caller
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6remove 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename 1 vtable or fn-pointer call at alloc/boxed.rs:2289: a boxed closure or trait object (`Box<dyn ..>`) that the FAT code calls
+allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$9list_from 2 1 call(s) through a register reloaded from this function's own stack at core/iter/adapters/map.rs:107: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at fat/lib.rs:186
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 1 vtable or fn-pointer call at core/meter.rs:249: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 vtable or fn-pointer call at core/meter.rs:264: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 vtable or fn-pointer call at core/meter.rs:269: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$8write_at 1 vtable or fn-pointer call at core/meter.rs:274: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 1 vtable or fn-pointer call at core/meter.rs:283: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 3 vtable or fn-pointer call at core/recall.rs:137, core/recall.rs:170: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`); 1 call(s) through a register reloaded from this function's own stack at core/slice/index.rs:31: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size 1 vtable or fn-pointer call at core/recall.rs:184: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 vtable or fn-pointer call at core/recall.rs:195: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 vtable or fn-pointer call at core/recall.rs:200: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$8write_at 1 vtable or fn-pointer call at core/recall.rs:205: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$8truncate 1 vtable or fn-pointer call at core/recall.rs:210: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$6remove 1 vtable or fn-pointer call at core/recall.rs:247: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename 1 vtable or fn-pointer call at core/recall.rs:253: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$10create_dir 1 vtable or fn-pointer call at core/recall.rs:258: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$14remove_dir_all 1 vtable or fn-pointer call at core/recall.rs:276: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 1 vtable or fn-pointer call at core/recall.rs:242: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$16remove_tree_step 1 vtable or fn-pointer call at core/recall.rs:269: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$10create_dir 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:266: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$10free_space 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:289: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$10local_path 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:297: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$11total_space 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:293: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$12ignores_case 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:285: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$12list_bounded 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:315: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:319: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$14remove_dir_all 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:270: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$16remove_tree_step 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:280: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:246: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:222: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:242: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:226: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:230: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$6exists 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:258: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$6remove 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:250: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:262: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:218: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$8modified 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:254: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$8truncate 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:238: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$8write_at 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:234: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$9list_from 2 vtable or fn-pointer call at fat/swap.rs:206, fat/swap.rs:306: `Swappable` forwards each call to the storage it holds (`&dyn Storage`: the card or `Gone`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size 1 vtable or fn-pointer call at core/meter.rs:255: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$8truncate 1 vtable or fn-pointer call at core/meter.rs:278: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list 1 vtable or fn-pointer call at core/meter.rs:287: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$6remove 1 vtable or fn-pointer call at core/meter.rs:313: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$8modified 1 vtable or fn-pointer call at core/meter.rs:259: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$6exists 1 vtable or fn-pointer call at core/meter.rs:317: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename 1 vtable or fn-pointer call at core/meter.rs:321: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$10create_dir 1 vtable or fn-pointer call at core/meter.rs:325: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$14remove_dir_all 1 vtable or fn-pointer call at core/meter.rs:338: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$12ignores_case 1 vtable or fn-pointer call at core/meter.rs:342: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$10free_space 1 vtable or fn-pointer call at core/meter.rs:346: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$11total_space 1 vtable or fn-pointer call at core/meter.rs:350: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$10local_path 1 vtable or fn-pointer call at core/meter.rs:354: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$9list_from 1 vtable or fn-pointer call at core/meter.rs:296: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$12list_bounded 1 vtable or fn-pointer call at core/meter.rs:305: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 1 vtable or fn-pointer call at core/meter.rs:309: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$16remove_tree_step 1 vtable or fn-pointer call at core/meter.rs:334: `Metered` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 1 vtable or fn-pointer call at core/recall.rs:214: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
+allow indirect _ZN76_$LT$paperpaw_text..stored..Paged$u20$as$u20$paperpaw_text..stored..Pack$GT$7advance 2 vtable or fn-pointer call at text/stored.rs:308: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect render 2 literal call not proven on every path
+allow indirect _ZN90_$LT$paperpaw_sdk..fonts..storage..Stored$u20$as$u20$paperpaw_text..stored..PackSource$GT$7read_at 1 vtable or fn-pointer call at sdk/fonts/storage.rs:23: `paperpaw_sdk::fonts` font handles (the font packs in use)
+allow indirect glyph 6 literal call not proven on every path
+allow indirect paperpaw_text::font::Font::largest_size 6 vtable or fn-pointer call at alloc/raw_vec/mod.rs:675, core/iter/traits/iterator.rs:2999: the global allocator (`GlobalAlloc` of esp-alloc's heap); 3 call(s) through a register reloaded from this function's own stack at alloc/raw_vec/mod.rs:675, core/iter/traits/iterator.rs:2999: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_text::font::Font::advance 3 vtable or fn-pointer call at text/stored.rs:371, text/stored.rs:372: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect paperpaw_text::font::Font::from_cow 1 1 call(s) through a register reloaded from this function's own stack at text/bitmap.rs:216: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_text::font::Font::size_for 1 1 call(s) through a register reloaded from this function's own stack at text/bitmap.rs:424: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_text::font::Font::anchors 10 vtable or fn-pointer call at text/stored.rs:379, text/stored.rs:383: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect _ZN85_$LT$$RF$T$u20$as$u20$paperpaw_core..native_host..registrations..wire..WireEncode$GT$8wire_tag 1 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22136: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect _ZN85_$LT$$RF$T$u20$as$u20$paperpaw_core..native_host..registrations..wire..WireEncode$GT$13wire_body_len 1 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22140: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect _ZN85_$LT$$RF$T$u20$as$u20$paperpaw_core..native_host..registrations..wire..WireEncode$GT$10wire_write 1 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22144: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row 1 vtable or fn-pointer call at image/gray.rs:148: a trait-object or function-pointer call
+allow indirect _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 vtable or fn-pointer call at image/gray.rs:129: a trait-object or function-pointer call
+allow indirect _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 vtable or fn-pointer call at image/alpha.rs:123: a trait-object or function-pointer call
+allow indirect _ZN80_$LT$paperpaw_image..color..ColorWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 vtable or fn-pointer call at image/color.rs:130: a trait-object or function-pointer call
+allow indirect _ZN79_$LT$paperpaw_sdk..ui..thumbnail..Pack$u20$as$u20$paperpaw_image..ImageSink$GT$3row 1 1 call(s) through a register reloaded from this function's own stack at alloc/vec/mod.rs:1041: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect row_rgb 1 literal call not proven on every path
+allow indirect _ZN87_$LT$paperpaw_plugin_format_epub..convert..Headed$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at plugins/format-epub/convert.rs:1719: a trait-object or function-pointer call
+allow indirect _ZN94_$LT$paperpaw_plugin_format_epub..convert..StorageSource$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at plugins/format-epub/convert.rs:1640: a trait-object or function-pointer call
+allow indirect _ZN74_$LT$paperpaw_sdk..image..FileSource$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at sdk/lib.rs:295: a trait-object or function-pointer call
+allow indirect _ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2872: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN72_$LT$paperpaw_xteink..startup..Problem$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt 3 vtable or fn-pointer call at core/fmt/mod.rs:2872: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN43_$LT$char$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2845: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN66_$LT$paperpaw_config..ParseError$u20$as$u20$core..fmt..Display$GT$3fmt 1 jump table of a `match` at config/lib.rs:182
+allow indirect _ZN61_$LT$paperpaw_core..Warning$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at core/lib.rs:173
+allow indirect _ZN71_$LT$paperpaw_document..DocumentError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at document/lib.rs:993
+allow indirect _ZN71_$LT$paperpaw_hyphen..InvalidPatterns$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN75_$LT$paperpaw_i18n..catalog..CatalogError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:?: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at i18n/catalog.rs:515
+allow indirect _ZN65_$LT$paperpaw_image..ImageError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at image/lib.rs:66
+allow indirect _ZN68_$LT$paperpaw_native..header..Chip$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN71_$LT$paperpaw_native..header..Problem$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at native/header.rs:119
+allow indirect _ZN77_$LT$paperpaw_native..bundle..BundleProblem$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN79_$LT$paperpaw_platform..storage..StorageError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at platform/storage.rs:67
+allow indirect _ZN59_$LT$paperpaw_sdk..id..Id$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2872: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN74_$LT$paperpaw_sdk..version..VersionError$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN71_$LT$paperpaw_sdk..bluetooth..BtError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at sdk/bluetooth.rs:624
+allow indirect _ZN74_$LT$paperpaw_sdk..plugin..RegisterError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at sdk/plugin.rs:189
+allow indirect _ZN75_$LT$paperpaw_sdk..settings..SettingError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at sdk/settings.rs:800
+allow indirect _ZN69_$LT$paperpaw_text..font..FontError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at text/font.rs:37
+allow indirect _ZN64_$LT$paperpaw_x4..probe..Probe$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100, core/fmt/mod.rs:2132: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN69_$LT$paperpaw_x4..probe..Controller$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN77_$LT$paperpaw_x4..install_note..InstallNote$u20$as$u20$core..fmt..Display$GT$3fmt 9 vtable or fn-pointer call at core/fmt/mod.rs:2130: `core::fmt`: `Display`/`Write` of the values formatted; 5 call(s) through a register reloaded from this function's own stack at core/fmt/mod.rs:2130: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN66_$LT$smoltcp..socket..tcp..State$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2130: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at smoltcp/socket/tcp.rs:128
+allow indirect _ZN68_$LT$core..fmt..builders..PadAdapter$u20$as$u20$core..fmt..Write$GT$9write_str 2 vtable or fn-pointer call at core/fmt/builders.rs:34, core/fmt/builders.rs:38: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN68_$LT$core..fmt..builders..PadAdapter$u20$as$u20$core..fmt..Write$GT$10write_char 2 vtable or fn-pointer call at core/fmt/builders.rs:46, core/fmt/builders.rs:49: `core::fmt`: `Display`/`Write` of the values formatted
 allow indirect paperpaw_core::native_host::shell::env_snapshot 2 vtable or fn-pointer call at core/abi7/snapshot.rs:89: calls on the host's `&dyn Frame` (`abi7::context::Frame`) while decoding a request; jump table of a `match` at core/abi7/snapshot_wire.rs:127
-allow indirect paperpaw_core::native_host::shell::settings_read 5 vtable or fn-pointer call at core/abi7/queries.rs:157, core/abi7/queries.rs:74: calls on the host's `&dyn Frame` (`abi7::context::Frame`) while decoding a request
+allow indirect paperpaw_core::native_host::shell::settings_read 5 vtable or fn-pointer call at core/abi7/queries.rs:157, core/abi7/queries.rs:74: calls on the host's `&dyn Frame` (`abi7::context::Frame`) while decoding a request; 1 call(s) through a register reloaded from this function's own stack at sdk/settings/specs.rs:183: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::shell::i18n_copy 1 vtable or fn-pointer call at core/native_host/formatting.rs:26: `&dyn Frame::translator` and `Display` of the arguments
 allow indirect paperpaw_core::native_host::shell::font_acquire 3 vtable or fn-pointer call at core/native_host/fonts.rs:114, core/native_host/fonts.rs:122: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/slice/cmp.rs:21
 allow indirect paperpaw_core::native_host::shell::handle_release 1 jump table of a `match` at core/native_host/resources.rs:245
-allow indirect paperpaw_core::native_host::shell::commands_submit 7 vtable or fn-pointer call at core/native_host/commands_dev.rs:356, core/native_host/radio_requests.rs:371: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/native_host/commands.rs:270
+allow indirect paperpaw_core::native_host::shell::commands_submit 7 3 call(s) through a register reloaded from this function's own stack at core/native_host/commands_dev.rs:356, core/native_host/radio_requests.rs:371: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at core/native_host/commands.rs:270
 allow indirect paperpaw_core::native_host::shell::registrations_submit 5 vtable or fn-pointer call at core/native_host/registration_scope.rs:152, core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object); jump table of a `match` at core/native_host/registrations.rs:328
 allow indirect paperpaw_core::native_host::shell::services_query 6 vtable or fn-pointer call at core/native_host/data_services.rs:120, core/native_host/data_services.rs:173: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/native_host/data_services.rs:118
 allow indirect paperpaw_core::native_host::shell::storage_size 2 vtable or fn-pointer call at core/native_host/storage.rs:163, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::storage_read_at 2 vtable or fn-pointer call at core/native_host/storage.rs:183, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
-allow indirect paperpaw_core::native_host::shell::storage_rename 5 vtable or fn-pointer call at core/native_host/storage.rs:232, core/native_host/storage.rs:235: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink); jump table of a `match` at core/native_host/storage.rs:232
+allow indirect paperpaw_core::native_host::shell::storage_rename 5 vtable or fn-pointer call at core/native_host/storage.rs:232, core/native_host/storage.rs:235: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink); 1 call(s) through a register reloaded from this function's own stack at core/native_host/storage.rs:237: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at core/native_host/storage.rs:232
 allow indirect paperpaw_core::native_host::shell::storage_remove 2 vtable or fn-pointer call at core/native_host/storage.rs:249, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::storage_sync 2 vtable or fn-pointer call at core/native_host/storage.rs:260, core/native_host/storage_slots.rs:33: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::i18n_format 1 vtable or fn-pointer call at core/native_host/formatting.rs:26: `&dyn Frame::translator` and `Display` of the arguments
 allow indirect paperpaw_core::native_host::shell::i18n_digits 1 vtable or fn-pointer call at core/native_host/formatting.rs:26, core/native_host/formatting.rs:338: `&dyn Frame::translator` and `Display` of the arguments
-allow indirect paperpaw_core::native_host::shell::stage_slot::run 1 vtable or fn-pointer call at core/native_host/shell_stage_slot.rs:77: `&dyn Frame::stage_run`
-allow indirect paperpaw_core::native_host::shell::service_open 1 vtable or fn-pointer call at core/slice/cmp.rs:157: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect paperpaw_core::native_host::shell::service_call 4 vtable or fn-pointer call at core/native_host/call_services.rs:126, core/native_host/resources/services.rs:179: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect paperpaw_core::native_host::shell::stage_slot::run 1 1 call(s) through a register reloaded from this function's own stack at core/native_host/shell_stage_slot.rs:77: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_core::native_host::shell::service_open 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_core::native_host::shell::service_call 4 vtable or fn-pointer call at core/native_host/call_services.rs:126, core/native_host/resources/services.rs:179: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); 3 call(s) through a register reloaded from this function's own stack at core/native_host/call_services.rs:126, core/native_host/stage_wire.rs:65: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::ui_compose::compose 1 vtable or fn-pointer call at core/native_host/ui_compose.rs:155: `&dyn Frame` methods (compose)
-allow indirect paperpaw_core::native_host::shell::text_covers::covers 1 vtable or fn-pointer call at core/native_host/fonts.rs:306: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
-allow indirect _ZN95_$LT$core..str..pattern..CharArraySearcher$LT$_$GT$$u20$as$u20$core..str..pattern..Searcher$GT$10next_match 2 vtable or fn-pointer call at core/str/pattern.rs:648, core/str/pattern.rs:696: a trait-object or function-pointer call
+allow indirect paperpaw_core::native_host::shell::text_covers::covers 1 1 call(s) through a register reloaded from this function's own stack at core/native_host/fonts.rs:306: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_fat::settle::settle_moves 1 literal call not proven on every path
+allow indirect paperpaw_fat::create_dirs 1 literal call not proven on every path
+allow indirect paperpaw_fat::free::Free::geometry 1 vtable or fn-pointer call at fat/free.rs:216: the card's block device (`Disk`: the SD driver of the shell)
+allow indirect fatfs::fs::stats 3 literal call not proven on every path
+allow indirect core::slice::index::slice_index_fail 1 literal call not proven on every path
+allow indirect _ZN12paperpaw_fat6listed8visit_on 2 1 call(s) through a register reloaded from this function's own stack at core/iter/adapters/map.rs:107: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at fat/lib.rs:186
+allow indirect _ZN12paperpaw_fat6listed5shown 1 1 call(s) through a register reloaded from this function's own stack at fat/listed.rs:26: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect fatfs::dir_entry::file_name 1 literal call not proven on every path
+allow indirect paperpaw_fat::child 1 literal call not proven on every path
+allow indirect paperpaw_fat::settle::held_up 2 literal call not proven on every path
+allow indirect paperpaw_fat::close 3 literal call not proven on every path
+allow indirect paperpaw_fat::forget 3 literal call not proven on every path
+allow indirect paperpaw_fat::remove_tree 9 literal call not proven on every path
+allow indirect _ZN12paperpaw_fat4walk52_$LT$impl$u20$paperpaw_fat..FatStorage$LT$IO$GT$$GT$9walk_tree 2 jump table of a `match` at core/result.rs:966; literal call not proven on every path
+allow indirect paperpaw_fat::find_file 1 jump table of a `match` at core/result.rs:966
+allow indirect paperpaw_fat::is_within 2 vtable or fn-pointer call at core/str/iter.rs:663: a `char` predicate closure or searcher of a `str` method in the caller; literal call not proven on every path
+allow indirect fatfs::dir::is_valid_long_name 1 jump table of a `match` at patches/fatfs/dir.rs:1065
+allow indirect paperpaw_fat::settled 4 1 call(s) through a register reloaded from this function's own stack at fat/found.rs:37: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at core/result.rs:966; literal call not proven on every path
+allow indirect fatfs::dir::replace 1 literal call not proven on every path
+allow indirect paperpaw_fat::found::lookup_with 4 vtable or fn-pointer call at core/iter/adapters/flatten.rs:523, core/iter/adapters/flatten.rs:527: a closure of an iterator adaptor in the caller; 3 call(s) through a register reloaded from this function's own stack at core/iter/adapters/flatten.rs:527, core/iter/adapters/map.rs:107: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at fat/lib.rs:186
+allow indirect paperpaw_core::recall::Recall::forget 1 vtable or fn-pointer call at alloc/vec/mod.rs:2574, core/ptr/mod.rs:551: drop glue of a trait object (the destructor held in its vtable); 1 call(s) through a register reloaded from this function's own stack at core/ptr/mod.rs:551: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_text::charset::stand_in 2 jump table of a `match` at text/charset.rs:111
+allow indirect paperpaw_text::stored::StoredPack::has_char 3 vtable or fn-pointer call at text/stored.rs:358, text/stored.rs:359: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect paperpaw_image::gray::GrayWriter::flush 1 vtable or fn-pointer call at image/gray.rs:113: a trait-object or function-pointer call
+allow indirect core::fmt::write 5 vtable or fn-pointer call at core/fmt/mod.rs:1633, core/fmt/mod.rs:1665: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect core::fmt::Formatter::pad 3 vtable or fn-pointer call at core/fmt/mod.rs:1757, core/fmt/mod.rs:1939: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect core::fmt::Formatter::pad_integral 5 vtable or fn-pointer call at core/fmt/mod.rs:1757, core/fmt/mod.rs:1859: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN95_$LT$core..str..pattern..CharArraySearcher$LT$_$GT$$u20$as$u20$core..str..pattern..Searcher$GT$10next_match 2 2 call(s) through a register reloaded from this function's own stack at core/str/pattern.rs:648, core/str/pattern.rs:696: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::abi7::settings_wire::settings_encode 1 jump table of a `match` at core/abi7/settings_wire.rs:38
 allow indirect paperpaw_core::native_host::fonts::resolve_role 2 jump table of a `match` at core/native_host/fonts.rs:28; literal call not proven on every path
-allow indirect paperpaw_graphics::canvas::Canvas::fill_round_rect 1 vtable or fn-pointer call at graphics/canvas.rs:631, graphics/canvas.rs:632: `paperpaw_graphics` canvas/framebuffer dispatch
-allow indirect paperpaw_graphics::canvas::Canvas::stroke_round_rect 1 vtable or fn-pointer call at graphics/canvas.rs:669: `paperpaw_graphics` canvas/framebuffer dispatch
+allow indirect paperpaw_graphics::canvas::Canvas::fill_round_rect 1 vtable or fn-pointer call at graphics/canvas.rs:631, graphics/canvas.rs:632: `paperpaw_graphics` canvas/framebuffer dispatch; 1 call(s) through a register reloaded from this function's own stack at graphics/canvas.rs:631: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_graphics::canvas::Canvas::stroke_round_rect 1 1 call(s) through a register reloaded from this function's own stack at graphics/canvas.rs:669: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::fonts::resolve 2 vtable or fn-pointer call at core/native_host/fonts.rs:46, core/native_host/fonts.rs:50: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::abi7::commands_wire::commands_decode 2 jump table of a `match` at core/abi7/commands_wire.rs:933
-allow indirect paperpaw_sdk::presets::Presets::get 1 vtable or fn-pointer call at core/slice/cmp.rs:157: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect core::slice::index::slice_index_fail 1 literal call not proven on every path
+allow indirect paperpaw_sdk::presets::Presets::get 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN4core3ptr47drop_glue$LT$paperpaw_sdk..command..Command$GT$ 3 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
-allow indirect paperpaw_core::native_host::registrations::wire::host_records_decode_with 4 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23027, core/native_host/../abi7/records_wire.rs:23028: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
+allow indirect paperpaw_core::native_host::registrations::wire::host_records_decode_with 4 4 call(s) through a register reloaded from this function's own stack at core/native_host/../abi7/records_wire.rs:23027, core/native_host/../abi7/records_wire.rs:23028: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::registrations::refuse 1 vtable or fn-pointer call at core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object)
-allow indirect paperpaw_platform::storage::is_valid_path 2 vtable or fn-pointer call at platform/storage.rs:598, platform/storage.rs:599: `&dyn Storage`/path helpers on the card's storage
+allow indirect paperpaw_platform::storage::is_valid_path 2 2 call(s) through a register reloaded from this function's own stack at platform/storage.rs:598, platform/storage.rs:599: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::storage_slots::put 5 vtable or fn-pointer call at core/native_host/storage.rs:194, core/native_host/storage.rs:204: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::make_parents 1 vtable or fn-pointer call at core/native_host/storage.rs:152: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_i18n::Translator::lookup_plural 3 jump table of a `match` at i18n/plural.rs:158
 allow indirect paperpaw_core::native_host::formatting::format_message 3 literal call not proven on every path
 allow indirect paperpaw_sdk::fonts::FontHandle::line_metrics 2 vtable or fn-pointer call at text/stored.rs:363: `paperpaw_text` font/strike trait objects (the font packs in use); literal call not proven on every path
+allow indirect paperpaw_fat::settle::settle_folder 5 literal call not proven on every path
+allow indirect _ZN81_$LT$fatfs..dir..DirRawStream$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$fatfs..io..Read$GT$4read 1 literal call not proven on every path
+allow indirect _ZN99_$LT$fatfs..dir..DirIter$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next 1 1 call(s) through a register reloaded from this function's own stack at patches/fatfs/dir.rs:969: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_fat::damaged::sweep 8 literal call not proven on every path
+allow indirect paperpaw_fat::walk::descend 3 literal call not proven on every path
+allow indirect paperpaw_fat::walk::work 5 literal call not proven on every path
+allow indirect paperpaw_fat::walk::finish_tree 1 literal call not proven on every path
+allow indirect paperpaw_fat::settle::clean_old 1 literal call not proven on every path
+allow indirect paperpaw_fat::fnv 1 vtable or fn-pointer call at core/char/methods.rs:1540, core/char/mod.rs:398: a `char` predicate closure of a `str` method in the caller; 1 call(s) through a register reloaded from this function's own stack at core/char/methods.rs:1540: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect fatfs::dir::validate_long_name 1 jump table of a `match` at patches/fatfs/dir.rs:1065
+allow indirect fatfs::dir_entry::eq_name 3 literal call not proven on every path
+allow indirect fatfs::dir::remove_entries 2 literal call not proven on every path
+allow indirect fatfs::fs::free_cluster_chain 2 literal call not proven on every path
+allow indirect _ZN75_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Read$GT$4read 1 1 call(s) through a register reloaded from this function's own stack at fat/disk.rs:415: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_fat::short_name_is 1 vtable or fn-pointer call at core/char/methods.rs:1540: a `char` predicate closure of a `str` method in the caller
+allow indirect paperpaw_fat::long_name_is 2 vtable or fn-pointer call at core/char/methods.rs:1540, core/iter/traits/iterator.rs:2493: a `char` predicate closure of a `str` method in the caller
+allow indirect paperpaw_core::recall::Recall::same 1 literal call not proven on every path
+allow indirect paperpaw_zip::EntryReader::more 1 1 call(s) through a register reloaded from this function's own stack at zip/lib.rs:609: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect core::fmt::Formatter::padding 2 vtable or fn-pointer call at core/fmt/mod.rs:1967: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at core/fmt/mod.rs:502
+allow indirect core::fmt::Formatter::pad_integral::write_prefix 2 vtable or fn-pointer call at core/fmt/mod.rs:1849, core/fmt/mod.rs:1851: `core::fmt`: `Display`/`Write` of the values formatted
+allow indirect _ZN4core3fmt3num3imp21_$LT$impl$u20$u64$GT$10_fmt_inner 1 1 call(s) through a register reloaded from this function's own stack at core/fmt/num.rs:210: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match 1 literal call not proven on every path
 allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get 1 literal call not proven on every path
-allow indirect paperpaw_i18n::catalog::Catalog::get 6 vtable or fn-pointer call at core/slice/cmp.rs:157, i18n/built.rs:151: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope; literal call not proven on every path
-allow indirect paperpaw_sdk::fonts::Fonts::handle 5 vtable or fn-pointer call at core/slice/cmp.rs:157, sdk/fonts.rs:702: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
+allow indirect paperpaw_i18n::catalog::Catalog::get 6 vtable or fn-pointer call at core/slice/cmp.rs:157, i18n/built.rs:151: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope; 4 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, i18n/built.rs:151: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); literal call not proven on every path
+allow indirect paperpaw_sdk::fonts::Fonts::handle 5 5 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, sdk/fonts.rs:702: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_graphics::framebuffer::Framebuffer::fill_clipped 1 jump table of a `match` at graphics/framebuffer.rs:767
 allow indirect paperpaw_sdk::fonts::FontHandle::measure_in 1 vtable or fn-pointer call at sdk/fonts/split.rs:61: `paperpaw_sdk::fonts` font handles (the font packs in use)
-allow indirect paperpaw_text::font::Font::advance 3 vtable or fn-pointer call at text/stored.rs:371, text/stored.rs:372: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect _ZN13paperpaw_core4abi713settings_wire15settings_decode 1 jump table of a `match` at core/abi7/settings_wire.rs:93
-allow indirect paperpaw_sdk::action::Actions::find 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect paperpaw_sdk::action::Actions::find_fixed 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
+allow indirect paperpaw_sdk::action::Actions::find 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_sdk::action::Actions::find_fixed 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN4core3ptr60drop_glue$LT$paperpaw_sdk..bluetooth..request..BtCommand$GT$ 2 jump table of a `match` at core/ptr/mod.rs:825; literal call not proven on every path
 allow indirect paperpaw_core::native_host::registrations::subset::as_wire 1 jump table of a `match` at core/native_host/registrations/subset.rs:299
 allow indirect paperpaw_core::native_host::registrations::wire::record_framed_len_of 2 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22285, core/native_host/../abi7/records_wire.rs:22286: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::registrations::wire::record_encode_of 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:22300, core/native_host/../abi7/records_wire.rs:22302: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::check_room 2 vtable or fn-pointer call at core/native_host/storage.rs:266, core/native_host/storage.rs:272: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
-allow indirect paperpaw_text::font::Font::size_for 1 vtable or fn-pointer call at text/bitmap.rs:424: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect paperpaw_core::native_host::registrations::wire::host_records_pass 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23096, core/native_host/../abi7/records_wire.rs:23097: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
-allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find 1 vtable or fn-pointer call at core/slice/cmp.rs:339: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect paperpaw_sdk::settings::specs::Specs::find 2 vtable or fn-pointer call at core/slice/cmp.rs:339, sdk/settings/specs.rs:46: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect paperpaw_text::font::Font::largest_size 6 vtable or fn-pointer call at alloc/raw_vec/mod.rs:675, core/iter/traits/iterator.rs:2999: the global allocator (`GlobalAlloc` of esp-alloc's heap)
-allow indirect paperpaw_sdk::fonts::Fonts::proposed 2 vtable or fn-pointer call at core/slice/cmp.rs:157, sdk/fonts.rs:551: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
+allow indirect paperpaw_core::native_host::registrations::wire::host_records_pass 3 vtable or fn-pointer call at core/native_host/../abi7/records_wire.rs:23096, core/native_host/../abi7/records_wire.rs:23097: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); 3 call(s) through a register reloaded from this function's own stack at core/native_host/../abi7/records_wire.rs:23097, core/result.rs:2174: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_fat::write_all 1 literal call not proven on every path
+allow indirect paperpaw_fat::damaged::is_whole 2 literal call not proven on every path
+allow indirect fatfs::fs::alloc_cluster 1 literal call not proven on every path
+allow indirect paperpaw_zip::EntryReader::fill 1 vtable or fn-pointer call at zip/lib.rs:591: a trait-object or function-pointer call
+allow indirect miniz_oxide::inflate::core::decompress_with_limit 3 jump table of a `match` at miniz_oxide/inflate/core.rs:1461
+allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_sdk::settings::specs::Specs::find 2 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339, sdk/settings/specs.rs:46: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_sdk::fonts::Fonts::proposed 2 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, sdk/fonts.rs:551: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_graphics::framebuffer::Framebuffer::encode 1 jump table of a `match` at graphics/framebuffer.rs:836
 allow indirect paperpaw_graphics::framebuffer::Framebuffer::store 1 jump table of a `match` at graphics/framebuffer.rs:767
 allow indirect paperpaw_sdk::fonts::split::pick_text 1 literal call not proven on every path
-allow indirect paperpaw_text::around::measure_in 2 vtable or fn-pointer call at text/lib.rs:110, text/lib.rs:112: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect paperpaw_sdk::fonts::FontHandle::draw_toned 2 vtable or fn-pointer call at sdk/fonts.rs:1297: `paperpaw_sdk::fonts` font handles (the font packs in use); literal call not proven on every path
-allow indirect _ZN5alloc2rc15Rc$LT$T$C$A$GT$9drop_slow 1 vtable or fn-pointer call at core/ptr/mod.rs:825: a trait-object or function-pointer call
-allow indirect _ZN88_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..ReverseSearcher$GT$15next_match_back 1 vtable or fn-pointer call at core/slice/cmp.rs:157, core/str/pattern.rs:509: `core` slice comparison: `Ord`/`PartialEq` of the element types in scope
-allow indirect core::fmt::write 5 vtable or fn-pointer call at core/fmt/mod.rs:1633, core/fmt/mod.rs:1665: `core::fmt`: `Display`/`Write` of the values formatted
-allow indirect paperpaw_text::stored::StoredPack::has_char 3 vtable or fn-pointer call at text/stored.rs:358, text/stored.rs:359: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level 1 vtable or fn-pointer call at text/bidi/walk.rs:847: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_text6around3Set3lay 2 vtable or fn-pointer call at text/hangul.rs:69: `paperpaw_text` font/strike trait objects (the font packs in use); literal call not proven on every path
-allow indirect paperpaw_text::charset::stand_in 2 jump table of a `match` at text/charset.rs:111
+allow indirect paperpaw_text::around::measure_in 2 2 call(s) through a register reloaded from this function's own stack at text/lib.rs:110, text/lib.rs:112: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect paperpaw_sdk::fonts::FontHandle::draw_toned 2 1 call(s) through a register reloaded from this function's own stack at sdk/fonts.rs:1297: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); literal call not proven on every path
+allow indirect _ZN5alloc2rc15Rc$LT$T$C$A$GT$9drop_slow 1 vtable or fn-pointer call at core/ptr/mod.rs:825: drop glue of a trait object (the destructor held in its vtable)
+allow indirect _ZN88_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..ReverseSearcher$GT$15next_match_back 1 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, core/str/pattern.rs:509: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect fatfs::table::find_free_cluster 2 2 call(s) through a register reloaded from this function's own stack at patches/fatfs/io.rs:254, patches/fatfs/table.rs:330: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect fatfs::table::write_fat 3 jump table of a `match` at patches/fatfs/table.rs:280
+allow indirect esp_hal::sdmmc::EngineSession::transfer_blocking 1 1 call(s) through a register reloaded from this function's own stack at esp-hal/sdmmc/mod.rs:2233: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN4core3ptr106drop_glue$LT$embassy_sync..mutex..MutexGuard$LT$esp_sync..RawMutex$C$esp_hal..sdmmc..EngineSession$GT$$GT$ 1 vtable or fn-pointer call at core/task/wake.rs:448: a `Waker`'s vtable (`wake`/`drop` of the driver's waker)
+allow indirect esp_hal::delay::Delay::delay 1 literal call not proven on every path
+allow indirect log::__private_api::log_impl 1 vtable or fn-pointer call at log/__private_api.rs:49: the `log` crate's logger (`&dyn Log`: the firmware's log sink)
+allow indirect paperpaw_fat::disk::load 2 literal call not proven on every path
+allow indirect miniz_oxide::inflate::core::transfer 2 jump table of a `match` at miniz_oxide/inflate/core.rs:1132
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level 1 1 call(s) through a register reloaded from this function's own stack at text/bidi/walk.rs:847: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN13paperpaw_text6around3Set3lay 2 1 call(s) through a register reloaded from this function's own stack at text/hangul.rs:69: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); literal call not proven on every path
 allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4fold 2 vtable or fn-pointer call at sdk/widgets/grid/view.rs:733: a trait-object or function-pointer call; literal call not proven on every path
-allow indirect paperpaw_text::draw_text 3 vtable or fn-pointer call at text/cache.rs:143, text/lib.rs:261: `paperpaw_text` font/strike trait objects (the font packs in use)
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs 1 vtable or fn-pointer call at text/bidi/walk.rs:740: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect paperpaw_text::draw_text 3 vtable or fn-pointer call at text/cache.rs:143, text/lib.rs:261: `paperpaw_text` font/strike trait objects (the font packs in use); 2 call(s) through a register reloaded from this function's own stack at text/lib.rs:261, text/lib.rs:265: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN70_$LT$fatfs..fs..DiskSlice$LT$B$C$S$GT$$u20$as$u20$fatfs..io..Write$GT$5write 3 3 call(s) through a register reloaded from this function's own stack at patches/fatfs/fs.rs:1012, patches/fatfs/fs.rs:896: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs 1 1 call(s) through a register reloaded from this function's own stack at text/bidi/walk.rs:740: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with 1 literal call not proven on every path
 allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$10early_weak 1 vtable or fn-pointer call at text/bidi/walk.rs:347: `paperpaw_text` font/strike trait objects (the font packs in use); jump table of a `match` at text/bidi/walk.rs:401
