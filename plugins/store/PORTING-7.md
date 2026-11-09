@@ -1,4 +1,4 @@
-# Plugin store on interface 7 (slices 1 to 3, partly ported)
+# Plugin store on interface 7 (slices 1 to 4, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the library's list and plugin
 pages, the index kept on the card, the downloads, the install with its checks
@@ -90,6 +90,33 @@ finishes the port; until then nothing is dropped.
   tests (`native_parity_tests.rs`) keep the generator wide and assert "old takes
   it, native refuses" for it.
 
+## Ported in slice 4 (`src/native_index.rs`, `src/native_sort.rs`, host-free)
+
+- **The index on the card**, with the interface-6 files and format (`index.txt`,
+  `index.bin`, `index.head` `store-index 5`, `sections.txt`, `search.bin`; a Beta 3
+  index is read as it is): `build`/`take` (the list in a file of the data folder is
+  read in pieces of 1 KiB through `ListReader`, written as it is read, built beside
+  the kept index as `*.part` and moved into place, the head last; a file over 4 MiB,
+  a text that is no list or a card that refuses leaves no index and the kept one
+  stays where the new one is not whole), `Index::{kept, runs, fair, section,
+  entry, search, scan, pick, orders, order}` and `hit`, `name_key` (parity-tested
+  against the interface-6 key for any name). Over `paperpaw_sdk::Storage`, which
+  `DataStorage` is, so the bytes need no new facade.
+- `pick` keeps the plugins a view takes in an order (list, A to Z, newest, last
+  updated, rank) with little held at once: written as read, the best `most` kept
+  while reading (at most 512), or runs sorted on the card and merged (`native_sort`).
+- Fallible throughout (`NoMemory`; an allocation sweep in
+  `tests/native_index_refusal.rs`), a card that does not answer is "no index" or an
+  end of the merge, no `&s[a..b]`. Search folds case with `mem::lowercase` per
+  entry (a name or summary, at most 300 bytes), not one lowercase copy of a list.
+- **Differences on purpose:** a card write that fails ends `build` with `Io` (the
+  interface-6 `build` said only "no index"); `Index::order` falls back to the first
+  order of the list's own; `Output` and the writer of the index fail with `NoMemory`
+  rather than abort.
+- Tests: `tests/native_index.rs` (round trip, sections, runs, search, every order
+  also for 1,300 plugins across runs and the merge, refusing cards),
+  `tests/native_index_refusal.rs`.
+
 ## Not yet (the install and the fetch)
 
 - Whether a page's files make a package the install accepts (safe paths, each once,
@@ -98,17 +125,19 @@ finishes the port; until then nothing is dropped.
 - The addresses of files and pictures relative to the page's: the fetch joins them
   (`paperpaw_sdk::web::join_url` allocates without a refusal path; a fallible
   form is needed on the host side).
-- Where the bytes come from: `core.net` and the files facade (#384); the author
-  file and the stopped keys behind `Hooks`; the hand-over of the revocations to
-  the kernel.
+- Where the bytes come from: `core.net` (the list and the pages into files of the
+  data folder, then `take` and `ListReader`); the author file and the stopped keys
+  behind `Hooks`; the hand-over of the revocations to the kernel
+  (`trust_revoked`, command 1582).
 
 ## Pending host (come back before activation, keeping parity)
 
 - **The install** of plugins, data and code (the check of a code plugin whole, the
   author's key remembered at the first install and followed through signed
   rotations, the digests, the room for code, the revocations handed to the kernel,
-  updates waiting for a restart). **Kernel todo 145** (the install design for
-  native plugins) is open; nothing of it is invented here. Owner decisions that
+  updates waiting for a restart). The contract is in `docs/abi/device.md` 5.1 to 5.5 (host job B2c pending: `BLOCKED 5.2-install`).
+  The SDK has no typed methods yet for commands 1580 (`install_author`), 1581
+  (`install_rotation`) and 1582 (`trust_revoked`); asked of Services. Owner decisions that
   apply: a plugin-triggered install or update needs the host's confirmation (132),
   and a change of the firmware always confirms (134).
 - Fetching the list and the plugins' pages, the downloads, the index and its

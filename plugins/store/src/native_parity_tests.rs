@@ -319,3 +319,14 @@ fn what_the_old_code_cut_fits_the_caps() {
     let cut = crate::catalog::cut(&name, native::MAX_NAME);
     assert!(cut.len() <= native::MAX_NAME);
 }
+
+proptest! {
+    /// The A to Z key of a name is the old one for any name.
+    #[test]
+    fn the_name_key_is_the_old_one(name in "\\PC{0,40}") {
+        prop_assert_eq!(
+            crate::native_index::name_key(&name),
+            crate::catalog::name_key(&name)
+        );
+    }
+}
