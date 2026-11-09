@@ -63,6 +63,13 @@ note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
   is the registry's `source` of the setting not being the default, or the
   placement setting it itself; the legacy `is_chosen` said the same.
 
+- The widgets are declared without `previews` (Kernel ruling, #228): a widget
+  that previews a settings group is never offered in the Add picker, and Beta 3
+  declared none. The widget pack's settings groups are named like their widget,
+  but the registry links a group to a widget only through `previews`, so a
+  settings page does not list a sample of the widget. Beta 3 had no such
+  sample either; a separate preview-only widget would add one later.
+
 ## Acceptance pending on the host
 
 `tests/acceptance_pending.rs` holds refusals (never pass): day in each style
