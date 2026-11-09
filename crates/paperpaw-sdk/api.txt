@@ -4521,6 +4521,10 @@ pub paperpaw_sdk::native::format::FormatOp::Sniff
 pub paperpaw_sdk::native::format::FormatOp::Toc
 pub paperpaw_sdk::native::format::FormatOp::TocTarget
 pub paperpaw_sdk::native::format::FormatOp::Xpointer
+#[non_exhaustive] #[repr(u32)] pub enum paperpaw_sdk::native::format::LinkKind
+pub paperpaw_sdk::native::format::LinkKind::External = 1
+pub paperpaw_sdk::native::format::LinkKind::Footnote = 2
+pub paperpaw_sdk::native::format::LinkKind::Internal = 0
 pub struct paperpaw_sdk::native::format::FormatCall<'a>
 impl paperpaw_sdk::native::format::FormatCall<'_>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_accept(&self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
@@ -4531,6 +4535,9 @@ pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_position(&self, u32, 
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_progress(&self, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_state(&self, &str, paperpaw_sdk::native::format::FormatState, paperpaw_sdk::native::format::FormatFeatures, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_xpointer(&self, &str, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::format::FormatCall<'_>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_image(&self, &str, u32, u32, u32, bool, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatCall<'_>::rows<'w>(&self, &'w mut [u8]) -> core::result::Result<paperpaw_sdk::native::format::FormatRows<'w>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::format::FormatCall<'_>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata(&self, &paperpaw_document::Metadata, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata_text(&self, &paperpaw_document::Metadata, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
@@ -4573,11 +4580,26 @@ pub struct paperpaw_sdk::native::format::FormatOptions<'a>(_)
 impl<'a> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::format::FormatOptions<'a>
 pub type paperpaw_sdk::native::format::FormatOptions<'a>::Item = core::result::Result<paperpaw_sdk::native::format::FormatOption<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::format::FormatOptions<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::format::FormatRows<'w>
+impl paperpaw_sdk::native::format::FormatRows<'_>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::finish(self, paperpaw_sdk::native::format::PageEnd) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::font(&mut self, u32, u32, bool, bool, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::len(&self) -> usize
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::link(&mut self, u32, u32, paperpaw_sdk::native::format::LinkKind, &str) -> core::result::Result<bool, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::section(&mut self, u32, u32, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::toc(&mut self, u32, u32, u32, u32, bool, &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl core::fmt::Debug for paperpaw_sdk::native::format::FormatRows<'_>
+pub fn paperpaw_sdk::native::format::FormatRows<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_sdk::native::format::FormatState
 impl paperpaw_sdk::native::format::FormatState
 pub const fn paperpaw_sdk::native::format::FormatState::failed(paperpaw_sdk::native::Error) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub const fn paperpaw_sdk::native::format::FormatState::preparing(u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub const fn paperpaw_sdk::native::format::FormatState::ready() -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::format::PageEnd
+impl paperpaw_sdk::native::format::PageEnd
+pub const fn paperpaw_sdk::native::format::PageEnd::last(u32, u32) -> Self
+pub const fn paperpaw_sdk::native::format::PageEnd::more(u32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::formatting
 #[non_exhaustive] pub enum paperpaw_sdk::native::formatting::Arg<'a>
 pub paperpaw_sdk::native::formatting::Arg::Count(i64)

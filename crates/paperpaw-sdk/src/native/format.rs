@@ -2,6 +2,8 @@
 use super::{Error, stage_schemas::core_format_v1 as schema};
 mod request;
 pub use request::{FormatCall, FormatOp, FormatOption, FormatOptions};
+mod lists;
+pub use lists::{FormatRows, LinkKind, PageEnd};
 mod metadata;
 mod replies;
 pub use replies::{FormatFeatures, FormatState};
@@ -10,3 +12,6 @@ mod tests;
 
 #[cfg(test)]
 mod metadata_tests;
+
+#[cfg(test)]
+mod lists_tests;
