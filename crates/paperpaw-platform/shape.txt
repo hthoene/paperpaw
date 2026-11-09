@@ -29,7 +29,7 @@ enum paperpaw_platform::input::InputEvent { Button { name: &'static str, state: 
 enum paperpaw_platform::input::PointerPhase { Down, Move, Up, Cancel, Hover }
 enum paperpaw_platform::input::PointerTool { Finger, Pen, Eraser, Mouse }
 enum paperpaw_platform::pixel::PixelFormat { Mono1, Gray2, Gray4, Gray8, Rgb565, Rgb888, Other { code: u16, bits: u8 } }
-enum paperpaw_platform::storage::StorageError { NotFound, InvalidPath, Unsupported, Full, Io, TooLarge, InvalidData, Other(0: u16) }
+enum paperpaw_platform::storage::StorageError { NotFound, InvalidPath, Unsupported, Full, Io, TooLarge, InvalidData, OutOfMemory, Other(0: u16) }
 enum paperpaw_platform::tree::Kind { Missing, File, Folder }
 struct paperpaw_platform::DeviceInfo { id: &'static str, name: &'static str, display: paperpaw_platform::display::DisplayInfo, input: paperpaw_platform::input::InputCaps, memory: paperpaw_platform::MemoryClass }
 struct paperpaw_platform::display::ColorPanel { color_divisor: u8, saturation_percent: u8 }

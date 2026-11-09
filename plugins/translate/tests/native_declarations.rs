@@ -61,23 +61,20 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert!(native.others.is_empty(), "{:?}", native.others);
 }
 
-/// The language setting is built but not in the image: its choice has 33
-/// values and a `setting.spec` takes 32. When this fails because draft 29 raised
-/// the limit, emit `SETTINGS` in `build.rs`, submit them in `make`, and compare
-/// the setting with the interface-6 one as `the_decoded_batches...` did (the
-/// spec `to` with its 33 choices, its help, `advanced`, and the extra with the
-/// section `translate.section`).
+/// The language setting builds now that a choice holds 64 values (draft 29).
+/// It is still not in the image: the plugin's follow-up emits `SETTINGS` in
+/// `build.rs`, submits them in `make`, and compares the setting with the
+/// interface-6 one as `the_decoded_batches...` did (the spec `to` with its 33
+/// choices, its help, `advanced`, and the extra with the section
+/// `translate.section`).
 #[test]
-fn the_language_setting_is_refused_until_a_choice_may_have_33_values() {
+fn the_language_setting_builds_with_its_33_values() {
     let mut out = Vec::new();
     let mut d = Declarations::new(|b: &[u8]| -> Result<(), i32> {
         out.push(b.to_vec());
         Ok(())
     });
-    assert_eq!(
-        declarations::settings(&mut d),
-        Err(paperpaw_sdk::native::declare::DeclareError::Choices)
-    );
+    assert_eq!(declarations::settings(&mut d), Ok(()));
     assert_eq!(declarations::TARGETS.len(), 33);
 }
 
@@ -113,8 +110,8 @@ fn the_host_admits_the_screen_and_the_subscription_to_the_end_of_a_request() {
     }
 }
 
-/// The offer is declared but not submitted: the host admits a slot offer
-/// now, so `make` can submit `image::OFFER` (a port todo).
+/// The host admits the slot offer; `make` submits `image::OFFER` after the
+/// screen (`tests/native_asking.rs`).
 #[test]
 fn the_host_admits_a_slot_offer() {
     for batch in image::OFFER {
