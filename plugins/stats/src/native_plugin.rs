@@ -122,14 +122,7 @@ impl Plugin for NativeStats {
             stage: READ_TODAY, ..
         } = event
         {
-            let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-            if let Some((day, seconds)) = today {
-                let mut bytes = [0u8; 8];
-                bytes[..4].copy_from_slice(&day.to_le_bytes());
-                bytes[4..].copy_from_slice(&seconds.to_le_bytes());
-                reply.write(&bytes)?;
-            }
-            return Ok(());
+            return self.tell_today(host, reply);
         }
         match event {
             Event::HttpDone(_) if token == crate::declarations::HTTP_TOKEN => {
@@ -326,6 +319,19 @@ impl NativeStats {
 }
 
 impl NativeStats {
+    /// The answer of the stage `stats.read-today`: the day and the seconds
+    /// read on it.
+    fn tell_today(&mut self, host: &Host<'_>, reply: &mut Reply<'_>) -> Result<(), Error> {
+        let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+        if let Some((day, seconds)) = today {
+            let mut bytes = [0u8; 8];
+            bytes[..4].copy_from_slice(&day.to_le_bytes());
+            bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+            reply.write(&bytes)?;
+        }
+        Ok(())
+    }
+
     /// Hands a net or answer event to the WebDAV sync with its screen.
     fn sync_event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
         self.ui(host)?;

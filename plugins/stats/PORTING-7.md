@@ -355,12 +355,6 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Not tested end to end: a sync against a server (the host runs no native plugin with `core.net` here); the engine and
   the shell's pieces are tested without one, with the refusal of every allocation of the start and the authorization.
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
-
-- The widget *Books this year* (needs the library for books without a finishing date: `uses.library`, the
-  metadata of both targets) and the
-  status item (`left.rs`) on the status stage; the pixels of every widget (a kernel-backed harness).
-
 ## Ported: *Books this year* (the widget)
 
 - `src/native_widget_year.rs`, token 45 (`stats.widget.year`): the books read to the end this year towards a yearly goal
@@ -423,7 +417,5 @@ events) is still in place. It is removed in the PR that finishes the port.
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The pixels of every widget (a kernel-backed harness), and the end-to-end answer of the status stage.
-- Sync (WebDAV conditional upload with ETag, credentials): `core.net` (#351) and secrets
-  (Services todo 79).
 - Folder listing (`sync` working-file sweep, `merge` tests): `core.files` (#339).
 - The fixture `tools/dev/tests/fixtures/flows/stats.flow` (#321) points at the new screens.
