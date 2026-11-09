@@ -243,10 +243,8 @@ impl NativeWallabag {
         let asked = ui.ask(host, question, &mut input, &mut out);
         // The question stays open when the filling fails (the field is then
         // empty); it is tracked either way so its answer is still taken.
-        if let (Ok(request), Some(initial)) = (
-            &asked,
-            initial.as_deref().filter(|i| !i.is_empty()),
-        ) {
+        if let (Ok(request), Some(initial)) = (&asked, initial.as_deref().filter(|i| !i.is_empty()))
+        {
             match ui.text_write(
                 host,
                 request.text(),
