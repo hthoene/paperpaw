@@ -438,7 +438,10 @@ impl ImageTable {
     /// The stage adapter's step for one `fmt.image` of a reply: the record
     /// the opener gets, or `None` where the picture is left out (see
     /// [`ImageTable::map_document`]). `cache` is the document's root 2 on the
-    /// card. The `flags` of the format's record pass on, the id is the host's.
+    /// card. The record's "not decoded yet" (`fmt.image.flags` bit 0) becomes
+    /// `doc_image.flags` bit 1; bit 0 there is colour (`image.info`), left
+    /// clear here, and other bits of the record are dropped. The id is the
+    /// host's.
     ///
     /// # Errors
     /// As [`ImageTable::map_document`].
@@ -456,7 +459,7 @@ impl ImageTable {
             index: image.index,
             width: image.width,
             height: image.height,
-            flags: image.flags,
+            flags: (image.flags & 1) << 1,
         };
         let id = self.map_document(storage, owner, document, cache, image.path, &doc, in_block)?;
         Ok(id.map(|image| wire::ServiceDocImage { image, ..doc }))

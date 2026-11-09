@@ -569,6 +569,21 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
         .unwrap();
     assert_ne!(doc.image, 0);
     assert_eq!((doc.index, doc.width, doc.height), (6, 8, 4));
+    assert_eq!(doc.flags, 0, "decoded: no flag");
+    // `fmt.image` bit 0 (not decoded yet) is `doc_image` bit 1; bit 0 there is
+    // colour, which a format's record does not set; other bits are dropped.
+    let pending = FmtImage::new("a.gray", 6, 8, 4, 0b101);
+    let doc = t
+        .map_fmt_image(&storage, A, 7, CACHE, &pending, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(doc.flags, 0b10);
+    let other = FmtImage::new("a.gray", 6, 8, 4, 0b110);
+    let doc = t
+        .map_fmt_image(&storage, A, 7, CACHE, &other, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(doc.flags, 0);
     // A picture the card does not vouch for is no doc_image.
     let lying = FmtImage::new("a.gray", 6, 9, 4, 0);
     assert_eq!(
