@@ -22,6 +22,7 @@
 //! deadline the kernel wakes at is the services'.
 
 mod http;
+mod serving;
 
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -41,6 +42,7 @@ use paperpaw_x4::net_lost::{NetLost, Service};
 
 use crate::http::Calls;
 use crate::net::Net;
+use crate::serve7::{self, Key, Reply, Servers7, Verdict};
 use crate::sockets::Sockets;
 
 /// The plugin network memory of the device (`SockLimits::pool_bytes`): the
@@ -110,6 +112,18 @@ struct Inner {
     http_was: bool,
     /// A request stalled without an answer: the radio starts anew.
     restart: bool,
+    /// The servers of core (`serve`).
+    servers: Servers7,
+    /// Servers to open, to stop, answers to send and requests to end at the
+    /// next step.
+    listens: Vec<(u32, u16)>,
+    unlistens: Vec<u32>,
+    replies: Vec<Reply>,
+    closes7: Vec<(u32, u32)>,
+    /// What core decided about heads and bodies since the last step.
+    verdicts: Vec<(Key, Verdict)>,
+    /// The address of the device at the last step, for what `listen` answers.
+    address: Option<serve7::Ipv4>,
     /// The services still to be told the network is lost: flags, never a
     /// list item, so that saying so needs no memory (and is made again where
     /// core is busy).
@@ -150,6 +164,13 @@ impl Bridge {
                 caps: Vec::new(),
                 http_was: false,
                 restart: false,
+                servers: Servers7::default(),
+                listens: Vec::new(),
+                unlistens: Vec::new(),
+                replies: Vec::new(),
+                closes7: Vec::new(),
+                verdicts: Vec::new(),
+                address: None,
                 lost: NetLost::new(),
             }),
             up: Cell::new(false),
@@ -179,13 +200,17 @@ impl Bridge {
                 || !inner.retry.is_empty()
                 || inner.sockets.moving()
                 || inner.http.busy()
+                || inner.servers.moving()
         })
     }
 
     /// Whether a socket is open (the radio does not doze).
     pub fn open(&self) -> bool {
         self.inner.try_borrow().map_or(true, |inner| {
-            inner.sockets.any() || !inner.calls.is_empty() || inner.http.busy()
+            inner.sockets.any()
+                || !inner.calls.is_empty()
+                || inner.http.busy()
+                || inner.servers.any()
         })
     }
 
@@ -249,6 +274,7 @@ impl Bridge {
         if inner.http_online(net, clock_ready, &mut out) {
             inner.restart = true;
         }
+        inner.serve_online(net, now, &mut out);
         if inner.oom {
             // Nothing could be remembered: the sockets end (core is told
             // the network is lost, which needs no memory to say).
@@ -256,6 +282,7 @@ impl Bridge {
             drop(inner.sockets.lost_events(Some(net)));
             inner.forget_all();
             inner.http.clear(Some(net));
+            inner.servers.lost(Some(&mut *net));
             // Core is told by flags, which need no memory.
             out.clear();
             inner.lost.raise_sockets();
@@ -283,6 +310,7 @@ impl Bridge {
         if had {
             inner.lost.raise_sockets();
         }
+        inner.serve_offline(net.as_deref_mut());
         inner.http_offline(net);
         inner.oom = false;
         // Core is told by the flag, which is made at the report.

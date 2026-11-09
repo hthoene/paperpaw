@@ -15,7 +15,7 @@
 //! reserved from the network pool: `max_body`, or 4,096 bytes for a request
 //! that saves.
 //!
-//! The cable and plugin servers are not served yet: `listen` refuses.
+//! The plugin servers are in `serving`; the cable server is not offered.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -25,7 +25,7 @@ use paperpaw_core::native_host::shell_wiring::{
     HttpDone, HttpJob, HttpReason, NetReports, ServedReply, ServerReason, ShellHttp,
 };
 use paperpaw_core::sdk::HttpError;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 use super::{Bridge, Inner, Out, own, push_out};
 use crate::net::Net;
@@ -42,6 +42,8 @@ pub(super) enum NetOut {
     Progress(u32, u64, Option<u64>),
     /// The request was redirected to `https` and parked.
     Parked(u32),
+    /// What a server's connections came to.
+    Served(crate::serve7::Event),
 }
 
 impl Inner {
@@ -109,6 +111,7 @@ impl Bridge {
                 net.progress(id, 200, received, total),
                 NetOut::Progress(id, received, total),
             ),
+            NetOut::Served(event) => self.report_served(net, event).map_err(NetOut::Served),
             NetOut::Parked(id) => match net.redirected_to_https(id) {
                 Err(ERR_BUSY) => Err(NetOut::Parked(id)),
                 // Core does not know it or does not run it: it is not left
@@ -275,15 +278,19 @@ impl ShellHttp for Bridge {
         }
     }
 
-    fn listen(&self, _server: u32, _port: u32, _address: &mut [u8]) -> Result<usize, ServerReason> {
-        Err(ServerReason::Refused)
+    fn listen(&self, server: u32, port: u32, address: &mut [u8]) -> Result<usize, ServerReason> {
+        self.serve_listen(server, port, address)
     }
 
-    fn unlisten(&self, _server: u32) {}
-
-    fn reply(&self, _request: u32, _reply: &ServedReply<'_>) -> Result<(), i32> {
-        Err(ERR_INVALID)
+    fn unlisten(&self, server: u32) {
+        self.serve_unlisten(server);
     }
 
-    fn close_served(&self, _request: u32, _status: u32) {}
+    fn reply(&self, request: u32, reply: &ServedReply<'_>) -> Result<(), i32> {
+        self.serve_reply(request, reply)
+    }
+
+    fn close_served(&self, request: u32, status: u32) {
+        self.serve_close(request, status);
+    }
 }
