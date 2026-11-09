@@ -13,6 +13,25 @@ use paperpaw_sdk::time::UnixTime;
 
 /// Joplin Cloud's address.
 pub const CLOUD: &str = "https://api.joplincloud.com";
+/// `ms` milliseconds since 1970 as Joplin writes a time (`2026-10-19T22:24:10.090Z`),
+/// as `UnixTime::iso8601` does, in memory that may be refused.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn iso8601(ms: i64) -> Result<String, Error> {
+    let t = UnixTime::from_millis(ms).local(0);
+    paperpaw_ui_kit::text::format(format_args!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        t.year,
+        t.month,
+        t.day,
+        t.hour,
+        t.minute,
+        t.second,
+        ms.rem_euclid(1000)
+    ))
+}
+
 /// The version of the sync target's format these items are written for.
 pub const SYNC_VERSION: u32 = 3;
 /// `type_` of a note and of a notebook.

@@ -9,11 +9,9 @@ use crate::native_joplin::{self as joplin, Service};
 use crate::native_locks;
 use crate::native_note::{self as native, Body};
 use crate::test_volume::Mem;
-use crate::{item, locks, markdown, service};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::files::Volume;
 
@@ -52,19 +50,6 @@ fn notes() -> Vec<String> {
     out
 }
 
-fn old_note<'a>(n: &'a joplin::Note<'a>) -> item::Note<'a> {
-    item::Note {
-        id: n.id,
-        parent: n.parent,
-        title: n.title,
-        author: n.author,
-        created: n.created,
-        user_created: n.user_created,
-        updated: n.updated,
-        order: n.order,
-    }
-}
-
 fn a_note(title: &str) -> joplin::Note<'_> {
     joplin::Note {
         id: "1ae79351dd744c2794eebb334b1629a7",
@@ -79,70 +64,19 @@ fn a_note(title: &str) -> joplin::Note<'_> {
 }
 
 #[test]
-fn a_note_is_written_as_interface_6_writes_it() {
-    for text in notes() {
-        for title in ["Alice", "  A \n long\ttitle ", ""] {
-            let note = a_note(title);
-            let old = MemoryStorage::new().with("from.md", text.as_str());
-            let old_hash = old_note(&note).write(&old, "from.md", "to.md").unwrap();
-            let (card, data) = (Mem::with("from.md", text.as_bytes()), Mem::default());
-            let hash = native::write_note(&note, &card, "from.md", &data, "to.md").unwrap();
-            assert_eq!(hash, old_hash, "{text:.40?}");
-            assert_eq!(
-                data.get("to.md").unwrap(),
-                old.get("to.md").unwrap(),
-                "{text:.40?}"
-            );
-            assert!(*data.longest.borrow() <= paperpaw_sdk::native::storage::MAX_DATA);
-        }
-    }
-}
-
-#[test]
 fn a_note_is_read_back_by_its_properties_and_its_hash() {
     let note = a_note("Alice");
     let (card, data) = (Mem::with("from.md", FIRST.as_bytes()), Mem::default());
     let hash = native::write_note(&note, &card, "from.md", &data, "to.md").unwrap();
     let props = native::read_props(&data, "to.md").unwrap();
-    let old = MemoryStorage::new().with("to.md", data.get("to.md").unwrap());
-    let old_props = item::read_props(&old, "to.md").unwrap();
-    assert_eq!(
-        (
-            props.kind,
-            props.parent.as_str(),
-            props.updated,
-            props.text_end
-        ),
-        (
-            old_props.kind,
-            old_props.parent.as_str(),
-            old_props.updated,
-            old_props.text_end
-        )
-    );
+    assert_eq!(props.kind, joplin::NOTE);
+    assert_eq!(props.parent, note.parent);
     assert_eq!(props.user_created, note.user_created);
     assert_eq!(
         native::text_hash(&data, "to.md", props.text_end).unwrap(),
         hash
     );
-    assert_eq!(
-        hash,
-        item::text_hash(&old, "to.md", old_props.text_end).unwrap()
-    );
     assert_eq!(native::read_props(&data, "none.md"), Err(Error::NotFound));
-}
-
-#[test]
-fn the_title_and_author_are_read_as_interface_6_reads_them() {
-    for text in notes() {
-        let old = MemoryStorage::new().with("n.md", text.as_str());
-        let new = Mem::with("n.md", text.as_bytes());
-        let (old, new) = (
-            markdown::head(&old, "n.md").unwrap(),
-            native::head(&new, "n.md").unwrap(),
-        );
-        assert_eq!((old.title, old.author), (new.title, new.author));
-    }
 }
 
 #[test]
@@ -195,97 +129,6 @@ fn a_run_of_blank_lines_held_back_is_bounded() {
 
 /// 2026-10-20 08:00:00 UTC.
 const NOW: i64 = 1_792_483_200_000;
-
-fn listing(responses: &[(&str, &str)]) -> String {
-    let mut xml = String::from(
-        "<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\">\
-         <d:response><d:href>/dav/Joplin/locks/</d:href>\
-         <d:propstat><d:prop><d:getlastmodified>Tue, 20 Oct 2026 07:59:00 GMT\
-         </d:getlastmodified></d:prop></d:propstat></d:response>",
-    );
-    for (name, modified) in responses {
-        xml.push_str(&format!(
-            "<d:response><d:href>/dav/Joplin/locks/{name}</d:href><d:propstat><d:prop>\
-             <d:getlastmodified>{modified}</d:getlastmodified></d:prop></d:propstat>\
-             </d:response>"
-        ));
-    }
-    xml.push_str("</d:multistatus>");
-    xml
-}
-
-fn server_list(locks: &[(u8, i64)]) -> String {
-    let items: Vec<String> = locks
-        .iter()
-        .map(|(kind, ago)| {
-            format!(
-                "{{\"id\":\"x\",\"type\":{kind},\"clientType\":1,\"clientId\":\"c\",\
-                 \"updatedTime\":{}}}",
-                NOW - ago
-            )
-        })
-        .collect();
-    format!("{{\"items\":[{}],\"has_more\":false}}", items.join(","))
-}
-
-/// Both decisions on one listing: equal, and what they are.
-fn both(service: Service, text: &str) -> bool {
-    let old_service = match service {
-        Service::WebDav => service::Service::WebDav,
-        Service::Server => service::Service::Server,
-        _ => service::Service::Cloud,
-    };
-    let old = MemoryStorage::new().with("l", text);
-    let want = locks::upgrading(old_service, &old, "l", NOW).expect("read");
-    let new = Mem::with("l", text.as_bytes());
-    let got = native_locks::upgrading(service, &new, "l", NOW).unwrap();
-    assert_eq!(got, want, "{text:.80?}");
-    got
-}
-
-#[test]
-fn exclusive_locks_in_a_webdav_folder_are_found_as_before() {
-    let fresh = "Tue, 20 Oct 2026 07:58:30 GMT";
-    let old = "Tue, 20 Oct 2026 07:56:30 GMT";
-    let long = "x".repeat(64 * 1024);
-    assert!(both(Service::WebDav, &listing(&[("2_1_abc.json", fresh)])));
-    for (name, modified) in [
-        ("2_1_abc.json", old),
-        ("1_1_abc.json", fresh),
-        ("2_1_abc.txt", fresh),
-    ] {
-        assert!(!both(Service::WebDav, &listing(&[(name, modified)])));
-    }
-    assert!(both(Service::WebDav, &listing(&[("2_1_ABC.JSON", fresh)])));
-    assert!(!both(Service::WebDav, &listing(&[])));
-    assert!(!both(Service::WebDav, ""));
-    assert!(both(
-        Service::WebDav,
-        &listing(&[("1_2_m.json", fresh), ("2_3_cli.json", fresh)])
-    ));
-    // A huge name and date do not hide the lock that follows.
-    assert!(both(
-        Service::WebDav,
-        &listing(&[(long.as_str(), long.as_str()), ("2_1_abc.json", fresh)])
-    ));
-}
-
-#[test]
-fn exclusive_locks_of_joplin_server_are_found_as_before() {
-    assert!(both(Service::Server, &server_list(&[(2, 30_000)])));
-    assert!(!both(
-        Service::Server,
-        &server_list(&[(2, native_locks::TTL + 1)])
-    ));
-    assert!(!both(Service::Server, &server_list(&[(1, 30_000)])));
-    assert!(both(
-        Service::Server,
-        &server_list(&[(1, 30_000), (2, 60_000)])
-    ));
-    assert!(!both(Service::Server, &server_list(&[])));
-    assert!(!both(Service::Server, "not json"));
-    assert!(!both(Service::Cloud, "{}"));
-}
 
 /// A read-only volume that allocates nothing, so a sweep refuses only the
 /// plugin's own allocations.

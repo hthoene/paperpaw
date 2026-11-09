@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 29] = [
+pub const STORE_PLUGINS: [&str; 28] = [
     "aids",
     "browser",
     "calibre",
@@ -98,7 +98,6 @@ pub const STORE_PLUGINS: [&str; 29] = [
     "hyphenation-ru",
     "hyphenation-sv",
     "hyphenation-uk",
-    "joplin",
     "mail",
     "news",
     "notes-vault",
@@ -172,7 +171,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "browser",
     "calibre",
     "fonts-browser",
-    "joplin",
     "mail",
     "news",
     "opds",
@@ -297,7 +295,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         shipped_off,
         paperpaw_plugin_read_later_cloud::ReadLaterCloud,
     );
-    b = offered(b, shipped_off, paperpaw_plugin_joplin::Joplin);
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b = offered(b, shipped_off, paperpaw_plugin_wallabag::Wallabag);
     b

@@ -1565,7 +1565,6 @@ dependencies = [
  "paperpaw-plugin-hyphenation-ru",
  "paperpaw-plugin-hyphenation-sv",
  "paperpaw-plugin-hyphenation-uk",
- "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-koreader",
  "paperpaw-plugin-lock",
@@ -2202,8 +2201,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "paperpaw-xml",

@@ -41,7 +41,6 @@ store-plugins = [
     "dep:paperpaw-plugin-browser",
     "dep:paperpaw-plugin-readwise",
     "dep:paperpaw-plugin-read-later-cloud",
-    "dep:paperpaw-plugin-joplin",
     "dep:paperpaw-plugin-mail",
     "dep:paperpaw-plugin-wallabag",
     "dep:paperpaw-plugin-hyphenation-da",
@@ -147,7 +146,6 @@ paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
 paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
-paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
