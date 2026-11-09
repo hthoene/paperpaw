@@ -153,8 +153,9 @@ impl<'a> Position<'a> {
 }
 
 impl Library {
-    /// Read a book's key, KOReader fingerprint and file size. `out` is the
-    /// operation's reply capacity or more (4,096 bytes always do), else NoSpace.
+    /// Read a book's key, KOReader fingerprint and file size. `input` is 1,024
+    /// bytes. `out` is the operation's reply capacity or more (4,096 bytes always
+    /// do), else NoSpace.
     ///
     /// # Errors
     /// NotFound for an unknown book, State for a stale catalog handle, Invalid for a
@@ -167,13 +168,14 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<BookKey<'a>, Error> {
         let n = self.call(host, schema::OP_BOOK_KEY, &[book.record()], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibKey<'a>>()
             .map_err(|_| Error::Invalid)?;
         Ok(BookKey(row))
     }
 
-    /// Read a book's stored reading position. `out` is 4,096 bytes or more.
+    /// Read a book's stored reading position. `input` is 1,024 bytes; `out` is
+    /// 4,096 bytes or more.
     ///
     /// # Errors
     /// NotFound for an unknown book or one with no stored position, State for a
@@ -187,7 +189,7 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<Position<'a>, Error> {
         let n = self.call(host, schema::OP_POSITION, &[book.record()], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibPosition<'a>>()
             .map_err(|_| Error::Invalid)?;
         Ok(Position::decode(&row))
@@ -196,7 +198,7 @@ impl Library {
     /// Store a reading position, atomically. A local write always wins. A sync
     /// write ([`PositionWrite::sync`]) wins only over an older sync position, else
     /// it answers `State` and stores nothing (ask the user, then write again with
-    /// [`PositionWrite::confirmed`]).
+    /// [`PositionWrite::confirmed`]). `input` is 2,048 bytes.
     ///
     /// # Errors
     /// Invalid for progress above 1,000,000, an XPointer over 1,024 bytes, or a
@@ -247,7 +249,7 @@ impl Library {
             input,
             out,
         )?;
-        let result = one(&out[..n])?
+        let result = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibResult<'_>>()
             .map_err(|_| Error::Invalid)?;
         if result.status == 0 {
