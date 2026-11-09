@@ -125,8 +125,9 @@ mod tests {
         assert!(r.word.len() <= 1024 && r.word.chars().all(|c| c == 'é'));
         let path = "p".repeat(513);
         assert_eq!(input(&looked("w", &path)), Err(Error::NoSpace));
+        let long_language = "l".repeat(36);
         let mut odd = looked("w", "a.epub");
-        odd.language = &"l".repeat(36);
+        odd.language = &long_language;
         let bytes = input(&odd).unwrap();
         let mut records = stage::input_decode(&bytes).unwrap();
         let Some(Ok(stage::Record::WordLooked(r))) = records.next() else {
