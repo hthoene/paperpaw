@@ -121,6 +121,7 @@ impl SaveFiles {
 
     /// The claim of `owner` on `target` ends; whether it held one. The staged
     /// file is removed, unless it was kept.
+    #[cfg(test)]
     pub(crate) fn release(&self, owner: u64, target: &str) -> bool {
         self.release_where(|e| e.owner == owner && e.target == target)
     }
