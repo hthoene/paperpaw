@@ -29,7 +29,6 @@ mod flag {
     pub(super) const NEW: u32 = 1 << 3;
     pub(super) const INDEXED: u32 = 1 << 4;
     /// Title, author, series cut: bits 5-7.
-    pub(super) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
     /// The book's file is not on the card now (`lib_book` only).
 }
 

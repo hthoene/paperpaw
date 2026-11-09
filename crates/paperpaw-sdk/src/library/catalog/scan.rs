@@ -203,7 +203,7 @@ impl Line {
 /// [`super::each_at`] with the memory error and the reads' errors: calls
 /// `f` with each book of the catalog and where its line starts, as noted
 /// last (those removed left out). One line at a time is held (at most
-/// [`LINE_CAP`] bytes); a longer one, one that is not text and one without a
+/// 8 KiB); a longer one, one that is not text and one without a
 /// path are skipped.
 ///
 /// # Errors
