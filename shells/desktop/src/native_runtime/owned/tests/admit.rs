@@ -139,3 +139,44 @@ fn a_library_the_kernel_refuses_is_not_loaded_and_nothing_stays_mapped() {
     assert!(!mapped(ID), "its library is released");
     device.open_screen(screen, Params::new());
 }
+
+#[test]
+fn a_library_whose_check_fails_leaves_no_private_copy_on_disk() {
+    let _one = crate::one_device_at_a_time();
+    // It needs a service no host offers: the metadata check refuses it before
+    // any code runs, after its private copy was written.
+    let metadata = crate::native_runtime::tests::service_metadata("core.no-such-service", 1, 0);
+    let mut callbacks = [0; 64];
+    let length =
+        wire::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut callbacks).unwrap();
+    let fixture =
+        super::foreign::fixture_service(vec![0], &callbacks[..length], DRAW, &metadata, &[]);
+    let bytes = std::fs::read(&fixture.path).unwrap();
+    let resources = paperpaw_core::native_host::HostResources::try_new().unwrap();
+    let depth = paperpaw_core::native_host::flat::FlatDepth::try_new().unwrap();
+    let result = crate::native_runtime::admission(ID, &bytes, resources, depth);
+    assert!(
+        matches!(
+            result,
+            Err(crate::native_runtime::Refusal::Runtime(
+                crate::native_runtime::RuntimeError::Metadata
+            ))
+        ),
+        "the metadata check refuses it"
+    );
+    let copies = super::super::dev::copies_dir().unwrap();
+    let left: Vec<_> = std::fs::read_dir(copies)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{ID}-"))
+        })
+        .collect();
+    assert!(
+        left.is_empty(),
+        "a refused library leaves its copy: {left:?}"
+    );
+}

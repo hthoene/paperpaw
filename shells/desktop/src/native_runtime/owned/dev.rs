@@ -258,7 +258,11 @@ fn host_library<M: 'static>(
             crate::device_host::offered_services(),
         )
     }
-    .map_err(Refusal::Runtime)?;
+    .map_err(|why| {
+        // Nothing maps it: the copy goes with the refusal.
+        let _ = std::fs::remove_file(&copy);
+        Refusal::Runtime(why)
+    })?;
     // SAFETY: the checked module owns the executable entry and read-only image.
     let plugin = unsafe {
         shared_shell::Hosted::new(

@@ -536,3 +536,16 @@ fn book_closed_with_reason_one_is_told_before_suspend_never_after() {
     );
     assert_eq!(*w.reasons.borrow(), [1]);
 }
+
+#[test]
+fn a_book_event_without_a_location_is_not_told_and_is_logged_once() {
+    let mut w = world(BOOKS, &[]);
+    w.kernel.take_warnings();
+    // No location says nothing true to tell (a zero would be a real place):
+    // it is dropped, with one line in the log until the queue is empty again.
+    for _ in 0..3 {
+        raise(&mut w.kernel, wire::EVENT_BOOK_CLOSED_TAG, &Params::new());
+    }
+    assert!(tags(&w, 'a').is_empty());
+    assert_eq!(w.kernel.take_warnings().len(), 1);
+}

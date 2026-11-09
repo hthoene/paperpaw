@@ -134,6 +134,9 @@ pub struct HostLoader {
     /// The memory class the device this loader runs on declares (the
     /// profile's), which sizes the `core.ui` store.
     memory: MemoryClass,
+    /// The file `load_native` read and found not to be interface 7, for the
+    /// `load` that follows it for the same plugin (read once, not twice).
+    read: Option<(String, [u8; 32], Vec<u8>)>,
 }
 
 impl HostLoader {
@@ -144,6 +147,7 @@ impl HostLoader {
             depth: None,
             resources: None,
             memory,
+            read: None,
         }
     }
 }
@@ -178,7 +182,14 @@ impl CodeLoader for HostLoader {
         // Not the device's heap: its code lies in flash (or the PSRAM it
         // runs from), never on the heap a plugin's budget counts.
         crate::budget::untracked(|| {
-            let bytes = read_installed(storage, &installed)?;
+            let bytes = match self.read.take() {
+                Some((path, sha256, bytes))
+                    if path == installed.path && sha256 == installed.sha256 =>
+                {
+                    bytes
+                }
+                _ => read_installed(storage, &installed)?,
+            };
             // An interface-7 library is the kernel's to admit
             // ([`Self::load_native`]), never an interface-6 plugin.
             if dev_switch() && is_interface7(&bytes) {
@@ -202,6 +213,8 @@ impl CodeLoader for HostLoader {
             }
             let bytes = read_installed(storage, &installed)?;
             if !is_interface7(&bytes) {
+                // `load` follows for this file: it is not read again.
+                self.read = Some((installed.path.into(), installed.sha256, bytes));
                 return Ok(None);
             }
             self.native(&bytes, code).map(Some)

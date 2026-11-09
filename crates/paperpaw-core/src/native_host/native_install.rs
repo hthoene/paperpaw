@@ -199,6 +199,16 @@ impl crate::Kernel {
         // plugin is as good as any); a library with nothing at all is no
         // plugin: invalid, not "needs a newer host".
         if !declared && events.is_empty() {
+            // Refused before the kernel takes it in. An empty library has run
+            // only `make`, so its cleanup cannot be busy; say so if that
+            // ever stops being true (the owner would stay pinned).
+            let pool = retained.host().resource_identity();
+            drop(retained);
+            if pool.is_some_and(|pool| pool.retirements_pending()) {
+                self.try_warn_runtime(&[
+                    "a library with nothing in it could not be cleaned up; retried later",
+                ]);
+            }
             return Err(shell::Error::Status(ERR_INVALID));
         }
         let key = self
