@@ -6,7 +6,6 @@ use super::*;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
-use crate::native_host::event_tags::EventTags;
 use crate::native_host::work_sched::{Limits, Power};
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -24,6 +23,8 @@ static WIRED: &[Feature<'static>] = &[Feature {
 struct Clock {
     now: Cell<u64>,
     allowed: Cell<bool>,
+    /// Owners that subscribed to `work_due`.
+    subscribed: Vec<u64>,
 }
 impl WorkEnv for Clock {
     fn now_ms(&self) -> u64 {
@@ -47,6 +48,9 @@ impl WorkEnv for Clock {
     }
     fn saving_manual(&self, _: u64) -> bool {
         false
+    }
+    fn subscribed(&self, owner: u64, tag: u32) -> bool {
+        tag == wire::EVENT_WORK_DUE_TAG && self.subscribed.contains(&owner)
     }
 }
 
@@ -107,21 +111,7 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
-    });
-    let sched = Rc::new(WorkSched::new(Limits::X4));
-    let hosts = crate::native_host::host_services::HostServices::new();
-    // Owners 1 and 2 are plugins that subscribed to `work_due`; 3 did not.
-    let owners = hosts.owners().unwrap();
-    for owner in 1..=3 {
-        owners.admit(owner, "p").unwrap();
-    }
-    for owner in 1..=2 {
-        owners.subscribe(
-            owner,
-            EventTags::collect(|tag| tag == wire::EVENT_WORK_DUE_TAG),
-        );
-    }
-    if wire_it {
+        if wire_it {
         hosts
             .wire_work(WorkServices {
                 sched: sched.clone(),

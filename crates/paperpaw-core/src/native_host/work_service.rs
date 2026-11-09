@@ -55,11 +55,7 @@ pub(crate) fn backend(
             WorkSched::check_form(&spec)?;
             // Work whose `event.work_due` the plugin could not take is never
             // declared (`work.md` section 3, as `core.net` asks for `http_done`).
-            if !who
-                .hosts
-                .owners()?
-                .subscribed(who.owner, wire::EVENT_WORK_DUE_TAG)
-            {
+            if !work.env.subscribed(who.owner, wire::EVENT_WORK_DUE_TAG) {
                 return Err(ERR_STATE);
             }
             if spec.needs & 1 != 0 {

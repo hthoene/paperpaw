@@ -64,6 +64,9 @@ impl WorkEnv for Fake {
     fn saving_manual(&self, owner: u64) -> bool {
         self.manual.borrow().contains(&owner)
     }
+    fn subscribed(&self, _: u64, _: u32) -> bool {
+        true
+    }
 }
 
 fn spec(key: &str) -> Spec<'_> {
