@@ -38,6 +38,8 @@ impl NativeFontsBrowser {
         let Some(plan) = Plan::new(font, outlines)? else {
             return Self::say(host, "fonts-browser.failed", &font.name);
         };
+        // Leftovers of an earlier, cut-off download of this font go first.
+        native_job::clear(&DataStorage::new(host), &plan);
         self.job = Some(Job::new(plan, copy(&font.name)?, update));
         if let Err(error) = self.request_file(host) {
             self.give_up(host)?;
@@ -150,6 +152,10 @@ impl NativeFontsBrowser {
 
     /// Stops the download going on (or the wait for the install's question).
     pub(super) fn stop(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // The host's question is open: the job stays until `install_done`.
+        if self.job.as_ref().is_some_and(Job::installing) {
+            return Ok(());
+        }
         if self.file_request.take().is_some() {
             let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
             self.net(host)?
@@ -165,7 +171,10 @@ impl NativeFontsBrowser {
         let plugin = font.plugin()?;
         let mut scratch = [0; 256];
         match CommandSender::new(host, &mut scratch).remove_plugin(REMOVE_REQUEST, &plugin) {
-            Ok(()) | Err(Error::Denied | Error::Full) => Ok(()),
+            Ok(()) => Ok(()),
+            Err(Error::Denied | Error::Full) => {
+                Self::say(host, "fonts-browser.remove-failed", &font.name)
+            }
             Err(error) => Err(error),
         }
     }
@@ -213,7 +222,9 @@ impl NativeFontsBrowser {
             .transpose()?;
         if let Some(View::Font(view)) = self.screens.top(FONT) {
             let font = view.font.take();
-            let fresh = Self::font_view(host, font, &installed, downloading.as_deref())?;
+            let installing = self.job.as_ref().is_some_and(Job::installing);
+            let fresh =
+                Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
             *view = fresh;
         }
         let mut scratch = [0; 64];

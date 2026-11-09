@@ -568,7 +568,8 @@ impl NativeFontsBrowser {
             .as_ref()
             .map(|job| copy(&job.plan.plugin))
             .transpose()?;
-        let view = Self::font_view(host, font, &installed, downloading.as_deref())?;
+        let installing = self.job.as_ref().is_some_and(|job| job.installing());
+        let view = Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
         self.screens.open(instance, View::Font(view))
     }
 
@@ -578,6 +579,7 @@ impl NativeFontsBrowser {
         font: Option<Font>,
         installed: &Installed,
         downloading: Option<&str>,
+        installing: bool,
     ) -> Result<FontView, Error> {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
@@ -626,7 +628,7 @@ impl NativeFontsBrowser {
             (Some(plugin), Ok(own)) => plugin == own,
             _ => false,
         };
-        for row in rows(&font, here, busy)? {
+        for row in rows(&font, here, busy, installing)? {
             let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
             let item = Item::row(&title, &value)?;
             push(&mut items, item)?;

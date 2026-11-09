@@ -76,3 +76,11 @@ fn clearing_removes_the_staged_files_and_their_folders_and_forgives_missing_ones
     clear(&card, &plan);
     assert!(card.size(&plan.steps[1].save).is_err());
 }
+
+#[test]
+fn a_job_knows_when_the_host_was_asked_to_install() {
+    let mut job = Job::new(plan(&[("plugin.ini", b"a")]), "Fredoka".to_string(), false);
+    assert!(!job.installing());
+    job.install_asked();
+    assert!(job.installing());
+}
