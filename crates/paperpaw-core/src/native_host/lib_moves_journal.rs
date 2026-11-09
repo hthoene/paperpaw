@@ -229,7 +229,9 @@ impl Journal<'_> {
                 .read_at(JOURNAL, at as u64, tail)
                 .map_err(|error| Fault::Card(status(error)))?
             {
-                0 => return Err(Fault::Bad),
+                // The card gave less than its size says: that is the card (a
+                // short read), not proof the record is bad; it is left alone.
+                0 => return Err(Fault::Card(ERR_IO)),
                 n => at += n,
             }
         }

@@ -4,7 +4,7 @@
 extern crate std;
 use super::*;
 use crate::native_host::{lib_moves_journal::JOURNAL, lib_service::moves::Moves};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
 use paperpaw_platform::DirEntry;
 use paperpaw_sdk::MemoryStorage;
@@ -117,6 +117,8 @@ impl Storage for Card {
 #[derive(Default)]
 struct Carry {
     calls: RefCell<Vec<String>>,
+    /// Keeps the job in its books phase (a folder of many books).
+    hold_books: Cell<bool>,
 }
 
 impl Carry {
@@ -139,6 +141,7 @@ impl MoveCarry for Carry {
             .borrow_mut()
             .push(std::format!("{phase:?} {from}>{to}"));
         Ok(match phase {
+            Phase::Books(n) if self.hold_books.get() => Phase::Books(n + 1),
             Phase::Books(_) => Phase::Assignments,
             Phase::Assignments => Phase::Settings,
             Phase::Settings => Phase::Events(0),
@@ -250,22 +253,19 @@ fn a_replacing_move_discards_the_replaced_data_once_before_any_book_is_carried()
         .unwrap();
     assert!(card.inner.exists("Books/b.epub") && !card.inner.exists("Books/other.epub"));
     // The plugin's call had no catalog: nothing was discarded yet, and a
-    // reader that opens the book meanwhile is told to retry.
+    // reader that opens the book meanwhile leaves a request and is told to
+    // retry.
     assert_eq!(carry.count("discard"), 0);
     let step = StepHost::new(&host, &carry);
-    assert_eq!(
-        step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub"),
-        Err(ERR_BUSY)
-    );
+    assert_eq!(moves.open_book(&host, "Books/b.epub"), Err(ERR_BUSY));
     assert_eq!(carry.count("book"), 0);
-    // The first step discards, records it, and only then carries.
+    // The first step discards, records it, serves the request, and only then
+    // carries.
     assert!(moves.step(&step).unwrap());
     assert_eq!(carry.calls.borrow()[0], "discard Books/b.epub");
-    assert!(carry.calls.borrow()[1].starts_with("Books("));
-    assert!(
-        step.carry_book("Books/other.epub", "Books/b.epub", "Books/b.epub")
-            .is_ok()
-    );
+    assert_eq!(carry.calls.borrow()[1], "book Books/b.epub");
+    assert!(carry.calls.borrow()[2].starts_with("Books("));
+    assert_eq!(moves.open_book(&host, "Books/b.epub"), Ok(()));
     // A cut and a restart in the middle of the job: replayed from the entry
     // alone, and it never discards again (it would clear what was carried).
     drop(moves);
@@ -401,3 +401,52 @@ fn an_unreadable_journal_is_set_aside_and_moves_go_on() {
 
 #[path = "lib_moves_fat_tests.rs"]
 mod fat;
+
+#[test]
+fn a_reader_costs_one_retry_for_its_book_not_the_rest_of_the_job() {
+    let (card, carry) = (library(), Carry::default());
+    carry.hold_books.set(true);
+    let (host, moves) = (host(&card), Moves::default());
+    moves.begin(&host, "Books/old", "Books/new", false).unwrap();
+    let step = StepHost::new(&host, &carry);
+    let (a, b) = ("Books/new/a.epub", "Books/new/sub/b.epub");
+    // Asked; one slot, so a second reader waits for its turn.
+    assert_eq!(moves.open_book(&host, a), Err(ERR_BUSY));
+    assert_eq!(moves.open_book(&host, b), Err(ERR_BUSY));
+    assert_eq!(carry.count("book"), 0);
+    // The next step carries the book, and the retry is answered once.
+    assert!(moves.step(&step).unwrap());
+    assert_eq!(carry.count("book Books/new/a.epub"), 1);
+    // Another spelling of the same path fetches it, too (a card that folds).
+    assert_eq!(moves.open_book(&host, "BOOKS/new/A.epub"), Ok(()));
+    // Fetched once: the next open asks again, and the other reader's turn
+    // comes.
+    assert_eq!(moves.open_book(&host, b), Err(ERR_BUSY));
+    assert!(moves.step(&step).unwrap());
+    assert_eq!(moves.open_book(&host, b), Ok(()));
+    // Past the books phase nobody waits at all.
+    carry.hold_books.set(false);
+    assert!(moves.step(&step).unwrap());
+    assert_eq!(moves.open_book(&host, a), Ok(()));
+    assert_eq!(carry.count("book Books/new/a.epub"), 1, "not carried again");
+    run(&moves, &host, &carry);
+    assert_eq!(moves.open_book(&host, a), Ok(()), "no job, no wait");
+}
+
+#[test]
+fn the_discard_flag_is_read_from_the_journal_once_per_job() {
+    let (card, carry) = (library(), Carry::default());
+    card.put("Books/b.epub", b"x");
+    let (host, moves) = (host(&card), Moves::default());
+    moves
+        .begin(&host, "Books/other.epub", "Books/b.epub", true)
+        .unwrap();
+    assert_eq!(
+        host.discard.get(),
+        Some(true),
+        "known from the entry written"
+    );
+    run(&moves, &host, &carry);
+    assert_eq!(carry.count("discard"), 1);
+    assert_eq!(host.discard.get(), None, "cleared with the entry");
+}

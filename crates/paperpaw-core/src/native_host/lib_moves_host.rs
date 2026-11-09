@@ -19,11 +19,12 @@
 //!   (`library.md` 6), the new entry added before the old one goes.
 use super::{
     lib_moves_journal::{Journal, Opened},
-    lib_service::moves::{Entry, MoveHost, Phase},
+    lib_service::moves::{Entry, MoveHost, Phase, own},
     storage::status,
 };
 use alloc::rc::Rc;
-use core::cell::Cell;
+use alloc::string::String;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::{Storage, StorageError};
 
@@ -46,13 +47,33 @@ pub(crate) trait MoveCarry {
 /// rules, the busy rules. Its catalog methods answer `ERR_BUSY` ("not now"):
 /// the catalog is bound to a step of the main loop ([`StepHost`]), and a call
 /// from a plugin's service call has none. So a plugin's call that starts a
-/// move (`begin`) works on the card alone, and a reader that opens a book
-/// below the new name while the job runs is told to retry (`carry_book`)
-/// until the step has carried it.
+/// move (`begin`) works on the card alone.
+///
+/// A reader that opens a book below the new name while the job runs
+/// (`carry_book`) leaves a one-slot request "carry this book first" and is
+/// told to retry (`ERR_BUSY`); the next step serves it ([`StepHost`]) and the
+/// retry gets that answer, once. A book the job has already carried costs
+/// one retry, not the rest of the job; and once the books are done
+/// (`Moves::open_book`) it costs none. A newer request from another book
+/// replaces an answer nobody has fetched.
 pub(crate) struct CardMoves {
     storage: Rc<dyn Storage>,
     /// Journals set aside as unreadable since the kernel last asked.
     set_aside: Cell<u32>,
+    /// The one "carry this book first" request, and its answer.
+    request: RefCell<Request>,
+    /// Whether the replaced file's data is still to be discarded, kept so
+    /// that a step does not read the journal again: `None` until read.
+    discard: Cell<Option<bool>>,
+}
+
+/// The one request slot of [`CardMoves`].
+enum Request {
+    Empty,
+    /// A reader waits for this book to be carried.
+    Asked(String),
+    /// The step has carried it (or failed to); the reader's retry fetches this.
+    Served(String, Result<(), i32>),
 }
 
 impl CardMoves {
@@ -60,7 +81,40 @@ impl CardMoves {
         Self {
             storage,
             set_aside: Cell::new(0),
+            request: RefCell::new(Request::Empty),
+            discard: Cell::new(None),
         }
+    }
+
+    /// Whether the replaced file's data is still to be discarded (the
+    /// journal, read once, then kept).
+    fn needs_discard(&self) -> Result<bool, i32> {
+        if let Some(pending) = self.discard.get() {
+            return Ok(pending);
+        }
+        let pending = self.journal().needs_discard()?;
+        self.discard.set(Some(pending));
+        Ok(pending)
+    }
+
+    /// Records durably that the data is discarded.
+    fn mark_discarded(&self) -> Result<(), i32> {
+        self.journal().mark_discarded()?;
+        self.discard.set(Some(false));
+        Ok(())
+    }
+
+    /// A new job or a cleared one: nothing asked or answered is kept.
+    fn reset_job(&self, discard: Option<bool>) {
+        self.discard.set(discard);
+        if let Ok(mut slot) = self.request.try_borrow_mut() {
+            *slot = Request::Empty;
+        }
+    }
+
+    /// Whether two spellings name one path on this card.
+    fn same_path(&self, a: &str, b: &str) -> bool {
+        self.within(a, b) && self.within(b, a)
     }
 
     fn journal(&self) -> Journal<'_> {
@@ -81,6 +135,8 @@ fn split(path: &str) -> (&str, &str) {
 
 impl MoveHost for CardMoves {
     fn open_entry(&self, visit: &mut dyn FnMut(&Entry<'_>)) -> Result<bool, i32> {
+        // What the journal says is read again.
+        self.discard.set(None);
         match self.journal().open_or_set_aside(visit)? {
             Opened::Entry => Ok(true),
             Opened::Nothing => Ok(false),
@@ -93,11 +149,15 @@ impl MoveHost for CardMoves {
     }
 
     fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32> {
-        self.journal().write_entry(entry)
+        self.journal().write_entry(entry)?;
+        self.reset_job(Some(entry.replace));
+        Ok(())
     }
 
     fn clear_entry(&self) -> Result<(), i32> {
-        self.journal().clear_entry()
+        self.journal().clear_entry()?;
+        self.reset_job(None);
+        Ok(())
     }
 
     fn identity(&self, path: &str) -> Result<Option<u64>, i32> {
@@ -163,8 +223,22 @@ impl MoveHost for CardMoves {
         Err(ERR_BUSY)
     }
 
-    fn carry_book(&self, _from: &str, _to: &str, _book: &str) -> Result<(), i32> {
-        Err(ERR_BUSY)
+    fn carry_book(&self, _from: &str, _to: &str, book: &str) -> Result<(), i32> {
+        let mut slot = self.request.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        match &*slot {
+            Request::Served(served, answer) if self.same_path(served, book) => {
+                let answer = *answer;
+                *slot = Request::Empty;
+                answer
+            }
+            // Asked already, by this reader or another: the step has not
+            // come yet (one slot).
+            Request::Asked(_) => Err(ERR_BUSY),
+            Request::Empty | Request::Served(..) => {
+                *slot = Request::Asked(own(book)?);
+                Err(ERR_BUSY)
+            }
+        }
     }
 }
 
@@ -226,21 +300,42 @@ impl MoveHost for StepHost<'_> {
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         if matches!(phase, Phase::Books(_)) {
-            let journal = self.card.journal();
-            if journal.needs_discard()? {
-                self.carry.discard(to)?;
-                journal.mark_discarded()?;
-            }
+            self.ensure_discarded(to)?;
         }
+        self.serve(from, to);
         self.carry.carry(from, to, phase)
     }
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
         // Not before the replaced file's data is discarded.
-        if self.card.journal().needs_discard()? {
-            return Err(ERR_BUSY);
-        }
+        self.ensure_discarded(to)?;
         self.carry.carry_book(from, to, book)
+    }
+}
+
+impl StepHost<'_> {
+    /// A replacing move's discard, once, recorded before anything is carried.
+    fn ensure_discarded(&self, to: &str) -> Result<(), i32> {
+        if self.card.needs_discard()? {
+            self.carry.discard(to)?;
+            self.card.mark_discarded()?;
+        }
+        Ok(())
+    }
+
+    /// The reader's "carry this book first" request, if there is one: the
+    /// book is carried now and the answer is left for the reader's retry.
+    fn serve(&self, from: &str, to: &str) {
+        let Ok(mut slot) = self.card.request.try_borrow_mut() else {
+            return;
+        };
+        let Request::Asked(book) = core::mem::replace(&mut *slot, Request::Empty) else {
+            return;
+        };
+        let answer = self
+            .ensure_discarded(to)
+            .and_then(|()| self.carry.carry_book(from, to, &book));
+        *slot = Request::Served(book, answer);
     }
 }
 

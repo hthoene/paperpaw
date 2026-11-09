@@ -3,6 +3,7 @@
 //! temp-sync-rename write.
 extern crate std;
 use super::*;
+use paperpaw_platform::Storage;
 use paperpaw_sdk::MemoryStorage;
 use std::{string::String, vec};
 
@@ -237,4 +238,47 @@ fn a_second_set_aside_replaces_the_first_and_a_good_entry_is_not_touched() {
     assert_eq!(journal.open_or_set_aside(&mut |_| ()), Ok(Opened::Entry));
     assert!(card.exists(JOURNAL));
     assert_eq!(card.size(SET_ASIDE).unwrap(), 7, "the old copy stays");
+}
+
+/// A card whose reads come back short (nothing read, no error).
+struct ShortReads(MemoryStorage);
+
+impl Storage for ShortReads {
+    fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+        Ok(0)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.0.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.0.rename(f, t)
+    }
+}
+
+#[test]
+fn a_short_read_of_a_valid_journal_is_an_error_and_not_set_aside() {
+    let card = ShortReads(MemoryStorage::new());
+    Journal(&card).write_entry(&entry("a", "b")).unwrap();
+    assert_eq!(
+        Journal(&card).open_or_set_aside(&mut |_| ()),
+        Err(ERR_IO),
+        "the card's trouble, not the record's"
+    );
+    assert!(card.0.exists(JOURNAL) && !card.0.exists(SET_ASIDE));
 }

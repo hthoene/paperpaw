@@ -152,7 +152,7 @@ pub(crate) struct Moves {
     read: Cell<bool>,
 }
 
-fn own(text: &str) -> Result<String, i32> {
+pub(crate) fn own(text: &str) -> Result<String, i32> {
     let mut owned = String::new();
     owned
         .try_reserve_exact(text.len())
@@ -384,9 +384,12 @@ impl Moves {
     pub(crate) fn open_book(&self, host: &dyn MoveHost, book: &str) -> Result<(), i32> {
         let slot = self.job.try_borrow().map_err(|_| ERR_BUSY)?;
         match slot.as_ref() {
-            Some(job) if job.phase.get().is_some() && host.within(book, &job.to) => {
-                host.carry_book(&job.from, &job.to, book)
-            }
+            // Only while the books are carried: once past that phase every
+            // book is, and a reader is not held up for the rest of the job.
+            Some(job) if host.within(book, &job.to) => match job.phase.get() {
+                Some(Phase::Books(_)) => host.carry_book(&job.from, &job.to, book),
+                _ => Ok(()),
+            },
             _ => Ok(()),
         }
     }
