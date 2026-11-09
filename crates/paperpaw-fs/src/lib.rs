@@ -343,36 +343,65 @@ fn ignores_case(root: &Path) -> bool {
     }
 }
 
-/// Whether paths `a` and `b` lead to the same entry; false where either
-/// cannot be looked at.
-fn same_entry(a: &Path, b: &Path) -> bool {
-    compare_entries(a, b).unwrap_or(false)
-}
-
-/// Whether paths `a` and `b` lead to the same entry: `Ok(false)` where either
-/// names nothing, the look's error where it failed for another reason.
-/// By identity (device and inode), so that a second name for one file (a
-/// hard link, a symlink) is the same entry.
+/// Whether paths `a` and `b` lead to the same entry.
 #[cfg(unix)]
-fn compare_entries(a: &Path, b: &Path) -> io::Result<bool> {
+fn same_entry(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     match (fs::metadata(a), fs::metadata(b)) {
-        (Ok(a), Ok(b)) => Ok(a.dev() == b.dev() && a.ino() == b.ino()),
-        (Err(e), _) | (_, Err(e)) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        (Err(e), _) | (_, Err(e)) => Err(e),
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
     }
 }
 
-/// The same where std has no file identity (Windows): by the path the
-/// system gives each in the end, which also settles another case of a name
-/// and a short alias.
+/// Whether paths `a` and `b` lead to the same entry.
 #[cfg(not(unix))]
-fn compare_entries(a: &Path, b: &Path) -> io::Result<bool> {
+fn same_entry(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => Ok(a == b),
-        (Err(e), _) | (_, Err(e)) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        (Err(e), _) | (_, Err(e)) => Err(e),
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
     }
+}
+
+/// Whether `a` and `b` are the same entry of one folder: see
+/// [`Storage::same_entry`] for `DirStorage`.
+#[cfg(unix)]
+fn same_directory_entry(a: &Path, b: &Path, ignores_case: bool) -> Option<bool> {
+    use std::os::unix::fs::MetadataExt;
+    /// Device and inode, `Some(None)` where nothing is there.
+    fn identity(look: io::Result<fs::Metadata>) -> Option<Option<(u64, u64)>> {
+        match look {
+            Ok(m) => Some(Some((m.dev(), m.ino()))),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Some(None),
+            Err(_) => None,
+        }
+    }
+    let (name_a, name_b) = (a.file_name()?, b.file_name()?);
+    let same_name = name_a == name_b
+        || (ignores_case
+            && name_a
+                .to_str()
+                .zip(name_b.to_str())
+                .is_some_and(|(x, y)| x.to_lowercase() == y.to_lowercase()));
+    if !same_name {
+        return Some(false);
+    }
+    // The entry itself, not what a link leads to.
+    let (entry_a, entry_b) = (
+        identity(fs::symlink_metadata(a))?,
+        identity(fs::symlink_metadata(b))?,
+    );
+    // The folders are followed: a folder reached by a link is the folder.
+    let (dir_a, dir_b) = (
+        identity(fs::metadata(a.parent()?))?,
+        identity(fs::metadata(b.parent()?))?,
+    );
+    Some(entry_a.is_some() && entry_a == entry_b && dir_a.is_some() && dir_a == dir_b)
+}
+
+/// Not answered where this has not been run.
+#[cfg(not(unix))]
+fn same_directory_entry(_: &Path, _: &Path, _: bool) -> Option<bool> {
+    None
 }
 
 impl Storage for DirStorage {
@@ -579,12 +608,15 @@ impl Storage for DirStorage {
         self.ignores_case
     }
 
-    /// By the file system's identity of the two entries, not their spelling:
-    /// another case of a name on a file system that ignores it, a hard link
-    /// and a symlink are the same entry. A path that is refused (it leaves
-    /// the root, or is a short alias this storage does not take) and one
-    /// that names nothing are `Some(false)`; the root gone, or a look that
-    /// failed, are `None`.
+    /// Whether `a` and `b` are the same directory entry: the same name (in
+    /// another case, where the file system ignores case) in the same
+    /// folder. Nothing is followed at the last name, so a hard link, or a
+    /// symlink and what it points at, are two entries, each with its own
+    /// name; a folder reached by two ways (a symlink to it) is one folder.
+    /// A path that is refused (it leaves the root, or is a short alias this
+    /// storage does not take) and one that names nothing are
+    /// `Some(false)`; the root gone, or a look that failed, are `None`.
+    /// Windows has no answer until its path is run there: `None`.
     fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
         let (a, b) = match (self.resolve(a), self.resolve(b)) {
             (Ok(a), Ok(b)) => (a, b),
@@ -592,7 +624,7 @@ impl Storage for DirStorage {
             | (Ok(_), Err(StorageError::InvalidPath)) => return Some(false),
             _ => return None,
         };
-        compare_entries(&a, &b).ok()
+        same_directory_entry(&a, &b, self.ignores_case)
     }
 
     fn free_space(&self) -> Option<u64> {
