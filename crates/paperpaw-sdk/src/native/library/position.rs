@@ -167,7 +167,7 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<BookKey<'a>, Error> {
         let n = self.call(host, schema::OP_BOOK_KEY, &[book.record()], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibKey<'a>>()
             .map_err(|_| Error::Invalid)?;
         Ok(BookKey(row))
@@ -187,7 +187,7 @@ impl Library {
         out: &'a mut [u8],
     ) -> Result<Position<'a>, Error> {
         let n = self.call(host, schema::OP_POSITION, &[book.record()], input, out)?;
-        let row = one(&out[..n])?
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibPosition<'a>>()
             .map_err(|_| Error::Invalid)?;
         Ok(Position::decode(&row))
@@ -247,7 +247,7 @@ impl Library {
             input,
             out,
         )?;
-        let result = one(&out[..n])?
+        let result = one(out.get(..n).ok_or(Error::Invalid)?)?
             .decode::<wire::ServiceLibResult<'_>>()
             .map_err(|_| Error::Invalid)?;
         if result.status == 0 {
