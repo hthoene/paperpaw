@@ -376,7 +376,10 @@ fn an_unreadable_journal_is_set_aside_and_moves_go_on() {
     assert_eq!(host.take_set_aside(), 0, "counted once");
     assert_eq!(carry.count("Books("), 1);
     assert!(!card.inner.exists(JOURNAL));
-    assert!(card.inner.exists(crate::native_host::lib_moves_journal::SET_ASIDE));
+    assert!(
+        card.inner
+            .exists(crate::native_host::lib_moves_journal::SET_ASIDE)
+    );
     // At start, too: nothing to finish, and no job.
     card.put(JOURNAL, b"x");
     let moves = Moves::default();

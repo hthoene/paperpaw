@@ -19,12 +19,15 @@ use paperpaw_fat::{
 };
 use std::{rc::Rc, string::String, vec, vec::Vec};
 
+/// A block written to the card: its index and bytes.
+type Written = (u32, [u8; BLOCK]);
+
 /// A 4 MB card in memory; with `record` set, every block written to it is
 /// kept in order.
 #[derive(Clone)]
 struct Ram {
     bytes: Rc<RefCell<Vec<u8>>>,
-    writes: Rc<RefCell<Vec<(u32, [u8; BLOCK])>>>,
+    writes: Rc<RefCell<Vec<Written>>>,
     record: Rc<core::cell::Cell<bool>>,
 }
 
@@ -152,10 +155,7 @@ fn card_host(ram: &Ram) -> (CardMoves, Rc<Fat>) {
 
 /// The card after `job` (which gets the host and starts it), as the image
 /// before the job and after each block the job wrote.
-fn cuts(
-    files: &[(&str, Vec<u8>)],
-    job: impl FnOnce(&CardMoves, &Carry, &Moves),
-) -> Vec<Vec<u8>> {
+fn cuts(files: &[(&str, Vec<u8>)], job: impl FnOnce(&CardMoves, &Carry, &Moves)) -> Vec<Vec<u8>> {
     let ram = Ram::formatted();
     {
         let s = ram.storage();
@@ -237,7 +237,11 @@ fn folder_moves(from: &str, to: &str, other_folder: bool) {
         if moved && spelled_new {
             after += 1;
             // A job whose entry is cleared was carried before the cut.
-            assert_eq!(carry.count("Books("), usize::from(open), "{n}: carried once");
+            assert_eq!(
+                carry.count("Books("),
+                usize::from(open),
+                "{n}: carried once"
+            );
         } else {
             before += 1;
             assert_eq!(carry.count("Books("), 0, "{n}: nothing carried");
@@ -267,13 +271,22 @@ fn a_file_renamed_in_case_only_is_whole_after_any_cut() {
     assert!(cuts.len() > 3);
     for (n, image) in cuts.into_iter().enumerate() {
         let (s, carry) = restart(image);
-        assert!(holds(&s, "Books/aa.epub", &book(4)), "{n}: the book is whole");
+        assert!(
+            holds(&s, "Books/aa.epub", &book(4)),
+            "{n}: the book is whole"
+        );
         assert!(holds(&s, "Books/keep.epub", &book(3)), "{n}: a neighbour");
         assert!(!s.exists(JOURNAL));
         let mut spelled = Vec::new();
         s.list("Books", &mut |e| spelled.push(String::from(e.name)))
             .unwrap();
-        assert_eq!(spelled.iter().filter(|n| n.eq_ignore_ascii_case("aa.epub")).count(), 1);
+        assert_eq!(
+            spelled
+                .iter()
+                .filter(|n| n.eq_ignore_ascii_case("aa.epub"))
+                .count(),
+            1
+        );
         assert!(carry.count("Books(") <= 1, "{n}");
     }
 }
