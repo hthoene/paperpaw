@@ -329,8 +329,8 @@ mod tests {
         };
         rows.update([row(1), row(2)]);
         let sets = alloc::vec![
-            make(1, "probe.go", 1, "One").unwrap(),
-            make(2, "probe.go", 1, "Two").unwrap()
+            make("probe", 1, "probe.go", 1, "One").unwrap(),
+            make("probe", 2, "probe.go", 1, "Two").unwrap()
         ];
         rows.labels().borrow_mut().reserve(&sets).unwrap();
         rows.labels().borrow_mut().apply(sets);

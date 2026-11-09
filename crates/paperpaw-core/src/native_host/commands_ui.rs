@@ -90,6 +90,12 @@ impl<'a> CommandStage<'a> {
             return Ok(());
         }
         let instance = self.own_top()?.serial();
+        let owner = self.owner.as_str();
+        let small = self
+            .ui
+            .as_ref()
+            .is_some_and(|ui| crate::native_host::ui_store::is_x4(ui.env.device().memory));
+        let budget = crate::native_host::hint_labels::label_budget(small);
         let start = self.staged_hints.len();
         self.staged_hints
             .try_reserve(count)
@@ -104,13 +110,14 @@ impl<'a> CommandStage<'a> {
                 continue;
             };
             let checked = (|| {
+                let set =
+                    crate::native_host::hint_labels::make(owner, instance, action, kind, label)?;
                 labels.try_borrow().map_err(|_| ERR_BUSY)?.admits(
-                    instance,
+                    &set,
                     &self.staged_hints,
-                    action,
-                    kind == 0,
+                    budget,
                 )?;
-                crate::native_host::hint_labels::make(instance, action, kind, label)
+                Ok::<_, i32>(set)
             })();
             match checked {
                 // Capacity was reserved above.
