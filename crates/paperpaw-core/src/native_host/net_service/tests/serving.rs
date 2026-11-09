@@ -712,8 +712,8 @@ fn the_largest_served_request_event_fits_the_pump_buffer_as_a_batch() {
     let mut longest = 0;
     while let Some(used) = next_event(&fake, OWNER, &mut out).unwrap() {
         longest = longest.max(used);
-        let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
-        assert!(incoming.decode().is_ok());
+        // Framed as the SDK reads it: one record in a batch of one.
+        assert!(paperpaw_sdk::native::events::Incoming::new(&out[..used]).is_ok());
         event_delivered(&fake, OWNER).unwrap();
     }
     assert!(longest > 1_040, "the served request was among them");

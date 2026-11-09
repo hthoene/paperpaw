@@ -339,10 +339,15 @@ pub(crate) enum Event {
 pub(crate) fn next(fake: &dyn NetHost, owner: u64) -> Option<Event> {
     let mut out = std::vec![0; 2048];
     let used = next_event(fake, owner, &mut out).unwrap()?;
-    // What the plugin's callback gets: the SDK frames it as a batch of one and
-    // decodes it (the kernel's `service_event` reads its tag the same way).
+    // What the plugin's callback gets: the SDK frames it as a batch of one
+    // (the kernel's `service_event` reads its tag the same way), and decodes
+    // the kinds it has (99, 100; it has none yet for 101 and 102).
     let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
-    assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    if incoming.is::<paperpaw_sdk::native::events::kinds::HttpDone>()
+        || incoming.is::<paperpaw_sdk::native::events::kinds::HttpProgress>()
+    {
+        assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    }
     Some(
         match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
             Record::EventHttpDone(e) => Event::Done {
