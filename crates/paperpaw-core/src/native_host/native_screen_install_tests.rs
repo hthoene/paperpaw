@@ -302,7 +302,7 @@ unsafe extern "C" fn screen_make(
             state: ptr::null_mut(),
             drop: Some(screen_destroy),
             dispatch_event: Some(screen_event),
-            input: None,
+            input: Some(input_records::screen_input),
             draw: None,
         },
     }));
@@ -1486,6 +1486,8 @@ mod menu_records;
 
 #[path = "native_events_install_tests.rs"]
 mod events_registered;
+#[path = "native_input_install_tests.rs"]
+mod input_records;
 #[path = "native_key_install_tests.rs"]
 mod key_records;
 
