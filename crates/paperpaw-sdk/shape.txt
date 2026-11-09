@@ -3053,6 +3053,10 @@ struct paperpaw_sdk::native::document::DocPosition { section: u32, offset: u32 }
 struct paperpaw_sdk::native::document::DocState<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocState<'a>)
 struct paperpaw_sdk::native::document::Documents { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::document::OpenBook<'a> { root: paperpaw_sdk::native::document::Root, path: &'a str, format: &'a str, flags: u32, image_side: u32, cover_side: u32, css: core::option::Option<(paperpaw_sdk::native::document::Root, &'a str)>, options: &'a [(&'a str, &'a str)] }
+struct paperpaw_sdk::native::document::formats::Format<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocFormat<'a>)
+struct paperpaw_sdk::native::document::formats::FormatCursor { offset: u32, generation: u32 }
+struct paperpaw_sdk::native::document::formats::FormatPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::document::formats::FormatPageEnd }
+struct paperpaw_sdk::native::document::formats::FormatPageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::document::formats::FormatCursor> }
 struct paperpaw_sdk::native::document::readers::Reader<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocReader<'a>)
 struct paperpaw_sdk::native::document::readers::ReaderCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::document::readers::ReaderPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::document::readers::ReaderPageEnd }
