@@ -88,7 +88,7 @@ fn a_book_to_show_takes_the_first_background_document() {
     // Two openers fill the device: 8 (not background) then 9 (background).
     let first = open_as(&fake, 8, READING).unwrap();
     let second = open_as(&fake, 9, BACKGROUND).unwrap();
-    fake.shows.set(1 << 8);
+    fake.shows.set((1 << 8) | (1 << OWNER));
     let shown = open_as(&fake, OWNER, READING).unwrap();
     // The background one went, as by `close`: images end, the format gets op
     // 4, the reader is released, its opener hears reason 4.
@@ -115,7 +115,7 @@ fn without_a_background_document_the_oldest_of_a_hidden_opener_goes() {
     let first = open_as(&fake, 8, READING).unwrap();
     let second = open_as(&fake, 9, READING).unwrap();
     // 8 shows a screen: 9's goes, whatever the age.
-    fake.shows.set(1 << 8);
+    fake.shows.set((1 << 8) | (1 << OWNER));
     open_as(&fake, OWNER, READING).unwrap();
     assert_eq!(*fake.closed.borrow(), [(second, 4)]);
     // 8 and the reader hold the places and both show a screen: nothing may be
@@ -134,6 +134,7 @@ fn the_oldest_hidden_document_goes_first() {
     let a = open_as(&fake, 8, READING).unwrap();
     let _b = open_as(&fake, 9, READING).unwrap();
     let _c = open_as(&fake, 10, READING).unwrap();
+    fake.shows.set(1 << OWNER);
     open_as(&fake, OWNER, READING).unwrap();
     assert_eq!(*fake.closed.borrow(), [(a, 4)]);
 }
@@ -158,10 +159,48 @@ fn a_refused_book_after_a_taken_place_keeps_the_place_free() {
     let fake = Fake::new(Limits::X4);
     open_as(&fake, 8, READING).unwrap();
     let second = open_as(&fake, 9, BACKGROUND).unwrap();
+    fake.shows.set(1 << OWNER);
     // The in-use table is full even after the taken document released: the
     // open fails, the taken document stays ended.
     fake.reader_refuses.set(Some(ERR_FULL));
     assert_eq!(open_as(&fake, OWNER, READING), Err(ERR_FULL));
     assert_eq!(*fake.closed.borrow(), [(second, 4)]);
     assert_eq!(fake.table.len(), 1);
+}
+
+#[test]
+fn only_an_opener_that_shows_a_screen_takes_a_place() {
+    let fake = Fake::new(Limits::X4);
+    open_as(&fake, 8, BACKGROUND).unwrap();
+    open_as(&fake, 9, READING).unwrap();
+    // The default of a host that knows no screen: nothing is taken.
+    assert_eq!(open_as(&fake, OWNER, READING), Err(ERR_FULL));
+    assert!(fake.closed.borrow().is_empty());
+    assert!(fake.ended.borrow().is_empty());
+    assert!(fake.released.borrow().is_empty());
+    assert_eq!(fake.table.len(), 2);
+    // The same open from the plugin whose screen is showing takes one.
+    fake.shows.set(1 << OWNER);
+    open_as(&fake, OWNER, READING).unwrap();
+    assert_eq!(fake.closed.borrow().len(), 1);
+}
+
+#[test]
+fn a_format_that_retires_with_its_opener_still_releases_the_book() {
+    // One plugin is the opener and the format: its documents are marked gone
+    // without an event, and its opener cleanup follows.
+    let fake = Fake::new(Limits::LARGE);
+    let a = opened(&fake);
+    assert_eq!(format_retired(&*fake, FORMAT, Some(OWNER)), Ok(0));
+    assert!(fake.closed.borrow().is_empty());
+    assert!(fake.released.borrow().is_empty(), "not released yet");
+    assert_eq!(opener_stopped(&*fake, OWNER), Ok(1));
+    assert_eq!(*fake.released.borrow(), [a]);
+    assert!(
+        fake.ended.borrow().is_empty(),
+        "the retired format is not called"
+    );
+    // And it is released once.
+    assert_eq!(opener_stopped(&*fake, OWNER), Ok(0));
+    assert_eq!(*fake.released.borrow(), [a]);
 }

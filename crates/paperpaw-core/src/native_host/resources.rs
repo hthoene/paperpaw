@@ -507,7 +507,7 @@ mod tests {
             let id = owner.caller("opener", AdmittedFeatures::NONE).owner;
             let document = fake
                 .table()
-                .open(id, FORMAT, PREPARING, 0, &|_| false)
+                .open(id, false, FORMAT, PREPARING, 0, &|_| false)
                 .unwrap()
                 .0;
             let transaction = lib.transactions.begin_for_test(id, 0);

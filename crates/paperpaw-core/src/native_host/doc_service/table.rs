@@ -83,6 +83,10 @@ pub(crate) struct Document {
     /// Opened with `BACKGROUND` (an index build): its place may be taken for
     /// a book to show. `flags` is the format's state, so this is kept apart.
     pub(crate) background: bool,
+    /// The host's `reader_opened` accepted this document and `reader_closed`
+    /// has not been called yet: the one record of whether the book is still
+    /// held, whichever path ends the document.
+    pub(crate) reader_held: bool,
     /// The format plugin is gone (it stopped): it is never called for this
     /// document again, not even by its opener's `close`.
     pub(crate) format_gone: bool,
@@ -159,12 +163,16 @@ impl DocumentTable {
     /// table (later calls on its id are `ERR_CANCELLED`), for the caller to
     /// end with the table released.
     ///
+    /// Only an opener that shows a screen (`caller_shows`) may take a place;
+    /// any other open that finds the device full is `ERR_FULL`.
+    ///
     /// # Errors
     /// `ERR_FULL` over the opener's own cap, or full with no document to
     /// take; `ERR_NO_SPACE` when ids are exhausted (nothing is taken then).
     pub(crate) fn open(
         &self,
         owner: u64,
+        caller_shows: bool,
         format: FormatRef,
         state: u32,
         flags: u32,
@@ -179,7 +187,7 @@ impl DocumentTable {
         let next = id.checked_add(1).ok_or(ERR_NO_SPACE)?;
         let mut taken = None;
         if rows.len() >= self.limits.device {
-            if flags & BACKGROUND != 0 {
+            if flags & BACKGROUND != 0 || !caller_shows {
                 return Err(ERR_FULL);
             }
             let live = |d: &&Document| d.owner != owner && d.closed_by_host == 0;
@@ -206,6 +214,7 @@ impl DocumentTable {
             cover_side: 0,
             closed_by_host: 0,
             background: flags & BACKGROUND != 0,
+            reader_held: false,
             format_gone: false,
             block: None,
             strikes: 0,
@@ -310,6 +319,24 @@ impl DocumentTable {
             return Err(ERR_DENIED);
         }
         Ok(rows.remove(at))
+    }
+
+    /// `reader_opened` accepted `id`: its book is held until `release_reader`.
+    pub(crate) fn hold_reader(&self, id: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.reader_held = true;
+        }
+    }
+
+    /// `reader_closed` was called for `id`: it is not held any more.
+    pub(crate) fn release_reader(&self, id: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.reader_held = false;
+        }
     }
 
     /// Free an id that never reached its opener (a failed `open`).
@@ -482,7 +509,7 @@ mod tests {
     fn a_borrowed_table_is_reported_not_skipped() {
         let table = DocumentTable::try_new(Limits::LARGE).unwrap();
         let format = FormatRef(1);
-        let id = table.open(7, format, 0, 0, &|_| false).unwrap().0;
+        let id = table.open(7, false, format, 0, 0, &|_| false).unwrap().0;
         let held = table.documents.borrow();
         assert_eq!(table.close_owner(7, |_| ()), Err(ERR_BUSY));
         assert_eq!(table.cancel_format(format, 1, None, |_| ()), Err(ERR_BUSY));

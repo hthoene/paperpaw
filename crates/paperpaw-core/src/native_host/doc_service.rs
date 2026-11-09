@@ -242,9 +242,11 @@ fn end(host: &dyn DocHost, document: &Document) {
     if !document.format_gone {
         host.close_format(document);
     }
-    // One that the host closed earlier released its reader then.
-    if document.closed_by_host == 0 {
+    // One that the host closed earlier released its reader then; one whose
+    // format retired with its opener (no event) still holds it here.
+    if document.reader_held {
         host.reader_closed(document.id);
+        host.table().release_reader(document.id);
     }
 }
 
@@ -252,7 +254,10 @@ fn end(host: &dyn DocHost, document: &Document) {
 /// released, the opener hears it.
 fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
     host.end_images(document);
-    host.reader_closed(document.id);
+    if document.reader_held {
+        host.reader_closed(document.id);
+        host.table().release_reader(document.id);
+    }
     host.document_closed(document, reason);
 }
 
@@ -279,7 +284,9 @@ fn taken(host: &dyn DocHost, document: &Document) {
     if !document.format_gone {
         host.close_format(document);
     }
-    host.reader_closed(document.id);
+    if document.reader_held {
+        host.reader_closed(document.id);
+    }
     host.document_closed(document, table::NEEDED);
 }
 
@@ -525,9 +532,15 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
-    let (id, took) = table.open(host.owner(), format, PREPARING, request.flags, &|owner| {
-        host.shows_screen(owner)
-    })?;
+    let caller_shows = host.shows_screen(host.owner());
+    let (id, took) = table.open(
+        host.owner(),
+        caller_shows,
+        format,
+        PREPARING,
+        request.flags,
+        &|owner| host.shows_screen(owner),
+    )?;
     if let Some(victim) = took {
         taken(host, &victim);
     }
@@ -535,6 +548,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         table.discard(id);
         return Err(error);
     }
+    table.hold_reader(id);
     let answered = (|| {
         table.set_sides(id, image_side, cover_side)?;
         let mut call = FormatCall::new(format, fmt::OPEN, id);
