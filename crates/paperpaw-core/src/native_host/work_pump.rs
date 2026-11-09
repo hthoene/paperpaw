@@ -23,7 +23,7 @@
 use super::{
     native_instances::InstanceState,
     registrations::{self as wire, Record},
-    work_sched::{Event, Moment, Pass},
+    work_sched::{Event, Moment},
 };
 use paperpaw_platform::Instant;
 
@@ -86,10 +86,13 @@ impl crate::Kernel {
         let Ok(pass) = work.sched.begin_pass(env) else {
             return true;
         };
-        let mut calls = 0;
+        // The hints (one per subscribed plugin) are not work: they do not
+        // count against the pass, so due work never waits behind them with
+        // no wake to come back for it.
         if pass.allowed {
-            calls += self.work_tell_allowed(&pass, now_ms);
+            self.work_tell_allowed(now_ms);
         }
+        let mut calls = 0;
         let mut more = false;
         while calls < PER_PASS {
             let accepts = |owner: u64| {
@@ -108,8 +111,8 @@ impl crate::Kernel {
     }
 
     /// `event.work_allowed` (105) to every running plugin that subscribed: a
-    /// hint, one per pass, so one pending at most. Returns the calls made.
-    fn work_tell_allowed(&self, _pass: &Pass, now_ms: u64) -> usize {
+    /// hint, one per pass, so one pending at most.
+    fn work_tell_allowed(&self, now_ms: u64) {
         let instances = &self.shared.native_instances;
         let mut record = [0u8; RECORD_BYTES];
         let allowed = Record::EventWorkAllowed(wire::EventWorkAllowed { now_ms });
@@ -118,19 +121,17 @@ impl crate::Kernel {
                 false,
                 "an event.work_allowed record fits {RECORD_BYTES} bytes"
             );
-            return 0;
+            return;
         };
         let env = self.shared.env(self.now);
-        let (mut index, mut calls) = (0, 0);
+        let mut index = 0;
         while let Some((owner, lease)) = instances.running_nth(index) {
             index += 1;
             if instances.subscribed(owner, wire::EVENT_WORK_ALLOWED_TAG) {
                 // A hint: how the plugin took it is its own.
                 let _ = lease.service_event(&record[..len], &env);
-                calls += 1;
             }
         }
-        calls
     }
 
     /// One event of the scheduler to its plugin.

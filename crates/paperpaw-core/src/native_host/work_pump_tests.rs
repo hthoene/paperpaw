@@ -494,6 +494,57 @@ fn a_run_that_reaches_its_longest_time_ends() {
 }
 
 #[test]
+fn the_grace_counts_from_when_the_run_was_told_to_end() {
+    let mut w = world();
+    w.holds[0].set(true);
+    w.declare(0, &spec("long", 8));
+    w.pump();
+    assert_eq!(w.sched.counts(), (1, 1));
+    // The first pass after the limit is late by more than the grace.
+    let late = 1_000 + RUN_MAX_MS + 2 * RUN_END_GRACE_MS;
+    w.env.now.set(late);
+    w.pump();
+    assert_eq!(w.sched.counts(), (1, 1), "the grace starts now");
+    assert_eq!(
+        w.kernel.work_pump_due(),
+        Some(Instant(late + RUN_END_GRACE_MS))
+    );
+    w.env.now.set(late + RUN_END_GRACE_MS - 1);
+    w.pump();
+    assert_eq!(w.sched.counts(), (1, 1), "not yet");
+    w.env.now.set(late + RUN_END_GRACE_MS);
+    w.pump();
+    assert_eq!(w.sched.counts(), (0, 0), "over after its own grace");
+}
+
+#[test]
+fn the_hints_do_not_use_up_the_pass_the_due_work_needs() {
+    let mut w = world_with(&ALL, 3);
+    // 32 works held in the offline mode, then free; three plugins hear the
+    // hint, and every work is told in the one pass.
+    for n in 0..32 {
+        let key = std::format!("w{n}");
+        w.declare(
+            0,
+            &Spec {
+                needs: 1,
+                ..spec(&key, n)
+            },
+        );
+    }
+    w.env.level.set(2);
+    w.pump();
+    assert!(w.told(0).is_empty());
+    w.env.level.set(0);
+    w.env.now.set(2_000);
+    w.pump();
+    let told = w.told(0);
+    assert_eq!(told.iter().filter(|t| t.tag == 105).count(), 1);
+    assert_eq!(told.iter().filter(|t| t.tag == 103).count(), 32, "{told:?}");
+    assert_eq!(w.sched.counts(), (0, 0));
+}
+
+#[test]
 fn nothing_is_delivered_inside_a_callback() {
     let mut w = world();
     w.declare(0, &spec("job", 1));

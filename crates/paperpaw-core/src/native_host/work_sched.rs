@@ -287,6 +287,8 @@ pub(crate) struct Run {
     callback_open: bool,
     resources: u32,
     ending: bool,
+    /// When the run was told to end (the grace counts from here).
+    ending_at: u64,
 }
 
 /// What a pass found for the shell to act on.
@@ -731,6 +733,7 @@ impl WorkSched {
             callback_open: true,
             resources: 0,
             ending: false,
+            ending_at: 0,
         });
         let e = &mut state.entries[at];
         e.phase = Phase::Running(run);
@@ -757,12 +760,11 @@ impl WorkSched {
         let state = self.state.try_borrow().ok()?;
         // A run past its longest time waits only the grace for its end events.
         let runs = state.runs.iter().map(|r| {
-            let span = if r.ending {
-                RUN_MAX_MS.saturating_add(RUN_END_GRACE_MS)
+            if r.ending {
+                r.ending_at.saturating_add(RUN_END_GRACE_MS)
             } else {
-                RUN_MAX_MS
-            };
-            r.started_ms.saturating_add(span)
+                r.started_ms.saturating_add(RUN_MAX_MS)
+            }
         });
         let timers = state.entries.iter().filter_map(|e| {
             if e.phase != Phase::Waiting || e.refused || e.held.is_some() {
@@ -870,6 +872,7 @@ impl WorkSched {
             .iter_mut()
             .find(|r| !r.ending && now_ms.saturating_sub(r.started_ms) >= RUN_MAX_MS)?;
         r.ending = true;
+        r.ending_at = now_ms;
         Some(*r)
     }
 
@@ -891,18 +894,14 @@ impl WorkSched {
         self.maybe_finish(run, now_ms);
     }
 
-    /// A run past its longest time and the grace after it, once: it is over
+    /// A run told to end and the grace after that, once: it is over
     /// whatever it still counts ([`Self::end_run`]).
     pub(crate) fn take_stuck(&self, now_ms: u64) -> Option<Run> {
         let state = self.state.try_borrow().ok()?;
         state
             .runs
             .iter()
-            .find(|r| {
-                r.ending
-                    && now_ms.saturating_sub(r.started_ms)
-                        >= RUN_MAX_MS.saturating_add(RUN_END_GRACE_MS)
-            })
+            .find(|r| r.ending && now_ms.saturating_sub(r.ending_at) >= RUN_END_GRACE_MS)
             .copied()
     }
 
