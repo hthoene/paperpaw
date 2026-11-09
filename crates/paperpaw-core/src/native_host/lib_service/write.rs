@@ -202,35 +202,48 @@ fn set_field(host: &dyn super::LibHost, who: &Caller<'_>, input: &[u8]) -> Resul
     Ok(0)
 }
 
+/// A provided text: not blank (`str::trim`, Unicode White_Space) and with no
+/// control character (U+0000-U+001F, U+007F).
+fn is_text(text: &str) -> bool {
+    !text.trim().is_empty() && !text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}')
+}
+
 fn provide(host: &dyn super::LibHost, input: &[u8]) -> Result<usize, i32> {
     let parsed = args::with_ref::<1>(input)?;
     let book = args::book_ref(host, &parsed.reference)?;
     let [Some(Record::ServiceLibProvided(provided))] = parsed.rest else {
         return Err(ERR_INVALID);
     };
-    // Bit n: field n is provided (title, author, series, number, tags); a
-    // value for a field that is not provided is a mistake, not ignored.
+    // Bit n: field n is provided (title, author, series, number, tags), in
+    // the record's field order. At least one bit, none above 4 (`library.md`
+    // 5); a value for a field that is not provided is a mistake, not ignored,
+    // and a provided one is never blank or holds a control character (never
+    // escaped: `\n` only separates the tags).
     let flags = provided.flags;
-    require(flags & !0b1_1111 == 0)?;
+    require(flags != 0 && flags & !0b1_1111 == 0)?;
     let fields = [
         provided.title,
         provided.author,
         provided.series,
         provided.number,
-        provided.tags,
     ];
-    require(
-        fields
-            .iter()
-            .enumerate()
-            .all(|(bit, value)| flags & (1 << bit) != 0 || value.is_empty()),
-    )?;
-    // Tags one per line: at most 32, each 1..=128 bytes.
-    if flags & 0b1_0000 != 0 && !provided.tags.is_empty() {
+    for (bit, value) in fields.into_iter().enumerate() {
+        if flags & (1 << bit) == 0 {
+            require(value.is_empty())?;
+        } else {
+            require(is_text(value))?;
+        }
+    }
+    if flags & 0b1_0000 == 0 {
+        require(provided.tags.is_empty())?;
+    } else {
+        // Tags one per line: at least one, at most 32, each 1..=128 bytes
+        // (a line that is empty or blank is no tag). Over 32 is
+        // `ERR_NO_SPACE`, as every cap past its count.
         let mut count = 0;
         for tag in provided.tags.split('\n') {
             count += 1;
-            require(!tag.is_empty() && tag.len() <= 128)?;
+            require(is_text(tag) && tag.len() <= 128)?;
         }
         if count > 32 {
             return Err(ERR_NO_SPACE);

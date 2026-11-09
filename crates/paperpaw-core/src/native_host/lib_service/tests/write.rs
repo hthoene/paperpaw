@@ -901,6 +901,18 @@ fn provided(flags: u32, title: &'static str, tags: &'static str) -> Record<'stat
     })
 }
 
+/// A record with all four text fields, for the per-field rules.
+fn provided_all(flags: u32, texts: [&'static str; 4], tags: &'static str) -> Record<'static> {
+    Record::ServiceLibProvided(Provided {
+        title: texts[0],
+        author: texts[1],
+        series: texts[2],
+        number: texts[3],
+        tags,
+        flags,
+    })
+}
+
 #[test]
 fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
     let fake = Fake::new();
@@ -911,9 +923,140 @@ fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
         Err(ERR_INVALID),
         "a value that is not provided"
     );
-    assert_eq!(provide(provided(0b100000, "", "")), Err(ERR_INVALID));
     assert!(provide(provided(0b10000, "", "a\nb")).is_ok());
     assert_eq!(fake.last(), "provide 16 a\nb");
+    assert!(go(&fake, 24, &[provided(1, "T", "")]).is_err());
+}
+
+#[test]
+fn provided_flags_follow_the_records_field_order() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    // Bit n provides field n: title, author, series, number, tags. Each field
+    // alone with a value is accepted; the value of any other field is refused.
+    let texts = ["t", "a", "s", "n"];
+    for bit in 0..4_usize {
+        let mut only = ["", "", "", ""];
+        only[bit] = texts[bit];
+        assert!(
+            provide(provided_all(1 << bit, only, "")).is_ok(),
+            "bit {bit}"
+        );
+        for other in (0..4_usize).filter(|o| *o != bit) {
+            let mut wrong = ["", "", "", ""];
+            wrong[other] = texts[other];
+            assert_eq!(
+                provide(provided_all(1 << bit, wrong, "")),
+                Err(ERR_INVALID),
+                "bit {bit}, field {other} not provided"
+            );
+        }
+        // Its own bit with a blank value is no value.
+        assert_eq!(
+            provide(provided_all(1 << bit, ["", "", "", ""], "")),
+            Err(ERR_INVALID),
+            "bit {bit} blank"
+        );
+    }
+    assert!(provide(provided_all(0b1_1111, texts, "x")).is_ok());
+    // A tag list without its bit.
+    assert_eq!(provide(provided(0b00001, "T", "x")), Err(ERR_INVALID));
+}
+
+#[test]
+fn provided_refuses_flags_0_unknown_bits_blank_values_and_a_tags_bit_without_a_tag() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    assert_eq!(provide(provided(0, "", "")), Err(ERR_INVALID), "flags 0");
+    for bit in [5_u32, 6, 31] {
+        assert_eq!(
+            provide(provided(1 << bit | 1, "T", "")),
+            Err(ERR_INVALID),
+            "unknown bit {bit}"
+        );
+    }
+    // Blank: empty, and Unicode White_Space of every kind (`str::trim`).
+    for blank in [
+        "",
+        " ",
+        "\t",
+        "  \u{a0}",
+        "\u{2003}\u{3000}",
+        "\u{85}",
+        "\u{2028}",
+    ] {
+        let blank: &'static str = std::boxed::Box::leak(blank.into());
+        // (a control character in it is refused as well, as another rule)
+        assert_eq!(
+            provide(provided(0b0001, blank, "")),
+            Err(ERR_INVALID),
+            "{blank:?}"
+        );
+        assert_eq!(
+            provide(provided_all(0b0010, ["", blank, "", ""], "")),
+            Err(ERR_INVALID),
+            "{blank:?}"
+        );
+    }
+    // The tags bit with no tag, and with blank ones.
+    for tags in ["", " ", "\n", "a\n ", "\u{3000}"] {
+        assert_eq!(
+            provide(provided(0b10000, "", tags)),
+            Err(ERR_INVALID),
+            "{tags:?}"
+        );
+    }
+    // Text that is not blank is kept as it is, spaces and all.
+    assert!(provide(provided(0b0001, " T ", "")).is_ok());
+}
+
+#[test]
+fn provided_refuses_control_characters_and_never_escapes_them() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    let mut bad = std::vec::Vec::new();
+    for c in (0_u32..=0x1f).chain([0x7f]) {
+        bad.push(std::format!("a{}b", char::from_u32(c).unwrap()));
+    }
+    for text in bad {
+        let text: &'static str = std::boxed::Box::leak(text.into_boxed_str());
+        for bit in 0..4_usize {
+            let mut texts = ["", "", "", ""];
+            texts[bit] = text;
+            assert_eq!(
+                provide(provided_all(1 << bit, texts, "")),
+                Err(ERR_INVALID),
+                "{text:?} in field {bit}"
+            );
+        }
+        // In a tag too; `\n` is the one separator (`\n` itself is no
+        // control character of a tag: it splits it).
+        if text != "a\nb" {
+            assert_eq!(
+                provide(provided(0b10000, "", text)),
+                Err(ERR_INVALID),
+                "{text:?} in a tag"
+            );
+            assert_eq!(
+                provide(provided(
+                    0b10000,
+                    "",
+                    std::boxed::Box::leak(std::format!("ok\n{text}").into_boxed_str())
+                )),
+                Err(ERR_INVALID),
+                "{text:?} in a second tag"
+            );
+        }
+    }
+    // Other characters, the C1 range and non-ASCII among them, are text.
+    assert!(provide(provided(0b0001, "Caf\u{e9} \u{85}x", "")).is_ok());
+    assert!(provide(provided(0b10000, "", "\u{e9}l\u{fc}\n\u{4e2d}")).is_ok());
+}
+
+#[test]
+fn provided_tags_are_one_to_32_lines_of_1_to_128_bytes() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
     let tags = |n: usize| -> &'static str {
         std::boxed::Box::leak(
             ((0..n)
@@ -923,10 +1066,19 @@ fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
             .into_boxed_str(),
         )
     };
+    assert!(provide(provided(0b10000, "", tags(1))).is_ok());
     assert!(provide(provided(0b10000, "", tags(32))).is_ok());
+    // A cap past its count is `ERR_NO_SPACE`, as everywhere.
     assert_eq!(provide(provided(0b10000, "", tags(33))), Err(ERR_NO_SPACE));
-    assert_eq!(provide(provided(0b10000, "", "a\n\nb")), Err(ERR_INVALID));
-    let long: &'static str = std::boxed::Box::leak("x".repeat(129).into_boxed_str());
-    assert_eq!(provide(provided(0b10000, "", long)), Err(ERR_INVALID));
-    assert!(go(&fake, 24, &[provided(1, "T", "")]).is_err());
+    // Empty lines are no tags: in the middle, at the ends.
+    for empty in ["a\n\nb", "\na", "a\n"] {
+        assert_eq!(
+            provide(provided(0b10000, "", empty)),
+            Err(ERR_INVALID),
+            "{empty:?}"
+        );
+    }
+    let tag = |n: usize| -> &'static str { std::boxed::Box::leak("x".repeat(n).into_boxed_str()) };
+    assert!(provide(provided(0b10000, "", tag(128))).is_ok());
+    assert_eq!(provide(provided(0b10000, "", tag(129))), Err(ERR_INVALID));
 }
