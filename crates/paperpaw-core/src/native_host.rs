@@ -32,6 +32,13 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_install.rs"]
+#[allow(
+    dead_code,
+    reason = "the command arms and the pump (slice B) drive the machine; tests do today"
+)]
+pub(crate) mod firmware_install;
+
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
 
