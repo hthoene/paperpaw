@@ -1,0 +1,209 @@
+use super::*;
+
+impl NativeFiles {
+    pub(super) fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.library.is_none() {
+            self.library = Some(Library::open(host)?);
+        }
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
+    /// The order the user chose (`files.sort`).
+    pub(super) fn order(host: &Host<'_>) -> Result<Order, Error> {
+        let mut scratch = [0; 64];
+        Ok(match settings::read_setting(host, SORT, &mut scratch)? {
+            SettingValue::Text(key) => Order::from_key(key),
+            _ => Order::default(),
+        })
+    }
+
+    /// The library folder the user chose (`core.library-folder`), without
+    /// slashes around it; the default when the setting says nothing.
+    pub(super) fn folder(host: &Host<'_>) -> Result<String, Error> {
+        let mut scratch = [0; 512];
+        match settings::read_setting(host, FOLDER_SETTING, &mut scratch) {
+            Ok(SettingValue::Text(text)) if !text.trim_matches('/').is_empty() => {
+                copy(text.trim_matches('/'))
+            }
+            Ok(_) | Err(Error::Denied | Error::NotFound | Error::NoSpace) => copy(DEFAULT_FOLDER),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Opens a list of books of `scope`.
+    pub(super) fn open_shelf(&mut self, host: &Host<'_>, scope: &Scope) -> Result<(), Error> {
+        self.ensure(host)?;
+        let (kind, value) = scope.params();
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let params = [Param::new(KIND, kind)?, Param::new(VALUE, value)?];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::screen("files.shelf")?.handover(handover))
+    }
+
+    /// The parameters (`first`, `second`) a screen was opened with; empty
+    /// for one that was not given.
+    pub(super) fn handover_params(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+        keys: [&str; 2],
+    ) -> Result<[String; 2], Error> {
+        let mut found = [String::new(), String::new()];
+        let Some(handover) = handover else {
+            return Ok(found);
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        for param in ui.params(host, handover, &mut input, &mut out)? {
+            let param = param?;
+            if let Some(at) = keys.iter().position(|key| *key == param.key())
+                && let Some(slot) = found.get_mut(at)
+            {
+                *slot = copy(param.value())?;
+            }
+        }
+        Ok(found)
+    }
+
+    /// The scope a list was opened for; the library for none.
+    pub(super) fn scope_of(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<Scope, Error> {
+        let [kind, value] = self.handover_params(host, handover, [KIND, VALUE])?;
+        Scope::from_params(&kind, &value)
+    }
+
+    pub(super) fn opened(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: Instance,
+        handover: Option<HandoverId>,
+    ) -> Result<(), Error> {
+        self.ensure(host)?;
+        let view = if token == SHELVES_TOKEN {
+            View::Shelves(self.read_shelves(host)?)
+        } else if token == NAMES_TOKEN {
+            let [kind, _] = self.handover_params(host, handover, [KIND, VALUE])?;
+            let shelf = Shelf::from_kind(&kind).ok_or(Error::Invalid)?;
+            View::Names(self.read_names(
+                host,
+                shelf,
+                Reading::from(CatalogCursor::start(), Vec::new()),
+                0,
+                0,
+            )?)
+        } else if token == INFO_TOKEN {
+            let [path, _] = self.handover_params(host, handover, [PATH, VALUE])?;
+            let library = self.library.as_ref().ok_or(Error::State)?;
+            let info = native_info::read(host, library, &path)?;
+            View::Info(Info {
+                list: ItemList::new(native_info::items(&info)?),
+            })
+        } else {
+            let scope = if token == BROWSER_TOKEN {
+                Scope::Library
+            } else {
+                self.scope_of(host, handover)?
+            };
+            let selection = Selection {
+                filter: Filter::All,
+                order: Self::order(host)?,
+                scope,
+            };
+            View::Books(self.read_browser(
+                host,
+                selection,
+                Reading::from(CatalogCursor::start(), Vec::new()),
+                0,
+                0,
+            )?)
+        };
+        self.screens.open(instance, view)
+    }
+
+    /// Asks for the words of a search.
+    pub(super) fn ask_search(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        let mut say = Messages::new()?;
+        let title = say.copy(host, "files.search")?;
+        let prompt = say.copy(host, "files.search.prompt")?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = self.ui.as_ref().ok_or(Error::State)?.ask(
+            host,
+            Question::text(&title, &prompt)?,
+            &mut input,
+            &mut out,
+        )?;
+        self.asked = Some(request);
+        Ok(())
+    }
+
+    /// The words typed: the books that have them, as a list of their own.
+    pub(super) fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        if self.asked != Some(answer.request()) || answer.outcome() == AnswerOutcome::Typing {
+            return Ok(());
+        }
+        let Some(request) = self.asked.take() else {
+            return Ok(());
+        };
+        if answer.outcome() != AnswerOutcome::Answered {
+            return Ok(());
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let typed = match uitext::read_all(ui, host, request.text(), SEARCH_LIMIT) {
+            Ok(typed) => typed,
+            // More than the host searches for: nothing is searched, never a cut word.
+            Err(Error::NoSpace) => return self.notify(host, "files.search.long"),
+            Err(error) => return Err(error),
+        };
+        let words = typed.trim();
+        if words.is_empty() {
+            return Ok(());
+        }
+        self.open_shelf(host, &Scope::Search(copy(words)?))
+    }
+
+    /// A notice, best effort.
+    pub(super) fn notify(&self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .notify(Notify::new(&text)?)
+            .ok();
+        Ok(())
+    }
+
+    /// Opens the book in the reader the user bound to `core.reader`: a
+    /// hand-over with its path (`document.md` section 1).
+    /// `false` when the book is no longer in the catalog.
+    pub(super) fn open_book(&self, host: &Host<'_>, reference: BookRef<'_>) -> Result<bool, Error> {
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let path = match library.book(host, reference, &mut input, &mut out) {
+            Ok(book) => copy(book.path())?,
+            Err(Error::State | Error::NotFound) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let params = [Param::new("path", &path)?];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .open(Open::slot("core.reader")?.handover(handover))?;
+        Ok(true)
+    }
+}
