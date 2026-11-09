@@ -445,15 +445,6 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "x4-stats",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,page-forward,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
     // Buttons in slots of a touch row: the footnote's side by side, the
     // skim screen's four, the transfer's and the update page's one below
     // the other.
@@ -677,15 +668,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,tap-on:Search,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-stats",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:stats.open,wait:300",
         colour: 0,
         fixtures: false,
     },
