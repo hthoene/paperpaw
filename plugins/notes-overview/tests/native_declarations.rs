@@ -39,7 +39,9 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
                 Record::ActionSpec(a) => {
                     actions.push((format!("notes-overview.{}", a.name), a.title.to_string()));
                 }
-                Record::MenuEntry(e) => menus.push((e.menu.to_string(), e.item.to_string(), e.order)),
+                Record::MenuEntry(e) => {
+                    menus.push((e.menu.to_string(), e.item.to_string(), e.order))
+                }
                 Record::IconSpec(i) => icons.push((i.item.to_string(), i.icon.to_string())),
                 other => panic!("{other:?}"),
             }
@@ -64,11 +66,7 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     );
     assert_eq!(
         menus,
-        [(
-            "tools".to_string(),
-            "notes-overview.open".to_string(),
-            37
-        )]
+        [("tools".to_string(), "notes-overview.open".to_string(), 37)]
     );
     assert_eq!(
         icons,
