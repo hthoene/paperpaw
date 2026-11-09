@@ -7,7 +7,6 @@ use paperpaw_sdk::native::declare::{
 };
 
 /// Callback tokens: stable within this plugin.
-pub const PICK: u32 = 10;
 pub const SCREEN: u32 = 11;
 /// The event subscription's token.
 pub const EVENTS: u32 = 12;
@@ -102,9 +101,9 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         let mut spec = SpecDecl::new(name, Kind::Text(""), GROUP, title);
         spec.help = help;
         d.spec(spec)?;
-        let mut extra = ExtraDecl::new(name);
-        extra.editor = Some(EditorDecl::Screen("pick-overlay"));
-        d.extra(extra)?;
+        // BLOCKED (PORTING-7.md): interface 6 picks these with its own screen
+        // (`pick-overlay`, the widget or the picture); until that is ported they
+        // have no editor, so that no row opens a screen nobody answers.
     }
     let mut position = SpecDecl::new(
         "overlay-position",
@@ -157,15 +156,10 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The screen that picks the picture over the page, and the sleep screen.
+/// The sleep screen (the screen that picks the picture over the page is blocked).
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new(
-        "pick-overlay",
-        "sleep.setting.overlay-picture",
-        PICK,
-    ))?;
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
     // locked device never shows the page below it (`ui.md` section 1.2).

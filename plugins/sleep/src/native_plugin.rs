@@ -160,11 +160,10 @@ impl NativeSleep {
 
     /// The device woke: every open sleep screen goes.
     fn woke(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let mut scratch = [0; 64];
         for view in self.screens.all() {
             view.woke = true;
-            view.refresh(&mut CommandSender::new(host, &mut scratch))?;
         }
+        // Only closed, as in interface 6: no redraw of what is going.
         close(host)
     }
 }

@@ -35,13 +35,24 @@ time it shows (not for `page`).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- Decoding and drawing the cat, the cover and the folder's pictures (the image slots 36/37 of
-  PR 391 and `core.files` are not on integration); the cat is embedded
-  (`pictures/sleeping-cat.png`) and decoded once per screen size.
-- The screen itself (H1), the widgets composed with `ui.compose` (H3), buttons taken while asleep and
-  the hidden hints (no declaration of a screen's hint visibility), closing on wake.
-- The mode of another plugin (`Registrar::add_choice(sleep::SHOW, …)`) adds a choice to a setting at
-  run time; the declarations carry the plugin's own seven.
+- **Decoding and drawing the cat, the cover and the folder's pictures** (the image slots 36/37 of PR 391 and
+  `core.files` are not on integration); the cat is embedded (`pictures/sleeping-cat.png`) and decoded once per screen
+  size. Until then the screen shows the message where they would show.
+- **The logo above the message:** interface 6 draws the PaperPaw logo (`paperpaw_sdk::logo`, a third of the screen
+  across) above the message; the native screen draws the message alone (`native_screen.rs` leaves the logo's place
+  empty): it needs an image the plugin can draw (the same host call as the cat).
+- **The picture over the page** (the overlay's `Picture` mode, `sleep.overlay-picture`): its picture needs the image
+  drawing too; the widget over the page is native.
+- **The picker (`pick-overlay`):** interface 6 picks the picture and the widget over the page on a screen of its own.
+  It is not ported (over ~150 lines: a list of the picture folder's files and of the widgets): the two settings have
+  **no editor** until then (a text row), and the screen is not declared, so that no row opens a screen nobody answers.
+  `tests/abi7_declarations.rs` pins the difference to interface 6 (two extras, one screen).
+- **Hidden hints:** no declaration of a screen's hint visibility.
+- **Another plugin's mode:** `Registrar::add_choice(sleep::SHOW, …)` adds a choice to a setting at run time; the
+  declarations carry the plugin's own seven.
+
+(Done in this slice: the screen itself, the widgets composed with `ui.compose`, the presses taken while asleep, and
+closing on wake: only a close, as interface 6 did.)
 
 ## Removal step (one sweep, with the reader port and Core #944)
 
