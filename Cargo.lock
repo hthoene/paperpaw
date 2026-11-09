@@ -1567,7 +1567,6 @@ dependencies = [
  "paperpaw-plugin-hyphenation-uk",
  "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
- "paperpaw-plugin-koreader",
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-mail",
@@ -2252,13 +2251,8 @@ name = "paperpaw-plugin-koreader"
 version = "1.0.8"
 dependencies = [
  "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "paperpaw-zip",
  "proptest",
 ]
 

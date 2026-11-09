@@ -156,7 +156,6 @@ dependencies = [
  "paperpaw-plugin-hyphenation-sv",
  "paperpaw-plugin-hyphenation-uk",
  "paperpaw-plugin-joplin",
- "paperpaw-plugin-koreader",
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
@@ -314,14 +313,6 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-xml",
-]
-
-[[package]]
-name = "paperpaw-plugin-koreader"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]
