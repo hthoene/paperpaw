@@ -41,6 +41,8 @@ mod item;
 mod kept;
 mod locks;
 mod markdown;
+#[cfg(test)]
+mod native_golden_tests;
 pub mod native_joplin;
 pub mod native_keep;
 pub mod native_kept;
