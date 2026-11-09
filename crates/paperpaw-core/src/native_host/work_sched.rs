@@ -26,6 +26,10 @@ use paperpaw_native::host_glue::{
 pub(crate) const RUN_MAX_MS: u64 = 600_000;
 /// The device-wide gap between two radio wishes from deadlines.
 pub(crate) const NETWORK_GAP_MS: u64 = 900_000;
+/// How long a run past its longest time may wait for the end events of what
+/// it started to be delivered; then it is over whatever it still counts (a
+/// service that never delivers must not keep a run, and so a work, for ever).
+pub(crate) const RUN_END_GRACE_MS: u64 = 30_000;
 /// Work declared from a run's callbacks is due no sooner than this later.
 pub(crate) const RUN_DECLARE_FLOOR_MS: u64 = 1_000;
 /// The longest `after_ms`, `within_ms` and `every_ms` (7 days).
@@ -301,6 +305,9 @@ struct State {
     next_seq: u64,
     next_run: u32,
     last_wanted_ms: Option<u64>,
+    /// Runs that were over when something started in the callback of one of
+    /// their late end events (owner, run): the pump ends it at once.
+    late: Vec<(u64, u32)>,
 }
 
 /// The scheduler.
@@ -329,6 +336,7 @@ impl WorkSched {
                 next_seq: 1,
                 next_run: 1,
                 last_wanted_ms: None,
+                late: Vec::new(),
             }),
             in_run: Cell::new(None),
         }
@@ -747,11 +755,15 @@ impl WorkSched {
         let power = env.power();
         let now = env.now_ms();
         let state = self.state.try_borrow().ok()?;
-        let runs = state
-            .runs
-            .iter()
-            .filter(|r| !r.ending)
-            .map(|r| r.started_ms.saturating_add(RUN_MAX_MS));
+        // A run past its longest time waits only the grace for its end events.
+        let runs = state.runs.iter().map(|r| {
+            let span = if r.ending {
+                RUN_MAX_MS.saturating_add(RUN_END_GRACE_MS)
+            } else {
+                RUN_MAX_MS
+            };
+            r.started_ms.saturating_add(span)
+        });
         let timers = state.entries.iter().filter_map(|e| {
             if e.phase != Phase::Waiting || e.refused || e.held.is_some() {
                 return None;
@@ -805,13 +817,32 @@ impl WorkSched {
             .state
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
-        let r = state
-            .runs
-            .iter_mut()
-            .find(|r| r.id == run)
+        if let Some(r) = state.runs.iter_mut().find(|r| r.id == run) {
+            r.resources = r.resources.checked_add(1).ok_or(ERR_FULL)?;
+            return Ok(());
+        }
+        // A run that is over (one that never was is `ERR_NOT_FOUND`): its
+        // late end event's callback started something. It is kept (never
+        // foreground) and not counted: the pump ends it at once with the
+        // run's reason (`work.md` 2.3).
+        let (owner, current) = self
+            .in_run
+            .get()
             .ok_or(paperpaw_native::host_glue::ERR_NOT_FOUND)?;
-        r.resources = r.resources.checked_add(1).ok_or(ERR_FULL)?;
+        if current != run || run >= state.next_run {
+            return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
+        }
+        if !state.late.contains(&(owner, run)) {
+            state.late.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            state.late.push((owner, run));
+        }
         Ok(())
+    }
+
+    /// The runs that were over when something started in a late end event's
+    /// callback, once (owner, run).
+    pub(crate) fn take_late(&self) -> Option<(u64, u32)> {
+        self.state.try_borrow_mut().ok()?.late.pop()
     }
 
     /// A request or socket of the run ended. `false`: the scheduler is in use
@@ -849,6 +880,42 @@ impl WorkSched {
             r.resources = 0;
         });
         self.maybe_finish(run, now_ms);
+    }
+
+    /// The run reached its longest time and its services were told to end what
+    /// it started: its callback is over, but what they ended still counts
+    /// until its last event was delivered (`work.md` 2.3), so the run ends
+    /// with the last of them (at once when none is left).
+    pub(crate) fn expired_told(&self, run: u32, now_ms: u64) {
+        self.with_run(run, |r| r.callback_open = false);
+        self.maybe_finish(run, now_ms);
+    }
+
+    /// A run past its longest time and the grace after it, once: it is over
+    /// whatever it still counts ([`Self::end_run`]).
+    pub(crate) fn take_stuck(&self, now_ms: u64) -> Option<Run> {
+        let state = self.state.try_borrow().ok()?;
+        state
+            .runs
+            .iter()
+            .find(|r| {
+                r.ending
+                    && now_ms.saturating_sub(r.started_ms)
+                        >= RUN_MAX_MS.saturating_add(RUN_END_GRACE_MS)
+            })
+            .copied()
+    }
+
+    /// Visits the runs past their longest time that still hold something
+    /// (`owner`, run): whatever was started there since, from an end-event
+    /// callback, ends at once too.
+    pub(crate) fn each_ending(&self, visit: &mut dyn FnMut(u64, u32)) {
+        let Ok(state) = self.state.try_borrow() else {
+            return;
+        };
+        for r in state.runs.iter().filter(|r| r.ending && r.resources != 0) {
+            visit(r.owner, r.id);
+        }
     }
 
     fn with_run(&self, run: u32, f: impl FnOnce(&mut Run)) {

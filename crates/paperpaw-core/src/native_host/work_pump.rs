@@ -191,10 +191,25 @@ impl crate::Kernel {
         };
         while let Some(run) = work.sched.take_expired(now_ms) {
             // A service whose table is borrowed cannot be, outside a
-            // callback: nothing to retry. Its requests end at their own end.
+            // callback: nothing to retry.
             let _ = self.native_services_work_ended(run.owner, u64::from(run.id));
+            // What they ended counts until its end event was delivered.
+            work.sched.expired_told(run.id, now_ms);
+        }
+        // What a late end event's callback started in a run that is over ends
+        // at once.
+        while let Some((owner, run)) = work.sched.take_late() {
+            let _ = self.native_services_work_ended(owner, u64::from(run));
+        }
+        // A service that never delivered the end events: the run is over.
+        while let Some(run) = work.sched.take_stuck(now_ms) {
             work.sched.end_run(run.id, now_ms);
         }
+        // What an end-event callback started in a run past its longest time
+        // ends at once, with the rest.
+        work.sched.each_ending(&mut |owner, run| {
+            let _ = self.native_services_work_ended(owner, u64::from(run));
+        });
     }
 
     /// When the pump wants to run again: at once while plugin calls remain,

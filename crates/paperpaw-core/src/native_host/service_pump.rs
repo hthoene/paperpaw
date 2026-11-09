@@ -63,12 +63,13 @@ fn pump(
         buffer.resize(EVENT_BUFFER, 0);
     }
     instances.set_service_retry(None);
+    let sched = instances.work_services().map(|work| &*work.sched);
     let mut more = false;
     let mut index = 0;
     while let Some((key, lease)) = instances.running_nth(index) {
         index += 1;
         for service in services.iter().flatten() {
-            more |= drain(*service, key, lease, &mut buffer, env);
+            more |= drain(*service, key, lease, &mut buffer, env, sched);
         }
     }
     more
@@ -82,13 +83,21 @@ fn drain(
     lease: &super::native_instances::NativeLease,
     buffer: &mut [u8],
     env: &Env<'_>,
+    sched: Option<&super::work_sched::WorkSched>,
 ) -> bool {
     for _ in 0..PER_OWNER {
         match service.next_event(owner, buffer) {
-            Ok(Some((len, _run))) => {
+            Ok(Some((len, run))) => {
+                // The events of a work run's request or socket come in the
+                // run (background, its requests tied to it); the run counts
+                // them until their callbacks returned (`work.md` 2.3).
+                let _guard = sched
+                    .zip(run.and_then(|run| u32::try_from(run).ok()))
+                    .map(|(sched, run)| sched.enter_run_callback(owner, run));
                 // A failing callback does not get the event again: the
                 // service frees what was readable either way.
                 let _ = lease.service_event(&buffer[..len], env);
+                drop(_guard);
                 if service.event_delivered(owner) == Err(ERR_BUSY) {
                     return true;
                 }
