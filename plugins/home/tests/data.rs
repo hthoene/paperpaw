@@ -34,7 +34,7 @@ fn version_1_pages_are_read_as_written() {
         // the right end; the book being read below the clock.
         let library = app.find("Library").unwrap();
         let settings = app.find("Settings").unwrap();
-        let files = app.find("Files").unwrap();
+        let files = app.find("Plugin store").unwrap();
         let start = app.find("Start reading").unwrap();
         let cell = settings.x - library.x;
         assert!(cell > 0);
@@ -57,13 +57,13 @@ fn what_the_current_writer_keeps_is_read_back_the_same() {
         // An edit: the file manager's tool moved one cell left and back.
         app.run(Id::new_static("home.edit-pages"));
         if device.input.touch {
-            let files = app.find("Files").unwrap();
+            let files = app.find("Plugin store").unwrap();
             let library = app.find("Library").unwrap();
             let settings = app.find("Settings").unwrap();
             let cell = settings.x - library.x;
             app.drag(files, Point::new(files.x - cell, files.y));
-            assert!(page(&app, 1).contains("tool:file-manager.open 2/0 1x1"));
-            let files = app.find("Files").unwrap();
+            assert!(page(&app, 1).contains("tool:store.open 2/0 1x1"));
+            let files = app.find("Plugin store").unwrap();
             app.drag(files, Point::new(files.x + cell, files.y));
         } else {
             // The third tool: the first press shows the focus.
@@ -82,7 +82,7 @@ fn what_the_current_writer_keeps_is_read_back_the_same() {
                 app.run(step);
                 app.run(actions::CONFIRM);
                 if left {
-                    assert!(page(&app, 1).contains("tool:file-manager.open 2/0 1x1"));
+                    assert!(page(&app, 1).contains("tool:store.open 2/0 1x1"));
                 }
             }
         }
