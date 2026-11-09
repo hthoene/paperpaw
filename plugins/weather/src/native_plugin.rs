@@ -321,7 +321,7 @@ impl NativeWeather {
         let Some(view) = self.screens.top(PLACE_SCREEN) else {
             return Ok(());
         };
-        let name = String::from(view.initial());
+        let name = paperpaw_ui_kit::text::copy(view.initial())?;
         match searched {
             Searched::Found(places) => view.found(places, name)?,
             Searched::Offline => view.offer(name),

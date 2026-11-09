@@ -1,6 +1,7 @@
 //! Every text the declarations and the code ask for exists in both languages:
 //! the plugin's own (`weather.*`, plural ones by their `.one` and `.other`)
-//! and the shared ones of the core (`core.offline.*` for the offer to go online).
+//! and the shared ones of the core (`core.offline.*` for the offer to go online,
+//! `core.weekday.*` for the long names of the days).
 const EN: &str = include_str!("../i18n/en.ini");
 const DE: &str = include_str!("../i18n/de.ini");
 const CORE_EN: &str = include_str!("../../../crates/paperpaw-core/i18n/en.ini");
@@ -40,7 +41,7 @@ fn the_declarations_and_the_code_have_every_text_they_ask_for_in_both_languages(
                 for (name, catalog) in [("en", EN), ("de", DE)] {
                     assert!(has(catalog, part), "{part} missing in {name}");
                 }
-            } else if part.starts_with("core.offline.") {
+            } else if part.starts_with("core.offline.") || part.starts_with("core.weekday.") {
                 shared += 1;
                 for (name, catalog) in [("en", CORE_EN), ("de", CORE_DE)] {
                     assert!(has(catalog, part), "{part} missing in {name}");
