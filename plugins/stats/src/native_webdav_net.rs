@@ -193,7 +193,12 @@ impl Dav {
         for entry in paperpaw_sdk::config::parse(text).filter_map(Result::ok) {
             if entry.key == "password" {
                 let value = entry.value.try_as_str().map_err(|_| Error::NoMemory)?;
-                return paperpaw_ui_kit::text::copy(&value).map(Secret);
+                let copy = paperpaw_ui_kit::text::copy(&value).map(Secret);
+                // An escaped value is a copy of its own: wiped as well.
+                if let alloc::borrow::Cow::Owned(owned) = value {
+                    mem::wipe_text(owned);
+                }
+                return copy;
             }
         }
         Ok(Secret(String::new()))
@@ -209,8 +214,20 @@ impl Dav {
         storage: &dyn Storage,
         facts: Facts<'_>,
     ) -> Result<Outcome, Error> {
-        let step = self.engine.start(storage, facts)?;
-        self.carry_out(host, storage, step)
+        let started = self.engine.start(storage, facts);
+        let step = self.guard(storage, started)?;
+        let outcome = self.carry_out(host, storage, step);
+        self.guard(storage, outcome)
+    }
+
+    /// An error ends the sync: nothing is in flight any more, so the next
+    /// sync can start (it would wait for a request that never comes).
+    fn guard<T>(&mut self, storage: &dyn Storage, result: Result<T, Error>) -> Result<T, Error> {
+        if result.is_err() {
+            self.pending = None;
+            self.engine.lost(storage);
+        }
+        result
     }
 
     /// The reader decided what to do with the file the server lacks much of:
@@ -225,8 +242,12 @@ impl Dav {
         facts: Facts<'_>,
         (etag, remove): (&str, bool),
     ) -> Result<Option<Outcome>, Error> {
-        match self.engine.decide(storage, facts, (etag, remove))? {
-            Some(step) => self.carry_out(host, storage, step).map(Some),
+        let decided = self.engine.decide(storage, facts, (etag, remove));
+        match self.guard(storage, decided)? {
+            Some(step) => {
+                let outcome = self.carry_out(host, storage, step);
+                self.guard(storage, outcome).map(Some)
+            }
             None => Ok(None),
         }
     }
@@ -337,6 +358,17 @@ impl Dav {
         facts: Facts<'_>,
         done: &HttpDone,
     ) -> Result<Option<Outcome>, Error> {
+        let outcome = self.done_inner(host, storage, facts, done);
+        self.guard(storage, outcome)
+    }
+
+    fn done_inner(
+        &mut self,
+        host: &Host<'_>,
+        storage: &dyn Storage,
+        facts: Facts<'_>,
+        done: &HttpDone,
+    ) -> Result<Option<Outcome>, Error> {
         let Some((id, phase)) = self.pending else {
             return Ok(None);
         };
@@ -346,7 +378,12 @@ impl Dav {
         self.pending = None;
         let status = match done.reason() {
             Reason::Ok => u16::try_from(done.status()).unwrap_or(u16::MAX),
-            Reason::Cancelled | Reason::Replaced => return Ok(None),
+            // The request is gone, and with it the sync: ended without a
+            // message, since the one who cancelled knows.
+            Reason::Cancelled | Reason::Replaced => {
+                self.engine.lost(storage);
+                return Ok(None);
+            }
             Reason::Offline => {
                 self.engine.lost(storage);
                 return Ok(Some(Outcome::Offline));

@@ -411,3 +411,55 @@ fn a_heap_that_refuses_ends_the_start_and_the_authorization_cleanly() {
         assert!(matches!(result, Ok(_) | Err(Error::NoMemory)), "at {at}");
     }
 }
+
+#[test]
+fn a_sync_ended_by_an_error_or_a_cancel_lets_the_next_one_start() {
+    use crate::testing::heap::{armed, fixture};
+    use paperpaw_sdk::native::Error;
+    let storage = fixture(crate::testing::Quiet::default);
+    let sync = |engine: &mut Engine| -> Result<Option<Step>, Error> {
+        engine.start(&storage, facts("cloud.example/dav", "me"))?;
+        engine.downloaded(
+            &storage,
+            Downloaded {
+                status: 404,
+                etag: Some("\"v1\""),
+            },
+        )
+    };
+    let (whole, count) = armed(usize::MAX, || sync(&mut Engine::default()));
+    assert!(whole.is_ok() && count > 0);
+    for at in 1..=count {
+        let mut engine = Engine::default();
+        let (result, _) = armed(at, || sync(&mut engine));
+        if result.is_err() {
+            // What the driver does on every error: the sync ends.
+            engine.lost(&storage);
+        }
+        // Whatever happened, the next sync starts and runs through.
+        engine.lost(&storage);
+        assert!(!engine.running(), "at {at}");
+        assert_eq!(
+            engine.start(&storage, facts("cloud.example/dav", "me")),
+            Ok(Step::Download),
+            "at {at}"
+        );
+        assert!(engine.running(), "at {at}");
+    }
+}
+
+#[test]
+fn a_cancelled_request_ends_the_sync_and_a_new_one_works() {
+    let storage = MemoryStorage::new();
+    let mut engine = Engine::default();
+    for _ in 0..2 {
+        assert_eq!(
+            engine.start(&storage, facts("cloud.example/dav", "me")),
+            Ok(Step::Download)
+        );
+        // The request was cancelled: the driver ends the sync.
+        assert!(engine.lost(&storage).is_some());
+        assert!(!engine.running());
+    }
+    assert!(names(&storage).is_empty());
+}
