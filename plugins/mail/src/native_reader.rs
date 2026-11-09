@@ -236,10 +236,16 @@ impl NativeMail {
                 self.check = None;
                 self.say_reader(host, instance, texts::failure(&failure))
             }
-            Run::Untrusted { .. } => {
+            Run::Untrusted { smtp, .. } => {
                 self.check = None;
-                // A reader cannot ask: the list does.
-                self.say_reader(host, instance, Say::Key("mail.pin.open-list"))
+                // A reader cannot ask: the list does (a key that changed, or a
+                // provider's server, is not offered at all).
+                let number = self.readers.get(instance).map(|r| r.account);
+                let say = match number {
+                    Some(number) => self.pin_say(host, number, smtp)?,
+                    None => return Ok(()),
+                };
+                self.say_reader(host, instance, say)
             }
             _ => Ok(()),
         }
@@ -258,13 +264,20 @@ impl NativeMail {
             let storage = DataStorage::new(host);
             let raw = store::raw_file(account, &folder, uid).map_err(fail_error)?;
             let kept = store::text_file(account, &folder, uid).map_err(fail_error)?;
-            match store::make_letter(&storage, &raw, &kept) {
-                Ok(letter) => {
-                    let reading = self.readers.get(instance).ok_or(Error::State)?;
-                    show_letter(host, reading, &letter)?;
-                    self.mark_seen(host, instance)?;
+            let made = match store::make_letter(&storage, &raw, &kept) {
+                Ok(letter) => match self.readers.get(instance) {
+                    Some(reading) => show_letter(host, reading, &letter),
+                    None => Err(Error::State),
+                },
+                Err(fail) => Err(fail_error(fail)),
+            };
+            match made {
+                Ok(()) => self.mark_seen(host, instance)?,
+                // Said on the screen, which would wait for the mail for ever.
+                Err(Error::NoMemory) => {
+                    return self.say_reader(host, instance, Say::Key("mail.fail.memory"));
                 }
-                Err(Fail::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::State) => return Err(Error::State),
                 Err(_) => return self.say_reader(host, instance, Say::Key("mail.fail.storage")),
             }
         }
@@ -609,6 +622,10 @@ fn wrap(font: &Font<'_>, size: f32, shown: &str, width: f32) -> Result<Vec<Strin
             width.max(1.0),
             MAX_LINES,
         )? {
+            // The lines of all the paragraphs together are at most MAX_LINES.
+            if lines.len() >= MAX_LINES {
+                break;
+            }
             push(&mut lines, part)?;
         }
     }

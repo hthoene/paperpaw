@@ -13,6 +13,7 @@
 pub mod account;
 pub mod browser;
 pub mod codec;
+pub mod compose;
 pub mod fail;
 pub mod header;
 pub mod html;
@@ -26,3 +27,4 @@ pub mod session;
 pub mod smtp;
 pub mod store;
 pub mod texts;
+pub mod writer;

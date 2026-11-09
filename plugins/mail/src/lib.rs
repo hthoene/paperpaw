@@ -22,6 +22,7 @@ mod native_screens;
 mod native_socket;
 mod native_values;
 mod native_words;
+mod native_writer;
 
 pub mod account;
 pub mod browser;

@@ -735,6 +735,19 @@ pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter
     Ok(letter)
 }
 
+/// The text of a file of at most `cap` bytes (`None` where there is none or it
+/// cannot be read): the draft kept for an account.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn read_kept(storage: &dyn Storage, file: &str, cap: usize) -> Result<Option<String>, Fail> {
+    match read_text(storage, file, cap) {
+        Ok(text) => Ok(Some(text)),
+        Err(Fail::NoMemory) => Err(Fail::NoMemory),
+        Err(_) => Ok(None),
+    }
+}
+
 /// A letter read from its file (`None` where there is none or it cannot be
 /// read).
 ///

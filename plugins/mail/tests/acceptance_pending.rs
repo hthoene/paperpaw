@@ -26,7 +26,7 @@ fn choosing_a_provider_or_typing_a_known_address_fills_in_the_servers() {
 }
 
 #[test]
-#[ignore = "needs the compose window (slice 9) and a scripted host with core.ui (#944): the compose window and the replies of the reader; the folders, the list and the reader are native"]
+#[ignore = "needs a scripted host with core.ui, storage and sockets (#944): the folders, the list, the reader and the compose window are native, and what they do with the host is not run end to end"]
 fn the_screens_read_and_write_mail_from_the_cards_cache() {
     unreachable!("boxes, list, read and compose; the store keeps what was fetched on the card");
 }

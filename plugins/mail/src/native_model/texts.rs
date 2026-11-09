@@ -94,3 +94,15 @@ pub const fn distrust(why: paperpaw_sdk::native::sockets::Untrusted) -> &'static
         _ => "mail.pin.why.unknown-issuer",
     }
 }
+
+/// What is said of a server that is not trusted, by what may be offered for
+/// it: *Ask* is for the list, which asks (a reader or the compose window
+/// cannot); a changed key or a provider's server is not offered at all.
+#[must_use]
+pub const fn pin_message(offer: super::account::Offer) -> &'static str {
+    match offer {
+        super::account::Offer::Ask => "mail.pin.open-list",
+        super::account::Offer::Changed => "mail.pin.changed",
+        _ => "mail.pin.attack",
+    }
+}
