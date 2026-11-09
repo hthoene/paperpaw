@@ -80,16 +80,22 @@ fn decode(record: &[u8]) -> Result<Entry<'_>, i32> {
     if word(0, 4)? != MAGIC || *head.get(4).ok_or(ERR_IO)? != VERSION {
         return Err(ERR_IO);
     }
-    let flags = *head.get(5).ok_or(ERR_IO)?;
-    let identity = u64::from_le_bytes(word(6, 8)?.try_into().map_err(|_| ERR_IO)?);
+    let kind = *head.get(5).ok_or(ERR_IO)?;
+    let flags = *head.get(6).ok_or(ERR_IO)?;
+    let identity = u64::from_le_bytes(word(7, 8)?.try_into().map_err(|_| ERR_IO)?);
     let from_len = usize::from(u16::from_le_bytes(
-        word(14, 2)?.try_into().map_err(|_| ERR_IO)?,
+        word(15, 2)?.try_into().map_err(|_| ERR_IO)?,
     ));
     let to_len = usize::from(u16::from_le_bytes(
-        word(16, 2)?.try_into().map_err(|_| ERR_IO)?,
+        word(17, 2)?.try_into().map_err(|_| ERR_IO)?,
     ));
     let total = HEAD + from_len + to_len + 8;
-    if kind != KIND_MOVE || flags > 1 || from_len > MAX_PATH || to_len > MAX_PATH || record.len() != total {
+    if kind != KIND_MOVE
+        || flags > 1
+        || from_len > MAX_PATH
+        || to_len > MAX_PATH
+        || record.len() != total
+    {
         return Err(ERR_IO);
     }
     let (body, sum) = record.split_at(total - 8);
