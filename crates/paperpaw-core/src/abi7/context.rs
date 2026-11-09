@@ -142,6 +142,21 @@ pub(crate) trait Frame {
     ) -> Result<usize, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
+    /// One call of the `core.widget` stage to `owner` alone (`ui.md` 5.2, ops
+    /// 7, 12 and 13): the owner's `token` gets `payload`, one stage-local input
+    /// record already encoded (`core_widget_v1::input_encode`); its reply
+    /// (stage-local records, checked) is written to the start of `out` and its
+    /// length returned. Nested like `status_ask`: depth 1 callers only, never
+    /// the caller's own plugin, the owner's own refusal is the call's status.
+    fn widget_call(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _payload: &[u8],
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
 
     /// A host view kept behind a service key, as `dyn Any`. **Not used by the
     /// families any more**: `core.device`, `core.document`, `core.library` and

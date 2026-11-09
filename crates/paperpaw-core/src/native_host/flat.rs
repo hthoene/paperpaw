@@ -374,6 +374,7 @@ fn invoke(
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),
+        ui: None,
     };
     let status = instance
         .environment()
