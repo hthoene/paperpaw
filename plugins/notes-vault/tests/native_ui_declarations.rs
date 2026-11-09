@@ -38,6 +38,69 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
+fn format_batches() -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    {
+        let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+            out.push(batch.to_vec());
+            Ok(())
+        });
+        declarations::formats(&mut d).unwrap();
+    }
+    out
+}
+
+#[test]
+fn the_format_image_is_what_the_builder_makes() {
+    let built = format_batches();
+    assert_eq!(built.len(), image::FORMATS.len());
+    for (built, image) in built.iter().zip(image::FORMATS) {
+        assert_eq!(built.as_slice(), *image);
+    }
+}
+
+/// The format declaration is valid (the host checks its name, title and
+/// extensions) but the host takes no format plugins yet: `ERR_UNSUPPORTED`.
+/// The plugin's `make` goes on without it. `BLOCKED DOC-format-declaration`
+/// when the host admits it (Host #417, Core #944).
+#[test]
+fn the_host_checks_the_format_and_does_not_take_it_yet() {
+    for batch in format_batches() {
+        let records = records_decode(&batch).unwrap();
+        assert_eq!(
+            validate_batch("notes-vault", &records),
+            Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+        );
+    }
+}
+
+#[test]
+fn the_format_is_as_interface_6_registered_it() {
+    let mut registrar = Registrar::new(Id::new_static("notes-vault"));
+    NotesVault.register(&mut registrar).unwrap();
+    let old = registrar
+        .into_contributions()
+        .into_iter()
+        .find_map(|c| match c {
+            Contribution::Format(spec) => Some(spec),
+            _ => None,
+        })
+        .unwrap();
+    let batch = format_batches().remove(0);
+    let records = records_decode(&batch).unwrap();
+    let spec = records
+        .iter()
+        .find_map(|r| match r {
+            Record::FormatSpec(spec) => Some(spec),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(format!("notes-vault.{}", spec.name), old.id.as_str());
+    assert_eq!(spec.title, old.title);
+    let wanted: Vec<&str> = old.extensions.iter().map(|e| &**e).collect();
+    assert_eq!(spec.extensions.split('\n').collect::<Vec<_>>(), wanted);
+}
+
 #[test]
 fn the_host_admits_the_declarations() {
     for batch in batches() {

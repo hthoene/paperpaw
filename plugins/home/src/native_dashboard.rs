@@ -309,8 +309,9 @@ impl Dashboard {
         })
     }
 
-    /// The widgets with no place yet are measured at the grid's width (made,
-    /// asked and let go), so the grid gives each the rows it needs. A widget the
+    /// The widgets with no place yet (and no cells declared) are measured at the
+    /// grid's width (made, asked and let go), so the grid gives each the rows it
+    /// needs. A widget the
     /// host cannot measure keeps the default of one row.
     fn measure_unplaced(
         host: &Host<'_>,
@@ -323,6 +324,10 @@ impl Dashboard {
             let (None, What::Widget(id)) = (item.at, &item.what) else {
                 continue;
             };
+            // As interface 6: one that says how many cells it takes is not made.
+            if src.declares(id) {
+                continue;
+            }
             match measure::measure_widget(host, ui, id, PLACE, geometry) {
                 Ok(Some((rows, least))) => src.measured(id, rows, least)?,
                 Ok(None) => {}

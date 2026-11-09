@@ -169,3 +169,11 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
 - Each minute with a widget, `read_statistics` pages the registry for the statistics plugin (at most 16
   pages, each a 4 KiB request and a 4 KiB reply buffer, made once per call and reused, so 8 KiB at a time).
   This belongs in the heap gate's measurement of the plugin; it is not measured yet.
+
+## Right-to-left (`ar`: a regression against Beta 3 until this is done)
+
+Beta 3 mirrored the interface where its language is written right to left (Arabic). The UI kit now
+does so for what it draws (`Style::rtl`, read from `core.language`: header, list rows, items, dialog,
+chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
+draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
+takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).

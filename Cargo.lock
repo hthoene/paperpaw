@@ -1598,6 +1598,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "libloading 0.9.0",
  "paperpaw-config",
+ "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",
@@ -1961,18 +1962,12 @@ dependencies = [
 name = "paperpaw-plugin-files"
 version = "1.0.7"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
- "paperpaw-fs",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-txt",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]
@@ -2005,7 +2000,9 @@ dependencies = [
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "paperpaw-zip",
  "proptest",
@@ -2027,7 +2024,9 @@ dependencies = [
 name = "paperpaw-plugin-format-images"
 version = "1.0.4"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
@@ -2045,8 +2044,10 @@ dependencies = [
 name = "paperpaw-plugin-format-txt"
 version = "1.0.2"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-layout",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
@@ -2055,7 +2056,9 @@ dependencies = [
 name = "paperpaw-plugin-format-xtc"
 version = "1.0.2"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
@@ -2797,6 +2800,7 @@ dependencies = [
  "paperpaw-digest",
  "paperpaw-graphics",
  "paperpaw-hyphen",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-update",

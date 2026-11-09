@@ -4,7 +4,7 @@
 //! the tools and the icons.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Instances, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl,
+    MenuEntryDecl, ScreenDecl, SpecDecl, SubscribeDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -18,6 +18,10 @@ pub const HTTP_TOKEN: u32 = 4;
 pub const WORK_TOKEN: u32 = 5;
 /// A setting changed: the account's, so signed in anew.
 pub const SETTING_TOKEN: u32 = 6;
+/// The reader's stage that runs after a book's notes were exported.
+pub const EXPORT_TOKEN: u32 = 7;
+/// The stage's full id.
+pub const EXPORT_STAGE: &str = "reader.notes-exported";
 pub const SCREEN: u32 = 10;
 
 /// The kinds of sync target (the setting's values), and the notebook the
@@ -106,6 +110,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
     d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_TOKEN)?;
+    d.subscribe(SubscribeDecl::new(EXPORT_STAGE, EXPORT_TOKEN))?;
     d.submit()?;
     Ok(())
 }

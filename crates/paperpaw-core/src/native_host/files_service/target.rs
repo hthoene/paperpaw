@@ -278,7 +278,7 @@ pub(crate) fn same_fold(a: &str, b: &str) -> bool {
 /// Whether `path` is `folder` or below it, name by name; `ignore_case` for a
 /// storage that takes names differing in case for one, folded as the driver
 /// does ([`same_fold`]).
-pub(super) fn within(ignore_case: bool, path: &str, folder: &str) -> bool {
+pub(crate) fn within(ignore_case: bool, path: &str, folder: &str) -> bool {
     let mut parts = path.split('/');
     folder.split('/').all(|name| {
         parts.next().is_some_and(|part| {

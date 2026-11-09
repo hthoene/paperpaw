@@ -124,3 +124,19 @@ result is wanted:
   deny`, the tag test, the stage codec, the workspace tests, and the S3
   frame-budget scan where `tools/check-s3-budget.sh` exists) before its pull
   request is opened.
+
+## Fewer workflow runs
+
+- **Billing:** `paperpaw` is public, so its standard hosted runners (every
+  `runs-on` here is `ubuntu-latest`, `windows-latest` or `macos-*`, no larger
+  runner, no self-hosted one) use no included minutes; the private repositories
+  (`paperpaw.org`: one scheduled workflow plus a few pull request runs a month,
+  `paperpaw-notes`: none) use almost none.
+- **Drafts:** the `Changelog` workflow skips its job for a draft pull request
+  (it runs on `ready_for_review` and on every push after that); the `CI`
+  jobs already skip drafts. A skipped run still appears in the list, it costs
+  no minutes.
+- **Already so:** a push to a pull request cancels the run before it (`CI`,
+  `Changelog`, `CodeQL`); `push` triggers only on `main`, `integration` and
+  `abi7/integration` (a merge train is one push); CodeQL and the reproducible
+  build run on `main`, tags and weekly only.

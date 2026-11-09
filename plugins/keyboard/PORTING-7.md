@@ -76,7 +76,9 @@ name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H
   layouts they lack are dropped. Letters are asked in pieces of at most 256 bytes. A host that
   cannot answer (no slot, no font) leaves every layout offered, as before. Tested on what the
   query answers (`layouts.rs` tests); the host's own answer needs a font to ask.
-- Right-to-left mirroring (title, hint, buttons, cursor): the kit's style has no direction yet.
+- Right-to-left mirroring (title, hint, buttons, cursor; `ar` is a regression against Beta 3 until it is
+  done): the kit's style has a direction now (`Style::rtl`, `flip`, `flip_x`, `text::label_in`); the keyboard
+  does not use it yet.
 - Wrapped lines of several lines are broken at spaces and a run of spaces is shown as one.
 - Peak memory on the X4 is not measured (device gate open). The keyboard is built into the
   firmware, so there is no `.ppn` size to record.

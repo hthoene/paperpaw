@@ -289,6 +289,10 @@ impl Storage for Swappable {
         self.with(None, |s| s.same_entry(a, b))
     }
 
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.with(Err(StorageError::Io), |s| s.entry_identity(path))
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.with(None, |s| s.free_space())
     }
@@ -331,6 +335,10 @@ struct Gone;
 const GONE: Result<(), StorageError> = Err(StorageError::CARD_GONE);
 
 impl Storage for Gone {
+    fn entry_identity(&self, _: &str) -> Result<Option<u64>, StorageError> {
+        Err(StorageError::CARD_GONE)
+    }
+
     fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
         Err(StorageError::CARD_GONE)
     }

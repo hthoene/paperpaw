@@ -213,6 +213,13 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         }
     }
 
+    /// The secrets' file's in the private storage, every other's in the
+    /// base.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let (storage, path) = self.route(path);
+        storage.entry_identity(path)
+    }
+
     fn free_space(&self) -> Option<u64> {
         self.base.free_space()
     }
