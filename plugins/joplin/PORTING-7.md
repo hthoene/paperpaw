@@ -36,7 +36,10 @@ host activates native plugins (then it goes together, no shim).
     and a failure leaves it as it was). **`waiting()` holds at most 32 paths** (`MOST_WAITING`),
     oldest first; the rest stay in the file and come with the next sending.
   - `src/native_note.rs`: `write_note` (the title, the body copied from the notes in 1 KiB pieces,
-    the properties; returns the MD5 of the text; byte for byte as `Note::write`), `read_props`,
+    the properties; returns the MD5 of the text; byte for byte as `Note::write`; it writes straight
+    to the file, with no staging: a cut leaves a partial file that the next sending writes anew, and
+    the hash is kept in `sending.txt` before the note goes, so a partial file is never taken for a
+    sent note), `read_props`,
     `text_hash` and `head` over volumes, and the body copy (`Body`). One deviation: the line
     breaks held back at the end of a piece until text follows are **at most 4,096** in a row (a
     body with more blank lines in a row between two texts keeps 4,096 of them); interface 6 held

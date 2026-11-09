@@ -335,6 +335,7 @@ fn refused_memory_ends_in_no_memory_never_an_abort() {
     let notes = Fixed(FIRST.as_bytes());
     sweep(|| native::head(&notes, "n").map(|h| h.title.len()));
     sweep(|| native::text_hash(&notes, "n", 20));
+    sweep(|| native::read_props(&notes, "n").map(|p| p.parent.len()));
     // The body copy and the note: what is written is counted, not kept.
     let note = a_note("Alice");
     sweep(|| native::write_note(&note, &notes, "n", &Fixed(&[]), "to").map(|h| h.len()));

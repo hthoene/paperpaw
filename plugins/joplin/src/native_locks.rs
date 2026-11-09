@@ -43,7 +43,7 @@ pub const PROPFIND: &str = "<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\">
 /// `NoMemory` where the heap had no room to read the list (not known: nothing
 /// is written then either); what the card says.
 pub fn upgrading(service: Service, v: &dyn Volume, path: &str, now: i64) -> Result<bool, Error> {
-    let held = |renewed: Option<i64>| renewed.is_some_and(|at| now - at < TTL);
+    let held = |renewed: Option<i64>| renewed.is_some_and(|at| now.saturating_sub(at) < TTL);
     match service {
         Service::WebDav => webdav_upgrading(v, path, &held),
         _ => server_upgrading(v, path, &held),

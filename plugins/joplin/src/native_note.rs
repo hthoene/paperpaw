@@ -32,7 +32,9 @@ const MAX_HELD: usize = 4096;
 pub fn read_props(v: &dyn Volume, path: &str) -> Result<Props, Error> {
     let size = v.size(path)?;
     let from = size.saturating_sub(TAIL as u64);
-    let mut tail = [0u8; TAIL];
+    // On the heap: the tail is a frame of its own otherwise (the X4 Pro's
+    // limit is 2,048 bytes).
+    let mut tail = paperpaw_ui_kit::mem::buffer(TAIL)?;
     let n = v.read_at(path, from, &mut tail)?;
     joplin::item_props(size, tail.get(..n).unwrap_or(&[]))
 }
