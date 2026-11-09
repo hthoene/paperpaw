@@ -395,3 +395,6 @@ fn xpointer_and_locate_refuse_bad_input_and_foreign_answers() {
 
 #[path = "document_readers_tests.rs"]
 mod readers;
+
+#[path = "document_formats_tests.rs"]
+mod formats_tests;
