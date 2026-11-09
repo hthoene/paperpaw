@@ -880,6 +880,7 @@ fn invoke_registration<S>(
 mod doc_slots;
 #[path = "shell_tokens.rs"]
 mod tokens;
+pub(crate) use tokens::dispatch_token_staged;
 #[allow(
     unused_imports,
     reason = "native built-in adapter follows this prerequisite"

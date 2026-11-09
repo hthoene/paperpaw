@@ -35,7 +35,7 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop)) = {
+        let (status, owner, owner_key, images, (commands, redraw, _hop)) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -69,7 +69,8 @@ impl Kernel {
                     target.screen,
                     target.hop,
                     self.screen_keys_remaining(),
-                );
+                )
+                .with_images(context.image_admit());
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
@@ -78,11 +79,14 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
+                let images = stage.take_image_commands();
                 let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output))
+                Ok::<_, Error>((status, owner, context.owner_key(), images, output))
             })??
         };
         self.drain_native_ui(&owner, commands, redraw);
+        // The picture requests it admitted, after the callback.
+        self.native_images_apply(owner_key, images);
         Ok(status)
     }
 }

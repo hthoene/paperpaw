@@ -137,6 +137,15 @@ pub(crate) fn fixture(count: usize) -> Fixture {
     }
 }
 
+/// The delivery of a pump without a kernel: no stage, the plain callback.
+fn plain<'a>(
+    env: &'a Env<'a>,
+) -> impl Fn(u64, &super::super::native_instances::NativeLease, &[u8]) + 'a {
+    move |_, lease, bytes| {
+        let _ = lease.service_event(bytes, env);
+    }
+}
+
 fn run(f: &Fixture, service: &Service) -> bool {
     run_at(f, service, 0)
 }
@@ -147,7 +156,7 @@ pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 2
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
-    pump(&f.instances, &services, &env)
+    pump(&f.instances, &services, &env, &plain(&env))
 }
 
 fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
@@ -155,7 +164,7 @@ fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(ms));
-    pump(&f.instances, &[Some(service), None], &env)
+    pump(&f.instances, &[Some(service), None], &env, &plain(&env))
 }
 
 fn queue(service: &Service, owner: u64, tags: &[u8]) {
@@ -243,7 +252,12 @@ fn nothing_is_delivered_inside_a_callback_and_the_pass_stays_wanted() {
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     f.instances.test_enter_callback();
-    assert!(pump(&f.instances, &[Some(&service), None], &env));
+    assert!(pump(
+        &f.instances,
+        &[Some(&service), None],
+        &env,
+        &plain(&env)
+    ));
     assert!(f.seen[0].borrow().is_empty());
     assert_eq!(service.queue.borrow().len(), 1);
 }
@@ -265,7 +279,7 @@ fn no_wired_service_means_no_pass_and_no_buffer() {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
-    assert!(!pump(&f.instances, &[None, None], &env));
+    assert!(!pump(&f.instances, &[None, None], &env, &plain(&env)));
 }
 
 #[test]
