@@ -394,7 +394,10 @@ impl HostServices {
     /// # Errors
     /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
     /// sources is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the document service's wiring calls it (Host Engineer, train 6)")]
+    #[allow(
+        dead_code,
+        reason = "the document service's wiring calls it (Host Engineer, train 6)"
+    )]
     pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
         let sources = self.busy_sources();
         if sources.has(super::storage_files::BusyKind::ReaderBook) {
@@ -456,14 +459,16 @@ impl HostServices {
     /// A document of the book at `path` ended (an explicit close, its opener
     /// or format stopping, the card going, the book moved or removed, its
     /// place lost to another book): one hold on the path is given back. The
-    /// document service calls it once for each document that ended.
+    /// document service calls it once for each document that ended, with the
+    /// exact path it opened with. Whether there was a hold to give back: a
+    /// `false` is an unbalanced close, for the caller to surface (log).
     #[allow(
         dead_code,
         reason = "the document service calls it (Host Engineer, train 6)"
     )]
-    pub(crate) fn reader_book_closed(&self, path: &str) {
+    pub(crate) fn reader_book_closed(&self, path: &str) -> bool {
         self.in_use()
-            .release(super::busy_adapters::READER_OWNER, path);
+            .release(super::busy_adapters::READER_OWNER, path)
     }
 
     /// The owner directory, made on first use.
