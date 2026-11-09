@@ -302,6 +302,16 @@ pub(crate) trait SockHost {
     fn now_ms(&self) -> u64;
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
+    /// A socket or broadcast of work run `run` was stored: the run does not
+    /// end while it lives (`work.md` 2.3). Called after it was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// socket is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The socket or broadcast of work run `run` ended (any way): exactly once
+    /// for each `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// Power saving (`network.md` 3.2): `Some` ends the socket now. `background`
     /// is set for a socket of a work run.
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd>;

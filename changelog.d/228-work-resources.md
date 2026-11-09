@@ -1,0 +1,2 @@
+### Fixed
+- A request, socket or broadcast that a background work run opens now keeps the run going until it ends (`work.md` 2.3), and gives it back exactly once on every way it ends: answered, cancelled, the plugin's network turned off, the run's 10-minute limit, the plugin stopping, or a transport that cannot start it. `core.net` and `core.sockets` tell the scheduler through `resource_opened` / `resource_closed`; a run that cannot be kept (`ERR_BUSY`) refuses the request or socket and holds nothing.
