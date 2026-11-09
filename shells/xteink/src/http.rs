@@ -230,14 +230,6 @@ impl Calls {
         true
     }
 
-    /// Whether request `id` is parked.
-    #[cfg(feature = "ppn5")]
-    pub fn is_parked(&self, id: u32) -> bool {
-        self.calls
-            .iter()
-            .any(|c| c.call.id == id && matches!(c.phase, Phase::Parked))
-    }
-
     /// Drops request `id` with no answer: its connection is let go, and no
     /// storage is touched (core removes the staged file after this).
     #[cfg(feature = "ppn5")]
