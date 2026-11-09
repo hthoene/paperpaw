@@ -165,7 +165,7 @@ fn a_page_holds_at_most_the_reply_rows_including_the_end() {
     while rows.section(pushed, 1, false).is_ok() {
         pushed += 1;
     }
-    assert!(pushed as usize <= schema::REPLY_ROWS - 1);
+    assert!((pushed as usize) < schema::REPLY_ROWS);
     let n = rows.finish(PageEnd::more(9999, pushed, 1)).unwrap();
     assert_eq!(records(&out[..n]).len(), pushed as usize + 1);
 }
