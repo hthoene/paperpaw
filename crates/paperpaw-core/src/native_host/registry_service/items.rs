@@ -138,15 +138,14 @@ fn offers(
         return Ok(());
     }
     let translator = sources.env.i18n();
-    for screen in sources.env.slot_screens(scope) {
+    // The walk allocates nothing (`Env::each_slot_screen`); a break ends it.
+    sources.env.each_slot_screen(scope, &mut |screen| {
         let title = sources
             .env
             .screen_title(screen)
             .map_or("", |key| translated(translator, key, TITLE));
-        if visit(&item(screen.as_str(), namespace_of(screen), 0, title)).is_break() {
-            break;
-        }
-    }
+        visit(&item(screen.as_str(), namespace_of(screen), 0, title)).is_continue()
+    });
     Ok(())
 }
 
@@ -163,9 +162,12 @@ fn slot_row(
     // Where the user chose, the default is the highest offer; else it is the
     // screen the slot shows.
     let default = if choice.is_some() {
-        env.slot_screens(id)
-            .first()
-            .map_or("", |screen| screen.as_str())
+        let mut first = "";
+        env.each_slot_screen(id, &mut |screen| {
+            first = screen.as_str();
+            false
+        });
+        first
     } else {
         bound
     };

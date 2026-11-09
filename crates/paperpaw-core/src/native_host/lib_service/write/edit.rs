@@ -317,8 +317,18 @@ fn commit(
 ) -> Result<usize, i32> {
     let id = reference(input)?;
     let transaction = table.lease(who.owner, id, now)?;
+    // A commit on the caller's own transaction ends it whatever it answers
+    // (`library.md` 2.2): the plugin reads again, merges and begins again. A
+    // row that cannot be freed now ends with the idle expiry.
+    let end = || {
+        table.finish(id).ok();
+        host.abort_staged(id);
+    };
     // Every part must have arrived whole before anything is applied.
-    require(transaction.complete())?;
+    if let Err(error) = require(transaction.complete()) {
+        end();
+        return Err(error);
+    }
     // The reply is made ready first: once the host has applied the edits
     // nothing may report a failure, or the plugin retries and adds them twice.
     let reply = |committed: &Committed, out: &mut [u8]| {
@@ -337,7 +347,10 @@ fn commit(
         edits: u32::MAX,
         added: u32::MAX,
     };
-    reply(&probe, &mut *out)?;
+    if let Err(error) = reply(&probe, &mut *out) {
+        end();
+        return Err(error);
+    }
     let request = CommitRequest {
         transaction: id,
         owner: who.owner,

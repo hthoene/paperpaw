@@ -1,0 +1,592 @@
+tenths "12.3" Some(123)
+tenths "-3.46" Some(-35)
+tenths "-0.4" Some(-4)
+tenths "7" Some(70)
+tenths ".5" Some(5)
+tenths "null" None
+tenths "" None
+tenths "1e5" None
+tenths " 4.55 " Some(46)
+tenths "-" None
+tenths "." None
+tenths "1234567" None
+tenths "123456.78" Some(1234568)
+tenths "-.05" Some(-1)
+tenths "0.04" Some(0)
+tenths "9.95" Some(100)
+tenths "--1" None
+tenths "1.2.3" None
+tenths "٣" None
+date "2026-10-14" Some(20740) None
+date "2026-10-14T07:23" Some(20740) Some(443)
+date "1970-01-02" Some(1) None
+date "14.10.2026" None None
+date "2026-13-01" None None
+date "2026-02-31" Some(20515) None
+date "20261014" None None
+date "" None None
+date "2026-1-1xxxxx" None None
+date "2026-10-14T24:00" Some(20740) None
+date "T9:5x" None None
+date "T07:61" None None
+date "x" None None
+days 1970 1 1 0
+days 2026 10 14 20740
+days 2000 2 29 11016
+days 1900 3 1 -25508
+days -1 12 31 -719529
+weekday -8 3
+weekday -1 3
+weekday 0 4
+weekday 1 5
+weekday 7 4
+weekday 20000 5
+weekday 20375 2
+split "52.52,13.41" Some(("52.52", "13.41"))
+split " 52.52 , -13.41 " Some(("52.52", "-13.41"))
+split "90,180" Some(("90", "180"))
+split "90.1,0" None
+split "0,180.1" None
+split "-90,-180" Some(("-90", "-180"))
+split "x,y" None
+split "52.52" None
+split "" None
+split "," None
+split "1e1,2" None
+split "52.5.2,1" None
+split "+5,1" None
+short "52.52437" Ok("52.52")
+short "52.5" Ok("52.5")
+short "52.50" Ok("52.5")
+short "52.00" Ok("52")
+short "52" Ok("52")
+short " 13.405 " Ok("13.4")
+short "-0.001" Ok("-0")
+short "5." Ok("5")
+short ".5" Ok(".5")
+forecast-url "52.52,13.41" Ok(Some("https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&current=temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=8"))
+forecast-url "x" Ok(None)
+forecast-url "" Ok(None)
+forecast-url "91,0" Ok(None)
+forecast-url " 1 , 2 " Ok(Some("https://api.open-meteo.com/v1/forecast?latitude=1&longitude=2&current=temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=auto&forecast_days=8"))
+search-url "Berlin" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=de&format=json")
+search-url "Berlin" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=en&format=json")
+search-url "Berlin" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=pt&format=json")
+search-url "Berlin" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=en&format=json")
+search-url "Berlin" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=en&format=json")
+search-url "Berlin" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=en&format=json")
+search-url "Berlin" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=en&format=json")
+search-url "Berlin" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=de&format=json")
+search-url "Berlin" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Berlin&count=10&language=zh&format=json")
+search-url " Sankt Gallen " "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=de&format=json")
+search-url " Sankt Gallen " "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=en&format=json")
+search-url " Sankt Gallen " "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=pt&format=json")
+search-url " Sankt Gallen " "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=en&format=json")
+search-url " Sankt Gallen " "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=en&format=json")
+search-url " Sankt Gallen " "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=en&format=json")
+search-url " Sankt Gallen " "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=en&format=json")
+search-url " Sankt Gallen " "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=de&format=json")
+search-url " Sankt Gallen " "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Sankt+Gallen&count=10&language=zh&format=json")
+search-url "Zürich" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=de&format=json")
+search-url "Zürich" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=en&format=json")
+search-url "Zürich" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=pt&format=json")
+search-url "Zürich" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=en&format=json")
+search-url "Zürich" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=en&format=json")
+search-url "Zürich" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=en&format=json")
+search-url "Zürich" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=en&format=json")
+search-url "Zürich" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=de&format=json")
+search-url "Zürich" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=Z%C3%BCrich&count=10&language=zh&format=json")
+search-url "a&b=c" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=de&format=json")
+search-url "a&b=c" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=en&format=json")
+search-url "a&b=c" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=pt&format=json")
+search-url "a&b=c" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=en&format=json")
+search-url "a&b=c" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=en&format=json")
+search-url "a&b=c" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=en&format=json")
+search-url "a&b=c" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=en&format=json")
+search-url "a&b=c" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=de&format=json")
+search-url "a&b=c" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=a%26b%3Dc&count=10&language=zh&format=json")
+search-url "" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=de&format=json")
+search-url "" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=en&format=json")
+search-url "" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=pt&format=json")
+search-url "" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=en&format=json")
+search-url "" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=en&format=json")
+search-url "" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=en&format=json")
+search-url "" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=en&format=json")
+search-url "" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=de&format=json")
+search-url "" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=&count=10&language=zh&format=json")
+search-url "日本" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=de&format=json")
+search-url "日本" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=en&format=json")
+search-url "日本" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=pt&format=json")
+search-url "日本" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=en&format=json")
+search-url "日本" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=en&format=json")
+search-url "日本" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=en&format=json")
+search-url "日本" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=en&format=json")
+search-url "日本" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=de&format=json")
+search-url "日本" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=%E6%97%A5%E6%9C%AC&count=10&language=zh&format=json")
+search-url "~._-" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=de&format=json")
+search-url "~._-" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=en&format=json")
+search-url "~._-" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=pt&format=json")
+search-url "~._-" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=en&format=json")
+search-url "~._-" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=en&format=json")
+search-url "~._-" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=en&format=json")
+search-url "~._-" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=en&format=json")
+search-url "~._-" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=de&format=json")
+search-url "~._-" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=~._-&count=10&language=zh&format=json")
+search-url "100%" "de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=de&format=json")
+search-url "100%" "en-GB" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=en&format=json")
+search-url "100%" "pt_BR" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=pt&format=json")
+search-url "100%" "" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=en&format=json")
+search-url "100%" "1" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=en&format=json")
+search-url "100%" "  " Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=en&format=json")
+search-url "100%" "-de" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=en&format=json")
+search-url "100%" "DE" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=de&format=json")
+search-url "100%" "zh-Hans" Ok("https://geocoding-api.open-meteo.com/v1/search?name=100%25&count=10&language=zh&format=json")
+kept "weather 1\nfetched 1760000000\ncoordinates 52.52,13.41\nnow 124 98 71 2 154 1\nday 20740 2 145 62 10 443 1092\nday 20741 61 112 51 85 445 1090\nday 20742 80 98 24 60 447 1087\nday 20743 71 31 -12 - 448 1085\nday 20744 3 86 8 15 450 1083\nday 20745 0 130 43 0 452 1081\nday 20746 95 157 91 70 454 1079\n"
+read "weather 1\nfetched 1760000000\ncoordinates 52.52,13.41\nnow 124 98 71 2 154 1\nday 20740 2 145 62 10 443 1092\nday 20741 61 112 51 85 445 1090\nday 20742 80 98 24 60 447 1087\nday 20743 71 31 -12 - 448 1085\nday 20744 3 86 8 15 450 1083\nday 20745 0 130 43 0 452 1081\nday 20746 95 157 91 70 454 1079\n" 1760000000 "52.52,13.41" Some((124, Some(98), Some(71), 2, Some(154), true)) [(20740, 2, 145, 62, Some(10), Some(443), Some(1092)), (20741, 61, 112, 51, Some(85), Some(445), Some(1090)), (20742, 80, 98, 24, Some(60), Some(447), Some(1087)), (20743, 71, 31, -12, None, Some(448), Some(1085)), (20744, 3, 86, 8, Some(15), Some(450), Some(1083)), (20745, 0, 130, 43, Some(0), Some(452), Some(1081)), (20746, 95, 157, 91, Some(70), Some(454), Some(1079))]
+  from None 7
+  from Some(0) 7
+  from Some(20000) 7
+  again "weather 1\nfetched 1760000000\ncoordinates 52.52,13.41\nnow 124 98 71 2 154 1\nday 20740 2 145 62 10 443 1092\nday 20741 61 112 51 85 445 1090\nday 20742 80 98 24 60 447 1087\nday 20743 71 31 -12 - 448 1085\nday 20744 3 86 8 15 450 1083\nday 20745 0 130 43 0 452 1081\nday 20746 95 157 91 70 454 1079\n"
+read "" none
+read "weather 2\nfetched 1\n" none
+read "weather 1\n" 0 "" None []
+  from None 0
+  from Some(0) 0
+  from Some(20000) 0
+  again "weather 1\nfetched 0\ncoordinates \n"
+read "  weather 1  \nfetched 5\ncoordinates 1,2\n" 5 "1,2" None []
+  from None 0
+  from Some(0) 0
+  from Some(20000) 0
+  again "weather 1\nfetched 5\ncoordinates 1,2\n"
+read "weather 1\nfetched x\n" none
+read "weather 1\ncoordinates\n" none
+read "weather 1\nnow 12 - - 3 - 1\nnow 99\n" none
+read "weather 1\nnow 12 - 300 999 -5 0\n" 0 "" Some((12, None, Some(100), 255, Some(-5), false)) []
+  from None 0
+  from Some(0) 0
+  from Some(20000) 0
+  again "weather 1\nfetched 0\ncoordinates \nnow 12 - 100 255 -5 0\n"
+read "weather 1\nnow 12 - - 3\n" 0 "" Some((12, None, None, 3, None, true)) []
+  from None 0
+  from Some(0) 0
+  from Some(20000) 0
+  again "weather 1\nfetched 0\ncoordinates \nnow 12 - - 3 - 1\n"
+read "weather 1\nfetched 1 2 3 4 5 6 7 8 9\nunknown 1\n\n" 1 "" None []
+  from None 0
+  from Some(0) 0
+  from Some(20000) 0
+  again "weather 1\nfetched 1\ncoordinates \n"
+read "weather 1\nday 1 2 3 4 5 6 7\nday 1 2 3\nday x 2 3 4\nday 5 600 7 8 -9 99999 -1\n" 0 "" None [(1, 2, 3, 4, Some(5), Some(6), Some(7)), (5, 255, 7, 8, Some(0), Some(1439), Some(0))]
+  from None 2
+  from Some(0) 2
+  from Some(20000) 0
+  again "weather 1\nfetched 0\ncoordinates \nday 1 2 3 4 5 6 7\nday 5 255 7 8 0 1439 0\n"
+read "weather 1\nday 0 1 2 3 - - -\nday 1 1 2 3 - - -\nday 2 1 2 3 - - -\nday 3 1 2 3 - - -\nday 4 1 2 3 - - -\nday 5 1 2 3 - - -\nday 6 1 2 3 - - -\nday 7 1 2 3 - - -\nday 8 1 2 3 - - -\nday 9 1 2 3 - - -\nday 10 1 2 3 - - -\nday 11 1 2 3 - - -\n" 0 "" None [(0, 1, 2, 3, None, None, None), (1, 1, 2, 3, None, None, None), (2, 1, 2, 3, None, None, None), (3, 1, 2, 3, None, None, None), (4, 1, 2, 3, None, None, None), (5, 1, 2, 3, None, None, None), (6, 1, 2, 3, None, None, None), (7, 1, 2, 3, None, None, None)]
+  from None 8
+  from Some(0) 8
+  from Some(20000) 0
+  again "weather 1\nfetched 0\ncoordinates \nday 0 1 2 3 - - -\nday 1 1 2 3 - - -\nday 2 1 2 3 - - -\nday 3 1 2 3 - - -\nday 4 1 2 3 - - -\nday 5 1 2 3 - - -\nday 6 1 2 3 - - -\nday 7 1 2 3 - - -\n"
+condition 0 weather.condition.clear Clear
+condition 1 weather.condition.mainly-clear FewClouds
+condition 2 weather.condition.partly-cloudy PartlyCloudy
+condition 3 weather.condition.overcast Cloudy
+condition 4 weather.condition.unknown Cloudy
+condition 5 weather.condition.unknown Cloudy
+condition 6 weather.condition.unknown Cloudy
+condition 7 weather.condition.unknown Cloudy
+condition 8 weather.condition.unknown Cloudy
+condition 9 weather.condition.unknown Cloudy
+condition 10 weather.condition.unknown Cloudy
+condition 11 weather.condition.unknown Cloudy
+condition 12 weather.condition.unknown Cloudy
+condition 13 weather.condition.unknown Cloudy
+condition 14 weather.condition.unknown Cloudy
+condition 15 weather.condition.unknown Cloudy
+condition 16 weather.condition.unknown Cloudy
+condition 17 weather.condition.unknown Cloudy
+condition 18 weather.condition.unknown Cloudy
+condition 19 weather.condition.unknown Cloudy
+condition 20 weather.condition.unknown Cloudy
+condition 21 weather.condition.unknown Cloudy
+condition 22 weather.condition.unknown Cloudy
+condition 23 weather.condition.unknown Cloudy
+condition 24 weather.condition.unknown Cloudy
+condition 25 weather.condition.unknown Cloudy
+condition 26 weather.condition.unknown Cloudy
+condition 27 weather.condition.unknown Cloudy
+condition 28 weather.condition.unknown Cloudy
+condition 29 weather.condition.unknown Cloudy
+condition 30 weather.condition.unknown Cloudy
+condition 31 weather.condition.unknown Cloudy
+condition 32 weather.condition.unknown Cloudy
+condition 33 weather.condition.unknown Cloudy
+condition 34 weather.condition.unknown Cloudy
+condition 35 weather.condition.unknown Cloudy
+condition 36 weather.condition.unknown Cloudy
+condition 37 weather.condition.unknown Cloudy
+condition 38 weather.condition.unknown Cloudy
+condition 39 weather.condition.unknown Cloudy
+condition 40 weather.condition.unknown Cloudy
+condition 41 weather.condition.unknown Cloudy
+condition 42 weather.condition.unknown Cloudy
+condition 43 weather.condition.unknown Cloudy
+condition 44 weather.condition.unknown Cloudy
+condition 45 weather.condition.fog Fog
+condition 46 weather.condition.unknown Cloudy
+condition 47 weather.condition.unknown Cloudy
+condition 48 weather.condition.fog Fog
+condition 49 weather.condition.unknown Cloudy
+condition 50 weather.condition.unknown Cloudy
+condition 51 weather.condition.drizzle Drizzle
+condition 52 weather.condition.unknown Cloudy
+condition 53 weather.condition.drizzle Drizzle
+condition 54 weather.condition.unknown Cloudy
+condition 55 weather.condition.drizzle Drizzle
+condition 56 weather.condition.freezing-drizzle Sleet
+condition 57 weather.condition.freezing-drizzle Sleet
+condition 58 weather.condition.unknown Cloudy
+condition 59 weather.condition.unknown Cloudy
+condition 60 weather.condition.unknown Cloudy
+condition 61 weather.condition.light-rain Rain
+condition 62 weather.condition.unknown Cloudy
+condition 63 weather.condition.rain Rain
+condition 64 weather.condition.unknown Cloudy
+condition 65 weather.condition.heavy-rain HeavyRain
+condition 66 weather.condition.freezing-rain Sleet
+condition 67 weather.condition.freezing-rain Sleet
+condition 68 weather.condition.unknown Cloudy
+condition 69 weather.condition.unknown Cloudy
+condition 70 weather.condition.unknown Cloudy
+condition 71 weather.condition.light-snow Snow
+condition 72 weather.condition.unknown Cloudy
+condition 73 weather.condition.snow Snow
+condition 74 weather.condition.unknown Cloudy
+condition 75 weather.condition.heavy-snow Snow
+condition 76 weather.condition.unknown Cloudy
+condition 77 weather.condition.snow Snow
+condition 78 weather.condition.unknown Cloudy
+condition 79 weather.condition.unknown Cloudy
+condition 80 weather.condition.showers Showers
+condition 81 weather.condition.showers Showers
+condition 82 weather.condition.heavy-showers Showers
+condition 83 weather.condition.unknown Cloudy
+condition 84 weather.condition.unknown Cloudy
+condition 85 weather.condition.snow-showers SnowShowers
+condition 86 weather.condition.snow-showers SnowShowers
+condition 87 weather.condition.unknown Cloudy
+condition 88 weather.condition.unknown Cloudy
+condition 89 weather.condition.unknown Cloudy
+condition 90 weather.condition.unknown Cloudy
+condition 91 weather.condition.unknown Cloudy
+condition 92 weather.condition.unknown Cloudy
+condition 93 weather.condition.unknown Cloudy
+condition 94 weather.condition.unknown Cloudy
+condition 95 weather.condition.thunder Thunder
+condition 96 weather.condition.hail Hail
+condition 97 weather.condition.unknown Cloudy
+condition 98 weather.condition.unknown Cloudy
+condition 99 weather.condition.hail Hail
+condition 100 weather.condition.unknown Cloudy
+condition 101 weather.condition.unknown Cloudy
+condition 102 weather.condition.unknown Cloudy
+condition 103 weather.condition.unknown Cloudy
+condition 104 weather.condition.unknown Cloudy
+condition 105 weather.condition.unknown Cloudy
+condition 106 weather.condition.unknown Cloudy
+condition 107 weather.condition.unknown Cloudy
+condition 108 weather.condition.unknown Cloudy
+condition 109 weather.condition.unknown Cloudy
+condition 110 weather.condition.unknown Cloudy
+condition 111 weather.condition.unknown Cloudy
+condition 112 weather.condition.unknown Cloudy
+condition 113 weather.condition.unknown Cloudy
+condition 114 weather.condition.unknown Cloudy
+condition 115 weather.condition.unknown Cloudy
+condition 116 weather.condition.unknown Cloudy
+condition 117 weather.condition.unknown Cloudy
+condition 118 weather.condition.unknown Cloudy
+condition 119 weather.condition.unknown Cloudy
+condition 120 weather.condition.unknown Cloudy
+condition 121 weather.condition.unknown Cloudy
+condition 122 weather.condition.unknown Cloudy
+condition 123 weather.condition.unknown Cloudy
+condition 124 weather.condition.unknown Cloudy
+condition 125 weather.condition.unknown Cloudy
+condition 126 weather.condition.unknown Cloudy
+condition 127 weather.condition.unknown Cloudy
+condition 128 weather.condition.unknown Cloudy
+condition 129 weather.condition.unknown Cloudy
+condition 130 weather.condition.unknown Cloudy
+condition 131 weather.condition.unknown Cloudy
+condition 132 weather.condition.unknown Cloudy
+condition 133 weather.condition.unknown Cloudy
+condition 134 weather.condition.unknown Cloudy
+condition 135 weather.condition.unknown Cloudy
+condition 136 weather.condition.unknown Cloudy
+condition 137 weather.condition.unknown Cloudy
+condition 138 weather.condition.unknown Cloudy
+condition 139 weather.condition.unknown Cloudy
+condition 140 weather.condition.unknown Cloudy
+condition 141 weather.condition.unknown Cloudy
+condition 142 weather.condition.unknown Cloudy
+condition 143 weather.condition.unknown Cloudy
+condition 144 weather.condition.unknown Cloudy
+condition 145 weather.condition.unknown Cloudy
+condition 146 weather.condition.unknown Cloudy
+condition 147 weather.condition.unknown Cloudy
+condition 148 weather.condition.unknown Cloudy
+condition 149 weather.condition.unknown Cloudy
+condition 150 weather.condition.unknown Cloudy
+condition 151 weather.condition.unknown Cloudy
+condition 152 weather.condition.unknown Cloudy
+condition 153 weather.condition.unknown Cloudy
+condition 154 weather.condition.unknown Cloudy
+condition 155 weather.condition.unknown Cloudy
+condition 156 weather.condition.unknown Cloudy
+condition 157 weather.condition.unknown Cloudy
+condition 158 weather.condition.unknown Cloudy
+condition 159 weather.condition.unknown Cloudy
+condition 160 weather.condition.unknown Cloudy
+condition 161 weather.condition.unknown Cloudy
+condition 162 weather.condition.unknown Cloudy
+condition 163 weather.condition.unknown Cloudy
+condition 164 weather.condition.unknown Cloudy
+condition 165 weather.condition.unknown Cloudy
+condition 166 weather.condition.unknown Cloudy
+condition 167 weather.condition.unknown Cloudy
+condition 168 weather.condition.unknown Cloudy
+condition 169 weather.condition.unknown Cloudy
+condition 170 weather.condition.unknown Cloudy
+condition 171 weather.condition.unknown Cloudy
+condition 172 weather.condition.unknown Cloudy
+condition 173 weather.condition.unknown Cloudy
+condition 174 weather.condition.unknown Cloudy
+condition 175 weather.condition.unknown Cloudy
+condition 176 weather.condition.unknown Cloudy
+condition 177 weather.condition.unknown Cloudy
+condition 178 weather.condition.unknown Cloudy
+condition 179 weather.condition.unknown Cloudy
+condition 180 weather.condition.unknown Cloudy
+condition 181 weather.condition.unknown Cloudy
+condition 182 weather.condition.unknown Cloudy
+condition 183 weather.condition.unknown Cloudy
+condition 184 weather.condition.unknown Cloudy
+condition 185 weather.condition.unknown Cloudy
+condition 186 weather.condition.unknown Cloudy
+condition 187 weather.condition.unknown Cloudy
+condition 188 weather.condition.unknown Cloudy
+condition 189 weather.condition.unknown Cloudy
+condition 190 weather.condition.unknown Cloudy
+condition 191 weather.condition.unknown Cloudy
+condition 192 weather.condition.unknown Cloudy
+condition 193 weather.condition.unknown Cloudy
+condition 194 weather.condition.unknown Cloudy
+condition 195 weather.condition.unknown Cloudy
+condition 196 weather.condition.unknown Cloudy
+condition 197 weather.condition.unknown Cloudy
+condition 198 weather.condition.unknown Cloudy
+condition 199 weather.condition.unknown Cloudy
+condition 200 weather.condition.unknown Cloudy
+condition 201 weather.condition.unknown Cloudy
+condition 202 weather.condition.unknown Cloudy
+condition 203 weather.condition.unknown Cloudy
+condition 204 weather.condition.unknown Cloudy
+condition 205 weather.condition.unknown Cloudy
+condition 206 weather.condition.unknown Cloudy
+condition 207 weather.condition.unknown Cloudy
+condition 208 weather.condition.unknown Cloudy
+condition 209 weather.condition.unknown Cloudy
+condition 210 weather.condition.unknown Cloudy
+condition 211 weather.condition.unknown Cloudy
+condition 212 weather.condition.unknown Cloudy
+condition 213 weather.condition.unknown Cloudy
+condition 214 weather.condition.unknown Cloudy
+condition 215 weather.condition.unknown Cloudy
+condition 216 weather.condition.unknown Cloudy
+condition 217 weather.condition.unknown Cloudy
+condition 218 weather.condition.unknown Cloudy
+condition 219 weather.condition.unknown Cloudy
+condition 220 weather.condition.unknown Cloudy
+condition 221 weather.condition.unknown Cloudy
+condition 222 weather.condition.unknown Cloudy
+condition 223 weather.condition.unknown Cloudy
+condition 224 weather.condition.unknown Cloudy
+condition 225 weather.condition.unknown Cloudy
+condition 226 weather.condition.unknown Cloudy
+condition 227 weather.condition.unknown Cloudy
+condition 228 weather.condition.unknown Cloudy
+condition 229 weather.condition.unknown Cloudy
+condition 230 weather.condition.unknown Cloudy
+condition 231 weather.condition.unknown Cloudy
+condition 232 weather.condition.unknown Cloudy
+condition 233 weather.condition.unknown Cloudy
+condition 234 weather.condition.unknown Cloudy
+condition 235 weather.condition.unknown Cloudy
+condition 236 weather.condition.unknown Cloudy
+condition 237 weather.condition.unknown Cloudy
+condition 238 weather.condition.unknown Cloudy
+condition 239 weather.condition.unknown Cloudy
+condition 240 weather.condition.unknown Cloudy
+condition 241 weather.condition.unknown Cloudy
+condition 242 weather.condition.unknown Cloudy
+condition 243 weather.condition.unknown Cloudy
+condition 244 weather.condition.unknown Cloudy
+condition 245 weather.condition.unknown Cloudy
+condition 246 weather.condition.unknown Cloudy
+condition 247 weather.condition.unknown Cloudy
+condition 248 weather.condition.unknown Cloudy
+condition 249 weather.condition.unknown Cloudy
+condition 250 weather.condition.unknown Cloudy
+condition 251 weather.condition.unknown Cloudy
+condition 252 weather.condition.unknown Cloudy
+condition 253 weather.condition.unknown Cloudy
+condition 254 weather.condition.unknown Cloudy
+condition 255 weather.condition.unknown Cloudy
+degrees Celsius -2147483648 -214748365 Ok("-214748365°C") Ok("-214748365°")
+degrees Celsius -5000 -500 Ok("-500°C") Ok("-500°")
+degrees Celsius -355 -36 Ok("-36°C") Ok("-36°")
+degrees Celsius -35 -4 Ok("-4°C") Ok("-4°")
+degrees Celsius -5 -1 Ok("-1°C") Ok("-1°")
+degrees Celsius -4 0 Ok("0°C") Ok("0°")
+degrees Celsius 0 0 Ok("0°C") Ok("0°")
+degrees Celsius 4 0 Ok("0°C") Ok("0°")
+degrees Celsius 5 1 Ok("1°C") Ok("1°")
+degrees Celsius 6 1 Ok("1°C") Ok("1°")
+degrees Celsius 35 4 Ok("4°C") Ok("4°")
+degrees Celsius 355 36 Ok("36°C") Ok("36°")
+degrees Celsius 1000 100 Ok("100°C") Ok("100°")
+degrees Celsius 4000 400 Ok("400°C") Ok("400°")
+degrees Celsius 2147483647 214748365 Ok("214748365°C") Ok("214748365°")
+degrees Fahrenheit -2147483648 -386547025 Ok("-386547025°F") Ok("-386547025°")
+degrees Fahrenheit -5000 -868 Ok("-868°F") Ok("-868°")
+degrees Fahrenheit -355 -32 Ok("-32°F") Ok("-32°")
+degrees Fahrenheit -35 26 Ok("26°F") Ok("26°")
+degrees Fahrenheit -5 31 Ok("31°F") Ok("31°")
+degrees Fahrenheit -4 31 Ok("31°F") Ok("31°")
+degrees Fahrenheit 0 32 Ok("32°F") Ok("32°")
+degrees Fahrenheit 4 33 Ok("33°F") Ok("33°")
+degrees Fahrenheit 5 33 Ok("33°F") Ok("33°")
+degrees Fahrenheit 6 33 Ok("33°F") Ok("33°")
+degrees Fahrenheit 35 38 Ok("38°F") Ok("38°")
+degrees Fahrenheit 355 96 Ok("96°F") Ok("96°")
+degrees Fahrenheit 1000 212 Ok("212°F") Ok("212°")
+degrees Fahrenheit 4000 752 Ok("752°F") Ok("752°")
+degrees Fahrenheit 2147483647 386547088 Ok("386547088°F") Ok("386547088°")
+wind weather.speed.kmh -2147483648 -214748365
+wind weather.speed.kmh -5000 -500
+wind weather.speed.kmh -355 -36
+wind weather.speed.kmh -35 -4
+wind weather.speed.kmh -5 -1
+wind weather.speed.kmh -4 0
+wind weather.speed.kmh 0 0
+wind weather.speed.kmh 4 0
+wind weather.speed.kmh 5 1
+wind weather.speed.kmh 6 1
+wind weather.speed.kmh 35 4
+wind weather.speed.kmh 355 36
+wind weather.speed.kmh 1000 100
+wind weather.speed.kmh 4000 400
+wind weather.speed.kmh 2147483647 214748365
+wind weather.speed.mph -2147483648 -133466976
+wind weather.speed.mph -5000 -311
+wind weather.speed.mph -355 -22
+wind weather.speed.mph -35 -2
+wind weather.speed.mph -5 0
+wind weather.speed.mph -4 0
+wind weather.speed.mph 0 0
+wind weather.speed.mph 4 0
+wind weather.speed.mph 5 0
+wind weather.speed.mph 6 0
+wind weather.speed.mph 35 2
+wind weather.speed.mph 355 22
+wind weather.speed.mph 1000 62
+wind weather.speed.mph 4000 249
+wind weather.speed.mph 2147483647 133466976
+wind weather.speed.ms -2147483648 -59652324
+wind weather.speed.ms -5000 -139
+wind weather.speed.ms -355 -10
+wind weather.speed.ms -35 -1
+wind weather.speed.ms -5 0
+wind weather.speed.ms -4 0
+wind weather.speed.ms 0 0
+wind weather.speed.ms 4 0
+wind weather.speed.ms 5 0
+wind weather.speed.ms 6 0
+wind weather.speed.ms 35 1
+wind weather.speed.ms 355 10
+wind weather.speed.ms 1000 28
+wind weather.speed.ms 4000 111
+wind weather.speed.ms 2147483647 59652324
+wind weather.speed.knots -2147483648 -115954841
+wind weather.speed.knots -5000 -270
+wind weather.speed.knots -355 -19
+wind weather.speed.knots -35 -2
+wind weather.speed.knots -5 0
+wind weather.speed.knots -4 0
+wind weather.speed.knots 0 0
+wind weather.speed.knots 4 0
+wind weather.speed.knots 5 0
+wind weather.speed.knots 6 0
+wind weather.speed.knots 35 2
+wind weather.speed.knots 355 19
+wind weather.speed.knots 1000 54
+wind weather.speed.knots 4000 216
+wind weather.speed.knots 2147483647 115954841
+every "weather.every.1" 3600
+every "" 3600
+every "weather.every.0" 3600
+every "weather.every.99" 86400
+every "x" 3600
+timing 3600 None true 0 60 900 None
+timing 3600 Some(-5) true 0 60 900 Some(false)
+timing 3600 Some(0) false 3600 3600 3600 Some(false)
+timing 3600 Some(59) false 3541 3541 3541 Some(false)
+timing 3600 Some(3599) false 1 60 900 Some(false)
+timing 3600 Some(3600) true 0 60 900 Some(false)
+timing 3600 Some(10000) true 0 60 900 Some(false)
+timing 3600 Some(40000) true 0 60 900 Some(true)
+timing 7200 None true 0 60 900 None
+timing 7200 Some(-5) true 0 60 900 Some(false)
+timing 7200 Some(0) false 7200 7200 7200 Some(false)
+timing 7200 Some(59) false 7141 7141 7141 Some(false)
+timing 7200 Some(3599) false 3601 3601 3601 Some(false)
+timing 7200 Some(3600) false 3600 3600 3600 Some(false)
+timing 7200 Some(10000) true 0 60 900 Some(false)
+timing 7200 Some(40000) true 0 60 900 Some(true)
+timing 21600 None true 0 60 900 None
+timing 21600 Some(-5) true 0 60 900 Some(false)
+timing 21600 Some(0) false 21600 21600 21600 Some(false)
+timing 21600 Some(59) false 21541 21541 21541 Some(false)
+timing 21600 Some(3599) false 18001 18001 18001 Some(false)
+timing 21600 Some(3600) false 18000 18000 18000 Some(false)
+timing 21600 Some(10000) false 11600 11600 11600 Some(false)
+timing 21600 Some(40000) true 0 60 900 Some(false)
+place "Berlin" "Land Berlin" "Germany" Ok("Land Berlin, Germany") Ok("52.52,13.41")
+place "Berlin" "Berlin" "Germany" Ok("Germany") Ok("52.52,13.41")
+place "Berlin" "" "Germany" Ok("Germany") Ok("52.52,13.41")
+place "Berlin" "Land Berlin" "" Ok("Land Berlin") Ok("52.52,13.41")
+place "Berlin" "" "" Ok("") Ok("52.52,13.41")
+forecast "{\"latitude\":52.52,\"longitude\":13.419998,\"generationtime_ms\":0.1659393310546875,\"utc_offset_seconds\":7200,\"timezone\":\"Europe/Berlin\",\"timezone_abbreviation\":\"GMT+2\",\"elevation\":38.0,\"current_units\":{\"time\":\"iso8601\",\"interval\":\"seconds\",\"temperature_2m\":\"°C\",\"apparent_temperature\":\"°C\",\"relative_humidity_2m\":\"%\",\"is_day\":\"\",\"weather_code\":\"wmo code\",\"wind_speed_10m\":\"km/h\"},\"current\":{\"time\":\"2026-10-14T10:30\",\"interval\":900,\"temperature_2m\":12.4,\"apparent_temperature\":9.8,\"relative_humidity_2m\":71,\"is_day\":1,\"weather_code\":2,\"wind_speed_10m\":15.4},\"daily_units\":{\"time\":\"iso8601\",\"weather_code\":\"wmo code\",\"temperature_2m_max\":\"°C\",\"temperature_2m_min\":\"°C\",\"precipitation_probability_max\":\"%\",\"sunrise\":\"iso8601\",\"sunset\":\"iso8601\"},\"daily\":{\"time\":[\"2026-10-14\",\"2026-10-15\",\"2026-10-16\",\"2026-10-17\",\"2026-10-18\",\"2026-10-19\",\"2026-10-20\"],\"weather_code\":[2,61,80,71,3,0,95],\"temperature_2m_max\":[14.5,11.2,9.8,3.1,8.6,13.0,15.7],\"temperature_2m_min\":[6.2,5.1,2.4,-1.2,0.8,4.3,9.1],\"precipitation_probability_max\":[10,85,60,null,15,0,70],\"sunrise\":[\"2026-10-14T07:23\",\"2026-10-15T07:25\",\"2026-10-16T07:27\",\"2026-10-17T07:28\",\"2026-10-18T07:30\",\"2026-10-19T07:32\",\"2026-10-20T07:34\"],\"sunset\":[\"2026-10-14T18:12\",\"2026-10-15T18:10\",\"2026-10-16T18:07\",\"2026-10-17T18:05\",\"2026-10-18T18:03\",\"2026-10-19T18:01\",\"2026-10-20T17:59\"]}}\n" Some("1760000000 \"52.52,13.41\" Some((124, Some(98), Some(71), 2, Some(154), true)) [(20740, 2, 145, 62, Some(10), Some(443), Some(1092)), (20741, 61, 112, 51, Some(85), Some(445), Some(1090)), (20742, 80, 98, 24, Some(60), Some(447), Some(1087)), (20743, 71, 31, -12, None, Some(448), Some(1085)), (20744, 3, 86, 8, Some(15), Some(450), Some(1083)), (20745, 0, 130, 43, Some(0), Some(452), Some(1081)), (20746, 95, 157, 91, Some(70), Some(454), Some(1079))]")
+forecast "{\"daily\":{\"time\":[\"2026-10-01\",\"2026-10-02\",\"2026-10-03\",\"2026-10-04\",\"2026-10-05\",\"2026-10-06\",\"2026-10-07\",\"2026-10-08\"],\"weather_code\":[61,61,61,61,61,61,61,61],\"temperature_2m_max\":[12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34],\"temperature_2m_min\":[-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5],\"precipitation_probability_max\":[40,40,40,40,40,40,40,40],\"sunrise\":[\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\"],\"sunset\":[\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\"]}}" Some("1760000000 \"52.52,13.41\" None [(20727, 61, 123, -15, Some(40), Some(443), Some(1065)), (20728, 61, 123, -15, Some(40), Some(443), Some(1065)), (20729, 61, 123, -15, Some(40), Some(443), Some(1065)), (20730, 61, 123, -15, Some(40), Some(443), Some(1065)), (20731, 61, 123, -15, Some(40), Some(443), Some(1065)), (20732, 61, 123, -15, Some(40), Some(443), Some(1065)), (20733, 61, 123, -15, Some(40), Some(443), Some(1065)), (20734, 61, 123, -15, Some(40), Some(443), Some(1065))]")
+forecast "{\"daily\":{\"time\":[\"2026-10-01\",\"2026-10-02\",\"2026-10-03\",\"2026-10-04\",\"2026-10-05\",\"2026-10-06\",\"2026-10-07\",\"2026-10-08\",\"2026-10-09\",\"2026-10-10\",\"2026-10-11\",\"2026-10-12\",\"2026-10-13\",\"2026-10-14\",\"2026-10-15\",\"2026-10-16\",\"2026-10-17\",\"2026-10-18\",\"2026-10-19\",\"2026-10-20\"],\"weather_code\":[61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61,61],\"temperature_2m_max\":[12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34,12.34],\"temperature_2m_min\":[-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5,-1.5],\"precipitation_probability_max\":[40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40],\"sunrise\":[\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\"],\"sunset\":[\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\"]}}" Some("1760000000 \"52.52,13.41\" None [(20727, 61, 123, -15, Some(40), Some(443), Some(1065)), (20728, 61, 123, -15, Some(40), Some(443), Some(1065)), (20729, 61, 123, -15, Some(40), Some(443), Some(1065)), (20730, 61, 123, -15, Some(40), Some(443), Some(1065)), (20731, 61, 123, -15, Some(40), Some(443), Some(1065)), (20732, 61, 123, -15, Some(40), Some(443), Some(1065)), (20733, 61, 123, -15, Some(40), Some(443), Some(1065)), (20734, 61, 123, -15, Some(40), Some(443), Some(1065))]")
+forecast "{\"daily\":{\"time\":[\"2026-10-01\",\"2026-10-02\",\"2026-10-03\"],\"weather_code\":[61,61,61],\"temperature_2m_max\":[12.34,12.34,12.34],\"temperature_2m_min\":[-1.5,-1.5,-1.5],\"precipitation_probability_max\":[40,40,40],\"sunrise\":[\"2026-10-01T07:23\",\"2026-10-01T07:23\",\"2026-10-01T07:23\"],\"sunset\":[\"2026-10-01T17:45\",\"2026-10-01T17:45\",\"2026-10-01T17:45\"]}}" Some("1760000000 \"52.52,13.41\" None [(20727, 61, 123, -15, Some(40), Some(443), Some(1065)), (20728, 61, 123, -15, Some(40), Some(443), Some(1065)), (20729, 61, 123, -15, Some(40), Some(443), Some(1065))]")
+forecast "{\"current\":{\"temperature_2m\":12.34,\"weather_code\":61}}" Some("1760000000 \"52.52,13.41\" Some((123, None, None, 61, None, true)) []")
+forecast "{\"current\":{\"temperature_2m\":12.34}}" None
+forecast "{\"current\":{\"temperature_2m\":null,\"weather_code\":3,\"is_day\":0,\"wind_speed_10m\":15.5,\"relative_humidity_2m\":101,\"apparent_temperature\":-3.46}}" None
+forecast "{\"daily\":{\"time\":[\"2026-10-01\",\"bad\",\"2026-10-03\"],\"weather_code\":[1,2,3],\"temperature_2m_max\":[1,null,3],\"temperature_2m_min\":[0,0,0]}}" Some("1760000000 \"52.52,13.41\" None [(20727, 1, 10, 0, None, None, None), (20729, 3, 30, 0, None, None, None)]")
+forecast "{\"daily\":{\"time\":[\"2026-10-01\"],\"weather_code\":[null],\"temperature_2m_max\":[1],\"temperature_2m_min\":[0]}}" Some("1760000000 \"52.52,13.41\" None [(20727, 255, 10, 0, None, None, None)]")
+forecast "{\"error\":true,\"reason\":\"Latitude must be in range of -90 to 90\"}" None
+forecast "<html>Bad gateway</html>" None
+forecast "" None
+forecast "{" None
+places "{\"results\":[{\"id\":2950159,\"name\":\"Berlin\",\"latitude\":52.52437,\"longitude\":13.41053,\"elevation\":74.0,\"feature_code\":\"PPLC\",\"country_code\":\"DE\",\"admin1_id\":2950157,\"admin3_id\":6547383,\"admin4_id\":6547539,\"timezone\":\"Europe/Berlin\",\"population\":3426354,\"postcodes\":[\"10967\",\"13347\"],\"country_id\":2921044,\"country\":\"Deutschland\",\"admin1\":\"Land Berlin\",\"admin3\":\"Berlin, Stadt\",\"admin4\":\"Berlin\"},{\"id\":2950158,\"name\":\"Berlin\",\"latitude\":54.03657,\"longitude\":10.44987,\"elevation\":38.0,\"feature_code\":\"PPL\",\"country_code\":\"DE\",\"admin1_id\":2838632,\"timezone\":\"Europe/Berlin\",\"population\":800,\"country_id\":2921044,\"country\":\"Deutschland\",\"admin1\":\"Schleswig-Holstein\",\"admin2\":\"Kreis Segeberg\"},{\"id\":5083330,\"name\":\"Berlin\",\"latitude\":44.46867,\"longitude\":-71.18508,\"elevation\":311.0,\"feature_code\":\"PPL\",\"country_code\":\"US\",\"timezone\":\"America/New_York\",\"population\":9367,\"country_id\":6252001,\"country\":\"Vereinigte Staaten\"},{\"id\":1,\"name\":\"Nowhere\",\"latitude\":null,\"longitude\":null}],\"generationtime_ms\":0.7360935}\n" [("Berlin", "Land Berlin", "Deutschland", "52.52", "13.41"), ("Berlin", "Schleswig-Holstein", "Deutschland", "54.03", "10.44"), ("Berlin", "", "Vereinigte Staaten", "44.46", "-71.18")]
+places "{\"results\":[{\"name\":\"Place 0\",\"latitude\":0.123,\"longitude\":-0.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 1\",\"latitude\":1.123,\"longitude\":-1.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 2\",\"latitude\":2.123,\"longitude\":-2.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 3\",\"latitude\":3.123,\"longitude\":-3.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 4\",\"latitude\":4.123,\"longitude\":-4.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 5\",\"latitude\":5.123,\"longitude\":-5.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 6\",\"latitude\":6.123,\"longitude\":-6.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 7\",\"latitude\":7.123,\"longitude\":-7.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 8\",\"latitude\":8.123,\"longitude\":-8.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 9\",\"latitude\":9.123,\"longitude\":-9.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 10\",\"latitude\":10.123,\"longitude\":-10.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 11\",\"latitude\":11.123,\"longitude\":-11.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 12\",\"latitude\":12.123,\"longitude\":-12.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 13\",\"latitude\":13.123,\"longitude\":-13.987,\"admin1\":\"Region\",\"country\":\"Land\"},{\"name\":\"Place 14\",\"latitude\":14.123,\"longitude\":-14.987,\"admin1\":\"Region\",\"country\":\"Land\"}]}" [("Place 0", "Region", "Land", "0.12", "-0.98"), ("Place 1", "Region", "Land", "1.12", "-1.98"), ("Place 2", "Region", "Land", "2.12", "-2.98"), ("Place 3", "Region", "Land", "3.12", "-3.98"), ("Place 4", "Region", "Land", "4.12", "-4.98"), ("Place 5", "Region", "Land", "5.12", "-5.98"), ("Place 6", "Region", "Land", "6.12", "-6.98"), ("Place 7", "Region", "Land", "7.12", "-7.98"), ("Place 8", "Region", "Land", "8.12", "-8.98"), ("Place 9", "Region", "Land", "9.12", "-9.98")]
+places "{\"results\":[{\"name\":\"\",\"latitude\":1,\"longitude\":2},{\"name\":\"Far\",\"latitude\":91,\"longitude\":2},{\"name\":\"Ok\",\"latitude\":\" 5.5 \",\"longitude\":6}]}" [("Ok", "", "", "5.5", "6")]
+places "{\"results\":[{\"name\":\"No coordinates\"}]}" []
+places "{\"generationtime_ms\":0.5}" []
+places "<html></html>" []
+places "" []
+forecast-cuts ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+search-cuts 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333
+long 120 80 80
