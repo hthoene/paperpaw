@@ -2798,6 +2798,7 @@ dependencies = [
  "paperpaw-digest",
  "paperpaw-graphics",
  "paperpaw-hyphen",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-update",
