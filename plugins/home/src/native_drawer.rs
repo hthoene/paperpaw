@@ -25,7 +25,9 @@ use paperpaw_sdk::{
     widgets::grid as sdk_grid,
 };
 use paperpaw_ui_kit::{
-    Messages, Page, Paint, Style, header, mem::{SERVICE_BUFFER, buffer, push}, paint,
+    Messages, Page, Paint, Style, header,
+    mem::{SERVICE_BUFFER, buffer, push},
+    paint,
 };
 
 use crate::native_dashboard::{redraw, ring};
@@ -296,7 +298,11 @@ impl Drawer {
         if self.shown && len > 0 {
             let at = self.focus.min(len - 1);
             if grid.place(at).0 == page {
-                ring(&mut above, grid.cell(grid.place(at).1).inset(0, air), &style)?;
+                ring(
+                    &mut above,
+                    grid.cell(grid.place(at).1).inset(0, air),
+                    &style,
+                )?;
             }
         }
         paint::replay_icons(
