@@ -644,6 +644,8 @@ mod cast;
 mod deadline;
 #[path = "tests/file.rs"]
 mod file;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/tls.rs"]
 mod tls;
 

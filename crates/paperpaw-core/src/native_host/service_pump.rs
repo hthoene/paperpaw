@@ -183,4 +183,4 @@ impl crate::Kernel {
 
 #[cfg(test)]
 #[path = "service_pump_tests.rs"]
-mod tests;
+pub(crate) mod tests;

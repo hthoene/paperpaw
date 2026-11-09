@@ -104,14 +104,15 @@ impl ServiceEvents for Service {
     }
 }
 
-struct Fixture {
-    instances: NativeInstances,
-    keys: Vec<u64>,
-    seen: Vec<Rc<RefCell<Vec<Vec<u8>>>>>,
+pub(crate) struct Fixture {
+    pub(crate) instances: NativeInstances,
+    pub(crate) keys: Vec<u64>,
+    /// The bytes each plugin's `service_event` was given.
+    pub(crate) seen: Vec<Rc<RefCell<Vec<Vec<u8>>>>>,
     plugins: Vec<Rc<Cell<Result<i32, i32>>>>,
 }
 
-fn fixture(count: usize) -> Fixture {
+pub(crate) fn fixture(count: usize) -> Fixture {
     let mut instances = NativeInstances::default();
     let (mut keys, mut seen, mut plugins) = (Vec::new(), Vec::new(), Vec::new());
     for n in 0..count {
@@ -138,6 +139,15 @@ fn fixture(count: usize) -> Fixture {
 
 fn run(f: &Fixture, service: &Service) -> bool {
     run_at(f, service, 0)
+}
+
+/// One pass of the real pump over `services`, at time 0.
+pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 2]) -> bool {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    pump(&f.instances, &services, &env)
 }
 
 fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {

@@ -15,6 +15,8 @@ use std::{collections::BTreeMap, string::ToString};
 mod admission;
 #[path = "tests/deadline.rs"]
 mod deadline;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/requests.rs"]
 mod requests;
 #[path = "tests/serving.rs"]
