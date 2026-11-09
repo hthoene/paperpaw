@@ -19,8 +19,7 @@ use super::registrations::{
     EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG,
     EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
     EVENT_TICK_TAG, EVENT_WIFI_CHANGED_TAG, EventBatteryMeasured, EventPageTurned, EventResume,
-    EventStarted, EventStopping, EventSuspend,
-    REGISTRATION_MAX_RECORDS, Record,
+    EventStarted, EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
