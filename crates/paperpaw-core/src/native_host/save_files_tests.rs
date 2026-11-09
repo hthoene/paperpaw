@@ -96,7 +96,7 @@ fn saves(card: &Rc<Card>) -> SaveFiles {
 /// A claimed save with `new` staged and the old file in place.
 fn staged_save(card: &Rc<Card>, saves: &SaveFiles) {
     card.files.write(TARGET, b"old").unwrap();
-    saves.claim(OWNER, TARGET, STAGED, true).unwrap();
+    saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true).unwrap();
     saves.begin(OWNER, TARGET, STAGED).unwrap();
     saves.append(STAGED, b"new bytes").unwrap();
 }
@@ -105,7 +105,7 @@ fn staged_save(card: &Rc<Card>, saves: &SaveFiles) {
 fn a_claim_is_refused_under_any_spelling_and_for_the_owner_too_where_exclusive() {
     let card = Card::new();
     let saves = saves(&card);
-    saves.claim(OWNER, TARGET, STAGED, true).unwrap();
+    saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true).unwrap();
     // Another spelling of the same file (FAT folds non-ASCII case), either
     // name, any plugin, and the owner itself when exclusive.
     for (owner, target, staged) in [
@@ -114,20 +114,30 @@ fn a_claim_is_refused_under_any_spelling_and_for_the_owner_too_where_exclusive()
         (8, "Books/other.epub", STAGED),
         (8, TARGET, "Books/other.pp-staged"),
     ] {
-        assert_eq!(saves.claim(owner, target, staged, true), Err(ERR_BUSY));
+        assert_eq!(
+            saves.claim(owner, 1, target, target, staged, true),
+            Err(ERR_BUSY)
+        );
     }
     // Not exclusive: another plugin is still refused, in any spelling.
     assert_eq!(
-        saves.claim(8, "books/äpfel.EPUB", "books/äpfel.epub.PP-STAGED", false),
+        saves.claim(
+            8,
+            1,
+            "books/äpfel.EPUB",
+            "books/äpfel.EPUB",
+            "books/äpfel.epub.PP-STAGED",
+            false
+        ),
         Err(ERR_BUSY)
     );
     // Non-exclusive: the owner's own claim is no obstacle (NET replaces its
     // own request), the claims are counted.
-    assert_eq!(saves.claim(OWNER, TARGET, STAGED, false), Ok(()));
+    assert_eq!(saves.claim(OWNER, 1, TARGET, TARGET, STAGED, false), Ok(()));
     assert!(saves.release(OWNER, TARGET));
     assert!(saves.release(OWNER, TARGET));
     assert!(!saves.release(OWNER, TARGET), "nothing left");
-    assert_eq!(saves.claim(8, TARGET, STAGED, true), Ok(()));
+    assert_eq!(saves.claim(8, 1, TARGET, TARGET, STAGED, true), Ok(()));
 }
 
 #[test]
@@ -194,7 +204,7 @@ fn a_rename_that_fails_after_the_old_file_is_gone_keeps_the_temporary_as_the_onl
     assert_eq!(card.get(STAGED).unwrap(), b"new bytes", "left on the card");
     // The next save to the path replaces it.
     card.rename_fails.set(false);
-    saves.claim(OWNER, TARGET, STAGED, true).unwrap();
+    saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true).unwrap();
     saves.begin(OWNER, TARGET, STAGED).unwrap();
     assert_eq!(card.get(STAGED).unwrap(), b"", "a fresh one");
     assert!(!saves.is_kept(OWNER, TARGET));
@@ -208,7 +218,7 @@ fn a_write_that_fails_leaves_the_old_file_and_the_release_clears_up() {
     let card = Card::new();
     let saves = saves(&card);
     card.files.write(TARGET, b"old").unwrap();
-    saves.claim(OWNER, TARGET, STAGED, true).unwrap();
+    saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true).unwrap();
     saves.begin(OWNER, TARGET, STAGED).unwrap();
     card.append_fails.set(true);
     assert_eq!(saves.append(STAGED, b"x"), Err(StorageError::Full));
@@ -233,10 +243,128 @@ fn an_allocation_that_fails_in_a_claim_holds_nothing() {
         let card = Card::new();
         let saves = saves(&card);
         fail_nth(nth);
-        let claimed = saves.claim(OWNER, TARGET, STAGED, true);
+        let claimed = saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true);
         fail_nth(0);
         assert_eq!(claimed, Err(ERR_NO_MEMORY), "gate {nth}");
         assert!(!saves.release(OWNER, TARGET), "gate {nth}");
-        assert_eq!(saves.claim(8, TARGET, STAGED, true), Ok(()), "gate {nth}");
+        assert_eq!(
+            saves.claim(8, 1, TARGET, TARGET, STAGED, true),
+            Ok(()),
+            "gate {nth}"
+        );
     }
+}
+
+/// A save that failed its rename with the old file gone: the only copy is the
+/// staged file, whose claim then ends.
+fn lost_target(card: &Rc<Card>, saves: &SaveFiles) {
+    staged_save(card, saves);
+    card.rename_fails.set(true);
+    card.takes_target.set(true);
+    assert_eq!(saves.commit(OWNER, TARGET, STAGED), Err(StorageError::Io));
+    assert!(saves.release_at(OWNER, 1, TARGET));
+    card.takes_target.set(false);
+}
+
+#[test]
+fn a_kept_file_comes_back_at_the_next_claim_of_its_target_before_anything_replaces_it() {
+    let card = Card::new();
+    let saves = saves(&card);
+    lost_target(&card, &saves);
+    assert!(card.get(TARGET).is_none());
+    // The rename still fails: the copy stays, its claim is free.
+    saves.recover(Some(OWNER), None);
+    assert_eq!(card.get(STAGED).unwrap(), b"new bytes");
+    assert!(card.get(TARGET).is_none());
+    // The card works again: the next claim of the target restores it.
+    card.rename_fails.set(false);
+    saves.claim(OWNER, 1, TARGET, TARGET, STAGED, true).unwrap();
+    assert_eq!(
+        card.get(TARGET).unwrap(),
+        b"new bytes",
+        "restored, not replaced"
+    );
+    assert!(card.get(STAGED).is_none());
+}
+
+#[test]
+fn a_kept_file_comes_back_when_the_plugin_starts() {
+    let card = Card::new();
+    let saves = saves(&card);
+    lost_target(&card, &saves);
+    // Another plugin's start does not touch it.
+    card.rename_fails.set(false);
+    saves.recover(Some(8), None);
+    assert!(card.get(TARGET).is_none());
+    saves.recover(Some(OWNER), None);
+    assert_eq!(card.get(TARGET).unwrap(), b"new bytes");
+    assert!(card.get(STAGED).is_none());
+    // Nothing is left to try again.
+    card.files.remove(TARGET).unwrap();
+    saves.recover(None, None);
+    assert!(card.get(TARGET).is_none());
+}
+
+#[test]
+fn a_kept_file_whose_target_exists_again_is_stale_and_goes() {
+    let card = Card::new();
+    let saves = saves(&card);
+    lost_target(&card, &saves);
+    card.files.write(TARGET, b"newer").unwrap();
+    card.rename_fails.set(false);
+    saves.recover(Some(OWNER), None);
+    assert_eq!(card.get(TARGET).unwrap(), b"newer");
+    assert!(card.get(STAGED).is_none());
+}
+
+#[test]
+fn a_claim_ends_without_memory_and_without_leaving_the_file_or_the_claim() {
+    let card = Card::new();
+    let in_use = Rc::new(PathsInUse::default());
+    let saves = SaveFiles::new(card.clone(), in_use.clone());
+    staged_save(&card, &saves);
+    assert!(in_use.holds(TARGET, true));
+    // Every allocation is refused: the claim still goes.
+    fail_nth(1);
+    assert!(saves.release_at(OWNER, 1, TARGET));
+    assert!(
+        crate::native_host::net_service::gate().is_err(),
+        "no allocation was tried"
+    );
+    fail_nth(0);
+    assert!(!in_use.holds(TARGET, true) && !in_use.holds(STAGED, true));
+    assert!(card.get(STAGED).is_none(), "the staged file is removed");
+    saves.claim(8, 1, TARGET, TARGET, STAGED, true).unwrap();
+}
+
+#[test]
+fn a_plugin_whose_renames_keep_failing_is_refused_before_it_holds_more_kept_files() {
+    let card = Card::new();
+    let saves = saves(&card);
+    card.rename_fails.set(true);
+    card.takes_target.set(true);
+    for n in 0..MAX_KEPT {
+        let (target, staged) = (
+            std::format!("a{n}.epub"),
+            std::format!("a{n}.epub.pp-staged"),
+        );
+        card.files.write(&target, b"old").unwrap();
+        saves
+            .claim(OWNER, 1, &target, &target, &staged, true)
+            .unwrap();
+        saves.begin(OWNER, &target, &staged).unwrap();
+        saves.append(&staged, b"new").unwrap();
+        assert!(saves.commit(OWNER, &target, &staged).is_err());
+        assert!(saves.release_at(OWNER, 1, &target));
+    }
+    assert_eq!(
+        saves.claim(OWNER, 1, "b.epub", "b.epub", "b.epub.pp-staged", true),
+        Err(ERR_NO_MEMORY)
+    );
+    // The card works again: the kept ones come back and the claim is free.
+    card.rename_fails.set(false);
+    saves
+        .claim(OWNER, 1, "b.epub", "b.epub", "b.epub.pp-staged", true)
+        .unwrap();
+    assert_eq!(card.get("a0.epub").unwrap(), b"new");
 }

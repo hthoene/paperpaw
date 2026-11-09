@@ -339,6 +339,13 @@ impl Inner {
             if !up {
                 if now.saturating_sub(self.socks[index].waiting_since) >= NO_NETWORK_MS {
                     self.end(host, index, kind::FAILED, reason::NO_NETWORK, false);
+                } else if self.socks[index].tls.wanted && !self.socks[index].tls.lease {
+                    // It cannot connect: it does not stand at the head of the
+                    // queue for the TLS session meanwhile, and asks again when
+                    // the network is back.
+                    host.table()
+                        .pool
+                        .tls_drop(TlsHolder::Sock(self.socks[index].id));
                 }
                 continue;
             }

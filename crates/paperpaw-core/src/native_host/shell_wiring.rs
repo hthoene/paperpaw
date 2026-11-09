@@ -30,7 +30,7 @@ pub use net::{
     HttpDone, HttpHeaders, HttpJob, HttpReason, NetEnd, NetInputs, NetLimits, NetPowerEnd,
     NetReports, ServedDecision, ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
 pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
 
@@ -234,7 +234,9 @@ impl HostResources {
     /// Wires the families `wiring` names, once for the device.
     ///
     /// # Errors
-    /// `ERR_STATE` when one of them is wired already (nothing is wired then).
+    /// `ERR_STATE` when one of them is wired already, `ERR_INVALID` when
+    /// `core.net` and `core.sockets` name different network pools (nothing is
+    /// wired then).
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
@@ -244,6 +246,19 @@ impl HostResources {
             || (wiring.ui.is_some() && hosts.ui().is_some())
         {
             return Err(ERR_STATE);
+        }
+        // `core.net` and `core.sockets` share the device's one network pool: a
+        // wiring that names two shapes is refused before anything is wired.
+        if let (Some(net), Some(sockets)) = (&wiring.net, &wiring.sockets)
+            && (
+                net.pool_shape().0,
+                super::net_pool::NetPool::clamp_sessions(net.pool_shape().1),
+            ) != (
+                sockets.pool_shape().0,
+                super::net_pool::NetPool::clamp_sessions(sockets.pool_shape().1),
+            )
+        {
+            return Err(ERR_INVALID);
         }
         let mut wired = WiredHosts::default();
         if let Some(storage) = wiring.hyphenation {
@@ -257,7 +272,7 @@ impl HostResources {
         if let Some(inputs) = wiring.net {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
-            let pool = hosts.net_pool(bytes, sessions).clone();
+            let pool = hosts.net_pool(bytes, sessions)?.clone();
             let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
             hosts.wire_net(device.clone())?;
             wired.net = Some(NetReports(device));
@@ -265,7 +280,7 @@ impl HostResources {
         if let Some(inputs) = wiring.sockets {
             let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
             let (bytes, sessions) = inputs.pool_shape();
-            let pool = hosts.net_pool(bytes, sessions).clone();
+            let pool = hosts.net_pool(bytes, sessions)?.clone();
             let device = Rc::new(inputs.device(pool, hosts.in_use().clone(), owners));
             hosts.wire_sockets(device.clone())?;
             wired.sockets = Some(SockReports(device));

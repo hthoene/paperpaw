@@ -294,3 +294,28 @@ fn a_late_or_wrong_redirect_report_changes_nothing() {
     );
     assert!(pool.tls_holds(net(a)));
 }
+
+#[test]
+fn a_request_that_cannot_start_leaves_the_queue_for_the_session() {
+    let (pool, fake) = one_session();
+    assert_eq!(pool.tls_request(TlsHolder::Sock(1)), TlsLease::Held);
+    let a = request(&fake, OWNER, &get(1)).unwrap();
+    assert!(pool.tls_waiting(), "a waits for the session");
+    // The network goes while the session frees: a cannot start, so it must not
+    // stand at the head of the queue.
+    fake.network.set(false);
+    pool.tls_drop(TlsHolder::Sock(1));
+    tick(&fake).unwrap();
+    assert!(!pool.tls_waiting());
+    assert_eq!(
+        pool.tls_request(TlsHolder::Sock(2)),
+        TlsLease::Held,
+        "the free session goes to one that can use it"
+    );
+    pool.tls_drop(TlsHolder::Sock(2));
+    // The network is back: a asks again and starts.
+    fake.network.set(true);
+    tick(&fake).unwrap();
+    assert!(pool.tls_holds(net(a)));
+    assert_eq!(*fake.started.borrow(), [a]);
+}

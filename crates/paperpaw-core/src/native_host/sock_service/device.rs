@@ -143,14 +143,15 @@ impl SockHost for SockDevice {
         let (target, staged) = self.names(owner, root, path)?;
         // Exclusive: nobody holds the target or its staged file, the
         // plugin's own NET request included.
-        self.saves.claim(owner, &target, &staged, true)
+        self.saves.claim(owner, root, path, &target, &staged, true)
     }
 
     fn release_save(&self, owner: u64, root: u32, path: &str) {
-        let Ok(target) = self.paths.join_owned(owner, root, path) else {
-            return;
-        };
-        self.saves.release(owner, &target);
+        self.saves.release_at(owner, root, path);
+    }
+
+    fn recover_saves(&self, owner: u64) {
+        self.saves.recover(Some(owner), None);
     }
 
     fn staged_write(

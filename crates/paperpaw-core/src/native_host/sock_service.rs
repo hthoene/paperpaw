@@ -326,6 +326,9 @@ pub(crate) trait SockHost {
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// Remove the staged file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
+    /// The plugin started: a staged file kept after a failed rename is tried
+    /// again.
+    fn recover_saves(&self, _owner: u64) {}
     /// Append `data` to the staged file of `path` (`<path>.pp-staged`); `first` creates it empty first (an
     /// older staged file goes). Whole or an error.
     fn staged_write(
@@ -415,6 +418,12 @@ pub(crate) use table::{
     peer_closed, received, screen_closed, secured, tick, tls_failed, untrusted, work_ended,
     writable,
 };
+
+/// The plugin started: a staged file kept after a failed rename comes back.
+#[allow(dead_code, reason = "the kernel's start hook calls it; tests do today")]
+pub(crate) fn owner_started(host: &dyn SockHost, owner: u64) {
+    host.recover_saves(owner);
+}
 
 /// `connect` as a plugin calls it (a test's way in from the wiring).
 ///

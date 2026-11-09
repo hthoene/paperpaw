@@ -257,14 +257,11 @@ impl NetHost for NetDevice {
         let target = self.paths.join_owned(owner, root, path)?;
         let staged = staged_name(&target)?;
         // Another writer's path is not saved over; one's own, again, is.
-        self.saves.claim(owner, &target, &staged, false)
+        self.saves.claim(owner, root, path, &target, &staged, false)
     }
 
     fn release_save(&self, owner: u64, root: u32, path: &str) {
-        let Ok(target) = self.paths.join_owned(owner, root, path) else {
-            return;
-        };
-        self.saves.release(owner, &target);
+        self.saves.release_at(owner, root, path);
     }
 
     fn subscribed(&self, owner: u64, tag: u32) -> bool {
@@ -309,7 +306,9 @@ impl NetHost for NetDevice {
     fn clear_received(&self, owner: u64, server: Option<u32>) {
         self.clear_folder(owner, server);
         if server.is_none() {
-            // The owner's last cleanup (it started or stopped).
+            // The owner's last cleanup (it started or stopped): a staged file
+            // kept after a failed rename is tried again.
+            self.saves.recover(Some(owner), None);
             self.paths.forget(owner);
         }
     }

@@ -333,6 +333,7 @@ impl Inner {
                         r.net_wait = Some(now);
                     }
                 }
+                self.leave_tls_queue(host, index);
                 break;
             }
             let running = self
@@ -345,6 +346,7 @@ impl Inner {
             if running >= profile.connections
                 || (!r.saving && self.bodies() >= profile.memory_bodies)
             {
+                self.leave_tls_queue(host, index);
                 break;
             }
             // An https request starts only once it holds the TLS session, in
@@ -380,6 +382,18 @@ impl Inner {
                 self.reqs[index].state = State::Running;
             }
             index += 1;
+        }
+    }
+
+    /// The requests from `from` on cannot start now (no network, no room
+    /// for a connection or a body): the https ones among them give up their
+    /// place for the TLS session. One that cannot start must not stand at the
+    /// head of the queue while a session is free; it asks again when it can.
+    fn leave_tls_queue(&self, host: &dyn NetHost, from: usize) {
+        for r in self.reqs.iter().skip(from) {
+            if r.tls && r.state == State::Queued {
+                host.table().pool().tls_drop(TlsHolder::Net(r.id));
+            }
         }
     }
 

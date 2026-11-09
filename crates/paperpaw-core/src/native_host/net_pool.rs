@@ -185,6 +185,22 @@ impl NetPool {
         self.tls.get().holders.iter().flatten().count()
     }
 
+    /// The TLS sessions the device has.
+    pub(crate) const fn tls_sessions(&self) -> u8 {
+        self.tls_sessions
+    }
+
+    /// The sessions `with_tls_sessions` makes of a request for `wanted`.
+    pub(crate) const fn clamp_sessions(wanted: u8) -> u8 {
+        if wanted == 0 {
+            1
+        } else if wanted as usize > TLS_SESSIONS_MAX {
+            TLS_SESSIONS_MAX as u8
+        } else {
+            wanted
+        }
+    }
+
     /// The pool's size; 0 for a device without one.
     pub(crate) const fn capacity(&self) -> u32 {
         self.capacity

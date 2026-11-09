@@ -15,10 +15,13 @@ use super::{
     native_instances::NativeInstances,
     service_events::{EVENT_BUFFER, ServiceEvents},
 };
-use alloc::vec::Vec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::Env;
+
+/// The wait before the pump tries again for its buffer after it was refused
+/// (the buffer is made once, on the first pass with a service wired, and kept).
+const RETRY_MS: u64 = 2_000;
 
 /// Events of one service for one plugin in one pass.
 const PER_OWNER: usize = 4;
@@ -41,11 +44,25 @@ fn pump(
     if instances.depth() > 0 {
         return true;
     }
-    let mut buffer: Vec<u8> = Vec::new();
-    if buffer.try_reserve_exact(EVENT_BUFFER).is_err() {
-        return true;
+    let now = env.now().millis();
+    // Short of memory: the events wait, and the next try is not before
+    // `RETRY_MS`, so a device without the bytes does not run the pump in a loop.
+    if instances.service_retry().is_some_and(|at| now < at) {
+        return false;
     }
-    buffer.resize(EVENT_BUFFER, 0);
+    let Ok(mut buffer) = instances.service_buffer().try_borrow_mut() else {
+        return true;
+    };
+    if buffer.len() != EVENT_BUFFER {
+        let made =
+            super::net_service::gate().is_ok() && buffer.try_reserve_exact(EVENT_BUFFER).is_ok();
+        if !made {
+            instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
+            return false;
+        }
+        buffer.resize(EVENT_BUFFER, 0);
+    }
+    instances.set_service_retry(None);
     let mut more = false;
     let mut index = 0;
     while let Some((key, lease)) = instances.running_nth(index) {
@@ -107,6 +124,7 @@ impl crate::Kernel {
             .iter()
             .flatten()
             .filter_map(|service| service.next_deadline())
+            .chain(instances.service_retry())
             .min()
             .map(Instant)
     }

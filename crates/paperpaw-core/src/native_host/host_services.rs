@@ -289,18 +289,30 @@ impl HostServices {
     }
 
     /// The device's one network pool, made by the first wiring that names a
-    /// size and a number of TLS sessions; a later one is ignored (a device has one pool).
+    /// size and a number of TLS sessions. A device has one pool: a later
+    /// wiring that names another shape is refused, not ignored.
+    ///
+    /// # Errors
+    /// `ERR_INVALID` when the pool exists with another size or number of
+    /// sessions.
     pub(crate) fn net_pool(
         &self,
         capacity: u32,
         tls_sessions: u8,
-    ) -> &Rc<super::net_pool::NetPool> {
-        self.pool.get_or_init(|| {
+    ) -> Result<&Rc<super::net_pool::NetPool>, i32> {
+        let pool = self.pool.get_or_init(|| {
             Rc::new(super::net_pool::NetPool::with_tls_sessions(
                 capacity,
                 tls_sessions,
             ))
-        })
+        });
+        if pool.capacity() == capacity
+            && pool.tls_sessions() == super::net_pool::NetPool::clamp_sessions(tls_sessions)
+        {
+            Ok(pool)
+        } else {
+            Err(paperpaw_native::host_glue::ERR_INVALID)
+        }
     }
 
     /// The paths in use by host writers (shared with `core.files`' busy check).

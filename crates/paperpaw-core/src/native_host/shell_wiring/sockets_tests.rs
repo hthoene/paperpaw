@@ -13,7 +13,7 @@ use crate::native_host::{
 };
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_sdk::MemoryStorage;
 
 #[derive(Default)]
@@ -148,6 +148,56 @@ fn net_and_sockets_charge_one_pool_whichever_is_wired_first() {
         assert!(Rc::ptr_eq(net_pool, sock_pool), "one pool");
         assert_eq!(net_pool.capacity(), 49_152);
     }
+}
+
+struct NoHttp;
+impl ShellHttp for NoHttp {
+    fn start(&self, _: &HttpJob<'_>) -> Result<(), i32> {
+        Ok(())
+    }
+    fn abort(&self, _: u32) {}
+    fn listen(&self, _: u32, _: u32, _: &mut [u8]) -> Result<usize, ServerReason> {
+        Err(ServerReason::Refused)
+    }
+    fn unlisten(&self, _: u32) {}
+    fn reply(&self, _: u32, _: &ServedReply<'_>) -> Result<(), i32> {
+        Ok(())
+    }
+    fn close_served(&self, _: u32, _: u32) {}
+}
+
+fn net_inputs(shell: &Rc<Shell>, limits: NetLimits) -> NetInputs {
+    NetInputs::new(
+        Rc::new(MemoryStorage::new()),
+        Rc::new(NoHttp),
+        shell.clone(),
+        limits,
+    )
+}
+
+#[test]
+fn net_and_sockets_naming_two_pools_are_refused_and_nothing_is_wired() {
+    let resources = HostResources::try_new().unwrap();
+    let shell = Rc::new(Shell::default());
+    let (socks, _) = inputs(SockLimits::small(49_152), false);
+    let two = HostWiring::new()
+        .net(net_inputs(&shell, NetLimits::new(65_536, 2)))
+        .sockets(socks);
+    assert_eq!(resources.wire(two).err(), Some(ERR_INVALID));
+    assert!(resources.hosts().net().is_none() && resources.hosts().sockets().is_none());
+    // A pool made by an earlier wiring is not replaced by another shape.
+    resources
+        .wire(HostWiring::new().net(net_inputs(&shell, NetLimits::new(49_152, 2))))
+        .unwrap();
+    let (other, _) = inputs(SockLimits::small(65_536), false);
+    assert_eq!(
+        resources.wire(HostWiring::new().sockets(other)).err(),
+        Some(ERR_INVALID)
+    );
+    assert!(resources.hosts().sockets().is_none());
+    // The same shape joins the pool.
+    let (same, _) = inputs(SockLimits::small(49_152), false);
+    resources.wire(HostWiring::new().sockets(same)).unwrap();
 }
 
 /// A connected, open socket of plugin 7 `mail`.

@@ -145,6 +145,7 @@ fn fixture(tls: bool) -> Fixture {
         SockProfile::new(limits.sockets, limits.queue, limits.read),
         hosts
             .net_pool(limits.pool_bytes, limits.tls_sessions)
+            .unwrap()
             .clone(),
         hosts.in_use().clone(),
         owners.try_clone().unwrap(),
@@ -391,7 +392,14 @@ fn with_tls_in_the_shell_the_handshake_runs_through_it() {
     assert_eq!(drain(&f), [(kind::SECURED, 0)]);
     table::close(&f.device, OWNER, id).unwrap();
     assert_eq!(*f.shell.tls_ends.borrow(), [id]);
-    assert_eq!(f.hosts.net_pool(0, 0).tls_holder(), None);
+    let small = SockLimits::small(49_152);
+    assert_eq!(
+        f.hosts
+            .net_pool(small.pool_bytes, small.tls_sessions)
+            .unwrap()
+            .tls_holder(),
+        None
+    );
 }
 
 #[test]

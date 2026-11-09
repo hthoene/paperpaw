@@ -137,10 +137,14 @@ fn fixture(count: usize) -> Fixture {
 }
 
 fn run(f: &Fixture, service: &Service) -> bool {
+    run_at(f, service, 0)
+}
+
+fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.env(paperpaw_platform::Instant(ms));
     pump(&f.instances, &[Some(service), None], &env)
 }
 
@@ -252,4 +256,32 @@ fn no_wired_service_means_no_pass_and_no_buffer() {
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     assert!(!pump(&f.instances, &[None, None], &env));
+}
+
+#[test]
+fn a_refused_buffer_waits_for_its_retry_time_and_never_asks_for_an_immediate_pass() {
+    let f = fixture(1);
+    let service = Service::default();
+    queue(&service, f.keys[0], &[1]);
+    crate::native_host::net_service::fail_nth(1);
+    assert!(!run_at(&f, &service, 1_000), "no pass is asked for at once");
+    crate::native_host::net_service::fail_nth(0);
+    assert_eq!(f.instances.service_retry(), Some(1_000 + RETRY_MS));
+    assert!(
+        f.seen[0].borrow().is_empty(),
+        "the event waits, it is not lost"
+    );
+    // Before the retry time: nothing is tried, nothing delivered.
+    assert!(!run_at(&f, &service, 1_000 + RETRY_MS - 1));
+    assert!(f.seen[0].borrow().is_empty());
+    // After it the buffer is made, once, and the event comes.
+    assert!(!run_at(&f, &service, 1_000 + RETRY_MS));
+    assert_eq!(*f.seen[0].borrow(), [vec![1]]);
+    assert_eq!(f.instances.service_retry(), None);
+    // The buffer is kept: no second allocation.
+    queue(&service, f.keys[0], &[2]);
+    crate::native_host::net_service::fail_nth(1);
+    assert!(!run_at(&f, &service, 10_000));
+    crate::native_host::net_service::fail_nth(0);
+    assert_eq!(f.seen[0].borrow().len(), 2);
 }

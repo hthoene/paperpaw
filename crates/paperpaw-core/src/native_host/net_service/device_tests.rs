@@ -97,6 +97,7 @@ fn fixture(limits: NetLimits) -> Fixture {
     let device = NetInputs::new(card.clone(), shell.clone(), shell.clone(), limits).device(
         hosts
             .net_pool(limits.pool_bytes, limits.tls_sessions)
+            .unwrap()
             .clone(),
         hosts.in_use().clone(),
         owners.try_clone().unwrap(),

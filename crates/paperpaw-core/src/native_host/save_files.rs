@@ -8,7 +8,9 @@
 //! * a rename that fails with the target gone (the storage had taken the old
 //!   file away first) leaves the staged file where it is, because it then
 //!   holds the only copy of the answer. It is *kept*: the clean-up of the
-//!   request does not remove it; the next save to that path replaces it.
+//!   request does not remove it, and the host tries the rename again (at the
+//!   next claim of that target, and when the plugin starts); only when the
+//!   target exists again (a newer file) is the kept one dropped.
 //!
 //! Every allocation is fallible, and made when the claim is: a commit that
 //! fails never needs memory to keep the file.
@@ -18,14 +20,25 @@ use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::{Storage, StorageError};
 
+/// Kept staged files the table holds at most (a plugin whose renames keep
+/// failing is refused a further claim, not given more memory).
+const MAX_KEPT: usize = 8;
+
 /// One claimed save.
 struct Entry {
     owner: u64,
+    /// The root and path the plugin named, so that the claim ends without
+    /// building the target again (no memory is needed to let go).
+    root: u32,
+    rel: String,
     target: String,
     staged: String,
     /// The commit failed with the target gone: the staged file is the only
     /// copy and stays.
     kept: bool,
+    /// The claim has ended but the staged file is kept: only the file
+    /// remains, waiting for its rename.
+    orphan: bool,
 }
 
 /// The device's staged files over its storage and its table of paths in use.
@@ -64,6 +77,8 @@ impl SaveFiles {
     pub(crate) fn claim(
         &self,
         owner: u64,
+        root: u32,
+        rel: &str,
         target: &str,
         staged: &str,
         exclusive: bool,
@@ -75,11 +90,23 @@ impl SaveFiles {
         {
             return Err(ERR_BUSY);
         }
+        // A staged file kept after a failed rename comes back first, so that
+        // this save cannot be the one that replaces the only copy.
+        self.recover(Some(owner), Some(target));
+        if self.kept_count() >= MAX_KEPT {
+            self.recover(None, None);
+            if self.kept_count() >= MAX_KEPT {
+                return Err(ERR_NO_MEMORY);
+            }
+        }
         let entry = Entry {
             owner,
+            root,
+            rel: copy(rel)?,
             target: copy(target)?,
             staged: copy(staged)?,
             kept: false,
+            orphan: false,
         };
         let mut entries = self.entries.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
@@ -95,23 +122,70 @@ impl SaveFiles {
     /// The claim of `owner` on `target` ends; whether it held one. The staged
     /// file is removed, unless it was kept.
     pub(crate) fn release(&self, owner: u64, target: &str) -> bool {
+        self.release_where(|e| e.owner == owner && e.target == target)
+    }
+
+    /// The claim `owner` made for `root` and `path` ends, with no allocation:
+    /// a stopped plugin's claims go even when the device is out of memory.
+    pub(crate) fn release_at(&self, owner: u64, root: u32, path: &str) -> bool {
+        self.release_where(|e| e.owner == owner && e.root == root && e.rel == path)
+    }
+
+    fn release_where(&self, chosen: impl Fn(&Entry) -> bool) -> bool {
         let Ok(mut entries) = self.entries.try_borrow_mut() else {
             return false;
         };
-        let Some(at) = entries
-            .iter()
-            .position(|e| e.owner == owner && e.target == target)
-        else {
+        let Some(at) = entries.iter().position(|e| !e.orphan && chosen(e)) else {
             return false;
         };
-        let entry = entries.remove(at);
-        drop(entries);
-        self.in_use.release(owner, &entry.target);
-        self.in_use.release(owner, &entry.staged);
-        if !entry.kept {
+        self.in_use.release(entries[at].owner, &entries[at].target);
+        self.in_use.release(entries[at].owner, &entries[at].staged);
+        if entries[at].kept {
+            // The only copy stays, and so does its record: the rename is
+            // tried again.
+            entries[at].orphan = true;
+        } else {
+            let entry = entries.remove(at);
             self.storage.remove(&entry.staged).unwrap_or_default();
         }
         true
+    }
+
+    fn kept_count(&self) -> usize {
+        self.entries
+            .try_borrow()
+            .map_or(0, |entries| entries.iter().filter(|e| e.orphan).count())
+    }
+
+    /// Tries again the rename of the kept staged files of `owner` (all
+    /// owners: `None`) for `target` (all: `None`). A kept file whose target
+    /// exists again is stale and goes.
+    pub(crate) fn recover(&self, owner: Option<u64>, target: Option<&str>) {
+        let Ok(mut entries) = self.entries.try_borrow_mut() else {
+            return;
+        };
+        let mut at = 0;
+        while at < entries.len() {
+            let e = &entries[at];
+            let chosen = e.orphan
+                && owner.is_none_or(|o| o == e.owner)
+                && target.is_none_or(|t| t == e.target);
+            if !chosen {
+                at += 1;
+                continue;
+            }
+            let done = if self.storage.exists(&e.target) {
+                self.storage.remove(&e.staged).unwrap_or_default();
+                true
+            } else {
+                self.storage.rename(&e.staged, &e.target).is_ok()
+            };
+            if done {
+                entries.remove(at);
+            } else {
+                at += 1;
+            }
+        }
     }
 
     /// Removes the staged file of `owner`'s claim on `target` (best effort),
@@ -120,7 +194,7 @@ impl SaveFiles {
         let staged = self.entries.try_borrow().ok().and_then(|entries| {
             entries
                 .iter()
-                .find(|e| e.owner == owner && e.target == target && !e.kept)
+                .find(|e| e.owner == owner && e.target == target && !e.kept && !e.orphan)
                 .map(|e| copy(&e.staged))
         });
         if let Some(Ok(staged)) = staged {
@@ -175,7 +249,7 @@ impl SaveFiles {
         if let Ok(mut entries) = self.entries.try_borrow_mut()
             && let Some(e) = entries
                 .iter_mut()
-                .find(|e| e.owner == owner && e.target == target)
+                .find(|e| !e.orphan && e.owner == owner && e.target == target)
         {
             e.kept = kept;
         }

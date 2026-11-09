@@ -151,6 +151,10 @@ pub(crate) struct NativeInstances {
     orphan_failure_reported: Cell<bool>,
     /// The event pump left events for another pass (see `service_pump`).
     service_more: Cell<bool>,
+    /// The pump's event buffer, made once (see `service_pump`), and when it
+    /// may try again after a refusal.
+    service_buffer: core::cell::RefCell<Vec<u8>>,
+    service_retry: Cell<Option<u64>>,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
@@ -569,6 +573,18 @@ impl NativeInstances {
     /// Whether the last event pass left events for another.
     pub(crate) fn service_more(&self) -> bool {
         self.service_more.get()
+    }
+
+    pub(crate) fn service_buffer(&self) -> &core::cell::RefCell<Vec<u8>> {
+        &self.service_buffer
+    }
+
+    pub(crate) fn service_retry(&self) -> Option<u64> {
+        self.service_retry.get()
+    }
+
+    pub(crate) fn set_service_retry(&self, at: Option<u64>) {
+        self.service_retry.set(at);
     }
 
     pub(crate) fn set_service_more(&self, more: bool) {
