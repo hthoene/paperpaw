@@ -21,6 +21,7 @@ pub mod imap;
 pub mod job;
 pub mod link;
 pub mod mem;
+pub mod provider;
 pub mod reader;
 pub mod render;
 pub mod session;

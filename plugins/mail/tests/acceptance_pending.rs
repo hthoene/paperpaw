@@ -20,9 +20,9 @@ fn a_connection_ends_with_the_screen_that_opened_it() {
 }
 
 #[test]
-#[ignore = "needs the settings facade for writes and the SettingChanged event: choosing a provider fills in the servers"]
+#[ignore = "needs a scripted host (#944) that delivers event.setting_changed and takes the staged settings: what to set is tested in tests/native_provider.rs, the plugin stages it in fill_in"]
 fn choosing_a_provider_or_typing_a_known_address_fills_in_the_servers() {
-    unreachable!("provider::commands writes the server, port and security settings");
+    unreachable!("fill_in stages the server, port and security settings");
 }
 
 #[test]

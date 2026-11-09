@@ -4,18 +4,19 @@
 //! from `core.secrets` when a connection is made. The screens, the lists and the
 //! widgets follow (see `PORTING-7.md`); the interface-6 plugin is still in place
 //! beside this one.
-use crate::declarations::{OPEN_TOKEN, SOCKET_TOKEN, WRITE_TOKEN};
+use crate::declarations::{OPEN_TOKEN, SETTING_TOKEN, SOCKET_TOKEN, WRITE_TOKEN};
 use crate::native_model::{
     account::Account,
     job::{Job, Run},
     link::Notice,
     mem::Error as MailError,
+    provider::{self, Set},
     session::{Outgoing, Task},
 };
 use crate::native_reader::{READ_TOKEN, Reading};
 use crate::native_screens::{Asked, BOXES_TOKEN, Check, LIST_TOKEN, View};
 use crate::native_socket::HostNet;
-use crate::native_values::HostValues;
+use crate::native_values::{HostValues, SettingValues};
 use crate::native_writer::{COMPOSE_TOKEN, Writing};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -28,6 +29,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         secrets::Secrets,
+        settings::SettingValue,
         sockets::{SocketId, Sockets},
         storage::DataStorage,
         ui::{Instance, Open, Ui},
@@ -85,7 +87,7 @@ impl Plugin for NativeMail {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::SettingChanged)
         else {
             return Ok(());
         };
@@ -145,6 +147,7 @@ impl Plugin for NativeMail {
                 Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::SettingChanged { key, .. } if token == SETTING_TOKEN => fill_in(host, key),
             _ => Ok(()),
         }
     }
@@ -171,6 +174,22 @@ impl Plugin for NativeMail {
         }
         self.input_list(host, token, &input)
     }
+}
+
+/// A provider chosen, or an address a provider is known by typed: set its
+/// servers (the host announces a change of ours too, so what this sets is told
+/// again and finds nothing more to set).
+fn fill_in(host: &Host<'_>, key: &str) -> Result<(), Error> {
+    let changes = provider::after_change(&SettingValues(host), key)?;
+    let mut scratch = [0; 512];
+    for (id, value) in &changes {
+        let value = match value {
+            Set::Text(text) => SettingValue::Text(text),
+            Set::Int(number) => SettingValue::Int(*number),
+        };
+        CommandSender::new(host, &mut scratch).set_setting(id, value)?;
+    }
+    Ok(())
 }
 
 impl NativeMail {

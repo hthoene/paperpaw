@@ -186,8 +186,14 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   checks again when it shows; a screen that closes closes its socket. An untrusted server is asked about once with
   `Question::confirm` (Trust, Don't trust) and the key is kept as the account's pin setting (`set_setting`) when the reader
   trusts it; a provider's server or a changed key is only said, as in interface 6. The Tools entry opens *Mail*.
+- **The provider fill-in** (slice 10): Mail subscribes to `event.setting_changed` (token 3). A change of `mail.N.provider`
+  to a provider sets its servers, ports, securities and empties the pins; an address a provider is known by sets them and
+  the provider where the provider is *own* and no IMAP server is set (`native_model/provider.rs`, the interface-6
+  `provider.rs` with fallible allocation). The values are read with `settings.read` alone, so a device that keeps no
+  secrets fills in too. The host announces a change Mail made itself too; what it sets is told again and finds nothing more
+  to set. An empty key ("read again") sets nothing: the fill-in reacts to what the reader chose.
 - *Write a mail* opens the compose window of slice 9. **Mail stays out of `NATIVE_PLUGINS` and `complete.txt`** until the
-  provider fill-in, the widgets and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
+  widgets and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
   a native plugin end to end yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks,
   the words and the times are tested without one.
 - Interface 7 has no event for a screen of another plugin put above one of Mail's, so a connection is not let go then as
@@ -251,7 +257,7 @@ draft and outbox paths equal to interface 6's `store::draft_file` and `store::ou
 | Piece | Waits for |
 | --- | --- |
 | A connection started by a screen and ending with it (the list screens do it) | a scripted host with `core.ui`, sockets and storage (#944) |
-| Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
+| Choosing a provider fills in the servers: written (`native_model/provider.rs`, `fill_in` in `native_plugin.rs`); what the host does with the event end to end is not run | a scripted host (#944); `event.setting_changed` itself is Core #763 |
 | The store of what was fetched is called by the sessions and the screens (done) | a scripted host (#944) |
 | The five home widgets and their settings | the widget host call (Core todo 76) |
 | The question *Trust this server?* (asked by the list screens) | a scripted host with `core.ui` (#944) |

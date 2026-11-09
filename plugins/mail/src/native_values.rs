@@ -24,22 +24,48 @@ pub(crate) struct HostValues<'h> {
     pub(crate) secrets: &'h Secrets,
 }
 
-impl Values for HostValues<'_> {
+fn read_text(host: &Host<'_>, id: &str) -> Result<String, Error> {
+    let mut bytes = [0u8; TEXT];
+    match settings::read_setting(host, id, &mut bytes)? {
+        SettingValue::Text(text) => copy(text),
+        // Unset, or not a text: nothing.
+        _ => Ok(String::new()),
+    }
+}
+
+fn read_int(host: &Host<'_>, id: &str) -> Result<i64, Error> {
+    let mut bytes = [0u8; 64];
+    match settings::read_setting(host, id, &mut bytes)? {
+        SettingValue::Int(value) => Ok(value),
+        _ => Ok(0),
+    }
+}
+
+/// The settings alone, where no secret is needed (the provider fill-in): it
+/// works on a device that keeps no secrets.
+pub(crate) struct SettingValues<'h>(pub(crate) &'h Host<'h>);
+
+impl Values for SettingValues<'_> {
     fn text(&self, id: &str) -> Result<String, Error> {
-        let mut bytes = [0u8; TEXT];
-        match settings::read_setting(self.host, id, &mut bytes)? {
-            SettingValue::Text(text) => copy(text),
-            // Unset, or not a text: nothing.
-            _ => Ok(String::new()),
-        }
+        read_text(self.0, id)
     }
 
     fn int(&self, id: &str) -> Result<i64, Error> {
-        let mut bytes = [0u8; 64];
-        match settings::read_setting(self.host, id, &mut bytes)? {
-            SettingValue::Int(value) => Ok(value),
-            _ => Ok(0),
-        }
+        read_int(self.0, id)
+    }
+
+    fn secret(&self, _: &str) -> Result<Option<Secret>, Error> {
+        Ok(None)
+    }
+}
+
+impl Values for HostValues<'_> {
+    fn text(&self, id: &str) -> Result<String, Error> {
+        read_text(self.host, id)
+    }
+
+    fn int(&self, id: &str) -> Result<i64, Error> {
+        read_int(self.host, id)
     }
 
     fn secret(&self, id: &str) -> Result<Option<Secret>, Error> {

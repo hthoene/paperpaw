@@ -19,6 +19,8 @@ pub const OPEN_TOKEN: u32 = 10;
 pub const WRITE_TOKEN: u32 = 11;
 /// The token of the socket's events (the connection to a server).
 pub const SOCKET_TOKEN: u32 = 2;
+/// The token of the settings' changes (a provider or an address chosen).
+pub const SETTING_TOKEN: u32 = 3;
 /// The first token of the screens.
 pub const SCREEN_TOKEN: u32 = 20;
 
@@ -265,9 +267,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// What the connection to a server tells: the events of its socket.
+/// What Mail is told: the events of the socket of a connection, and the changes
+/// of the settings (the provider fill-in).
 pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.subscribe_event(EventKind::Socket, SOCKET_TOKEN)?;
+    declarations.subscribe_event(EventKind::SettingChanged, SETTING_TOKEN)?;
     declarations.submit()
 }
