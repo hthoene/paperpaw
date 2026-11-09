@@ -56,11 +56,13 @@ pub fn prepare(
     } else {
         s.margin
     };
+    // Laid out left to right; mirrored as it is made where the interface
+    // runs right to left.
     if touch {
-        page.back = Some(Rect::new(0, 0, left, s.header));
+        page.back = Some(s.flip(area, Rect::new(0, 0, left, s.header)));
         arrow(
             &mut page.paint,
-            s,
+            (s, area),
             i32::from(s.margin) + reach,
             i32::from(band.height) / 2,
             true,
@@ -74,13 +76,20 @@ pub fn prepare(
         size = (size - 0.25).max(s.small);
     }
     let title = text::fit(font, size, title, room + 1.0)?;
+    let wide = font.measure_text(size, &title)?;
     page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
     page.paint.push(Paint::Text {
         text: title,
         size,
-        origin: TextOrigin::new(f32::from(left), text::cap_baseline(font, size, band)?),
+        origin: TextOrigin::new(
+            s.flip_x(area, f32::from(left), wide),
+            text::cap_baseline(font, size, band)?,
+        ),
         color: ink,
-        clip: Some(Rect::new(left, 0, right.saturating_sub(left), s.header)),
+        clip: Some(s.flip(
+            area,
+            Rect::new(left, 0, right.saturating_sub(left), s.header),
+        )),
     });
     Ok(())
 }
@@ -150,17 +159,21 @@ fn pager(
             text: label,
             size: s.small,
             origin: TextOrigin::new(
-                f32::from(label_rect.x),
+                s.flip_x(area, f32::from(label_rect.x), f32::from(label_width)),
                 text::cap_baseline(font, s.small, band)?,
             ),
             color: ink,
             clip: Some(area),
         });
         if touch {
-            page.pager = Some((prev, label_rect, next));
+            page.pager = Some((
+                s.flip(area, prev),
+                s.flip(area, label_rect),
+                s.flip(area, next),
+            ));
             arrow(
                 &mut page.paint,
-                s,
+                (s, area),
                 i32::from(prev.x) + i32::from(prev.width) / 2,
                 i32::from(band.height) / 2,
                 true,
@@ -168,7 +181,7 @@ fn pager(
             )?;
             arrow(
                 &mut page.paint,
-                s,
+                (s, area),
                 next_x,
                 i32::from(band.height) / 2,
                 false,
@@ -182,14 +195,21 @@ fn pager(
     }
     Ok(right)
 }
+/// An arrow pointing `left` (as laid out left to right) at `x`, mirrored in
+/// `area` where the interface runs right to left.
 fn arrow(
     paint: &mut Vec<Paint>,
-    s: &Style,
+    (s, area): (&Style, Rect),
     x: i32,
     y: i32,
     left: bool,
     color: Color,
 ) -> Result<(), Error> {
+    let (x, left) = if s.rtl {
+        (2 * i32::from(area.x) + i32::from(area.width) - x, !left)
+    } else {
+        (x, left)
+    };
     let half = (s.title * 0.38) as i32;
     let width = half * 4 / 5;
     let thickness = (u32::from(s.line) * 3).max(3).min(u32::from(u16::MAX)) as u16;

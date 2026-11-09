@@ -29,6 +29,7 @@ fn style() -> Style {
         card: Color::gray(230),
         on_dark_muted: Color::gray(200),
         strong: false,
+        rtl: false,
     }
 }
 
@@ -236,4 +237,66 @@ fn only_the_chips_in_the_band_are_drawn() {
     let nowhere = Rect::new(0, area.y + area.height + 100, area.width, 10);
     chips.frames_in(&mut none, 0, None, Some(nowhere)).unwrap();
     assert!(none.is_empty());
+}
+
+fn rtl() -> Style {
+    Style {
+        rtl: true,
+        ..style()
+    }
+}
+
+#[test]
+fn where_the_interface_runs_right_to_left_the_chips_run_from_the_right() {
+    let style = rtl();
+    let height = Chips::height(&style, 0);
+    let wide = height * 3;
+    let area = Rect::new(10, 20, 1000, height);
+    let chips = Chips::from_widths(&style, 0, area, &[wide, wide * 2]).unwrap();
+    // The first chip ends at the area's right edge, the second a gap left of it.
+    let (first, second) = (chips.cell(0).unwrap(), chips.cell(1).unwrap());
+    assert_eq!(first.x + first.width, 1010);
+    assert_eq!(second.x + second.width + style.gap, first.x);
+    assert_eq!(second.width, wide * 2);
+    // Hit-testing goes by where they are drawn.
+    assert_eq!(chips.hit(Point::new(i32::from(first.x) + 1, 30)), Some(0));
+    // Left goes on to the next chip, right back: the order is mirrored.
+    assert_eq!(chips.step(0, "core.left"), Some(1));
+    assert_eq!(chips.step(1, "core.right"), Some(0));
+    assert_eq!(chips.step(0, "core.next"), Some(1));
+    assert_eq!(chips.step(1, "core.previous"), Some(0));
+}
+
+#[test]
+fn a_row_that_wraps_wraps_from_the_right_too() {
+    let style = rtl();
+    let height = Chips::height(&style, 0);
+    let wide = height * 2;
+    let area = Rect::new(
+        0,
+        0,
+        2 * wide + style.gap + wide / 2,
+        2 * height + style.gap,
+    );
+    let chips = Chips::from_widths(&style, 0, area, &[wide; 3]).unwrap();
+    let third = chips.cell(2).unwrap();
+    assert_eq!(third.y, height + style.gap);
+    assert_eq!(third.x + third.width, area.width);
+}
+
+#[test]
+fn the_mirror_image_of_the_left_to_right_layout() {
+    let (ltr, rtl) = (style(), rtl());
+    let height = Chips::height(&ltr, 0);
+    let area = Rect::new(7, 9, 640, 3 * height);
+    let widths = [height * 2, height * 3, height * 2, height * 4, height];
+    let (a, b) = (
+        Chips::from_widths(&ltr, 0, area, &widths).unwrap(),
+        Chips::from_widths(&rtl, 0, area, &widths).unwrap(),
+    );
+    for i in 0..widths.len() {
+        let (x, y) = (a.cell(i).unwrap(), b.cell(i).unwrap());
+        assert_eq!((x.y, x.width, x.height), (y.y, y.width, y.height));
+        assert_eq!(rtl.flip(area, x), y);
+    }
 }

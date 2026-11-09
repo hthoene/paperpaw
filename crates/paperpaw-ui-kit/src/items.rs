@@ -473,9 +473,11 @@ fn draw_note(
     let mut y = rect.y.saturating_add(style.line);
     for text in lines {
         let area = Rect::new(rect.x, y, rect.width, line);
-        text::label(
+        text::label_in(
             paint,
             font,
+            style.rtl,
+            rect,
             text,
             style.small,
             f32::from(style.margin),
@@ -630,9 +632,11 @@ pub(crate) fn heading(
         rect.width.saturating_sub(style.margin),
         line,
     );
-    text::label(
+    text::label_in(
         paint,
         font,
+        style.rtl,
+        rect,
         title,
         style.small,
         f32::from(style.margin),
@@ -674,7 +678,13 @@ pub(crate) fn draw_row(
             rect.height,
         );
     }
+    // Laid out left to right; where the interface runs right to left the
+    // parts are where their mirror images are.
+    band = style.flip(rect, band);
+    note_at = style.flip(rect, note_at);
     let mut buttons = None;
+    // Where the title and the value go: the row less the stepper's buttons.
+    let mut cols = band;
     if row.stepper {
         // Square buttons at the right end of the row's first line; the value
         // sits to their left.
@@ -685,16 +695,21 @@ pub(crate) fn draw_row(
             .saturating_sub(style.margin / 2);
         let plus = Rect::new(right.saturating_sub(side), band.y, side, band.height);
         let minus = Rect::new(plus.x.saturating_sub(side), band.y, side, band.height);
+        let room = band;
+        // Mirrored as a whole where the interface runs right to left: the
+        // buttons at the left end and the value to their right.
+        let free = Rect::new(band.x, band.y, minus.x.saturating_sub(band.x), band.height);
+        cols = style.flip(room, free);
+        let (minus, plus) = (style.flip(room, minus), style.flip(room, plus));
         for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
             let size = style.text;
             let x =
                 f32::from(rect.x) + (f32::from(rect.width) - font.measure_text(size, glyph)?) / 2.0;
             text::label(paint, font, glyph, size, x, rect, ink, Some(rect))?;
         }
-        band.width = minus.x.saturating_sub(band.x);
         buttons = Some((minus, plus));
     }
-    columns(paint, font, style, band, &row.title, &row.value, ink)?;
+    columns(paint, font, style, cols, &row.title, &row.value, ink)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
@@ -708,9 +723,11 @@ pub(crate) fn draw_row(
     let mut y = band.y.saturating_add(band.height);
     for text in &lines {
         let area = Rect::new(note_at.x, y, note_at.width, line);
-        text::label(
+        text::label_in(
             paint,
             font,
+            style.rtl,
+            note_at,
             text,
             style.small,
             f32::from(note_at.x) + f32::from(style.margin),
@@ -739,7 +756,10 @@ fn zone_picture(
     for i in 0..9u16 {
         let (cx, cy) = (x + (i % 3) * cell, y + (i / 3) * cell);
         if i == u16::from(zone) {
-            paint::push(paint, Paint::Fill(Rect::new(cx, cy, cell, cell), ink))?;
+            paint::push(
+                paint,
+                Paint::Fill(style.flip(rect, Rect::new(cx, cy, cell, cell)), ink),
+            )?;
         } else {
             let edges = [
                 Rect::new(cx, cy, cell, 1),
@@ -748,7 +768,7 @@ fn zone_picture(
                 Rect::new(cx + cell - 1, cy, 1, cell),
             ];
             for edge in edges {
-                paint::push(paint, Paint::Fill(edge, ink))?;
+                paint::push(paint, Paint::Fill(style.flip(rect, edge), ink))?;
             }
         }
     }

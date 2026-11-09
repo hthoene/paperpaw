@@ -6,7 +6,11 @@
 //! holds what screens share: [`Style`] (the stock look, read from the
 //! settings), [`Messages`] (catalog texts), [`text`] fitting, the [`header`]
 //! (title, back arrow, pager) with its tap regions, and a [`ListRenderer`]
-//! for list screens with hit-testing. It uses `paperpaw_sdk::native` only,
+//! for list screens with hit-testing. Where the interface language is written
+//! right to left ([`Style::rtl`]) the header, rows, items, dialog, chips and the
+//! sheet's pager are mirrored; a screen lays itself out once from the left and
+//! mirrors its own parts with [`Style::flip`], [`Style::flip_x`] and
+//! [`text::label_in`]. It uses `paperpaw_sdk::native` only,
 //! allocates fallibly and keeps nothing callback-scoped.
 #![no_std]
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "assertions"))]
