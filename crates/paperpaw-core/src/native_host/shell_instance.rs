@@ -25,7 +25,7 @@ use crate::native_host::environment::EnvironmentScope;
 use crate::native_host::flat::{
     DropReason, FlatDepth, FlatError, FlatInstance, FlatPlugin, FlatRegistration,
 };
-use crate::native_host::registrations::{self, Registration};
+use crate::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
 use crate::native_host::{self, DispatchDepth};
 
 /// The wire tag of a draw registration (`abi/`, registration records).
@@ -241,7 +241,9 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         self.records
             .iter()
             .enumerate()
-            .filter(|(_, record)| matches!(record, Registration::Event { .. }))
+            .filter(|(_, record)| {
+                matches!(record, Registration::Event { event_tag, .. } if *event_tag == EVENT_TICK_TAG)
+            })
             .map(
                 |(index, _)| match self.dispatch(index, &depth, Invocation::Tick(&bytes[..len])) {
                     Ok(status) | Err(Error::Status(status)) => status,

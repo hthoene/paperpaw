@@ -1130,3 +1130,49 @@ fn the_current_run_is_the_open_callback_of_that_owner_only() {
     }
     assert_eq!(s.current_run(A), None, "the guard ended it");
 }
+
+#[test]
+fn a_close_the_scheduler_could_not_take_waits_for_the_next_pass_and_an_overflow_is_counted() {
+    use crate::native_host::owner_directory::OwnerDirectory;
+    let s = alloc::rc::Rc::new(sched());
+    let dir = OwnerDirectory::new();
+    dir.attach_sched(&s);
+    let env = Fake::new();
+    s.declare(A, &spec("w"), 1_000).unwrap();
+    s.begin_pass(&env).unwrap();
+    let Some(Event::Due(due)) = s.next_event(&env, &|_| true).unwrap() else {
+        panic!("due")
+    };
+    let run = u64::from(due.run);
+    dir.resource_opened(run).unwrap();
+    s.callback_returned(due.run, 1_000);
+    assert_eq!(s.state.borrow().runs.len(), 1, "kept going by the resource");
+    {
+        // The scheduler is in use at that moment.
+        let _busy = s.state.borrow_mut();
+        dir.resource_closed(run, 2_000);
+    }
+    assert!(dir.closes_wait(), "the close was not lost");
+    assert_eq!(s.state.borrow().runs.len(), 1);
+    dir.retry_closes(3_000);
+    assert!(!dir.closes_wait());
+    assert!(
+        s.state.borrow().runs.is_empty(),
+        "the run ends at the retry"
+    );
+    // The retry that finds the scheduler in use still waits.
+    {
+        let _busy = s.state.borrow_mut();
+        dir.resource_closed(run, 4_000);
+        dir.retry_closes(5_000);
+    }
+    assert!(dir.closes_wait());
+    dir.retry_closes(6_000);
+    assert!(!dir.closes_wait());
+    // More closes than there is room for are counted, not allocated.
+    let _busy = s.state.borrow_mut();
+    for _ in 0..10 {
+        dir.resource_closed(run, 7_000);
+    }
+    assert_eq!(dir.take_missed(), 2);
+}

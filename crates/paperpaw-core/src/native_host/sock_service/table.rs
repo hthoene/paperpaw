@@ -67,6 +67,8 @@ struct Sock {
     token: u32,
     screen: Option<u64>,
     run: Option<u64>,
+    /// `resource_opened` was told for `run` and `resource_closed` is not yet.
+    run_open: bool,
     state: State,
     target: String,
     port: u32,
@@ -282,6 +284,36 @@ impl Inner {
         s.held = false;
         let back = core::mem::take(&mut s.charge_read);
         self.release(host, back);
+    }
+
+    /// The work run of `owner`'s callback (if any) is kept going while the
+    /// socket about to be stored lives; the `charge` already reserved goes
+    /// back when that is refused.
+    fn keep_run(
+        &mut self,
+        host: &dyn SockHost,
+        owner: u64,
+        charge: u32,
+    ) -> Result<Option<u64>, i32> {
+        let run = host.current_run(owner);
+        if let Some(run) = run
+            && let Err(error) = host.resource_opened(run)
+        {
+            self.release(host, charge);
+            return Err(error);
+        }
+        Ok(run)
+    }
+
+    /// The socket is done with: its work run is told, once. A socket that was
+    /// told of its end goes at `event_delivered`, one that was never told at
+    /// `owner_stopped`; the run counts it until then.
+    fn close_run(host: &dyn SockHost, s: &mut Sock) {
+        if let Some(run) = s.run
+            && core::mem::take(&mut s.run_open)
+        {
+            host.resource_closed(run);
+        }
     }
 
     /// End socket `index` once with `kind` and `reason`; a second call finds
@@ -584,6 +616,7 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
     if !inner.reserve(host, profile.charge()) {
         return Err(ERR_NO_MEMORY);
     }
+    let run = inner.keep_run(host, who.owner, profile.charge())?;
     let pooled = host.table().pool.capacity() != 0;
     let now = host.now_ms();
     inner.next_id = id;
@@ -592,7 +625,8 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         owner: who.owner,
         token: c.token,
         screen: host.showing_screen(who.owner),
-        run: host.current_run(who.owner),
+        run,
+        run_open: run.is_some(),
         state: State::Waiting,
         target,
         port: c.port,
@@ -626,8 +660,10 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         file: None,
         tls,
     });
-    inner.sync_demand(host);
+    // After the pump: a request or socket that policy refuses at once never
+    // wanted the network, and the shell is not told that it did.
     inner.pump(host);
+    inner.sync_demand(host);
     Ok(id)
 }
 
@@ -974,6 +1010,18 @@ pub(crate) fn next_event(
     owner: u64,
     out: &mut [u8],
 ) -> Result<Option<usize>, i32> {
+    Ok(next_event_run(host, owner, out)?.map(|(used, _)| used))
+}
+
+/// [`next_event`] with the work run the event belongs to (`None`: no run).
+///
+/// # Errors
+/// As [`next_event`].
+pub(crate) fn next_event_run(
+    host: &dyn SockHost,
+    owner: u64,
+    out: &mut [u8],
+) -> Result<Option<(usize, Option<u64>)>, i32> {
     let mut inner = table(host)?;
     let mut best: Option<(u64, usize, Pick)> = None;
     for (index, s) in inner
@@ -1005,7 +1053,9 @@ pub(crate) fn next_event(
         (sock, _) => sock.is_some(),
     };
     if !sock_first && let Some((_, index, pick)) = cast_best {
-        return cast::encode(&mut inner, index, pick, out).map(Some);
+        let run = inner.casts[index].run();
+        let used = cast::encode(&mut inner, index, pick, out)?;
+        return Ok(Some((used, run)));
     }
     let Some((_, index, pick)) = best else {
         return Ok(None);
@@ -1024,7 +1074,7 @@ pub(crate) fn next_event(
             .end
             .map_or((0, kind::FAILED, 0, 0), |(e, k, r)| (e.at, k, r, 0)),
     };
-    let used = codec::encode_one(
+    let used = codec::encode_event(
         &Record::EventSocket(wire::EventSocket {
             now_ms: at,
             socket: s.id,
@@ -1035,6 +1085,7 @@ pub(crate) fn next_event(
         }),
         out,
     )?;
+    let run = inner.socks[index].run;
     let s = &mut inner.socks[index];
     match pick {
         Pick::Connected => s.connected = None,
@@ -1054,7 +1105,7 @@ pub(crate) fn next_event(
             s.end = None;
         }
     }
-    Ok(Some(used))
+    Ok(Some((used, run)))
 }
 
 /// The callback of `owner` returned: the bytes it could read are freed, a
@@ -1090,6 +1141,8 @@ pub(crate) fn event_delivered(host: &dyn SockHost, owner: u64) -> Result<(), i32
         if s.owner == owner && !s.live() && !s.pending() && !s.held {
             let back = s.charge_queue.saturating_add(s.charge_read);
             inner.release(host, back);
+            // The plugin has been told of the end: the run lets go of it.
+            Inner::close_run(host, &mut inner.socks[index]);
             inner.socks.remove(index);
         } else {
             index += 1;
@@ -1112,6 +1165,7 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
         }
         inner.drop_file(host, index);
         inner.release_tls(host, index);
+        Inner::close_run(host, &mut inner.socks[index]);
         let s = &inner.socks[index];
         if matches!(s.state, State::Connecting | State::Open | State::Securing) {
             host.transport().close(s.id);

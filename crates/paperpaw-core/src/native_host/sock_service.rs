@@ -302,6 +302,16 @@ pub(crate) trait SockHost {
     fn now_ms(&self) -> u64;
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
+    /// A socket or broadcast of work run `run` was stored: the run does not
+    /// end while it lives (`work.md` 2.3). Called after it was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// socket is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The socket or broadcast of work run `run` ended (any way): exactly once
+    /// for each `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// Power saving (`network.md` 3.2): `Some` ends the socket now. `background`
     /// is set for a socket of a work run.
     fn power_end(&self, owner: u64, background: bool) -> Option<PowerEnd>;
@@ -415,8 +425,8 @@ pub(crate) fn backend(
 )]
 pub(crate) use table::{
     answered, connected, event_delivered, failed, network_lost, next_deadline, next_event,
-    peer_closed, received, screen_closed, secured, tick, tls_failed, untrusted, work_ended,
-    writable,
+    next_event_run, peer_closed, received, screen_closed, secured, tick, tls_failed, untrusted,
+    work_ended, writable,
 };
 
 /// The plugin started: a staged file kept after a failed rename comes back.
@@ -431,6 +441,16 @@ pub(crate) fn owner_started(host: &dyn SockHost, owner: u64) {
 /// What `connect` answers (`sockets.md` 2.1).
 #[cfg(test)]
 pub(crate) fn admit(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Result<u32, i32> {
+    table::connect(host, who, input)
+}
+
+/// A connect as the dispatcher admits it, for the tests of the work pump.
+#[cfg(test)]
+pub(crate) fn connect_for_tests(
+    host: &dyn SockHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
     table::connect(host, who, input)
 }
 

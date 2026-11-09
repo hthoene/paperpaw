@@ -63,7 +63,7 @@ pub use format::FormatDecl;
 mod lookup;
 pub use lookup::LookupProviderDecl;
 mod library;
-pub use library::BookFieldDecl;
+pub use library::{BookDataKind, BookFieldDecl};
 
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};

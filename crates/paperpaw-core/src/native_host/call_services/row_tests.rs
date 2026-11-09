@@ -363,6 +363,7 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         stack_generation: kernel.shared.stack_rows.generation(),
         stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,

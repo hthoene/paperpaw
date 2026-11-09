@@ -140,6 +140,27 @@ pub(crate) fn escape(text: &str, out: &mut String) -> Result<(), DocumentError> 
     Ok(())
 }
 
+/// The first bytes of `path`, at most 4 KB, on the heap.
+pub(crate) fn head(
+    storage: &dyn paperpaw_sdk::Storage,
+    path: &str,
+) -> Result<Vec<u8>, DocumentError> {
+    let mut head = zeroed(4096)?;
+    let n = storage.read_at(path, 0, &mut head)?;
+    head.truncate(n);
+    Ok(head)
+}
+
+/// `dir/name`, or `name` at the top, as `paperpaw_sdk::files::join` joins
+/// them.
+pub(crate) fn join(dir: &str, name: &str) -> Result<String, DocumentError> {
+    if dir.is_empty() {
+        string(name)
+    } else {
+        try_format!("{dir}/{name}")
+    }
+}
+
 /// What tells the book at `path` apart, as
 /// [`fingerprint`](crate::fingerprint) says it, where a refusal is
 /// `OutOfMemory`.

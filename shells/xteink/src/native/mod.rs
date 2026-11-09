@@ -484,15 +484,18 @@ fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
 
 #[cfg(feature = "ppn5")]
 impl Loader {
-    /// Wires `core.sockets` over the network's bridge, once the card is
-    /// known. The TLS is the bridge's over the device's TLS session
-    /// (`tls_slots`); a session that cannot be had at its handshake ends the
-    /// socket `no_memory`.
-    fn wire_sockets(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+    /// Wires `core.net` and `core.sockets` over the network's bridge, once
+    /// the card is known. The TLS is the bridge's over the device's TLS
+    /// session (`tls_slots`); a session that cannot be had at its handshake
+    /// ends the socket or request `no_memory`.
+    fn wire_network(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
         use alloc::rc::Rc;
         use paperpaw_core::native_host::{
             HostWiring,
-            shell_wiring::{ShellNetwork, SockInputs, SockLimits, SockTls, SockTransport},
+            shell_wiring::{
+                NetInputs, NetLimits, ShellHttp, ShellNetwork, SockInputs, SockLimits, SockTls,
+                SockTransport,
+            },
         };
         // The loader's table of handles (one for the device, shared with the
         // linked-plugin probe): not borrowed by anything else at this point.
@@ -508,10 +511,17 @@ impl Loader {
         let transport: Rc<dyn SockTransport> = bridge.clone();
         let network: Rc<dyn ShellNetwork> = bridge.clone();
         let tls: Rc<dyn SockTls> = bridge.clone();
-        let inputs = SockInputs::new(storage.clone(), transport, network, limits).tls(tls);
-        match resources.wire(HostWiring::new().sockets(inputs)) {
-            Ok(wired) => bridge.wired(wired.sockets()),
-            Err(status) => warn!("native: core.sockets not wired ({status})"),
+        let sockets = SockInputs::new(storage.clone(), transport, network.clone(), limits).tls(tls);
+        // Two requests at a time, as in interface 6; bodies in memory are
+        // small (the pool is 48 KiB, and the sockets' two buffers take 16).
+        let http: Rc<dyn ShellHttp> = bridge.clone();
+        let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
+            .tls_sessions(crate::tls_slots::SESSIONS)
+            .max_body(16 * 1024);
+        let net = NetInputs::new(storage.clone(), http, network, net_limits);
+        match resources.wire(HostWiring::new().net(net).sockets(sockets)) {
+            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
+            Err(status) => warn!("native: core.net and core.sockets not wired ({status})"),
         }
     }
 }
@@ -560,10 +570,10 @@ impl CodeLoader for Loader {
         // The table is borrowed no longer: `wire_sockets` takes it again.
         drop(resources);
         // This hook runs at the end of the kernel's build, before `Kernel::start`:
-        // `core.sockets` is wired before the per-plugin network policy is
+        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
         // filled (a later wiring would show plugins a false `network_off`).
         // It needs the card too (files read to, the staged file).
-        self.wire_sockets(storage);
+        self.wire_network(storage);
         wired.hyphen().cloned()
     }
 

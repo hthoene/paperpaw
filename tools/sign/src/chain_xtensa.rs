@@ -42,6 +42,22 @@
 //! ```text
 //! limit <bytes>                       the frame limit (2048 by default)
 //! root <family>                       extra roots: functions of the family
+//! root trait <path>                   extra roots: the methods of every impl
+//!                                     of the trait, `<_ as path>::f`, and
+//!                                     the trait's own default methods
+//!                                     (what a `&dyn Trait` call can reach)
+//! root impl <type>                    extra roots: the trait-impl methods of
+//!                                     a concrete type, `<type as Trait>::f`,
+//!                                     by the type's path (generics and
+//!                                     lifetimes left out); the methods a
+//!                                     table reaches through a trait object
+//! absent trait <path> <why>           the trait has no code in the image yet
+//!                                     (nothing implements it, so a call
+//!                                     through `&dyn` it reaches nothing):
+//!                                     FAILS once a function of it appears,
+//!                                     so wiring it cannot go unnoticed
+//!                                     while the budget has no root for it;
+//!                                     replace the line with `root trait`
 //! table <symbol>                      a static (the host, heap or shared
 //!                                     table) whose words are function
 //!                                     pointers: each is a root
@@ -135,22 +151,99 @@ pub enum Allow {
     Form { caller: String, form: String },
 }
 
-/// The privileged forms an `allow form` line may name.
-pub const FORMS: [&str; 8] = [
-    "rsil", "waiti", "wsr", "xsr", "wsr.ps", "xsr.ps", "l32e", "s32e",
+/// The privileged forms an `allow form` line may name besides the ones of a
+/// special register: `wsr.<register>` and `xsr.<register>` (see [`is_form`]).
+pub const FORMS: [&str; 4] = ["rsil", "waiti", "l32e", "s32e"];
+
+const SR_LITBASE: u32 = 5;
+
+/// The special registers the firmware's critical sections and start-up code
+/// write, by their number (Xtensa ISA, `RSR`/`WSR`): a form names its register
+/// (`wsr.scompare1`), so that a line for one register does not cover another.
+/// Any other register is `sr<number>`.
+const SPECIAL_REGISTERS: [(u32, &str); 29] = [
+    (0, "lbeg"),
+    (1, "lend"),
+    (2, "lcount"),
+    (3, "sar"),
+    (4, "br"),
+    (12, "scompare1"),
+    (16, "acclo"),
+    (17, "acchi"),
+    (32, "m0"),
+    (33, "m1"),
+    (34, "m2"),
+    (35, "m3"),
+    (83, "ptevaddr"),
+    (99, "atomctl"),
+    (177, "epc1"),
+    (194, "depc"),
+    (209, "excsave1"),
+    (226, "interrupt"),
+    (228, "intenable"),
+    (231, "vecbase"),
+    (232, "exccause"),
+    (233, "debugcause"),
+    (234, "ccount"),
+    (236, "icount"),
+    (238, "excvaddr"),
+    (240, "ccompare0"),
+    (241, "ccompare1"),
+    (242, "ccompare2"),
+    (230, "ps"),
 ];
+
+/// A special register's name in a form: its name in the table, or `sr<number>`.
+fn sr_name(sr: u32) -> String {
+    SPECIAL_REGISTERS
+        .iter()
+        .find(|&&(n, _)| n == sr)
+        .map_or_else(|| format!("sr{sr}"), |&(_, name)| name.to_string())
+}
+
+/// Whether `form` is one an `allow form` line may name: a name of [`FORMS`], or
+/// `wsr.<register>` / `xsr.<register>` of a register in [`SPECIAL_REGISTERS`] or
+/// `sr<number>`. Not `litbase` (the literal resolver assumes it off, so a write
+/// is refused, never allowed) and not the window registers (`allow sp`).
+fn is_form(form: &str) -> bool {
+    if FORMS.contains(&form) {
+        return true;
+    }
+    let Some(register) = form
+        .strip_prefix("wsr.")
+        .or_else(|| form.strip_prefix("xsr."))
+    else {
+        return false;
+    };
+    if let Some(n) = register.strip_prefix("sr") {
+        return n.parse::<u32>().is_ok_and(|n| {
+            n <= 255
+                && n != SR_LITBASE
+                && n != SR_WINDOWBASE
+                && n != SR_WINDOWSTART
+                && sr_name(n) == register
+        });
+    }
+    SPECIAL_REGISTERS.iter().any(|&(_, name)| name == register)
+}
 
 /// The special registers that name the register window (`WINDOWBASE`,
 /// `WINDOWSTART`) and the processor state (`PS`).
 const SR_WINDOWBASE: u32 = 72;
 const SR_WINDOWSTART: u32 = 73;
-const SR_PS: u32 = 230;
 
 /// What the budget asks.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Budget {
     pub limit: u32,
     pub roots: Vec<String>,
+    /// `root impl <type>`: the trait impls of a concrete type (see [`impl_of`]).
+    pub impl_roots: Vec<String>,
+    /// `root trait <path>`: the methods of every impl of the trait (see [`trait_of`]).
+    pub trait_roots: Vec<String>,
+    /// `absent trait <path> <why>`: traits with no code in the image, each
+    /// with its reason; a function of one fails (see [`trait_of`]).
+    pub absent_traits: Vec<(String, String)>,
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
@@ -184,6 +277,11 @@ impl Budget {
                     }
                 }
                 ["root", family] => budget.roots.push((*family).to_string()),
+                ["root", "impl", ty] => budget.impl_roots.push((*ty).to_string()),
+                ["root", "trait", tr] => budget.trait_roots.push((*tr).to_string()),
+                ["absent", "trait", tr, why @ ..] if !why.is_empty() => budget
+                    .absent_traits
+                    .push(((*tr).to_string(), why.join(" "))),
                 ["table", symbol] => budget.tables.push((*symbol).to_string()),
                 ["allow", "call", caller, "->", callee, why @ ..] if !why.is_empty() => {
                     budget.allow.push((
@@ -216,9 +314,9 @@ impl Budget {
                     why.join(" "),
                 )),
                 ["allow", "form", caller, form, why @ ..] if !why.is_empty() => {
-                    if !FORMS.contains(form) {
+                    if !is_form(form) {
                         return Err(format!(
-                            "line {at}: `{form}` is not a form a line can allow (one of {})",
+                            "line {at}: `{form}` is not a form a line can allow (one of {}, or `wsr.<register>` / `xsr.<register>` naming the special register, such as `wsr.scompare1`)",
                             FORMS.join(", ")
                         ));
                     }
@@ -233,7 +331,11 @@ impl Budget {
                 _ => return Err(bad()),
             }
         }
-        if budget.roots.is_empty() && budget.tables.is_empty() {
+        if budget.roots.is_empty()
+            && budget.impl_roots.is_empty()
+            && budget.trait_roots.is_empty()
+            && budget.tables.is_empty()
+        {
             return Err("the budget names no root and no table".into());
         }
         Ok(budget)
@@ -244,11 +346,74 @@ impl Budget {
 #[derive(Debug)]
 struct Function {
     path: String,
+    /// The raw symbol (`_ZN…E`, with its hash): the one name no other function
+    /// has.
+    symbol: String,
+    /// The symbol as a budget names it: [`stable`] (no hash, no `.NNNN`), the
+    /// name that stays the same when other code in the build changes.
+    stable: String,
+    /// What the problems call the function: its path, or its symbol when
+    /// another function of the image has the same path (the path drops the
+    /// generics, so every `drop_in_place<…>` is `core::ptr`).
+    shown: String,
     start: u32,
     /// 0: the symbol table gives it no size.
     size: u32,
     /// The executable section it is in, and where in its bytes.
     code: (usize, usize),
+    /// The other names (symbol, path) of the same address: the linker or the
+    /// compiler may fold identical functions or alias one, and a root or a
+    /// trait is matched by every name the code has, not by the one kept above.
+    aliases: Vec<(String, String)>,
+}
+
+impl Function {
+    /// Every (symbol, path) the code at this address has.
+    fn names(&self) -> impl Iterator<Item = (&str, &str)> {
+        core::iter::once((self.symbol.as_str(), self.path.as_str())).chain(
+            self.aliases
+                .iter()
+                .map(|(symbol, path)| (symbol.as_str(), path.as_str())),
+        )
+    }
+
+    /// Whether `name`, as an `allow` line gives it, is this function's: its
+    /// path, its stable symbol or its raw symbol. The stable symbol is the
+    /// same for every instance of one generic function (the hash is what tells
+    /// them apart), so a line naming it covers each instance whose site it
+    /// describes: an `allow indirect` by its count, an `allow call` by its
+    /// callee.
+    fn is(&self, name: &str) -> bool {
+        self.path == name || self.stable == name || self.symbol == name
+    }
+}
+
+/// A symbol as a budget line names it: without the legacy hash (`17h` and
+/// sixteen hex digits before the closing `E`) and without the suffix LLVM adds
+/// to a local copy (`.1322`, `.llvm.1234`). Both change with the build (a
+/// dependency, an unrelated change), so a line that kept them would fail
+/// unrelated pull requests; the rest of the symbol (the path, the type of an
+/// impl) is the function's own.
+pub(crate) fn stable(symbol: &str) -> String {
+    let mut s = symbol;
+    // `.NNNN` and `.llvm.NNNN`, possibly both, at the end.
+    while let Some((head, tail)) = s.rsplit_once('.') {
+        if tail == "llvm" || (!tail.is_empty() && tail.bytes().all(|c| c.is_ascii_digit())) {
+            s = head;
+        } else {
+            break;
+        }
+    }
+    // `17h<16 hex>E` at the end of a legacy symbol: 19 bytes before the `E`.
+    if let Some(body) = s.strip_suffix('E')
+        && body.len() > 19
+        && let Some((head, hash)) = body.split_at_checked(body.len() - 19)
+        && hash.starts_with("17h")
+        && hash[3..].bytes().all(|c| c.is_ascii_hexdigit())
+    {
+        return head.to_string();
+    }
+    s.to_string()
 }
 
 /// What the code of a function does that matters here.
@@ -274,7 +439,7 @@ struct Reads {
     unknown: Option<u32>,
     /// The named privileged forms (see [`named_form`]) with the first address
     /// of each: they leave `a1` alone, and the budget must allow each.
-    forms: BTreeMap<&'static str, u32>,
+    forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
 }
@@ -304,7 +469,7 @@ fn callx_t(w: u32) -> Option<u32> {
 /// `WINDOWSTART`, which is a change of what `a1` names). `op0` is 0 (QRST) in
 /// all of them. Encodings as the S3 toolchain's assembler makes them
 /// (`tests.rs`); the special register is `r << 4 | s`.
-fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
+fn named_form(w: u32) -> Option<(String, Option<u32>, bool)> {
     let t = (w >> 4) & 0xF;
     let r = (w >> 12) & 0xF;
     let s = (w >> 8) & 0xF;
@@ -317,21 +482,21 @@ fn named_form(w: u32) -> Option<(&'static str, Option<u32>, bool)> {
     match (op1, op2) {
         // RST0 `st0`: `rsil at, imm` (r = 6) writes `at`; `waiti imm`
         // (r = 7, t = 0) writes no `a` register.
-        (0, 0) if r == 6 => Some(("rsil", Some(t), false)),
-        (0, 0) if r == 7 && t == 0 => Some(("waiti", None, false)),
-        // RST3: `wsr at, sr` (op2 = 1) writes a special register.
-        (3, 1) if sr == SR_PS => Some(("wsr.ps", None, false)),
-        (3, 1) => Some(("wsr", None, window)),
-        // RST1: `xsr at, sr` (op2 = 6) swaps `at` with a special register.
-        (1, 6) if sr == SR_PS => Some(("xsr.ps", Some(t), false)),
-        (1, 6) => Some(("xsr", Some(t), window)),
+        (0, 0) if r == 6 => Some(("rsil".to_string(), Some(t), false)),
+        (0, 0) if r == 7 && t == 0 => Some(("waiti".to_string(), None, false)),
+        // RST3: `wsr at, sr` (op2 = 1) writes a special register; RST1: `xsr
+        // at, sr` (op2 = 6) swaps `at` with one. The form names the register.
+        // LITBASE is no form: the literal resolver assumes it off.
+        (3, 1) | (1, 6) if sr == SR_LITBASE => None,
+        (3, 1) => Some((format!("wsr.{}", sr_name(sr)), None, window)),
+        (1, 6) => Some((format!("xsr.{}", sr_name(sr)), Some(t), window)),
         // LSC4 (op1 = 9): `l32e at, as, imm` (op2 = 0) writes `at`;
         // `s32e at, as, imm` (op2 = 4) writes memory.
-        (9, 0) => Some(("l32e", Some(t), false)),
-        (9, 4) => Some(("s32e", None, false)),
+        (9, 0) => Some(("l32e".to_string(), Some(t), false)),
+        (9, 4) => Some(("s32e".to_string(), None, false)),
         // RST0 `st1` `rotw` (op1 = 0, op2 = 4, `r` = 8): the window rotates by
         // the immediate, so `a1` names another frame (`allow sp`, never a form).
-        (0, 4) if r == 8 => Some(("rotw", None, true)),
+        (0, 4) if r == 8 => Some(("rotw".to_string(), None, true)),
         _ => None,
     }
 }
@@ -469,9 +634,10 @@ type Regs = [Held; 16];
 /// wrong. It fails closed, leaving every call of the function indirect (counted
 /// and listed in the budget): at a branch form `regs` does not model, a branch
 /// into the middle of an instruction, a hardware `loop` (its back edge is no
-/// instruction's), a `jx` in a function that has no address to jump to, an
-/// address the image points at that is no instruction's start, and for a site
-/// the flow never reaches. An instruction `regs`
+/// instruction's), a `jx` in a function that has no address to jump to, and for
+/// a site the flow never reaches. A word of the image that equals an address
+/// inside the function but is no instruction's start is not a target and is
+/// left out. An instruction `regs`
 /// does not name makes every register unknown after it.
 fn resolve(
     insns: &[Insn],
@@ -489,17 +655,26 @@ fn resolve(
     // Every address inside the function that a word of the image points at is
     // a place the flow may enter from outside this function's own
     // instructions (a jump table, here or in another function): an entry with
-    // nothing known. One that is no instruction's start leaves the reading out
-    // of step, and a `jx` with no such address to go to is a jump this reading
-    // cannot place: both give the function up.
+    // nothing known. A `jx` with no such address to go to is a jump this
+    // reading cannot place: it gives the function up.
     let mut entries: Vec<usize> = Vec::new();
     for p in around.pointed.range(start_addr..end) {
+        // A word that is no instruction's start is not a jump target (the
+        // compiler's targets are instruction starts): a number in the data, or
+        // bytes of a blob's code, that happens to equal an address here. Where
+        // such words fall depends on where the build puts everything, so giving
+        // the function up for one would make the result depend on the layout. The
+        // reading stays out of step only if a direct branch lands in the middle
+        // of an instruction, which gives the function up below.
         let Some(&to) = index.get(p) else {
-            return give_up(reads);
+            continue;
         };
         entries.push(to);
     }
-    if entries.is_empty() && insns.iter().any(|i| i.is_jx()) {
+    // The function's own start does not count as an address to jump to: a
+    // vtable or a function pointer holds it, a jump table does not. Jump
+    // tables are taken to hold absolute addresses of the instructions.
+    if entries.iter().all(|&n| n == 0) && insns.iter().any(|i| i.is_jx()) {
         return give_up(reads);
     }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
@@ -645,20 +820,57 @@ fn image<'a>(elf: &'a Elf<'a>) -> Result<Image<'a>, String> {
         }
         let function = Function {
             path: path(&s.name),
+            symbol: s.name.clone(),
+            stable: stable(&s.name),
+            shown: String::new(),
             start: s.value,
             size: s.size,
             code: (k, from),
+            aliases: Vec::new(),
         };
-        // Aliases are one function, with the larger size and the first name.
+        // Aliases are one function, with the larger size and the first name;
+        // the other names stay (`Function::aliases`), so a root or a trait is
+        // found by any of them.
         match found.get_mut(&s.value) {
-            Some(known) if known.size >= s.size => {}
-            _ => {
+            Some(known) if known.size >= s.size => {
+                if known.symbol != function.symbol {
+                    known.aliases.push((function.symbol, function.path));
+                }
+            }
+            Some(known) => {
+                let mut larger = function;
+                larger.aliases = core::mem::take(&mut known.aliases);
+                if known.symbol != larger.symbol {
+                    larger
+                        .aliases
+                        .push((known.symbol.clone(), known.path.clone()));
+                }
+                *known = larger;
+            }
+            None => {
                 found.insert(s.value, function);
             }
         }
     }
+    let mut funcs: Vec<Function> = found.into_values().collect();
+    let mut by_path: BTreeMap<&str, u32> = BTreeMap::new();
+    for f in &funcs {
+        *by_path.entry(&f.path).or_default() += 1;
+    }
+    let shared: BTreeSet<String> = by_path
+        .into_iter()
+        .filter(|&(_, n)| n > 1)
+        .map(|(p, _)| p.to_string())
+        .collect();
+    for f in &mut funcs {
+        f.shown = if shared.contains(&f.path) {
+            f.stable.clone()
+        } else {
+            f.path.clone()
+        };
+    }
     Ok(Image {
-        funcs: found.into_values().collect(),
+        funcs,
         exec,
         data,
         exec_rw,
@@ -786,7 +998,7 @@ impl Image<'_> {
 fn follow(
     image: &Image<'_>,
     budget: &Budget,
-    caller: &str,
+    caller: &Function,
     edges: &[u32],
     used: &mut [bool],
     report: &mut Report,
@@ -807,7 +1019,7 @@ fn follow(
         let by_address = format!("{target:#x}");
         if !allowed(budget, used, &|a| {
             matches!(a, Allow::Call { caller: c, callee: e }
-                if c == caller && (*e == callee || *e == by_address))
+                if caller.is(c) && (*e == callee || *e == by_address))
         }) {
             let where_ = if image.in_image(target) {
                 "code of the image with no symbol"
@@ -815,10 +1027,52 @@ fn follow(
                 "outside the image (ROM or a blob)"
             };
             report.problems.push(format!(
-                "`{caller}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)"
+                "`{}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)",
+                caller.shown
             ));
         }
     }
+}
+
+/// Whether the legacy symbol `symbol` is a method of a trait impl of the type
+/// `ty` (`a::b::Type`): `_ZN<n>_$LT$a..b..Type$u20$as$u20$…` for a type without
+/// generics, `…Type$LT$…$GT$$u20$as…` for one with. A path cannot name these
+/// (`path` drops what is not a plain identifier), and they are what a trait
+/// object's vtable points at.
+fn impl_of(symbol: &str, ty: &str) -> bool {
+    let Some(rest) = symbol.strip_prefix("_ZN") else {
+        return false;
+    };
+    let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    let Some(rest) = rest.strip_prefix("_$LT$") else {
+        return false;
+    };
+    let dotted = ty.replace("::", "..");
+    let Some(after) = rest.strip_prefix(dotted.as_str()) else {
+        return false;
+    };
+    after.starts_with("$u20$as$u20$") || after.starts_with("$LT$")
+}
+
+/// Whether the function is a method of an impl of the trait `tr` (`a::b::Trait`),
+/// or a default method of the trait itself. An impl method's symbol is
+/// `…$u20$as$u20$a..b..Trait$GT$…` (or with generic arguments,
+/// `…Trait$LT$…`); a default method (which the trait's vtable points at for
+/// every impl that does not override it) is `a::b::Trait::method`, with the
+/// trait's own path and the method after it: its path starts with
+/// `a::b::Trait::`.
+fn trait_of(symbol: &str, path: &str, tr: &str) -> bool {
+    if !symbol.starts_with("_ZN") {
+        return false;
+    }
+    if path.starts_with(&format!("{tr}::")) {
+        return true;
+    }
+    let want = format!("$u20$as$u20${}", tr.replace("::", ".."));
+    symbol.match_indices(&want).any(|(at, _)| {
+        let after = &symbol[at + want.len()..];
+        after.starts_with("$GT$") || after.starts_with("$LT$")
+    })
 }
 
 /// Puts the budget's roots and the words of its tables in `queue`.
@@ -831,7 +1085,11 @@ fn seed(
 ) {
     for root in &budget.roots {
         let members: Vec<usize> = (0..image.funcs.len())
-            .filter(|&i| in_family(&image.funcs[i].path, root))
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(_, path)| in_family(path, root))
+            })
             .collect();
         if members.is_empty() {
             report
@@ -843,6 +1101,60 @@ fn seed(
                 report.roots.0 += 1;
                 queue.push_back(i);
             }
+        }
+    }
+    for ty in &budget.impl_roots {
+        let members: Vec<usize> = (0..image.funcs.len())
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(symbol, _)| impl_of(symbol, ty))
+            })
+            .collect();
+        if members.is_empty() {
+            report
+                .problems
+                .push(format!("the root `impl {ty}` matches no function"));
+        }
+        for i in members {
+            if seen.insert(i) {
+                report.roots.0 += 1;
+                queue.push_back(i);
+            }
+        }
+    }
+    for tr in &budget.trait_roots {
+        let members: Vec<usize> = (0..image.funcs.len())
+            .filter(|&i| {
+                image.funcs[i]
+                    .names()
+                    .any(|(symbol, path)| trait_of(symbol, path, tr))
+            })
+            .collect();
+        if members.is_empty() {
+            report
+                .problems
+                .push(format!("the root `trait {tr}` matches no function"));
+        }
+        for i in members {
+            if seen.insert(i) {
+                report.roots.0 += 1;
+                queue.push_back(i);
+            }
+        }
+    }
+    // A trait the budget says has no code yet: the day it has, the roots must
+    // follow (its methods are what a `&dyn` call reaches).
+    for (tr, why) in &budget.absent_traits {
+        if let Some(found) = (0..image.funcs.len()).find(|&i| {
+            image.funcs[i]
+                .names()
+                .any(|(symbol, path)| trait_of(symbol, path, tr))
+        }) {
+            report.problems.push(format!(
+                "the trait `{tr}` has code in the image now (`{}`), but the budget says it has none ({why}): replace `absent trait {tr}` with `root trait {tr}` and review what it reaches",
+                image.funcs[found].path
+            ));
         }
     }
     for table in &budget.tables {
@@ -892,7 +1204,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         if frame >= budget.limit {
             report.problems.push(format!(
                 "`{}` takes a frame of {frame} bytes (limit {})",
-                f.path, budget.limit
+                f.shown, budget.limit
             ));
         }
     }
@@ -900,48 +1212,48 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         && !allowed(
             budget,
             used,
-            &|a| matches!(a, Allow::Sp { caller: c } if *c == f.path),
+            &|a| matches!(a, Allow::Sp { caller: c } if f.is(c)),
         )
     {
         report.problems.push(format!(
             "`{}` changes the stack pointer other than by `entry` ({pc:#x}): its frame cannot be bounded",
-            f.path
+            f.shown
         ));
     }
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
-            f.path
+            f.shown
         ));
     }
     if let Some(pc) = reads.entry_other {
         report.problems.push(format!(
             "`{}` has an `entry` of a register other than a1 ({pc:#x}): its frame cannot be bounded",
-            f.path
+            f.shown
         ));
     }
-    for (&form, &pc) in &reads.forms {
+    for (form, &pc) in &reads.forms {
         if !allowed(
             budget,
             used,
-            &|a| matches!(a, Allow::Form { caller: c, form: n } if *c == f.path && n == form),
+            &|a| matches!(a, Allow::Form { caller: c, form: n } if f.is(c) && n == form),
         ) {
             report.problems.push(format!(
                 "`{}` uses `{form}` ({pc:#x}): it leaves a1 alone, but the budget does not say so (name it with `allow form`)",
-                f.path
+                f.shown
             ));
         }
     }
     if let Some(pc) = reads.unknown {
         report.problems.push(format!(
             "`{}` has an instruction of a form this scan does not classify ({pc:#x}): not known to leave a1 alone",
-            f.path
+            f.shown
         ));
     }
     if let Some(pc) = reads.unreadable {
         report.problems.push(format!(
             "`{}` has code this scan cannot read ({pc:#x})",
-            f.path
+            f.shown
         ));
     }
 }
@@ -969,15 +1281,14 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let f = &funcs[i];
         report.checked += 1;
         if f.size == 0 {
-            let name = f.path.clone();
             if !allowed(
                 budget,
                 &mut used,
-                &|a| matches!(a, Allow::NoSize { name: n } if *n == name),
+                &|a| matches!(a, Allow::NoSize { name: n } if f.is(n)),
             ) {
                 report.problems.push(format!(
                     "`{}` ({:#x}) has no size in the symbol table: assembly this scan does not read",
-                    f.path, f.start
+                    f.shown, f.start
                 ));
             }
             continue;
@@ -986,7 +1297,6 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         let data = image.exec[k].1;
         let to = (from + f.size as usize).min(data.len());
         let reads = read_function(&data[from..to], f.start, &around);
-        let caller = f.path.clone();
         judge(f, &reads, budget, &mut used, &mut report);
         report.indirect += reads.indirect;
         report.resolved += reads.resolved;
@@ -995,23 +1305,53 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             if !allowed(
                 budget,
                 &mut used,
-                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if *c == caller && *n == count),
+                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
             ) {
                 report.problems.push(format!(
                     "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
-                    f.path
+                    f.shown
                 ));
             }
         }
         follow(
             &image,
             budget,
-            &caller,
+            f,
             &reads.edges,
             &mut used,
             &mut report,
             (&mut queue, &mut seen),
         );
+    }
+    // A line names one function, or the instances of one generic function: a
+    // path (which drops the generics, so several functions can share it) must
+    // not match more than one function reached; a stable symbol can (the
+    // instances differ only by their hash), and the line's own count or callee
+    // says which of them it describes.
+    for (allow, _) in &budget.allow {
+        let name = match allow {
+            Allow::Call { caller: n, .. }
+            | Allow::Sp { caller: n }
+            | Allow::Indirect { caller: n, .. }
+            | Allow::Form { caller: n, .. }
+            | Allow::NoSize { name: n } => n,
+        };
+        let named: Vec<&Function> = seen
+            .iter()
+            .map(|&i| &funcs[i])
+            .filter(|f| f.is(name))
+            .collect();
+        let by_symbol = named.iter().all(|f| f.stable == *name || f.symbol == *name);
+        if named.len() > 1 && !by_symbol {
+            let mut symbols: Vec<&str> = named.iter().map(|f| f.stable.as_str()).collect();
+            symbols.sort_unstable();
+            symbols.dedup();
+            report.problems.push(format!(
+                "an `allow` line names {} functions, `{name}` is the path of each: name them by their symbol without the hash ({}), as the scan's reports give it",
+                named.len(),
+                symbols.join(", ")
+            ));
+        }
     }
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
