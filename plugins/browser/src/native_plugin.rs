@@ -45,8 +45,6 @@ const URL: &str = "url";
 const TYPED_LIMIT: usize = 1_100;
 /// What the plugin says it is, as interface 6 did.
 const AGENT: &str = "PaperPaw/0.1 (e-reader)";
-/// The most a request may save: the host's largest (`network.md` 3.1).
-const MAX_DOWNLOAD_FILE: u64 = 64 * 1024 * 1024;
 const ACCEPT: &str = "text/html,application/xhtml+xml,application/epub+zip,*/*";
 
 /// A row of the start screen.
@@ -593,8 +591,7 @@ impl NativeBrowser {
         ];
         let request = Request::get(token, url)?
             .headers(&headers)?
-            .save_to(FileRoot::Data, store::DOWNLOAD)?
-            .max_file(MAX_DOWNLOAD_FILE)?;
+            .save_to(FileRoot::Data, store::DOWNLOAD)?;
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
         match net.request(host, &request, &mut input, &mut out) {
             Ok(_) => {}

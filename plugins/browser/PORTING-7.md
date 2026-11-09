@@ -22,8 +22,9 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   *Read now* offer is for every book (EPUB or text: the kinds the browser takes as books), where
   interface 6 asked the format registry first. (3) The fonts folder is the card's `fonts` folder;
   interface 6 used the device's first font folder (`Env::font_dirs`), which native has no call for.
-  (4) A request may save 64 MiB, the host's largest (`network.md` 3.1); Kernel rules on the cap
-  (pending).
+  (4) A request sets no `max_file` (0 = the host's 64 MiB) for pages and downloads alike, as Kernel
+  ruled (todo 319): Beta 3 saved every answer with one `save_to` and no cap; a full card ends with
+  `too_large` or a card error. The page is read in bounded steps (`keep_page`, 4 KiB pieces).
 
 ## Slice 2 (`src/native_plugin.rs`, `NATIVE_ENTRY` with `linked`)
 
@@ -83,8 +84,7 @@ the host activates native plugins (then it goes together, no shim: todo 90).
   held entry, the address dialog and the messages.
 - Loading: `core.net` GET with `save_to` (data folder) and the `Accept` and `User-Agent` headers, the
   answer from `http_done`, an error page kept to be shown; no host for requests on integration
-  (`core-net-host`). `network.md` 8 gives the browser no `max_file`: **to settle** with Kernel
-  whether a download without a cap is allowed, and what the host's default is.
+  (`core-net-host`).
 - Opening a kept page in the reader (`command.open` mode 1 or 3 with `page`, `ui.md`: the table of interface-6 commands): the page is a
   file in the data folder; the host must open a path of the plugin's own folder (`DOC-open-page`).
 - Downloads: the import, the moves and the offer to read need the library and files hosts (`LIB-import`,
