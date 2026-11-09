@@ -110,3 +110,15 @@ fn debug_shows_the_character_only() {
         "IconGlyph(\"☰\")"
     );
 }
+
+#[test]
+fn a_refusal_is_not_remembered_and_the_next_ask_reaches_the_host() {
+    // No icon font bound, then one bound: the host's answer is read each time.
+    let mut ctx = Context::default();
+    ctx.result.set(Some(abi::ERR_NOT_FOUND));
+    assert_eq!(ask(&mut ctx, "home"), Err(Error::NotFound));
+    ctx.result.set(None);
+    *ctx.write.borrow_mut() = "☰".as_bytes().to_vec();
+    assert_eq!(ask(&mut ctx, "home").unwrap().as_str(), "☰");
+    assert_eq!(ctx.names.borrow().len(), 2);
+}

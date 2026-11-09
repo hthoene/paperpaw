@@ -3050,6 +3050,7 @@ struct paperpaw_sdk::native::files::Progress { removed: u32, done: bool, next: u
 struct paperpaw_sdk::native::files::Space { free: u64, total: u64, flags: u32 }
 struct paperpaw_sdk::native::fonts::Font<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
 struct paperpaw_sdk::native::fonts::TextOrigin { x: f32, baseline: i32 }
+struct paperpaw_sdk::native::fonts::icons::IconGlyph { bytes: [u8; 4], len: u8 }
 struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, left: i32, right: i32 }
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
