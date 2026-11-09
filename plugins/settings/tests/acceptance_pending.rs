@@ -35,13 +35,14 @@ const CASES: [Case; 6] = [
     },
     // Passwords and keys: the list, typing one anew, removing one. The
     // screens are `native_secrets` and `native_plugin`; `tests/scripted_secrets.rs`
-    // runs what they read from a scripted `core.secrets`. The scripted host
-    // does not answer `i18n.copy` and `i18n.format` yet, so the rows' texts,
-    // the drawing and the answers to the questions are not run.
+    // runs what they read from a scripted `core.secrets`, the questions asked
+    // and the answers (typed again, removed, kept) with the scripted
+    // `i18n` and `core.ui`. What stays is drawing the rows and moving the
+    // focus and going back, which are screen commands.
     Case {
         name: "settings-secrets",
         golden: None,
-        blocked_by: &["SCRIPTED-i18n", "H1", "H2", "H4"],
+        blocked_by: &["H1"],
     },
     // Restart PaperPaw once asked (`CommandSender::restart`, `uses.power`). Needs
     // the host's dialogs.
@@ -87,7 +88,7 @@ fn settings_search() {
 }
 
 #[test]
-#[ignore = "BLOCKED SCRIPTED-i18n: the scripted host does not answer i18n.copy and i18n.format"]
+#[ignore = "BLOCKED H1: screen commands (focus redraw, back) and drawing are not qualified; the keep/remove answers run in scripted_secrets.rs"]
 fn settings_secrets() {
     CASES[4].refuse().unwrap();
 }
