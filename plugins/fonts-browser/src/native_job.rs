@@ -22,18 +22,21 @@ pub struct Job {
     next: usize,
     /// Every file is there and the host was asked to install the folder.
     installing: bool,
+    /// The request number of this job's install question.
+    request: u32,
 }
 
 impl Job {
     /// A job at its first file.
     #[must_use]
-    pub const fn new(plan: Plan, name: String, update: bool) -> Self {
+    pub const fn new(plan: Plan, name: String, update: bool, request: u32) -> Self {
         Self {
             plan,
             name,
             update,
             next: 0,
             installing: false,
+            request,
         }
     }
 
@@ -53,6 +56,19 @@ impl Job {
     /// Notes that the host was asked to install the folder.
     pub const fn install_asked(&mut self) {
         self.installing = true;
+    }
+
+    /// The request number of the install question of this job.
+    #[must_use]
+    pub const fn request(&self) -> u32 {
+        self.request
+    }
+
+    /// Whether `install_done` for `request` ends this job: its own question,
+    /// asked, and no other (a stale answer of a stopped or earlier job is not).
+    #[must_use]
+    pub const fn ends_with(&self, request: u32) -> bool {
+        self.installing && self.request == request
     }
 
     /// Whether the host was asked to install it.

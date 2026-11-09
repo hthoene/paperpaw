@@ -52,7 +52,8 @@ const CATALOG_REQUEST: u32 = 1;
 /// The token of the font files' requests, and the numbers of the host
 /// requests (an install, a removal) in their `install_done`.
 const DOWNLOADED_FILE: u32 = 2;
-const INSTALL_REQUEST: u32 = 1;
+/// The first request number of an install; each download counts up from it.
+const INSTALL_REQUEST: u32 = 16;
 const REMOVE_REQUEST: u32 = 2;
 /// The catalog kept from the last visit, and the one coming in.
 const KEPT: &str = "catalog.json";
@@ -101,6 +102,8 @@ pub struct NativeFontsBrowser {
     /// The font being downloaded, and the request of its file in flight.
     job: Option<Job>,
     file_request: Option<RequestId>,
+    /// Downloads started so far: each has its own install request number.
+    started: u32,
 }
 
 #[path = "native_install.rs"]
@@ -117,6 +120,13 @@ impl Plugin for NativeFontsBrowser {
         {
             registrations::submit(host, batch)?;
         }
+        // Nothing is downloading yet, so whatever a cut-off run left is stale.
+        paperpaw_sdk::native::storage::remove(
+            host,
+            paperpaw_sdk::native::storage::Root::Data,
+            crate::native_plan::STAGING,
+        )
+        .ok();
         Ok(Self::default())
     }
 

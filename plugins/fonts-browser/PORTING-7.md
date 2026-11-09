@@ -53,8 +53,15 @@ activates native plugins (then it goes together, no shim; see the removal step).
   other end says *could not be downloaded*; the staging folder goes in every case. *Remove* is
   `command.remove_plugin(2, id)` (the host asks, decision 124); its `install_done` refreshes the page.
 - Metadata: the feature `uses.install` is added (the `.s3` files follow #713).
-- Gaps: a download cut off by a restart leaves its staged files until that font is downloaded
-  again (interface 6 cancelled it at `started`); the host's questions are not wired to native
+- Install requests: each download has its own request number (16 up); `install_done` ends a job only
+  when it is that job's own, asked question, and no *Stop* is offered once the host was asked (the job
+  stays until `install_done`), so a late answer cannot end the next font's job (test in `native_job`).
+- Restart: `make` removes the `staging` folder (no job can exist then), which closes the cut-off-download
+  gap that interface 6 closed at `started`; a download also clears its own staging first. Unmeasured:
+  whether the host's `remove` takes a non-empty folder (an error is ignored, the leftover then goes with
+  the next download of that font). *Remove* refused (Denied/Full) says it failed.
+- Unmeasured X4 timing: checking a 1 MiB font file (SHA-1 in 4 KiB pieces) in one callback.
+- Gaps: the host's questions are not wired to native
   plugins (H2), so no end-to-end run yet (`fonts-browser-install` stays ignored).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)

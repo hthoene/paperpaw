@@ -32,7 +32,7 @@ fn plan(files: &[(&str, &[u8])]) -> Plan {
 #[test]
 fn a_job_goes_file_by_file() {
     let plan = plan(&[("plugin.ini", b"a"), ("fonts/r.ppfp", b"bb")]);
-    let mut job = Job::new(plan, "Fredoka".to_string(), false);
+    let mut job = Job::new(plan, "Fredoka".to_string(), false, 16);
     assert_eq!(
         job.current().unwrap().save,
         "staging/font-fredoka/plugin.ini"
@@ -79,8 +79,27 @@ fn clearing_removes_the_staged_files_and_their_folders_and_forgives_missing_ones
 
 #[test]
 fn a_job_knows_when_the_host_was_asked_to_install() {
-    let mut job = Job::new(plan(&[("plugin.ini", b"a")]), "Fredoka".to_string(), false);
+    let mut job = Job::new(
+        plan(&[("plugin.ini", b"a")]),
+        "Fredoka".to_string(),
+        false,
+        16,
+    );
     assert!(!job.installing());
     job.install_asked();
     assert!(job.installing());
+}
+
+#[test]
+fn a_stale_install_done_does_not_end_the_next_job() {
+    // The first job asked, then the answer of its question is late.
+    let mut first = Job::new(plan(&[("plugin.ini", b"a")]), "A".to_string(), false, 16);
+    first.install_asked();
+    assert!(first.ends_with(16));
+    // A second download after that has its own number: the late 16 is not its.
+    let mut second = Job::new(plan(&[("plugin.ini", b"a")]), "B".to_string(), false, 17);
+    assert!(!second.ends_with(16), "not asked yet and another number");
+    second.install_asked();
+    assert!(!second.ends_with(16));
+    assert!(second.ends_with(17));
 }

@@ -38,9 +38,11 @@ impl NativeFontsBrowser {
         let Some(plan) = Plan::new(font, outlines)? else {
             return Self::say(host, "fonts-browser.failed", &font.name);
         };
+        self.started = self.started.wrapping_add(1);
+        let request = INSTALL_REQUEST.wrapping_add(self.started);
         // Leftovers of an earlier, cut-off download of this font go first.
         native_job::clear(&DataStorage::new(host), &plan);
-        self.job = Some(Job::new(plan, copy(&font.name)?, update));
+        self.job = Some(Job::new(plan, copy(&font.name)?, update, request));
         if let Err(error) = self.request_file(host) {
             self.give_up(host)?;
             return if error == Error::NoMemory {
@@ -106,7 +108,7 @@ impl NativeFontsBrowser {
         job.install_asked();
         let mut scratch = [0; 512];
         let asked = CommandSender::new(host, &mut scratch).install_plugin(
-            INSTALL_REQUEST,
+            job.request(),
             InstallRoot::Data,
             &job.plan.folder,
             job.update,
@@ -129,8 +131,12 @@ impl NativeFontsBrowser {
             return Ok(());
         };
         let taken = done.status().is_ok() && done.outcome() == DeviceOutcome::Ok;
+        let own = self
+            .job
+            .as_ref()
+            .is_some_and(|job| job.ends_with(request.get()));
         match (request.get(), done.kind()) {
-            (INSTALL_REQUEST, InstallKind::Plugin) if self.job.is_some() => {
+            (_, InstallKind::Plugin) if own => {
                 let Some(job) = self.job.take() else {
                     return Ok(());
                 };
