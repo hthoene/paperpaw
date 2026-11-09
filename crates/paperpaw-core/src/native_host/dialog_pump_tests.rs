@@ -30,12 +30,22 @@ std::thread_local! {
     static OPENED: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
 }
 
+std::thread_local! {
+    /// Whether the next dialog shown closes itself.
+    static SPAWN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
 struct Dialog;
 
 impl Screen for Dialog {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
+    }
+    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+        if SPAWN.with(core::cell::Cell::take) {
+            cx.command(paperpaw_sdk::Command::Back);
+        }
     }
 }
 
@@ -413,4 +423,26 @@ fn another_plugin_can_neither_answer_cancel_nor_fail_the_request_of_an_asker() {
     );
     assert!(w.seen.borrow().is_empty());
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
+}
+
+/// The dialog is bound at once, before the commands its open leads to run: one
+/// of them closing it is then a close of an open request (a cancel the asker
+/// hears of), not an instance nobody knows, and what is bound is the instance
+/// opened, however many are opened after it.
+#[test]
+fn the_dialog_is_bound_before_the_commands_it_leads_to_run() {
+    let mut w = world_with(Ok(OK), Some("a"));
+    lock(&mut w, "a");
+    let id = ask(&w, 0, 1);
+    SPAWN.with(|spawn| spawn.set(true));
+    w.kernel.native_dialog_pump();
+    // The dialog's `on_show` closed it: the request is cancelled and heard of.
+    w.kernel.native_dialog_pump();
+    let answered = w.seen.borrow().clone();
+    assert_eq!(answered.len(), 1);
+    assert_eq!((answered[0].request, answered[0].outcome), (id, 1));
+    // Closed (bit 0), not `not_started` (bit 1): it was open when it went.
+    assert_eq!(answered[0].flags & 3, 1);
+    assert_eq!(w.store.request_count(), 0);
+    assert!(w.kernel.stack.iter().all(|s| s.id != KEYBOARD_SCREEN));
 }

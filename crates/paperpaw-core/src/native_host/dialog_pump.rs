@@ -166,20 +166,28 @@ impl crate::Kernel {
         self.apply(Command::OpenSlot(slot.clone(), params));
         self.from_guard = false;
         self.from_guard_own = false;
-        self.run_commands();
+        // Looked up at once, before the commands the open led to run: one of
+        // them may open the same slot again (another plugin's, which waits
+        // below a guard), and the question must not be bound to that instance.
         let opened = self
             .stack
             .iter_mut()
-            .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot));
-        match opened {
-            Some(dialog) => {
+            .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot))
+            .map(|dialog| {
                 dialog.guard_dialog = own;
-                let _ = store.dialog_opened(start.request, dialog.serial);
+                dialog.serial
+            });
+        match opened {
+            Some(serial) => {
+                // Told before the follow-ups run: one that closes the dialog
+                // cancels the request as any close does.
+                let _ = store.dialog_opened(start.request, serial);
             }
             None => {
                 let _ = store.dialog_failed(start.request);
             }
         }
+        self.run_commands();
     }
 }
 
