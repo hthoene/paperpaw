@@ -7,8 +7,9 @@
 //! gap apart; one that does not fit beside the others goes onto the next row
 //! whole (a word is shortened only where it is wider than the whole area).
 //! Left and right (and previous and next) move the focus from chip to chip,
-//! *Select* chooses, a tap on a chip chooses it. Like [`Dialog`](crate::Dialog)
-//! it does not mirror for right-to-left languages.
+//! *Select* chooses, a tap on a chip chooses it. Where the interface runs right
+//! to left ([`Style::rtl`]) the chips run from the right and left and right
+//! swap, as in Beta 3.
 //!
 //! Made once with the screen's layout (it measures the labels), it owns its
 //! cells, its texts and the few colours it draws with, so nothing of the
@@ -41,6 +42,8 @@ pub struct Chips {
     /// The corners: half the height for pills, else this many pixels.
     corner: u32,
     pill: bool,
+    /// The interface runs right to left: the chips start at the right.
+    rtl: bool,
     ink: Color,
     paper: Color,
 }
@@ -135,6 +138,7 @@ impl Chips {
             border: style.line.max(2),
             corner: style.corner,
             pill: style.pill,
+            rtl: style.rtl,
             ink: style.ink,
             paper: style.paper,
         })
@@ -200,8 +204,11 @@ impl Chips {
             .saturating_sub(u32::from(rows_bottom(&cells)))
             / 2;
         let below = crate::geometry::clamp_u16(i64::from(below));
+        // From the start side of the area: the right where the interface runs
+        // right to left.
         for cell in &mut cells {
             cell.y = cell.y.saturating_add(below);
+            *cell = crate::style::flip_rect(self.rtl, area, *cell);
         }
         self.cells = cells;
         Ok(())
@@ -248,8 +255,11 @@ impl Chips {
             focus.saturating_add(1).min(last),
         );
         match action {
-            "core.previous" | "core.left" => Some(back),
-            "core.next" | "core.right" => Some(on),
+            "core.previous" => Some(back),
+            "core.next" => Some(on),
+            // The chips run from the right: left goes on.
+            "core.left" => Some(if self.rtl { on } else { back }),
+            "core.right" => Some(if self.rtl { back } else { on }),
             _ => None,
         }
     }
