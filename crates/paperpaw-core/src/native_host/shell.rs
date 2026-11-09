@@ -1072,16 +1072,10 @@ unsafe extern "C" fn storage_write<S>(
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
-        super::storage_slots::write(
-            &context.environment,
-            &context.id,
-            context.resources.hosts().in_use(),
-            root,
-            path,
-            data,
-        )
+        super::storage_slots::write(&context.environment, &context.id, held, root, path, data)
     }
 }
 
@@ -1097,16 +1091,10 @@ unsafe extern "C" fn storage_append<S>(
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
-        super::storage_slots::append(
-            &context.environment,
-            &context.id,
-            context.resources.hosts().in_use(),
-            root,
-            path,
-            data,
-        )
+        super::storage_slots::append(&context.environment, &context.id, held, root, path, data)
     }
 }
 
@@ -1122,17 +1110,9 @@ unsafe extern "C" fn storage_rename<S>(
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe {
-        super::storage_slots::rename(
-            &context.environment,
-            &context.id,
-            context.resources.hosts().in_use(),
-            root,
-            from,
-            to,
-        )
-    }
+    unsafe { super::storage_slots::rename(&context.environment, &context.id, held, root, from, to) }
 }
 
 unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
@@ -1142,16 +1122,9 @@ unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpByte
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe {
-        super::storage_slots::remove(
-            &context.environment,
-            &context.id,
-            context.resources.hosts().in_use(),
-            root,
-            path,
-        )
-    }
+    unsafe { super::storage_slots::remove(&context.environment, &context.id, held, root, path) }
 }
 
 unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {

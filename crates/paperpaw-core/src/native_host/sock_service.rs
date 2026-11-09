@@ -180,18 +180,18 @@ pub struct Connect<'a> {
 /// transport moves bytes.
 ///
 /// A transport never calls back into the service from inside these methods:
-/// it reports from the shell's loop, through [`connected`], [`received`],
-/// [`peer_closed`], [`writable`] and [`failed`].
+/// it reports from the shell's loop, through `connected`, `received`,
+/// `peer_closed`, `writable` and `failed`.
 pub trait SockTransport {
     /// Begin to connect socket `id` (lookup, connect). `Err` means it could
     /// not begin.
     fn connect(&self, id: u32, to: &Connect<'_>) -> Result<(), i32>;
     /// Hand up to `data.len()` bytes to the connection; how many it took
-    /// (0: it is full, [`writable`] says when to try again). `Err` ends the
+    /// (0: it is full, `writable` says when to try again). `Err` ends the
     /// socket (`io`).
     fn send(&self, id: u32, data: &[u8]) -> Result<usize, i32>;
     /// Allow the transport to report up to `max` more bytes through
-    /// [`received`] (and nothing beyond: nothing arrives unasked).
+    /// `received` (and nothing beyond: nothing arrives unasked).
     fn read(&self, id: u32, max: u32);
     /// Close the connection of `id` (a socket or a broadcast) without any
     /// report.

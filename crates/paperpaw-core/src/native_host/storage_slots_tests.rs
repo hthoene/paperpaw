@@ -199,6 +199,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table of refusals")]
 fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
@@ -338,6 +339,7 @@ fn malformed_paths_utf8_and_reserved_roots_leave_files_unchanged() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table of refusals")]
 fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
