@@ -49,7 +49,32 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
             "{bad:?}"
         );
     }
+    // As `core.files` checks a path: its grammar, its sizes, and root 1 never
+    // reaches the install folders or the kernel's.
+    for bad in ["a:b", "x.", "CON", "a\u{1}b"] {
+        assert_eq!(
+            a.admit(&prepare_cmd(0, bad, 0)),
+            Some(Err(ERR_INVALID)),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        a.admit(&prepare_cmd(0, &"p".repeat(600), 0)),
+        Some(Err(paperpaw_native::host_glue::ERR_NO_SPACE))
+    );
     assert_eq!(a.room, 8, "a refused command took no room");
+    let mut with_card = admit(true, 4);
+    for bad in ["plugins/x/a.png", "Plugins/a.png", ".paperpaw/cache/a.png"] {
+        assert_eq!(
+            with_card.admit(&prepare_cmd(1, bad, 0)),
+            Some(Err(ERR_INVALID)),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        with_card.admit(&prepare_cmd(1, "Pics/a.png", 0)),
+        Some(Ok(()))
+    );
     assert_eq!(
         admit(true, 1).admit(&prepare_cmd(1, "a.png", 0)),
         Some(Ok(()))
@@ -77,7 +102,7 @@ impl ImageRoots for Roots {
                 Ok(source)
             }
             // The install folder of the plugin "demo", as `core.files` has it.
-            2 => bundle_source("demo", path),
+            2 => bundle_source("demo", false, path),
             _ => Err(ERR_NOT_FOUND),
         }
     }
@@ -377,13 +402,30 @@ fn root_2_reads_the_plugins_install_folder_and_a_missing_file_is_status_6_on_eve
 #[test]
 fn the_bundle_path_is_the_one_core_files_resolves() {
     assert_eq!(
-        bundle_source("demo", "art/cat.png").as_deref(),
+        bundle_source("demo", false, "art/cat.png").as_deref(),
         Ok("plugins/demo/art/cat.png")
     );
-    for bad in ["", "../x", "a/../b", "/a", "a//b", "a\\b"] {
-        assert_eq!(bundle_source("demo", bad), Err(ERR_INVALID), "{bad:?}");
+    for bad in ["", "../x", "a/../b", "/a", "a//b", "a\\b", "a:b", "x.png."] {
+        assert_eq!(
+            bundle_source("demo", false, bad),
+            Err(ERR_INVALID),
+            "{bad:?}"
+        );
     }
+    assert_eq!(
+        bundle_source("demo", false, &"p".repeat(600)),
+        Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+    );
     // An id that is more than one folder name, or leaves no room.
-    assert_eq!(bundle_source("a/b", "x.png"), Err(ERR_INVALID));
-    assert_eq!(bundle_source(&"p".repeat(400), "x.png"), Err(ERR_INVALID));
+    assert_eq!(bundle_source("a/b", false, "x.png"), Err(ERR_INVALID));
+    assert_eq!(
+        bundle_source(&"p".repeat(400), false, "x.png"),
+        Err(ERR_INVALID)
+    );
+    // A built-in plugin's folder is empty, whatever a leftover holds.
+    assert_eq!(
+        bundle_source("demo", true, "art/cat.png"),
+        Err(ERR_NOT_FOUND)
+    );
+    assert_eq!(bundle_source("demo", true, "../x"), Err(ERR_INVALID));
 }
