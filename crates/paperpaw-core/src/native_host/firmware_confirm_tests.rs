@@ -4,6 +4,8 @@
 use super::*;
 use crate::native_host::firmware_install::{Answer, KIND_FIRMWARE};
 use paperpaw_platform::firmware::{Signer, Text};
+use paperpaw_sdk::builtin::actions;
+use paperpaw_sdk::{Command, Instant};
 
 fn ask(foreign: bool, restart: bool, older: bool, signer: Signer) -> Ask {
     Ask {
@@ -112,6 +114,8 @@ mod kernel_side {
         for _ in 0..20 {
             kernel.native_firmware_pump();
         }
+        // The screen is told it shows at the end of the pass, as in the loop.
+        let _ = kernel.tick(Instant(0));
         let top = kernel.stack.last().expect("the confirmation is open");
         assert_eq!(top.id, SCREEN);
         top.params.get(NONCE).unwrap().parse().unwrap()
@@ -194,5 +198,146 @@ mod kernel_side {
         // Its late answer is nobody's.
         answer(&mut kernel, nonce, "yes");
         assert_ne!(state(&kernel), State::Installing);
+    }
+
+    /// What the install of request 5 ended with, told or not yet.
+    fn ended(kernel: &Kernel) -> Option<u8> {
+        let driver = kernel.firmware.clone().unwrap();
+        let driver = driver.borrow();
+        driver
+            .kept(1, KIND_FIRMWARE)
+            .or_else(|| driver.peek_ready())
+            .map(|outcome| outcome.reason)
+    }
+
+    #[test]
+    fn input_within_500_ms_of_showing_is_dropped_and_counts_after() {
+        let mut kernel = kernel();
+        kernel.start(Instant(0));
+        shown(&mut kernel);
+        // The focus starts on No: a press that counted would end it (reason 2).
+        let _ = kernel.run_action(Instant(499), actions::CONFIRM);
+        assert_eq!(state(&kernel), State::WaitingForUser, "dropped at 499 ms");
+        let _ = kernel.run_action(Instant(499), actions::BACK);
+        assert_eq!(state(&kernel), State::WaitingForUser, "Back too");
+        let _ = kernel.run_action(Instant(500), actions::CONFIRM);
+        assert_eq!(ended(&kernel), Some(2), "the focused No at 500 ms");
+    }
+
+    #[test]
+    fn back_dismisses_after_the_guard_time() {
+        let mut kernel = kernel();
+        kernel.start(Instant(0));
+        shown(&mut kernel);
+        let _ = kernel.run_action(Instant(600), actions::BACK);
+        assert_eq!(ended(&kernel), Some(3));
+    }
+
+    #[test]
+    fn ten_minutes_without_an_answer_dismiss_it() {
+        let mut kernel = kernel();
+        kernel.start(Instant(0));
+        shown(&mut kernel);
+        let _ = kernel.tick(Instant(599_999));
+        assert_eq!(state(&kernel), State::WaitingForUser, "not yet");
+        let _ = kernel.tick(Instant(600_000));
+        assert_eq!(ended(&kernel), Some(3));
+    }
+
+    mod lock {
+        use super::*;
+        use core::cell::Cell;
+        use paperpaw_sdk::{
+            Canvas, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
+            ScreenSpec, Version, builtin::slots,
+        };
+
+        const LOCK: Id = Id::new_static("g.lock");
+        const HOME: Id = Id::new_static("g.home");
+
+        struct Plain;
+        impl Screen for Plain {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+                Handled::No
+            }
+        }
+
+        struct Lock(alloc::rc::Rc<Cell<bool>>);
+        impl Screen for Lock {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+            fn guards(&self) -> bool {
+                self.0.get()
+            }
+            fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+                if *action == paperpaw_sdk::builtin::actions::CONFIRM {
+                    self.0.set(false);
+                    cx.command(Command::Back);
+                    Handled::Yes
+                } else {
+                    Handled::No
+                }
+            }
+        }
+
+        struct LockPlugin(alloc::rc::Rc<Cell<bool>>);
+        impl Plugin for LockPlugin {
+            fn manifest(&self) -> Manifest {
+                Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
+                    .uses(paperpaw_sdk::Uses::NOTHING)
+            }
+            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+                let locked = self.0.clone();
+                r.add_screen(ScreenSpec::new(
+                    LOCK,
+                    "lock",
+                    alloc::boxed::Box::new(move |_, _| {
+                        alloc::boxed::Box::new(Lock(locked.clone()))
+                    }),
+                ))?;
+                r.add_screen(ScreenSpec::new(
+                    HOME,
+                    "home",
+                    alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Plain)),
+                ))?;
+                r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
+            }
+        }
+
+        #[test]
+        fn the_confirmation_waits_while_the_lock_is_up_and_is_never_drawn_over_it() {
+            let locked = alloc::rc::Rc::new(Cell::new(true));
+            let fake = FakeFirmware::new(
+                "0.5.0",
+                "paperpaw-x4",
+                5,
+                paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+            );
+            let mut kernel = Kernel::builder(crate::tests::DEVICE)
+                .plugin(LockPlugin(locked.clone()))
+                .firmware_host(alloc::boxed::Box::new(fake))
+                .build()
+                .unwrap();
+            kernel.start(Instant(0));
+            let _ = kernel.open_screen(Instant(1), LOCK, Params::new());
+            let driver = kernel.firmware.clone().unwrap();
+            driver
+                .borrow_mut()
+                .submit_install(1, 5, "update.ppu", None, 0)
+                .unwrap();
+            for _ in 0..20 {
+                kernel.native_firmware_pump();
+            }
+            // The question is asked, but the lock is on top and stays.
+            assert_eq!(kernel.active_screen(), Some(&LOCK));
+            assert!(driver.borrow().peek_ask().is_some(), "still waiting");
+            // Unlocked: the confirmation opens at the next pass.
+            let _ = kernel.run_action(Instant(5), paperpaw_sdk::builtin::actions::CONFIRM);
+            for _ in 0..20 {
+                kernel.native_firmware_pump();
+            }
+            assert_eq!(kernel.active_screen(), Some(&SCREEN));
+            assert!(driver.borrow().peek_ask().is_none());
+        }
     }
 }
