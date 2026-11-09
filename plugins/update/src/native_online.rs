@@ -63,15 +63,6 @@ pub struct Offer {
 }
 
 impl Offer {
-    /// Why the server says the crate `name` is missing, if it says.
-    #[must_use]
-    pub fn why_missing(&self, name: &str) -> Option<&str> {
-        self.missing.lines().find_map(|line| {
-            let (crate_name, reason) = line.split_once(' ')?;
-            (crate_name == name).then_some(reason.trim())
-        })
-    }
-
     /// The text of [`OFFER`]: the version, the address and the size a line
     /// each, then `plugin`, `missing` and `waiting` lines, then each build as
     /// `build <id> <version> <author or -> <name>` and a `file <size> <digest>

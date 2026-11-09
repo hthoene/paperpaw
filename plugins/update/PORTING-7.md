@@ -174,7 +174,7 @@ the dates, the server's address), `src/native_plugin/online.rs` (the page's sear
    `dev_check.flags` bit 5 says the update leaves out plugins built in now, `core.device` op 16 `leaves_out`
    pages them (`dev_builtin` rows: id and the running version); a foreign image answers `Unsupported`. The plugin
    keeps what is its own: it filters out what comes back as fetched files (`fetch::comes_back`) and words the
-   choice from the server's `missing` reasons (`Offer::why_missing`, kept in `offer.txt`). **Blocked on the SDK
+   choice from the server's `missing` reasons (the `missing` lines kept in `offer.txt`). **Blocked on the SDK
    wrapper:** `crates/paperpaw-sdk/src/native` has only the wire constant `OP_LEAVES_OUT` (no `Device::leaves_out`
    and no `FileCheck` flag for bit 5; checked on integration 804d7415f). Then the *Update without them* choice
    on the card page and the offer. Until then an update is offered without saying which plugins it leaves out

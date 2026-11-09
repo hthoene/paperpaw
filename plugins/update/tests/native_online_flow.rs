@@ -108,7 +108,9 @@ fn the_weekly_look_is_declared_at_start_where_the_setting_is_on() {
     // at the moments the network is up (2) or charging begins (4).
     assert_eq!(
         *log.borrow(),
-        ["declare update.look-due token 8 needs 1 flags 1 moments 6 after 0 within 0 every 604800000"]
+        [
+            "declare update.look-due token 8 needs 1 flags 1 moments 6 after 0 within 0 every 604800000"
+        ]
     );
 }
 
@@ -166,7 +168,9 @@ fn a_check_a_rule_asks_for_waits_for_a_cheap_moment() {
     // Network work within the hour, when the network is up (not optional).
     assert_eq!(
         *log.borrow(),
-        ["declare update.check-due token 8 needs 1 flags 0 moments 2 after 0 within 3600000 every 0"]
+        [
+            "declare update.check-due token 8 needs 1 flags 0 moments 2 after 0 within 3600000 every 0"
+        ]
     );
 }
 

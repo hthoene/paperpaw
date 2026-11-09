@@ -747,10 +747,7 @@ impl NativeUpdate {
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let card = self.started_card(host);
         // Where the setting is on; a device without declared work has no look.
-        match self.plan_look(host) {
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) | Ok(()) => {}
-        }
+        online::tolerate(self.plan_look(host))?;
         card
     }
 
@@ -929,6 +926,17 @@ const fn install_label(image: &Image) -> &'static str {
     }
 }
 
+/// A row with a button and no value.
+fn plain(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    page: &mut (Vec<Item>, Vec<Button>),
+    key: &str,
+    button: Button,
+) -> Result<(), Error> {
+    row(host, messages, page, key, "", button)
+}
+
 /// The rows of `view`: the update's button where one waits for the reader's
 /// word (the other firmware's after *Not now*); *Not now* or *OK* last.
 fn rows_of(
@@ -953,91 +961,52 @@ fn rows_of(
             // for a newer one; not beside one's own build, which needs the room
             // to say its key.
             if caps.network && !image.order.is_gt() && image.signer == Signer::PaperPaw {
-                row(
-                    host,
-                    messages,
-                    &mut rows,
-                    "update.check",
-                    "",
-                    Button::Search,
-                )?;
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
             }
         }
         View::Nothing => {
             if caps.network {
-                row(
-                    host,
-                    messages,
-                    &mut rows,
-                    "update.check",
-                    "",
-                    Button::Search,
-                )?;
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
             }
             if caps.transfer {
-                row(
+                plain(
                     host,
                     messages,
                     &mut rows,
                     "update.transfer",
-                    "",
                     Button::Transfer,
                 )?;
             }
         }
         View::Offer(_) => {
-            row(
+            plain(
                 host,
                 messages,
                 &mut rows,
                 "update.download",
-                "",
                 Button::Download,
             )?;
         }
         View::Unreachable(_) => {
-            row(
-                host,
-                messages,
-                &mut rows,
-                "update.retry",
-                "",
-                Button::Search,
-            )?;
+            plain(host, messages, &mut rows, "update.retry", Button::Search)?;
         }
         // Not installing is the way on: first; the other firmware second.
         View::Foreign(_) => {
-            row(host, messages, &mut rows, "update.later", "", Button::Close)?;
-            let install = Button::Install;
-            row(
+            plain(host, messages, &mut rows, "update.later", Button::Close)?;
+            plain(
                 host,
                 messages,
                 &mut rows,
                 "update.install-foreign",
-                "",
-                install,
+                Button::Install,
             )?;
             if caps.network {
-                row(
-                    host,
-                    messages,
-                    &mut rows,
-                    "update.check",
-                    "",
-                    Button::Search,
-                )?;
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
             }
             return Ok(rows);
         }
         View::Installed(true) | View::RestartFailed => {
-            row(
-                host,
-                messages,
-                &mut rows,
-                "update.restart",
-                "",
-                Button::Restart,
-            )?;
+            plain(host, messages, &mut rows, "update.restart", Button::Restart)?;
         }
         _ => {}
     }

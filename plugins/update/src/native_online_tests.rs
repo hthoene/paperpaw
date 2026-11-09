@@ -30,10 +30,7 @@ fn an_answer_is_read_in_any_pieces() {
         assert_eq!(offer.version, "0.5.0");
         assert_eq!(offer.size, 6_194_784);
         assert_eq!(offer.plugins, "paperpaw-plugin-stats 0.5.0\n");
-        assert_eq!(
-            offer.why_missing("paperpaw-plugin-chess"),
-            Some("not-ready")
-        );
+        assert_eq!(offer.missing, "paperpaw-plugin-chess not-ready\n");
         assert_eq!(offer.waiting, "dict 0.3.1\n");
         // The build with an invalid id is left out.
         assert_eq!(offer.builds.len(), 1, "{piece}");

@@ -87,11 +87,6 @@ impl Online {
         self.loading.is_some() || self.fetch.is_some()
     }
 
-    /// Whether the server is being asked.
-    pub const fn asking(&self) -> bool {
-        self.asking.is_some()
-    }
-
     /// Whether a reader waits for the answer (the page asked for it).
     pub const fn awaited(&self) -> bool {
         matches!(self.asking, Some((_, false)))
@@ -166,6 +161,14 @@ pub fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
         paperpaw_sdk::native::settings::read_setting(host, key, &mut bytes)?,
         paperpaw_sdk::native::settings::SettingValue::Bool(true)
     ))
+}
+
+/// A device without declared work has no look: only a failure to allocate is one.
+pub fn tolerate(result: Result<(), Error>) -> Result<(), Error> {
+    match result {
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        _ => Ok(()),
+    }
 }
 
 /// Says `text` where the reader is.
@@ -304,7 +307,12 @@ impl NativeUpdate {
     /// The answer came, or the request failed: the update it names kept (or the
     /// one kept before let go), and shown where the page is open.
     pub(super) fn answered(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
-        if self.online.asking.take_if(|(id, _)| *id == done.id()).is_none() {
+        if self
+            .online
+            .asking
+            .take_if(|(id, _)| *id == done.id())
+            .is_none()
+        {
             return Ok(());
         }
         if matches!(done.reason(), Reason::Cancelled | Reason::Replaced) {
@@ -575,8 +583,9 @@ impl NativeUpdate {
         let now = capture_snapshot(host)?.unix_seconds();
         // A look that left no readable date counts as none: the week starts now.
         let last = match read_all(host, Root::Data, LOOKED, 64) {
-            Ok(kept) => kept
-                .and_then(|bytes| core::str::from_utf8(&bytes).ok()?.trim().parse().ok()),
+            Ok(kept) => {
+                kept.and_then(|bytes| core::str::from_utf8(&bytes).ok()?.trim().parse().ok())
+            }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => None,
         };
@@ -635,10 +644,7 @@ impl NativeUpdate {
     /// A setting changed: the weekly look is declared anew or taken back.
     pub(super) fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
         if key == LOOK {
-            return match self.plan_look(host) {
-                Err(Error::NoMemory) => Err(Error::NoMemory),
-                Err(_) | Ok(()) => Ok(()),
-            };
+            return tolerate(self.plan_look(host));
         }
         Ok(())
     }
