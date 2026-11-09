@@ -815,3 +815,41 @@ fn a_value_too_long_for_a_values_row_is_not_listed() {
     assert_eq!(rows, ["value cfg.clock@2.size Int(5) 0"]);
     assert_eq!(end.total, 1);
 }
+
+/// A `reg_query` flag bit an op does not know is `ERR_UNSUPPORTED`, on every
+/// list op; the bits it reads are fine.
+#[test]
+fn unknown_query_flag_bits_are_unsupported_on_every_list_op() {
+    let kernel = kernel();
+    let with = |scope: &str, flags: u32| {
+        counted(Record::ServiceRegQuery(wire::ServiceRegQuery {
+            scope,
+            cursor: 0,
+            generation: 0,
+            flags,
+        }))
+    };
+    for id in [
+        schema::OP_SETTINGS,
+        schema::OP_CHOICES,
+        schema::OP_GROUPS,
+        schema::OP_PLUGINS,
+    ] {
+        assert_eq!(
+            call_as(&kernel, "reader", id, &with("", 2), 4096),
+            Err(ERR_UNSUPPORTED),
+            "{id}"
+        );
+        assert_eq!(
+            call_as(&kernel, "reader", id, &with("", 1), 4096),
+            Err(ERR_UNSUPPORTED),
+            "{id}"
+        );
+    }
+    // Op 18 reads bit 0 only.
+    assert!(call_as(&kernel, "reader", schema::OP_VALUES, &with("", 1), 4096).is_ok());
+    assert_eq!(
+        call_as(&kernel, "reader", schema::OP_VALUES, &with("", 2), 4096),
+        Err(ERR_UNSUPPORTED)
+    );
+}

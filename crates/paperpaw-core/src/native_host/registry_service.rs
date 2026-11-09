@@ -99,6 +99,10 @@ fn list(
     asker: &Asker<'_>,
     out: &mut [u8],
 ) -> Result<usize, i32> {
+    // A flag bit this build does not know is not ignored (`records.md`).
+    if query.flags & !query_flags_of(op.id) != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
     let generation = view.generation();
     let scope = scope_of(op.id, query);
     let mut total = 0_u32;
@@ -142,6 +146,16 @@ fn list(
         });
     }
     page.finish()
+}
+
+/// The `reg_query.flags` bits an op knows: op 12's `all` and `declared`, op
+/// 18's placement bit; no other op reads any.
+const fn query_flags_of(op: u32) -> u32 {
+    match op {
+        schema::OP_MENU => 0b11,
+        schema::OP_VALUES => 0b1,
+        _ => 0,
+    }
 }
 
 /// The scope the view reads. Op 18 names a preset or, with `flags` bit 0, a
