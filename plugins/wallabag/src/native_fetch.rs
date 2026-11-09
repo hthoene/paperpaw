@@ -10,6 +10,7 @@
 //! The caller gives the file in pieces as it reads it (`feed`), then asks
 //! for the result (`finish`); [`Unread::read`] and [`Archived::read`] do both
 //! for a text already in memory.
+use crate::native_keep::Secret;
 use crate::native_wallabag::{MAX_ARTICLES, NAME_UNITS, is_id};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -278,5 +279,65 @@ impl<'a> Archived<'a> {
             reading.feed(piece)?;
         }
         reading.finish()
+    }
+}
+
+#[derive(Debug, Default)]
+struct TokenSink {
+    token: Option<Secret>,
+    failed: Option<Error>,
+}
+
+impl Sink for TokenSink {
+    fn event(&mut self, event: Event<'_>) {
+        if let Event::Value([key], value) = event
+            && key.as_str() == "access_token"
+            && self.failed.is_none()
+        {
+            match Secret::copy(value) {
+                Ok(token) => self.token = Some(token),
+                Err(error) => self.failed = Some(error),
+            }
+        }
+    }
+
+    fn failed(&self) -> Option<Error> {
+        self.failed
+    }
+}
+
+/// A reading of the token Wallabag answered a login with (`access_token`
+/// at the top of the object). The token is a [`Secret`]: zeroed when it is
+/// dropped. The parser's own copy of the value while it is read is not
+/// (the token is a short-lived session key that is never kept).
+#[derive(Debug)]
+pub struct Token(Feed<TokenSink>);
+
+impl Token {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Feed::new(TokenSink::default()))
+    }
+
+    /// The next piece of the answer.
+    ///
+    /// # Errors
+    /// `NoMemory`; the reading is over then.
+    pub fn feed(&mut self, piece: &[u8]) -> Result<(), Error> {
+        self.0.feed(piece)
+    }
+
+    /// The token; `None` when the answer has none (or an empty one).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn finish(self) -> Result<Option<Secret>, Error> {
+        Ok(self.0.finish()?.token.filter(|t| !t.as_str().is_empty()))
+    }
+}
+
+impl Default for Token {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -13,21 +13,6 @@ use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 
-/// Whether `a` and `b` are one name where case does not matter, as FAT
-/// compares names: letter by letter, each letter taken to its upper case (one
-/// letter to one letter; `ß` is no `SS`), not only the ASCII ones. No
-/// allocation.
-pub(crate) fn same_name(a: &str, b: &str) -> bool {
-    let mut b = b.chars();
-    for x in a.chars() {
-        match b.next() {
-            Some(y) if x == y || x.to_uppercase().eq(y.to_uppercase()) => {}
-            _ => return false,
-        }
-    }
-    b.next().is_none()
-}
-
 /// One path a host writer holds.
 struct Claim {
     owner: u64,
@@ -92,7 +77,11 @@ impl PathsInUse {
     /// path it holds already).
     pub(crate) fn holds_except(&self, path: &str, ignore_case: bool, owner: Option<u64>) -> bool {
         let alike = |a: &str, b: &str| {
-            if ignore_case { same_name(a, b) } else { a == b }
+            if ignore_case {
+                super::files_service::same_fold(a, b)
+            } else {
+                a == b
+            }
         };
         // `inner` is below the folder `outer`: its first segments are `outer`.
         let inside = |inner: &str, outer: &str| {
@@ -117,12 +106,27 @@ impl PathsInUse {
     }
 }
 
+/// What `core.files` answers `ERR_BUSY` for: a path a host writer holds, a
+/// folder that holds one, or a path inside one (reading is never asked). This
+/// is the [`BusyKind::Network`](super::storage_files::BusyKind) source.
+impl super::storage_files::BusySource for PathsInUse {
+    fn busy(
+        &self,
+        storage: &dyn paperpaw_platform::Storage,
+        path: &str,
+        _access: super::files_service::Access,
+    ) -> bool {
+        self.holds(path, storage.ignores_case())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn names_are_alike_letter_by_letter_in_any_alphabet() {
+    fn names_are_alike_as_the_fat_driver_folds_them_in_any_alphabet() {
+        use super::super::files_service::same_fold as same_name;
         for (a, b) in [
             ("Books/a.epub", "books/A.EPUB"),
             ("Bücher/é.txt", "BÜCHER/É.TXT"),
@@ -132,8 +136,10 @@ mod tests {
             assert!(same_name(a, b), "{a} {b}");
             assert!(same_name(b, a), "{b} {a}");
         }
-        // A letter is one letter: `ß` is not `SS`, and the lengths must match.
-        for (a, b) in [("ß", "SS"), ("a", "ab"), ("ab", "a"), ("é", "e"), ("", "a")] {
+        // The whole name is folded, as the driver does: `ß` is `SS`; the
+        // lengths must still match.
+        assert!(same_name("ß", "SS"));
+        for (a, b) in [("a", "ab"), ("ab", "a"), ("é", "e"), ("", "a")] {
             assert!(!same_name(a, b), "{a} {b}");
         }
         assert!(same_name("", ""));

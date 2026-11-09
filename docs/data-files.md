@@ -135,7 +135,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/store/index.txt`, `index.head`, `index.bin`, `search.bin`, `plugin-<id>.part`, `shot.gray` | store | the plugin library's list for this device, fetched again; a plugin's page and a screenshot as they are shown |
 | `.paperpaw/plugins/store/list.part`, `sort.bin`, `shot-<n>.part` | store | the list and a screenshot while they are downloaded, the list's sort while it is sorted |
 | `.paperpaw/plugins/joplin/info.json`, `locks.txt`, `found.md`, `note.md` | joplin | fetched or written again with each sending, removed after it |
-| `.paperpaw/plugins/readwise/body.json`, `answer.json` | readwise | a request's body and Readwise's answer, written again with each request |
+| `.paperpaw/plugins/readwise/body.json` | readwise | a request's body, written again with each request (Readwise's answer is not kept) |
 | `.paperpaw/plugins/update/offer.txt`; `updates/.download` and `updates/<firmware>-<version>.bin` at the top of the card | update | the update server's last answer, a download until it is whole, and the update downloaded; fetched again, and let go once the version is no longer newer |
 | `.paperpaw/plugins/update/fetch.txt`, `fetch-current.txt`, `fetch-failed.txt`, `fetch-native.txt`, `plugins/.<id>.next/` | update | the code plugins left to fetch for a downloaded update, the one being fetched, those that could not be, the fingerprint and compiler the update's need; the folders fetched, installed by the updated firmware |
 | `.paperpaw/plugins/about/licences.md`, `about/plugins.md`, `about/logo.png`, `plugin-manager/how.txt`, `store/how.txt` | about, plugin-manager, store | written when they are opened to read |
