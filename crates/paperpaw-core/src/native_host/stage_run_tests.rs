@@ -227,34 +227,34 @@ fn with_frame<R>(
 }
 
 /// [`with_frame`] in the callback `epoch`, with the style grants of the
-/// plugins named in `granted` set to yes.
+/// settings in `switches` defined and set.
 fn with_frame_at<R>(
     fixture: &Fixture,
     caller: Option<u64>,
     levels: usize,
-    (epoch, granted, memory): (u64, &[&str], MemoryClass),
+    (epoch, switches, memory): (u64, &[(&str, bool)], MemoryClass),
     body: impl FnOnce(&CoreFrame<'_>) -> R,
 ) -> R {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE.with_memory(memory))
         .build()
         .unwrap();
-    for plugin in granted {
-        let key = alloc::format!("core.grant.style.{plugin}");
-        let key: &'static str = alloc::boxed::Box::leak(key.into_boxed_str());
+    for &(key, value) in switches {
+        let key: &'static str =
+            alloc::boxed::Box::leak(alloc::string::String::from(key).into_boxed_str());
         kernel
             .shared
             .settings
             .define(paperpaw_sdk::SettingSpec::switch(
                 key,
-                "grant",
-                false,
+                "switch",
+                true,
                 paperpaw_sdk::builtin::groups::OTHER,
             ))
             .unwrap();
         kernel
             .shared
             .settings
-            .set(key, paperpaw_sdk::SettingValue::Bool(true))
+            .set(key, paperpaw_sdk::SettingValue::Bool(value))
             .unwrap();
     }
     with_kernel_frame(&kernel, fixture, caller, (levels, epoch), body)
@@ -499,7 +499,7 @@ fn the_style_grant_of_the_subscriber_is_stamped_into_the_reply() {
         &fixture,
         Some(READER),
         1,
-        (2, &["alpha"], MemoryClass::Large),
+        (2, &[("core.grant.style.alpha", true)], MemoryClass::Large),
         |frame| {
             let mut out = buffer();
             let mut flags = Vec::new();
@@ -603,6 +603,113 @@ fn the_frozen_lists_are_freed_when_the_callback_ends() {
             assert_eq!(reply(&out, count).subscriber, "first");
         },
     );
+}
+
+#[test]
+fn a_subscriber_the_user_turned_off_is_inert_and_does_not_count() {
+    let fixture = Fixture::new();
+    // `alpha` is off for this stage, `zeta` is off for another one: only the
+    // first changes the list.
+    let off = [
+        ("core.stage.reader.filter.alpha", false),
+        ("core.stage.reader.other.zeta", false),
+        ("core.stage.reader.filter.first", true),
+    ];
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (2, &off, MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let mut seen = Vec::new();
+            for cursor in 0.. {
+                match ask(frame, STAGE, cursor, b"", &mut out) {
+                    Ok(count) => seen.push(reply(&out, count).subscriber),
+                    Err(status) => {
+                        assert_eq!(status, ERR_NOT_FOUND);
+                        break;
+                    }
+                }
+            }
+            assert_eq!(seen, ["first", "zeta"]);
+        },
+    );
+    assert_eq!(&*fixture.calls.borrow(), &[("first", 7), ("zeta", 5)]);
+    // Turned back on, it is in the next callback's list.
+    with_frame_at(
+        &fixture,
+        Some(READER),
+        1,
+        (3, &[], MemoryClass::Large),
+        |frame| {
+            let mut out = buffer();
+            let count = ask(frame, STAGE, 1, b"", &mut out).unwrap();
+            assert_eq!(reply(&out, count).subscriber, "alpha");
+        },
+    );
+}
+
+#[test]
+fn subscribers_turned_off_do_not_count_toward_the_thirty_two() {
+    let fixture = Fixture::new();
+    // 33 more subscribers at order 0, ahead of `alpha` and `zeta` (5) and
+    // behind `first` (-1): 36 in all.
+    let mut names = Vec::new();
+    for number in 0..33_u32 {
+        let id: &'static str =
+            alloc::boxed::Box::leak(alloc::format!("p{number:02}").into_boxed_str());
+        fixture.install(
+            id,
+            1000 + u64::from(number),
+            &[Record::RegistrationStage(wire::RegistrationStage {
+                stage: STAGE,
+                token: 100 + number,
+                order: 0,
+                signature: 0,
+            })],
+        );
+        names.push(id);
+    }
+    let run = |epoch: u64, off: &[(&str, bool)]| {
+        let mut seen = Vec::new();
+        with_frame_at(
+            &fixture,
+            Some(READER),
+            1,
+            (epoch, off, MemoryClass::Large),
+            |frame| {
+                let mut out = buffer();
+                for cursor in 0..40 {
+                    match ask(frame, STAGE, cursor, b"", &mut out) {
+                        Ok(count) => {
+                            seen.push(alloc::string::String::from(reply(&out, count).subscriber))
+                        }
+                        Err(status) => {
+                            assert_eq!(status, ERR_NOT_FOUND);
+                            break;
+                        }
+                    }
+                }
+            },
+        );
+        seen
+    };
+    // All on: only the first 32 are active (`first`, then p00 to p30).
+    let all_on = run(2, &[]);
+    assert_eq!(all_on.len(), 32);
+    assert_eq!((all_on[0].as_str(), all_on[31].as_str()), ("first", "p30"));
+    // `first`, `alpha`, `zeta` and p32 off: 32 are left, p00 to p31, and
+    // none of the switched-off ones took a place.
+    let off = [
+        ("core.stage.reader.filter.first", false),
+        ("core.stage.reader.filter.alpha", false),
+        ("core.stage.reader.filter.zeta", false),
+        ("core.stage.reader.filter.p32", false),
+    ];
+    let seen = run(3, &off);
+    assert_eq!(seen.len(), 32);
+    assert!(seen.iter().zip(&names).all(|(seen, name)| seen == name));
 }
 
 /// A real linked plugin as the subscriber: what its callback sees is its own.
