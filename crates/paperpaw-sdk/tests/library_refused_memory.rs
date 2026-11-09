@@ -909,3 +909,61 @@ fn details_over_the_limit_are_refused_before_the_text_is_made() {
     let largest = LARGEST.with(Cell::get);
     assert!(largest < 16 * 1024, "reserved {largest} bytes");
 }
+
+/// What a write of the details of [`BOOK`] ends as, for every allocation of
+/// `write` refused in turn: nothing is written (and nothing aborts) while one
+/// is refused, and the first call that is not refused writes what an
+/// unrefused one does. Returns how many allocation sites there were.
+fn written_whole_or_not_at_all(storage: &Writing, write: impl Fn(&Writing)) -> usize {
+    write(storage);
+    let kept = storage.wrote.take().expect("written");
+    for number in 1.. {
+        let (_, refused) = with_refusal(number, || write(storage));
+        if !refused {
+            assert_eq!(storage.wrote.take(), Some(kept));
+            return number - 1;
+        }
+        assert_eq!(storage.wrote.take(), None, "refusal {number}");
+    }
+    unreachable!()
+}
+
+#[test]
+fn a_field_is_set_whole_or_not_at_all_for_every_allocation() {
+    let storage = writing();
+    let sites = written_whole_or_not_at_all(&storage, |storage| {
+        library::set_field(storage, BOOK, "myplugin.stars", "4");
+    });
+    assert!(sites >= 5, "only {sites} allocation sites");
+    // Removing a field is a write too.
+    let sites = written_whole_or_not_at_all(&storage, |storage| {
+        library::set_field(storage, BOOK, "myplugin.rating", "");
+    });
+    assert!(sites >= 3, "only {sites} allocation sites");
+}
+
+#[test]
+fn what_a_source_provides_is_kept_whole_or_not_at_all_for_every_allocation() {
+    let storage = writing();
+    // The provided text is made before each call: the call's own allocations
+    // are the ones refused.
+    let provided = || {
+        library::Provided::default()
+            .title("Provided".to_owned())
+            .author("Ann".to_owned())
+            .tags(vec!["a".to_owned(), "b".to_owned()])
+    };
+    storage.wrote.set(None);
+    library::provide(&storage, BOOK, provided());
+    let kept = storage.wrote.take().expect("written");
+    for number in 1.. {
+        let input = provided();
+        let (_, refused) = with_refusal(number, || library::provide(&storage, BOOK, input));
+        if !refused {
+            assert_eq!(storage.wrote.take(), Some(kept));
+            assert!(number > 5, "only {number} allocation sites");
+            break;
+        }
+        assert_eq!(storage.wrote.take(), None, "refusal {number}");
+    }
+}

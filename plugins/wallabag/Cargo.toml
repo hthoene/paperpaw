@@ -26,6 +26,7 @@ paperpaw-sdk.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-platform.workspace = true
 proptest.workspace = true
 

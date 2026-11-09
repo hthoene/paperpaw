@@ -1516,6 +1516,7 @@ dependencies = [
  "ndk",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-fs",
  "paperpaw-graphics",
@@ -1552,22 +1553,7 @@ dependencies = [
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
- "paperpaw-plugin-hyphenation",
- "paperpaw-plugin-hyphenation-da",
- "paperpaw-plugin-hyphenation-de",
- "paperpaw-plugin-hyphenation-es",
- "paperpaw-plugin-hyphenation-fr",
- "paperpaw-plugin-hyphenation-it",
- "paperpaw-plugin-hyphenation-nb",
- "paperpaw-plugin-hyphenation-nl",
- "paperpaw-plugin-hyphenation-pl",
- "paperpaw-plugin-hyphenation-pt",
- "paperpaw-plugin-hyphenation-ru",
- "paperpaw-plugin-hyphenation-sv",
- "paperpaw-plugin-hyphenation-uk",
- "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
- "paperpaw-plugin-koreader",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
@@ -1579,22 +1565,15 @@ dependencies = [
  "paperpaw-plugin-power",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reader",
- "paperpaw-plugin-reading-goal",
- "paperpaw-plugin-readwise",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
- "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
- "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
- "paperpaw-plugin-wallabag",
- "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
- "paperpaw-plugin-wikipedia",
  "paperpaw-sdk",
 ]
 
@@ -1635,6 +1614,16 @@ dependencies = [
  "paperpaw-text",
  "png",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-default-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphen",
+ "paperpaw-hyphenation-packs",
+ "paperpaw-platform",
+ "paperpaw-sdk",
 ]
 
 [[package]]
@@ -1683,8 +1672,10 @@ dependencies = [
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-fs",
  "paperpaw-graphics",
+ "paperpaw-hyphenation-packs",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
@@ -1760,6 +1751,7 @@ name = "paperpaw-hyphenation-packs"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-hyphen",
+ "proptest",
 ]
 
 [[package]]
@@ -1893,6 +1885,7 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",
@@ -1958,18 +1951,11 @@ dependencies = [
 name = "paperpaw-plugin-file-manager"
 version = "1.0.4"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
- "paperpaw-fs",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-txt",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]
@@ -1984,6 +1970,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-txt",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2103,120 +2090,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-hyphenation"
-version = "1.1.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-i18n",
- "paperpaw-sdk",
- "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-da"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-de"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-es"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-fr"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-it"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nb"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pl"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pt"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-ru"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-sv"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-uk"
-version = "1.0.4"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-joplin"
 version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-xml",
  "proptest",
 ]
@@ -2251,13 +2135,8 @@ name = "paperpaw-plugin-koreader"
 version = "1.0.8"
 dependencies = [
  "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "paperpaw-zip",
  "proptest",
 ]
 
@@ -2331,10 +2210,13 @@ version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2482,9 +2364,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2534,6 +2417,7 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
@@ -2547,9 +2431,6 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-home",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -2591,6 +2472,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-qr",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2601,8 +2483,6 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2616,9 +2496,11 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-update",
 ]
 
@@ -2648,6 +2530,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2657,13 +2540,14 @@ dependencies = [
 name = "paperpaw-plugin-weather"
 version = "1.0.7"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2692,6 +2576,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
+ "paperpaw-qr",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2706,8 +2591,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-dictionary",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2892,6 +2775,7 @@ name = "paperpaw-web"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
@@ -2907,8 +2791,10 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-config",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-graphics",
+ "paperpaw-hyphen",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-update",

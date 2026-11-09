@@ -24,6 +24,7 @@ paperpaw-serve.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-platform.workspace = true
+paperpaw-default-packs.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # The system's random numbers, for keys (`KernelBuilder::random`).
 getrandom = "0.4"

@@ -8,7 +8,7 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
+    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl,
 };
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
@@ -330,5 +330,29 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::BookMoved, BOOK_MOVED)?;
+    d.submit()
+}
+
+/// The bounds of `reader.notes-exported`, as `stages/reader.notes-exported@1.def`
+/// says (a test holds them to the generated codec).
+pub const NOTES_SCHEMA: u32 = 1;
+pub const NOTES_MAX_INPUT: u32 = 800;
+pub const NOTES_MAX_REPLY: u32 = 16;
+pub const NOTES_MAX_RECORDS: u32 = 8;
+
+/// The stage the reader runs after it wrote a book's notes as Markdown
+/// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
+/// (`registration.stage`) and answers each run with one `notes.done` record
+/// the reader ignores.
+pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.stage(StageDecl::new(
+        "notes-exported",
+        NOTES_SCHEMA,
+        NOTES_MAX_INPUT,
+        NOTES_MAX_REPLY,
+        NOTES_MAX_RECORDS,
+    ))?;
     d.submit()
 }

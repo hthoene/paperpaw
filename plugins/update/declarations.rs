@@ -4,14 +4,19 @@
 //! icons, the device needs and the first-run step.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, GroupDecl, Instances, Kind, MenuEntryDecl, ScreenDecl,
-    SetupPage, SetupStepDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, Kind, MenuEntryDecl,
+    ScreenDecl, SetupPage, SetupStepDecl, SpecDecl,
 };
 
 /// Callback tokens: stable within this plugin.
 pub const OPEN_TOKEN: u32 = 1;
 pub const CHECK_TOKEN: u32 = 2;
 pub const PAGE: u32 = 10;
+/// The events it hears: the start (how an install went, said after the
+/// restart), the end of an install, and its progress.
+pub const STARTED: u32 = 3;
+pub const INSTALL_DONE: u32 = 4;
+pub const FIRMWARE_CHANGED: u32 = 5;
 
 const GROUP: &str = "update.group";
 /// The server PaperPaw asks unless the setting says otherwise.
@@ -86,6 +91,19 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     step.order = 57;
     step.need = Some(MenuNeed::Firmware);
     d.setup_step(step)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The events the card flow hears (the answers and downloads of the online
+/// flow, the weekly look and the setting's change come with it,
+/// `PORTING-7.md`).
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::Started, STARTED)?;
+    d.subscribe_event(EventKind::InstallDone, INSTALL_DONE)?;
+    d.subscribe_event(EventKind::FirmwareChanged, FIRMWARE_CHANGED)?;
     d.submit()?;
     Ok(())
 }

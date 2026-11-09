@@ -894,13 +894,13 @@ pub fn index(env: &Env<'_>, path: &str) -> Book {
     }
     if let Ok(document) = env.formats().open(storage, path) {
         // What the book names; else what its source said ([`provide`]).
-        let metadata = document.metadata();
-        book.title = metadata.title.clone().or(book.title.take());
-        book.author = metadata.authors.first().cloned().or(book.author.take());
-        book.series = metadata.series.clone().or(book.series.take());
-        book.series_index = metadata.series_index.clone().or(book.series_index.take());
-        if !metadata.subjects.is_empty() {
-            book.tags = metadata.subjects.clone();
+        // Copied fallibly; with no memory the book is not written down (it
+        // is read from the book again at the next walk).
+        if fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
+            // Not indexed: the book does not hold what it names, so a walk
+            // that finds its line must make it again.
+            book.indexed = false;
+            return book;
         }
         book.cover = document.cover(storage).ok().flatten();
     }
@@ -1007,14 +1007,13 @@ pub fn provide(storage: &dyn Storage, path: &str, provided: Provided) {
 /// Sets field `id` of the book at `path` (a plugin's, e.g.
 /// `myplugin.rating`); an empty value removes it.
 pub fn set_field(storage: &dyn Storage, path: &str, id: &str, value: &str) {
-    let Ok(mut book) = book_for_update(storage, path) else {
-        return;
-    };
-    book.fields.retain(|(k, _)| k != id);
-    if !value.is_empty() {
-        book.fields.push((id.to_string(), value.to_string()));
-    }
-    write_book(storage, path, &book);
+    // Not kept where there is no memory for it or the card fails: as the
+    // field was before.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "a field not kept is as it was; the host's form tells why"
+    )]
+    let _ = fallible::try_set_field(storage, path, id, value);
 }
 
 /// Records a reading event (`core.book-opened`, `core.page-turned`): the

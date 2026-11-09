@@ -1,0 +1,2 @@
+### Added
+- Native plugins can relabel, icon or hide the hint of a button while their screen shows (`command.set_hint`, 1594). A label goes with its screen instance, at most 8 actions per instance (a ninth is `ERR_NO_SPACE`); the actions that are the user's way out (back, the menu, settings, sleep, power off, restart) are never hidden (`ERR_DENIED`). A device without a row of hints accepts the command and does nothing.

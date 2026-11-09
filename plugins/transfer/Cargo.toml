@@ -9,11 +9,20 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
+include = ["src", "how", "i18n", "data", "build.rs", "declarations.rs", "native"]
+
+[features]
+linked = []
+native-entry = []
 
 [dependencies]
 paperpaw-qr.workspace = true
 # Installs plugins sent from a computer (kernel).
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
+paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true

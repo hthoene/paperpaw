@@ -99,7 +99,7 @@ fn a_bad_file_answers_with_a_status_never_an_id() {
     for (path, status) in [
         ("junk.png", UNSUPPORTED),
         ("cut.png", DAMAGED),
-        ("none.png", CARD),
+        ("none.png", NOT_FOUND),
     ] {
         t.prepare(A, path, 16, 3, false).unwrap();
         let ready = step(&t, &storage).unwrap();
