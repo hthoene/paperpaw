@@ -135,17 +135,17 @@ impl Plugin for NativeWifi {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
             }
-            Event::Started { now_ms } if token == STARTED => {
+            Event::Started { now_ms, .. } if token == STARTED => {
                 self.keep_file(host)?;
                 self.charging(host, now_ms, true)
             }
             Event::WifiChanged { now_ms, .. } if token == WIFI_CHANGED => {
                 self.radio_changed(host, now_ms)
             }
-            Event::NetworkWanted { now_ms } if token == NETWORK_WANTED => {
+            Event::NetworkWanted { now_ms, .. } if token == NETWORK_WANTED => {
                 self.network_wanted(host, now_ms)
             }
-            Event::NetworkIdle { now_ms } if token == NETWORK_IDLE => {
+            Event::NetworkIdle { now_ms, .. } if token == NETWORK_IDLE => {
                 self.network_idle(host, now_ms)
             }
             Event::WifiScanned { now_ms, .. } if token == WIFI_SCANNED => {
@@ -155,7 +155,7 @@ impl Plugin for NativeWifi {
             Event::PowerChanged(change) if token == POWER_CHANGED => {
                 self.power_changed(host, change.now_ms())
             }
-            Event::StatusChanged { now_ms } if token == STATUS_CHANGED => {
+            Event::StatusChanged { now_ms, .. } if token == STATUS_CHANGED => {
                 self.charging(host, now_ms, false)
             }
             Event::WorkDue(due) if token == WORK => self.work_due(host, &due),
