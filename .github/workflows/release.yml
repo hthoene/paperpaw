@@ -201,7 +201,11 @@ jobs:
           - { os: windows-latest, target: windows-x64, rust: "" }
           - { os: macos-14, target: macos-arm64, rust: "" }
           - { os: macos-14, target: macos-x64, rust: x86_64-apple-darwin }
-          - { os: ubuntu-latest, target: linux-x64, rust: "" }
+          # The Linux binaries need the glibc of the runner they are built on
+          # (ubuntu-latest, 24.04: 2.39, which Debian 12 and Ubuntu 22.04 do
+          # not have, #165): 22.04 builds for glibc 2.35, which every
+          # current distribution has.
+          - { os: ubuntu-22.04, target: linux-x64, rust: "" }
     steps:
       - uses: actions/checkout@v7
         with:
