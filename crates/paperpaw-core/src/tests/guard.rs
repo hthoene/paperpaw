@@ -130,3 +130,43 @@ fn no_plugins_are_asked_for_while_locked() {
     kernel.run_commands();
     assert_eq!(*log.borrow(), ["g.other asks vocabulary"]);
 }
+
+/// A guard that starts drops the private status values cached before it,
+/// and public ones stay (`core.ui` op 14, ui.md 4.3).
+#[test]
+fn a_guard_starting_drops_the_private_cached_status_values() {
+    use crate::native_host::{
+        HostResources,
+        ui_service::UiServices,
+        ui_store::{Limits, UiStore},
+    };
+    let pool = HostResources::try_new().unwrap();
+    pool.hosts()
+        .wire_ui(UiServices::new(
+            crate::native_host::shared::Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
+            false,
+        ))
+        .unwrap();
+    let owner = pool.try_owner().unwrap();
+    let locked = Rc::new(Cell::new(true));
+    let mut kernel = Kernel::builder(DEVICE)
+        .plugin(GuardPlugin(locked.clone()))
+        .build()
+        .unwrap();
+    kernel
+        .shared
+        .native_instances
+        .adopt_pool(owner.try_view().unwrap())
+        .unwrap();
+    kernel.start(Instant(0));
+    let ui = pool.hosts().ui().unwrap();
+    {
+        let mut cache = ui.widgets.cache.borrow_mut();
+        cache.put(1, "p.private", b"", true, "secret");
+        cache.put(1, "p.public", b"", false, "open");
+    }
+    kernel.open_screen(Instant(1), LOCK, Params::new());
+    let cache = ui.widgets.cache.borrow();
+    assert_eq!(cache.get(1, "p.private", b""), None);
+    assert_eq!(cache.get(1, "p.public", b""), Some(&b"open"[..]));
+}

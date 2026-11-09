@@ -75,6 +75,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_ops.rs"]
+pub(crate) mod ui_widget_ops;
+
 #[path = "native_host/ui_compose_host.rs"]
 #[allow(
     dead_code,
@@ -90,11 +93,15 @@ pub(crate) mod ui_compose_host;
 pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
-mod shared;
+pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use resources::HostResources;
+
+#[path = "native_host/shell_wiring.rs"]
+pub mod shell_wiring;
+pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
@@ -1156,3 +1163,7 @@ mod native_ui_cleanup_tests;
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 #[path = "native_host/native_image_declarations_tests.rs"]
 mod native_image_declarations_tests;
+
+#[cfg(test)]
+#[path = "native_host/ui_hooks_tests.rs"]
+mod ui_hooks_tests;

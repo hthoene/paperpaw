@@ -1,0 +1,3 @@
+### Changed
+
+- `paperpaw-sign frames-s3` follows a `callx8`/`callx12` whose register an `l32r` loaded (the S3's long call: 71,308 of the 78,606 calls in an X4 Pro image) as the direct call to the literal's address, so the scan reaches the code behind the host entries instead of stopping at the first call. The walk goes back through straight-line code only and gives up, leaving the call indirect and listed, at a branch target, an address a word of the image points at (a jump table), a rewrite of the register, a call or a form it does not name. One problem line per caller and callee, not per call site.

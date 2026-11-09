@@ -2483,7 +2483,9 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
