@@ -14,6 +14,7 @@
 use std::process::ExitCode;
 
 mod asset;
+mod chain_xtensa;
 mod elf;
 mod firmware;
 mod framelist;
@@ -128,6 +129,13 @@ USAGE:
         default). With --budget, checks the functions the file names (the
         panic handler's and the dispatch path's) against their frames and
         fails if one is larger or no function matches a name.
+    paperpaw-sign frames-s3 <firmware.elf> --budget <file>
+        For an ESP32-S3 firmware: follows the direct calls from the budget's
+        roots and function-pointer tables (the host slots), holds every
+        function reached to a frame under 2,048 bytes and to call8/call12
+        only, refuses an instruction it does not classify, and fails on a
+        call it cannot follow (through a register, into the ROM or a blob)
+        unless an allow line in the budget names it.
     paperpaw-sign statics <crate.rlib>...
         Lists the symbols in writable memory (mutable statics) of the
         objects in rlibs (built without LTO); fails if there is one. A
@@ -165,6 +173,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
         ["frames", elf, rest @ ..] => frames_command(elf, rest),
+        ["frames-s3", elf, "--budget", budget] => chain_xtensa::run(elf, budget),
         ["pack", elf, out] => plugin::pack(elf, out, None),
         ["pack", elf, out, "--key", key] => plugin::pack(elf, out, Some(key)),
         ["catalog", source, out] => catalog(source, out),

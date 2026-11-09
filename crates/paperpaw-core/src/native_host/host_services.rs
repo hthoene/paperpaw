@@ -232,7 +232,9 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
-        self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+        self.lookup
+            .set(LookupServices::new(host))
+            .map_err(|_| ERR_STATE)
     }
 
     /// Wire `text.hyphenate` once.

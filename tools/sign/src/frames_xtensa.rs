@@ -82,7 +82,7 @@ pub enum Finding {
 
 /// The length in bytes of the instruction whose first byte is `b0`, or
 /// `None` for an `op0` that is reserved (14, 15).
-fn length(b0: u8) -> Option<usize> {
+pub(crate) fn length(b0: u8) -> Option<usize> {
     match b0 & 0xF {
         0..=7 => Some(3),
         8..=13 => Some(2),
@@ -92,7 +92,7 @@ fn length(b0: u8) -> Option<usize> {
 
 /// What an instruction does to the stack pointer, `a1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
+pub(crate) enum Class {
     /// Known to leave `a1` alone (it may read it).
     Safe,
     /// Writes `a1` (or changes what `a1` names).
@@ -111,7 +111,7 @@ fn dest(reg: u32) -> Class {
 /// Every family is named; a form that is not is `Unknown`. The encodings
 /// are the ones LLVM's assembler makes (`tests.rs`, `forms.rs`) and the
 /// Xtensa ISA's opcode maps.
-fn wide_class(w: u32) -> Class {
+pub(crate) fn wide_class(w: u32) -> Class {
     let op0 = w & 0xF;
     let t = (w >> 4) & 0xF;
     let s = (w >> 8) & 0xF;
@@ -228,7 +228,7 @@ fn qrst(op1: u32, op2: u32, r: u32, s: u32, t: u32) -> Class {
 }
 
 /// The class of the 16-bit instruction `w` (little endian).
-fn narrow_class(w: u32) -> Class {
+pub(crate) fn narrow_class(w: u32) -> Class {
     let op0 = w & 0xF;
     let t = (w >> 4) & 0xF;
     let s = (w >> 8) & 0xF;
@@ -262,13 +262,13 @@ fn narrow_class(w: u32) -> Class {
 /// The frame `entry` takes, if the 24-bit instruction `w` is an `entry`
 /// (`36 s1 ii`: op0 = 6, n = 3, m = 0; `imm12` is bits 23:12). Whether its
 /// register is `a1` is checked by the caller.
-fn entry_frame(w: u32) -> Option<u32> {
+pub(crate) fn entry_frame(w: u32) -> Option<u32> {
     (w & 0xFF == 0x36).then(|| ((w >> 12) << 3) + BASE_SAVE)
 }
 
 /// Whether `w` is `call0` (op0 = 5, n = 0) or `callx0` (RST0, `st0`, `snm0`
 /// with `m = 3`, `n = 0`: `t = 0xC`).
-fn is_call0(w: u32) -> bool {
+pub(crate) fn is_call0(w: u32) -> bool {
     let (op0, t) = (w & 0xF, (w >> 4) & 0xF);
     let (r, op1, op2) = ((w >> 12) & 0xF, (w >> 16) & 0xF, (w >> 20) & 0xF);
     (op0 == 5 && t & 3 == 0) || (op0 == 0 && op1 == 0 && op2 == 0 && r == 0 && t == 0xC)

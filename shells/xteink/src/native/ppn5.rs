@@ -338,6 +338,19 @@ mod x4 {
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
 
+    /// The host table of this firmware's services as a named, read-only
+    /// static, for `paperpaw-sign frames-s3`: the scan reads a table's function
+    /// pointers from the ELF by the symbol's name (the table the loader hands a
+    /// plugin is a promoted constant with no symbol of its own). Built by the
+    /// same `host_table::<X4Services>()` that makes that constant, so the
+    /// roots it gives are the ones a plugin reaches; it is never read at run
+    /// time (`#[used]` keeps it, about 150 bytes of flash on the S3 only).
+    #[cfg(feature = "esp32s3")]
+    #[used]
+    #[unsafe(no_mangle)]
+    pub static PAPERPAW_HOST_TABLE_ANCHOR: paperpaw_native::host_glue::PpHost =
+        shell::host_table::<X4Services>();
+
     impl Services for X4Services {
         fn alloc(&self, size: usize, align: usize) -> *mut u8 {
             match Layout::from_size_align(size, align) {

@@ -20,7 +20,7 @@ const CASES: [Case; 3] = [
     Case {
         name: "the-readers-translate-action-opens-the-panel-with-the-selected-text",
         golden: None,
-        blocked_by: &["slot-offers-522", "reader-translate-slot-host"],
+        blocked_by: &["reader-translate-slot-host"],
     },
 ];
 
@@ -44,7 +44,7 @@ fn the_language_setting_is_there() {
 }
 
 #[test]
-#[ignore = "BLOCKED: #522 (the host admits slot offers) and the reader's slot host"]
+#[ignore = "BLOCKED: the reader's slot host (the offer is submitted since #522; nothing yet reads it from the reader's side)"]
 fn the_reader_opens_the_panel() {
     CASES[2].refuse().unwrap();
 }

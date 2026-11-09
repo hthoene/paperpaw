@@ -39,7 +39,7 @@ pub const MAX_VARIANTS: usize = 16;
 
 /// Whether `c` shows nothing or turns text around (controls, marks of
 /// direction, joiners): never a key.
-fn invisible(c: char) -> bool {
+pub(crate) fn invisible(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
 }
@@ -83,7 +83,7 @@ pub(crate) fn added(env: &Env<'_>) -> Vec<Added> {
 }
 
 /// A line of [`POINT`].
-fn parse(line: &str) -> Option<Added> {
+pub(crate) fn parse(line: &str) -> Option<Added> {
     let mut fields = line.split(';').map(str::trim);
     let id = fields.next().filter(|id| !id.is_empty())?;
     let code: String = fields
@@ -121,7 +121,7 @@ fn parse(line: &str) -> Option<Added> {
 
 /// Letters typed by holding another: pairs of a letter, `=` and them,
 /// separated by spaces (`e=éèë i=ïí`).
-fn held(pairs: &str) -> Vec<(char, String)> {
+pub(crate) fn held(pairs: &str) -> Vec<(char, String)> {
     pairs
         .split_whitespace()
         .filter_map(|pair| {
@@ -329,12 +329,26 @@ fn automatic(env: &Env<'_>, keys: bool) -> Chosen {
 /// as [`chosen`], from the language (`core.language`) and the translation's
 /// own rows (`keyboard.letters`, empty for none) instead of an environment,
 /// with fallible allocation. Layouts other plugins add come by the stage
-/// `keyboard.layouts` (see `PORTING-7.md`).
+/// `keyboard.layouts` (see [`chosen_with`]).
+#[cfg(test)]
 pub(crate) fn chosen_for(
     language: &str,
     letters: &str,
     value: &str,
     keys: bool,
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    chosen_with(language, letters, value, keys, &[])
+}
+
+/// [`chosen_for`] with the layouts other plugins added (see
+/// `native_layouts`): an id in `value` that is none of the built-in ones
+/// takes the one added with it.
+pub(crate) fn chosen_with(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+    added: &[Added],
 ) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
     let mut layouts: Vec<Chosen> = Vec::new();
     for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
@@ -343,7 +357,10 @@ pub(crate) fn chosen_for(
         } else {
             match LAYOUTS.iter().find(|l| l.id == id) {
                 Some(l) => Some(builtin_for(l, copy(l.code)?, keys)?),
-                None => None,
+                None => match added.iter().find(|l| l.id == id) {
+                    Some(l) => Some(crate::native_layouts::chosen_of(l)?),
+                    None => None,
+                },
             }
         };
         if let Some(one) = one {

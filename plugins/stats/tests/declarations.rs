@@ -105,9 +105,9 @@ fn the_stage_tells_today_with_a_day_and_the_seconds() {
 }
 
 /// Every record is well formed for the host, and the host admits every one of
-/// them now (icons, menu entries and stages included), so none waits.
+/// them: none is refused as unsupported.
 #[test]
-fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
+fn every_record_is_valid_for_the_host_and_admitted() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let builders: [(&str, Build); 4] = [
