@@ -36,7 +36,10 @@
 //! The bytes between functions are the literal pools (`l32r` reads them);
 //! they are data, so they are not decoded, but each word must be one an
 //! `l32r` reads: code hidden there would not be scanned, and the scan is a
-//! guard against what a compiler makes, not a sandbox.
+//! guard against what a compiler makes, not a sandbox. The one exception is
+//! a dead word (the toolchain's leftover constant) that nothing in the image
+//! can reach, in a literal region, up to [`dead::MAX_BYTES`] bytes: the packer
+//! warns of each ([`dead`]).
 //! What the scan cannot see is how deep a *path* of calls goes (not
 //! statically decidable; the stack gate's band and the device's high-water
 //! test measure that, `abi/heap-word.md` section 6) and window-overflow
@@ -47,7 +50,10 @@
 //! instruction through. A form it mislabels is caught by the corpus test (run by hand)
 //! (`tools/sign/src/frames_xtensa/tests.rs`).
 
-use crate::elf::{Elf, Section, Symbol};
+mod dead;
+
+use crate::elf::{Elf, SHT_NOBITS, SHT_RELA, Section, Symbol};
+pub use dead::Reach;
 
 /// `STT_FUNC`: a symbol that names a function.
 const STT_FUNC: u8 = 2;
@@ -284,7 +290,13 @@ fn literal_of(at: usize, w: u32) -> Option<usize> {
 
 /// Scans the function at `code[start..end]`, noting the literals its `l32r`
 /// read in `literals`.
-fn function(code: &[u8], start: usize, end: usize, literals: &mut Vec<usize>) -> Option<Finding> {
+fn function(
+    code: &[u8],
+    start: usize,
+    end: usize,
+    literals: &mut Vec<usize>,
+    targets: &mut Vec<usize>,
+) -> Option<Finding> {
     let mut at = start;
     while at < end {
         let Some(len) = length(code[at]) else {
@@ -311,10 +323,13 @@ fn function(code: &[u8], start: usize, end: usize, literals: &mut Vec<usize>) ->
                 if w & 0xF == 1 {
                     literals.extend(literal_of(at, w));
                 }
+                targets.extend(dead::wide_target(at, w).and_then(|t| usize::try_from(t).ok()));
                 wide_class(w)
             }
         } else {
-            narrow_class(u32::from(code[at]) | u32::from(code[at + 1]) << 8)
+            let w = u32::from(code[at]) | u32::from(code[at + 1]) << 8;
+            targets.extend(dead::narrow_target(at, w).and_then(|t| usize::try_from(t).ok()));
+            narrow_class(w)
         };
         match class {
             Class::Safe => {}
@@ -327,11 +342,25 @@ fn function(code: &[u8], start: usize, end: usize, literals: &mut Vec<usize>) ->
 }
 
 /// The first byte of `code` outside every range that is not padding (zero
-/// bytes, `nop`, `nop.n`) and not a word an `l32r` reads (`literals`: their offsets, sorted) (a literal: the
-/// linker script puts the `.literal` sections among the functions').
-fn uncovered(code: &[u8], ranges: &[(usize, usize)], literals: &[usize]) -> Option<usize> {
+/// bytes, `nop`, `nop.n`), not a word an `l32r` reads (`literals`: their
+/// offsets, sorted) (a literal: the linker script puts the `.literal`
+/// sections among the functions') and not a dead word ([`dead`]: only with
+/// `reach`; `targets`, sorted, are the places the scanned code goes to; the
+/// dead words are noted in `dead`).
+fn uncovered(
+    code: &[u8],
+    ranges: &[(usize, usize)],
+    literals: &[usize],
+    targets: &[usize],
+    reach: Option<&Reach>,
+    dead: &mut Vec<usize>,
+) -> Option<usize> {
     let mut at = 0usize;
-    for &(start, end) in ranges.iter().chain([&(code.len(), code.len())]) {
+    for (n, &(start, end)) in ranges.iter().chain([&(code.len(), code.len())]).enumerate() {
+        // A gap before a function can hold literals; the last one, after
+        // them all, cannot.
+        let before_function = n < ranges.len();
+        let lower = at;
         while at < start.min(code.len()) {
             let rest = &code[at..start.min(code.len())];
             // `literals` is sorted: the last literal at or before `at`.
@@ -348,7 +377,28 @@ fn uncovered(code: &[u8], ranges: &[(usize, usize)], literals: &[usize]) -> Opti
             } else if rest.starts_with(&[0x3d, 0xf0]) {
                 at += 2;
             } else {
-                return Some(at);
+                // A whole aligned word in this gap that nothing reaches.
+                let word = at & !3;
+                let fits = before_function
+                    && word >= lower
+                    && (word > lower || n == 0 || dead::ends_control(code, lower))
+                    && word + 4 <= start.min(code.len())
+                    && (dead.len() + 1) * 4 <= dead::MAX_BYTES;
+                let unreached = reach.is_some_and(|r| {
+                    !dead::hits(&r.pointed, word)
+                        && !dead::hits(targets, word)
+                        && !dead::looks_like_control([
+                            code[word],
+                            code[word + 1],
+                            code[word + 2],
+                            code[word + 3],
+                        ])
+                });
+                if !(fits && unreached) {
+                    return Some(at);
+                }
+                dead.push(word);
+                at = word + 4;
             }
         }
         at = at.max(end);
@@ -358,14 +408,95 @@ fn uncovered(code: &[u8], ranges: &[(usize, usize)], literals: &[usize]) -> Opti
 
 /// The first finding of the functions in `ranges` (each `(start, end)` in
 /// `code`, sorted, not overlapping), and then of the bytes between them.
+/// A word nothing reads is a finding; see [`scan_ranges_in`] for the one
+/// that may be let through.
+#[cfg(test)]
 pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)]) -> Option<Finding> {
+    scan_ranges_in(code, ranges, None).0
+}
+
+/// [`scan_ranges`], and with `reach` (what the rest of the image points at)
+/// a dead word ([`dead`]) is let through; the second value is the `.text`
+/// offsets of those words.
+pub fn scan_ranges_in(
+    code: &[u8],
+    ranges: &[(usize, usize)],
+    reach: Option<&Reach>,
+) -> (Option<Finding>, Vec<usize>) {
     let mut literals = Vec::new();
-    let found = ranges
-        .iter()
-        .find_map(|&(start, end)| function(code, start, end.min(code.len()), &mut literals));
+    let mut targets = Vec::new();
+    let found = ranges.iter().find_map(|&(start, end)| {
+        function(
+            code,
+            start,
+            end.min(code.len()),
+            &mut literals,
+            &mut targets,
+        )
+    });
     literals.sort_unstable();
     literals.dedup();
-    found.or_else(|| uncovered(code, ranges, &literals).map(|at| Finding::Uncovered { at }))
+    targets.sort_unstable();
+    let mut words = Vec::new();
+    let found = found.or_else(|| {
+        uncovered(code, ranges, &literals, &targets, reach, &mut words)
+            .map(|at| Finding::Uncovered { at })
+    });
+    (found, words)
+}
+
+/// What the image points at inside `.text` (offsets, sorted): the places
+/// relocations resolve to (`S + A`) and the words (aligned, in every
+/// section that is loaded and has bytes, `.text` apart from its functions)
+/// that hold an address in `.text`.
+fn reach(
+    elf: &Elf<'_>,
+    text: &Section,
+    symbols: &[Symbol],
+    ranges: &[(usize, usize)],
+) -> Result<Reach, String> {
+    let len = text.size as usize;
+    let mut pointed = Vec::new();
+    let mut note = |address: u32| {
+        if let Some(at) = address
+            .checked_sub(text.addr)
+            .map(|a| a as usize)
+            .filter(|&a| a < len)
+        {
+            pointed.push(at);
+        }
+    };
+    for section in &elf.sections {
+        if section.kind == SHT_RELA {
+            // Only the relocations of loaded sections: the debug sections'
+            // addresses (`.text + n`: a line or a range) are not references.
+            // One that names no section counts (fails closed).
+            if elf
+                .sections
+                .get(section.info as usize)
+                .is_some_and(|s| !s.is_alloc())
+            {
+                continue;
+            }
+            for rela in elf.relas(section)? {
+                if let Some(symbol) = symbols.get(rela.symbol as usize) {
+                    note(symbol.value.wrapping_add(rela.addend as u32));
+                }
+            }
+        } else if section.is_alloc() && section.kind != SHT_NOBITS && section.size >= 4 {
+            let data = elf.data(section)?;
+            let first = (section.addr.wrapping_neg() & 3) as usize;
+            let in_text = section.addr == text.addr;
+            for at in (first..data.len().saturating_sub(3)).step_by(4) {
+                if in_text && ranges.iter().any(|&(s, e)| s < at + 4 && at < e) {
+                    continue;
+                }
+                note(crate::elf::le32(data, at));
+            }
+        }
+    }
+    pointed.sort_unstable();
+    Ok(Reach { pointed })
 }
 
 /// The start of the first function symbol of size 0 in `sized`
@@ -433,7 +564,17 @@ pub fn check(
             .next()
             .unwrap_or_else(|| "?".into())
     };
-    match scan_ranges(code, &ranges) {
+    let reach = reach(elf, text, symbols, &ranges)?;
+    let (found, dead) = scan_ranges_in(code, &ranges, Some(&reach));
+    for &at in &dead {
+        eprintln!(
+            "warning: .text+{at:#x} ({:#x}) is a word nothing reads, points to or jumps to, in a \
+             literal pool: accepted as data (the toolchain's dead literal, value {:#x})",
+            text.addr as usize + at,
+            crate::elf::le32(code, at)
+        );
+    }
+    match found {
         None => Ok(()),
         Some(Finding::Frame { at, size }) => Err(format!(
             "`{}` takes a frame of {size} bytes (`entry` at .text+{at:#x}); a plugin's frames stay \
