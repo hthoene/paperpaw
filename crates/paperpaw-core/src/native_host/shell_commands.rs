@@ -23,6 +23,9 @@ pub(crate) struct CommandTarget {
     pub(crate) result: CommandResult,
 }
 
+/// `event.registry_changed.what` bit 0: menus and the item states they show.
+const REGISTRY_MENUS: u32 = 1;
+
 impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
@@ -35,7 +38,16 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, owner_key, images, (commands, redraw, _hop), (hints, widgets)) = {
+        let (
+            status,
+            owner,
+            owner_key,
+            images,
+            (commands, redraw, _hop),
+            item_states,
+            presets,
+            (hints, widgets),
+        ) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
                 callback: None,
@@ -70,6 +82,7 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
+                .with_stack(&self.shared.stack_rows, context.owner_key())
                 .with_images({
                     // Requests held outside the table count against the room.
                     let mut admit = context.image_admit();
@@ -86,14 +99,22 @@ impl Kernel {
                     self.shared.native_instances.ui_services(),
                     context.owner_key(),
                 );
+                if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                    stage = stage
+                        .with_item_states(crate::native_host::commands::ItemAdmit { directory });
+                }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
+                // A failed callback applies nothing: the stage's room guard
+                // gives its room and slot back when the stage drops.
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
                 let valid =
                     status == 0 || (matches!(target.result, CommandResult::Input) && status == 1);
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
+                let item_states = stage.take_item_states();
+                let presets = stage.take_presets();
                 let images = stage.take_image_commands();
                 let hints = stage.take_hint_sets();
                 let widgets = stage.take_widget_changes();
@@ -104,6 +125,8 @@ impl Kernel {
                     context.owner_key(),
                     images,
                     output,
+                    item_states,
+                    presets,
                     (hints, widgets),
                 ))
             })??
@@ -111,6 +134,9 @@ impl Kernel {
         self.drain_native_ui(&owner, commands, redraw);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, images);
+        self.apply_item_states(&owner, item_states);
+        let authority = self.command_settings_authority(&owner);
+        self.apply_native_presets(&owner, authority, presets);
         // The labels the callback set; room was taken when they were checked.
         // Nothing holds the table across a callback, so a failed borrow is a
         // host fault: the callback fails (`ERR_BUSY`) rather than dropping them.
@@ -129,5 +155,46 @@ impl Kernel {
             return Err(Error::Status(ERR_BUSY));
         }
         Ok(status)
+    }
+
+    /// The states the callback pushed, applied in submit order after its
+    /// other commands. The checks were made at submit; a state the host
+    /// cannot store now (no memory) is dropped with a warning, the table
+    /// unchanged.
+    fn apply_item_states(
+        &mut self,
+        owner: &Id,
+        (pushes, room): (
+            alloc::vec::Vec<crate::native_host::item_state::ItemPush>,
+            Option<crate::native_host::commands::ItemRoom>,
+        ),
+    ) {
+        let Some(directory) = self.shared.registry.native_declarations.as_ref() else {
+            return;
+        };
+        let (mut failed, mut changed) = (false, false);
+        match directory.items.try_borrow_mut() {
+            Ok(mut states) => {
+                for push in pushes {
+                    match states.apply(owner.as_str(), push) {
+                        Ok(did) => changed |= did,
+                        Err(_) => failed = true,
+                    }
+                }
+                // A plugin that cleared its last state needs no slot (a batch
+                // of defaults holds no room guard that would free it).
+                states.settle(owner.as_str());
+            }
+            Err(_) => failed = !pushes.is_empty(),
+        }
+        // The room and a slot no state needs go back (nothing is borrowed).
+        drop(room);
+        if changed {
+            // Menus show item states: bit 0 of `event.registry_changed`.
+            self.native_registry_changed(REGISTRY_MENUS);
+        }
+        if failed {
+            self.warn_runtime("item state dropped: the host could not keep it");
+        }
     }
 }

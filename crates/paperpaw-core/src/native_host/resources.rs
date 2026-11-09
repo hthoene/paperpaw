@@ -505,7 +505,11 @@ mod tests {
             resources.hosts().wire_library(lib.clone()).unwrap();
             let owner = resources.try_owner().unwrap();
             let id = owner.caller("opener", AdmittedFeatures::NONE).owner;
-            let document = fake.table().open(id, FORMAT, PREPARING, 0).unwrap();
+            let document = fake
+                .table()
+                .open(id, false, FORMAT, PREPARING, 0, &|_| false)
+                .unwrap()
+                .0;
             let transaction = lib.transactions.begin_for_test(id, 0);
             owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
             let borrowed = resources.0.handles.borrow();

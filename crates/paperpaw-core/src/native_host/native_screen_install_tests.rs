@@ -277,7 +277,13 @@ unsafe extern "C" fn screen_make(
     let menus = MENUS.with(Cell::get);
     if menus != 0 {
         // SAFETY: the same live host table and context as the submit above.
-        let status = unsafe { menu_records::submit(host, ctx, menus) };
+        let status = unsafe {
+            if menus >= key_records::FIRST {
+                key_records::submit(host, ctx, menus)
+            } else {
+                menu_records::submit(host, ctx, menus)
+            }
+        };
         if status != OK {
             return status;
         }
@@ -1491,6 +1497,9 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
 
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
+
+#[path = "native_key_install_tests.rs"]
+mod key_records;
 
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;

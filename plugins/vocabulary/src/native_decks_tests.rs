@@ -1,56 +1,16 @@
 //! The rows of the flash cards' screen, in both languages, made over the
 //! plugin's own catalogs; and when the heap refuses.
 
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::string::ToString;
 
-use paperpaw_i18n::{Arg as Message, Catalog, Translator};
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
-use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_ui_kit::Item;
 
 use super::*;
 use crate::sync::tests::heap::{armed, fixture};
 
-/// The plugin's catalog in one language, as the host would resolve it. Its own
-/// allocations are not the plugin's: they are neither counted nor refused.
-struct Catalogued(Translator);
-
-fn words(language: &str) -> Catalogued {
-    let source = match language {
-        "de" => include_str!("../i18n/de.ini"),
-        _ => include_str!("../i18n/en.ini"),
-    };
-    let mut translator = Translator::new();
-    translator.add(Catalog::parse(source).unwrap());
-    translator.set_language(language);
-    Catalogued(translator)
-}
-
-impl Words for Catalogued {
-    fn copy(&mut self, key: &str) -> Result<String, Error> {
-        Ok(fixture(|| self.0.tr(key).to_string()))
-    }
-    fn format(&mut self, key: &str, args: &[Arg<'_>]) -> Result<String, Error> {
-        Ok(fixture(|| {
-            let mut named: Vec<(&str, Message<'_>)> = Vec::new();
-            let mut count = None;
-            for arg in args {
-                match *arg {
-                    Arg::Text { name, value } => named.push((name, Message::Str(value))),
-                    Arg::Int { name, value } => named.push((name, Message::Int(value))),
-                    Arg::Count(n) => count = Some(n),
-                    _ => {}
-                }
-            }
-            match count {
-                Some(n) => self.0.plural(key, n, &named),
-                None => self.0.format(key, &named),
-            }
-        }))
-    }
-}
+use crate::native_words::testing::words;
 
 fn numbers() -> Numbers {
     Numbers {

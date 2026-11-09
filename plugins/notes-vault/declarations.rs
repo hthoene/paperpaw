@@ -1,10 +1,10 @@
 //! The notes vault's native declarations (slice 1): its settings group and the
 //! vault's folder. The tools entry, its icon, the three screens, the Markdown
 //! format and the home widgets follow with their host pieces
-//! (`PORTING-7.md`).
+//! (`PORTING-7.md`). The Markdown format is declared with the page.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances,
-    Kind, MenuEntryDecl, ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, FormatDecl,
+    GroupDecl, Instances, Kind, MenuEntryDecl, ScreenDecl, SpecDecl,
 };
 
 /// The settings group (`notes-vault.group`).
@@ -20,6 +20,8 @@ pub const LIST: u32 = 11;
 pub const TAGS: u32 = 12;
 /// The index's work comes due.
 pub const WORK_DUE: u32 = 20;
+/// The Markdown format's `core.format` calls.
+pub const FORMAT: u32 = 30;
 
 /// The settings group and the vault's folder.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -55,5 +57,17 @@ pub fn ui<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result
     d.icon("notes-vault.open", "note")?;
     d.icon(GROUP, "note")?;
     d.subscribe_event(EventKind::WorkDue, WORK_DUE)?;
+    d.submit()
+}
+
+/// The Markdown format, as a vault reads it: before the format plugins' own
+/// (priority 0) for the extensions both claim, and the user's choice of
+/// format for them wins over both.
+pub fn formats<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.format(
+        FormatDecl::new("markdown", "notes-vault.markdown", "md\nmarkdown", FORMAT).priority(10),
+    )?;
     d.submit()
 }
