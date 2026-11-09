@@ -263,7 +263,6 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) ->
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::Mounted<B, M>::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::total_space(&self) -> core::option::Option<u64>
@@ -288,7 +287,6 @@ pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> cor
 pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::NoStorage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::total_space(&self) -> core::option::Option<u64>
@@ -312,7 +310,6 @@ pub fn paperpaw_platform::storage::Storage::remove_dir_all(&self, &str) -> core:
 pub fn paperpaw_platform::storage::Storage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::Storage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::Storage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Storage::total_space(&self) -> core::option::Option<u64>
@@ -336,7 +333,6 @@ pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> cor
 pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::NoStorage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::total_space(&self) -> core::option::Option<u64>
@@ -360,7 +356,6 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) ->
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::Mounted<B, M>::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::total_space(&self) -> core::option::Option<u64>
@@ -579,7 +574,6 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) ->
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::Mounted<B, M>::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::total_space(&self) -> core::option::Option<u64>
@@ -604,7 +598,6 @@ pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> cor
 pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::NoStorage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::total_space(&self) -> core::option::Option<u64>
@@ -689,7 +682,6 @@ pub fn paperpaw_platform::Storage::remove_dir_all(&self, &str) -> core::result::
 pub fn paperpaw_platform::Storage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::Storage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::Storage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::Storage::total_space(&self) -> core::option::Option<u64>
@@ -713,7 +705,6 @@ pub fn paperpaw_platform::storage::NoStorage::remove_dir_all(&self, &str) -> cor
 pub fn paperpaw_platform::storage::NoStorage::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::NoStorage::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::NoStorage::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::NoStorage::total_space(&self) -> core::option::Option<u64>
@@ -737,7 +728,6 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::remove_dir_all(&self, &str) ->
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_listed(&self, &str, u64) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::remove_tree_step(&self, &str, bool, u64) -> core::result::Result<paperpaw_platform::tree::TreeStep, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::rename(&self, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
-pub fn paperpaw_platform::storage::Mounted<B, M>::same_entry(&self, &str, &str) -> core::option::Option<bool>
 pub fn paperpaw_platform::storage::Mounted<B, M>::size(&self, &str) -> core::result::Result<u64, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::sync(&self) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::Mounted<B, M>::total_space(&self) -> core::option::Option<u64>
