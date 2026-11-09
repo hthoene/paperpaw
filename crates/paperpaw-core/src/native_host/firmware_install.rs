@@ -675,6 +675,9 @@ impl FirmwareInstall {
     /// that failed is state 4. The job's buffers are freed with it.
     fn finish(&mut self, job: Job, reason: u8, facts: Option<CheckFacts>, bits: Bits) -> Outcome {
         let ended = outcome(&job, reason);
+        // A check that failed names no built-ins: its bits were read from an
+        // image that is not usable, so op 16 never lists rows from it.
+        let bits = if reason == 0 { bits } else { Bits::NONE };
         if job.install.is_none() {
             self.keep(
                 job.owner,

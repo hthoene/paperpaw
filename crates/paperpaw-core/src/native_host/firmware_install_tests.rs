@@ -419,6 +419,33 @@ fn an_image_with_every_built_in_leaves_none_out() {
 }
 
 #[test]
+fn a_check_that_fails_after_streaming_built_ins_keeps_no_bits() {
+    let mut fw = fake();
+    fw.check_steps = 3;
+    // The first step names `stats`; the second fails.
+    fw.fail = Some((Stage::Check, 1, Reason(18)));
+    let mut machine = FirmwareInstall::new();
+    machine.reserve_check(OWNER).unwrap();
+    machine.start(check_job(OWNER, 1), &mut fw);
+    let Event::Ended(outcome) = run(&mut machine, &mut fw) else {
+        panic!("not ended");
+    };
+    assert_eq!(outcome.reason, 18);
+    let checked = machine.checked(OWNER).unwrap();
+    assert_eq!(checked.reason, 18);
+    assert!(!checked.leaves_out_some() && !checked.leaves_out(1));
+    // A finished check whose verdict says no (unsigned) names none either.
+    let mut fw = fake();
+    fw.facts.signer = Signer::Unsigned;
+    machine.reserve_check(OWNER).unwrap();
+    machine.start(check_job(OWNER, 2), &mut fw);
+    run(&mut machine, &mut fw);
+    let checked = machine.checked(OWNER).unwrap();
+    assert_ne!(checked.reason, 0);
+    assert!(!checked.leaves_out_some());
+}
+
+#[test]
 fn a_foreign_image_has_no_list_of_built_ins() {
     let mut machine = FirmwareInstall::new();
     let mut fw = fake();
