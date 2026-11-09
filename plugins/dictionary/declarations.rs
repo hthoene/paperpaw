@@ -4,11 +4,20 @@
 //! screen that cannot draw is not declared.
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, EditorDecl, ExtraDecl, Kind, LookupProviderDecl, SpecDecl,
+    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Kind, LookupProviderDecl,
+    SpecDecl,
 };
 
 /// The StarDict dictionaries as a lookup provider (a stage subscriber).
 pub const PROVIDER_TOKEN: u32 = 20;
+/// The background work that makes the indexes of the dictionaries.
+pub const WORK_TOKEN: u32 = 21;
+/// Its key.
+#[allow(
+    dead_code,
+    reason = "the build script includes this file and does not use it"
+)]
+pub const WORK_KEY: &str = "dictionary.index";
 /// The host slot that chooses a folder.
 pub const CHOOSE_FOLDER: &str = "core.choose-folder";
 /// Where dictionaries are looked for unless the user chose a folder.
@@ -44,6 +53,7 @@ pub fn providers<F: FnMut(&[u8]) -> Result<(), i32>>(
         "dictionary.title",
         PROVIDER_TOKEN,
     ))?;
+    d.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     d.submit()?;
     Ok(())
 }
