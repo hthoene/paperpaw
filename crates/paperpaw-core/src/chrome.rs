@@ -192,6 +192,9 @@ impl Kernel {
             .len()
             .checked_sub(1)
             .map(|top| self.full_base().min(top));
+        // `screen` was just made and is not on the stack yet, so no policy was
+        // set for it: what it declares is its answer (a screen on the stack is
+        // read through `ActiveScreen::guards`, as `area_of` does).
         let entry = if screen.guards() || self.guard().is_some() || screen.mode().is_full_screen() {
             None
         } else if overlay && let Some(base) = below {

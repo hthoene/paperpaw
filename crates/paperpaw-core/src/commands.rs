@@ -304,6 +304,11 @@ impl Kernel {
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The makers of widgets dropped meanwhile hear of it; what
+                // they stage is the next round's.
+                if self.deliver_widget_drops() {
+                    continue;
+                }
                 // All done: the screen on top now is told it shows, if it
                 // changed; what that asks for runs too.
                 if !mem::take(&mut self.show_pending) {

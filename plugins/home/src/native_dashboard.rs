@@ -6,9 +6,9 @@
 //! `native_source` (what is read of the device); this file reads, draws and
 //! hands inputs on through the host.
 //!
-//! Not yet (ignored acceptance cases, `PORTING-7.md`): editing, the status line
-//! above the grid, the icons of tools and of the footer, the widgets of the
-//! home screen's own, and the widgets' updates.
+//! Not yet (ignored acceptance cases, `PORTING-7.md`): the status line above the
+//! grid, the widgets of the home screen's own, the fitting of the pages to a new
+//! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,

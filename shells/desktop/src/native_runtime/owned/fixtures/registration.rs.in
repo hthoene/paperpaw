@@ -23,6 +23,8 @@ pub static PAPERPAW_ENTRY: Entry = Entry(PpEntry {
 
 const VALID: &[u8] = &@VALID_BATCH@;
 const INVALID: &[u8] = &@INVALID_BATCH@;
+/// A second valid batch (callback registrations beside declarations); empty for none.
+const SECOND: &[u8] = &@SECOND_BATCH@;
 const EXPECTED_EVENT: &[u8] = &@EXPECTED_EVENT@;
 const TOKEN: u32 = @TOKEN@;
 const IGNORE_INVALID: bool = @IGNORE_INVALID@;
@@ -40,6 +42,12 @@ unsafe extern "C" fn make(
         (h.registrations_submit)(ctx, PpBytes { ptr: VALID.as_ptr(), len: VALID.len() })
     };
     if status != OK { return status; }
+    if !SECOND.is_empty() {
+        let status = unsafe {
+            (h.registrations_submit)(ctx, PpBytes { ptr: SECOND.as_ptr(), len: SECOND.len() })
+        };
+        if status != OK { return status; }
+    }
     if IGNORE_INVALID {
         // H2 deliberately ignores refusal. The HOST must poison the transaction.
         let _refusal = unsafe {
