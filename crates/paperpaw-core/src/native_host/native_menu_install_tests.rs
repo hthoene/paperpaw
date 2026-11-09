@@ -12,6 +12,10 @@ use crate::native_host::{
 ///
 /// # Safety
 /// `host` and `ctx` are the live ones `screen_make` received.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture batch per mode, side by side"
+)]
 pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> i32 {
     let entry = |menu, item| {
         Record::MenuEntry(wire::MenuEntry {
@@ -111,6 +115,76 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             ],
             &mut bytes,
         ),
+        // The same need twice for one item (different needs do not matter).
+        7 => wire::records_encode(
+            &[
+                Record::MenuNeed(wire::MenuNeed {
+                    item: "factory.screen",
+                    need: 4,
+                    capability: 0,
+                }),
+                Record::MenuNeed(wire::MenuNeed {
+                    item: "factory.screen",
+                    need: 1,
+                    capability: 0,
+                }),
+            ],
+            &mut bytes,
+        ),
+        // The same description twice for one item.
+        8 => wire::records_encode(
+            &[
+                Record::MenuDescribe(wire::MenuDescribe {
+                    item: "screen",
+                    key: "factory.line",
+                }),
+                Record::MenuDescribe(wire::MenuDescribe {
+                    item: "screen",
+                    key: "factory.other",
+                }),
+            ],
+            &mut bytes,
+        ),
+        // The same (menu, item) hide twice.
+        9 => wire::records_encode(
+            &[
+                Record::MenuHide(wire::MenuHide {
+                    menu: "core.main",
+                    item: "other.item",
+                }),
+                Record::MenuHide(wire::MenuHide {
+                    menu: "core.main",
+                    item: "other.item",
+                }),
+            ],
+            &mut bytes,
+        ),
+        // The same section name twice, in different menus.
+        10 => wire::records_encode(
+            &[
+                Record::MenuSection(wire::MenuSection {
+                    name: "tools",
+                    title: "factory.tools",
+                    menu: "core.main",
+                    order: 0,
+                }),
+                Record::MenuSection(wire::MenuSection {
+                    name: "tools",
+                    title: "factory.tools",
+                    menu: "core.tools",
+                    order: 1,
+                }),
+            ],
+            &mut bytes,
+        ),
+        // A description of an item of its own that does not exist.
+        11 => wire::records_encode(
+            &[Record::MenuDescribe(wire::MenuDescribe {
+                item: "missing",
+                key: "factory.line",
+            })],
+            &mut bytes,
+        ),
         _ => return ERR_INVALID,
     }
     .unwrap();
@@ -191,8 +265,8 @@ fn menu_ids_come_once_each_with_the_users_flag_and_the_users_own_menus() {
     assert_eq!(menu_ids(&kernel, &[], &[]), [("core.tools".into(), 0)]);
     let mut other = fresh();
     install_with(&mut other, 1).unwrap();
-    // Declared order, then the user's menus no plugin named; bit 5 where the
-    // user defined the menu.
+    // Entry-row menus, then section and hide menus, each once; then the
+    // user's menus no plugin named; bit 5 where the user defined the menu.
     assert_eq!(
         menu_ids(
             &other,
@@ -208,6 +282,35 @@ fn menu_ids_come_once_each_with_the_users_flag_and_the_users_own_menus() {
 }
 
 #[test]
+fn a_refused_seen_list_allocation_fails_the_whole_menu_answer() {
+    let mut kernel = fresh();
+    install_with(&mut kernel, 4).unwrap();
+    let declarations = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    let mut reached_success = false;
+    // The 1st allocation is the seen-list, the 2nd the copy of the first id.
+    for allocation in 1..8 {
+        let mut visited = 0_usize;
+        arm_failure(allocation);
+        let result =
+            declarations.menu_ids(&mut ["user.menu"].into_iter(), &|_| false, &mut |_, _| {
+                visited += 1
+            });
+        arm_failure(0);
+        match result {
+            Ok(()) => {
+                // Every allocation the answer needs went through: both menus.
+                assert_eq!(visited, 2, "allocation {allocation}");
+                reached_success = true;
+                break;
+            }
+            // The caller (op 11) must treat this as failure of the whole answer.
+            Err(status) => assert_eq!(status, host_glue::ERR_NO_MEMORY, "allocation {allocation}"),
+        }
+    }
+    assert!(reached_success, "the walk reached a complete answer");
+}
+
+#[test]
 fn another_plugins_items_unknown_places_and_unknown_needs_are_accepted() {
     let mut kernel = fresh();
     install_with(&mut kernel, 5).unwrap();
@@ -216,11 +319,14 @@ fn another_plugins_items_unknown_places_and_unknown_needs_are_accepted() {
 
 #[test]
 fn a_bad_menu_batch_refuses_the_whole_owner_and_publishes_nothing() {
-    for mode in [2, 3, 6] {
+    for mode in [2, 3, 6, 7, 8, 9, 10, 11] {
         let mut kernel = fresh();
         let screens = kernel.shared.registry.screens.list().iter().count();
         let result = install_with(&mut kernel, mode);
-        assert!(result.is_err(), "mode {mode}");
+        assert!(
+            matches!(result, Err(Error::Status(host_glue::ERR_INVALID))),
+            "mode {mode}: {result:?}"
+        );
         assert_eq!(
             kernel.shared.registry.screens.list().iter().count(),
             screens,
