@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 28;
+pub const DRAFT: u16 = 29;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -350,6 +350,7 @@ pub mod secrets;
 pub mod services;
 pub mod settings;
 pub mod snapshot;
+pub mod sockets;
 pub mod stages;
 pub mod storage;
 pub mod ui;
@@ -732,6 +733,10 @@ pub struct Native {
     pub family_revs: paperpaw_table::Revisions,
     /// The oldest revision of each family whose plugins the shell runs.
     pub family_min: paperpaw_table::Revisions,
+    /// The interface-7 minor this PaperPaw loads: a format-5 plugin file
+    /// runs here when its `needs_minor` is at most this (a store compares
+    /// the catalogue's `abi` "7.<needs_minor>" with it).
+    pub minor: u16,
 }
 
 impl Native {
@@ -747,6 +752,7 @@ impl Native {
             api_size: paperpaw_native::Api::SIZE,
             family_revs: paperpaw_table::REVISIONS,
             family_min: paperpaw_table::OLDEST,
+            minor: paperpaw_native::host_glue::MINOR,
         }
     }
 

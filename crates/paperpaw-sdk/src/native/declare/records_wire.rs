@@ -361,7 +361,7 @@ pub const SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1024;
 /// Separator of the list in `setting.spec.choices`.
 pub const SETTING_SPEC_CHOICES_SEPARATOR: char = '\n';
 /// Most items in `setting.spec.choices`.
-pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 32;
+pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 64;
 /// Longest item of `setting.spec.choices` in bytes.
 pub const SETTING_SPEC_CHOICES_ITEM_MAX_BYTES: usize = 96;
 
@@ -6404,6 +6404,8 @@ pub struct ServiceRegWidget<'a> {
     pub flags: u32,
     /// UTF-8 text of at most 128 bytes.
     pub title: &'a str,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub cells: u32,
 }
 
 impl<'a> ServiceRegWidget<'a> {
@@ -6412,7 +6414,7 @@ impl<'a> ServiceRegWidget<'a> {
     }
 
     fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             id: body.string(SERVICE_REG_WIDGET_ID_MAX_BYTES)?,
             plugin: body.string(SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?,
@@ -6420,27 +6422,45 @@ impl<'a> ServiceRegWidget<'a> {
             icon: body.string(SERVICE_REG_WIDGET_ICON_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?,
+            cells: body.opt_u32(bits, 0x01, 0)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.cells != 0 {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += blob_len(self.id.len(), SERVICE_REG_WIDGET_ID_MAX_BYTES)?;
         len += blob_len(self.plugin.len(), SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?;
         len += blob_len(self.kind.len(), SERVICE_REG_WIDGET_KIND_MAX_BYTES)?;
         len += blob_len(self.icon.len(), SERVICE_REG_WIDGET_ICON_MAX_BYTES)?;
         len += 4;
         len += blob_len(self.title.len(), SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.plugin.as_bytes(), out, offset);
         write_blob(self.kind.as_bytes(), out, offset);
         write_blob(self.icon.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_bytes(&self.cells.to_le_bytes(), out, offset);
+        }
     }
 }
 
@@ -6454,7 +6474,11 @@ impl<'a> WireEncode for ServiceRegWidget<'a> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
@@ -20866,6 +20890,13 @@ impl<'a> Reader<'a> {
         Ok(Some(u64::from_le_bytes(self.scalar()?)))
     }
 
+    fn opt_u32(&mut self, bits: u8, mask: u8, default: u32) -> Result<u32, i32> {
+        if bits & mask == 0 {
+            return Ok(default);
+        }
+        Ok(u32::from_le_bytes(self.scalar()?))
+    }
+
     fn opt_blob(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a [u8], i32> {
         if bits & mask == 0 {
             return Ok(&[]);
@@ -22071,6 +22102,7 @@ impl Record<'_> {
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
+            Record::ServiceRegWidget(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
             Record::ServiceDevCheck(record) => record.bits(),
             Record::ServiceFsEntry(record) => record.bits(),
