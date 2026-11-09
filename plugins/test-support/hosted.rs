@@ -1,11 +1,22 @@
-//! Test-only: constructs a linked native plugin in a real registered scope of
-//! the kernel's native host (`Hosted::construct_registered`), the scope the
-//! host gives `make`. The host runs the plugin's own checked metadata; nothing
-//! here stands in for a service.
-use paperpaw_core::native_host::{HostResources, shell};
-use paperpaw_native::host_glue::Services;
-use paperpaw_native::metadata::{self, Feature, Host as AdmissionHost, Profile, Service};
+//! Test-only: installs a linked native plugin the way a shell does, through
+//! `Kernel::register_linked`: the entry and its metadata are checked against the
+//! host, `make` runs in the registered scope, and every declaration family the
+//! host admits (screens, actions, settings, menus, slots, stages, widgets, ...)
+//! goes through the kernel's declaration store, registry, menus and slots.
+//! The host runs the plugin's own checked metadata; nothing here stands in for
+//! a service. Families the host refuses on purpose stay refused.
+use paperpaw_core::{
+    Kernel,
+    native_host::{HostResources, flat::FlatDepth},
+};
+use paperpaw_native::host_glue::{PpEntry, Services};
+use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
+use paperpaw_sdk::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat};
 use std::alloc::Layout;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicIsize, Ordering},
+};
 
 /// The consent features the host offers; a plugin's metadata may require any.
 const FEATURES: &[Feature<'static>] = &[
@@ -51,13 +62,29 @@ const FEATURES: &[Feature<'static>] = &[
     },
 ];
 
-struct Heap;
+/// The host's heap for the plugin, counting what it hands out and what comes
+/// back, and what a teardown step failed: [`Installed`] checks both when the
+/// plugin is torn down.
+#[derive(Clone, Default)]
+struct Heap(Arc<Counters>);
+
+#[derive(Default)]
+struct Counters {
+    live: AtomicIsize,
+    failures: Mutex<Vec<String>>,
+}
+
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
         // SAFETY: the host validates the nonzero layout before forwarding.
-        unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) }
+        let block = unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) };
+        if !block.is_null() {
+            self.0.live.fetch_add(1, Ordering::Relaxed);
+        }
+        block
     }
     unsafe fn dealloc(&self, ptr: *mut u8, size: usize, align: usize) {
+        self.0.live.fetch_sub(1, Ordering::Relaxed);
         // SAFETY: the allocation came from this heap with the same layout.
         unsafe { std::alloc::dealloc(ptr, Layout::from_size_align(size, align).unwrap()) }
     }
@@ -70,32 +97,87 @@ impl Services for Heap {
     }
 }
 
-fn report(
-    _: &Heap,
+fn report(_: &Heap, _: u32, _: i32) {}
+
+fn teardown(
+    heap: &Heap,
     _: &str,
     step: paperpaw_core::native_host::TeardownStep,
     error: paperpaw_core::native_host::Error,
 ) {
-    eprintln!("native teardown {step:?}: {error:?}");
+    heap.0
+        .failures
+        .lock()
+        .unwrap()
+        .push(format!("native teardown {step:?}: {error:?}"));
 }
 
-/// Constructs `entry` with the services its metadata declares and tears it
-/// down; the host's refusal of construction comes back as its debug text.
-pub fn try_construct(
-    entry: &paperpaw_native::host_glue::PpEntry,
-    metadata_bytes: &[u8],
+/// A plugin installed in a kernel. Dropping it tears the plugin down and fails
+/// the test (a panic) on a failed teardown step or a block the host did not get
+/// back, as the old harness did.
+pub struct Installed {
+    kernel: Option<Kernel>,
+    heap: Heap,
+}
+
+impl Installed {
+    /// The kernel the plugin is registered in.
+    #[allow(
+        dead_code,
+        reason = "only the cases that go on to use the kernel call it"
+    )]
+    pub fn kernel(&mut self) -> &mut Kernel {
+        self.kernel.as_mut().expect("installed")
+    }
+}
+
+impl Drop for Installed {
+    fn drop(&mut self) {
+        drop(self.kernel.take());
+        if std::thread::panicking() {
+            return;
+        }
+        let failures = self.heap.0.failures.lock().unwrap();
+        assert!(failures.is_empty(), "{failures:?}");
+        assert_eq!(
+            self.heap.0.live.load(Ordering::Relaxed),
+            0,
+            "the host kept blocks after the plugin was torn down"
+        );
+    }
+}
+
+/// A device for the kernel the plugin registers in: the X4's memory class.
+fn device() -> DeviceInfo {
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
+        InputCaps::new(true, true, false, &[]),
+        MemoryClass::Small,
+    )
+}
+
+/// Installs `entry` as plugin `name` in a new kernel with the services its
+/// metadata declares, and returns it (drop it to tear the plugin down); the
+/// host's refusal comes back as its debug text.
+pub fn install(
+    entry: &'static PpEntry,
     name: &str,
     services: &[&'static str],
-) -> Result<(), String> {
-    let services: Vec<Service<'_>> = services
-        .iter()
-        .map(|key| Service {
-            key,
-            major: 1,
-            semantic_revision: 0,
-            min_table_bytes: 0,
-        })
-        .collect();
+) -> Result<Installed, String> {
+    let services: &'static [Service<'static>] = Box::leak(
+        services
+            .iter()
+            .map(|key| Service {
+                key,
+                major: 1,
+                semantic_revision: 0,
+                min_table_bytes: 0,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
     let host = AdmissionHost {
         abi_major: 7,
         minor: 1,
@@ -104,32 +186,45 @@ pub fn try_construct(
             entry_layout: 1,
             entry_bytes: 32,
         },
-        services: &services,
+        services,
         features: FEATURES,
     };
-    let checked = metadata::check(metadata_bytes, &host).expect("metadata admitted");
-    let declared = shell::DeclaredServices::try_from_iter(checked.services()).unwrap();
-    // SAFETY: statically linked code and metadata live for the whole test; no image range.
-    let hosted = unsafe {
-        shell::Hosted::new(
-            Heap,
-            (),
-            entry.make.expect("the entry has a factory"),
+    // SAFETY: a linked entry's metadata view is its own static bytes.
+    let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
+    let heap = Heap::default();
+    // Held from here on, so a refused install is checked for leaks as well.
+    let mut installed = Installed {
+        kernel: Some(
+            Kernel::builder(device())
+                .build()
+                .map_err(|e| format!("{e:?}"))?,
+        ),
+        heap: heap.clone(),
+    };
+    // SAFETY: statically linked code and metadata live for the whole test.
+    unsafe {
+        installed.kernel().register_linked(
+            entry,
+            metadata,
+            &host,
             name,
-            (core::ptr::null(), 0),
+            heap.clone(),
+            HostResources::try_new().map_err(|e| format!("{e:?}"))?,
+            &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+            teardown,
             report,
-            HostResources::try_new().unwrap(),
-            declared,
         )
     }
-    .expect("hosted");
-    let constructed = hosted.construct_registered(hosted.begin().unwrap());
-    let outcome = constructed
-        .as_ref()
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"));
-    drop(constructed);
-    hosted.stop();
-    hosted.owner().finish().unwrap();
-    outcome
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(installed)
+}
+
+/// [`install`] and tear the plugin down again: `make` ran in a real
+/// registered scope, its declarations were admitted and the teardown was clean.
+pub fn try_construct(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+) -> Result<(), String> {
+    install(entry, name, services).map(drop)
 }
