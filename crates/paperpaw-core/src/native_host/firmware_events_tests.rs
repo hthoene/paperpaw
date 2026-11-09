@@ -15,7 +15,13 @@ fn kernel() -> Kernel {
         5,
         paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
     );
+    // A random source: the confirmation's nonce needs one.
+    fn fill(buf: &mut [u8]) -> bool {
+        buf.fill(7);
+        true
+    }
     Kernel::builder(crate::tests::DEVICE)
+        .random(fill)
         .firmware_host(alloc::boxed::Box::new(fake))
         .build()
         .unwrap()

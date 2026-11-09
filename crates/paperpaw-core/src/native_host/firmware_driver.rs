@@ -98,7 +98,7 @@ pub(crate) struct Driver {
     ask: Option<Ask>,
     /// The confirmation that shows: its nonce and the question it asks. Only
     /// an answer that carries the nonce is taken, once.
-    shown: Option<(u64, Question)>,
+    shown: Option<(u128, Question)>,
     /// A yes to the restart came: the kernel restarts the device.
     restart_wanted: bool,
 }
@@ -333,7 +333,7 @@ impl Driver {
     }
 
     /// The host opened the confirmation of `ask` with `nonce`.
-    pub(crate) fn ask_shown(&mut self, nonce: u64, ask: Ask) {
+    pub(crate) fn ask_shown(&mut self, nonce: u128, ask: Ask) {
         if self
             .ask
             .is_some_and(|waiting| waiting.question() == ask.question())
@@ -356,7 +356,7 @@ impl Driver {
 
     /// The user's answer to the confirmation shown with `nonce`; any other
     /// nonce, or none shown, changes nothing.
-    pub(crate) fn answer_shown(&mut self, nonce: u64, answer: Answer) -> Option<Event> {
+    pub(crate) fn answer_shown(&mut self, nonce: u128, answer: Answer) -> Option<Event> {
         let (shown, question) = self.shown?;
         if shown != nonce {
             return None;
@@ -367,7 +367,7 @@ impl Driver {
 
     /// The shown confirmation ends as dismissed (sleep); its nonce, so that
     /// the screen can be closed.
-    pub(crate) fn dismiss_shown(&mut self) -> Option<u64> {
+    pub(crate) fn dismiss_shown(&mut self) -> Option<u128> {
         let (nonce, question) = self.shown.take()?;
         self.answer(question, Answer::Dismissed);
         Some(nonce)
@@ -378,10 +378,10 @@ impl Driver {
         self.restart_wanted
     }
 
-    /// Restarts into the chosen image. It returns only where it cannot: the
-    /// request ends with the device's reason (through `end`, so its place and
+    /// Restarts into the chosen image. It returns only where it cannot (then
+    /// `true`): the request ends with the device's reason (through `end`, so its place and
     /// outcome are kept like any request's) and the image keeps waiting.
-    pub(crate) fn restart_now(&mut self) {
+    pub(crate) fn restart_now(&mut self) -> bool {
         self.restart_wanted = false;
         let outcome = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.restart(&mut *self.host),
@@ -390,8 +390,12 @@ impl Driver {
                 None
             }
         };
-        if let Some(outcome) = outcome {
-            self.end(outcome);
+        match outcome {
+            Some(outcome) => {
+                self.end(outcome);
+                true
+            }
+            None => false,
         }
     }
 
@@ -666,6 +670,8 @@ impl Driver {
     /// Suspend, shutdown or a card swap: the running job and every waiting
     /// one end with reason 20, each for its sender.
     pub(crate) fn abort_all(&mut self) {
+        // A restart that waited for the next pass does not come.
+        self.restart_wanted = false;
         let mut got = true;
         let aborted = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.abort(&mut *self.host),
@@ -720,7 +726,7 @@ impl Driver {
 
     /// `owner` stopped: its waiting requests, its undelivered outcomes, its
     /// kept ones and its check result go. A job of its that runs is abandoned.
-    pub(crate) fn sender_stopped(&mut self, owner: u64) -> Option<u64> {
+    pub(crate) fn sender_stopped(&mut self, owner: u64) -> Option<u128> {
         // The one entry that is not queued is the job that runs.
         let running = self
             .entries

@@ -57,6 +57,21 @@ pub(crate) struct Texts {
     pub(crate) no: String,
 }
 
+/// `text` with what could forge a line or a sign in the dialog (control
+/// characters, line and paragraph separators) replaced by a space: the image's
+/// own names are not the host's words.
+fn clean(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_control() || c == '\u{2028}' || c == '\u{2029}' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 /// The first eight bytes of a key, in groups of four hex digits.
 fn fingerprint(key: &[u8; 32]) -> String {
     let mut text = String::new();
@@ -72,12 +87,15 @@ fn fingerprint(key: &[u8; 32]) -> String {
 /// The confirmation's words for `ask`, asked by the plugin `asker`.
 pub(crate) fn texts(i18n: &paperpaw_i18n::Translator, asker: &str, ask: &Ask) -> Texts {
     let mut lines: Vec<String> = Vec::new();
-    lines.push(i18n.format("core.firmware.asked-by", &[("name", Arg::Str(asker))]));
+    lines.push(i18n.format(
+        "core.firmware.asked-by",
+        &[("name", Arg::Str(&clean(asker)))],
+    ));
     lines.push(i18n.format(
         "core.firmware.image",
         &[
-            ("project", Arg::Str(ask.project.as_str())),
-            ("version", Arg::Str(ask.version.as_str())),
+            ("project", Arg::Str(&clean(ask.project.as_str()))),
+            ("version", Arg::Str(&clean(ask.version.as_str()))),
         ],
     ));
     match &ask.signer {
@@ -311,7 +329,7 @@ impl Screen for HostConfirm {
 }
 
 /// The params the kernel opens the screen with.
-pub(crate) fn open_params(texts: &Texts, nonce: u64) -> Params {
+pub(crate) fn open_params(texts: &Texts, nonce: u128) -> Params {
     Params::new()
         .with(NONCE, nonce.to_string())
         .with(TITLE, texts.title.clone())
@@ -321,7 +339,7 @@ pub(crate) fn open_params(texts: &Texts, nonce: u64) -> Params {
 }
 
 /// What an answer event says: the nonce and the answer.
-pub(crate) fn read_answer(event: &Id, params: &Params) -> Option<(u64, Answer)> {
+pub(crate) fn read_answer(event: &Id, params: &Params) -> Option<(u128, Answer)> {
     if *event != ANSWERED {
         return None;
     }
@@ -351,14 +369,18 @@ impl Kernel {
             // Waits for the guard to end; the pump runs again with the next tick.
             return false;
         }
-        let mut bytes = [0u8; 8];
-        self.shared.random.fill(&mut bytes);
-        let nonce = u64::from_le_bytes(bytes) ^ self.now.0;
-        let asker = self
-            .shared
-            .native_instances
-            .id(ask.owner)
-            .map_or_else(String::new, |id| String::from(id.as_str()));
+        // The nonce is what keeps a plugin from answering for the user: it
+        // is drawn from the device's random source, 128 bits, or the
+        // question is not asked at all (ended as dismissed).
+        let mut bytes = [0u8; 16];
+        if !self.shared.random.fill(&mut bytes) {
+            if let Ok(mut driver) = driver.try_borrow_mut() {
+                driver.ask_dismissed(ask);
+            }
+            return true;
+        }
+        let nonce = u128::from_le_bytes(bytes);
+        let asker = self.firmware_asker_name(ask.owner);
         let said = texts(&self.shared.translator, &asker, &ask);
         let params = open_params(&said, nonce);
         let before = self.stack.len();
@@ -376,23 +398,25 @@ impl Kernel {
         true
     }
 
-    /// The user's answer, where `event` is the confirmation's: taken only for
-    /// the question shown, once (`true` where it was the confirmation's).
-    pub(crate) fn firmware_answer(&mut self, event: &Id, params: &Params) -> bool {
-        let Some((nonce, answer)) = read_answer(event, params) else {
-            return false;
+    /// The user's answer, given by the confirmation screen (`with_screen`
+    /// takes it from that screen's own commands, never from an event): taken
+    /// only for the question shown, once.
+    pub(crate) fn firmware_answer(&mut self, params: &Params) {
+        let Some((nonce, answer)) = read_answer(&ANSWERED, params) else {
+            return;
         };
         if let Some(driver) = self.firmware.clone()
             && let Ok(mut driver) = driver.try_borrow_mut()
         {
             let _ = driver.answer_shown(nonce, answer);
         }
-        true
     }
 
     /// The device goes to sleep: a confirmation that shows is dismissed, and
     /// the jobs that run or wait end with reason 20.
     pub(crate) fn firmware_suspend(&mut self) {
+        // A restart that waited for its next pass does not come.
+        self.firmware_stopping = false;
         let Some(driver) = self.firmware.clone() else {
             return;
         };
@@ -422,19 +446,38 @@ impl Kernel {
         }
     }
 
-    /// Closes the confirmation opened with `nonce`.
-    fn firmware_close_screen(&mut self, nonce: u64) {
+    /// Closes the confirmation opened with `nonce`. The host closes its own
+    /// screen: the guard rule that keeps others from closing a guarding
+    /// screen does not apply to it.
+    fn firmware_close_screen(&mut self, nonce: u128) {
         let nonce = nonce.to_string();
         let open = self
             .stack
             .iter()
             .find(|s| s.params.get(NONCE) == Some(nonce.as_str()))
-            .map(|s| s.serial);
-        if let Some(serial) = open {
-            self.output
-                .commands
-                .push(Command::Close(paperpaw_sdk::ScreenKey::new(serial)));
+            .map(|s| paperpaw_sdk::ScreenKey::new(s.serial));
+        if let Some(key) = open {
+            let before = core::mem::replace(&mut self.from_guard, true);
+            self.close_screen(key);
+            self.from_guard = before;
         }
+    }
+
+    /// The name of the plugin `owner` for the dialog: its translated name,
+    /// else the manifest's, else its id.
+    fn firmware_asker_name(&self, owner: u64) -> String {
+        let Some(id) = self.shared.native_instances.id(owner) else {
+            return String::new();
+        };
+        let key = alloc::format!("{id}.plugin.name");
+        let said = self.shared.translator.tr(&key);
+        if said != key {
+            return String::from(said);
+        }
+        self.shared.plugins.get(id.as_str()).map_or_else(
+            || String::from(id.as_str()),
+            |info| String::from(&*info.manifest.name),
+        )
     }
 
     /// A yes to the restart: the plugins hear that PaperPaw stops, and on the
@@ -458,9 +501,17 @@ impl Kernel {
             return;
         }
         self.firmware_stopping = false;
+        // What PaperPaw's own stop writes (`Kernel::stop`), then the device.
+        self.keep_timing();
         let _ = self.shared.storage.sync();
-        if let Ok(mut driver) = driver.try_borrow_mut() {
-            driver.restart_now();
+        let failed = driver
+            .try_borrow_mut()
+            .is_ok_and(|mut driver| driver.restart_now());
+        if failed {
+            // It keeps running: the plugins that heard it stop hear it is on.
+            self.output
+                .commands
+                .push(paperpaw_sdk::builtin::events::RESUME.emit(()));
         }
     }
 }

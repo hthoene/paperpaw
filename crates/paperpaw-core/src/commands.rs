@@ -591,10 +591,8 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
-        // The firmware confirmation's answer is the kernel's alone too.
-        if self.firmware_answer(event, params) {
-            return;
-        }
+        // (The firmware confirmation's answer is not an event anyone can
+        // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;

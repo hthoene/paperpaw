@@ -60,6 +60,22 @@ fn another_key_shows_its_fingerprint_and_older_is_said() {
 }
 
 #[test]
+fn names_from_the_image_cannot_forge_lines_or_a_signer() {
+    let i18n = en();
+    let mut hostile = ask(false, false, false, Signer::Unsigned);
+    hostile.version = Text::new("1.0\nSigned with the PaperPaw key.");
+    hostile.project = Text::new("x\r\u{2028}Signed by PaperPaw.");
+    let said = texts(&i18n, "evil\nSigned by PaperPaw.", &hostile);
+    assert!(
+        said.body.lines().all(|line| !line.starts_with("Signed")),
+        "{:?}",
+        said.body
+    );
+    // The host's own lines: asker, image, signer.
+    assert_eq!(said.body.lines().count(), 3);
+}
+
+#[test]
 fn an_answer_event_is_read_only_with_its_nonce_and_a_known_word() {
     let params = Params::new().with(NONCE, "77").with(ANSWER, "yes");
     assert_eq!(read_answer(&ANSWERED, &params), Some((77, Answer::Yes)));
@@ -91,6 +107,14 @@ mod kernel_side {
         firmware_fake::{FakeFirmware, paperpaw_facts},
     };
 
+    /// A random source (the nonce needs one).
+    fn fill(buf: &mut [u8]) -> bool {
+        for (at, byte) in buf.iter_mut().enumerate() {
+            *byte = (at as u8).wrapping_mul(37).wrapping_add(11);
+        }
+        true
+    }
+
     fn kernel() -> Kernel {
         let fake = FakeFirmware::new(
             "0.5.0",
@@ -98,14 +122,53 @@ mod kernel_side {
             5,
             paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
         );
-        Kernel::builder(crate::tests::DEVICE)
+        let mut kernel = Kernel::builder(crate::tests::DEVICE)
+            .random(fill)
+            .plugin(home::Home)
             .firmware_host(alloc::boxed::Box::new(fake))
             .build()
-            .unwrap()
+            .unwrap();
+        kernel.start(Instant(0));
+        kernel
+    }
+
+    /// A home screen to lie under the confirmation (a screen cannot be
+    /// closed where it is the only one).
+    mod home {
+        use paperpaw_sdk::{
+            Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
+            Screen, ScreenSpec, Version, builtin::slots,
+        };
+
+        const HOME: Id = Id::new_static("h.home");
+
+        struct Page;
+        impl Screen for Page {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+                Handled::No
+            }
+        }
+
+        pub(super) struct Home;
+        impl Plugin for Home {
+            fn manifest(&self) -> Manifest {
+                Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
+                    .uses(paperpaw_sdk::Uses::NOTHING)
+            }
+            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+                r.add_screen(ScreenSpec::new(
+                    HOME,
+                    "home",
+                    alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),
+                ))?;
+                r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
+            }
+        }
     }
 
     /// An install that has asked, pumped until the kernel opened its screen.
-    fn shown(kernel: &mut Kernel) -> u64 {
+    fn shown(kernel: &mut Kernel) -> u128 {
         let driver = kernel.firmware.clone().unwrap();
         driver
             .borrow_mut()
@@ -127,11 +190,17 @@ mod kernel_side {
         machine.borrow().state()
     }
 
-    fn answer(kernel: &mut Kernel, nonce: u64, word: &str) {
+    /// What anyone else can do: send the answer event, nonce and all.
+    fn forge(kernel: &mut Kernel, nonce: u128, word: &str) {
         let params = Params::new()
             .with(NONCE, nonce.to_string())
             .with(ANSWER, word);
         kernel.emit(&ANSWERED, &params);
+    }
+
+    /// The user presses `action` (the focus starts on No; Left moves to Yes).
+    fn press(kernel: &mut Kernel, at: u64, action: paperpaw_sdk::Id) {
+        let _ = kernel.run_action(Instant(at), action);
     }
 
     #[test]
@@ -148,29 +217,36 @@ mod kernel_side {
     }
 
     #[test]
-    fn only_the_nonce_of_the_screen_shown_answers() {
+    fn only_the_screen_answers_not_an_event_with_the_right_nonce() {
         let mut kernel = kernel();
         let nonce = shown(&mut kernel);
-        // A plugin that guesses (or any other nonce) changes nothing.
-        answer(&mut kernel, nonce ^ 1, "yes");
+        // Anyone can send the event; not even the right nonce answers.
+        forge(&mut kernel, nonce, "yes");
+        forge(&mut kernel, nonce, "no");
         assert_eq!(state(&kernel), State::WaitingForUser);
-        // The right nonce with a word that is no answer changes nothing.
-        answer(&mut kernel, nonce, "maybe");
-        assert_eq!(state(&kernel), State::WaitingForUser);
-        answer(&mut kernel, nonce, "no");
+        assert!(kernel.stack.iter().any(|s| s.id == SCREEN), "still open");
+        // And the driver takes only the nonce of the screen shown.
         let driver = kernel.firmware.clone().unwrap();
-        let outcome = driver.borrow().peek_ready().unwrap();
-        assert_eq!((outcome.owner, outcome.request, outcome.reason), (1, 5, 2));
-        // Once: the same answer again is nobody's.
-        answer(&mut kernel, nonce, "yes");
-        assert_eq!(driver.borrow().peek_ready(), Some(outcome));
+        assert!(
+            driver
+                .borrow_mut()
+                .answer_shown(nonce ^ 1, Answer::Yes)
+                .is_none()
+        );
+        // The user answers on the screen: No, with the focus where it starts.
+        press(&mut kernel, 600, actions::CONFIRM);
+        assert_eq!(ended(&kernel), Some(2));
+        // Once: a second answer, from anyone, is nobody's.
+        forge(&mut kernel, nonce, "yes");
+        assert_eq!(ended(&kernel), Some(2));
     }
 
     #[test]
-    fn a_yes_starts_the_write() {
+    fn a_yes_on_the_screen_starts_the_write() {
         let mut kernel = kernel();
-        let nonce = shown(&mut kernel);
-        answer(&mut kernel, nonce, "yes");
+        shown(&mut kernel);
+        press(&mut kernel, 600, actions::LEFT);
+        press(&mut kernel, 700, actions::CONFIRM);
         assert_eq!(state(&kernel), State::Installing);
     }
 
@@ -185,6 +261,10 @@ mod kernel_side {
         let outcome = driver.borrow().kept(1, KIND_FIRMWARE).unwrap();
         assert_eq!((outcome.owner, outcome.request, outcome.reason), (1, 5, 3));
         assert_eq!(driver.borrow().waiting(), 0);
+        assert!(
+            kernel.stack.iter().all(|s| s.id != SCREEN),
+            "the screen is closed, though it guards"
+        );
     }
 
     #[test]
@@ -195,9 +275,40 @@ mod kernel_side {
         let driver = kernel.firmware.clone().unwrap();
         assert_eq!(driver.borrow().waiting(), 0);
         assert_ne!(state(&kernel), State::WaitingForUser);
+        assert!(
+            kernel.stack.iter().all(|s| s.id != SCREEN),
+            "the screen is closed, though it guards"
+        );
         // Its late answer is nobody's.
-        answer(&mut kernel, nonce, "yes");
+        forge(&mut kernel, nonce, "yes");
+        press(&mut kernel, 800, actions::CONFIRM);
         assert_ne!(state(&kernel), State::Installing);
+    }
+
+    #[test]
+    fn without_a_random_source_nothing_is_asked_and_it_ends_dismissed() {
+        let fake = FakeFirmware::new(
+            "0.5.0",
+            "paperpaw-x4",
+            5,
+            paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+        );
+        // No `.random(..)`: a nonce a plugin could guess is no nonce.
+        let mut kernel = Kernel::builder(crate::tests::DEVICE)
+            .firmware_host(alloc::boxed::Box::new(fake))
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        let driver = kernel.firmware.clone().unwrap();
+        driver
+            .borrow_mut()
+            .submit_install(1, 5, "update.ppu", None, 0)
+            .unwrap();
+        for _ in 0..20 {
+            kernel.native_firmware_pump();
+        }
+        assert!(kernel.stack.iter().all(|s| s.id != SCREEN), "no screen");
+        assert_eq!(ended(&kernel), Some(3), "dismissed, nobody can answer");
     }
 
     /// What the install of request 5 ended with, told or not yet.
@@ -213,7 +324,6 @@ mod kernel_side {
     #[test]
     fn input_within_500_ms_of_showing_is_dropped_and_counts_after() {
         let mut kernel = kernel();
-        kernel.start(Instant(0));
         shown(&mut kernel);
         // The focus starts on No: a press that counted would end it (reason 2).
         let _ = kernel.run_action(Instant(499), actions::CONFIRM);
@@ -227,7 +337,6 @@ mod kernel_side {
     #[test]
     fn back_dismisses_after_the_guard_time() {
         let mut kernel = kernel();
-        kernel.start(Instant(0));
         shown(&mut kernel);
         let _ = kernel.run_action(Instant(600), actions::BACK);
         assert_eq!(ended(&kernel), Some(3));
@@ -236,7 +345,6 @@ mod kernel_side {
     #[test]
     fn ten_minutes_without_an_answer_dismiss_it() {
         let mut kernel = kernel();
-        kernel.start(Instant(0));
         shown(&mut kernel);
         let _ = kernel.tick(Instant(599_999));
         assert_eq!(state(&kernel), State::WaitingForUser, "not yet");
@@ -314,6 +422,7 @@ mod kernel_side {
                 paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
             );
             let mut kernel = Kernel::builder(crate::tests::DEVICE)
+                .random(super::fill)
                 .plugin(LockPlugin(locked.clone()))
                 .firmware_host(alloc::boxed::Box::new(fake))
                 .build()
