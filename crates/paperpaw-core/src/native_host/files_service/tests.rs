@@ -472,7 +472,7 @@ impl TestHost {
 }
 
 impl FilesHost for TestHost {
-    fn excluded(&self, root: u32, first: &str) -> bool {
+    fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {
         self.aliases
             .borrow()
             .iter()

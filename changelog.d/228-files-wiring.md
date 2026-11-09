@@ -1,0 +1,2 @@
+### Added
+- `HostWiring::files(storage)`: a shell wires `core.files` by giving the card's storage; core composes the rest. The host's own folders are known by identity as well as spelling (an 8.3 alias of `.paperpaw`, `plugins` or `.received` is refused; the check over-refuses a user's own tilde name until the storage can answer "same entry"), what the host holds in use answers `ERR_BUSY` through registered sources, and a move is the storage's rename.

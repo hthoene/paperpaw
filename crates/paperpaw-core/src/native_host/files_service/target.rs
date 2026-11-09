@@ -144,16 +144,13 @@ pub(super) fn resolve(
     if root == CARD && !first.is_empty() && reaches_protected(view, first) {
         return Err(ERR_INVALID);
     }
-    let received = root == DATA
-        && !first.is_empty()
-        && (first.eq_ignore_ascii_case(RECEIVED) || view.host.excluded(DATA, first));
     // Filled in the caller's place: a path is 640 bytes, and a copy of it per
     // return would put several of them in the frame of an op with two.
     target.len = 0;
     target.start = 0;
     target.base = 0;
     target.root = root;
-    target.received = received;
+    target.received = false;
     let (kind, folder) = match root {
         DATA => (PREFIX, Some(view.who.plugin)),
         BUNDLE => ("plugins/", Some(view.who.plugin)),
@@ -171,6 +168,12 @@ pub(super) fn resolve(
         push(target, kind.as_bytes())?;
         push(target, id.as_bytes())?;
         target.base = target.len;
+        // `.received` of the data folder (the host's), by spelling or by the
+        // storage's identity: the folder it is in is the data folder.
+        target.received = root == DATA
+            && !first.is_empty()
+            && (first.eq_ignore_ascii_case(RECEIVED)
+                || view.host.excluded(DATA, target.joined(), first));
         if !path.is_empty() {
             push(target, b"/")?;
         }
@@ -249,7 +252,7 @@ fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
 pub(super) fn reaches_protected(view: &View<'_>, first: &str) -> bool {
     first.eq_ignore_ascii_case(INSTALL)
         || first.eq_ignore_ascii_case(KERNEL)
-        || view.host.excluded(CARD, first)
+        || view.host.excluded(CARD, "", first)
 }
 
 /// Whether `path` is `folder` or below it, `ignore_case` for a storage that

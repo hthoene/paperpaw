@@ -51,6 +51,8 @@ pub(crate) struct HostServices {
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// What the host holds in use, for `core.files` to answer busy about.
+    busy: OnceCell<Rc<super::storage_files::BusySources>>,
     /// The `core.format` calls under way (root 3 of the file service).
     #[allow(
         dead_code,
@@ -104,6 +106,7 @@ impl HostServices {
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            busy: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
@@ -321,6 +324,10 @@ impl HostServices {
     }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    /// The sources of paths in use, made on first use.
+    pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
+        self.busy.get_or_init(Default::default)
     }
     pub(crate) fn files(&self) -> Option<&FilesServices> {
         self.files.get()

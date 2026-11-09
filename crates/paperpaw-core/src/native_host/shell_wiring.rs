@@ -16,6 +16,7 @@ use super::{
     hyphen_card::CardTables,
     resources::HostResources,
     shared::Shared,
+    storage_files::StorageFiles,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
@@ -29,6 +30,7 @@ use paperpaw_platform::Storage;
 #[non_exhaustive]
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
+    files: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
     /// `core.ui`: `Some(x4)`.
     ui: Option<bool>,
@@ -38,6 +40,7 @@ impl core::fmt::Debug for HostWiring {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
+            .field("files", &self.files.is_some())
             .field("device", &self.device.is_some())
             .field("ui", &self.ui.is_some())
             .finish()
@@ -57,6 +60,18 @@ impl HostWiring {
     #[must_use]
     pub fn hyphenation(mut self, storage: Rc<dyn Storage>) -> Self {
         self.hyphenation = Some(storage);
+        self
+    }
+
+    /// `core.files`: the plugins' file service over this storage (the card).
+    /// The shell gives only the storage; core composes the rest: the host's
+    /// own folders by identity (an 8.3 alias of `.paperpaw` is refused; the
+    /// check over-refuses until the storage can answer "same entry"), what is
+    /// in use (downloads, staged installs, served bodies, the library's move
+    /// job: `ERR_BUSY`) and the move itself.
+    #[must_use]
+    pub fn files(mut self, storage: Rc<dyn Storage>) -> Self {
+        self.files = Some(storage);
         self
     }
 
@@ -190,6 +205,7 @@ impl HostResources {
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
+            || (wiring.files.is_some() && hosts.files().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
         {
@@ -200,6 +216,12 @@ impl HostResources {
             let tables = Rc::new(CardTables::new(storage));
             hosts.wire_hyphen(tables.clone())?;
             wired.hyphen = Some(HyphenTables::over(tables));
+        }
+        if let Some(storage) = wiring.files {
+            hosts.wire_files(Rc::new(StorageFiles::new(
+                storage,
+                hosts.busy_sources().clone(),
+            )))?;
         }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;

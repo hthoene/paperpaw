@@ -169,6 +169,7 @@ mod stage_wire;
     reason = "the NET and SOCK adapters name their staged file by it"
 )]
 pub(crate) mod staged_name;
+mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 

@@ -51,8 +51,11 @@ pub(crate) trait FilesHost {
     /// The service already refuses their spelling in any case; this is the
     /// identity beyond it (an 8.3 alias such as `PAPERP~1`).
     ///
+    /// `parent` is the storage folder `first_segment` is in (root 0: the
+    /// plugin's data folder; root 1: `""`, the card's top).
+    ///
     /// Required: a host that forgets it would let an alias reach them.
-    fn excluded(&self, root: u32, first_segment: &str) -> bool;
+    fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool;
 
     /// Whether `access` to `path` (card relative) is `ERR_BUSY` now: the host
     /// holds it in use (the reader's book, a staged install, a download's
