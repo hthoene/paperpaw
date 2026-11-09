@@ -505,3 +505,87 @@ fn get_wipes_whole_output_if_host_wrote_then_refused() {
     ));
     assert_eq!(out, [0; 1280]);
 }
+#[test]
+fn keep_with_a_short_input_refuses_before_the_host_and_clears_its_scratch() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let secrets = Secrets::open(&host).unwrap();
+    let long = "v".repeat(300);
+    let write = SecretWrite::new(SecretName::new("token").unwrap(), &long).unwrap();
+    // The encoder cannot hold the record: nothing reaches the host, and whatever
+    // it wrote of the value in the scratch is cleared.
+    for size in [0, 8, 64, 200] {
+        let mut input = vec![0xa5; size];
+        assert_eq!(
+            secrets.keep(&host, write, &mut input, &mut [0; 64]),
+            Err(Error::NoSpace),
+            "input of {size} bytes"
+        );
+        assert!(input.iter().all(|&byte| byte == 0), "{size}: scratch");
+    }
+    assert_eq!(state.calls.get(), 0);
+}
+
+#[test]
+fn only_the_editor_list_may_total_more_than_32_and_the_own_list_may_not() {
+    let state = State::default();
+    let row = entry();
+    // One row of 33 in total, more to come: a valid page of the editor's list.
+    reply(&state, &[&row, &end(0, 33, 1)]);
+    let bytes = state.reply.borrow();
+    let page = SecretPage::decode(&bytes, SecretList::all()).unwrap();
+    assert_eq!((page.end().total(), page.end().next()), (33, Some(1)));
+    drop(bytes);
+    // A full page of 32 rows with the 33rd to come.
+    let rows = vec![&row as &dyn wire::WireEncode; schema::PAGE_MAX_ROWS];
+    let terminal = end(0, 33, 32);
+    let mut full = rows.clone();
+    full.push(&terminal);
+    reply(&state, &full);
+    let bytes = state.reply.borrow();
+    let page = SecretPage::decode(&bytes, SecretList::all()).unwrap();
+    assert_eq!((page.end().total(), page.clone().count()), (33, 32));
+    drop(bytes);
+    // The same pages are refused for the plugin's own list: it holds at most 32.
+    reply(&state, &[&row, &end(0, 33, 1)]);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::own()).is_err());
+    reply(&state, &full);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::own()).is_err());
+    // 32 in total is the own list's most.
+    let terminal = end(1, 32, 32);
+    let mut own = rows;
+    own.push(&terminal);
+    reply(&state, &own);
+    assert!(SecretPage::decode(&state.reply.borrow(), SecretList::own()).is_ok());
+}
+
+#[test]
+fn a_secret_that_is_not_changeable_has_no_replacement() {
+    let state = State::default();
+    let fixed = wire::ServiceSecEntry {
+        flags: 0,
+        ..entry()
+    };
+    reply(&state, &[&fixed, &end(1, 1, 1)]);
+    let bytes = state.reply.borrow();
+    let mut page = SecretPage::decode(&bytes, SecretList::all()).unwrap();
+    let row = page.next().unwrap().unwrap();
+    assert!(!row.changeable());
+    assert!(matches!(row.replacement("new"), Err(Error::Denied)));
+    // Denied wins over a value that is too long as well: the owner decides first.
+    assert!(matches!(
+        row.replacement(&"v".repeat(2000)),
+        Err(Error::Denied)
+    ));
+    drop(bytes);
+    // A changeable one takes the value.
+    let open = entry();
+    reply(&state, &[&open, &end(1, 1, 1)]);
+    let bytes = state.reply.borrow();
+    let mut page = SecretPage::decode(&bytes, SecretList::all()).unwrap();
+    assert!(page.next().unwrap().unwrap().replacement("new").is_ok());
+}
