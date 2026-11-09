@@ -34,13 +34,14 @@ impl<'a> Rotation<'a> {
     }
 }
 
-/// What the catalog says of a code plugin, sent in the batch of its install. Keys are
-/// borrowed; an absent one is none (the host reads an empty key as none).
+/// What the catalog says of a code plugin, sent in the batch of its install. Keys and the
+/// digest are borrowed; an absent one is none (the host reads an empty one as none).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Evidence<'a> {
     author: Option<&'a [u8; 32]>,
     recovery: Option<&'a [u8; 32]>,
+    sha256: Option<&'a [u8; 32]>,
     rotations: &'a [Rotation<'a>],
 }
 
@@ -51,6 +52,7 @@ impl<'a> Evidence<'a> {
         Self {
             author: None,
             recovery: None,
+            sha256: None,
             rotations: &[],
         }
     }
@@ -66,6 +68,14 @@ impl<'a> Evidence<'a> {
     #[must_use]
     pub const fn recovery(mut self, recovery: &'a [u8; 32]) -> Self {
         self.recovery = Some(recovery);
+        self
+    }
+
+    /// The digest the catalog expects of the code (command 1580): the host refuses an
+    /// install whose code has another (reason 18).
+    #[must_use]
+    pub const fn sha256(mut self, sha256: &'a [u8; 32]) -> Self {
+        self.sha256 = Some(sha256);
         self
     }
 
@@ -135,11 +145,12 @@ impl CommandSender<'_, '_> {
             flags: u32::from(update) | (u32::from(allow_older) << 1),
         };
         let mut count = 1;
-        if evidence.author.is_some() || evidence.recovery.is_some() {
+        if evidence.author.is_some() || evidence.recovery.is_some() || evidence.sha256.is_some() {
             batch[count] = wire::Command::InstallAuthor {
                 request,
                 author: evidence.author.map_or(&[][..], |key| &key[..]),
                 recovery: evidence.recovery.map_or(&[][..], |key| &key[..]),
+                sha256: evidence.sha256.map_or(&[][..], |digest| &digest[..]),
             };
             count += 1;
         }

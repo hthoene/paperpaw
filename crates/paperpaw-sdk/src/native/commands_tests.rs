@@ -1137,9 +1137,11 @@ fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
     let (author, recovery) = ([1_u8; 32], [2_u8; 32]);
     let (to_a, to_b, sig_a, sig_b) = ([3_u8; 32], [4_u8; 32], [5_u8; 64], [6_u8; 64]);
     let rotations = [Rotation::new(&to_a, &sig_a), Rotation::new(&to_b, &sig_b)];
+    let digest = [7_u8; 32];
     let evidence = Evidence::new()
         .author(&author)
         .recovery(&recovery)
+        .sha256(&digest)
         .rotations(&rotations);
     sender
         .install_plugin_with(9, InstallRoot::Data, "staging/x", true, false, &evidence)
@@ -1172,6 +1174,7 @@ fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
     assert!(first[0].starts_with("InstallPlugin") && first[0].contains("request: 9"));
     assert!(first[1].starts_with("InstallAuthor") && first[1].contains("request: 9"));
     assert!(first[1].contains("[1, 1") && first[1].contains("[2, 2"));
+    assert!(first[1].contains("sha256: [7, 7"), "{}", first[1]);
     assert!(first[2].starts_with("InstallRotation") && first[2].contains("[3, 3"));
     assert!(first[3].starts_with("InstallRotation") && first[3].contains("[4, 4"));
     assert_eq!(batches[1].len(), 1);
@@ -1203,6 +1206,33 @@ fn a_recovery_key_alone_sends_the_author_record_with_an_empty_author() {
     assert_eq!(batches[0].len(), 2);
     assert!(batches[0][1].starts_with("InstallAuthor"));
     assert!(batches[0][1].contains("author: []") && batches[0][1].contains("[9, 9"));
+    assert!(batches[0][1].contains("sha256: []"));
+}
+
+#[test]
+fn a_digest_alone_sends_the_author_record_with_empty_keys() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let digest = [5_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().sha256(&digest),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("recovery: []"));
+    assert!(batches[0][1].contains("sha256: [5, 5"));
 }
 
 #[test]

@@ -3337,6 +3337,7 @@ pub const fn paperpaw_sdk::native::commands::Evidence<'a>::author(self, &'a [u8;
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::new() -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::recovery(self, &'a [u8; 32]) -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::rotations(self, &'a [paperpaw_sdk::native::commands::Rotation<'a>]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::sha256(self, &'a [u8; 32]) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::FirmwareOptions<'a>
 impl<'a> paperpaw_sdk::native::commands::FirmwareOptions<'a>
 pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::allow_older(self) -> Self
