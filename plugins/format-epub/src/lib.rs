@@ -352,6 +352,22 @@ fn is_epub(head: &[u8]) -> bool {
         && head.get(data..data + MIME.len()) == Some(MIME)
 }
 
+/// The `core.format` provider of EPUB books (`epub`): sniffed by its
+/// `mimetype` entry, the opened file named by the call's `text`.
+#[must_use]
+pub fn epub_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-epub.epub",
+        |storage, name, options| {
+            EpubDocument::open_options(storage, name, options)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        is_epub,
+    )
+}
+
 /// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
