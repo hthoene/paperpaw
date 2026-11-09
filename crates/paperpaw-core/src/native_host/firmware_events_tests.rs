@@ -1,0 +1,112 @@
+//! The firmware pump: the job ends through the kernel's pump and its outcome is
+//! kept once told; the statuses of 5.5; 96 and 97 can be registered.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
+use super::*;
+use crate::native_host::firmware_install::KIND_FIRMWARE;
+use paperpaw_platform::{
+    firmware::WRITE_BLOCK,
+    firmware_fake::{FakeFirmware, paperpaw_facts},
+};
+
+fn kernel() -> Kernel {
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    Kernel::builder(crate::tests::DEVICE)
+        .firmware_host(alloc::boxed::Box::new(fake))
+        .build()
+        .unwrap()
+}
+
+fn outcome(kind: u32, reason: u8) -> Outcome {
+    Outcome {
+        owner: 1,
+        request: 1,
+        kind,
+        reason,
+    }
+}
+
+#[test]
+fn a_kernel_without_a_firmware_host_has_nothing_to_pump() {
+    let mut kernel = Kernel::builder(crate::tests::DEVICE).build().unwrap();
+    assert!(kernel.firmware.is_none());
+    assert!(!kernel.native_firmware_pump());
+}
+
+#[test]
+fn a_check_ends_through_the_pump_and_its_outcome_is_kept_for_its_plugin() {
+    let mut kernel = kernel();
+    let driver = kernel.firmware.clone().unwrap();
+    driver
+        .borrow_mut()
+        .submit_check(1, 7, "update.ppu")
+        .unwrap();
+    let mut passes = 0;
+    while kernel.native_firmware_pump() {
+        passes += 1;
+        assert!(passes < 100, "the pump ends");
+    }
+    // Nobody is running to be told: the outcome is delivered at once, kept.
+    let kept = driver.borrow().kept(1, KIND_CHECK).unwrap();
+    assert_eq!((kept.request, kept.reason), (7, 0));
+    assert_eq!(driver.borrow().waiting(), 0);
+}
+
+#[test]
+fn an_install_waits_for_its_confirmation_and_the_pump_goes_quiet() {
+    let mut kernel = kernel();
+    let driver = kernel.firmware.clone().unwrap();
+    driver
+        .borrow_mut()
+        .submit_install(1, 5, "update.ppu", None, 0)
+        .unwrap();
+    for _ in 0..20 {
+        kernel.native_firmware_pump();
+    }
+    // The question waits for the host's confirmation; nothing was written.
+    let ask = driver.borrow_mut().take_ask().unwrap();
+    assert_eq!((ask.owner, ask.request), (1, 5));
+    assert_eq!(driver.borrow().kept(1, KIND_FIRMWARE), None);
+}
+
+#[test]
+fn the_statuses_follow_the_outcome_reasons() {
+    let cases = [
+        (0, OK),
+        (1, ERR_IO),
+        (2, ERR_DENIED),
+        (3, ERR_CANCELLED),
+        (4, ERR_INVALID),
+        (9, ERR_DENIED),
+        (12, ERR_UNSUPPORTED),
+        (13, ERR_NO_SPACE),
+        (14, ERR_UNSUPPORTED),
+        (18, ERR_STATE),
+        (20, ERR_CANCELLED),
+        (21, ERR_STATE),
+        (200, ERR_IO),
+    ];
+    for (reason, status) in cases {
+        assert_eq!(
+            status_of(outcome(KIND_FIRMWARE, reason)),
+            status,
+            "reason {reason}"
+        );
+    }
+    // A check that ran is `OK` with its verdict; one that could not run is not.
+    assert_eq!(status_of(outcome(KIND_CHECK, 8)), OK);
+    assert_eq!(status_of(outcome(KIND_CHECK, 12)), OK);
+    assert_eq!(status_of(outcome(KIND_CHECK, 20)), ERR_CANCELLED);
+    assert_eq!(status_of(outcome(KIND_CHECK, 1)), ERR_IO);
+}
+
+#[test]
+fn the_firmware_events_can_be_registered_for() {
+    assert!(super::super::events::is_event_tag(96));
+    assert!(super::super::events::is_event_tag(97));
+    assert!(!super::super::events::is_event_tag(98));
+}
