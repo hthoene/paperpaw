@@ -13,6 +13,10 @@ use paperpaw_native::host_glue::{PpEntry, Services};
 use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
 use paperpaw_sdk::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat};
 use std::alloc::Layout;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicIsize, Ordering},
+};
 
 /// The consent features the host offers; a plugin's metadata may require any.
 const FEATURES: &[Feature<'static>] = &[
@@ -58,13 +62,29 @@ const FEATURES: &[Feature<'static>] = &[
     },
 ];
 
-struct Heap;
+/// The host's heap for the plugin, counting what it hands out and what comes
+/// back, and what a teardown step failed: [`Installed`] checks both when the
+/// plugin is torn down.
+#[derive(Clone, Default)]
+struct Heap(Arc<Counters>);
+
+#[derive(Default)]
+struct Counters {
+    live: AtomicIsize,
+    failures: Mutex<Vec<String>>,
+}
+
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
         // SAFETY: the host validates the nonzero layout before forwarding.
-        unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) }
+        let block = unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) };
+        if !block.is_null() {
+            self.0.live.fetch_add(1, Ordering::Relaxed);
+        }
+        block
     }
     unsafe fn dealloc(&self, ptr: *mut u8, size: usize, align: usize) {
+        self.0.live.fetch_sub(1, Ordering::Relaxed);
         // SAFETY: the allocation came from this heap with the same layout.
         unsafe { std::alloc::dealloc(ptr, Layout::from_size_align(size, align).unwrap()) }
     }
@@ -80,33 +100,72 @@ impl Services for Heap {
 fn report(_: &Heap, _: u32, _: i32) {}
 
 fn teardown(
-    _: &Heap,
+    heap: &Heap,
     _: &str,
     step: paperpaw_core::native_host::TeardownStep,
     error: paperpaw_core::native_host::Error,
 ) {
-    eprintln!("native teardown {step:?}: {error:?}");
+    heap.0
+        .failures
+        .lock()
+        .unwrap()
+        .push(format!("native teardown {step:?}: {error:?}"));
 }
 
-/// A device for the kernel the plugin registers in.
+/// A plugin installed in a kernel. Dropping it tears the plugin down and fails
+/// the test (a panic) on a failed teardown step or a block the host did not get
+/// back, as the old harness did.
+pub struct Installed {
+    kernel: Option<Kernel>,
+    heap: Heap,
+}
+
+impl Installed {
+    /// The kernel the plugin is registered in.
+    #[allow(
+        dead_code,
+        reason = "only the cases that go on to use the kernel call it"
+    )]
+    pub fn kernel(&mut self) -> &mut Kernel {
+        self.kernel.as_mut().expect("installed")
+    }
+}
+
+impl Drop for Installed {
+    fn drop(&mut self) {
+        drop(self.kernel.take());
+        if std::thread::panicking() {
+            return;
+        }
+        let failures = self.heap.0.failures.lock().unwrap();
+        assert!(failures.is_empty(), "{failures:?}");
+        assert_eq!(
+            self.heap.0.live.load(Ordering::Relaxed),
+            0,
+            "the host kept blocks after the plugin was torn down"
+        );
+    }
+}
+
+/// A device for the kernel the plugin registers in: the X4's memory class.
 fn device() -> DeviceInfo {
     DeviceInfo::new(
         "test",
         "Test device",
         DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Default::default(), None),
         InputCaps::new(true, true, false, &[]),
-        MemoryClass::Large,
+        MemoryClass::Small,
     )
 }
 
 /// Installs `entry` as plugin `name` in a new kernel with the services its
-/// metadata declares, and returns the kernel (drop it to tear the plugin
-/// down); the host's refusal comes back as its debug text.
+/// metadata declares, and returns it (drop it to tear the plugin down); the
+/// host's refusal comes back as its debug text.
 pub fn install(
     entry: &'static PpEntry,
     name: &str,
     services: &[&'static str],
-) -> Result<Kernel, String> {
+) -> Result<Installed, String> {
     let services: &'static [Service<'static>] = Box::leak(
         services
             .iter()
@@ -132,17 +191,24 @@ pub fn install(
     };
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
-    let mut kernel = Kernel::builder(device())
-        .build()
-        .map_err(|e| format!("{e:?}"))?;
+    let heap = Heap::default();
+    // Held from here on, so a refused install is checked for leaks as well.
+    let mut installed = Installed {
+        kernel: Some(
+            Kernel::builder(device())
+                .build()
+                .map_err(|e| format!("{e:?}"))?,
+        ),
+        heap: heap.clone(),
+    };
     // SAFETY: statically linked code and metadata live for the whole test.
     unsafe {
-        kernel.register_linked(
+        installed.kernel().register_linked(
             entry,
             metadata,
             &host,
             name,
-            Heap,
+            heap.clone(),
             HostResources::try_new().map_err(|e| format!("{e:?}"))?,
             &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
             teardown,
@@ -150,11 +216,11 @@ pub fn install(
         )
     }
     .map_err(|e| format!("{e:?}"))?;
-    Ok(kernel)
+    Ok(installed)
 }
 
 /// [`install`] and tear the plugin down again: `make` ran in a real
-/// registered scope and its declarations were admitted.
+/// registered scope, its declarations were admitted and the teardown was clean.
 pub fn try_construct(
     entry: &'static PpEntry,
     name: &str,

@@ -3,12 +3,12 @@
 //! (it registers its declarations; `core.ui` opens in the first callback).
 //!
 //! The host admits an event registration only for the tags `events::is_event_tag`
-//! names, and this plugin registers event.setting_changed (64) among its events, so the host
-//! refuses the whole batch with `Unsupported` (-1) when `make` submits it. The
-//! positive case stays ignored until the host encodes that event; the second
-//! test pins that it is that refusal, not a service-state error from `make`
-//! itself. Every other family the plugin declares (screens, actions, settings,
-//! navigation, menus, slots) is admitted through `Kernel::register_linked`.
+//! names. This plugin registers event.setting_changed (64), which it does not,
+//! so the host refuses the batch with `Unsupported` (-1) when `make` submits it.
+//! The positive case stays ignored until the host encodes the other events; the
+//! second test pins that it is that refusal, not a service-state error from
+//! `make` itself. Every other family the plugin declares (screens, actions,
+//! settings, navigation, menus, slots) is admitted through `Kernel::register_linked`.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -27,7 +27,7 @@ fn construct() -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "BLOCKED: the host does not yet admit the registration of event.setting_changed (64)"]
+#[ignore = "BLOCKED: the host does not admit the event registrations event.setting_changed (64)"]
 fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
 }
