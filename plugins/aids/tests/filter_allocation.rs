@@ -1,5 +1,4 @@
 //! Refuse every allocation in the new encoder and atomic application.
-#![cfg(feature = "reader-filter")]
 #![allow(clippy::expect_used, reason = "test fixture construction")]
 use paperpaw_plugin_aids::{
     pictures,

@@ -1446,6 +1446,8 @@ mod format_scope_oom;
 mod lib_reads_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
+#[path = "stage_run_tests.rs"]
+mod stage_run;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;

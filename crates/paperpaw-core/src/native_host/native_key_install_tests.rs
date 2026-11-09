@@ -113,6 +113,16 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
             ],
             &mut bytes,
         ),
+        // The screen's own layer: a button bound to the plugin's own action.
+        113 => wire::records_encode(
+            &[bind(
+                "factory.screen",
+                "button.confirm",
+                "factory.action",
+                none,
+            )],
+            &mut bytes,
+        ),
         _ => return ERR_INVALID,
     }
     .unwrap();

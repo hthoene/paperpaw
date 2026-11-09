@@ -74,16 +74,35 @@ pub(super) fn fixture_linked(
         link,
         &metadata,
         &tick_bytes(),
+        &[],
     )
 }
 
 pub(super) fn fixture_service(
     valid: Vec<u8>,
+    second: &[u8],
     query: &str,
     metadata: &[u8],
     event: &[u8],
 ) -> Fixture {
-    fixture_source(valid, &[], false, query, "", &[], metadata, event)
+    fixture_source(valid, &[], false, query, "", &[], metadata, event, second)
+}
+
+/// A library whose `make` submits `valid` and then `second` (declarations in
+/// the one, callback registrations in the other), whose callbacks run `query`.
+pub(super) fn fixture_two(valid: Vec<u8>, second: &[u8], query: &str) -> Fixture {
+    let metadata = crate::native_runtime::tests::metadata_bytes();
+    fixture_source(
+        valid,
+        &[],
+        false,
+        query,
+        "",
+        &[],
+        &metadata,
+        &tick_bytes(),
+        second,
+    )
 }
 
 #[allow(
@@ -99,6 +118,7 @@ fn fixture_source(
     link: &[String],
     metadata: &[u8],
     event: &[u8],
+    second: &[u8],
 ) -> Fixture {
     let root = crate::private::dir("paperpaw-foreign726").unwrap();
     let path = root.join("fixture.so");
@@ -114,6 +134,7 @@ fn fixture_source(
         ("NEEDS_MINOR", "1".to_owned()),
         ("VALID_BATCH", format!("{valid:?}")),
         ("INVALID_BATCH", format!("{invalid:?}")),
+        ("SECOND_BATCH", format!("{second:?}")),
         ("EXPECTED_EVENT", format!("{event:?}")),
         ("TOKEN", TOKEN.to_string()),
         ("IGNORE_INVALID", ignore_invalid.to_string()),

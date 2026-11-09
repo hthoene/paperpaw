@@ -179,6 +179,12 @@ even when the plugin ignores the builder's errors. Cross-record references
 (an extra's spec, a group's parent, `follows`) are checked at commit against the
 whole construction, independent of record order.
 
+A plugin whose construction declares or registers anything is admitted: one
+that only registers (events, stages, services, a tick) loads, as in interface 6.
+A construction with neither a declaration nor a registration is an invalid
+plugin (`ERR_INVALID`; the desktop lists it as damaged), never "needs a newer
+PaperPaw" (H1b ruling on #228).
+
 `native_host::declarations` checks each record without a registry and without
 allocating; `registrations::validate_records` decodes a whole batch, validates
 every record, and on any refusal poisons the construction like `submit` does.
