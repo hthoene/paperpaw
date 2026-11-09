@@ -55,6 +55,11 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
     let end_room = wire::record_framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX))))
         .map_err(|_| ERR_INVALID)?;
     let room = out.len().checked_sub(end_room).ok_or(ERR_INVALID)?;
+    if target.empty_bundle {
+        // A built-in plugin's install folder: no rows, the last page.
+        let closing = Record::ServiceEnd(end(END_LAST, None));
+        return wire::record_encode_one(&closing, out);
+    }
     let hide_protected = target.is_card_top();
     let (mut used, mut rows, mut failure) = (0usize, 0usize, None);
     let listed = view

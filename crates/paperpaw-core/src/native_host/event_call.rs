@@ -83,6 +83,7 @@ impl crate::Kernel {
                 CALLBACK_COMMAND_BYTES,
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining());
+            stage.set_images_held(self.image_held(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
                 instances

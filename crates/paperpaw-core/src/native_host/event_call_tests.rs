@@ -522,3 +522,14 @@ fn a_run_may_only_stage_what_is_listed() {
     w.call().unwrap();
     assert_eq!(w.last.get(), OK);
 }
+
+#[test]
+fn the_service_pump_does_not_run_a_batch_inside_a_callback() {
+    let mut w = world(true);
+    assert_eq!(w.call(), Ok(OK));
+    // A callback is on the stack: what it left waits until it returns.
+    w.kernel.shared.native_instances.test_enter_callback();
+    w.kernel.native_service_pump();
+    assert!(w.kernel.shared.native_instances.outbox.full());
+    assert!(!w.kernel.output.redraw);
+}
