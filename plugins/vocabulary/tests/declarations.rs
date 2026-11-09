@@ -108,7 +108,8 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 3] = [
+    let builders: [(&str, Build); 4] = [
+        ("stages", |sink| declarations::stages(sink)),
         ("settings", |sink| declarations::settings(sink)),
         ("events", |sink| declarations::events(sink)),
         ("ui", |sink| declarations::ui(sink)),
