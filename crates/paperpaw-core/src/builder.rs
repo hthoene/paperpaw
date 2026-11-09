@@ -620,8 +620,12 @@ impl BuilderParts {
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
+                registry_generation: alloc::rc::Rc::new(
+                    crate::native_host::registry_generation::RegistryGeneration::new(),
+                ),
                 formats: Formats::new(),
                 hyphenation,
+                hyphen_feed: crate::hyphen_feed::HyphenFeed::new(),
                 menus: Menus::new(),
                 actions: Actions::new(),
                 plugins: Plugins::new(),
@@ -764,6 +768,7 @@ impl BuilderParts {
             own_trusted: Vec::new(),
             held_notice: None,
             last_activity: Instant(0),
+            native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
             shown_since: Instant(0),
@@ -919,7 +924,7 @@ impl Kernel {
                     continue;
                 }
                 self.add_plugin(&plugin, &disabled);
-                if let Some(info) = self.shared.plugins.get_mut(plugin.manifest().id.as_str()) {
+                if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
                 self.add_hyphenation_tables(&plugin);

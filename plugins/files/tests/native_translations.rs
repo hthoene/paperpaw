@@ -9,6 +9,8 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
     let sources = [
         include_str!("../src/native_plugin.rs"),
         include_str!("../src/native_model.rs"),
+        include_str!("../src/native_shelves.rs"),
+        include_str!("../src/native_info.rs"),
         include_str!("../declarations.rs"),
     ];
     let mut asked = 0;
@@ -22,6 +24,7 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                 && !matches!(
                     part,
                     "files.browser"
+                        | "files.names"
                         | "files.shelf"
                         | "files.shelves"
                         | "files.favourites"

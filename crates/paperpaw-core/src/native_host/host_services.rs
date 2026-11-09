@@ -51,6 +51,23 @@ pub(crate) struct HostServices {
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// What the host holds in use, for `core.files` to answer busy about.
+    busy: OnceCell<Rc<super::storage_files::BusySources>>,
+    /// The ids of the plugins linked into the firmware (root 2 of the file
+    /// service has no install folder for them).
+    linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
+    /// The storage paths host writers hold (`core.net` saves), which
+    /// `core.files` answers `ERR_BUSY` for. One per device.
+    in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
+    /// What the user decided about the network (`net_policy`), kept by the
+    /// kernel and read by `core.net` and `core.sockets`.
+    policy: OnceCell<Rc<super::net_policy::NetPolicy>>,
+    /// The device's one network pool, shared by `core.net` and
+    /// `core.sockets`.
+    pool: OnceCell<Rc<super::net_pool::NetPool>>,
+    /// The enabled owners' plugin ids and subscriptions, kept by the owner
+    /// registry for the `core.net` adapter.
+    owners: OnceCell<super::shared::Shared<super::owner_directory::OwnerDirectory>>,
     /// The `core.format` calls under way (root 3 of the file service).
     #[allow(
         dead_code,
@@ -104,6 +121,12 @@ impl HostServices {
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            busy: OnceCell::new(),
+            linked: OnceCell::new(),
+            in_use: OnceCell::new(),
+            policy: OnceCell::new(),
+            pool: OnceCell::new(),
+            owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
@@ -229,7 +252,6 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `text.hyphenate` once.
     pub(crate) fn wire_hyphen(
         &self,
@@ -261,7 +283,6 @@ impl HostServices {
         self.ui.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
@@ -278,8 +299,121 @@ impl HostServices {
         self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
     }
 
+    /// The device's one network pool, made by the first wiring that names a
+    /// size and a number of TLS sessions. A device has one pool: a later
+    /// wiring that names another shape is refused, not ignored.
+    ///
+    /// # Errors
+    /// `ERR_INVALID` when the pool exists with another size or number of
+    /// sessions.
+    pub(crate) fn net_pool(
+        &self,
+        capacity: u32,
+        tls_sessions: u8,
+    ) -> Result<&Rc<super::net_pool::NetPool>, i32> {
+        let pool = self.pool.get_or_init(|| {
+            Rc::new(super::net_pool::NetPool::with_tls_sessions(
+                capacity,
+                tls_sessions,
+            ))
+        });
+        if pool.capacity() == capacity
+            && pool.tls_sessions() == super::net_pool::NetPool::clamp_sessions(tls_sessions)
+        {
+            Ok(pool)
+        } else {
+            Err(paperpaw_native::host_glue::ERR_INVALID)
+        }
+    }
+
+    /// The device's network policy, made on first use.
+    pub(crate) fn policy(&self) -> &Rc<super::net_policy::NetPolicy> {
+        self.policy
+            .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
+    }
+
+    /// The linked plugin ids, made on first use.
+    pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
+        self.linked.get_or_init(Default::default)
+    }
+
+    /// The device's network pool, if a service has made it.
+    pub(crate) fn pool_made(&self) -> Option<&Rc<super::net_pool::NetPool>> {
+        self.pool.get()
+    }
+
+    /// Tells the shell that the combined demand for the network changed
+    /// (through the service that is wired).
+    pub(crate) fn tell_demand(&self, wanted: bool) {
+        if let Some(net) = self.net() {
+            net.0.network_demand(wanted);
+        } else if let Some(sockets) = self.sockets() {
+            sockets.0.network_demand(wanted);
+        }
+    }
+
+    /// Asks the work scheduler again for the closes of runs' resources it
+    /// could not take (see `OwnerDirectory::retry_closes`).
+    pub(crate) fn retry_run_closes(&self, now_ms: u64) {
+        if let Some(owners) = self.owners.get()
+            && owners.closes_wait()
+        {
+            owners.retry_closes(now_ms);
+        }
+    }
+
+    /// The paths in use by host writers (shared with `core.files`' busy check).
+    pub(crate) fn in_use(&self) -> &Rc<super::paths_in_use::PathsInUse> {
+        self.in_use.get_or_init(Default::default)
+    }
+
+    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
+    /// source of the busy answers of `core.files`, once for the device.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::Network) {
+            return Ok(());
+        }
+        sources.register(
+            super::storage_files::BusyKind::Network,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The owner directory, made on first use.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`.
+    pub(crate) fn owners(
+        &self,
+    ) -> Result<&super::shared::Shared<super::owner_directory::OwnerDirectory>, i32> {
+        if let Some(directory) = self.owners.get() {
+            return Ok(directory);
+        }
+        let made = super::shared::Shared::try_new(super::owner_directory::OwnerDirectory::new())
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+        let _ = self.owners.set(made);
+        self.owners.get().ok_or(ERR_STATE)
+    }
+
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
+    }
+
+    /// The wired services that raise events to plugins, for the kernel's
+    /// event pump: `core.net` then `core.sockets`.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+        [
+            self.net
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.sockets
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
+        ]
     }
 
     #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
@@ -295,7 +429,11 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
-        self.work.set(work).map_err(|_| ERR_STATE)
+        let owners = self.owners()?;
+        let sched = Rc::clone(&work.sched);
+        self.work.set(work).map_err(|_| ERR_STATE)?;
+        owners.attach_sched(&sched);
+        Ok(())
     }
 
     pub(crate) fn work(&self) -> Option<&WorkServices> {
@@ -323,6 +461,10 @@ impl HostServices {
     }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    /// The sources of paths in use, made on first use.
+    pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
+        self.busy.get_or_init(Default::default)
     }
     pub(crate) fn files(&self) -> Option<&FilesServices> {
         self.files.get()
@@ -366,6 +508,7 @@ impl HostServices {
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
+            result = result.and(ui.plugin_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));

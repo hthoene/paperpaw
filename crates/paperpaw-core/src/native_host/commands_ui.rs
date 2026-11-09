@@ -9,6 +9,22 @@ pub(super) struct UiContext<'a> {
     screen: Option<ScreenKey>,
     hop: u8,
     open_budget: u32,
+    /// The labels of `command.set_hint` and whether the device has a row of
+    /// hints (without one the command is checked and does nothing).
+    labels: Option<(
+        &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
+        bool,
+    )>,
+}
+
+impl<'a> UiContext<'a> {
+    pub(super) fn env(&self) -> &'a Env<'a> {
+        self.env
+    }
+
+    pub(super) fn hop(&self) -> u8 {
+        self.hop
+    }
 }
 
 /// Deferred redraw retains the original screen instance, never a later top one.
@@ -30,8 +46,98 @@ impl<'a> CommandStage<'a> {
             screen,
             hop,
             open_budget,
+            labels: None,
         });
         self
+    }
+
+    /// Admits `command.set_hint`: `labels` keeps what instances relabel,
+    /// `row` says the device has a row of button hints. Without it the
+    /// command is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub(crate) fn with_hint_labels(
+        mut self,
+        labels: &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
+        row: bool,
+    ) -> Self {
+        if let Some(ui) = &mut self.ui {
+            ui.labels = Some((labels, row));
+        }
+        self
+    }
+
+    /// The checked `command.set_hint` copies, in order, for the host to apply
+    /// after the callback ([`HintLabels::apply`](crate::native_host::hint_labels::HintLabels::apply));
+    /// call it before [`Self::into_commands`].
+    #[must_use]
+    pub(crate) fn take_hint_sets(&mut self) -> Vec<crate::native_host::hint_labels::HintSet> {
+        core::mem::take(&mut self.staged_hints)
+    }
+
+    /// Copies the `set_hint` commands of a validated batch, checks that they
+    /// fit (at most 8 actions per instance, counting what is staged) and takes
+    /// the room for them ahead; nothing is listed on a refusal. On a device
+    /// without a row of hints they do nothing.
+    pub(super) fn reserve_hints(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let Some((labels, true)) = self.ui.as_ref().and_then(|ui| ui.labels) else {
+            return Ok(());
+        };
+        let count = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::SetHint { .. }))
+            .count();
+        if count == 0 {
+            return Ok(());
+        }
+        let instance = self.own_top()?.serial();
+        let owner = self.owner.as_str();
+        let small = self
+            .ui
+            .as_ref()
+            .is_some_and(|ui| crate::native_host::ui_store::is_x4(ui.env.device().memory));
+        let budget = crate::native_host::hint_labels::label_budget(small);
+        let start = self.staged_hints.len();
+        self.staged_hints
+            .try_reserve(count)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        for command in batch.iter() {
+            let WireCommand::SetHint {
+                action,
+                kind,
+                label,
+            } = command
+            else {
+                continue;
+            };
+            let checked = (|| {
+                let set =
+                    crate::native_host::hint_labels::make(owner, instance, action, kind, label)?;
+                labels.try_borrow().map_err(|_| ERR_BUSY)?.admits(
+                    &set,
+                    &self.staged_hints,
+                    budget,
+                )?;
+                Ok::<_, i32>(set)
+            })();
+            match checked {
+                // Capacity was reserved above.
+                Ok(set) => self.staged_hints.push(set),
+                Err(error) => {
+                    self.staged_hints.truncate(start);
+                    return Err(error);
+                }
+            }
+        }
+        let made = &self.staged_hints[start..];
+        let reserved = labels
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)
+            .and_then(|mut labels| labels.reserve(made));
+        if let Err(error) = reserved {
+            self.staged_hints.truncate(start);
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
@@ -41,11 +147,24 @@ impl<'a> CommandStage<'a> {
         let queued = self
             .staged
             .iter()
-            .filter(|command| matches!(command, Command::OpenScreen(..)))
+            .filter(|command| {
+                matches!(
+                    command,
+                    Command::OpenScreen(..)
+                        | Command::OpenSlot(..)
+                        | Command::OpenInSlot(..)
+                        | Command::Replace(..)
+                )
+            })
             .count();
         let incoming = batch
             .iter()
-            .filter(|command| matches!(command, WireCommand::OpenScreen { .. }))
+            .filter(|command| {
+                matches!(
+                    command,
+                    WireCommand::OpenScreen { .. } | WireCommand::Open { .. }
+                )
+            })
             .count();
         if queued.saturating_add(incoming) > ui.open_budget as usize {
             return Err(ERR_NO_SPACE);
@@ -54,7 +173,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
-    pub(crate) fn into_ui_output(self) -> (Vec<Command>, Option<Redraw>, u8) {
+    pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
         let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
             screen,
@@ -65,10 +184,14 @@ impl<'a> CommandStage<'a> {
                 _ => None,
             },
         });
-        (self.staged, redraw, self.ui.map_or(0, |ui| ui.hop))
+        (
+            core::mem::take(&mut self.staged),
+            redraw,
+            self.ui.as_ref().map_or(0, |ui| ui.hop),
+        )
     }
 
-    fn own_top(&self) -> Result<ScreenKey, i32> {
+    pub(super) fn own_top(&self) -> Result<ScreenKey, i32> {
         let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
         let top = ui.env.stack().last().ok_or(ERR_STATE)?;
         if Some(top.key) != ui.screen || top.screen.namespace() != self.owner.as_str() {
@@ -90,6 +213,9 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(screen.len())
             }
+            WireCommand::Open {
+                target, mode, slot, ..
+            } => self.validate_open(target, mode, slot),
             WireCommand::RunAction { action } => {
                 super::super::declarations::full_id(action)?;
                 if ui.hop >= 8 {
@@ -101,6 +227,18 @@ impl<'a> CommandStage<'a> {
                 Ok(action.len())
             }
             WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::SetHint {
+                action,
+                kind,
+                label,
+            } => {
+                if ui.labels.is_none() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                crate::native_host::hint_labels::check(action, kind, label)?;
+                self.own_top()?;
+                Ok(action.len() + label.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -110,6 +248,9 @@ impl<'a> CommandStage<'a> {
             WireCommand::OpenScreen { screen } => {
                 Ok(Command::OpenScreen(copy_id(screen)?, Params::new()))
             }
+            WireCommand::Open {
+                target, mode, slot, ..
+            } => super::open::command(target, mode, slot),
             WireCommand::RunAction { action } => {
                 Ok(Command::RunAction(copy_id(action)?, Params::new()))
             }
@@ -134,10 +275,58 @@ impl crate::Kernel {
         commands: Vec<Command>,
         redraw: Option<Redraw>,
     ) {
-        for command in commands {
-            self.drain_native_command(owner, command);
+        self.drain_native_opens(owner, commands, redraw, super::Opens::default());
+    }
+
+    /// As [`Self::drain_native_ui`], for a stage whose opens name hand-overs:
+    /// each goes to the instance its open shows (docs/abi/ui.md 1.1 step 5),
+    /// and one whose open did not apply (a guard refused, a stale target) is
+    /// freed with the old one staying (step 4).
+    pub(crate) fn drain_native_opens(
+        &mut self,
+        owner: &Id,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+        opens: super::Opens,
+    ) {
+        let super::Opens { at, claims } = opens;
+        for (index, command) in commands.into_iter().enumerate() {
+            let staged = at.iter().find(|open| open.index == index);
+            // A replace is the submitter's own top screen's, nobody else's: if
+            // another is on top by now (an earlier open of the same batch), it
+            // does not apply and its hand-over is freed.
+            let displaced = staged.and_then(|open| open.replaces).is_some_and(|key| {
+                self.stack
+                    .last()
+                    .is_none_or(|top| ScreenKey::new(top.serial) != key)
+            });
+            if displaced {
+                self.warn_runtime("native replace dropped: its screen is no longer on top");
+            } else {
+                self.shared
+                    .native_instances
+                    .set_pending_handover(staged.map(|open| open.handover));
+                self.drain_native_command(owner, command);
+            }
+            // The open that did not apply (a guard refused, a stale target):
+            // its claim is freed and the instance's old hand-over stays.
+            self.release_pending_handover();
+        }
+        // Nothing stays claimed once the batch is applied.
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            for claims in claims {
+                let _ = store.rollback(claims);
+            }
         }
         self.finish_native_redraw(owner, redraw);
+    }
+
+    fn release_pending_handover(&mut self) {
+        if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
+            && let Some(store) = self.shared.native_instances.ui_store()
+        {
+            let _ = store.release(id);
+        }
     }
 
     /// Apply one staged command of `owner`; a close of a screen that is gone

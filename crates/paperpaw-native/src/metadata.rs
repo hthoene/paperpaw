@@ -77,6 +77,19 @@ pub struct Checked<'a> {
     pub entry_bytes: u16,
     available: [Option<&'a str>; MAX_FEATURES],
     service_bytes: &'a [u8],
+    feature_bytes: &'a [u8],
+}
+
+/// A feature the metadata asks for, available or not (`core.registry` op 20).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Requested<'a> {
+    /// The feature key (`uses.*`).
+    pub key: &'a str,
+    /// The least revision it needs.
+    pub revision: u16,
+    /// Whether the plugin is refused without it (flags bit 0).
+    pub required: bool,
 }
 
 impl Checked<'_> {
@@ -106,6 +119,27 @@ impl Checked<'_> {
     /// Available requested feature keys in canonical order, without allocation.
     pub fn available_features(&self) -> impl Iterator<Item = &str> {
         self.available.iter().flatten().copied()
+    }
+
+    /// Every requested feature in canonical order, the unavailable optional
+    /// ones too, borrowing the validated bytes; nothing is allocated.
+    pub fn requested_features(&self) -> impl Iterator<Item = Requested<'_>> {
+        let mut cursor = Cursor {
+            bytes: self.feature_bytes,
+            at: 0,
+        };
+        core::iter::from_fn(move || {
+            // check validated every record; fallible reads keep this safe.
+            let len = cursor.key(FEATURE_SIZE).ok()?;
+            let revision = cursor.u16().ok()?;
+            let flags = cursor.u16().ok()?;
+            let key = cursor.text(len).ok()?;
+            Some(Requested {
+                key,
+                revision,
+                required: flags & 1 != 0,
+            })
+        })
     }
 }
 
@@ -242,6 +276,7 @@ pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusa
     let service_bytes = &bytes[services_start..cursor.at];
     let mut available = [None; MAX_FEATURES];
     let mut previous = None;
+    let features_start = cursor.at;
     for slot in available.iter_mut().take(prefix.features) {
         let len = cursor.key(FEATURE_SIZE)?;
         let revision = cursor.u16()?;
@@ -259,6 +294,9 @@ pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusa
             return Err(Refusal::RequiredFeature { key, revision });
         }
     }
+    let feature_bytes = bytes
+        .get(features_start..cursor.at)
+        .ok_or(Refusal::Malformed)?;
     require(cursor.at == bytes.len())?;
     Ok(Checked {
         abi_major: prefix.major,
@@ -266,6 +304,7 @@ pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusa
         entry_bytes: prefix.entry_bytes,
         available,
         service_bytes,
+        feature_bytes,
     })
 }
 

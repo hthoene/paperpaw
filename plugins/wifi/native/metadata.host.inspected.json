@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.network",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.wifi",
       "required": false,
       "revision": 1
@@ -40,6 +45,12 @@
       "semantic_revision": 0
     },
     {
+      "key": "core.net",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.secrets",
       "major": 1,
       "min_table_bytes": 0,
@@ -50,8 +61,14 @@
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
+    },
+    {
+      "key": "core.work",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 161
+  "total_bytes": 222
 }

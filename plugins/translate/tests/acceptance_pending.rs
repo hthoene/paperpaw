@@ -6,21 +6,16 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 3] = [
+const CASES: [Case; 2] = [
     Case {
         name: "the-panel-is-drawn-over-the-lower-part-of-the-page",
         golden: None,
         blocked_by: &["kernel-backed-pixel-harness"],
     },
     Case {
-        name: "the-language-setting-is-in-the-reading-settings",
-        golden: None,
-        blocked_by: &["draft-29-choice-limit-64"],
-    },
-    Case {
         name: "the-readers-translate-action-opens-the-panel-with-the-selected-text",
         golden: None,
-        blocked_by: &["reader-translate-slot-host"],
+        blocked_by: &["hosted-native-construction-with-reader"],
     },
 ];
 
@@ -38,13 +33,7 @@ fn the_panel_is_drawn() {
 }
 
 #[test]
-#[ignore = "BLOCKED: draft 29 raises a choice to 64 values; the setting is built and tested to be refused until then"]
-fn the_language_setting_is_there() {
-    CASES[1].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED: the reader's slot host (the offer is submitted since #522; nothing yet reads it from the reader's side)"]
+#[ignore = "BLOCKED: a kernel test that loads this native plugin beside the reader and drives a selection (hosted construction, #944); the slot offer itself is bound since Core #595 and its hand-over since #598"]
 fn the_reader_opens_the_panel() {
-    CASES[2].refuse().unwrap();
+    CASES[1].refuse().unwrap();
 }

@@ -167,6 +167,9 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
+        self.shared
+            .native_instances
+            .attach_screens(&self.shared.stack_rows);
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
                 super::shared::Shared::try_new(
@@ -251,6 +254,10 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
+        self.warn_directory_missed();
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -310,19 +317,38 @@ impl crate::Kernel {
     }
 
     pub(crate) fn native_instance_closed(&self, instance: u32) -> Result<(), i32> {
+        let mut result = Ok(());
         if let Some(store) = self.shared.native_instances.ui_store() {
-            store.dialog_closed(instance)?;
-            store.asker_instance_closed(instance, &mut |cancelled| {
-                if let Some(dialog) = cancelled.dialog {
-                    self.queue_native_dialog_close(dialog);
-                }
-            })?;
-            store.instance_closed(instance)?;
+            result = (|| {
+                store.dialog_closed(instance)?;
+                store.asker_instance_closed(instance, &mut |cancelled| {
+                    if let Some(dialog) = cancelled.dialog {
+                        self.queue_native_dialog_close(dialog);
+                    }
+                })?;
+                store.instance_closed(instance)
+            })();
         }
-        Ok(())
+        // The widget instances the screen made go too, whatever the store
+        // steps said (a retry repeats every step; each is idempotent).
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            let widgets = ui.screen_closed(instance).map(|_| ());
+            result = result.and(widgets);
+        }
+        // The servers and sockets the screen started end with it.
+        result.and(self.native_services_screen_closed(instance))
+    }
+
+    /// An owner-directory update found the table held and was skipped: said
+    /// once per batch (a skipped subscription fails closed).
+    fn warn_directory_missed(&mut self) {
+        if self.shared.native_instances.take_directory_missed() > 0 {
+            self.warn_runtime("owner directory update skipped: the table was in use");
+        }
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
+        self.warn_directory_missed();
         // The same driver handles HostServices' orphan queue and the retained
         // rows whose lifecycle cleanup has not completed. No second queue.
         if let Err(status) = self
@@ -491,6 +517,9 @@ impl crate::Kernel {
         resources: super::native_resources::Resources,
     ) -> Result<(), RegisterError> {
         self.check_resources(&resources)?;
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));

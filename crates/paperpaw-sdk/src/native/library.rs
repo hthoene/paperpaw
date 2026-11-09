@@ -6,8 +6,17 @@ use super::{
     services::Service,
 };
 
+mod cover;
+pub use cover::Cover;
+mod edits;
+pub use edits::{
+    AnnotationEdit, Committed, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Receipt, ReceiptAction,
+    ReceiptCursor, ReceiptPage, Transaction,
+};
 mod facets;
 pub use facets::{Facet, FacetPage, FacetRow};
+mod anchors;
+pub use anchors::{Anchor, AnchorPage};
 mod annotations;
 pub use annotations::{
     Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,
@@ -16,6 +25,12 @@ mod annotation_text;
 pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
+mod files;
+pub use files::{DeleteReport, DeleteRow, Existing, Import, MAX_DELETE_PATHS};
+mod position;
+pub use position::{BookKey, Position, PositionWrite};
+mod provide;
+pub use provide::Provided;
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};

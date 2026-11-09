@@ -484,3 +484,9 @@ fn cleanup_on_a_busy_store_is_busy_and_retried_never_dropped() {
     assert_eq!(s.owner_stopped(3), Ok(()));
     let _ = made;
 }
+
+#[test]
+fn only_the_small_memory_class_gets_the_x4_profile() {
+    assert!(is_x4(MemoryClass::Small));
+    assert!(!is_x4(MemoryClass::Large));
+}

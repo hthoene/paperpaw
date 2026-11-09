@@ -1,6 +1,6 @@
-# Interface 7 family DOC: formats, documents, images, lookup (draft)
+# Interface 7 family DOC: formats, documents, images, lookup
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, DOC section and coverage ledger), the C-family proposals
 (#890, `c-families-228.md` 2.6 DOC and the IMG wave), the reader extensibility notes (#241, N2,
@@ -8,8 +8,7 @@ N4-N7),
 `stages-services.md` (stages, services, depth), `ui.md` (host texts, depth and stack rules, the X4
 nested-callback gate), `screens-input.md` (N5 pages and progress, tag blocks), `core-events.md`
 (book events 65-69) and the storage contract (`proposals/interface-7-events-storage-services.md` D2,
-owner decision 125). Doc-only: records, schemas and generator follow once this is approved, as for
-EVT, REG and UIX. Tags below are proposed; the records step numbers them without gaps after UIX.
+owner decision 125). Records: `abi/services/core.document@1.def`.
 
 ## 0. Scope and principles
 
@@ -82,9 +81,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
-- [D] **Opening a book at a place** (interface 6: open, then the reader's `goto`; notes-overview,
-  vocabulary, stats, search, todo 167): the hand-over may also carry `section` and `offset` (decimal
-  `u32`, the format's text coordinates as in `lib_position` and `lib_annotation`'s start) and
+- [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
+  annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
+  and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
+  text coordinates as in `lib_position` and `lib_annotation`'s start) and
   optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
   opens the book there instead of at its last position, as if the user had jumped there (the place
   is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
@@ -150,8 +150,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 1080 | `service.doc_reader` | `id: str 128`, `screen: str 128`, `formats: str 1032`, `title: str 128` |
 | 1081 | `service.doc_progress` | `progress_ppm: u32` |
 
-- [D] `doc_page.scope` is op 21's format filter, else empty; `doc_path.flags` bit 0: sniff when no
-  extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
+- [D] `doc_page.scope` is op 21's format filter, else empty. Ops 19 and 21 name no document: their
+  `doc_page.document` is 0 and ignored (the host accepts any value there). `doc_path.flags` bit 0:
+  sniff when no extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
   `doc_format.title` and `doc_reader.title` are translated by the host as REG rows are. Two-way
   records (plugin and host send them; never `HOST_ONLY`): `doc_state` and the block, meta, toc,
   link, font and image rows, because a format plugin answers them in its `core.format` reply and the
@@ -301,6 +302,12 @@ host passes them on after checking them.
   of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
   conversion key is made, so an open with 0 and one with the same sides spelled out share one
   cache; ops 2, 17 and 18 always carry both sides, set by the host.
+- [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
+  `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
+  `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for
+  this document (never 0; a call whose `generation` is not it is `ERR_STATE`, start again at 0).
+  The host forwards `cursor` and `generation` as the caller gave them. Op 8's blocks end as
+  section 4 says (bit 1 `more`).
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -448,16 +455,21 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
   **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
   by a `doc_image` for the opener: it checks the path (root 6 rules, the cache file's header against
   `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
-  the id it already has for that path in this document), and passes `width`, `height` and `flags`
-  bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
-  counted as a failed read) and never fails the whole stream. Over the 8 image ids per plugin, the
+  the id it already has for that path in this document), and passes `width` and `height` on;
+  `doc_image.flags` (the same bits as `image.info`'s) is bit 0 colour, set when the cache file's
+  header says the picture is in colour (the header is read for the check anyway; never on a screen
+  without colour), and bit 1 not decoded yet, `fmt.image`'s bit 0. Other `fmt.image` bits are
+  dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
+  older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
+  fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
+  and never fails the whole stream. Over the 8 image ids per plugin, the
   host ends the opener's least recently drawn document image first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
@@ -471,7 +483,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
-  (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
+  (first frame) of the caller's root 0, root 1 (`uses.storage`) or root 2 (its own install folder,
+  read-only, no feature; a built-in plugin's is empty, so `status` 6) into the host's image cache at
   most `side` pixels on the longest side (0: the screen's), in the background: **one request per
   main-loop turn**, decoded to completion in that turn (the `paperpaw-image` decoders cannot pause;
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
@@ -484,10 +497,13 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
   decoder caps; `paperpaw_image::ImageError::TooLarge`), 4 card failure (`ERR_IO`, no card or
-  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
+  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later), 6 not found (no such file on
+  that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
+  prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
   (where the screen has it).
-- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
+- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
+  not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
   centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
   `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards

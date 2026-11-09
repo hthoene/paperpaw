@@ -304,6 +304,21 @@ pub static SERVICES: &[ServiceSchema] = &[
                 paged: false,
                 reply_rows: 32,
             },
+            ServiceOp {
+                id: 16,
+                name: "leaves_out",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1025],
+                reply: &[1128, 52],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
         ],
     },
     ServiceSchema {
@@ -1582,6 +1597,21 @@ pub static SERVICES: &[ServiceSchema] = &[
                 paged: true,
                 reply_rows: 32,
             },
+            ServiceOp {
+                id: 22,
+                name: "setup_step",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1026],
+                reply: &[1038, 1030],
+                max_input: 256,
+                max_reply: 4096,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
         ],
     },
     ServiceSchema {
@@ -2206,6 +2236,8 @@ pub mod core_device_v1 {
     pub const OP_NOT_INSTALLED: u32 = 14;
     /// Operation `keys`.
     pub const OP_KEYS: u32 = 15;
+    /// Operation `leaves_out`.
+    pub const OP_LEAVES_OUT: u32 = 16;
 }
 
 /// Constants of `core.document` major 1.
@@ -2440,6 +2472,8 @@ pub mod core_registry_v1 {
     pub const OP_NEEDS: u32 = 20;
     /// Operation `status`.
     pub const OP_STATUS: u32 = 21;
+    /// Operation `setup_step`.
+    pub const OP_SETUP_STEP: u32 = 22;
 }
 
 /// Constants of `core.secrets` major 1.

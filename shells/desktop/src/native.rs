@@ -21,7 +21,7 @@ use paperpaw_core::sdk::native::support::{Api, ApiSlot, Entry};
 use paperpaw_core::sdk::native::{FINGERPRINT, Native, take};
 use paperpaw_core::sdk::{Plugin, PluginProblem};
 use paperpaw_core::{CodeFile, CodeLoader};
-use paperpaw_platform::Storage;
+use paperpaw_platform::{MemoryClass, Storage};
 
 /// The name of a code plugin's file built for this computer.
 pub fn file_name() -> String {
@@ -127,10 +127,45 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
 /// pinned owner; every such plugin of this loader shares one
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HostLoader {
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The memory class the device this loader runs on declares (the
+    /// profile's), which sizes the `core.ui` store.
+    memory: MemoryClass,
+}
+
+impl HostLoader {
+    /// A loader for a device of the memory class `memory` (a profile's).
+    #[must_use]
+    pub fn for_device(memory: MemoryClass) -> Self {
+        Self {
+            depth: None,
+            resources: None,
+            memory,
+        }
+    }
+}
+
+/// The table of handles the interface-7 plugins' owners share, with `core.ui`
+/// wired at once (before the first plugin loads, so that a host call made
+/// while one loads or declares finds it); `None` and a message where it has no
+/// room.
+fn new_resources(memory: MemoryClass) -> Option<paperpaw_core::native_host::HostResources> {
+    use paperpaw_core::native_host::{HostResources, HostWiring};
+    let Ok(resources) = HostResources::try_new() else {
+        eprintln!("native: no room for the host's table of handles");
+        return None;
+    };
+    match resources.wire(HostWiring::new().ui(memory)) {
+        Ok(wired) if wired.ui_skipped() => {
+            eprintln!("native: core.ui not wired (no memory for its store)");
+        }
+        Ok(_) => {}
+        Err(status) => eprintln!("native: core.ui not wired ({status})"),
+    }
+    Some(resources)
 }
 
 impl CodeLoader for HostLoader {
@@ -149,6 +184,41 @@ impl CodeLoader for HostLoader {
             }
             load_bytes(&bytes, &installed)
         })
+    }
+
+    /// `text.hyphenate` (the data plugins' tables are files on the card) and
+    /// `core.ui` (the screen stack's store, sized for the device) are served
+    /// where interface-7 plugins run (the developer switch).
+    fn hyphenation_sink(
+        &mut self,
+        storage: &std::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::HostWiring;
+        if !dev_switch() {
+            return None;
+        }
+        if self.resources.is_none() {
+            self.resources = new_resources(self.memory);
+        }
+        // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
+        // A plugin's `make` that asks for it earlier gets a one-off
+        // `ERR_UNSUPPORTED`; plugins use hyphenation only when laying out text,
+        // and their allowed features come from the host's fixed list, not from
+        // what is wired, so nothing is recorded wrongly.
+        // `core.ui` was wired when the table of handles was made (before any
+        // plugin loaded); `text.hyphenate` needs the card, which only comes here.
+        let wired = match self
+            .resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+        {
+            Ok(wired) => wired,
+            Err(status) => {
+                eprintln!("native: text.hyphenate not wired ({status})");
+                return None;
+            }
+        };
+        wired.hyphen().cloned()
     }
 }
 
@@ -174,10 +244,7 @@ impl HostLoader {
             .and_then(FlatDepth::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
         if self.resources.is_none() {
-            self.resources = Some(
-                paperpaw_core::native_host::HostResources::try_new()
-                    .map_err(|_| PluginProblem::NoRoom)?,
-            );
+            self.resources = Some(new_resources(self.memory).ok_or(PluginProblem::NoRoom)?);
         }
         let resources = self
             .resources
@@ -1063,5 +1130,56 @@ static INIT: extern "C" fn() = make_marker;
         assert_eq!(values, [11, 22], "the second library is the first again");
         drop(held);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Where interface-7 plugins run (the developer switch), the loader wires
+    /// `core.ui` for its device beside `text.hyphenate`, once; with the switch
+    /// off it wires nothing.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn the_loader_wires_core_ui_only_with_the_developer_switch() {
+        use paperpaw_core::native_host::HostWiring;
+        let _one = crate::one_device_at_a_time();
+        let storage: std::rc::Rc<dyn Storage> =
+            std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
+        let was = crate::native_runtime::enabled();
+        crate::native_runtime::set_enabled(false);
+        let mut off = HostLoader::for_device(MemoryClass::Small);
+        assert!(off.hyphenation_sink(&storage).is_none());
+        assert!(off.resources.is_none(), "nothing is made, nothing wired");
+        crate::native_runtime::set_enabled(true);
+        for device in [MemoryClass::Small, MemoryClass::Large] {
+            let mut on = HostLoader::for_device(device);
+            assert!(on.hyphenation_sink(&storage).is_some(), "{device:?}");
+            let resources = on.resources.as_ref().unwrap();
+            // Wired already: a second `core.ui`, or a second `text.hyphenate`, is refused.
+            assert!(resources.wire(HostWiring::new().ui(device)).is_err());
+            assert!(
+                resources
+                    .wire(HostWiring::new().hyphenation(storage.clone()))
+                    .is_err()
+            );
+        }
+        crate::native_runtime::set_enabled(was);
+    }
+
+    /// The table of handles has `core.ui` from the moment it is made, before
+    /// any plugin loads; only `text.hyphenate` waits for the card.
+    #[test]
+    fn core_ui_is_wired_when_the_table_of_handles_is_made() {
+        use paperpaw_core::native_host::HostWiring;
+        let resources = new_resources(MemoryClass::Small).unwrap();
+        assert!(
+            resources
+                .wire(HostWiring::new().ui(MemoryClass::Small))
+                .is_err()
+        );
+        let storage: std::rc::Rc<dyn Storage> =
+            std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
+        assert!(
+            resources
+                .wire(HostWiring::new().hyphenation(storage))
+                .is_ok()
+        );
     }
 }

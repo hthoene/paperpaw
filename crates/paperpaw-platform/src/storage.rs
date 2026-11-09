@@ -207,6 +207,19 @@ pub trait Storage {
         false
     }
 
+    /// Whether paths `a` and `b` name the same entry, however each is
+    /// spelt. Where one entry answers to several spellings (another case of
+    /// its name on FAT, and a short alias such as `PAPERP~1` on storages
+    /// that resolve one, as Windows does; PaperPaw's FAT driver resolves
+    /// none), a check by spelling alone would let a path past it.
+    /// `Some(false)` where either names nothing or they
+    /// name different entries; `None` where the storage cannot tell (the
+    /// default, or a read failed): a caller then treats them as possibly the
+    /// same. Storages that wrap another say what it says.
+    fn same_entry(&self, _a: &str, _b: &str) -> Option<bool> {
+        None
+    }
+
     /// Bytes free for new files, where the storage can tell without
     /// reading much at once; `None` where it cannot (yet). Never more than
     /// is free: a count that may be out of date (a memory card's own, after
@@ -577,6 +590,16 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         self.base.ignores_case() || self.mounted.ignores_case()
     }
 
+    /// The storage's both are in; one inside the mount and one outside are
+    /// never the same entry.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        match (self.inside(a), self.inside(b)) {
+            (Some(a), Some(b)) => self.mounted.same_entry(a, b),
+            (None, None) => self.base.same_entry(a, b),
+            _ => Some(false),
+        }
+    }
+
     /// The base's, where data and plugins are.
     fn free_space(&self) -> Option<u64> {
         self.base.free_space()
@@ -697,6 +720,35 @@ mod tests {
         fn remove(&self, _: &str) -> Result<(), StorageError> {
             Ok(())
         }
+
+        /// Its one file, spelt in any case, is itself.
+        fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+            Some(a.eq_ignore_ascii_case(self.0) && b.eq_ignore_ascii_case(self.0))
+        }
+    }
+
+    /// Paths on both sides of the mount are never one entry; paths on one
+    /// side are what that storage says. The default cannot tell.
+    #[test]
+    fn mounted_storage_asks_the_side_both_paths_are_on() {
+        let storage = Mounted::new(One("paperpaw.ini", 1), "books", One("alice.epub", 2));
+        assert_eq!(
+            storage.same_entry("paperpaw.ini", "PAPERPAW.INI"),
+            Some(true)
+        );
+        assert_eq!(
+            storage.same_entry("books/alice.epub", "books/ALICE.epub"),
+            Some(true)
+        );
+        assert_eq!(
+            storage.same_entry("books/alice.epub", "alice.epub"),
+            Some(false)
+        );
+        assert_eq!(
+            storage.same_entry("paperpaw.ini", "books/paperpaw.ini"),
+            Some(false)
+        );
+        assert_eq!(NoStorage.same_entry("a", "a"), None);
     }
 
     #[test]

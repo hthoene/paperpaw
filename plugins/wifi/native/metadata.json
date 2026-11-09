@@ -137,10 +137,16 @@
   ],
   "services": [
     "core.device",
+    "core.net",
     "core.secrets",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
+    {
+      "key": "uses.network",
+      "required": false
+    },
     {
       "key": "uses.wifi",
       "required": false

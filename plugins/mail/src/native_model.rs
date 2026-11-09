@@ -10,12 +10,21 @@
 //!
 //! The interface-6 modules stay until the port is complete (`PORTING-7.md`).
 
+pub mod account;
+pub mod browser;
 pub mod codec;
+pub mod compose;
 pub mod fail;
 pub mod header;
 pub mod html;
 pub mod imap;
+pub mod job;
+pub mod link;
 pub mod mem;
+pub mod reader;
 pub mod render;
+pub mod session;
 pub mod smtp;
 pub mod store;
+pub mod texts;
+pub mod writer;

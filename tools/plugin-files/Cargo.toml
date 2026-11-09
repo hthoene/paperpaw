@@ -35,26 +35,8 @@ test = false
 bench = false
 
 [[bin]]
-name = "joplin"
-path = "src/bin/joplin.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "mail"
 path = "src/bin/mail.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "koreader"
-path = "src/bin/koreader.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "kosync"
-path = "src/bin/kosync.rs"
 test = false
 bench = false
 
@@ -65,20 +47,8 @@ test = false
 bench = false
 
 [[bin]]
-name = "readwise"
-path = "src/bin/readwise.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "read-later-cloud"
 path = "src/bin/read-later-cloud.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "notes-overview"
-path = "src/bin/notes-overview.rs"
 test = false
 bench = false
 
@@ -113,38 +83,8 @@ test = false
 bench = false
 
 [[bin]]
-name = "reading-goal"
-path = "src/bin/reading-goal.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "stats"
-path = "src/bin/stats.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "translate"
-path = "src/bin/translate.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "vocabulary"
 path = "src/bin/vocabulary.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "wallabag"
-path = "src/bin/wallabag.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "weather"
-path = "src/bin/weather.rs"
 test = false
 bench = false
 
@@ -154,83 +94,9 @@ path = "src/bin/widgets.rs"
 test = false
 bench = false
 
-[[bin]]
-name = "hyphenation-da"
-path = "src/bin/hyphenation-da.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-de"
-path = "src/bin/hyphenation-de.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-es"
-path = "src/bin/hyphenation-es.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-fr"
-path = "src/bin/hyphenation-fr.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-it"
-path = "src/bin/hyphenation-it.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-nb"
-path = "src/bin/hyphenation-nb.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-nl"
-path = "src/bin/hyphenation-nl.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-pl"
-path = "src/bin/hyphenation-pl.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-pt"
-path = "src/bin/hyphenation-pt.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-ru"
-path = "src/bin/hyphenation-ru.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-sv"
-path = "src/bin/hyphenation-sv.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "hyphenation-uk"
-path = "src/bin/hyphenation-uk.rs"
-test = false
-bench = false
-
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
-paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
-paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
@@ -239,31 +105,11 @@ paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
-paperpaw-plugin-joplin = { path = "../../plugins/joplin" }
-paperpaw-plugin-koreader = { path = "../../plugins/koreader" }
-paperpaw-plugin-kosync = { path = "../../plugins/kosync" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
-paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
-paperpaw-plugin-stats = { path = "../../plugins/stats" }
-paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
-paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
-paperpaw-plugin-weather = { path = "../../plugins/weather" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
-paperpaw-plugin-hyphenation-da = { path = "../../plugins/hyphenation-da" }
-paperpaw-plugin-hyphenation-es = { path = "../../plugins/hyphenation-es" }
-paperpaw-plugin-hyphenation-de = { path = "../../plugins/hyphenation-de" }
-paperpaw-plugin-hyphenation-fr = { path = "../../plugins/hyphenation-fr" }
-paperpaw-plugin-hyphenation-it = { path = "../../plugins/hyphenation-it" }
-paperpaw-plugin-hyphenation-nb = { path = "../../plugins/hyphenation-nb" }
-paperpaw-plugin-hyphenation-nl = { path = "../../plugins/hyphenation-nl" }
-paperpaw-plugin-hyphenation-pl = { path = "../../plugins/hyphenation-pl" }
-paperpaw-plugin-hyphenation-pt = { path = "../../plugins/hyphenation-pt" }
-paperpaw-plugin-hyphenation-ru = { path = "../../plugins/hyphenation-ru" }
-paperpaw-plugin-hyphenation-sv = { path = "../../plugins/hyphenation-sv" }
-paperpaw-plugin-hyphenation-uk = { path = "../../plugins/hyphenation-uk" }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

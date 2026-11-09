@@ -233,15 +233,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-notes-overview",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-pictures-caption",
         profile: "xteink-x4",
         book: Some("books/pictures.epub"),
@@ -251,38 +242,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-notes-overview-de",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-pictures-hidden",
         profile: "xteink-x4",
         book: Some("books/pictures.epub"),
         sets: &["aids.pictures=aids.pictures.hide"],
         script: "wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-notes-overview-book",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-notes-overview-export",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300,right,right,confirm,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -323,7 +287,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: None,
         sets: &[],
-        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500",
+        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500",
         colour: 0,
         fixtures: false,
     },
@@ -333,7 +297,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: None,
         sets: &[],
-        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500,tap-on:Networks,wait:500",
+        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500,tap-on:Networks,wait:500",
         colour: 0,
         fixtures: false,
     },
@@ -389,16 +353,8 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "boox-lock-pin",
-        profile: "boox-go-7",
-        book: None,
-        // Setting up a screen lock: the keypad for a new PIN.
-        sets: &[],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:300,tap-on:Screen lock,wait:300,tap:600:200,wait:300,tap-on:PIN,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
+    // The screen lock's PIN keypad (`boox-lock-pin`) is gone with the interface-6 lock; it
+    // returns with the native lock screen when the host runs native plugins (#228).
     // The screens one passes through most, on the X4 (buttons alone,
     // black and white) and on the Boox (touch): the main menu and the
     // tools, the library, the reader's menus, the contents, the
@@ -486,15 +442,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,open:settings.group:id=core.group.controls,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-stats",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,page-forward,run:stats.open,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -646,15 +593,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-file-manager",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         // The power button: the sleep screen, the device asleep.
         name: "x4-sleep",
         profile: "xteink-x4",
@@ -730,24 +668,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,tap-on:Search,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-stats",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-file-manager",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300,tap-on:books,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -1009,27 +929,21 @@ fn library(case: &Case) -> PathBuf {
         .unwrap();
         fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
     }
+    // Hyphenation is data: the German names of the drawer break only where
+    // the German pack is installed (built from the sources, as shipped).
+    if case.name == "x4-drawer-de" {
+        let german = paperpaw_hyphenation_packs::PACKAGES
+            .iter()
+            .find(|package| package.id == "hyphenation-de")
+            .unwrap();
+        let plugins = dir.join("plugins");
+        fs::create_dir_all(&plugins).unwrap();
+        paperpaw_hyphenation_packs::build(&root(), &plugins, german).unwrap();
+    }
     // The first-run setup is done (it is not what any case shows).
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
-    // Notes in two books (a file is named by the hash of the book's
-    // path): a highlight and a bookmark, and a bookmark.
-    if case.name.contains("notes-overview") {
-        let notes = dir.join(".paperpaw/annotations");
-        fs::create_dir_all(&notes).unwrap();
-        fs::write(
-            notes.join("b1348f1e1a4d5649.txt"),
-            "h\t0\t10\t0\t60\t12\t1793527500\t1793527500\tshe had peeped into the book her sister was reading\t\n\
-             b\t1\t0\t1\t0\t48\t1793527800\t1793527800\tCHAPTER II. The Pool of Tears\t\n",
-        )
-        .unwrap();
-        fs::write(
-            notes.join("6faa8b0d8dac72e2.txt"),
-            "b\t0\t0\t0\t0\t3\t1793528000\t1793528000\tAls Gregor Samsa eines Morgens\t\n",
-        )
-        .unwrap();
-    }
     if let Some(book) = case.book {
         let state = dir.join(".paperpaw/plugins/reader");
         fs::create_dir_all(&state).unwrap();

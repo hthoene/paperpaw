@@ -66,3 +66,54 @@ fn every_record_is_valid_for_the_host_and_admitted() {
         "the host admits every record now: {waiting:?}"
     );
 }
+
+/// The screen, the action, the Tools menu entry (order 45) and the icon are as
+/// interface 6 registered them (the values were compared before it was removed).
+#[test]
+fn the_screen_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
+    use paperpaw_core::native_host::registrations::Record;
+    let (mut screens, mut actions, mut menus, mut icons) = (vec![], vec![], vec![], vec![]);
+    for batch in batches(|sink| declarations::ui(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            match record {
+                Record::ScreenSpec(s) => {
+                    screens.push((format!("file-manager.{}", s.name), s.title.to_string()));
+                }
+                Record::ActionSpec(a) => {
+                    actions.push((format!("file-manager.{}", a.name), a.title.to_string()));
+                }
+                Record::MenuEntry(e) => {
+                    menus.push((e.menu.to_string(), e.item.to_string(), e.order));
+                }
+                Record::IconSpec(i) => icons.push((i.item.to_string(), i.icon.to_string())),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+    assert_eq!(
+        screens,
+        [(
+            "file-manager.browser".to_string(),
+            "file-manager.title".to_string()
+        )]
+    );
+    assert_eq!(
+        actions,
+        [(
+            "file-manager.open".to_string(),
+            "file-manager.title".to_string()
+        )]
+    );
+    assert_eq!(
+        menus,
+        [(
+            "core.tools".to_string(),
+            "file-manager.open".to_string(),
+            45
+        )]
+    );
+    assert_eq!(
+        icons,
+        [("file-manager.open".to_string(), "folder".to_string())]
+    );
+}

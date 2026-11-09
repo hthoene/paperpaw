@@ -1,13 +1,13 @@
-# Interface 7 family FS: folders, file information, moves and free space (draft)
+# Interface 7 family FS: folders, file information, moves and free space
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Core and Senior. Inputs: the storage slots 20-26 and their rules
 (`proposals/interface-7-events-storage-services.md` section 2, "the storage contract" below), owner
 decisions 124 and 125, `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies
 and paging), `screens-input.md` section 13 (features and statuses), the platform `Storage` trait
 (`crates/paperpaw-platform/src/storage.rs`) and an audit of the interface-6 storage calls of the
-17 first-party plugins that use files beyond their own data folder (section 6). Doc-only; records
-follow once approved. Tags are proposed and numbered without gaps at the records step.
+17 first-party plugins that use files beyond their own data folder (section 6).
+Records: `abi/services/core.files@1.def`.
 
 ## 0. Scope and principles
 

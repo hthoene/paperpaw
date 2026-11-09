@@ -62,9 +62,12 @@ fn the_tiles_the_chart_and_the_totals_in_english() {
     assert_eq!(chart.values[13], 1_380);
     assert_eq!(chart.values[12], 2_460);
     assert!(view.totals.as_deref().unwrap().contains("2 books"));
-    assert_eq!(view.ways, [Way::ThisBook(1), Way::Calendar, Way::Books]);
+    assert_eq!(
+        view.ways,
+        [Way::ThisBook(1), Way::Calendar, Way::Books, Way::Sync]
+    );
     // The tiles are rows of the one column, then the ways.
-    assert_eq!(view.list.items().len(), 6);
+    assert_eq!(view.list.items().len(), 7);
 }
 
 #[test]
@@ -72,7 +75,7 @@ fn in_german_and_without_a_book_being_read() {
     let data = card();
     let view = OverviewView::build(&mut words("de"), &data, Some(TODAY), None).unwrap();
     assert_eq!(view.tiles.as_ref().unwrap()[0].label, "Heute");
-    assert_eq!(view.ways, [Way::Calendar, Way::Books]);
+    assert_eq!(view.ways, [Way::Calendar, Way::Books, Way::Sync]);
 }
 
 #[test]
@@ -83,7 +86,7 @@ fn without_the_clock_there_are_no_tiles_but_the_ways_and_the_hint() {
     assert!(view.no_clock.starts_with("Statistics need the time of day"));
     // What was read still adds up.
     assert!(view.totals.is_some());
-    assert_eq!(view.list.items().len(), 2);
+    assert_eq!(view.list.items().len(), 3);
     // Nothing read and no clock: no totals either.
     let none = Quiet(MemoryStorage::new());
     let empty = OverviewView::build(&mut words("en"), &none, None, None).unwrap();

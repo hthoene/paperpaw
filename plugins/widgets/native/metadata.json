@@ -136,8 +136,14 @@
     }
   ],
   "services": [
+    "core.library",
     "core.registry",
     "core.ui"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.library",
+      "required": false
+    }
+  ]
 }

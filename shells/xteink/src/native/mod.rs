@@ -25,6 +25,7 @@ mod hot;
 pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
+pub mod seed;
 #[cfg(all(feature = "static-native", feature = "esp32c3"))]
 pub(crate) use ppn5::register_linked_probe;
 #[cfg(feature = "esp32s3")]
@@ -233,18 +234,58 @@ pub struct Loader {
     /// The device-wide table of handles the plugins' owners share (made with
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
-    resources: Option<paperpaw_core::native_host::HostResources>,
+    resources: DeviceTable,
+    /// The network's side of `core.sockets`: this loader wires core with it,
+    /// the network runs it.
+    #[cfg(feature = "ppn5")]
+    host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+}
+
+/// The device-wide table of handles, one for the whole firmware: the code
+/// loader and the linked-plugin probe (`register_linked_probe`) both take their
+/// share of this one, so what is wired into it (`core.ui`, `text.hyphenate`)
+/// stays single. A clone is another view of the same cell (nothing is made
+/// twice); the table itself is made at the first use.
+#[cfg(feature = "ppn5")]
+#[derive(Clone, Default)]
+pub struct DeviceTable(alloc::rc::Rc<RefCell<Option<paperpaw_core::native_host::HostResources>>>);
+
+#[cfg(feature = "ppn5")]
+impl DeviceTable {
+    /// A counted share of the table, made (with `core.ui` wired) if it is not
+    /// there yet. `None` where it has no room, or where the loader is busy
+    /// with it (a plugin loading: no other caller exists on this one core).
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    pub(crate) fn share(&self) -> Option<paperpaw_core::native_host::HostResources> {
+        let mut table = self.0.try_borrow_mut().ok()?;
+        if table.is_none() {
+            *table = new_resources();
+        }
+        table.as_ref()?.try_clone()
+    }
 }
 
 impl Loader {
-    pub fn new(place: Place) -> Self {
+    pub fn new(
+        place: Place,
+        #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+    ) -> Self {
         Self {
             place,
             #[cfg(feature = "ppn5")]
             depth: None,
             #[cfg(feature = "ppn5")]
-            resources: None,
+            resources: DeviceTable::default(),
+            #[cfg(feature = "ppn5")]
+            host_net,
         }
+    }
+
+    /// The device's table of handles as the loader holds it, for the
+    /// linked-plugin probe: one table, not a second one.
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    pub fn device_table(&self) -> DeviceTable {
+        self.resources.clone()
     }
 
     fn load_file(
@@ -267,13 +308,17 @@ impl Loader {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
             }
+            let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
+                return Err(PluginProblem::NoRoom);
+            };
             let loaded = ppn5::load(
                 &mut self.place,
                 &mut self.depth,
-                &mut self.resources,
+                &mut resources,
                 storage,
                 code,
             );
+            drop(resources);
             if loaded.is_ok() {
                 crate::stack::native_loaded();
             }
@@ -413,6 +458,75 @@ impl Loader {
     }
 }
 
+/// The device-wide table of handles the plugins' owners share, with `core.ui`
+/// wired at once (before the first plugin loads, so that a host call made while
+/// one loads or declares finds it). `None` (and a warning) where the table or
+/// the store has no room: then no interface-7 plugin loads, or `core.ui` is
+/// absent and the plugin is told so.
+#[cfg(feature = "ppn5")]
+fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
+    use paperpaw_core::native_host::{HostResources, HostWiring};
+    let resources = match HostResources::try_new() {
+        Ok(resources) => resources,
+        Err(_) => {
+            warn!("native: no room for the host's table of handles");
+            return None;
+        }
+    };
+    match resources.wire(HostWiring::new().ui(crate::DEVICE.memory)) {
+        Ok(wired) if wired.ui_skipped() => {
+            warn!("native: core.ui not wired (no memory for its store)");
+        }
+        Ok(_) => {}
+        Err(status) => warn!("native: core.ui not wired ({status})"),
+    }
+    Some(resources)
+}
+
+#[cfg(feature = "ppn5")]
+impl Loader {
+    /// Wires `core.net` and `core.sockets` over the network's bridge, once
+    /// the card is known. The TLS is the bridge's over the device's TLS
+    /// session (`tls_slots`); a session that cannot be had at its handshake
+    /// ends the socket or request `no_memory`.
+    fn wire_network(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::{
+            HostWiring,
+            shell_wiring::{
+                NetInputs, NetLimits, ShellHttp, ShellNetwork, SockInputs, SockLimits, SockTls,
+                SockTransport,
+            },
+        };
+        // The loader's table of handles (one for the device, shared with the
+        // linked-plugin probe): not borrowed by anything else at this point.
+        let Ok(table) = self.resources.0.try_borrow() else {
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            return;
+        };
+        let bridge = &self.host_net;
+        let mut limits = SockLimits::small(crate::host_net::POOL_BYTES);
+        limits.tls_sessions = crate::tls_slots::SESSIONS;
+        let transport: Rc<dyn SockTransport> = bridge.clone();
+        let network: Rc<dyn ShellNetwork> = bridge.clone();
+        let tls: Rc<dyn SockTls> = bridge.clone();
+        let sockets = SockInputs::new(storage.clone(), transport, network.clone(), limits).tls(tls);
+        // Two requests at a time, as in interface 6; bodies in memory are
+        // small (the pool is 48 KiB, and the sockets' two buffers take 16).
+        let http: Rc<dyn ShellHttp> = bridge.clone();
+        let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
+            .tls_sessions(crate::tls_slots::SESSIONS)
+            .max_body(16 * 1024);
+        let net = NetInputs::new(storage.clone(), http, network, net_limits);
+        match resources.wire(HostWiring::new().net(net).sockets(sockets)) {
+            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
+            Err(status) => warn!("native: core.net and core.sockets not wired ({status})"),
+        }
+    }
+}
+
 impl CodeLoader for Loader {
     fn load(
         &mut self,
@@ -422,6 +536,46 @@ impl CodeLoader for Loader {
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
         self.load_file(storage, code)
+    }
+
+    /// What interface-7 plugins are served: `text.hyphenate` (the data
+    /// plugins' tables are files on the card) and `core.ui` (the screen stack's
+    /// store, sized for this device; nothing is allocated until a plugin uses it).
+    #[cfg(feature = "ppn5")]
+    fn hyphenation_sink(
+        &mut self,
+        storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        use paperpaw_core::native_host::HostWiring;
+        let mut resources = self.resources.0.try_borrow_mut().ok()?;
+        if resources.is_none() {
+            *resources = new_resources();
+        }
+        // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
+        // A plugin's `make` that asks for it earlier gets a one-off
+        // `ERR_UNSUPPORTED`; plugins use hyphenation only when laying out text,
+        // and their allowed features come from the host's fixed list, not from
+        // what is wired, so nothing is recorded wrongly.
+        // `core.ui` was wired when the table of handles was made (before any
+        // plugin loaded); `text.hyphenate` needs the card, which only comes here.
+        let wired = match resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+        {
+            Ok(wired) => wired,
+            Err(status) => {
+                warn!("native: text.hyphenate not wired ({status})");
+                return None;
+            }
+        };
+        // The table is borrowed no longer: `wire_sockets` takes it again.
+        drop(resources);
+        // This hook runs at the end of the kernel's build, before `Kernel::start`:
+        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
+        // filled (a later wiring would show plugins a false `network_off`).
+        // It needs the card too (files read to, the staged file).
+        self.wire_network(storage);
+        wired.hyphen().cloned()
     }
 
     fn finish(&mut self, storage: &dyn Storage) {

@@ -63,6 +63,8 @@ mod dual;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
+#[cfg(feature = "ppn5")]
+mod host_net;
 mod http;
 mod input;
 #[cfg(feature = "waveform-lab")]
@@ -84,6 +86,8 @@ mod remote;
 mod roots;
 mod safe_mode;
 mod serve;
+#[cfg(feature = "ppn5")]
+mod serve7;
 mod sockets;
 mod stack;
 mod startup;
@@ -358,6 +362,11 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    let device_table = match &ready.code {
+        CodePlugins::Load(loader) => Some(loader.device_table()),
+        _ => None,
+    };
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -371,6 +380,8 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+        device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
@@ -555,7 +566,8 @@ fn prepare() -> Ready {
         WATCHDOG_S,
     );
     // The radio (on when the kernel says so) and what goes over it.
-    let network = network::Network::new(wifi::Parts {
+    #[cfg_attr(not(feature = "ppn5"), allow(unused_mut))]
+    let mut network = network::Network::new(wifi::Parts {
         timer: board.timers1.timer0,
         interrupt: board.radio.1,
         wifi: board.radio.0,
@@ -581,7 +593,21 @@ fn prepare() -> Ready {
         startup.starting_if_needed();
         staged
     };
-    let code = code_plugins(ota.as_ref(), &flash);
+    #[cfg(feature = "ppn5")]
+    let host_net = host_net::Bridge::new();
+    #[cfg(feature = "ppn5")]
+    network.attach(host_net.clone());
+    // English hyphenation is a data plugin on the card: the flasher puts it
+    // there, but an update of a firmware that had English built in (Beta 3)
+    // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
+    // after the flasher's bundle, so that its own copy is found, not doubled.
+    native::seed::hyphenation(storage.as_ref());
+    let code = code_plugins(
+        ota.as_ref(),
+        &flash,
+        #[cfg(feature = "ppn5")]
+        host_net,
+    );
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
     power::init(LowPower::new(board.low_power));
@@ -754,7 +780,11 @@ impl paperpaw_core::CodeLoader for NoCode {
 
 /// Whether code plugins are loaded at this start, after the key for safe
 /// mode was looked for and the failed starts counted.
-fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
+fn code_plugins(
+    ota: Option<&ota::Ota>,
+    flash: &ota::Flash,
+    #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<host_net::Bridge>,
+) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
         native::no_hot_code();
@@ -777,7 +807,11 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     };
     #[cfg(feature = "esp32c3")]
     let place = native::Place::new(flash.clone());
-    CodePlugins::Load(native::Loader::new(place))
+    CodePlugins::Load(native::Loader::new(
+        place,
+        #[cfg(feature = "ppn5")]
+        host_net,
+    ))
 }
 
 /// The status lines of the X4s by default (see `setting_default_text`):

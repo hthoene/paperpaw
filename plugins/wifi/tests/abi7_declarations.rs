@@ -186,5 +186,49 @@ fn screens_action_status_item_icons_needs_and_step_match() {
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
-    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
+    // Ten subscriptions (the radio's four and the timers' work among them) in two batches.
+    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 2);
+}
+
+/// The subscriptions, decoded: the radio's own events 92-95 go to their
+/// callbacks, with the five the plugin had before.
+#[test]
+fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
+    use paperpaw_core::native_host::registrations::{Record, Registration, records_decode};
+    let mut found = Vec::new();
+    for batch in batches(|d| declarations::events(d).unwrap()) {
+        for record in records_decode(&batch).unwrap().iter() {
+            match record {
+                Record::Registration(Registration::Event { event_tag, token }) => {
+                    found.push((event_tag, token));
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+    // The device's five, as before, then the radio's four: scanned 92, done 93,
+    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's and the served page's (server, request).
+    let tokens: Vec<u32> = found.iter().map(|(_, token)| *token).collect();
+    assert_eq!(
+        tokens,
+        [
+            declarations::STARTED,
+            declarations::STATUS_CHANGED,
+            declarations::SCREEN_SHOWN,
+            declarations::WIFI_CHANGED,
+            declarations::POWER_CHANGED,
+            declarations::WIFI_SCANNED,
+            declarations::WIFI_DONE,
+            declarations::NETWORK_WANTED,
+            declarations::NETWORK_IDLE,
+            declarations::WORK,
+            declarations::SERVER_EVENT,
+            declarations::SERVED_REQUEST,
+        ]
+    );
+    let radio: Vec<u32> = found[5..9].iter().map(|(tag, _)| *tag).collect();
+    assert_eq!(radio, [92, 93, 94, 95]);
+    // The timers (idle off, retry) come due as work (`event.work_due`).
+    assert_eq!(found[9].0, 103, "work_due");
+    assert_eq!(found[0].0, 32, "started");
 }

@@ -28,11 +28,12 @@ mod query;
 mod write;
 #[allow(unused_imports, reason = "the query and write halves name it")]
 pub(crate) use args::BookRef;
+#[allow(unused_imports, reason = "the catalog reads implement it")]
+pub(crate) use query::{LibQuery, One, Rows};
+#[allow(unused_imports, reason = "the catalog's write half implements it")]
+pub(crate) use write::LibWrite;
 #[cfg(test)]
-pub(crate) use {
-    query::{LibQuery, One},
-    write::{LibWrite, Transactions},
-};
+pub(crate) use write::Transactions;
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]

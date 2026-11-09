@@ -24,12 +24,14 @@
 #![deny(clippy::let_underscore_must_use)]
 
 pub mod catalog;
+mod details;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod emptiness;
 mod fallible;
 mod fingerprint;
 pub mod index;
+mod indexed;
 pub mod listing;
 mod metadata;
 pub mod service;
@@ -39,7 +41,10 @@ pub mod sorted;
 pub mod split;
 
 pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_status};
+#[cfg(any(test, feature = "kernel"))]
+pub use fallible::{ProvidedText, try_provide};
 pub use fingerprint::Fingerprint;
+pub use indexed::try_indexed;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
@@ -864,58 +869,11 @@ fn write_book(storage: &dyn Storage, path: &str, book: &Book) -> bool {
 
 fn write_details(storage: &dyn Storage, path: &str, book: &Book) -> Result<(), crate::data::Error> {
     let before = load_details(storage, path)?;
-    let ini = details_text(book, before.as_deref().unwrap_or_default());
-    if ini.len() > MAX_DETAILS {
-        return Err(StorageError::TooLarge.into());
-    }
-    Ok(storage.write(&book_file(path), ini.as_bytes())?)
-}
-
-/// The text of the details of `book`, with what `before` holds that the
-/// library does not know kept: in one pass, as [`config::set`] would
-/// write it key by key.
-fn details_text<'a>(book: &'a Book, before: &'a str) -> String {
-    let mut entries: Vec<(&'a str, Cow<'a, str>, Cow<'a, str>)> = Vec::new();
-    let mut set = |key: Cow<'a, str>, value: Cow<'a, str>| entries.push(("book", key, value));
-    set("size".into(), book.size.to_string().into());
-    set(
-        "indexed".into(),
-        (if book.indexed { "on" } else { "off" }).into(),
-    );
-    set("version".into(), DETAILS.to_string().into());
-    for (key, value) in [
-        ("title", &book.title),
-        ("author", &book.author),
-        ("series", &book.series),
-        ("series-index", &book.series_index),
-    ] {
-        if let Some(value) = value {
-            set(key.into(), fit(value).into());
-        }
-    }
-    for (i, tag) in book.tags.iter().take(MAX_TAGS).enumerate() {
-        set(format!("tag.{}", i + 1).into(), fit(tag).into());
-    }
-    if let Some(cover) = &book.cover {
-        set("cover".into(), fit(&cover.path).into());
-        set("cover-width".into(), cover.width.to_string().into());
-        set("cover-height".into(), cover.height.to_string().into());
-    }
-    if let Some(progress) = book.progress {
-        set("progress".into(), progress.to_string().into());
-    }
-    if let Some(added) = book.added {
-        set("added".into(), added.to_string().into());
-    }
-    for (id, value) in &book.fields {
-        entries.push(("field", id.as_str().into(), fit(value).into()));
-    }
-    for entry in config::parse(before).filter_map(Result::ok) {
-        if !known_detail(entry.section, entry.key) {
-            entries.push((entry.section, entry.key.into(), entry.value.as_str()));
-        }
-    }
-    config::set_all("", entries)
+    // Made without an infallible allocation, and not at all where it
+    // would be over what is read back.
+    let ini = details::try_details_text(book, before.as_deref().unwrap_or_default())?;
+    let file = fallible::try_book_file(path).map_err(|_| crate::data::Error::OutOfMemory)?;
+    Ok(storage.write(&file, ini.as_bytes())?)
 }
 
 /// Reads title, author, series, tags and cover from the book itself and
@@ -936,13 +894,13 @@ pub fn index(env: &Env<'_>, path: &str) -> Book {
     }
     if let Ok(document) = env.formats().open(storage, path) {
         // What the book names; else what its source said ([`provide`]).
-        let metadata = document.metadata();
-        book.title = metadata.title.clone().or(book.title.take());
-        book.author = metadata.authors.first().cloned().or(book.author.take());
-        book.series = metadata.series.clone().or(book.series.take());
-        book.series_index = metadata.series_index.clone().or(book.series_index.take());
-        if !metadata.subjects.is_empty() {
-            book.tags = metadata.subjects.clone();
+        // Copied fallibly; with no memory the book is not written down (it
+        // is read from the book again at the next walk).
+        if fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
+            // Not indexed: the book does not hold what it names, so a walk
+            // that finds its line must make it again.
+            book.indexed = false;
+            return book;
         }
         book.cover = document.cover(storage).ok().flatten();
     }
@@ -1049,14 +1007,13 @@ pub fn provide(storage: &dyn Storage, path: &str, provided: Provided) {
 /// Sets field `id` of the book at `path` (a plugin's, e.g.
 /// `myplugin.rating`); an empty value removes it.
 pub fn set_field(storage: &dyn Storage, path: &str, id: &str, value: &str) {
-    let Ok(mut book) = book_for_update(storage, path) else {
-        return;
-    };
-    book.fields.retain(|(k, _)| k != id);
-    if !value.is_empty() {
-        book.fields.push((id.to_string(), value.to_string()));
-    }
-    write_book(storage, path, &book);
+    // Not kept where there is no memory for it or the card fails: as the
+    // field was before.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "a field not kept is as it was; the host's form tells why"
+    )]
+    let _ = fallible::try_set_field(storage, path, id, value);
 }
 
 /// Records a reading event (`core.book-opened`, `core.page-turned`): the

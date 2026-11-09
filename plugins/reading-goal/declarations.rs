@@ -2,15 +2,43 @@
 //! (which writes them into the plugin image) and the tests.
 //!
 //! The settings sit in the statistics' group (`stats.group`), as on interface 6.
-//! The sleep screen is declared by [`screens`] and not yet part of the image: its
-//! drawing waits for images (draft 22) and the sleep plugin on interface 7.
+//! The sleep screen (*Today's reading cat*) is declared by [`screens`], offered to
+//! the slot `core.sleep` below the sleep plugin's own screen, and added to the
+//! choices of `sleep.show` by [`navigation`].
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, Kind, ScreenDecl, SpecDecl,
-    StageDecl,
+    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
+    ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, WidgetDecl,
 };
+use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
 /// Callback tokens are stable within this plugin image.
 pub const EVENTS_TOKEN: u32 = 1;
+
+/// The callback token of the sleep screen.
+pub const SLEEP_TOKEN: u32 = 10;
+/// The sleep screen's full id (and the value of `sleep.show` that chooses it).
+pub const SLEEP_SCREEN: &str = "reading-goal.sleep";
+
+/// The callback token of the minute tick.
+pub const TICK_TOKEN: u32 = 3;
+/// The callback token of the widget (drawing and taps).
+pub const WIDGET_TOKEN: u32 = 2;
+/// The widget, relative to the plugin: its id is `reading-goal.widget`.
+pub const WIDGET: &str = "widget";
+/// The widget's group, settings and title (a translation key).
+pub const WIDGET_GROUP: &str = "reading-goal.widget";
+/// The widget's settings: the shared look without an alignment (the cat is
+/// centred), and the part that shows the minutes.
+pub const WIDGET_OPTIONS: [Opt; 8] = [
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Part("minutes", "reading-goal.part.minutes", true),
+];
 
 /// The statistics' group, where the settings are.
 pub const GROUP: &str = "stats.group";
@@ -81,6 +109,13 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     ] {
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }
+    // The picture of the sleep screen is asked for at the start.
+    declarations.subscribe_event(EventKind::Started, EVENTS_TOKEN)?;
+    // A new day makes the cat sad again; the figure is asked for each minute.
+    declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    // The answer to a picture asked for, and a change of the folder of one's own.
+    declarations.subscribe_event(EventKind::ImageReady, EVENTS_TOKEN)?;
+    declarations.subscribe_event(EventKind::SettingChanged, EVENTS_TOKEN)?;
     declarations.submit()
 }
 
@@ -95,11 +130,42 @@ pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.submit()
 }
 
-/// Native screen identity preparation; the screen is not part of the image yet.
+/// The sleep screen: the cat large in the middle, the minutes below it. One
+/// at a time.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("sleep", "reading-goal.sleep", 10))?;
+    d.screen(ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN).instances(Instances::Single))?;
     d.submit()?;
     Ok(())
+}
+
+/// The screen offered to the slot `core.sleep` below the sleep plugin's own
+/// (priority 0), and its place among the choices of `sleep.show`.
+pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -1;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// *Reading cat* (`reading-goal.widget`): its group, the widget (live: asked
+/// each minute) and its settings.
+pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.group(GroupDecl::new(WIDGET, WIDGET_GROUP))?;
+    let widget = WidgetDecl::new(WIDGET, WIDGET_GROUP, "core.widgets.reading", WIDGET_TOKEN)
+        .map_err(|_| DeclareError::TooLong("widget"))?
+        .live()
+        .cells(2, 2)
+        .previews(WIDGET_GROUP)
+        .map_err(|_| DeclareError::TooLong("widget preview"))?;
+    d.widget(widget)?;
+    declare_all(d, WIDGET, WIDGET_GROUP, WIDGET_OPTIONS)?;
+    d.submit()
 }
