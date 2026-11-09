@@ -26,6 +26,8 @@ store-plugins = [
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-calibre",
     "dep:paperpaw-plugin-koreader",
+    "dep:paperpaw-plugin-kosync",
+    "dep:paperpaw-plugin-weather",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
@@ -149,7 +151,6 @@ paperpaw-plugin-readwise = { workspace = true, optional = true }
 paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-joplin = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
-paperpaw-plugin-koreader = { workspace = true, optional = true }
 paperpaw-plugin-wallabag = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }
