@@ -10,13 +10,21 @@ use paperpaw_platform::{DirEntry, Storage, StorageError};
 /// demos without a file system.
 #[derive(Debug, Default)]
 pub struct MemoryStorage {
-    files: RefCell<BTreeMap<String, Vec<u8>>>,
-    /// Each entry's identity (`Storage::entry_identity`): a file's from
-    /// when it was made, a folder's from when it was first asked for; kept
-    /// by renames, dropped with the entry.
-    ids: RefCell<BTreeMap<String, u64>>,
+    /// Each file's identity (`Storage::entry_identity`: given when it is
+    /// made, kept by renames) and its bytes; the identity sits in the
+    /// file's own entry, so it costs no allocation of its own.
+    files: RefCell<BTreeMap<String, (u64, Vec<u8>)>>,
+    /// Folders' identities, given when one is first asked for (folders
+    /// exist through their files here). Empty until then, so that the
+    /// file operations allocate nothing more than they did without it.
+    dirs: RefCell<BTreeMap<String, u64>>,
     /// The last identity given.
     last: Cell<u64>,
+}
+
+/// Whether `key` lies below the folder `dir`, without making `dir/`.
+fn below(key: &str, dir: &str) -> bool {
+    key.len() > dir.len() && key.starts_with(dir) && key.as_bytes()[dir.len()] == b'/'
 }
 
 impl MemoryStorage {
@@ -26,43 +34,38 @@ impl MemoryStorage {
 
     /// Adds a file (builder style).
     pub fn with(self, path: &str, data: impl Into<Vec<u8>>) -> Self {
+        let id = self.next_id();
         self.files
             .borrow_mut()
-            .insert(String::from(path), data.into());
-        self.made(path);
+            .insert(String::from(path), (id, data.into()));
         self
     }
 
     /// The content of a file, for assertions.
     pub fn get(&self, path: &str) -> Option<Vec<u8>> {
-        self.files.borrow().get(path).cloned()
+        self.files.borrow().get(path).map(|(_, data)| data.clone())
     }
 
-    /// Gives `path` an identity unless it has one.
-    fn made(&self, path: &str) -> u64 {
-        *self
-            .ids
-            .borrow_mut()
-            .entry(String::from(path))
-            .or_insert_with(|| {
-                let id = self.last.get().wrapping_add(1);
-                self.last.set(id);
-                id
-            })
+    fn next_id(&self) -> u64 {
+        let id = self.last.get().wrapping_add(1);
+        self.last.set(id);
+        id
     }
 
     /// Drops the identities of the folders above `path` that no longer
-    /// hold a file (folders exist through their files here).
+    /// hold a file.
     fn forget_empty_above(&self, path: &str) {
+        let mut dirs = self.dirs.borrow_mut();
+        if dirs.is_empty() {
+            return;
+        }
         let files = self.files.borrow();
-        let mut ids = self.ids.borrow_mut();
         let mut at = path;
         while let Some((parent, _)) = at.rsplit_once('/') {
-            let prefix = alloc::format!("{parent}/");
-            if files.keys().any(|k| k.starts_with(&prefix)) {
+            if files.keys().any(|k| below(k, parent)) {
                 break;
             }
-            ids.remove(parent);
+            dirs.remove(parent);
             at = parent;
         }
     }
@@ -80,7 +83,7 @@ impl Storage for MemoryStorage {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         Self::check(path)?;
         let files = self.files.borrow();
-        let data = files.get(path).ok_or(StorageError::NotFound)?;
+        let (_, data) = files.get(path).ok_or(StorageError::NotFound)?;
         let start = usize::try_from(offset)
             .unwrap_or(usize::MAX)
             .min(data.len());
@@ -94,34 +97,40 @@ impl Storage for MemoryStorage {
         self.files
             .borrow()
             .get(path)
-            .map(|data| data.len() as u64)
+            .map(|(_, data)| data.len() as u64)
             .ok_or(StorageError::NotFound)
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
-        self.files
-            .borrow_mut()
-            .insert(String::from(path), data.to_vec());
-        self.made(path);
+        let mut files = self.files.borrow_mut();
+        match files.get_mut(path) {
+            Some((_, file)) => *file = data.to_vec(),
+            None => {
+                let id = self.next_id();
+                files.insert(String::from(path), (id, data.to_vec()));
+            }
+        }
         Ok(())
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
-        self.files
-            .borrow_mut()
-            .entry(String::from(path))
-            .or_default()
-            .extend_from_slice(data);
-        self.made(path);
+        let mut files = self.files.borrow_mut();
+        match files.get_mut(path) {
+            Some((_, file)) => file.extend_from_slice(data),
+            None => {
+                let id = self.next_id();
+                files.insert(String::from(path), (id, data.to_vec()));
+            }
+        }
         Ok(())
     }
 
     fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
         let mut files = self.files.borrow_mut();
-        let file = files.get_mut(path).ok_or(StorageError::NotFound)?;
+        let (_, file) = files.get_mut(path).ok_or(StorageError::NotFound)?;
         let at = usize::try_from(offset).map_err(|_| StorageError::TooLarge)?;
         let end = at.checked_add(data.len()).ok_or(StorageError::TooLarge)?;
         if file.len() < end {
@@ -134,7 +143,7 @@ impl Storage for MemoryStorage {
     fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
         Self::check(path)?;
         let mut files = self.files.borrow_mut();
-        let file = files.get_mut(path).ok_or(StorageError::NotFound)?;
+        let (_, file) = files.get_mut(path).ok_or(StorageError::NotFound)?;
         let len = usize::try_from(len).map_err(|_| StorageError::TooLarge)?;
         file.resize(len, 0);
         Ok(())
@@ -152,7 +161,7 @@ impl Storage for MemoryStorage {
         let files = self.files.borrow();
         let mut dirs = BTreeSet::new();
         let mut found = dir.is_empty();
-        for (path, data) in files.iter() {
+        for (path, (_, data)) in files.iter() {
             let Some(rest) = path.strip_prefix(prefix.as_str()) else {
                 continue;
             };
@@ -177,7 +186,6 @@ impl Storage for MemoryStorage {
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         Self::check(path)?;
         self.files.borrow_mut().remove(path);
-        self.ids.borrow_mut().remove(path);
         self.forget_empty_above(path);
         Ok(())
     }
@@ -186,14 +194,9 @@ impl Storage for MemoryStorage {
         Self::check(from)?;
         Self::check(to)?;
         let mut files = self.files.borrow_mut();
-        let mut ids = self.ids.borrow_mut();
-        if let Some(data) = files.remove(from) {
-            files.insert(String::from(to), data);
-            match ids.remove(from) {
-                Some(id) => ids.insert(String::from(to), id),
-                None => ids.remove(to),
-            };
-            drop((files, ids));
+        if let Some(file) = files.remove(from) {
+            files.insert(String::from(to), file);
+            drop(files);
             self.forget_empty_above(from);
             return Ok(());
         }
@@ -208,22 +211,26 @@ impl Storage for MemoryStorage {
             return Err(StorageError::NotFound);
         }
         for key in moved {
-            if let Some(data) = files.remove(&key) {
-                files.insert(alloc::format!("{to}/{}", &key[prefix.len()..]), data);
+            if let Some(file) = files.remove(&key) {
+                files.insert(alloc::format!("{to}/{}", &key[prefix.len()..]), file);
             }
         }
-        // The folder's identity and those of everything below it go along.
-        let named: Vec<String> = ids
-            .keys()
-            .filter(|k| k.as_str() == from || k.starts_with(&prefix))
-            .cloned()
-            .collect();
-        for key in named {
-            if let Some(id) = ids.remove(&key) {
-                ids.insert(alloc::format!("{to}{}", &key[from.len()..]), id);
+        drop(files);
+        // The folder's identity and those of the folders below it go along.
+        let mut dirs = self.dirs.borrow_mut();
+        if !dirs.is_empty() {
+            let named: Vec<String> = dirs
+                .keys()
+                .filter(|k| k.as_str() == from || below(k, from))
+                .cloned()
+                .collect();
+            for key in named {
+                if let Some(id) = dirs.remove(&key) {
+                    dirs.insert(alloc::format!("{to}{}", &key[from.len()..]), id);
+                }
             }
         }
-        drop((files, ids));
+        drop(dirs);
         self.forget_empty_above(from);
         Ok(())
     }
@@ -239,9 +246,9 @@ impl Storage for MemoryStorage {
         self.files
             .borrow_mut()
             .retain(|k, _| !k.starts_with(&prefix));
-        self.ids
+        self.dirs
             .borrow_mut()
-            .retain(|k, _| k.as_str() != path && !k.starts_with(&prefix));
+            .retain(|k, _| k.as_str() != path && !below(k, path));
         self.forget_empty_above(path);
         Ok(())
     }
@@ -253,16 +260,21 @@ impl Storage for MemoryStorage {
             return Ok(None);
         }
         Self::check(path)?;
-        let prefix = alloc::format!("{path}/");
-        let exists = {
-            let files = self.files.borrow();
-            files.contains_key(path) || files.keys().any(|k| k.starts_with(&prefix))
-        };
-        if exists {
-            Ok(Some(self.made(path)))
-        } else {
-            Err(StorageError::NotFound)
+        let files = self.files.borrow();
+        if let Some(&(id, _)) = files.get(path) {
+            return Ok(Some(id));
         }
+        if !files.keys().any(|k| below(k, path)) {
+            return Err(StorageError::NotFound);
+        }
+        drop(files);
+        let mut dirs = self.dirs.borrow_mut();
+        if let Some(&id) = dirs.get(path) {
+            return Ok(Some(id));
+        }
+        let id = self.next_id();
+        dirs.insert(String::from(path), id);
+        Ok(Some(id))
     }
 }
 
