@@ -268,3 +268,283 @@ fn cancel_and_run_are_told_as_they_are() {
         Native::Run("lock.open".into())
     );
 }
+
+#[test]
+fn a_display_of_no_size_clamps_to_the_origin_and_does_not_panic() {
+    let record = Record::InputPointer(wire::InputPointer {
+        now_ms: 1,
+        x: 300,
+        y: -7,
+        phase: 1,
+        contact: Some(0),
+    });
+    let was = finger(PointerPhase::Down, 1, 1);
+    for display in [(0, 0), (0, 800), (480, 0)] {
+        let Some(InputEvent::Pointer(made)) = event_of(&record, &was, display, &KEYS) else {
+            panic!("a pointer");
+        };
+        let (x, y) = (made.point.x, made.point.y);
+        assert_eq!((x == 0, y == 0), (display.0 == 0, true), "{display:?}");
+    }
+}
+
+/// The real `Kernel::handle`: a native filter, counted, under the interface-6
+/// lock and PIN screens of another plugin.
+mod kernel {
+    use super::*;
+    use crate::native_host::{
+        declaration_store::Allocations,
+        flat::FlatDepth,
+        native_declarations::{self, NativeDeclarations},
+        native_instances::{NativeInstance, NativeLease},
+        native_screen::Dispatch,
+        raw_declarations::RawDeclarations,
+    };
+    use alloc::{boxed::Box, rc::Rc};
+    use core::cell::Cell;
+    use paperpaw_graphics::Canvas;
+    use paperpaw_native::host_glue::ERR_BUSY;
+    use paperpaw_sdk::{
+        Cx, Env, Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar, Screen,
+        ScreenSpec, Uses, Version,
+    };
+
+    const LOCK: Id = Id::new_static("g.lock");
+    const PIN: Id = Id::new_static("g.pin");
+    const OWN_PIN: Id = Id::new_static("f.pin");
+
+    /// A screen that guards the device, one that takes a PIN, and the filter
+    /// plugin's own PIN screen.
+    struct Seen(bool, bool);
+    impl Screen for Seen {
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn guards(&self) -> bool {
+            self.0
+        }
+        fn secret(&self) -> bool {
+            self.1
+        }
+        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+            Handled::No
+        }
+    }
+
+    struct Screens(&'static str);
+    impl Plugin for Screens {
+        fn manifest(&self) -> Manifest {
+            Manifest::new(Id::new_static(self.0), "Screens", Version::new(1, 0, 0))
+                .uses(Uses::NOTHING)
+        }
+        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+            if self.0 == "g" {
+                r.add_screen(ScreenSpec::new(
+                    LOCK,
+                    "lock",
+                    Box::new(|_, _| Box::new(Seen(true, false))),
+                ))?;
+                r.add_screen(ScreenSpec::new(
+                    PIN,
+                    "pin",
+                    Box::new(|_, _| Box::new(Seen(false, true))),
+                ))
+            } else {
+                r.add_screen(ScreenSpec::new(
+                    OWN_PIN,
+                    "pin",
+                    Box::new(|_, _| Box::new(Seen(false, true))),
+                ))
+            }
+        }
+    }
+
+    /// The native filter: counts its calls and passes every input.
+    struct Counting {
+        depth: FlatDepth,
+        calls: Rc<Cell<u32>>,
+        guard: crate::abi7::calls::Instance,
+        live: Cell<bool>,
+    }
+    impl Dispatch for Counting {
+        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            unreachable!()
+        }
+        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            unreachable!()
+        }
+        fn draw(
+            &self,
+            _: u32,
+            _: &wire::DrawFrame<'_>,
+            _: &Env<'_>,
+            _: &mut paperpaw_graphics::Canvas<'_>,
+        ) -> Result<i32, i32> {
+            unreachable!()
+        }
+        fn dropped(&self, _: u32, _: i32) {}
+        fn stage(&self, _: u32, _: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+            let _guard = self
+                .guard
+                .enter(&self.depth.as_depth().0)
+                .map_err(|_| ERR_BUSY)?;
+            self.calls.set(self.calls.get() + 1);
+            let length = stage::FilterVerdict::new(0, "", &[], "").encode(out)?;
+            Ok(i32::try_from(length).unwrap())
+        }
+    }
+    impl NativeInstance for Counting {
+        fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+            visit(Some(&[]));
+        }
+        fn running(&self) -> bool {
+            self.live.get()
+        }
+        fn stop(&self) {
+            self.live.set(false);
+        }
+        fn callback_depth(&self) -> u8 {
+            self.depth.as_depth().0.current()
+        }
+    }
+
+    /// A kernel with the interface-6 plugin `g` (lock and PIN screens), `f`
+    /// (a PIN screen) and the native plugin `f` filtering `core.input-filter`.
+    fn world() -> (crate::Kernel, Rc<Cell<u32>>) {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Screens("g"))
+            .plugin(Screens("f"))
+            .build()
+            .unwrap();
+        kernel.start(paperpaw_platform::Instant(0));
+        let depth = FlatDepth::try_new().unwrap();
+        kernel.shared.native_depth = Some(depth.try_clone().unwrap());
+        let directory =
+            crate::native_host::shared::Shared::try_new(NativeDeclarations::default()).unwrap();
+        let calls = Rc::new(Cell::new(0));
+        let lease = NativeLease::try_new(Counting {
+            depth,
+            calls: Rc::clone(&calls),
+            guard: crate::abi7::calls::Instance::new(),
+            live: Cell::new(true),
+        })
+        .unwrap();
+        let key = kernel
+            .shared
+            .native_instances
+            .test_insert(Id::new_static("f"), Some(lease.try_clone().unwrap()), true)
+            .unwrap();
+        let rows = [Record::RegistrationStage(wire::RegistrationStage {
+            stage: stage::KEY,
+            token: 1,
+            order: 0,
+            signature: 0,
+        })];
+        let mut bytes = [0; 128];
+        let length = wire::records_encode(&rows, &mut bytes).unwrap();
+        let bytes = &bytes[..length];
+        let decoded = wire::records_decode(bytes).unwrap();
+        let mut raw = RawDeclarations::default();
+        let prepared = raw.prepare(None, Some(bytes), &decoded).unwrap();
+        raw.commit(prepared);
+        let mut allocations = Allocations::default();
+        let pending =
+            native_declarations::pending(&Id::new_static("f"), key, lease, raw, &mut allocations)
+                .unwrap();
+        directory
+            .stage(pending, key, &mut allocations)
+            .unwrap()
+            .commit();
+        kernel.shared.registry.native_declarations = Some(directory);
+        (kernel, calls)
+    }
+
+    fn key(kernel: &mut crate::Kernel, at: u64) {
+        let now = paperpaw_platform::Instant(at);
+        kernel.handle(now, press("up"));
+        kernel.handle(
+            now,
+            InputEvent::Button {
+                name: "up",
+                state: ButtonState::Released,
+            },
+        );
+    }
+
+    #[test]
+    fn a_native_filter_is_called_on_every_key_and_listed_once() {
+        let (mut kernel, calls) = world();
+        key(&mut kernel, 10);
+        assert_eq!(calls.get(), 2);
+        // The list is kept while the declarations stay as they are.
+        let revision = kernel.shared.native_filters.as_ref().map(|c| c.revision);
+        assert!(revision.is_some());
+        key(&mut kernel, 20);
+        assert_eq!(calls.get(), 4);
+        assert_eq!(
+            kernel.shared.native_filters.as_ref().map(|c| c.revision),
+            revision
+        );
+    }
+
+    #[test]
+    fn the_list_is_read_again_when_the_declarations_change_or_a_filter_failed() {
+        let revision = |kernel: &crate::Kernel| {
+            let directory = kernel.shared.registry.native_declarations.as_ref().unwrap();
+            let revision = directory.store.borrow().revision();
+            revision
+        };
+        // A filter that stopped is not called: the input passes.
+        let (mut kernel, calls) = world();
+        let owner = kernel.shared.native_instances.find("f").unwrap();
+        key(&mut kernel, 10);
+        assert!(kernel.shared.native_filters.is_some());
+        kernel.shared.native_instances.stop(owner).unwrap();
+        let before = calls.get();
+        key(&mut kernel, 20);
+        assert_eq!(calls.get(), before);
+        // An owner taken out of the store changes its revision: the list kept
+        // is not good any more.
+        let (mut kernel, calls) = world();
+        let owner = kernel.shared.native_instances.find("f").unwrap();
+        key(&mut kernel, 10);
+        let kept = revision(&kernel);
+        kernel
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .unwrap()
+            .store
+            .borrow_mut()
+            .remove_host_owner(owner);
+        assert_ne!(revision(&kernel), kept);
+        let before = calls.get();
+        key(&mut kernel, 20);
+        assert_eq!(calls.get(), before);
+        assert_eq!(
+            kernel
+                .shared
+                .native_filters
+                .as_ref()
+                .map(|c| c.filters.len()),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn another_plugins_filter_is_not_called_under_a_lock_or_a_pin_screen() {
+        for screen in [LOCK, PIN] {
+            let (mut kernel, calls) = world();
+            kernel.open_screen(paperpaw_platform::Instant(5), screen.clone(), Params::new());
+            key(&mut kernel, 10);
+            assert_eq!(calls.get(), 0, "{screen}");
+        }
+    }
+
+    #[test]
+    fn the_filter_of_the_plugin_whose_screen_it_is_still_runs() {
+        let (mut kernel, calls) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        key(&mut kernel, 10);
+        assert_eq!(calls.get(), 2);
+    }
+}

@@ -610,6 +610,7 @@ impl BuilderParts {
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 native_input: crate::native_host::ui_input::InputFilters::new(),
+                native_filters: None,
                 native_input_refused: false,
                 native_depth: None,
                 registry: Registry::default(),

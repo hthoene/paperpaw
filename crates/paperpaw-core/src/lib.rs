@@ -1332,6 +1332,8 @@ struct Shared {
     native_instances: native_host::native_instances::NativeInstances,
     /// The captures of the native `core.input-filter` chain.
     native_input: native_host::ui_input::InputFilters,
+    /// The native input filters read from the declarations, until they change.
+    native_filters: Option<native_host::input_chain::FilterCache>,
     /// Whether the last input had a native filter refused (told once).
     native_input_refused: bool,
     /// The shells' device-wide callback depth, kept from the first native

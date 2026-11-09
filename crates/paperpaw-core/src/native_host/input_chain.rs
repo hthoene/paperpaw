@@ -136,9 +136,12 @@ pub(crate) fn event_of(
                 _ => return None,
             };
             let (width, height) = display;
+            // A display of no width or height (a shell that has not sized it
+            // yet) has no last pixel: the point goes to 0 (`clamp` panics when
+            // its upper bound is below its lower).
             let point = Point::new(
-                pointer.x.clamp(0, i32::from(width).saturating_sub(1)),
-                pointer.y.clamp(0, i32::from(height).saturating_sub(1)),
+                pointer.x.clamp(0, (i32::from(width) - 1).max(0)),
+                pointer.y.clamp(0, (i32::from(height) - 1).max(0)),
             );
             let id = u8::try_from(pointer.contact.unwrap_or(0)).ok()?;
             Some(InputEvent::Pointer(match *original {
@@ -148,6 +151,14 @@ pub(crate) fn event_of(
         }
         _ => None,
     }
+}
+
+/// The subscribers of `core.input-filter`, kept with the declaration store's
+/// revision they were read at: read again only when the store changed, so a
+/// key allocates nothing for them.
+pub(crate) struct FilterCache {
+    revision: u64,
+    filters: Vec<Subscription<'static>>,
 }
 
 /// The subscribers of `core.input-filter` in stage order, at most
@@ -231,8 +242,12 @@ impl crate::Kernel {
         // The captures are the chain's only state: taken out for the call, so
         // that the rest of the kernel can be read meanwhile.
         let mut chain = core::mem::take(&mut self.shared.native_input);
-        let (native, refused) = self.native_input_run(&mut chain, now, event);
+        let mut cache = self.shared.native_filters.take();
+        let (native, refused) = self.native_input_run(&mut chain, &mut cache, now, event);
         self.shared.native_input = chain;
+        // A filter that failed may be one that stopped: read the list again
+        // at the next input.
+        self.shared.native_filters = cache.filter(|_| refused == 0);
         // Told once while filters keep failing, not at every key.
         if refused > 0 && !self.shared.native_input_refused {
             self.warn_runtime("a native input filter failed or answered badly: its input passed");
@@ -244,6 +259,7 @@ impl crate::Kernel {
     fn native_input_run(
         &self,
         chain: &mut InputFilters,
+        cache: &mut Option<FilterCache>,
         now: paperpaw_platform::Instant,
         event: &InputEvent,
     ) -> (Native, usize) {
@@ -255,13 +271,24 @@ impl crate::Kernel {
             return (Native::Pass, 0);
         };
         // The store is released before any filter runs.
-        let Ok(filters) = directory
+        let Ok(()) = directory
             .store
             .try_borrow()
             .map_err(|_| ERR_NO_MEMORY)
-            .and_then(|store| subscriptions(&store))
+            .and_then(|store| match cache {
+                Some(kept) if kept.revision == store.revision() => Ok(()),
+                _ => {
+                    let revision = store.revision();
+                    subscriptions(&store).map(|filters| {
+                        *cache = Some(FilterCache { revision, filters });
+                    })
+                }
+            })
         else {
             return (Native::Pass, 1);
+        };
+        let Some(filters) = cache.as_ref().map(|kept| kept.filters.as_slice()) else {
+            return (Native::Pass, 0);
         };
         if filters.is_empty() {
             return (Native::Pass, 0);
@@ -275,11 +302,24 @@ impl crate::Kernel {
             env: &env,
         };
         let stack: &dyn UiStackView = &*shared.stack_rows;
-        let runs = |plugin: u64| super::ui_guard::filter_runs(stack, plugin);
+        // The interface-6 screens are not in the native stack rows: until they
+        // go, a lock or a PIN screen of theirs is a guard too. Then only the
+        // filters of its plugin run (by the id's namespace, as the
+        // interface-6 filters do).
+        let legacy = self.secret_owner();
+        let runs = |plugin: u64| {
+            super::ui_guard::filter_runs(stack, plugin)
+                && legacy.as_deref().is_none_or(|owner| {
+                    shared
+                        .native_instances
+                        .id(plugin)
+                        .is_some_and(|id| id.namespace() == owner)
+                })
+        };
         let declared = |_: u64, _: &str| false;
         let policy = Policy {
             touch: shared.device.input.touch || shared.device.input.pen,
-            secret: super::ui_guard::top_is_secret(stack),
+            secret: legacy.is_some() || super::ui_guard::top_is_secret(stack),
             runs: &runs,
             declared: &declared,
         };
@@ -287,7 +327,7 @@ impl crate::Kernel {
         run_chain(
             chain,
             &mut runner,
-            &filters,
+            filters,
             &policy,
             event,
             (now.millis(), display, shared.device.input.keys),
