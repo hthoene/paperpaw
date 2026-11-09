@@ -54,7 +54,10 @@ fn count(cx: &Cx<'_>) -> Result<usize, Error> {
 /// days shown. The day log (up to 48 KiB) is read again only when one of them
 /// changed, never at each draw.
 #[derive(Debug, Default)]
-pub(crate) struct Cache(core::cell::RefCell<Option<((u64, u32, usize), Shown)>>);
+pub(crate) struct Cache(core::cell::RefCell<Option<(Key, Shown)>>);
+
+/// What the figures were worked out for.
+type Key = (u64, u32, usize);
 
 /// The streak and the marks, from the cache where nothing changed.
 fn shown(cx: &Cx<'_>, cache: &Cache) -> Result<Option<Shown>, Error> {
