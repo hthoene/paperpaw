@@ -2,8 +2,8 @@
 //! (the stage `reading-goal.read-today`, which they answer from memory) when a
 //! book closes or the device sleeps or stops, and writes it to `today.txt` in
 //! the plugin's data folder, and asks it again each minute for the widget.
-//! *Reading cat* (the widget) is here too; its picture and the sleep screen
-//! wait for images. See `PORTING-7.md`.
+//! *Reading cat* (the widget) is here too, with its picture; the sleep screen
+//! waits for the sleep plugin. See `PORTING-7.md`.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
@@ -13,9 +13,11 @@ use paperpaw_sdk::{
         commands::{CommandSender, PluginEnabled},
         events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
         fonts::{Font, FontRole},
+        image::{ImageId, ImageReady, ImageStyle, PrepareImage, PrepareRoot},
         registrations,
         registry::{PageCursor, Registry, RegistryPluginState},
         reply::Reply,
+        settings,
         stages::Stage,
         storage::DataStorage,
         ui::{
@@ -32,7 +34,8 @@ use paperpaw_ui_kit::{
     widget::Cx,
 };
 
-use crate::model::{Kept, Statistics, parse_stage};
+use crate::model::{Kept, Mood, Statistics, parse_stage};
+use crate::native_picture::{self, Next, Pictures, Source};
 use crate::native_widget::{self, TARGET};
 use crate::store;
 
@@ -55,6 +58,8 @@ const STORE: &str = "store.open";
 /// The reading statistics' plugin and the goal setting a tap opens.
 const STATISTICS_ID: &str = "stats";
 const GOAL: &str = "stats.goal";
+/// The setting that names the folder of one's own pictures.
+const PICTURES: &str = "reading-goal.pictures";
 /// The most pages of plugins read to find the statistics.
 const MOST_PAGES: usize = 16;
 /// The most bytes of a stage reply (sizes and up to 32 targets).
@@ -68,6 +73,9 @@ struct Item {
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
+    /// Its width as the host last measured it (0 before): the picture is
+    /// asked for as large as the widest is drawn.
+    width: u16,
 }
 
 /// Reading goal's interface-7 state.
@@ -81,6 +89,8 @@ pub struct NativeReadingGoal {
     /// The offer of the statistics, if open: its request and the state it
     /// was made for.
     asked: Option<(RequestId, Statistics)>,
+    /// The cat's picture of the mood shown, and what is asked for it.
+    pictures: Pictures,
 }
 
 impl Default for NativeReadingGoal {
@@ -90,6 +100,7 @@ impl Default for NativeReadingGoal {
             statistics: Statistics::Counting,
             items: Vec::new(),
             asked: None,
+            pictures: Pictures::default(),
         }
     }
 }
@@ -121,7 +132,7 @@ impl Plugin for NativeReadingGoal {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged)
         else {
             return Ok(());
         };
@@ -131,6 +142,12 @@ impl Plugin for NativeReadingGoal {
             } => self.made(host, widget, instance),
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
+                // The last widget gone: the picture is given back.
+                if self.items.is_empty()
+                    && let Some(old) = self.pictures.forget()
+                {
+                    release_image(host, old);
+                }
                 Ok(())
             }
             Event::StageCall {
@@ -140,6 +157,9 @@ impl Plugin for NativeReadingGoal {
             } => self.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK => self.tick(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::ImageReady(ready) => self.image_ready(host, &ready),
+            Event::SettingChanged { key: PICTURES, .. } => self.pictures_changed(host),
+            Event::SettingChanged { .. } => Ok(()),
             _ => {
                 let Some(edge) = edge(token, &event) else {
                     return Ok(());
@@ -177,7 +197,8 @@ impl Plugin for NativeReadingGoal {
         );
         let today = native_widget::facts(host, &self.kept, self.statistics)?;
         let mut out = Vec::new();
-        native_widget::draw(&mut cx, &mut out, area, &today)?;
+        let picture = self.pictures.of(today.mood);
+        let room = native_widget::draw(&mut cx, &mut out, area, &today, picture.is_some())?;
         let bold = if out
             .iter()
             .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
@@ -187,6 +208,14 @@ impl Plugin for NativeReadingGoal {
             None
         };
         paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
+        // The cat over what the frame drew. Where the host refuses it, the
+        // widget is the frame and the minutes.
+        if let (Some(image), Some(room)) = (picture, room) {
+            frame
+                .draw_canvas()?
+                .draw_image(image, paint::frame_rect(room), ImageStyle::new())
+                .ok();
+        }
         // What was drawn is what the next tick compares with: the first
         // tick after a draw that finds something new tells the maker.
         let mark = native_widget::mark(&today);
@@ -311,6 +340,124 @@ impl Kept {
 }
 
 impl NativeReadingGoal {
+    /// Asks for the picture of the mood shown, where there is none yet and
+    /// none is asked for. A failure is tried again at the next minute.
+    fn want_picture(&mut self, host: &Host<'_>) {
+        let Ok(today) = native_widget::facts(host, &self.kept, self.statistics) else {
+            return;
+        };
+        if self.pictures.wants(today.mood) {
+            self.ask_picture(host, today.mood, 0).ok();
+        }
+    }
+
+    /// Asks for the first file from step `from` on that can be asked for.
+    /// With none left the mood stays in words.
+    fn ask_picture(&mut self, host: &Host<'_>, mood: Mood, from: usize) -> Result<(), Error> {
+        let mut bytes = [0u8; 256];
+        let folder = picture_folder(host, &mut bytes);
+        let own = !folder.is_empty();
+        // As large as the widest widget is drawn (0: the screen's, before any
+        // is measured).
+        let side = self
+            .items
+            .iter()
+            .map(|item| u32::from(item.width))
+            .max()
+            .unwrap_or(0);
+        let mut step = from;
+        while step < native_picture::steps(own) {
+            if let Some(candidate) = native_picture::candidate(folder, mood, step)
+                && let Some(root) = root_of(candidate.source)
+            {
+                let cookie = native_picture::cookie(mood, step);
+                let request = PrepareImage::new(root, &candidate.path, cookie).side(side);
+                let mut scratch = [0u8; 640];
+                CommandSender::new(host, &mut scratch).image_prepare(&request)?;
+                self.pictures.asked(mood, step);
+                return Ok(());
+            }
+            step = step.saturating_add(1);
+        }
+        self.pictures.gave_up(mood);
+        Ok(())
+    }
+
+    /// The host's answer to a picture asked for.
+    fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        let mut bytes = [0u8; 256];
+        let own = !picture_folder(host, &mut bytes).is_empty();
+        let answer = (ready.cookie(), ready.status(), ready.image());
+        match self.pictures.ready(answer, own) {
+            // An answer nobody waits for (the folder changed meanwhile) still
+            // holds a picture: given back.
+            Next::Ignore => {
+                if let Some(image) = ready.image() {
+                    release_image(host, image);
+                }
+                Ok(())
+            }
+            Next::Words | Next::Retry => Ok(()),
+            Next::Again { mood, step } => self.ask_picture(host, mood, step),
+            Next::Ready { release, .. } => {
+                if let Some(old) = release {
+                    release_image(host, old);
+                }
+                self.redraw(host);
+                Ok(())
+            }
+        }
+    }
+
+    /// The folder of one's own pictures changed: the held picture goes and
+    /// the next minute asks again.
+    fn pictures_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if let Some(old) = self.pictures.forget() {
+            release_image(host, old);
+        }
+        self.redraw(host);
+        Ok(())
+    }
+
+    /// Tells the makers of the widgets that they show something new.
+    fn redraw(&mut self, host: &Host<'_>) {
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        for item in &self.items {
+            commands.widget_changed(item.instance).ok();
+        }
+    }
+}
+
+/// The folder of one's own pictures, without slashes at its ends (empty:
+/// none).
+fn picture_folder<'a>(host: &Host<'_>, bytes: &'a mut [u8]) -> &'a str {
+    match settings::read_setting(host, PICTURES, bytes) {
+        Ok(settings::SettingValue::Text(folder)) => folder.trim_matches('/'),
+        _ => "",
+    }
+}
+
+/// Where the host reads a candidate from. The plugin's install folder (the
+/// cats) cannot be named by the SDK yet: `PrepareRoot::Bundle` (Services
+/// todo 308, Host todo 309), so the cats are left out until it exists.
+const fn root_of(source: Source) -> Option<PrepareRoot> {
+    match source {
+        Source::Card => Some(PrepareRoot::Library),
+        Source::Bundle => None,
+    }
+}
+
+/// Gives a picture back; a refusal leaves it with the host, which ends it
+/// with the plugin.
+fn release_image(host: &Host<'_>, image: ImageId) {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch)
+        .image_release(image)
+        .ok();
+}
+
+impl NativeReadingGoal {
     /// Writes what was told where the file holds something else. A failed
     /// write is not told: the figure is kept and written at the next edge, as
     /// on interface 6.
@@ -336,6 +483,7 @@ impl NativeReadingGoal {
             instance,
             widget: copy(widget)?,
             shown: None,
+            width: 0,
         });
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
         Ok(())
@@ -343,7 +491,12 @@ impl NativeReadingGoal {
 
     /// The host asks for the widget's height, where it sits and what a tap
     /// meets.
-    fn stage(&self, host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+    fn stage(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
         let call = WidgetCall::decode(payload)?;
         let mut out = buffer(WIDGET_REPLY)?;
         let written = match call {
@@ -352,7 +505,13 @@ impl NativeReadingGoal {
                 let mut cx = Cx::open(host, &item.widget)?;
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let height = native_widget::height(&mut cx, width)?;
-                call.reply_size(u32::from(height), u32::from(height), &mut out)?
+                let written = call.reply_size(u32::from(height), u32::from(height), &mut out)?;
+                drop(cx);
+                if let Some(item) = self.items.iter_mut().find(|item| item.instance == instance) {
+                    item.width = width;
+                }
+                self.want_picture(host);
+                written
             }
             WidgetCall::Place { instance, .. } => {
                 self.find(instance.get()).ok_or(Error::NotFound)?;
@@ -381,6 +540,7 @@ impl NativeReadingGoal {
             self.flush(host);
         }
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
+        self.want_picture(host);
         let (kept, statistics) = (self.kept, self.statistics);
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);

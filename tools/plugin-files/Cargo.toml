@@ -111,6 +111,8 @@ bench = false
 [[bin]]
 name = "stats"
 path = "src/bin/stats.rs"
+name = "translate"
+path = "src/bin/translate.rs"
 test = false
 bench = false
 
@@ -207,7 +209,6 @@ bench = false
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
-paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
@@ -224,6 +225,7 @@ paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise" }
 paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
 paperpaw-plugin-stats = { path = "../../plugins/stats" }
+paperpaw-plugin-translate = { path = "../../plugins/translate" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-wallabag = { path = "../../plugins/wallabag" }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }

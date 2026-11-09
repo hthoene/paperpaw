@@ -27,12 +27,14 @@ news news
 notes-vault notes
 picture-home look
 # profiles reading  (no file until the store build moves to interface 7, #228)
-reading-goal reading
+# reading-goal reading  (no file until the store build moves to interface 7, #228)
 readwise notes
 read-later-cloud news
 # rules system  (no file until the store build moves to interface 7, #228)
 stats reading
 # translate reading  (no file until the store build moves to interface 7, #228)
+# stats reading  (no file until the store build moves to interface 7, #228)
+translate reading
 vocabulary learning
 wallabag news
 # weather home  (no file until the store build moves to interface 7, #228)

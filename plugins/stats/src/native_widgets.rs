@@ -28,7 +28,7 @@ use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
 use crate::declarations::{
-    CALENDAR_WIDGET_TOKEN, RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN,
+    CALENDAR_WIDGET_TOKEN, RING_TOKEN, STREAK_TOKEN, TODAY_TOKEN, WEEK_TOKEN, YEAR_TOKEN,
 };
 
 /// The most bytes of a stage reply (a size, or one target).
@@ -69,6 +69,11 @@ static CALENDAR: Behaviour = Behaviour {
     draw: crate::native_widget_calendar::draw,
 };
 
+static YEAR: Behaviour = Behaviour {
+    height: crate::native_widget_year::height,
+    draw: crate::native_widget_year::draw,
+};
+
 /// The behaviour of the widget declared with `token`.
 fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
@@ -77,6 +82,7 @@ fn behaviour(token: u32) -> Option<&'static Behaviour> {
         RING_TOKEN => Some(&RING),
         STREAK_TOKEN => Some(&STREAK),
         CALENDAR_WIDGET_TOKEN => Some(&CALENDAR),
+        YEAR_TOKEN => Some(&YEAR),
         _ => None,
     }
 }
@@ -89,6 +95,7 @@ fn token_of(widget: &str) -> Option<u32> {
         "stats.widget.goal" => Some(RING_TOKEN),
         "stats.widget.streak" => Some(STREAK_TOKEN),
         "stats.widget.calendar" => Some(CALENDAR_WIDGET_TOKEN),
+        "stats.widget.year" => Some(YEAR_TOKEN),
         _ => None,
     }
 }
@@ -100,6 +107,8 @@ pub(crate) enum Tap {
     Statistics,
     /// Opens the statistics' settings, where the goal is set.
     Goal,
+    /// Opens the books.
+    Books,
 }
 
 /// One widget made for a screen.
@@ -121,6 +130,7 @@ struct Item {
 pub(crate) struct Slot {
     pub streak: crate::native_widget_streak::Cache,
     pub calendar: crate::native_widget_calendar::Cache,
+    pub year: crate::native_widget_year::Cache,
 }
 
 /// The widgets made for screens, by the host's instance.
@@ -206,7 +216,8 @@ impl Widgets {
     }
 
     /// What `input` is, if a tap on one of the widgets: the ring asks for a
-    /// goal where there is none, the others open the statistics.
+    /// goal where there is none, the year opens the books, the others open the
+    /// statistics.
     ///
     /// # Errors
     /// Host refusals.
@@ -224,6 +235,8 @@ impl Widgets {
         };
         Ok(Some(if item.token == RING_TOKEN && goal(host)?.is_none() {
             Tap::Goal
+        } else if item.token == YEAR_TOKEN {
+            Tap::Books
         } else {
             Tap::Statistics
         }))

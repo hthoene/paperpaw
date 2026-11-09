@@ -4,7 +4,7 @@
 //! ignored until they are. Each names what is missing.
 
 #[test]
-#[ignore = "needs the statistics to subscribe to reading-goal.read-today and answer (stats side) and a host that admits stages and runs native plugins end to end"]
+#[ignore = "needs a host that admits stages and runs native plugins end to end (the statistics' answer is plugins/stats tell_today)"]
 fn the_statistics_tell_today_and_it_is_written_to_the_card_when_a_book_closes() {
     unreachable!(
         "read_today while a book is open is kept in memory; book_closed, suspend and stopping write today.txt"
@@ -18,7 +18,7 @@ fn today_txt_is_read_and_replaced_only_when_it_differs() {
 }
 
 #[test]
-#[ignore = "needs images (draft 22): the cat's four pictures and the own folder setting (the widget draws the mood in words and the minutes without them)"]
+#[ignore = "needs a host that runs native plugins end to end with images: the pictures asked for are prepared and drawn (the decisions are tested in src/native_picture/tests.rs; the installed cats need PrepareRoot::Bundle, Services todo 308, Host todo 309)"]
 fn the_widget_shows_the_cat_of_todays_mood_and_the_minutes() {
     unreachable!("the picture of today's mood, as large as its place leaves, above the minutes");
 }
@@ -32,7 +32,7 @@ fn the_widget_is_drawn_and_a_tap_opens_the_goal() {
 }
 
 #[test]
-#[ignore = "needs images (draft 22) and the sleep plugin on interface 7 (choice sleep.show = reading-goal.sleep)"]
+#[ignore = "blocked on PR #649 (the native sleep) and add_choice: the choice sleep.show = reading-goal.sleep and the sleep screen"]
 fn the_sleep_screen_shows_the_cat_large_in_the_middle() {
     unreachable!("the cat, the minutes and the goal below it");
 }

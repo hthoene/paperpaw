@@ -105,6 +105,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     }
     // A new day makes the cat sad again; the figure is asked for each minute.
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    // The answer to a picture asked for, and a change of the folder of one's own.
+    declarations.subscribe_event(EventKind::ImageReady, EVENTS_TOKEN)?;
+    declarations.subscribe_event(EventKind::SettingChanged, EVENTS_TOKEN)?;
     declarations.submit()
 }
 
