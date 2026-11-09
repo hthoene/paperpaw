@@ -24,7 +24,7 @@ use super::{
     host_services::HostServices,
     image_service::{
         commands::{ImageCommand, ImageRoots},
-        prepare::{Env as DecodeEnv, Ready, SweepCursor},
+        prepare::{Env as DecodeEnv, NO_MEMORY, Ready, SweepCursor, UNSUPPORTED},
     },
     native_instances::InstanceState,
     registrations::{self as wire},
@@ -67,8 +67,10 @@ pub(crate) struct ImagePump {
     pending: RefCell<Vec<(u64, ImageCommand, u8)>>,
     /// When the held-back commands are tried again.
     retry_at: Cell<Option<u64>>,
-    /// Requests that failed for want of room or memory: `(owner, cookie)`.
-    failed: [Cell<Option<(u64, u32)>>; FAILED_MAX],
+    /// Requests that failed, to be told: `(owner, cookie, status)`.
+    failed: [Cell<Option<(u64, u32, u32)>>; FAILED_MAX],
+    /// The failure to give way when all places are taken (the oldest).
+    failed_next: Cell<usize>,
     /// The answer being told, kept where the table is not locked.
     held: RefCell<Option<Ready>>,
     /// The boot sweep of the cache folder is over.
@@ -159,7 +161,15 @@ impl crate::Kernel {
             if !behind {
                 match self.image_apply_one(owner, &command) {
                     Some(status) if for_now(status) => behind = true,
-                    _ => continue,
+                    // A lasting refusal: the submit said yes, the plugin is
+                    // told it failed.
+                    Some(_) => {
+                        if !self.image_fail(owner, &command, UNSUPPORTED) {
+                            self.warn_runtime("a plugin's picture failure replaced an older one");
+                        }
+                        continue;
+                    }
+                    None => continue,
                 }
             }
             self.image_keep(owner, command);
@@ -190,7 +200,7 @@ impl crate::Kernel {
                 drop(pending);
                 // Not kept: its plugin is told it failed, in the room the
                 // failures have of their own.
-                self.image_fail(owner, &command);
+                self.image_fail(owner, &command, NO_MEMORY);
                 false
             }
         };
@@ -205,23 +215,46 @@ impl crate::Kernel {
         }
     }
 
-    /// A request that failed is told to its plugin as `event.image_ready` with
-    /// status 5 (not enough memory now). A release has nothing to tell.
-    /// `false` when there is no room even for that.
-    fn image_fail(&self, owner: u64, command: &ImageCommand) -> bool {
+    /// A request that failed is told to its plugin as `event.image_ready`
+    /// with `status` (5 not enough memory now; 1 a request that can never be
+    /// done). A release has nothing to tell. With every place taken the oldest
+    /// failure gives way (`false`: the caller says so): the plugins' requests
+    /// are counted against their room (`image_held`), so this takes more
+    /// failing plugins than the places there are.
+    fn image_fail(&self, owner: u64, command: &ImageCommand, status: u32) -> bool {
         let ImageCommand::Prepare { cookie, .. } = command else {
             return true;
         };
-        self.shared
-            .native_instances
-            .image_pump
+        let pump = &self.shared.native_instances.image_pump;
+        let entry = Some((owner, *cookie, status));
+        if let Some(slot) = pump.failed.iter().find(|slot| slot.get().is_none()) {
+            slot.set(entry);
+            return true;
+        }
+        let at = pump.failed_next.get() % FAILED_MAX;
+        pump.failed[at].set(entry);
+        pump.failed_next.set(at + 1);
+        false
+    }
+
+    /// The requests of `owner` that wait here (kept or failed, not yet
+    /// told): they count against its room like the table's own.
+    pub(crate) fn image_held(&self, owner: u64) -> usize {
+        let pump = &self.shared.native_instances.image_pump;
+        let kept = pump
+            .pending
+            .borrow()
+            .iter()
+            .filter(|(who, command, _)| {
+                *who == owner && matches!(command, ImageCommand::Prepare { .. })
+            })
+            .count();
+        let failed = pump
             .failed
             .iter()
-            .find(|slot| slot.get().is_none())
-            .is_some_and(|slot| {
-                slot.set(Some((owner, *cookie)));
-                true
-            })
+            .filter(|slot| slot.get().is_some_and(|(who, ..)| who == owner))
+            .count();
+        kept + failed
     }
 
     /// One pass of the picture pump (see the module). `true` when work
@@ -297,15 +330,19 @@ impl crate::Kernel {
                         .insert(at, (owner, command, tries + 1));
                     at += 1;
                 }
-                Some(status) if for_now(status) => lost |= !self.image_fail(owner, &command),
-                _ => {}
+                Some(status) if for_now(status) => {
+                    lost |= !self.image_fail(owner, &command, NO_MEMORY);
+                }
+                // A lasting refusal: the submit said yes, so the plugin is told.
+                Some(_) => lost |= !self.image_fail(owner, &command, UNSUPPORTED),
+                None => {}
             }
         }
         if !pump.pending.borrow().is_empty() {
             pump.retry_at.set(Some(now + RETRY_MS));
         }
         if lost {
-            self.warn_runtime("a plugin's picture request failed and could not be told");
+            self.warn_runtime("a plugin's picture failure replaced an older one");
         }
     }
 
@@ -319,12 +356,12 @@ impl crate::Kernel {
             let pump = &instances.image_pump;
             if pump.held.borrow().is_none()
                 && let Some(slot) = pump.failed.iter().find(|slot| slot.get().is_some())
-                && let Some((owner, cookie)) = slot.take()
+                && let Some((owner, cookie, status)) = slot.take()
             {
                 *pump.held.borrow_mut() = Some(Ready {
                     owner,
                     cookie,
-                    status: super::image_service::prepare::NO_MEMORY,
+                    status,
                     image: 0,
                     width: 0,
                     height: 0,

@@ -69,7 +69,14 @@ impl Kernel {
                     target.hop,
                     self.screen_keys_remaining(),
                 )
-                .with_images(context.image_admit());
+                .with_images({
+                    // Requests held outside the table count against the room.
+                    let mut admit = context.image_admit();
+                    admit.room = admit
+                        .room
+                        .saturating_sub(self.image_held(context.owner_key()));
+                    admit
+                });
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
