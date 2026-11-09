@@ -17,10 +17,6 @@ const READ_LIMIT: usize = 32 * 1024;
 /// Items shown and changed at most (those after them are kept as they are).
 pub const MAX_ITEMS: usize = 100;
 /// The length of an item, in characters.
-#[allow(
-    dead_code,
-    reason = "the list's screen (the next slice) types items by it"
-)]
 pub const MAX_TEXT: usize = 200;
 /// The date before an open item whose text would read as one done.
 const MADE: &str = "1970-01-01";
@@ -224,10 +220,6 @@ pub fn save(host: &Host<'_>, list: &List) -> Result<(), Error> {
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-#[allow(
-    dead_code,
-    reason = "the list's screen (the next slice) cleans typed items with it"
-)]
 pub fn cleaned(text: &str) -> Result<String, Error> {
     let text = text.trim();
     let mut out = String::new();

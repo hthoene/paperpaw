@@ -186,8 +186,9 @@ It stages nothing; the loader stages the returned records. Rules:
   settings value (`abi/settings.md`), never absent: bool for kind 0, int for 1,
   text for 2 to 5. An int default lies within `min..=max` and `min <= max`;
   `min` and `max` are 0 for other kinds. `choices` is used only by kind 2, with
-  1 to 32 distinct values of 1 to 96 bytes joined by `\n` (refused as soon as a
-  33rd starts), and `default` is one
+  1 to 64 distinct values of 1 to 96 bytes joined by `\n`, at most 1,024 bytes
+  in all (refused as soon as a 65th starts; 64 since draft 29, for translate's
+  33 languages), and `default` is one
   of them; it is empty for other kinds. A language default is `[A-Za-z0-9-]`,
   at most 35 bytes (empty allowed).
 - `setting.extra`: `check` is 0. Flags: bit0 slider, bit1 section_of_plugin,

@@ -70,7 +70,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 28;
+const KIND_COUNT: usize = 29;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -107,8 +107,10 @@ pub(crate) enum Kind {
     Stage,
     /// `registration.stage`: the plugin's token on a stage (any owner's).
     Subscription,
+    /// `setup.step` (category 8).
+    SetupStep,
 }
-const _: () = assert!(Kind::Subscription as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::SetupStep as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -140,6 +142,7 @@ impl Kind {
             Self::PresetValue => 15,
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
+            Self::SetupStep => 8,
         }
     }
 
@@ -173,6 +176,7 @@ impl Kind {
             Record::PresetValue(_) => Self::PresetValue,
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
+            Record::SetupStep(_) => Self::SetupStep,
             _ => return None,
         })
     }
@@ -243,13 +247,19 @@ pub(crate) struct PendingDeclarations {
     generation: u32,
     source: OwnerRef,
     batches: Vec<DeclRef>,
-    kinds: [Vec<Slot>; KIND_COUNT],
+    /// Every indexed record of the owner in one list: grouped by kind, and
+    /// inside a kind sorted by name hash once the owner is prepared. The
+    /// range of kind `k` is `starts[k]..starts[k + 1]`.
+    slots: Vec<Slot>,
+    starts: [u16; KIND_COUNT + 1],
     resident: usize,
     incarnation: u32,
     failure: Option<i32>,
     index_bytes: usize,
     image_entries: usize,
-    owned_counts: [usize; KIND_COUNT],
+    /// Records of owned (not image-backed) batches, by kind, for the per-kind
+    /// limits.
+    owned_counts: [u16; KIND_COUNT],
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
@@ -259,13 +269,32 @@ impl PendingDeclarations {
         self.source.owner_id()
     }
 
+    /// The slots of one kind.
+    fn of_kind(&self, kind: Kind) -> &[Slot] {
+        let k = kind as usize;
+        &self.slots[usize::from(self.starts[k])..usize::from(self.starts[k + 1])]
+    }
+
+    /// Adds `slot` at the end of its kind's range. The caller has reserved
+    /// room, so nothing here allocates.
+    fn add_slot(&mut self, kind: Kind, slot: Slot) {
+        let at = usize::from(self.starts[kind as usize + 1]);
+        self.slots.insert(at, slot);
+        // Each owner holds far fewer than 65,535 records (the declaration
+        // byte cap); a saturated offset would only end a range early.
+        for start in &mut self.starts[kind as usize + 1..] {
+            *start = start.saturating_add(1);
+        }
+    }
+
     pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
         Self {
             id,
             generation: source.generation(),
             source: OwnerRef::Existing(source),
             batches: Vec::new(),
-            kinds: core::array::from_fn(|_| Vec::new()),
+            slots: Vec::new(),
+            starts: [0; KIND_COUNT + 1],
             resident: 0,
             incarnation: 0,
             failure: None,
@@ -284,7 +313,8 @@ impl PendingDeclarations {
             generation: source.generation(),
             source,
             batches: Vec::new(),
-            kinds: core::array::from_fn(|_| Vec::new()),
+            slots: Vec::new(),
+            starts: [0; KIND_COUNT + 1],
             resident: 0,
             incarnation: 0,
             failure: None,
@@ -389,7 +419,7 @@ impl PendingDeclarations {
             });
         }
         let image = reference.is_some();
-        if self.kinds[Kind::Subscription as usize].len() + counts[Kind::Subscription as usize]
+        if self.of_kind(Kind::Subscription).len() + counts[Kind::Subscription as usize]
             > super::declaration_checks::STAGE_SUBSCRIPTIONS_MAX
         {
             return Err(paperpaw_native::host_glue::ERR_FULL);
@@ -400,17 +430,18 @@ impl PendingDeclarations {
             None => input.own(allocations)?,
         };
         allocations.reserve(&mut self.batches, 1)?;
-        for (registry, count) in self.kinds.iter_mut().zip(counts) {
-            allocations.reserve(registry, count)?;
-        }
+        allocations.reserve(&mut self.slots, counts.iter().sum())?;
         for (record, kind) in kinds.into_iter().enumerate() {
             if let Some((kind, hash)) = kind {
                 // The decoder bounds each batch to eight records.
-                self.kinds[kind as usize].push(Slot {
-                    hash,
-                    batch,
-                    record: offsets[record],
-                });
+                self.add_slot(
+                    kind,
+                    Slot {
+                        hash,
+                        batch,
+                        record: offsets[record],
+                    },
+                );
             }
         }
         self.batches.push(reference);
@@ -419,7 +450,7 @@ impl PendingDeclarations {
         self.image_entries = image_entries;
         if !image {
             for (total, count) in self.owned_counts.iter_mut().zip(counts) {
-                *total += count;
+                *total = total.saturating_add(u16::try_from(count).unwrap_or(u16::MAX));
             }
         }
         Ok(())
@@ -484,13 +515,15 @@ impl PendingDeclarations {
                 // subscriptions are checked at commit (`ERR_FULL`).
                 usize::MAX,
                 usize::MAX,
+                // `setup.step` shares the aggregate byte cap.
+                usize::MAX,
             ];
             if self
                 .owned_counts
                 .iter()
                 .zip(counts)
                 .zip(limits)
-                .any(|((&old, new), limit)| old + new > limit)
+                .any(|((&old, new), limit)| usize::from(old) + new > limit)
             {
                 return Err(ERR_NO_SPACE);
             }
@@ -549,8 +582,9 @@ impl DeclarationStore {
         if pending.source.generation() != pending.generation {
             return Err(ERR_STATE);
         }
-        for entries in &mut pending.kinds {
-            super::declaration_index::sort_by_key(entries, |entry| entry.hash);
+        for kind in 0..KIND_COUNT {
+            let range = usize::from(pending.starts[kind])..usize::from(pending.starts[kind + 1]);
+            super::declaration_index::sort_by_key(&mut pending.slots[range], |entry| entry.hash);
         }
         let at = self
             .owners
@@ -644,17 +678,15 @@ impl DeclarationStore {
             if owner.source.generation() != owner.generation {
                 continue;
             }
-            for slots in &owner.kinds {
-                allocations.reserve(&mut keys, slots.len())?;
-                for slot in slots {
-                    keys.push(DeclKey {
-                        owner: u16::try_from(index).map_err(|_| ERR_NO_SPACE)?,
-                        batch: slot.batch,
-                        record: slot.record,
-                        generation: owner.generation,
-                        incarnation: owner.incarnation,
-                    });
-                }
+            allocations.reserve(&mut keys, owner.slots.len())?;
+            for slot in &owner.slots {
+                keys.push(DeclKey {
+                    owner: u16::try_from(index).map_err(|_| ERR_NO_SPACE)?,
+                    batch: slot.batch,
+                    record: slot.record,
+                    generation: owner.generation,
+                    incarnation: owner.incarnation,
+                });
             }
         }
         Ok(keys)
@@ -668,7 +700,7 @@ impl DeclarationStore {
             if owner.source.generation() != owner.generation {
                 continue;
             }
-            for slot in &owner.kinds[kind as usize] {
+            for slot in owner.of_kind(kind) {
                 visit(DeclKey {
                     owner: u16::try_from(index).unwrap_or(u16::MAX),
                     batch: slot.batch,
@@ -711,7 +743,7 @@ impl DeclarationStore {
         };
         let category = kind.category();
         let hash = super::declaration_index::composite_hash(category, parts);
-        let slots = &owner.kinds[kind as usize];
+        let slots = owner.of_kind(kind);
         let from = slots.partition_point(|slot| slot.hash < hash);
         for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
             let key = DeclKey {
@@ -830,7 +862,7 @@ fn check_indexed_name(
     let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
     let (category, _) = name_key(record).ok_or(ERR_INVALID)?;
     let hash = record_hash(record).ok_or(ERR_INVALID)?;
-    let slots = &owner.kinds[kind as usize];
+    let slots = owner.of_kind(kind);
     let from = slots.partition_point(|slot| slot.hash < hash);
     let run = slots[from..].iter().take_while(|slot| slot.hash == hash);
     if !run
@@ -847,7 +879,7 @@ fn check_indexed_name(
         core::slice::from_ref(&kind)
     };
     for peer_kind in peer_kinds {
-        let peers = &owner.kinds[*peer_kind as usize];
+        let peers = owner.of_kind(*peer_kind);
         let from = peers.partition_point(|slot| slot.hash < hash);
         for peer in peers[from..]
             .iter()
@@ -887,4 +919,11 @@ const _: () = {
     assert!(size_of::<DeclRef>() == 12);
     assert!(size_of::<DeclKey>() == 16);
     assert!(size_of::<Slot>() == 8);
+    // One list and one table of offsets per owner, flat as kinds are added
+    // (`abi/heap-word.md` section 9).
+    assert!(size_of::<PendingDeclarations>() <= PENDING_BUDGET);
 };
+
+/// The most bytes of one owner's `PendingDeclarations` on the X4.
+#[cfg(target_pointer_width = "32")]
+const PENDING_BUDGET: usize = 192;

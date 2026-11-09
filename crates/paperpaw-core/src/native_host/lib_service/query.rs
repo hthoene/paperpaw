@@ -45,6 +45,12 @@ pub(crate) trait LibQuery {
     fn book(&self, _book: BookRef<'_>, _visit: One<'_>) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
+    /// Op 3's lookup for `lib_book.flags` bit 8 `missing`: whether the book's
+    /// file (`path`, a library path, already checked) is on the card now. A
+    /// card failure is `ERR_IO`, as every op that reads the card.
+    fn book_file_present(&self, _path: &str) -> Result<bool, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
     /// Op 4: one `lib_text` of `at.kind` (0-6), `at.index` (0 unless the kind
     /// is a list: tag, field, annotation text or note) from `at.offset`.
     /// `ERR_NOT_FOUND` for an index beyond the list.
@@ -238,14 +244,7 @@ fn book_alone(
 ) -> Result<usize, i32> {
     let (book, _) = named(host, input, 0)?;
     match id {
-        op::BOOK => page::one(
-            out,
-            |visit| host.book(book, visit),
-            |record| match record {
-                Record::ServiceLibBook(row) => check::book(row, book),
-                _ => Err(ERR_INVALID),
-            },
-        ),
+        op::BOOK => lib_book(host, book, out),
         op::NEXT_IN_SERIES => page::one(
             out,
             |visit| host.next_in_series(book, visit),
@@ -346,4 +345,38 @@ fn annotated(
             host.anchors(book, ask.cursor, ask.annotation_generation, visit)
         })
     }
+}
+
+/// Bit 8 of `lib_book.flags`: the book's file is not on the card now.
+const BOOK_MISSING: u32 = 1 << 8;
+
+/// Op 3: the catalog's `lib_book` with bit 8 `missing` set by the host's own
+/// lookup (the catalog does not decide it; a plugin needs no `uses.storage`
+/// to tell a gone book).
+fn lib_book(host: &dyn super::LibHost, book: BookRef<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    let mut failed = None;
+    let result = page::one(
+        out,
+        |visit| {
+            host.book(book, &mut |record| match record {
+                Record::ServiceLibBook(mut row) => match host.book_file_present(row.path) {
+                    Ok(present) => {
+                        row.flags &= !BOOK_MISSING;
+                        if !present {
+                            row.flags |= BOOK_MISSING;
+                        }
+                        visit(Record::ServiceLibBook(row));
+                    }
+                    // The reply is the lookup's failure, not a record.
+                    Err(status) => failed = Some(status),
+                },
+                other => visit(other),
+            })
+        },
+        |record| match record {
+            Record::ServiceLibBook(row) => check::book(row, book),
+            _ => Err(ERR_INVALID),
+        },
+    );
+    failed.map_or(result, Err)
 }

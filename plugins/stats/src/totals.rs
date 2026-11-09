@@ -124,23 +124,50 @@ pub(crate) fn seconds_per_book(
     storage: &dyn Storage,
     books: &[Book],
 ) -> Result<Vec<u64>, StorageError> {
+    seconds_by_id(storage, books.len(), |at| books.get(at).map(|b| b.id))
+}
+
+/// Reading time of `count` books sorted by id, `id_at` giving each one's id.
+pub(crate) fn seconds_by_id(
+    storage: &dyn Storage,
+    count: usize,
+    id_at: impl Fn(usize) -> Option<u16>,
+) -> Result<Vec<u64>, StorageError> {
     let mut seconds = Vec::new();
     seconds
-        .try_reserve_exact(books.len())
+        .try_reserve_exact(count)
         .map_err(|_| StorageError::TooLarge)?;
-    seconds.resize(books.len(), 0u64);
+    seconds.resize(count, 0u64);
     #[expect(
         clippy::let_underscore_must_use,
         reason = "a log that cannot be read to the end counts what could be, as said above"
     )]
     let _ = store::scan(storage, |stat| {
-        if let Ok(i) = books.binary_search_by_key(&stat.book, |b| b.id)
+        if let Ok(i) = binary_search(count, &id_at, stat.book)
             && let Some(total) = seconds.get_mut(i)
         {
             *total += u64::from(stat.duration);
         }
     });
     Ok(seconds)
+}
+
+/// `slice::binary_search_by_key` over `count` ids given by `id_at`.
+fn binary_search(
+    count: usize,
+    id_at: &impl Fn(usize) -> Option<u16>,
+    id: u16,
+) -> Result<usize, usize> {
+    let (mut low, mut high) = (0, count);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        match id_at(mid).map(|found| found.cmp(&id)) {
+            Some(core::cmp::Ordering::Less) => low = mid + 1,
+            Some(core::cmp::Ordering::Greater) => high = mid,
+            _ => return Ok(mid),
+        }
+    }
+    Err(low)
 }
 
 /// The days in a row up to `today` (or yesterday, while today has no

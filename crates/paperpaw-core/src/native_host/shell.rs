@@ -17,11 +17,7 @@
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
-use core::cell::Cell;
-use core::ffi::c_void;
-use core::pin::Pin;
-use core::ptr;
+use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
 
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
@@ -227,6 +223,7 @@ pub const fn host_table<S: Services>() -> PpHost {
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.stage_run = stage_slot::run::<S>;
+    table.text_covers = text_covers::covers::<S>;
     table.ui_compose = super::ui_compose::compose::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
@@ -257,6 +254,7 @@ pub const fn host_table<S: Services>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
+    doc_slots::install::<S>(&mut table);
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
     {
@@ -878,6 +876,8 @@ fn invoke_registration<S>(
     }
 }
 
+#[path = "shell_doc_slots.rs"]
+mod doc_slots;
 #[path = "shell_tokens.rs"]
 mod tokens;
 #[allow(
@@ -1419,6 +1419,8 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
 
 #[path = "shell_stage_slot.rs"]
 mod stage_slot;
+#[path = "shell_text_covers.rs"]
+mod text_covers;
 unsafe extern "C" fn service_open<S>(
     ctx: *mut c_void,
     key: PpBytes,

@@ -1,7 +1,7 @@
 # Interface-7 port
 
-Version 1.0.7. Native plugin: `src/native_plugin.rs` (`NativeSettings`: five screens, questions,
-number editing), registry reads in `src/native_data.rs`, what the pages are made of without the host
+Version 1.0.7. Native plugin: `src/native_plugin.rs` (`NativeSettings`: seven screens, questions,
+number editing), passwords and keys in `src/native_secrets.rs`, registry reads in `src/native_data.rs`, what the pages are made of without the host
 in `src/native_model.rs` (visibility, groups, sections, stepping, units, search words, theme in use).
 `NATIVE_ENTRY` (feature `linked`), declarations in `declarations.rs` built into the image by
 `build.rs`, metadata in `native/` (regenerate with `python3 tools/abi-metadata.py --schema
@@ -11,6 +11,30 @@ The interface-6 `SettingsPlugin` and its suites stay: `paperpaw-app` and other p
 link them until the host activates native plugins; then they go together (no shim).
 
 ## Ported
+
+- *Passwords and keys* (`src/native_secrets.rs`, screens `settings.secrets` and `settings.secret`, the
+  action `settings.secrets.open`, its entry in `core.settings-pages` at order 95 and the icon `key`,
+  as in interface 6; parity in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
+  `uses.secrets` (not required: the device may not let the settings list; the list is then empty and
+  the main page's row stays hidden): the list of every plugin's secrets by label (the owner's text for
+  a label that is a catalogue key, else the label as it is, else the name), the value never shown, in
+  the host's order (at most 128); choosing one offers *Type anew* (only for a changeable one; a
+  masked question, the answer trimmed, an empty one ignored, over 1,024 bytes told with
+  `settings.secret.too-long`) and *Remove* (asked first, *Remove*/*Keep*), after which the screen
+  goes back and the pages that show secrets are made anew. A secret that is not kept (any more)
+  offers only *Remove*, which is nothing, and goes back. The main page's row shows only while a secret
+  is kept (the service is asked when the page is built). **Differences from interface 6:** a refused
+  save (card away, secret gone, not changeable) is told with `settings.secret.failed`, it was silent;
+  an owner of a secret is named by its plugin id and the secret's screen is opened with the hand-over
+  `id` = `plugin:name` (a name may hold `:`; an owner's id never does); the host, not the plugin,
+  checks that a replaced secret exists and is changeable. What is typed is read through buffers that
+  are wiped, and the text copy is wiped after the host has it. The calls that use the service
+  (`keep`, `remove`) are run over the scripted host (`tests/scripted_secrets.rs`): the question for
+  a removal and its yes/no, a value typed anew (kept as typed, nothing typed leaves the secret), and
+  a secret no longer kept removed without asking. The list runs page after page and every refusal of
+  the host is swept; the rows' allocations are swept. Not run: drawing, moving the focus and going
+  back, which are screen commands the scripted host refuses (BLOCKED H1).
+  Secret *text settings* stay out of the pages as in interface 6 (they are secrets, listed here).
 
 - Main page: groups with visible settings (by order, then name; widgets' own groups left out), the
   pages other plugins add to `core.settings-pages` under their section headings, *Search*, the
@@ -41,8 +65,6 @@ search, secrets, restart).
 
 ## Not ported yet (explicit)
 
-- *Passwords and keys* (list, type anew, remove) and secret text settings: need the `core.secrets`
-  SDK facade and host service (SEC; Services todo 79). Secret settings are not listed meanwhile.
 - Placements (`widgets.clock@2`) pages and a widget look row: need the placement/widget host pieces
   (H3); the preview of a group's settings (a widget composed above them) needs slot 35.
 - No icons in rows, switches are shown as *On*/*Off* text, no sliders (numbers use − and +); the kit

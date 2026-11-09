@@ -24,8 +24,8 @@ impl Rng {
     fn below(&mut self, n: usize) -> usize {
         (self.next() % n as u64) as usize
     }
-    fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
-        &items[self.below(items.len())]
+    fn pick<T: Copy>(&mut self, items: &[T]) -> T {
+        items[self.below(items.len())]
     }
 }
 
@@ -207,7 +207,7 @@ fn random_mail(rng: &mut Rng) -> Vec<u8> {
         mail.push_str(rng.pick(TOP));
         mail.push_str(newline);
     }
-    let kind = *rng.pick(TYPES);
+    let kind = rng.pick(TYPES);
     mail.push_str("Content-Type: ");
     mail.push_str(if rng.below(3) == 0 {
         "multipart/mixed; boundary=b"
@@ -249,7 +249,7 @@ fn random_mails_render_the_same() {
     let mut rng = Rng(0x6d61_696c);
     for _ in 0..3_000 {
         let mail = random_mail(&mut rng);
-        let limit = *rng.pick(&[24 * 1024, 200, 31, 5]);
+        let limit = rng.pick(&[24 * 1024, 200, 31, 5]);
         same(&mail, limit);
     }
 }

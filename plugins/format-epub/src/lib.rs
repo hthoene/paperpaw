@@ -29,12 +29,15 @@ mod cbz;
 mod convert;
 mod css;
 mod document;
+mod fallible;
 mod fb2;
 mod html;
 mod markdown;
+mod native_io;
 mod obfuscation;
 mod package;
 mod pictures;
+pub mod provider;
 mod woff;
 
 use alloc::borrow::Cow;
@@ -50,6 +53,7 @@ pub use document::EpubDocument;
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
+pub use native_io::NativeIo;
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
@@ -301,6 +305,22 @@ pub fn fingerprint(
     Ok(alloc::format!("{size} {hash:016x}"))
 }
 
+/// [`fingerprint`] where a refused allocation is `OutOfMemory` and a
+/// storage error is the document's.
+pub(crate) fn fingerprint_with(
+    storage: &dyn paperpaw_sdk::Storage,
+    path: &str,
+) -> Result<alloc::string::String, paperpaw_sdk::document::DocumentError> {
+    let size = storage.size(path)?;
+    let mut ends = fallible::zeroed(2 * ENDS)?;
+    let (head, tail) = ends.split_at_mut(ENDS);
+    let head = read_full(storage, path, 0, head)?;
+    let tail = read_full(storage, path, size.saturating_sub(ENDS as u64), tail)?;
+    ends.copy_within(ENDS..ENDS + tail, head);
+    let hash = paperpaw_sdk::digest::fnv1a64(&ends[..head + tail]);
+    fallible::try_format!("{size} {hash:016x}")
+}
+
 /// Fills `buf` from `offset` of `path` as far as the file goes; how much.
 fn read_full(
     storage: &dyn paperpaw_sdk::Storage,
@@ -347,6 +367,70 @@ fn is_epub(head: &[u8]) -> bool {
         && method == 0
         && head.get(30..30 + name) == Some(&b"mimetype"[..])
         && head.get(data..data + MIME.len()) == Some(MIME)
+}
+
+/// The `core.format` provider of FictionBooks (`fb2`, `fb2.zip`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn fb2_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-fb2.fb2",
+        |storage, name, options| {
+            Fb2Document::open_options(storage, name, options)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
+/// The `core.format` provider of comic book archives (`cbz`): pages are
+/// pictures, shown whole.
+#[must_use]
+pub fn cbz_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-cbz.cbz",
+        |storage, name, options| {
+            CbzDocument::open_options(storage, name, options)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
+/// The `core.format` provider of HTML files (`htm`, `html`, `xhtml`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn html_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-html.html",
+        |storage, name, options| {
+            HtmlDocument::open(storage, name, options.publisher_styles)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
+}
+
+/// The `core.format` provider of Markdown files (`md`, `markdown`): a
+/// `siblings` format, the opened file named by the call's `text`.
+#[must_use]
+pub fn markdown_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-markdown.markdown",
+        |storage, name, options| {
+            MarkdownDocument::open(storage, name, options.publisher_styles)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        },
+        dir,
+        |_| false,
+    )
 }
 
 #[cfg(test)]

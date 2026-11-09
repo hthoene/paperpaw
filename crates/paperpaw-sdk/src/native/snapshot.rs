@@ -19,6 +19,7 @@ pub struct Snapshot {
     touch: bool,
     gray_levels: Option<u16>,
     colour: bool,
+    utc_offset_minutes: Option<i16>,
 }
 
 impl Snapshot {
@@ -95,6 +96,15 @@ impl Snapshot {
     pub const fn display_is_colour(&self) -> bool {
         self.colour
     }
+
+    /// Minutes the user's time zone is ahead of UTC now (east of it,
+    /// summer time included: `core.time-zone`, else the system's), -720
+    /// to 840; None while the device knows no time. Local time is
+    /// `unix_seconds + 60 * offset`, e.g. for a day's boundary.
+    #[must_use]
+    pub const fn utc_offset_minutes(&self) -> Option<i16> {
+        self.utc_offset_minutes
+    }
 }
 
 /// Capture the current snapshot with one fixed-size, allocation-free host call.
@@ -139,6 +149,7 @@ pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
             value.pixel,
             wire::PixelFormat::Rgb565 | wire::PixelFormat::Rgb888
         ),
+        utc_offset_minutes: value.utc_offset_minutes,
     })
 }
 

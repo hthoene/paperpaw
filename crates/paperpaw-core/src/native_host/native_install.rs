@@ -20,6 +20,12 @@ enum Owned {
     Setting(paperpaw_sdk::SettingSpec),
     Group(paperpaw_sdk::SettingGroupSpec),
     Resource(super::native_resources::Resource),
+    /// A screen the plugin offers for a slot (`slot.offer`).
+    SlotOffer {
+        slot: Id,
+        screen: Id,
+        priority: paperpaw_sdk::Priority,
+    },
 }
 
 fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
@@ -40,6 +46,9 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // broker is fed by `DeclarationStore::stage` and `stage_subscribers`);
         // they go with the owner's declarations.
         Record::StageSpec(_) | Record::RegistrationStage(_) => Ok(None),
+        // A setup step stays in the declaration store; the registry's `setup`
+        // query evaluates it where it is read (`registry.md` section 6).
+        Record::SetupStep(_) => Ok(None),
         Record::ResourceFontFace(_)
         | Record::ResourceFontExtension(_)
         | Record::ResourceHyphenation(_) => {
@@ -50,6 +59,25 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => Ok(None),
+        // A slot the plugin names stays in the declaration store (its title is
+        // read from there); an offer also goes to the registry the kernel
+        // opens slots by (`Registry::resolve_slot`). `Staging::native_offer`
+        // refuses an offer of a screen that is not the plugin's own. The
+        // contract gives the priority no range (an i32), the kernel's is an
+        // i16: one outside it counts as the nearest end, so an offer that
+        // declared fine never fails the install.
+        Record::SlotSpec(_) => Ok(None),
+        Record::SlotOffer(offer) => Ok(Some(Owned::SlotOffer {
+            slot: native_values::checked_id(offer.slot)?,
+            screen: native_values::checked_id(offer.screen)?,
+            priority: paperpaw_sdk::Priority(i16::try_from(offer.priority).unwrap_or(
+                if offer.priority < 0 {
+                    i16::MIN
+                } else {
+                    i16::MAX
+                },
+            )),
+        })),
         // Menus and icons stay in the declaration store (charged there, removed
         // with their owner); `native_menus` reads them.
         Record::MenuEntry(_)
@@ -104,7 +132,12 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
+        let offers_before = self.shared.registry.offers();
         self.admit_native(host, depth, folder, report)?;
+        if self.shared.registry.offers() != offers_before {
+            // The slots now bound are known to plugins (`Env::has_slot`).
+            self.refresh_slots();
+        }
         if self.shared.fonts.ids().count() != fonts_before {
             // The families it brought are offered, and a font chosen that was
             // waiting for it is in use. This is the kernel's own refresh, the
@@ -191,6 +224,23 @@ impl crate::Kernel {
         result
     }
 
+    /// The slots some screen is bound to, as plugins read them
+    /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
+    /// where the heap has no room for the list the one known stays, and a
+    /// warning says so.
+    fn refresh_slots(&mut self) {
+        match self.shared.registry.try_bound_slots() {
+            Some(slots) => self.shared.slots = slots,
+            None => {
+                // The list known stays, less the slots whose last offer went.
+                self.shared.registry.retain_bound(&mut self.shared.slots);
+                self.try_warn_runtime(&[
+                    "not enough memory to update the slots plugins offer screens for; the list stays, less slots whose last offer went",
+                ]);
+            }
+        }
+    }
+
     /// Revoke first; store cleanup, screen closure and factory removal must
     /// precede resource retirement. Busy cleanup retains a pending row.
     pub(crate) fn begin_native_unload(
@@ -218,6 +268,9 @@ impl crate::Kernel {
             .registry
             .screens
             .remove_native_owner(owner.as_str());
+        // Its offers for slots go with its screens.
+        self.shared.registry.remove_native_offers(owner.as_str());
+        self.refresh_slots();
         // The actions hold the plugin's lease; the settings and groups it
         // defined go with it (the reader's values stay for its next load).
         self.shared.actions.remove_plugin(owner.as_str());
@@ -362,34 +415,33 @@ impl crate::Kernel {
                         .native_screen(owner, screen)
                         .map_err(shell::Error::Status)?;
                 }
+                Owned::SlotOffer {
+                    slot,
+                    screen,
+                    priority,
+                } => staging
+                    .native_offer(owner, slot, screen, priority)
+                    .map_err(shell::Error::Status)?,
                 Owned::Action(callback) => {
                     let action = instance
                         .try_clone()
                         .and_then(|lease| super::native_action::spec(callback, lease))
                         .map_err(shell::Error::Status)?;
-                    let action = super::shared::try_box(action)
-                        .ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
+                    let action = boxed(action)?;
                     staging
                         .native(owner, Contribution::Action(action))
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::Setting(spec) => {
-                    let spec =
-                        super::shared::try_box(spec).ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
+                    let spec = boxed(spec)?;
                     staging
                         .native(owner, Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::Group(group) => {
-                    let group =
-                        super::shared::try_box(group).ok_or(shell::Error::Status(ERR_NO_MEMORY))?;
+                    let group = paperpaw_sdk::SettingGroup::from_boxed(boxed(group)?);
                     staging
-                        .native(
-                            owner,
-                            Contribution::SettingGroup(paperpaw_sdk::SettingGroup::from_boxed(
-                                group,
-                            )),
-                        )
+                        .native(owner, Contribution::SettingGroup(group))
                         .map_err(shell::Error::Status)?;
                 }
             }
@@ -621,6 +673,12 @@ fn merge_status(error: &RegisterError) -> i32 {
         }
         _ => ERR_INVALID,
     }
+}
+
+/// One owned contribution in a fallible box: no room is an error, never an
+/// abort.
+fn boxed<T>(value: T) -> Result<alloc::boxed::Box<T>, shell::Error> {
+    super::shared::try_box(value).ok_or(shell::Error::Status(ERR_NO_MEMORY))
 }
 
 #[cfg(test)]

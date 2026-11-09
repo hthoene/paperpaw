@@ -95,7 +95,13 @@ before 1.0.
   install from the store as files, for every release (its README). Each
   plugin has a version of its own: one that changed gets a newer one
   (CI checks it), or its commits say `Plugin-unchanged: <id>` where no
-  reader sees the change. A bump (or a removed or added dependency)
+  reader sees the change. **Until 1.0 (the interface-7 round)** only the
+  published versions count for users, so a plugin that is still at its Beta 3
+  version gets exactly one patch bump (Beta 3 + 1), and one that is already
+  above its Beta 3 version gets no further bump, whatever changes (the
+  skipped numbers are harmless; a rollback would conflict with every open
+  pull request). Reviewers check the version against the `v0.6.0-beta.3`
+  tag, not against the previous commit. A bump (or a removed or added dependency)
   changes every `Cargo.lock` that lists the crate: the root, `shells/xteink`,
   `tools/plugin-files`, `fuzz` and the samples. Run
   `python3 tools/check-lockfiles.py` before pushing: it checks each lock

@@ -241,7 +241,7 @@ fn family(word: &str) -> Option<Option<(&str, usize)>> {
 
 /// Whether `path` is in the family of `name`: it is `name` (or ends in
 /// `::name`, see [`names`]) or lies inside it, `name::...` anywhere in the path.
-fn in_family(path: &str, name: &str) -> bool {
+pub(crate) fn in_family(path: &str, name: &str) -> bool {
     names(path, name)
         || path.starts_with(&format!("{name}::"))
         || path.contains(&format!("::{name}::"))
