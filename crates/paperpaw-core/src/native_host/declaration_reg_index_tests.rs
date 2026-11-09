@@ -306,3 +306,26 @@ fn differing_payloads_do_not_disambiguate_unique_keys_across_batches() {
         }
     }
 }
+
+#[test]
+fn a_plugin_names_a_book_data_folder_once_on_both_storage_paths() {
+    let data = |name, kind| Record::BookDataSpec(BookDataSpec { name, kind });
+    for owned in [false, true] {
+        for collision in [false, true] {
+            // Different names are fine; the same name twice is not, whatever
+            // the kind.
+            assert_eq!(
+                check(&[data("notes", 0), data("cache", 1)], owned, collision),
+                Ok(())
+            );
+            assert_eq!(
+                check(&[data("notes", 0), data("notes", 0)], owned, collision),
+                Err(ERR_INVALID)
+            );
+            assert_eq!(
+                check(&[data("notes", 0), data("notes", 1)], owned, collision),
+                Err(ERR_INVALID)
+            );
+        }
+    }
+}
