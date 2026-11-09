@@ -89,7 +89,9 @@ impl<'a> FirmwareOptions<'a> {
 
     /// The signing key (32 bytes) of an image signed by another key than
     /// PaperPaw's, which installs only when this names exactly that key and the
-    /// user accepts it in the host's confirmation.
+    /// user accepts it in the host's confirmation. A foreign image is not
+    /// signed, so a key has no meaning with [`foreign`](Self::foreign): the
+    /// contract states no combination of the two, and the host decides.
     #[must_use]
     pub const fn key(mut self, key: &'a [u8; 32]) -> Self {
         self.key = Some(key);
@@ -306,9 +308,10 @@ impl CommandSender<'_, '_> {
     /// the installed image.
     ///
     /// # Errors
-    /// Returns `Invalid` for a zero request or an empty path, buffer limits or
-    /// the host's refusal (`Denied` without `uses.firmware`, `Full` when four
-    /// install, removal, firmware or check requests wait already).
+    /// Returns `Invalid` for a zero request or an empty path, `NoSpace` for a
+    /// path over 512 bytes or buffer limits, or the host's refusal (`Denied`
+    /// without `uses.firmware`, `Full` when four install, removal, firmware or
+    /// check requests wait already).
     pub fn install_firmware(
         &mut self,
         request: u32,
@@ -318,6 +321,9 @@ impl CommandSender<'_, '_> {
     ) -> Result<(), Error> {
         if request == 0 || path.is_empty() {
             return Err(Error::Invalid);
+        }
+        if path.len() > 512 {
+            return Err(Error::NoSpace);
         }
         self.submit(wire::Command::InstallFirmware {
             request,

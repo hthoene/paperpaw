@@ -1065,10 +1065,9 @@ fn firmware_install_refuses_bad_arguments_before_the_host() {
         sender.install_firmware(1, InstallRoot::Data, "", new()),
         Err(Error::Invalid)
     );
-    assert!(
-        sender
-            .install_firmware(1, InstallRoot::Data, &"p".repeat(513), new())
-            .is_err()
+    assert_eq!(
+        sender.install_firmware(1, InstallRoot::Data, &"p".repeat(513), new()),
+        Err(Error::NoSpace)
     );
     assert!(ctx.batches.borrow().is_empty());
     // The longest path is the contract's 512 bytes.
