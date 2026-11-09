@@ -87,10 +87,8 @@ fn script(host: &ScriptedHost, log: &Log, answer: Option<i32>) {
                 Ok(stream(&out))
             }
             (SECRETS_KEEP, Some(Record::ServiceSecKeep(keep))) => {
-                seen.borrow_mut().push(format!(
-                    "keep {} {} {}",
-                    keep.plugin, keep.name, keep.value
-                ));
+                seen.borrow_mut()
+                    .push(format!("keep {} {} {}", keep.plugin, keep.name, keep.value));
                 Ok(Vec::new())
             }
             (SECRETS_REMOVE, Some(Record::ServiceSecName(name))) => {

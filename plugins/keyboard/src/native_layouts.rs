@@ -44,9 +44,7 @@ pub fn from_fields(
     // The chosen layouts are stored as a comma-separated list, so an id
     // holds no comma (interface 6 let one split the list).
     let mut clean = String::new();
-    clean
-        .try_reserve(id.len())
-        .map_err(|_| Error::NoMemory)?;
+    clean.try_reserve(id.len()).map_err(|_| Error::NoMemory)?;
     clean.extend(id.chars().filter(|c| *c != ','));
     let id = clean.trim();
     if id.is_empty() {
