@@ -69,9 +69,8 @@ pub const TARGETS: [&str; LANGUAGES.len() + 1] = {
     targets
 };
 
-/// The language translated into. Not in the image yet: its choice has 33
-/// values and the record takes 32 (`tests/native_declarations.rs` pins the
-/// refusal; draft 29 raises the limit to 64).
+/// The language translated into: a choice of 33 values (a `setting.spec`
+/// takes 64 since draft 29), in the reading group.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {

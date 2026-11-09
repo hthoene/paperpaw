@@ -1573,7 +1573,6 @@ dependencies = [
  "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-news",
- "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
@@ -1998,6 +1997,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
@@ -2285,10 +2285,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
- "paperpaw-plugin-sleep",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2356,9 +2352,6 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2403,9 +2396,11 @@ dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2657,8 +2652,10 @@ version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
