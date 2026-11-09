@@ -10,6 +10,7 @@ use crate::native_host::{
         ShellNetwork,
     },
 };
+use paperpaw_platform::Storage;
 use paperpaw_sdk::{MemoryStorage, SettingValue};
 
 struct Nothing;
@@ -43,18 +44,38 @@ type Seen = Rc<RefCell<Option<Rc<NetPolicy>>>>;
 /// the services would answer it at that moment (what its own next request in
 /// that callback would meet).
 struct Asker {
+    id: &'static str,
     policy: Seen,
     log: Log,
 }
 
 impl Plugin for Asker {
     fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("wk"), "Asker", Version::new(1, 0, 0))
+        Manifest::new(Id::new_static(self.id), "Asker", Version::new(1, 0, 0))
             .uses(paperpaw_sdk::Uses::NETWORK)
     }
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         let (policy, log) = (self.policy.clone(), self.log.clone());
+        // The very first thing a plugin hears: what it would meet then.
+        let id = self.id;
+        let (first_policy, first_log) = (policy.clone(), log.clone());
+        r.subscribe(
+            paperpaw_sdk::builtin::events::STARTED.id().clone(),
+            Box::new(move |_, _, _| {
+                let end = first_policy
+                    .borrow()
+                    .as_ref()
+                    .and_then(|p| p.end_for(id, false))
+                    .map(|e| e.reason);
+                first_log
+                    .borrow_mut()
+                    .push(alloc::format!("{id} started {end:?}"));
+            }),
+        )?;
+        if id != "wk" {
+            return Ok(());
+        }
         r.subscribe(
             paperpaw_sdk::builtin::events::SETTING_CHANGED.id().clone(),
             Box::new(move |_, params, _| {
@@ -73,17 +94,25 @@ impl Plugin for Asker {
     }
 }
 
-fn wired() -> (Kernel, Rc<NetPolicy>, Log) {
+/// A kernel with the plugins `wk` and `ok` over `storage`, `core.net` wired
+/// but the kernel not yet started: what a shell has done at boot.
+fn booting(storage: impl paperpaw_platform::Storage + 'static) -> (Kernel, Rc<NetPolicy>, Log) {
     let (log, seen) = (log(), Seen::default());
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(Asker {
+            id: "wk",
             policy: seen.clone(),
             log: log.clone(),
         })
+        .plugin(Asker {
+            id: "ok",
+            policy: seen.clone(),
+            log: log.clone(),
+        })
+        .storage(storage)
         .network(true)
         .build()
         .unwrap();
-    kernel.start(Instant(0));
     // A plugin instance brings the host resources of the device; the shell
     // wires `core.net` into them.
     kernel
@@ -105,6 +134,13 @@ fn wired() -> (Kernel, Rc<NetPolicy>, Log) {
     (kernel, policy, log)
 }
 
+fn wired() -> (Kernel, Rc<NetPolicy>, Log) {
+    let (mut kernel, policy, log) = booting(MemoryStorage::new());
+    kernel.start(Instant(0));
+    log.borrow_mut().clear();
+    (kernel, policy, log)
+}
+
 fn network_of_wk(on: bool) -> Command {
     Command::SetSetting(Id::new_static("core.network.wk"), SettingValue::Bool(on))
 }
@@ -112,7 +148,7 @@ fn network_of_wk(on: bool) -> Command {
 #[test]
 fn a_policy_the_kernel_has_not_filled_answers_every_plugin_as_off() {
     // What a callback before the first call of the kernel would meet.
-    let (_kernel, policy, _) = wired();
+    let (_kernel, policy, _) = booting(MemoryStorage::new());
     assert_eq!(
         policy.end_for("wk", false).map(|e| e.reason),
         Some(reason::NETWORK_OFF)
@@ -152,4 +188,33 @@ fn a_setting_turned_off_is_known_to_the_next_callback_even_in_the_same_call() {
     kernel.run_commands();
     assert_eq!(policy.end_for("wk", false), None);
     assert_eq!(log.borrow().last().unwrap(), "None");
+}
+
+#[test]
+fn at_boot_a_plugin_disabled_in_the_saved_settings_is_refused_and_an_allowed_one_is_let_through() {
+    let storage = MemoryStorage::new();
+    storage
+        .write(
+            paperpaw_sdk::builtin::CONFIG_FILE,
+            b"[core]\nnetwork.wk = off\n",
+        )
+        .unwrap();
+    let (mut kernel, policy, log) = booting(storage);
+    kernel.start(Instant(0));
+    // The first thing each plugin heard was answered by the user's choice,
+    // not by an unfilled policy: no allowed plugin was told `network_off`.
+    let log = log.borrow();
+    assert!(
+        log.contains(&"wk started Some(13)".into()),
+        "the disabled one is refused: {log:?}"
+    );
+    assert!(
+        log.contains(&"ok started None".into()),
+        "the allowed one is let through: {log:?}"
+    );
+    assert_eq!(policy.end_for("ok", true), None);
+    assert_eq!(
+        policy.end_for("wk", true).map(|e| e.reason),
+        Some(reason::NETWORK_OFF)
+    );
 }

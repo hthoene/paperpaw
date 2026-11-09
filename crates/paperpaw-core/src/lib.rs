@@ -424,6 +424,10 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
+        // What the user decided about the network is known to the native
+        // services before any plugin's first callback: an allowed plugin is
+        // never answered by a policy nobody has filled.
+        self.sync_net_policy();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
