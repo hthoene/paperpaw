@@ -208,6 +208,10 @@ impl MoveHost for CardMoves {
         Ok(())
     }
 
+    fn record_renamed(&self) -> Result<(), i32> {
+        self.journal().mark_renamed()
+    }
+
     fn within(&self, path: &str, folder: &str) -> bool {
         folder.is_empty() || super::files_service::within(self.storage.ignores_case(), path, folder)
     }
@@ -290,6 +294,9 @@ impl MoveHost for StepHost<'_> {
     }
     fn settle(&self) -> Result<(), i32> {
         self.card.settle()
+    }
+    fn record_renamed(&self) -> Result<(), i32> {
+        self.card.record_renamed()
     }
     fn within(&self, path: &str, folder: &str) -> bool {
         self.card.within(path, folder)

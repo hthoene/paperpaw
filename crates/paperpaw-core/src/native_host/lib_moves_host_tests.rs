@@ -230,6 +230,7 @@ fn a_cut_before_the_rename_drops_the_entry_and_nothing_is_carried() {
         to: "Books/new",
         replace: false,
         identity,
+        renamed: false,
     })
     .unwrap();
     let moves = Moves::default();
@@ -449,4 +450,35 @@ fn the_discard_flag_is_read_from_the_journal_once_per_job() {
     run(&moves, &host, &carry);
     assert_eq!(carry.count("discard"), 1);
     assert_eq!(host.discard.get(), None, "cleared with the entry");
+}
+
+#[test]
+fn a_recorded_rename_is_finished_at_start_without_asking_the_identity() {
+    // The rename is recorded once it succeeded.
+    let (card, carry) = (library(), Carry::default());
+    let (host, moves) = (host(&card), Moves::default());
+    moves.begin(&host, "Books/old", "Books/new", false).unwrap();
+    let mut renamed = false;
+    host.open_entry(&mut |e| renamed = e.renamed).unwrap();
+    assert!(renamed, "recorded after the rename");
+    run(&moves, &host, &carry);
+    // A restart with the record needs no identity: here the identity in the
+    // entry matches nothing (a twin at `to`, a file id that does not hold).
+    let card = library();
+    card.put("Books/new/a.epub", b"AAA");
+    let host = CardMoves::new(card.clone());
+    for (renamed, carried) in [(true, 1), (false, 0)] {
+        host.write_entry(&Entry {
+            from: "Books/old",
+            to: "Books/new",
+            replace: false,
+            identity: 0xdead_beef,
+            renamed,
+        })
+        .unwrap();
+        let (carry, moves) = (Carry::default(), Moves::default());
+        moves.start(&host).unwrap();
+        run(&moves, &host, &carry);
+        assert_eq!(carry.count("Books("), carried, "renamed {renamed}");
+    }
 }

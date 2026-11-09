@@ -4,7 +4,8 @@
 //!
 //! ```text
 //! "PPLJ"  version u8 (1)  kind u8 (0 move)  flags u8 (bit 0: replace,
-//! bit 1: the replaced file's data is discarded)
+//! bit 1: the replaced file's data is discarded, bit 2: the rename has
+//! succeeded)
 //! identity u64 LE
 //! from_len u16 LE  to_len u16 LE  from  to  check u64 LE
 //! ```
@@ -54,6 +55,7 @@ const HEAD: usize = 4 + 1 + 1 + 1 + 8 + 2 + 2;
 /// The flag bits.
 const REPLACE: u8 = 1;
 const DISCARDED: u8 = 2;
+const RENAMED: u8 = 4;
 /// The kind of a move (the only one written today).
 const KIND_MOVE: u8 = 0;
 /// A path of the library, as `core.files` takes it (`MAX_JOINED`).
@@ -84,7 +86,11 @@ fn encode(entry: &Entry<'_>, discarded: bool) -> Result<Vec<u8>, i32> {
     out.extend_from_slice(MAGIC);
     out.push(VERSION);
     out.push(KIND_MOVE);
-    out.push(if entry.replace { REPLACE } else { 0 } | if discarded { DISCARDED } else { 0 });
+    out.push(
+        if entry.replace { REPLACE } else { 0 }
+            | if discarded { DISCARDED } else { 0 }
+            | if entry.renamed { RENAMED } else { 0 },
+    );
     out.extend_from_slice(&entry.identity.to_le_bytes());
     // The lengths fit: they are at most `MAX_PATH`.
     out.extend_from_slice(&(from.len() as u16).to_le_bytes());
@@ -114,7 +120,7 @@ fn decode(record: &[u8]) -> Result<(Entry<'_>, bool), i32> {
     ));
     let total = HEAD + from_len + to_len + 8;
     if kind != KIND_MOVE
-        || flags > REPLACE | DISCARDED
+        || flags & !(REPLACE | DISCARDED | RENAMED) != 0
         || from_len > MAX_PATH
         || to_len > MAX_PATH
         || record.len() != total
@@ -133,6 +139,7 @@ fn decode(record: &[u8]) -> Result<(Entry<'_>, bool), i32> {
             to: core::str::from_utf8(to).map_err(|_| ERR_IO)?,
             replace: flags & REPLACE != 0,
             identity,
+            renamed: flags & RENAMED != 0,
         },
         flags & DISCARDED != 0,
     ))
@@ -262,6 +269,23 @@ impl Journal<'_> {
         let record = self.read().map_err(i32::from)?.ok_or(ERR_NOT_FOUND)?;
         let (entry, _) = decode(&record)?;
         self.put(&encode(&entry, true)?)
+    }
+
+    /// Records, durably (the entry is written whole again), that the rename
+    /// has succeeded.
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` for no entry; as [`Self::needs_discard`], and the write's.
+    pub(crate) fn mark_renamed(&self) -> Result<(), i32> {
+        let record = self.read().map_err(i32::from)?.ok_or(ERR_NOT_FOUND)?;
+        let (entry, discarded) = decode(&record)?;
+        self.put(&encode(
+            &Entry {
+                renamed: true,
+                ..entry
+            },
+            discarded,
+        )?)
     }
 
     /// Writes `entry` and syncs it.

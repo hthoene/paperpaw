@@ -13,6 +13,7 @@ fn entry<'a>(from: &'a str, to: &'a str) -> Entry<'a> {
         to,
         replace: true,
         identity: 0x0123_4567_89ab_cdef,
+        renamed: false,
     }
 }
 
@@ -281,4 +282,31 @@ fn a_short_read_of_a_valid_journal_is_an_error_and_not_set_aside() {
         "the card's trouble, not the record's"
     );
     assert!(card.0.exists(JOURNAL) && !card.0.exists(SET_ASIDE));
+}
+
+#[test]
+fn the_renamed_mark_is_written_whole_and_keeps_the_discarded_mark() {
+    let card = MemoryStorage::new();
+    let journal = Journal(&card);
+    assert_eq!(journal.mark_renamed(), Err(ERR_NOT_FOUND), "no entry");
+    journal
+        .write_entry(&entry("Books/old", "Books/new"))
+        .unwrap();
+    journal.mark_discarded().unwrap();
+    journal.mark_renamed().unwrap();
+    journal.mark_renamed().unwrap();
+    let mut seen = None;
+    journal
+        .open_entry(&mut |e| seen = Some((e.renamed, e.replace, String::from(e.to))))
+        .unwrap();
+    assert_eq!(seen, Some((true, true, String::from("Books/new"))));
+    assert_eq!(journal.needs_discard(), Ok(false), "still discarded");
+    // Marking the discard after keeps the rename.
+    journal.write_entry(&entry("a", "b")).unwrap();
+    journal.mark_renamed().unwrap();
+    journal.mark_discarded().unwrap();
+    journal
+        .open_entry(&mut |e| seen = Some((e.renamed, false, String::new())))
+        .unwrap();
+    assert_eq!(seen, Some((true, false, String::new())));
 }

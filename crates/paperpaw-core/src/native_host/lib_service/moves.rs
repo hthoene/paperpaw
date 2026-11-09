@@ -84,6 +84,9 @@ pub(crate) struct Entry<'a> {
     pub(crate) replace: bool,
     /// The storage's identity of the moved entry, taken before the rename.
     pub(crate) identity: u64,
+    /// The rename has succeeded (recorded by [`MoveHost::record_renamed`]):
+    /// a restart needs no identity to know it.
+    pub(crate) renamed: bool,
 }
 
 /// What the host backs: the journal, the card and the catalog side.
@@ -114,6 +117,13 @@ pub(crate) trait MoveHost {
     /// The FAT repair (`settle_moves`) of a rename a power cut left with both
     /// names.
     fn settle(&self) -> Result<(), i32>;
+    /// The rename has succeeded: record it in the entry (written whole
+    /// again). Best effort: a restart that does not find the record decides
+    /// by the storage's identity, as before; so a failure is not an error
+    /// for the move, and a host with no way to record may leave this as is.
+    fn record_renamed(&self) -> Result<(), i32> {
+        Ok(())
+    }
     /// Whether `path` is `folder` or below it, as the storage names entries
     /// (case beyond ASCII, 8.3 aliases). Required: a host that forgets it
     /// would let an alias past the busy rule.
@@ -141,6 +151,8 @@ struct Job {
     /// `None`: the entry is open but the state of the card is not decided yet.
     phase: Cell<Option<Phase>>,
     replace: bool,
+    /// The entry said the rename had succeeded.
+    renamed: bool,
 }
 
 /// The one move in progress, if any. The journal holds one entry, so the next
@@ -215,12 +227,14 @@ impl Moves {
             identity,
             phase: Cell::new(Some(Phase::Books(0))),
             replace,
+            renamed: false,
         };
         host.write_entry(&Entry {
             from,
             to,
             replace,
             identity,
+            renamed: false,
         })?;
         // A replacing move drops the replaced file's data before the rename,
         // so the moved book never inherits it (a cut between the two leaves
@@ -234,6 +248,9 @@ impl Moves {
         match renamed {
             Ok(()) => {
                 *slot = Some(job);
+                // Best effort: a restart without the record decides by
+                // identity (a cut between the rename and this write).
+                let _ = host.record_renamed();
                 Ok(())
             }
             Err(error) => {
@@ -273,6 +290,7 @@ impl Moves {
                     identity: entry.identity,
                     phase: Cell::new(None),
                     replace: entry.replace,
+                    renamed: entry.renamed,
                 }))
             });
         })?;
@@ -288,6 +306,12 @@ impl Moves {
 
     /// By the storage's identity of the moved entry, never by names.
     fn decide(host: &dyn MoveHost, job: &Job) -> Result<Verdict, i32> {
+        if job.renamed {
+            // The rename succeeded and was recorded: no identity is asked
+            // (two names of one file, a twin at `to`, would mislead it).
+            host.settle()?;
+            return Ok(Verdict::Finish);
+        }
         if host.same_entry(&job.from, &job.to)? {
             // A case-only rename: one entry; the stored spelling says whether
             // the rename ran. A cut may have left both spellings; settle.
