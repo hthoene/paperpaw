@@ -214,10 +214,11 @@ impl RegistryView for CoreFrame<'_> {
         &self,
         op: u32,
         scope: &str,
+        flags: u32,
         asker: &Asker<'_>,
         visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
     ) -> Result<(), i32> {
-        self.sources().rows(op, scope, asker, visit)
+        self.sources().rows(op, scope, flags, asker, visit)
     }
     fn detail(
         &self,

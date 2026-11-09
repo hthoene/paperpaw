@@ -31,16 +31,26 @@ use crate::abi7::{
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
 
+mod bindings;
 pub(crate) mod fixed;
 mod items;
+mod menu_native;
+mod menus;
+#[cfg(test)]
+mod menus_tests;
+mod ordered;
 mod plugins;
 mod presets;
+mod rules;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
+mod setup;
 mod sources;
+mod status;
 #[cfg(test)]
 mod tests;
+mod widgets;
 
 pub(crate) use sources::Sources;
 
@@ -99,7 +109,7 @@ fn list(
     // A row that cannot be framed (an id over its field's cap, which no
     // declaration check bounds for plugin ids) is skipped, here and in the
     // page walk alike, so `total`, the cursor and the rows agree.
-    view.rows(op.id, scope, asker, &mut |row| {
+    view.rows(op.id, scope, query.flags, asker, &mut |row| {
         if row.framed_len().is_ok() {
             total = total.saturating_add(1);
         }
@@ -110,7 +120,7 @@ fn list(
     let mut page = RegistryPage::new(query, generation, total, out)?;
     let mut index = 0_u32;
     let mut failure = None;
-    view.rows(op.id, scope, asker, &mut |row| {
+    view.rows(op.id, scope, query.flags, asker, &mut |row| {
         if row.framed_len().is_err() {
             return ControlFlow::Continue(());
         }
