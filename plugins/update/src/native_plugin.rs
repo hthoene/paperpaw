@@ -347,7 +347,7 @@ impl NativeUpdate {
             }
             FirmwareState::Installed => View::Installed(true),
             _ if self.online.downloading() => self.downloading()?,
-            _ if self.online.asking() => View::Searching,
+            _ if self.online.awaited() => View::Searching,
             _ => self.card(host)?,
         };
         build(host, view, &self.current, self.caps)
@@ -469,6 +469,11 @@ impl NativeUpdate {
             match sent {
                 Ok(()) => return Ok(Step::Running),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
+                // In a run of declared work no check goes out: not now.
+                Err(Error::State) => {
+                    self.scan = None;
+                    return Ok(Step::Done(None, false));
+                }
                 Err(_) => {
                     push(&mut scan.found, Found::Unfit(DeviceOutcome::Other))?;
                     scan.next = scan.next.saturating_add(1);
@@ -741,8 +746,11 @@ impl NativeUpdate {
     /// weekly look declared.
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let card = self.started_card(host);
-        // Where the setting is on; a work that cannot be declared costs the look.
-        self.plan_look(host)?;
+        // Where the setting is on; a device without declared work has no look.
+        match self.plan_look(host) {
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) | Ok(()) => {}
+        }
         card
     }
 

@@ -76,7 +76,7 @@ pub struct Online {
     work: Option<Work>,
     registry: Option<Registry>,
     /// The update server's question in flight.
-    asking: Option<RequestId>,
+    asking: Option<(RequestId, bool)>,
     pub loading: Option<Loading>,
     pub fetch: Option<Fetch>,
 }
@@ -90,6 +90,11 @@ impl Online {
     /// Whether the server is being asked.
     pub const fn asking(&self) -> bool {
         self.asking.is_some()
+    }
+
+    /// Whether a reader waits for the answer (the page asked for it).
+    pub const fn awaited(&self) -> bool {
+        matches!(self.asking, Some((_, false)))
     }
 
     /// The version being downloaded, and how far the firmware is (the plugins
@@ -177,8 +182,11 @@ impl NativeUpdate {
     /// Asks the update server for a newer firmware; `quiet` where the reader did
     /// not ask (declared work). A question already in flight is not asked twice.
     pub(super) fn search(&mut self, host: &Host<'_>, quiet: bool) -> Result<(), Error> {
-        if self.online.asking() {
-            return Ok(());
+        // A question in flight is not asked twice; a reader who asks meanwhile
+        // waits for its answer.
+        if let Some((_, waited)) = self.online.asking.as_mut() {
+            *waited &= quiet;
+            return self.show_if(host, View::Searching);
         }
         let Some(running) = self.firmware(host)? else {
             return Ok(());
@@ -210,7 +218,7 @@ impl NativeUpdate {
             .online
             .net(host)?
             .request(host, &request, &mut input, &mut out)?;
-        self.online.asking = Some(id);
+        self.online.asking = Some((id, quiet));
         Ok(())
     }
 
@@ -296,7 +304,7 @@ impl NativeUpdate {
     /// The answer came, or the request failed: the update it names kept (or the
     /// one kept before let go), and shown where the page is open.
     pub(super) fn answered(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
-        if self.online.asking.take_if(|id| *id == done.id()).is_none() {
+        if self.online.asking.take_if(|(id, _)| *id == done.id()).is_none() {
             return Ok(());
         }
         if matches!(done.reason(), Reason::Cancelled | Reason::Replaced) {
@@ -469,8 +477,12 @@ impl NativeUpdate {
         if matches!(done.reason(), Reason::Cancelled | Reason::Replaced) {
             return self.refresh(host);
         }
-        if !(done.succeeded() && done.saved() && Self::whole(host, &loading)?) {
-            storage::remove(host, Root::Files, &loading.path).ok();
+        let arrived = done.succeeded() && done.saved();
+        // A failed request leaves an older file of that name as it was.
+        if !arrived || !Self::whole(host, &loading)? {
+            if arrived {
+                storage::remove(host, Root::Files, &loading.path).ok();
+            }
             return self.download_failed(host);
         }
         storage::remove(host, Root::Data, OFFER).ok();
@@ -561,8 +573,13 @@ impl NativeUpdate {
             return work.cancel(host, LOOK_KEY, &mut input, &mut out);
         }
         let now = capture_snapshot(host)?.unix_seconds();
-        let last = read_all(host, Root::Data, LOOKED, 64)?
-            .and_then(|bytes| core::str::from_utf8(&bytes).ok()?.trim().parse().ok());
+        // A look that left no readable date counts as none: the week starts now.
+        let last = match read_all(host, Root::Data, LOOKED, 64) {
+            Ok(kept) => kept
+                .and_then(|bytes| core::str::from_utf8(&bytes).ok()?.trim().parse().ok()),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => None,
+        };
         let after = u32::try_from(wait(last, now).saturating_mul(1000))
             .unwrap_or(u32::MAX)
             .min(SPAN_MAX_MS);
@@ -618,7 +635,10 @@ impl NativeUpdate {
     /// A setting changed: the weekly look is declared anew or taken back.
     pub(super) fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
         if key == LOOK {
-            self.plan_look(host)?;
+            return match self.plan_look(host) {
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                Err(_) | Ok(()) => Ok(()),
+            };
         }
         Ok(())
     }
