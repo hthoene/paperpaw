@@ -305,12 +305,6 @@ impl HostResources {
             hosts.wire_hyphen(tables.clone())?;
             wired.hyphen = Some(HyphenTables::over(tables));
         }
-        if let Some(storage) = wiring.files {
-            hosts.wire_files(Rc::new(StorageFiles::new(
-                storage,
-                hosts.busy_sources().clone(),
-            )))?;
-        }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;
         }
@@ -325,6 +319,7 @@ impl HostResources {
                 hosts.policy().clone(),
             ));
             hosts.wire_net(device.clone())?;
+            hosts.register_in_use_source()?;
             wired.net = Some(NetReports(device));
         }
         if let Some(inputs) = wiring.sockets {
@@ -338,7 +333,16 @@ impl HostResources {
                 hosts.policy().clone(),
             ));
             hosts.wire_sockets(device.clone())?;
+            hosts.register_in_use_source()?;
             wired.sockets = Some(SockReports(device));
+        }
+        // After the network: what `core.net` and `core.sockets` hold in use is
+        // a source of the busy answers, registered as they are wired.
+        if let Some(storage) = wiring.files {
+            hosts.wire_files(Rc::new(StorageFiles::new(
+                storage,
+                hosts.busy_sources().clone(),
+            )))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

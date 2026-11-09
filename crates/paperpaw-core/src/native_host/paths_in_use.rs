@@ -117,6 +117,20 @@ impl PathsInUse {
     }
 }
 
+/// What `core.files` answers `ERR_BUSY` for: a path a host writer holds, a
+/// folder that holds one, or a path inside one (reading is never asked). This
+/// is the [`BusyKind::Network`](super::storage_files::BusyKind) source.
+impl super::storage_files::BusySource for PathsInUse {
+    fn busy(
+        &self,
+        storage: &dyn paperpaw_platform::Storage,
+        path: &str,
+        _access: super::files_service::Access,
+    ) -> bool {
+        self.holds(path, storage.ignores_case())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -28,8 +28,9 @@ use paperpaw_platform::Storage;
 /// `ERR_BUSY` about (`files.md` 2).
 pub(crate) trait BusySource {
     /// Whether `access` to `path` (card relative) is busy now: the source
-    /// holds it, or a folder holding it, in use.
-    fn busy(&self, path: &str, access: Access) -> bool;
+    /// holds it, or a folder holding it, in use. `storage` names entries the
+    /// way the card does (case beyond ASCII).
+    fn busy(&self, storage: &dyn Storage, path: &str, access: Access) -> bool;
 
     /// Whether a library move job runs (every `move` is busy then).
     fn moving(&self) -> bool {
@@ -64,7 +65,6 @@ impl BusySources {
     ///
     /// # Errors
     /// `ERR_BUSY` when the list is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the host's own tables register as they land")]
     pub(crate) fn register(&self, kind: BusyKind, source: Rc<dyn BusySource>) -> Result<(), i32> {
         let mut all = self.0.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         all.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
@@ -80,6 +80,14 @@ impl BusySources {
                 .iter()
                 .all(|kind| all.iter().any(|(have, _)| have == kind))
         })
+    }
+
+    /// Whether a source of `kind` is registered. A list in use answers
+    /// "yes" (nothing is added to it then).
+    pub(crate) fn has(&self, kind: BusyKind) -> bool {
+        self.0
+            .try_borrow()
+            .map_or(true, |all| all.iter().any(|(have, _)| *have == kind))
     }
 
     /// A list in use answers busy: the safe answer.
@@ -158,7 +166,8 @@ impl FilesHost for StorageFiles {
     }
 
     fn busy(&self, path: &str, access: Access) -> bool {
-        self.sources.any(|source| source.busy(path, access))
+        self.sources
+            .any(|source| source.busy(&*self.storage, path, access))
     }
 
     fn moving(&self) -> bool {

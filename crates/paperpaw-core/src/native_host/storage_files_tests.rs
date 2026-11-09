@@ -88,7 +88,7 @@ struct Source {
     moving: Cell<bool>,
 }
 impl BusySource for Source {
-    fn busy(&self, path: &str, access: Access) -> bool {
+    fn busy(&self, _: &dyn Storage, path: &str, access: Access) -> bool {
         self.busy.get() && path == "Books/a.epub" && access == Access::Write
     }
     fn moving(&self) -> bool {
@@ -163,4 +163,32 @@ fn the_wired_host_asks_the_device_sources() {
     let files = &resources.hosts().files().unwrap().0;
     assert!(files.busy("Books/a.epub", Access::Write));
     assert!(files.moving());
+}
+
+#[test]
+fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
+    let resources = HostResources::try_new().unwrap();
+    let hosts = resources.hosts();
+    // Registered once, however many times the wiring asks.
+    hosts.register_in_use_source().unwrap();
+    hosts.register_in_use_source().unwrap();
+    let sources = hosts.busy_sources();
+    assert!(sources.has(BusyKind::Network));
+    assert!(!sources.complete());
+    sources.register(BusyKind::LibraryMoves, quiet()).unwrap();
+    sources.register(BusyKind::ReaderBook, quiet()).unwrap();
+    resources.wire(HostWiring::new().files(card())).unwrap();
+    let files = &hosts.files().unwrap().0;
+    assert!(!files.busy("Books/a.epub", Access::Write));
+    hosts.in_use().claim(7, "Books/a.epub").unwrap();
+    for access in [Access::Write, Access::Remove, Access::Rename] {
+        assert!(files.busy("Books/a.epub", access), "{access:?}");
+        assert!(files.busy("Books", access), "the folder that holds it");
+    }
+    assert!(!files.busy("Books/b.epub", Access::Write));
+    // The test card keeps case; a card that does not asks the table folded.
+    assert!(!files.busy("books/A.EPUB", Access::Write));
+    assert!(hosts.in_use().holds("books/A.EPUB", true));
+    hosts.in_use().release(7, "Books/a.epub");
+    assert!(!files.busy("Books/a.epub", Access::Write));
 }

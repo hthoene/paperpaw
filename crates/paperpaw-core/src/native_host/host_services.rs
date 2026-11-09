@@ -333,6 +333,19 @@ impl HostServices {
         self.in_use.get_or_init(Default::default)
     }
 
+    /// Makes the in-use table (what `core.net` and `core.sockets` hold) a
+    /// source of the busy answers of `core.files`, once for the device.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    pub(crate) fn register_in_use_source(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::Network) {
+            return Ok(());
+        }
+        sources.register(super::storage_files::BusyKind::Network, self.in_use().clone())
+    }
+
     /// The owner directory, made on first use.
     ///
     /// # Errors
