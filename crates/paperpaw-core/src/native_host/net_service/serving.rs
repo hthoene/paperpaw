@@ -35,6 +35,9 @@ struct Server {
     /// The screen instance the server lives on.
     screen: u64,
     max_body: u64,
+    /// The shell reported that the listener is open (`server_started`); until
+    /// then the plugin has not been told `started`.
+    opened: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -266,25 +269,15 @@ pub(super) fn serve(
         .power_end(who.owner, false)
         .map(|e| e.reason)
         .or_else(|| (serve.port != 0 && !host.network_up()).then_some(reason::NO_NETWORK));
-    let mut address = String::new();
+    // The shell's `listen` returns what it knows now; the listener opens at
+    // its next step, and the plugin is told `started` (with the address) only
+    // when the shell reports it (`server_started`), or `failed` if it cannot
+    // (`server_failed`).
+    let mut known = String::new();
     let outcome = match refusal {
         Some(why) => Err(why),
-        None => host.transport().listen(key, serve.port, &mut address),
+        None => host.transport().listen(key, serve.port, &mut known),
     };
-    if outcome.is_ok() && address.len() > 64 {
-        host.transport().unlisten(key);
-        tell(
-            &mut inner,
-            host,
-            who.owner,
-            serve.token,
-            FAILED,
-            reason::REFUSED,
-            "",
-        )?;
-        inner.sync_demand(host);
-        return Ok(());
-    }
     match outcome {
         Ok(()) => {
             inner.serving.servers.push(Server {
@@ -294,24 +287,93 @@ pub(super) fn serve(
                 port: serve.port,
                 screen,
                 max_body,
+                opened: false,
             });
-            if let Err(error) = tell(
-                &mut inner,
-                host,
-                who.owner,
-                serve.token,
-                STARTED,
-                0,
-                &address,
-            ) {
-                // No event could be made: the server is not kept.
-                inner.serving.servers.pop();
-                host.transport().unlisten(key);
-                inner.sync_demand(host);
-                return Err(error);
-            }
         }
         Err(why) => tell(&mut inner, host, who.owner, serve.token, FAILED, why, "")?,
+    }
+    inner.sync_demand(host);
+    Ok(())
+}
+
+/// The shell reports that the listener of server `key` is open at `address`:
+/// the plugin is told `started`.
+///
+/// # Errors
+/// `ERR_NOT_FOUND` for a server that does not exist (it stopped, or failed,
+/// meanwhile); `ERR_STATE` when it was reported already; `ERR_BUSY` when the
+/// table is borrowed.
+pub(crate) fn server_started(host: &dyn NetHost, key: u32, address: &str) -> Result<(), i32> {
+    let mut inner = host.table().lock()?;
+    let at = inner
+        .serving
+        .servers
+        .iter()
+        .position(|s| s.key == key)
+        .ok_or(ERR_NOT_FOUND)?;
+    if inner.serving.servers[at].opened {
+        return Err(ERR_STATE);
+    }
+    let (owner, token) = (
+        inner.serving.servers[at].owner,
+        inner.serving.servers[at].token,
+    );
+    // An address that does not fit is refused, and the shell stops listening.
+    let told = if address.len() > 64 {
+        Err(ERR_INVALID)
+    } else {
+        tell(&mut inner, host, owner, token, STARTED, 0, address)
+    };
+    match told {
+        Ok(()) => inner.serving.servers[at].opened = true,
+        Err(error) => {
+            // The server is not kept; the plugin is told it ended (the
+            // terminal event is never lost).
+            stop(&mut inner, host, at, reason::REFUSED, false);
+            if error == ERR_INVALID {
+                if tell(&mut inner, host, owner, token, FAILED, reason::REFUSED, "").is_err() {
+                    tell_stopped(&mut inner, host, owner, token, reason::REFUSED);
+                }
+            } else {
+                tell_stopped(&mut inner, host, owner, token, reason::REFUSED);
+            }
+            inner.sync_demand(host);
+            return if error == ERR_INVALID {
+                Ok(())
+            } else {
+                Err(error)
+            };
+        }
+    }
+    inner.sync_demand(host);
+    Ok(())
+}
+
+/// The shell reports that the listener of server `key` could not be opened
+/// (or went away): the plugin is told `failed` with reason `refused`, and the
+/// server's slot is free.
+///
+/// # Errors
+/// `ERR_NOT_FOUND` for a server that does not exist; `ERR_BUSY` when the
+/// table is borrowed.
+pub(crate) fn server_failed(host: &dyn NetHost, key: u32) -> Result<(), i32> {
+    let mut inner = host.table().lock()?;
+    let at = inner
+        .serving
+        .servers
+        .iter()
+        .position(|s| s.key == key)
+        .ok_or(ERR_NOT_FOUND)?;
+    let (owner, token) = (
+        inner.serving.servers[at].owner,
+        inner.serving.servers[at].token,
+    );
+    // Its requests end and the shell is told to let go (a no-op for a
+    // listener that never opened).
+    stop(&mut inner, host, at, reason::REFUSED, false);
+    if tell(&mut inner, host, owner, token, FAILED, reason::REFUSED, "").is_err() {
+        // No room for a `failed`: the terminal `stopped` is never lost.
+        tell_stopped(&mut inner, host, owner, token, reason::REFUSED);
     }
     inner.sync_demand(host);
     Ok(())

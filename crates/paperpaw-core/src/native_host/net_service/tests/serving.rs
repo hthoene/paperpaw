@@ -14,9 +14,24 @@ fn serve_rec(token: u32, port: u32) -> wire::ServiceNetServe {
     }
 }
 
-fn serve(fake: &Fake, owner: u64, s: &wire::ServiceNetServe) -> Result<(), i32> {
+/// `serve` as the plugin calls it: the shell's listener has not opened yet.
+fn serve_call(fake: &Fake, owner: u64, s: &wire::ServiceNetServe) -> Result<(), i32> {
     let hosts = HostServices::new();
     serving::serve(fake, &caller(owner, &hosts), s)
+}
+
+/// `serve`, and the shell's next step where it listens: it reports the
+/// listener open at the address it knew (so the plugin is told `started`).
+fn serve(fake: &Fake, owner: u64, s: &wire::ServiceNetServe) -> Result<(), i32> {
+    let before = fake.listens.borrow().len();
+    serve_call(fake, owner, s)?;
+    let listened = fake.listens.borrow().len() > before;
+    let result = *fake.listen_result.borrow();
+    if listened && !matches!(result, Some(Err(_))) {
+        let address = result.and_then(Result::ok).unwrap_or("192.168.1.20:8080");
+        serving::server_started(fake, key_of(fake), address).unwrap();
+    }
+    Ok(())
 }
 
 fn server_event(token: u32, state: u32, why: u32, address: &str) -> Event {
@@ -565,10 +580,16 @@ fn stopping_a_server_ends_its_requests_and_removes_their_bodies_nothing_stays() 
 
 #[test]
 fn a_failed_allocation_in_serve_leaves_no_server_behind() {
-    for nth in 1..=6 {
+    for nth in 1..=8 {
         let fake = Fake::x4();
         FAIL_NTH.with(|n| n.set(nth));
-        let result = serve(&fake, OWNER, &serve_rec(1, 8080));
+        // `serve`, then the shell's report that the listener opened.
+        let result = serve_call(&fake, OWNER, &serve_rec(1, 8080)).and_then(|()| {
+            match fake.listens.borrow().last() {
+                Some(_) => serving::server_started(&fake, key_of(&fake), "192.168.1.20:8080"),
+                None => Ok(()),
+            }
+        });
         FAIL_NTH.with(|n| n.set(0));
         match result {
             Err(error) => {
@@ -579,7 +600,14 @@ fn a_failed_allocation_in_serve_leaves_no_server_behind() {
                     listening,
                     "allocation {nth}"
                 );
-                assert!(next(&fake, OWNER).is_none() || listening == 0);
+                // Nothing, or the terminal `stopped` (never lost, never a
+                // `started` for a server that is not kept).
+                for event in drain(&fake, OWNER) {
+                    assert!(
+                        matches!(event, Event::Server { state: 2, .. }),
+                        "allocation {nth}: {event:?}"
+                    );
+                }
             }
             Ok(()) => {
                 assert!(matches!(next(&fake, OWNER), Some(Event::Server { .. })));
@@ -717,4 +745,85 @@ fn the_largest_served_request_event_fits_the_pump_buffer_as_a_batch() {
         event_delivered(&fake, OWNER).unwrap();
     }
     assert!(longest > 1_040, "the served request was among them");
+}
+
+#[test]
+fn the_plugin_is_told_started_when_the_shell_reports_the_listener_not_when_listen_returns() {
+    let fake = Fake::x4();
+    serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let key = key_of(&fake);
+    assert_eq!(drain(&fake, OWNER), [], "listen returned: nothing told yet");
+    assert!(fake.unlistened.borrow().is_empty());
+    serving::server_started(&fake, key, "192.168.1.20:8080").unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [server_event(1, 0, 0, "192.168.1.20:8080")]
+    );
+    // Reported once; an unknown server is not found.
+    assert_eq!(serving::server_started(&fake, key, "x"), Err(ERR_STATE));
+    assert_eq!(serving::server_started(&fake, 999, "x"), Err(ERR_NOT_FOUND));
+    assert_eq!(drain(&fake, OWNER), []);
+}
+
+#[test]
+fn a_listener_that_cannot_open_is_told_failed_refused_and_frees_the_slot() {
+    let fake = Fake::x4();
+    // The plugin's servers are full (`PLUGIN_SERVERS`).
+    for token in 1..=2 {
+        serve_call(&fake, OWNER, &serve_rec(token, 8080)).unwrap();
+    }
+    assert_eq!(
+        serve_call(&fake, OWNER, &serve_rec(3, 8080)),
+        Err(ERR_BUSY),
+        "no slot left"
+    );
+    let first = fake.listens.borrow()[0].0;
+    serving::server_failed(&fake, first).unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [server_event(1, 1, reason::REFUSED, "")],
+        "failed, reason refused, and no started before it"
+    );
+    assert_eq!(
+        *fake.unlistened.borrow(),
+        [first],
+        "the shell lets go (a no-op)"
+    );
+    // The slot is free: a new server starts.
+    serve(&fake, OWNER, &serve_rec(3, 8081)).unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [server_event(3, 0, 0, "192.168.1.20:8080")]
+    );
+    // Reported after the fact: not found; a second report too.
+    assert_eq!(serving::server_failed(&fake, first), Err(ERR_NOT_FOUND));
+    assert_eq!(
+        serving::server_started(&fake, first, "x"),
+        Err(ERR_NOT_FOUND)
+    );
+}
+
+#[test]
+fn a_server_stopped_before_its_listener_opened_is_told_stopped_and_the_late_report_is_ignored() {
+    let fake = Fake::x4();
+    serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let key = key_of(&fake);
+    stop_serving_as(&fake, OWNER, 1);
+    assert_eq!(drain(&fake, OWNER), [server_event(1, 2, 0, "")]);
+    assert_eq!(serving::server_started(&fake, key, "x"), Err(ERR_NOT_FOUND));
+    assert_eq!(serving::server_failed(&fake, key), Err(ERR_NOT_FOUND));
+    assert_eq!(drain(&fake, OWNER), []);
+}
+
+#[test]
+fn an_address_that_does_not_fit_fails_the_server_and_the_shell_stops_listening() {
+    let fake = Fake::x4();
+    serve_call(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let key = key_of(&fake);
+    serving::server_started(&fake, key, &"a".repeat(65)).unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [server_event(1, 1, reason::REFUSED, "")]
+    );
+    assert_eq!(*fake.unlistened.borrow(), [key]);
 }

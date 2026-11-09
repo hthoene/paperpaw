@@ -349,7 +349,8 @@ fn own(text: &str) -> Result<String, i32> {
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use serving::{
-    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_owner,
+    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_failed,
+    server_owner, server_started,
 };
 #[allow(
     unused_imports,

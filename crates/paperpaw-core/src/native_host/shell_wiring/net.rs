@@ -184,6 +184,12 @@ pub enum ServerReason {
     /// The port (and the 20 after it) could not be had, or the address did not
     /// fit.
     Refused,
+    /// The listener could not be made for lack of memory (reported by
+    /// [`NetReports::server_failed`]; the plugin is told `refused`).
+    NoMemory,
+    /// The listener could not be opened for another reason (reported by
+    /// [`NetReports::server_failed`]; the plugin is told `refused`).
+    Failed,
 }
 
 /// What the device lets the network use (`network.md` 3.4): numbers, picked by
@@ -270,9 +276,12 @@ pub trait ShellHttp {
     /// right after this returns, so the shell must have **closed** its handle
     /// on it (and written nothing more) before it returns.
     fn abort(&self, id: u32);
-    /// Listens on `port` (0: the cable), trying the next 20 ports when it is
-    /// taken; writes the address got (`""` for the cable) into `address` and
-    /// returns its length.
+    /// Starts listening on `port` (0: the cable), trying the next 20 ports
+    /// when it is taken; writes the address the shell knows now (`""` for the
+    /// cable) into `address` and returns its length. The listener may open at
+    /// the shell's next step: the plugin is told `started` only when the shell
+    /// reports it ([`NetReports::server_started`], with the address), or
+    /// `failed` when it cannot ([`NetReports::server_failed`]).
     ///
     /// # Errors
     /// Why it could not: an address that does not fit is
@@ -280,7 +289,9 @@ pub trait ShellHttp {
     fn listen(&self, server: u32, port: u32, address: &mut [u8]) -> Result<usize, ServerReason>;
     /// Stops listening; the server's connections end. Core calls it also when
     /// it refuses an address `listen` returned (one that is not text, or that
-    /// it cannot keep), so a refused server does not go on listening.
+    /// it cannot keep), and for a server the shell reported failed, so a
+    /// refused server does not go on listening: a no-op for a listener that
+    /// never opened.
     fn unlisten(&self, server: u32);
     /// Sends the answer of a served request and closes it.
     ///
@@ -539,6 +550,32 @@ impl NetReports {
     /// `ERR_BUSY`.
     pub fn network_lost(&self) -> Result<(), i32> {
         net_service::network_lost(&*self.0)
+    }
+
+    /// The listener of `server` is open at `address` (the host and port a
+    /// client reaches it at, `""` for the cable). The plugin is told
+    /// `event.server` `started` now, not when [`NetTransport::listen`]
+    /// returned: `listen` only says what the shell knows, the listener opens
+    /// at the shell's next step.
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` for a server that stopped or failed meanwhile;
+    /// `ERR_STATE` when it was reported already; `ERR_BUSY`.
+    pub fn server_started(&self, server: u32, address: &str) -> Result<(), i32> {
+        net_service::server_started(&*self.0, server, address)
+    }
+
+    /// The listener of `server` could not be opened (or went away). The
+    /// plugin is told `event.server` `failed` with reason `refused`, whatever
+    /// the `reason` (it is for the shell's log), and the server's slot is
+    /// free for a new `serve`. Core calls [`NetTransport::unlisten`] for it
+    /// too: a shell treats that as a no-op for a listener that never opened.
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` for a server that stopped meanwhile; `ERR_BUSY`.
+    pub fn server_failed(&self, server: u32, reason: ServerReason) -> Result<(), i32> {
+        let _ = reason;
+        net_service::server_failed(&*self.0, server)
     }
 
     /// A request head arrived on `server`.
