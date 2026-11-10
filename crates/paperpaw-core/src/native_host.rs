@@ -290,6 +290,15 @@ mod widget_inputs;
 mod wifi_events;
 mod work_pump;
 
+/// Bit 0 (`menus`) of `event.registry_changed`: menus and their item state.
+pub(crate) const REGISTRY_MENUS: u32 = 1;
+/// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
+/// change of the plugin set may change anything the registry holds.
+pub(crate) const REGISTRY_ALL: u32 = 0xFF;
+/// Bit 31 (`dropped`) of `event.registry_changed`: a staged REG batch of the
+/// plugin's own was dropped when applied. It goes to that plugin only.
+pub(crate) const REGISTRY_DROPPED: u32 = 1 << 31;
+
 /// The most callback registrations (event subscriptions and draws) one
 /// plugin makes over the whole construction. Records live in a `Vec` grown
 /// per batch, so the heap cost is what the plugin registered.
