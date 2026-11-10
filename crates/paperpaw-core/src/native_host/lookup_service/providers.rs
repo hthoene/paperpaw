@@ -17,8 +17,8 @@
 //! The cursor counts the providers that are left, on every ask: a plugin that
 //! loads or stops, or a network that comes or goes, between two pages can make
 //! the asker skip or see a provider twice (the asker's loop is best effort).
-//! The cable link is not in the frame's environment yet: only Wi-Fi (and the
-//! device's ability) say "connected" here. A provider that is stopped is not
+//! The cable serves a computer, not the internet, so it never counts as a
+//! network here: only Wi-Fi (and the device's ability) say "connected". A provider that is stopped is not
 //! started for a lookup, and one that fails or answers badly has the empty
 //! entry for its page (see [`call`]).
 //!
@@ -70,8 +70,7 @@ impl Chosen {
 /// PaperPaw manages Wi-Fi, it is online. A frame without an environment says
 /// no.
 fn network_up(frame: &dyn Frame) -> bool {
-    // Cable link not yet in Env: a network provider is skipped while only the
-    // cable is up.
+    // The cable serves a computer, not the internet: it does not count.
     frame.kernel_env().is_some_and(|env| {
         env.caps().network && env.wifi().is_none_or(|wifi| wifi.state.is_online())
     })
