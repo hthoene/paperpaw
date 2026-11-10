@@ -1,4 +1,4 @@
-//! The kernel's editor of lists of widgets (the sleep screen's widgets, here a stand-in setting),
+//! The kernel's editor of lists of widgets (the sleep screen's widgets),
 //! opened on its slot, with the real kernel and the home screen's widgets, by buttons and by touch: widgets moved up and down (by
 //! their options, or dragged by the grip), removed and added, each change
 //! kept in the setting at once and read back by a new kernel; settings it

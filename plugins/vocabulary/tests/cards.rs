@@ -12,82 +12,12 @@ use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     InputEvent, Point, PointerEvent, PointerPhase, PointerTool, Rotation, SystemStatus, WallClock,
 };
-use paperpaw_sdk::builtin::{actions, events, slots};
+use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::semantics::{Part, Role};
 use paperpaw_sdk::{
-    Canvas, Cx, DeviceInfo, DisplayInfo, Env, Handled, Id, InputCaps, Instant, Manifest,
-    MemoryClass, MemoryStorage, Params, PixelFormat, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, SettingGroupSpec, SettingSpec, Storage, Version,
+    DeviceInfo, DisplayInfo, Id, InputCaps, Instant, MemoryClass, MemoryStorage, Params,
+    PixelFormat, Storage,
 };
-
-/// Stands in for the sleep plugin (its id, its setting `sleep.show` and the
-/// slot's screen). What shows while the device sleeps: the sleep card, the screen the plugin
-/// offers as a mode of the sleep screen, shown in the sleep screen's place and
-/// gone when the device wakes. (The sleep plugin is native now, and the kernel
-/// here does not run native plugins.)
-struct SleepsOnTheCard;
-
-struct Asleep(Box<dyn Screen>);
-
-impl Screen for Asleep {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        self.0.draw(canvas, env);
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_show(cx);
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::Yes
-    }
-
-    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
-        self.0.on_event(event, params, cx);
-        if *event == events::RESUME {
-            cx.close();
-        }
-    }
-}
-
-impl Plugin for SleepsOnTheCard {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sleep"), "Asleep", Version::new(0, 1, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let screen = Id::new_static("sleep.screen");
-        r.add_screen(ScreenSpec::new(
-            screen.clone(),
-            "Asleep",
-            Box::new(|env, _| {
-                let card = Id::new_static(paperpaw_plugin_vocabulary::SLEEP_CARD);
-                let shown = env
-                    .make_screen(&card, &Params::new())
-                    .expect("the plugin offers the sleep card");
-                Box::new(Asleep(shown))
-            }),
-        ))?;
-        // The setting the sleep plugin owns, which the mode is a choice of.
-        r.add_setting_group({
-            static GROUP: SettingGroupSpec =
-                SettingGroupSpec::new(Id::new_static("sleep.group"), "sleep.title");
-            &GROUP
-        })?;
-        r.add_settings({
-            static SETTINGS: [SettingSpec; 1] = [SettingSpec::choice(
-                "sleep.show",
-                "sleep.setting.show",
-                &["sleep.show.cat", paperpaw_plugin_vocabulary::SLEEP_CARD],
-                "sleep.show.cat",
-                Id::new_static("sleep.group"),
-            )];
-            &SETTINGS
-        })?;
-        r.bind_slot(slots::SLEEP, screen, Priority::DEFAULT)
-    }
-}
 
 /// An X4: black and white, buttons.
 const BUTTONS: DeviceInfo = DeviceInfo::new(
@@ -150,7 +80,7 @@ impl Reader {
         Self::built(device, storage, config, false)
     }
 
-    /// A reader that sleeps, with a sleep screen (the sleep card).
+    /// A reader that sleeps, with the sleep screen.
     fn sleeping(storage: MemoryStorage, config: &str) -> Self {
         Self::built(BUTTONS, storage, config, true)
     }
@@ -165,7 +95,7 @@ impl Reader {
             .plugin(paperpaw_plugin_home::Home)
             .plugin(paperpaw_plugin_vocabulary::Vocabulary);
         if sleeps {
-            builder = builder.plugin(SleepsOnTheCard);
+            builder = builder.plugin(paperpaw_plugin_sleep::Sleep);
         }
         let mut kernel = builder.build().unwrap();
         kernel.set_status(

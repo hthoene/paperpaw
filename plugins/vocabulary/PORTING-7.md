@@ -131,11 +131,7 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page), the sleep
-  choice (a `setting.choice` of `sleep.show` naming the card's screen, and its `slot.offer` for
-  `core.sleep`, as reading-goal's: the sleep plugin is native only since #228 and binds the slot for a
-  foreign mode itself; interface 6 no longer adds the choice, so nothing offers the card until this
-  step), the help hints, the widget and the events for the words looked up and the wake (the
+- Not declared yet: `uses.network` (the phone page), the help hints, the widget and the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 

@@ -26,7 +26,8 @@ paperpaw-sdk.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
-paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
+paperpaw-platform.workspace = true
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 
 [package.metadata.paperpaw]
 # Large files embedded on purpose (`paperpaw-dev package` says nothing of them).

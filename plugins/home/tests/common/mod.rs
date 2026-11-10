@@ -22,14 +22,10 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
-use std::borrow::Cow;
-
 use paperpaw_sdk::replies::Typed;
-use paperpaw_sdk::widgets::{PlaceKind, WidgetPlace};
 use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
-    Version,
+    Screen, ScreenSpec, Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -228,48 +224,6 @@ impl Screen for Keyboard {
     }
 }
 
-/// A list of widgets edited on the slot `core.edit-widgets`, the setting the
-/// sleep screen's widgets were (that plugin is native now, and the kernel here
-/// does not run native plugins): the id and the setting `sleep.widgets`, with
-/// its group and its place of widgets, as the sleep plugin declares them.
-pub struct WidgetLists;
-
-impl Plugin for WidgetLists {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("sleep"),
-            "Widget lists",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        const GROUP: Id = Id::new_static("sleep.group");
-        static EXTRA: SettingExtra = SettingExtra::new().editor_slot(slots::EDIT_WIDGETS);
-        const PLACE_SETTINGS: &[Id] = &[Id::new_static("sleep.widgets")];
-        static SPEC: SettingGroupSpec = SettingGroupSpec::new(GROUP, "sleep.title");
-        static SETTINGS: [SettingSpec; 1] = [SettingSpec::new(
-            Id::new_static("sleep.widgets"),
-            "sleep.setting.widgets",
-            SettingKind::List,
-            SettingValue::Text(Cow::Borrowed(
-                "home.date, home.continue, stats.widget.today, home.recent",
-            )),
-            GROUP,
-        )
-        .with_extra(&EXTRA)];
-        r.add_setting_group(&SPEC)?;
-        r.add_settings(&SETTINGS)?;
-        r.add_widget_place(WidgetPlace::new(
-            Id::new_static("sleep.widgets"),
-            "sleep.title",
-            PLACE_SETTINGS,
-            PlaceKind::Stack,
-        ))
-    }
-}
-
 /// The standard app with the test keyboard, over a storage the test keeps.
 pub struct App {
     pub kernel: Kernel,
@@ -291,7 +245,6 @@ impl App {
         let builder = Kernel::builder(device).storage(storage.clone());
         let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
             .plugin(TestKeyboard)
-            .plugin(WidgetLists)
             .build()
             .unwrap();
         let effects = kernel.start(Instant(now));

@@ -121,8 +121,8 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/widgets/picture.pixels` | widgets | `picture.stamp`: the picture's path and size, the screen's size and colour |
 | `.paperpaw/logo.pixels` | SDK `logo` | `logo.stamp`: the picture's path and size, the size drawn, colour or not |
 | `.paperpaw/library/thumbs/<h>/<hash>.thumb`, `<hash>.<variant>.thumb` (earlier versions: `covers/…`, moved likewise) | SDK `library` | covers made small for views of many books, made again when missing |
-| `.paperpaw/plugins/sleep/cat.png`, `logo.png` | sleep | the sleeping cat and PaperPaw's logo as the plugin ships them, written into the data folder for the host to decode (written again only when the size differs). The `cat-<side>.gray` and `picture.gray` of earlier versions are not used |
-| `.paperpaw/plugins/sleep/overlay-failed.txt` | sleep | why the picture over the page did not show at the last sleep, in the reader's language, for the picker; written only when that changed, removed once it shows. The `overlay.gray` and `overlay.key` of earlier versions are not used |
+| `.paperpaw/plugins/sleep/cat-<side>.gray`, `picture.gray` | sleep | the sleeping cat decoded for a screen, its side in the name; the picture of the pictures folder shown last |
+| `.paperpaw/plugins/sleep/overlay.gray`, `overlay-failed.txt` | sleep | `overlay.key`: the picture over the page and its size; why it did not show at the last sleep, written only when that changed |
 | `.paperpaw/plugins/reading-goal/cat-<mood>-<bytes>.gray`, `own-<mood>-<bytes>.gray` | reading-goal | the mood's picture decoded (the shipped one, or the reader's own), the size of its file in the name |
 | `.paperpaw/plugins/reader/books/<hash>/pages-<hash>.bin` | reader | the layout's settings, `paperpaw_layout::VERSION`, the book's size and the plugins' stylesheets, in the file's name; a new one removes the others once four are kept |
 | `.paperpaw/plugins/reader/books/<hash>/headings.txt` | reader | the book's size on its first line: the headings found in a book without contents, found again when the size changes |
