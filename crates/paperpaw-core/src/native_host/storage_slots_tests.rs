@@ -13,7 +13,7 @@ const FOREIGN: &str = ".paperpaw/plugins/other/state";
 pub(super) struct Backend {
     pub(super) files: Rc<MemoryStorage>,
     free: Rc<Cell<Option<u64>>>,
-    fail: Rc<Cell<Option<StorageError>>>,
+    pub(super) fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
     partial_error: Rc<Cell<bool>>,
 }

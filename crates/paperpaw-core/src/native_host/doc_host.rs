@@ -46,8 +46,8 @@ use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
-    ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
+    ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
@@ -82,6 +82,12 @@ struct Cache {
     version: String,
     book: [u8; paperpaw_sdk::library::KEY_LEN],
     conversion: u64,
+    /// What the book's file and the CSS file were when the open began
+    /// (`doc_cache::content`).
+    content: String,
+    /// The stamp is current: a finished cache found at the open, or the
+    /// format answered done and the stamp was made.
+    finished: bool,
 }
 
 impl Cache {
@@ -91,6 +97,7 @@ impl Cache {
             plugin: &self.plugin,
             version: &self.version,
             conversion: self.conversion,
+            content: &self.content,
         }
     }
 }
@@ -490,7 +497,7 @@ impl Bound<'_> {
     /// # Errors
     /// `ERR_BUSY` where no conversion of the book can go, as `doc_cache`
     /// says; the registry's.
-    fn prepare_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
+    fn prepare_cache(&self, call: &FormatCall<'_>, css: &str) -> Result<(), i32> {
         let Some(storage) = self.state.storage.as_deref() else {
             return Ok(());
         };
@@ -501,7 +508,7 @@ impl Bound<'_> {
         let plugin = plugin?;
         let version = self.format_version(&plugin)?;
         let mut digits = [0_u8; paperpaw_sdk::library::KEY_LEN];
-        let folder = {
+        let (made, content) = {
             let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
             let book = books
                 .iter()
@@ -510,30 +517,70 @@ impl Bound<'_> {
             if book.path.is_empty() {
                 return Ok(());
             }
+            let content = super::doc_cache::content(storage, &book.path, css)?;
             let key = paperpaw_sdk::library::key_into(&book.path, &mut digits);
             let id = super::doc_cache::Identity {
                 book: key,
                 plugin: &plugin,
                 version: &version,
                 conversion: call.conversion,
+                content: &content,
             };
-            super::doc_cache::prepare(storage, &id, &|folder| {
+            let made = super::doc_cache::prepare(storage, &id, &|folder| {
                 books
                     .iter()
                     .any(|b| b.cache.as_ref().is_some_and(|c| c.folder == folder))
-            })?
+            })?;
+            (made, content)
         };
+        // What the cache holds is counted per folder: new, it starts at 0; a
+        // finished one found on the card starts at what its stamp says.
+        let scope = self.who.hosts.format_scope();
+        if made.fresh {
+            scope.reset(&made.folder);
+        } else if let Some(bytes) = made.bytes {
+            scope.seed(&made.folder, bytes);
+        }
         let mut books = self.state.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if let Some(book) = books.iter_mut().find(|book| book.document == call.document) {
             book.cache = Some(Cache {
-                folder,
+                folder: made.folder,
                 plugin,
                 version,
                 book: digits,
                 conversion: call.conversion,
+                content,
+                finished: made.bytes.is_some(),
             });
         }
         Ok(())
+    }
+
+    /// A call answered `ERR_NO_SPACE` while the cache was being made: the
+    /// partial cache is removed (`document.md` 3, Cache quota), unless another
+    /// open document uses the folder. What a bounded removal leaves is
+    /// removed with the next open, as an unfinished folder.
+    fn discard_cache(&self, document: u32) {
+        let (Some(storage), Ok(books)) =
+            (self.state.storage.as_deref(), self.state.books.try_borrow())
+        else {
+            return;
+        };
+        let Some(cache) = books
+            .iter()
+            .find(|book| book.document == document)
+            .and_then(|book| book.cache.as_ref())
+            .filter(|cache| !cache.finished)
+        else {
+            return;
+        };
+        let shared = books.iter().any(|b| {
+            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
+        });
+        if !shared {
+            let _ = super::doc_cache::clear(storage, &cache.folder);
+            self.who.hosts.format_scope().reset(&cache.folder);
+        }
     }
 
     /// The version of the plugin `plugin` as the registry says it (a new
@@ -543,6 +590,11 @@ impl Bound<'_> {
             owner: self.who.owner,
             plugin: self.who.plugin,
         };
+        // The row is encoded into a buffer of the heap, not of the opener's
+        // stack (a frame on the X4 is small), and freed with this call.
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(1024).map_err(|_| ERR_NO_MEMORY)?;
+        bytes.resize(1024, 0);
         let mut version = Err(ERR_NOT_FOUND);
         self.frame
             .registry()?
@@ -550,7 +602,6 @@ impl Bound<'_> {
                 if version.is_ok() {
                     return Ok(());
                 }
-                let mut bytes = [0_u8; 512];
                 let used = row.encode(&mut bytes)?;
                 if let Record::ServiceRegPlugin(row) = wire::record_decode_one(&bytes[..used])? {
                     version = copy(row.version);
@@ -780,10 +831,10 @@ impl super::doc_service::DocHost for Bound<'_> {
         let siblings = kind == BookKind::Siblings;
         // The format's roots 3 and 4 are this call's book and CSS file for as
         // long as the guard lives.
-        if call.op == super::doc_service::fmt::OPEN {
-            self.prepare_cache(call)?;
-        }
         let css = self.css_card_path(call)?;
+        if call.op == super::doc_service::fmt::OPEN {
+            self.prepare_cache(call, &css)?;
+        }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let route = FrameRoute(self.frame);
         let stage = Stage {
@@ -807,11 +858,13 @@ impl super::doc_service::DocHost for Bound<'_> {
         } else {
             run("");
         }
+        if result == Err(ERR_NO_SPACE) {
+            self.discard_cache(call.document);
+        }
         result
     }
 
     fn close_format(&self, document: &Document) {
-        self.who.hosts.format_scope().forget(document.id);
         let Ok(target) = self
             .state
             .index()
@@ -833,19 +886,36 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn document_ready(&self, document: u32) {
-        let (Some(storage), Ok(books)) =
-            (self.state.storage.as_deref(), self.state.books.try_borrow())
-        else {
+        let Some(storage) = self.state.storage.as_deref() else {
             return;
         };
-        let cache = books
-            .iter()
-            .find(|book| book.document == document)
-            .and_then(|book| book.cache.as_ref());
-        if let Some(cache) = cache {
+        {
+            let Ok(books) = self.state.books.try_borrow() else {
+                return;
+            };
+            let Some(cache) = books
+                .iter()
+                .find(|book| book.document == document)
+                .and_then(|book| book.cache.as_ref())
+                // A finished cache found at the open keeps its stamp.
+                .filter(|cache| !cache.finished)
+            else {
+                return;
+            };
+            let bytes = self.who.hosts.format_scope().total(&cache.folder);
             // A stamp that cannot be made leaves the cache unfinished: the next
             // open makes it again.
-            let _ = super::doc_cache::complete(storage, &cache.identity());
+            if super::doc_cache::complete(storage, &cache.identity(), bytes).is_err() {
+                return;
+            }
+        }
+        if let Ok(mut books) = self.state.books.try_borrow_mut()
+            && let Some(cache) = books
+                .iter_mut()
+                .find(|book| book.document == document)
+                .and_then(|book| book.cache.as_mut())
+        {
+            cache.finished = true;
         }
     }
 

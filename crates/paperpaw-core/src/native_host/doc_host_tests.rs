@@ -20,7 +20,7 @@ use crate::native_host::{
 use alloc::{string::ToString, vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::ERR_IO;
+use paperpaw_native::host_glue::{ERR_IO, ERR_NO_SPACE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Id, Settings};
@@ -80,6 +80,8 @@ struct World<'a> {
     card: Rc<paperpaw_sdk::MemoryStorage>,
     /// Whether the format writes a page of its cache in every call.
     makes_cache: Cell<bool>,
+    /// The renames the card was asked for (the host's stamp is one).
+    renames: Rc<Cell<u32>>,
     /// The version of every plugin, as the registry says it.
     version: Cell<&'static str>,
     /// What the format's call is for, as its slots see it: (book path, kind,
@@ -227,7 +229,7 @@ impl Frame for World<'_> {
 }
 
 /// The card of the fixture: its own allocations are never the ones refused.
-struct Card(Rc<paperpaw_sdk::MemoryStorage>);
+struct Card(Rc<paperpaw_sdk::MemoryStorage>, Rc<Cell<u32>>);
 impl Storage for Card {
     fn read_at(
         &self,
@@ -263,6 +265,7 @@ impl Storage for Card {
         self.0.remove(p)
     }
     fn rename(&self, f: &str, t: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.1.set(self.1.get() + 1);
         let _unarmed = Unarmed::new();
         self.0.rename(f, t)
     }
@@ -496,6 +499,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let hosts = HostServices::new();
+    let renames = Rc::new(Cell::new(0));
     let card = Rc::new(
         paperpaw_sdk::MemoryStorage::new()
             .with("mystery", b"PK\x03\x04 epub?".to_vec())
@@ -505,7 +509,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
     let state = Rc::new(
         DocState::try_new(Limits::LARGE, 1_000, hosts.in_use().clone())
             .unwrap()
-            .with_storage(Some(Rc::new(Card(card.clone())))),
+            .with_storage(Some(Rc::new(Card(card.clone(), renames.clone())))),
     );
     hosts.wire_documents(state.clone()).unwrap();
     let world = World {
@@ -518,6 +522,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         sniffs: RefCell::new(Vec::new()),
         sniffed: RefCell::new(Vec::new()),
         card,
+        renames,
         makes_cache: Cell::new(false),
         version: Cell::new("1.0.0"),
         scoped: RefCell::new(Vec::new()),
@@ -1234,5 +1239,91 @@ fn a_half_made_cache_is_removed_at_the_next_open_and_a_ready_open_that_made_none
             .unwrap();
         close(w.open(1, "books/a.epub").unwrap());
         assert!(w.card.get(&std::format!("{folder}/pages/9")).is_none());
+    });
+}
+
+/// Opens `path` (with the CSS file `css` of root 1 when it is not empty) and
+/// closes the document again; the folder of its cache is the format's call
+/// number `at`.
+fn open_and_close(w: &World<'_>, path: &str, css: &str) {
+    let document = if css.is_empty() {
+        w.open(1, path)
+    } else {
+        w.open_with_css(1, path, 1, css)
+    }
+    .unwrap();
+    w.call(
+        AdmittedFeatures::NONE,
+        18,
+        &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_book_replaced_at_its_path_or_an_edited_css_file_makes_the_cache_again() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.makes_cache.set(true);
+        w.card.write("books/a.epub", b"first edition").unwrap();
+        w.card.write("style.css", b"p { color: red }").unwrap();
+        open_and_close(w, "books/a.epub", "style.css");
+        let folder = seen_cache(w, 0);
+        let page = std::format!("{folder}/pages/1");
+        w.card.write(&page, b"old text").unwrap();
+        // The same book and CSS file: the finished cache is used as it is.
+        w.makes_cache.set(false);
+        open_and_close(w, "books/a.epub", "style.css");
+        assert_eq!(w.card.get(&page).as_deref(), Some(&b"old text"[..]));
+        // Another edition of the book at the same path, even of the same size.
+        w.card.write("books/a.epub", b"FIRST EDITION").unwrap();
+        open_and_close(w, "books/a.epub", "style.css");
+        assert!(w.card.get(&page).is_none(), "the old book's cache is used");
+        // The cache of the new edition is finished in turn; then the CSS file
+        // is edited (other bytes, same size).
+        w.makes_cache.set(true);
+        open_and_close(w, "books/a.epub", "style.css");
+        w.card.write(&page, b"new text").unwrap();
+        w.makes_cache.set(false);
+        open_and_close(w, "books/a.epub", "style.css");
+        assert_eq!(w.card.get(&page).as_deref(), Some(&b"new text"[..]));
+        w.card.write("style.css", b"p { color: RED }").unwrap();
+        open_and_close(w, "books/a.epub", "style.css");
+        assert!(w.card.get(&page).is_none(), "the old CSS's cache is used");
+    });
+}
+
+#[test]
+fn a_finished_cache_found_at_the_open_keeps_its_stamp() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.makes_cache.set(true);
+        w.card.write("books/a.epub", b"book").unwrap();
+        open_and_close(w, "books/a.epub", "");
+        let folder = seen_cache(w, 0);
+        let stamp = std::format!("{folder}/{}", crate::native_host::doc_cache::STAMP);
+        let first = w.card.get(&stamp).unwrap();
+        // One rename made it (from the host's folder); finding it current at
+        // the next opens makes no other: the host does not make it again.
+        assert_eq!(w.renames.get(), 1);
+        open_and_close(w, "books/a.epub", "");
+        open_and_close(w, "books/a.epub", "");
+        assert_eq!(w.renames.get(), 1);
+        assert_eq!(w.card.get(&stamp).unwrap(), first);
+    });
+}
+
+#[test]
+fn a_cache_that_ran_out_of_room_is_removed_with_what_was_counted() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.makes_cache.set(true);
+        w.card.write("books/a.epub", b"book").unwrap();
+        *w.reply.borrow_mut() = Err(ERR_NO_SPACE);
+        assert_eq!(w.open(1, "books/a.epub"), Err(ERR_NO_SPACE));
+        let folder = seen_cache(w, 0);
+        assert!(!folder.is_empty());
+        assert!(w.card.get(&std::format!("{folder}/pages/1")).is_none());
+        assert_eq!(w.hosts.format_scope().total(&folder), 0);
     });
 }
