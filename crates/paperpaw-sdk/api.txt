@@ -3906,6 +3906,7 @@ impl paperpaw_sdk::native::device::FileCheck<'_>
 pub const fn paperpaw_sdk::native::device::FileCheck<'_>::author_pinned(self) -> bool
 pub const fn paperpaw_sdk::native::device::FileCheck<'_>::data_plugin(self) -> bool
 pub const fn paperpaw_sdk::native::device::FileCheck<'_>::foreign_firmware(self) -> bool
+pub const fn paperpaw_sdk::native::device::FileCheck<'_>::leaves_out(self) -> bool
 pub const fn paperpaw_sdk::native::device::FileCheck<'_>::other_author(self) -> bool
 pub const fn paperpaw_sdk::native::device::FileCheck<'_>::paperpaw_signed(self) -> bool
 impl paperpaw_sdk::native::device::FileCheck<'_>
