@@ -446,7 +446,11 @@ impl crate::Kernel {
             let Some(index) = self.stack.iter().position(|active| {
                 active.serial == change.instance && active.id.namespace() == owner.as_str()
             }) else {
-                self.warn_runtime("native screen policy dropped: its screen is gone");
+                self.warn_runtime(if change.ready {
+                    "native screen_ready dropped: its screen is gone"
+                } else {
+                    "native screen policy dropped: its screen is gone"
+                });
                 continue;
             };
             if change.ready {

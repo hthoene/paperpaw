@@ -15,16 +15,37 @@
 //! * **Order:** `event.screen_shown` (38) comes before 87 for an instance: it
 //!   is sent when the screen is shown, the draw comes after.
 //!
-//! Known gap: the kernel cannot tell a native screen's failed or trapped draw
-//! from a good one (the `Screen` trait returns nothing from `draw`), so it
-//! counts a draw as done when `draw` returned. The plugin that failed is
-//! reported by the native screen as always; a subscriber may be told of a
-//! screen whose first page failed.
+//! * **What counts as a draw:** for a native screen, its `draw` callback
+//!   returned `OK` (the dispatcher marks it, the kernel reads and clears the
+//!   mark around each screen's draw): a trap, a failure status, a frame the host
+//!   cut short and a screen that was not called (not on top) do not count, and
+//!   the next good draw does. Other screens count when drawn. A draw of only the
+//!   rows an overlay leaves uncovered, or of one band of a frame, counts as the
+//!   first page.
+//! * **Early command:** a `waits_ready` plugin may send `command.screen_ready`
+//!   before the first draw (it says when the screen is ready, not the host).
 //!
 //! Memory: nothing is kept but the two flags of the stack entry; the event is
 //! held by the per-plugin edge store ([`core_events`](super::core_events)),
 //! dropped and logged when that is full, never retried.
-use crate::Kernel;
+use crate::{Kernel, Shared, screens::ActiveScreen};
+
+impl Shared {
+    /// Draws `active` and notes whether the draw counts for 87: a native
+    /// screen's callback returned `OK` (not a trap, a failure, nor a screen that
+    /// was not called, below the top); any other screen when it was drawn.
+    pub(crate) fn draw_counted(
+        &self,
+        active: &mut ActiveScreen,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+        env: &paperpaw_sdk::Env<'_>,
+    ) {
+        let native = (self.registry.screens.get(&active.id)).is_some_and(|spec| spec.is_native());
+        self.native_instances.take_drew();
+        active.screen.draw(canvas, env);
+        active.drawn |= !native || self.native_instances.take_drew();
+    }
+}
 
 impl Kernel {
     /// After a draw pass: raises 87 for every instance that was drawn and

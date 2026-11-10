@@ -390,10 +390,8 @@ impl Kernel {
             let own_env = env.within(&device, active.area);
             let (x, y) = (i32::from(active.area.x), i32::from(active.area.y));
             let _running = self.shared.meter.enter(active.id.namespace());
-            active
-                .screen
-                .draw(&mut canvas.clipped(area).offset(x, y), &own_env);
-            active.drawn = true;
+            self.shared
+                .draw_counted(active, &mut canvas.clipped(area).offset(x, y), &own_env);
             if (at + 1..dims.len()).any(|k| dims[k] && !hidden[k]) {
                 canvas.wash(area);
             }

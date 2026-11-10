@@ -258,6 +258,13 @@ impl NativeInstances {
         self.callbacks.set_open_info(info);
     }
 
+    /// Whether a native screen's `draw` callback returned `OK` since the last
+    /// call (a trap, a failure status, a frame the host cut short and a screen
+    /// that was not called at all give `false`); clears it.
+    pub(crate) fn take_drew(&self) -> bool {
+        self.callbacks.take_drew()
+    }
+
     /// Whether a staged `open` is being applied (it names a hand-over or none).
     pub(crate) fn pending_handover(&self) -> Option<Option<u32>> {
         self.pending_handover.get()
@@ -734,6 +741,10 @@ impl NativeIdentity {
     }
     pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.callbacks.take_open_info()
+    }
+    /// A native screen's draw returned `OK` (read by `take_drew`).
+    pub(crate) fn mark_drew(&self) {
+        self.callbacks.mark_drew();
     }
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {

@@ -173,7 +173,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
-        shell::dispatch_token_draw(
+        let result = shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
@@ -181,7 +181,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             frame,
             canvas,
         )
-        .map_err(status)
+        .map_err(status);
+        if matches!(result, Ok(0)) {
+            self.identity.mark_drew();
+        }
+        result
     }
 }
 
