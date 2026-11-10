@@ -241,6 +241,15 @@ impl crate::Kernel {
         })
     }
 
+    /// The plugin `owner` was taken in: what each service holds of a power
+    /// cut's leftovers for it is cleaned up or restored (a `.received/`
+    /// folder, a staged file kept after a failed rename). Nothing is
+    /// reported: what cannot be done now is retried at the next claim or the
+    /// plugin's stop.
+    pub(crate) fn native_services_owner_started(&self, owner: u64) {
+        tell_owner_started(&self.shared.native_instances.event_services(), owner);
+    }
+
     /// A work run reached its longest time: what each service started in it
     /// ends. The work pump (`work_pump`) calls it where it takes an expired run.
     ///
@@ -271,6 +280,13 @@ impl crate::Kernel {
             }
         }
         result
+    }
+}
+
+/// Tells every wired service that `owner` started.
+pub(super) fn tell_owner_started(services: &[Option<&dyn ServiceEvents>], owner: u64) {
+    for service in services.iter().flatten() {
+        service.owner_started(owner);
     }
 }
 
