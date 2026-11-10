@@ -771,10 +771,9 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         if widget.live {
             spec = spec.live();
         }
-        d.widget(
-            spec.previews(&group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        // No `previews`: the pack's widgets are offered in the Add picker; a
+        // widget made only to preview a settings group is never listed there.
+        d.widget(spec)?;
         declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
