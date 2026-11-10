@@ -15,6 +15,10 @@
 //! file copied to another computer (or kept with the card's files) does not
 //! open there: its values are absent, as on a device.
 //!
+//! The store is fixed for the whole process: it is chosen once, when the linked
+//! plugins are registered, and a key made or removed, or a card that cannot be
+//! opened, afterwards changes nothing until the next start.
+//!
 //! A run on simulated time (tests, scripts) keeps its key **and its secrets
 //! file** in memory for the process: it writes nothing outside its own folders
 //! and cannot lose the secrets of a card it shares with a real run (`linked`).
