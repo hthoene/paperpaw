@@ -31,6 +31,7 @@
 //!   ([`Driver::set_plugin_host`]) none is accepted.
 //! * **Not here.** Nothing of this runs inside a plugin's callback; the pump
 //!   is called from the main loop.
+use super::dual_boot_job::After;
 use super::firmware_install::{
     Answer, Ask, BuiltIns, Event, FirmwareInstall, Job, KIND_CHECK, KIND_FIRMWARE, Outcome,
     Question,
@@ -184,11 +185,26 @@ pub(crate) struct Driver {
     restart_wanted: bool,
     /// The plugins were told PaperPaw stops for a restart; it comes next pass.
     stopping: bool,
+    /// The restart wanted is a dual-boot change's: of the running image, no
+    /// new one waits ([`FirmwareHost::restart_running`]).
+    dual_restart: bool,
+    /// The host opened `firmware_dual_boot` ([`Self::open_dual_boot`]).
+    dual_open: bool,
+    /// What a dual-boot change wrote that the machine did not take yet (it
+    /// was borrowed): applied at the next pass, never dropped, so the
+    /// latch of mode 0 protects as soon as the machine is free.
+    dual_pending: Option<After>,
+    /// `paperpaw.ini`'s `dual-boot` was read for `dev_firmware.flags` (once,
+    /// at the first idle pass with the card).
+    ini_read: bool,
 }
 
 impl Driver {
     /// A driver over the device's firmware and the machine the ops read.
     pub(crate) fn new(host: Box<dyn FirmwareHost>, machine: Rc<RefCell<FirmwareInstall>>) -> Self {
+        if let Ok(mut machine) = machine.try_borrow_mut() {
+            machine.set_dual_host(host.dual_boot_capable(), host.dual_boot_declared());
+        }
         Self {
             host,
             machine,
@@ -215,6 +231,10 @@ impl Driver {
             shown: None,
             restart_wanted: false,
             stopping: false,
+            dual_restart: false,
+            dual_open: false,
+            dual_pending: None,
+            ini_read: false,
         }
     }
 
@@ -523,7 +543,10 @@ impl Driver {
     /// job's; else as [`Self::submit_install`].
     pub(crate) fn submit_plugin(&mut self, job: PluginJobs) -> Result<(), i32> {
         let (owner, request, kind) = (job.owner(), job.request(), job.kind());
-        if self.plugin_host.is_none() || !matches!(kind, KIND_INSTALL | KIND_REMOVAL | KIND_CHECK) {
+        let dual = matches!(job, PluginJobs::DualBoot(_));
+        if self.plugin_host.is_none()
+            || !(dual || matches!(kind, KIND_INSTALL | KIND_REMOVAL | KIND_CHECK))
+        {
             return Err(ERR_UNSUPPORTED);
         }
         self.room(owner, request, kind)?;
@@ -541,6 +564,36 @@ impl Driver {
         self.accept(Queued::Plugin { owner, request }, kind);
         self.plugin_jobs.push(job);
         Ok(())
+    }
+
+    /// Opens `command.firmware_dual_boot` to plugins: until then it is
+    /// `ERR_UNSUPPORTED` at submit. The host opens it once `paperpaw.ini` and
+    /// `.paperpaw/` are closed to plugins' file access (`files.md` 1.1), so the
+    /// command is the only way a plugin changes the `[firmware]` section.
+    pub(crate) fn open_dual_boot(&mut self) {
+        self.dual_open = true;
+    }
+
+    /// Whether [`Self::open_dual_boot`] was called.
+    pub(crate) fn dual_boot_open(&self) -> bool {
+        self.dual_open
+    }
+
+    /// `firmware_dual_boot` at submit: a job of the queue, behind a running
+    /// install too.
+    ///
+    /// # Errors
+    /// As [`Self::submit_plugin`].
+    pub(crate) fn submit_dual_boot(
+        &mut self,
+        owner: u64,
+        request: u32,
+        mode: super::dual_boot_ini::Mode,
+    ) -> Result<(), i32> {
+        let capable = self.host.dual_boot_capable();
+        self.submit_plugin(PluginJobs::DualBoot(super::dual_boot_job::DualBoot::new(
+            owner, request, mode, capable,
+        )))
     }
 
     /// `check_file` kind 1 at submit.
@@ -688,6 +741,10 @@ impl Driver {
     /// outcome are kept like any request's) and the image keeps waiting.
     pub(crate) fn restart_now(&mut self) -> bool {
         self.restart_wanted = false;
+        if core::mem::take(&mut self.dual_restart) {
+            // A dual-boot change's: the request ended already (reason 0).
+            return self.host.restart_running().is_err();
+        }
         let outcome = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.restart(&mut *self.host),
             Err(_) => {
@@ -762,6 +819,14 @@ impl Driver {
         if self.running.is_none() && !self.revocations.is_empty() {
             self.keep_revocations(storage);
         }
+        if let Some(after) = self.dual_pending.take()
+            && !self.dual_machine(after)
+        {
+            self.dual_pending = Some(after);
+        }
+        if !self.ini_read && self.running.is_none() && self.host.dual_boot_capable() {
+            self.read_ini(storage);
+        }
         if self.running.is_some() {
             // A job that asked the user waits for the answer; nothing to step.
             if self.plugin_question.is_some()
@@ -812,6 +877,13 @@ impl Driver {
         };
         let kind = self.plugin_jobs[at].kind();
         let granted = self.granted(owner);
+        // A machine borrowed elsewhere counts as "an image waits": a
+        // dual-boot change then ends with reason 21, the safe side.
+        let waiting = self
+            .machine
+            .try_borrow()
+            .map_or(true, |machine| machine.waiting_request().is_some());
+        self.plugin_jobs[at].image_waiting(waiting);
         let finished = match self.plugin_host.as_ref() {
             Some(host) => match self.plugin_jobs[at].step(&JobEnv {
                 storage,
@@ -840,8 +912,10 @@ impl Driver {
         // The job goes (its `Drop` releases what it holds).
         self.plugin_unload = None;
         self.plugin_forget = None;
+        let after = self.plugin_jobs[at].after();
         // In place: `remove` would hand the job over on this frame.
         drop(self.plugin_jobs.drain(at..=at));
+        self.dual_after(after);
         self.running = None;
         if self.finishing.take() == Some(false) {
             // Its sender stopped meanwhile: no entry, no outcome, no result.
@@ -869,6 +943,50 @@ impl Driver {
             flags: finished.flags,
             id: finished.changed,
         }))
+    }
+
+    /// What a dual-boot change that wrote `paperpaw.ini` leaves behind: the
+    /// flags follow the file, `auto` latches the setup as declared, and a yes
+    /// to `off` restarts the device.
+    pub(crate) fn dual_after(&mut self, after: After) {
+        if after == After::Nothing {
+            return;
+        }
+        if !self.dual_machine(after) {
+            // The machine is borrowed: kept, applied at the next pass.
+            self.dual_pending = Some(after);
+        }
+        if after == After::Restart {
+            self.dual_restart = true;
+            self.restart_wanted = true;
+        }
+    }
+
+    /// Tells the machine what a dual-boot change wrote: the flags follow the
+    /// file and `auto` latches the setup as declared. `false`: it is borrowed.
+    fn dual_machine(&mut self, after: After) -> bool {
+        let off = after == After::Restart;
+        let Ok(mut machine) = self.machine.try_borrow_mut() else {
+            return false;
+        };
+        machine.set_ini_off(off);
+        if !off {
+            machine.latch_declared();
+        }
+        true
+    }
+
+    /// Reads `paperpaw.ini`'s `dual-boot` once for `dev_firmware.flags`; a file
+    /// that cannot be read says nothing (bit 1 stays 0).
+    fn read_ini(&mut self, storage: &dyn Storage) {
+        if core::mem::replace(&mut self.ini_read, true) {
+            return;
+        }
+        let off = super::dual_boot_ini::card_choice(storage)
+            .is_ok_and(|choice| choice == super::dual_boot_ini::Choice::Off);
+        if let Ok(mut machine) = self.machine.try_borrow_mut() {
+            machine.set_ini_off(off);
+        }
     }
 
     /// The place of the plugin job `(owner, request)`.
@@ -982,6 +1100,7 @@ impl Driver {
         let stepping = self.running.is_some() && self.plugin_question.is_none();
         let revoking = self.running.is_none() && !self.revocations.is_empty();
         if self.restart_wanted
+            || self.dual_pending.is_some()
             || stepping
             || revoking
             || self.resume
