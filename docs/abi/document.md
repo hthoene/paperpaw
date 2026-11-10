@@ -794,9 +794,14 @@ reply 4,096 bytes, stage payload 3,840.
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
   interface 6's card tables, which the reader held; the same bytes, now counted to the host.
 - Lookup: one stage call on the scratch; the pending table (section 7) of 16 × 32 bytes = **512
-  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept.
+  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept. The registered
+  `lookup.spec` rows stay on the heap while their plugins are loaded: at most about 700 bytes each
+  (`name` 64, `title` 96, `languages` 512, `token`, `flags`), so about 5.6 KiB per plugin at its cap
+  of 8 and about 23 KiB device-wide at the cap of 32; allocated fallibly at registration (a refused
+  batch is `ERR_NO_MEMORY`), freed when the plugin unloads.
 - **X4 worst case for DOC's host side: about 6.5 KiB at rest** (documents 0.13, images 1.5, band 4,
-  pending lookups 0.5, queue), **plus the decoder's transient peak while an image decodes (PNG at
+  pending lookups 0.5, queue) **plus the registered lookup providers (at most about 23 KiB at the
+  device cap)**, **plus the decoder's transient peak while an image decodes (PNG at
   most 48 KiB on the X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB,
   `de` about 20 KB; interface 6's reader held the same)**, all fallible; an activation-gate item
   beside UIX's, measured with the reader port. The format plugins' own heaps are gated by their
