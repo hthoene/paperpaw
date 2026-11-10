@@ -23,6 +23,9 @@ pub const BLOCKS_PER_STEP: usize = 24;
 pub const BEFORE: usize = 24;
 /// See [`BEFORE`].
 pub const AFTER: usize = 48;
+/// Characters of the text looked for that count: a longer query is cut here, so
+/// that a snippet (context and match) and the hits kept stay small.
+pub const MAX_NEEDLE: usize = 32;
 
 /// The lower case of `c` (its first character, which suffices to compare).
 fn lower(c: char) -> char {
@@ -34,7 +37,8 @@ fn lower(c: char) -> char {
 pub struct Needle(Vec<char>);
 
 impl Needle {
-    /// The needle of `query`, without the space round it.
+    /// The needle of `query`, without the space round it, at most
+    /// [`MAX_NEEDLE`] characters.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
@@ -42,9 +46,9 @@ impl Needle {
         let query = query.trim();
         let mut chars = Vec::new();
         chars
-            .try_reserve_exact(query.chars().count())
+            .try_reserve_exact(query.chars().count().min(MAX_NEEDLE))
             .map_err(|_| Error::NoMemory)?;
-        chars.extend(query.chars().map(lower));
+        chars.extend(query.chars().take(MAX_NEEDLE).map(lower));
         Ok(Self(chars))
     }
 
@@ -235,9 +239,10 @@ pub trait Blocks {
     type Block;
     /// How many sections the book has.
     fn sections(&self) -> u32;
-    /// The block at `at`; `None` where the section has no more. Any error other
-    /// than [`Error::NoMemory`] counts as the end of the section (a block that
-    /// cannot be read is left out, as in interface 6).
+    /// The block at `at`; `None` where the section has no more. [`Error::NotFound`],
+    /// [`Error::Invalid`] and [`Error::Denied`] count as the end of the section (a
+    /// block that cannot be read is left out, as in interface 6); any other
+    /// error ends the step and is returned by it.
     ///
     /// # Errors
     /// What the host refuses.
@@ -349,11 +354,15 @@ impl Search {
     /// Reads the next [`BLOCKS_PER_STEP`] blocks and keeps their hits, each
     /// snippet cut to `width` by `font`. Returns the number of hits there were
     /// before the step, so that the screen can tell whether it added any to the
-    /// page shown.
+    /// page shown. After an error that number is not returned: the screen
+    /// compares [`Search::hits`]'s length before and after the call.
     ///
     /// # Errors
-    /// [`Error::NoMemory`], from the host or the hits kept: the hits so far
-    /// stay, and the scan stops where it was.
+    /// Any error of the host other than the three of [`Blocks::block_at`] that
+    /// end a section (such as [`Error::NoMemory`] or [`Error::NoSpace`]), or
+    /// [`Error::NoMemory`] for the hits kept: the hits so far stay and the scan
+    /// stands where it did, so a step repeats the block that failed. A screen that
+    /// sees the same error again ends the search and says so, not tries for ever.
     pub fn step<B: Blocks>(
         &mut self,
         book: &mut B,

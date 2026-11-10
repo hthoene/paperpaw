@@ -139,6 +139,12 @@ relative to the data folder).
   and the background scan, `Search::step`, that reads 24 blocks of a book (`Blocks`, backed by
   `core.document` with the filters of the page applied) and keeps their hits. Allocation is fallible and
   tested refused in turn; a block whose hits could not all be kept is read again and none is kept twice.
+- The text looked for counts its first 32 characters (`MAX_NEEDLE`), so a snippet is at most 24 + 32 + 48
+  characters and the 100 hits stay under about 41 KB even in four-byte characters (typically 10–20 KB); this
+  worst case belongs on the X4 list when the screen lands. A step that fails with an error other than the
+  three that end a section (e.g. `NoSpace` on a block over the caps) leaves the scan where it was, and a
+  screen that gets the same error again must end the search with a notice, not step for ever; as `step`
+  does not return `first_new` after an error, the screen compares `hits().len()` before and after.
 - Differences from interface 6, on purpose: a block that cannot be read is skipped as an end of the section
   only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
   end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the

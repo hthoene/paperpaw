@@ -107,6 +107,14 @@ fn a_hit_at_either_end_is_found_whole() {
 }
 
 #[test]
+fn a_long_query_is_cut_to_the_most() {
+    let long = "a".repeat(MAX_NEEDLE + 20);
+    let found = find(&long, &needle(&long));
+    // Only its first 32 characters count; the 20 left over are not a second match.
+    assert_eq!(found, [(0, MAX_NEEDLE)]);
+}
+
+#[test]
 fn the_query_is_trimmed() {
     assert_eq!(needle("  Katze \n"), needle("katze"));
     assert!(needle("   ").is_empty());
