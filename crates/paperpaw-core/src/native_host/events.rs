@@ -32,7 +32,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// `core.sockets` 106-107 (`service_pump`), and `event.book_opened`,
 /// `event.book_closed`, `event.book_finished`, `event.book_moved` and
 /// `event.book_removed` (65-69): registered now,
-/// delivered when the reader port produces them (`core-events.md` 3.1: the
+/// delivered when the reader port produces them (`core-events.md` 3.3: the
 /// host never fails a registration for an event a device does not raise, and
 /// until the reading session reports, nothing raises these).
 /// Never 38 or 39: those go to the token of the screen or action declaration
