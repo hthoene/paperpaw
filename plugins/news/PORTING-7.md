@@ -1,11 +1,10 @@
-# Interface-7 port (slice 4: the decisions, the declarations, the converter, the page and the fetch)
+# Interface-7 port (slice 5: the shelf and the list of feeds; the widget and the removal of interface 6 follow)
 
-Version 1.0.10. Partial: what the plugin decides and what it declares, without the host. No native
-list screen yet; the interface-6 `News` and everything of it stays until the
-host activates native plugins (then it goes together, no shim).
-`tools/plugin-files7` builds and packs the native file for the X4 (`news-1.0.10-x4.ppn`, 81,412 bytes: 58,516
-code, 19,968 data); it is not in `complete.txt` (a partial port). The page's read buffer is on the heap
-(a 2 KiB array made the frame 2,368 bytes, over the packer's limit of 2,048).
+Version 1.0.10. Partial: the list of feeds and the library import are native now; the headlines widget
+is not, and the interface-6 `News` and everything of it stays until the host activates native plugins
+(then it goes together, no shim). `tools/plugin-files7` builds and packs the native file for the X4;
+it is not in `complete.txt` (a partial port). The page's read buffer is on the heap (a 2 KiB array
+made the frame 2,368 bytes, over the packer's limit of 2,048).
 
 ## Ported
 
@@ -81,8 +80,27 @@ code, 19,968 data); it is not in `complete.txt` (a partial port). The page's rea
 - The action `news.fetch` always declares the background work: a native action cannot tell a
   rule's run from the reader's (interface 6's `env.reader()`); the reader's own fetch is the screen's
   *Fetch the news* (next slice).
-- The shelf is `Unshelved` until `Library::import` is in the SDK (#668): no book is made, every
-  feed counts as failed. The plugin is not listed as complete and is not in the app yet.
+- Slice 5 (`src/native_shelf.rs`, `src/native_books.rs`, `src/native_screen.rs`): the shelf is the
+  library (`Library::import`, SDK #668): the page goes in as `Name (mark).html` in the folder `News` with
+  *replace*; a book that is not the plugin's any more (moved, or a file of the reader's own at that name)
+  stays and the new one takes a free name. The library says where the book went, and the plugin keeps
+  that path next to the feed's mark in `books.txt` (`mark<TAB>path`, at most 300) and the newest headlines
+  in `headlines.txt` (as interface 6). The list of feeds is the screen `news.list` (one at a time):
+  *Fetch the news*, the feeds, *Add a feed*, and what feeds are when there is none; a tap opens the
+  feed's book in `core.reader` (or fetches a feed with no book), a hold offers *Open / Fetch / Remove*,
+  *Add a feed* asks for the address on the keyboard (from `https://`). The action `news.open`, the place
+  in the tools (order 44) and the icons are declared as in interface 6.
+- Differences from interface 6, on purpose: no *go online* offer in Offline mode (the network service
+  refuses and the notice *needs a network* says so, as in joplin and calibre); the book of a feed is found
+  by the path the library gave (`books.txt`), not by looking for a file name: a book the reader moved is
+  opened where it is kept only while `books.txt` knows it, else the feed is fetched again; the books of
+  version 1 (by name alone) are not retired. After an update from Beta 3 `books.txt` is empty, so a tap
+  fetches the feed once, and the library may refuse to replace the book interface 6 made (it was not
+  imported by this plugin): the new one then takes a free name beside it (not measured on a real card).
+- Not measured: the heap peak of the screen on the X4 with many feeds, the time of `books.txt` and
+  `headlines.txt` reads on each opened feed, the library import of a 64 KiB page.
+- The plugin is not listed as complete and is not in the app yet: the widget (slice B) and the removal of
+  interface 6 (slice C) follow.
 - An article's text is cut by the device's memory class (`core.device` op 1 `dev_device.class`,
   read once at the first finished request, `native_plugin::text_cap`): 64 KiB (`MAX_TEXT`) on a
   medium or large device as in interface 6, 8 KiB (`MAX_TEXT_SMALL`) on a small one (the X4: the
