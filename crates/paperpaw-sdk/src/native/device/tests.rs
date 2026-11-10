@@ -685,7 +685,7 @@ fn leaves_out_pages_under_the_checks_request_and_the_hosts_refusals_are_the_stat
     ));
     drop(bytes);
     // None left out: no rows.
-    reply(&state, &[end(0, 0, 9, 0)]);
+    reply(&state, &[end(1, 0, 9, 0)]);
     assert!(
         device
             .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
