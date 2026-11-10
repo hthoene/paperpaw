@@ -336,6 +336,10 @@ impl HostResources {
     /// `ERR_STATE` when one of them is wired already, `ERR_INVALID` when
     /// `core.net` and `core.sockets` name different network pools (nothing is
     /// wired then).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one wiring step per service, in order; each is a few lines"
+    )]
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
         // What `core.net` and `core.sockets` hold in use is a busy source of
