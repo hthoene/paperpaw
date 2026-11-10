@@ -39,6 +39,16 @@ use crate::profiles::Profile;
 /// A service not named here is not offered: a plugin that needs it is refused
 /// at admission.
 fn offered(wired: Wired) -> &'static [Service<'static>] {
+    use std::sync::OnceLock;
+    // One list per combination, made once: a restart registers again.
+    static OFFERED: [OnceLock<&'static [Service<'static>]>; Wired::COMBINATIONS] =
+        [const { OnceLock::new() }; Wired::COMBINATIONS];
+    OFFERED[wired.index()].get_or_init(|| offered_list(wired))
+}
+
+/// The list for one combination of wired services (leaked once, by
+/// [`offered`]: the kernel's admission holds it as long as the plugins run).
+fn offered_list(wired: Wired) -> &'static [Service<'static>] {
     const OWN: &[&str] = &["core.ui", "core.registry"];
     let wired_keys = [
         (wired.secrets, "core.secrets"),
@@ -62,8 +72,6 @@ fn offered(wired: Wired) -> &'static [Service<'static>] {
             min_table_bytes: 0,
         }))
         .collect();
-    // Kept for the process: the kernel's admission holds the list for as
-    // long as the plugins run, and a device registers its plugins once.
     Box::leak(services.into_boxed_slice())
 }
 
@@ -79,6 +87,26 @@ struct Wired {
     files: bool,
 }
 
+impl Wired {
+    /// How many combinations there are (one bit a service).
+    const COMBINATIONS: usize = 1 << 7;
+
+    fn index(self) -> usize {
+        [
+            self.secrets,
+            self.work,
+            self.net,
+            self.sockets,
+            self.documents,
+            self.library,
+            self.files,
+        ]
+        .into_iter()
+        .enumerate()
+        .fold(0, |index, (bit, on)| index | usize::from(on) << bit)
+    }
+}
+
 /// The consent features this shell backs: the registry (the kernel's own),
 /// the device's power view (`core.device`) and, where they are wired,
 /// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
@@ -87,6 +115,14 @@ struct Wired {
 /// back them yet: `uses.wifi`, `uses.bluetooth`, `uses.install`,
 /// `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
+    use std::sync::OnceLock;
+    static FEATURES: [OnceLock<&'static [Feature<'static>]>; Wired::COMBINATIONS] =
+        [const { OnceLock::new() }; Wired::COMBINATIONS];
+    FEATURES[wired.index()].get_or_init(|| features_list(wired))
+}
+
+/// The list for one combination of wired services (leaked once).
+fn features_list(wired: Wired) -> &'static [Feature<'static>] {
     const fn feature(key: &'static str) -> Feature<'static> {
         Feature { key, revision: 1 }
     }
@@ -156,8 +192,10 @@ pub struct Inputs {
     pub storage: Option<Rc<dyn Storage>>,
     /// The clock and network `core.work` asks for.
     pub view: Rc<DeviceView>,
-    /// A run on simulated time (tests, scripts): its secrets key is kept in
-    /// memory and nothing is written outside the run's own folders.
+    /// A run on simulated time (tests, scripts): its secrets key and secrets
+    /// are kept in memory. The card is still the run's card: a plugin's files,
+    /// the library's details and the document cache are written to it, so a
+    /// script should use a scratch card.
     pub simulated: bool,
     /// Where registration leaves the transport of `core.net` and core's
     /// reports to it, for the device's loop ([`Net`]); `None` inside where
@@ -421,6 +459,17 @@ mod tests {
         // The rest is offered as before.
         assert!(keys(card).contains(&"core.ui") && wanted.contains(&"uses.registry"));
         assert!(!wanted.contains(&"uses.secrets") && !wanted.contains(&"uses.network"));
+    }
+
+    #[test]
+    fn a_combination_is_made_once() {
+        let card = Wired {
+            files: true,
+            ..Wired::default()
+        };
+        assert!(std::ptr::eq(offered(card), offered(card)));
+        assert!(std::ptr::eq(features(card), features(card)));
+        assert_ne!(card.index(), Wired::default().index());
     }
 
     #[test]
