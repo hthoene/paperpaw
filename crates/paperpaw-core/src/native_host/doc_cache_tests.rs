@@ -375,3 +375,17 @@ fn a_cut_after_any_step_of_the_stamp_leaves_the_old_stamp_or_none_never_a_wrong_
         assert!(found == Some(4) || found == Some(9), "{steps}: {found:?}");
     }
 }
+
+#[test]
+fn a_folder_book_is_told_by_its_top_level_and_not_by_the_time_of_the_folder() {
+    let storage = MemoryStorage::new();
+    storage.write("books/folder/a.txt", b"one").unwrap();
+    let first = content(&storage, "books/folder", "").unwrap();
+    assert!(first.starts_with('d'), "{first}");
+    assert_eq!(first, content(&storage, "books/folder", "").unwrap());
+    storage.write("books/folder/a.txt", b"other").unwrap();
+    let edited = content(&storage, "books/folder", "").unwrap();
+    assert_ne!(edited, first);
+    storage.write("books/folder/b.txt", b"x").unwrap();
+    assert_ne!(content(&storage, "books/folder", "").unwrap(), edited);
+}

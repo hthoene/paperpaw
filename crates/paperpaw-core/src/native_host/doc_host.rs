@@ -88,6 +88,8 @@ struct Cache {
     /// The stamp is current: a finished cache found at the open, or the
     /// format answered done and the stamp was made.
     finished: bool,
+    /// The bytes the stamp says the cache holds.
+    stamped: u64,
 }
 
 impl Cache {
@@ -551,9 +553,41 @@ impl Bound<'_> {
                 conversion: call.conversion,
                 content,
                 finished: made.bytes.is_some(),
+                stamped: made.bytes.unwrap_or(0),
             });
         }
         Ok(())
+    }
+
+    /// The last document of a cache closes: what a format wrote after the
+    /// stamp was made is put in the stamp (so a reopen counts it), and the
+    /// folder's count goes (it is made again from the stamp at the next open).
+    /// A cache another open document uses is left as it is.
+    fn finish_cache(&self, document: u32) {
+        let (Some(storage), Ok(books)) =
+            (self.state.storage.as_deref(), self.state.books.try_borrow())
+        else {
+            return;
+        };
+        let Some(cache) = books
+            .iter()
+            .find(|book| book.document == document)
+            .and_then(|book| book.cache.as_ref())
+        else {
+            return;
+        };
+        let shared = books.iter().any(|b| {
+            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
+        });
+        if shared {
+            return;
+        }
+        let scope = self.who.hosts.format_scope();
+        let bytes = scope.total(&cache.folder);
+        if cache.finished && bytes != cache.stamped {
+            let _ = super::doc_cache::complete(storage, &cache.identity(), bytes);
+        }
+        scope.reset(&cache.folder);
     }
 
     /// A call answered `ERR_NO_SPACE` while the cache was being made: the
@@ -865,6 +899,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn close_format(&self, document: &Document) {
+        self.finish_cache(document.id);
         let Ok(target) = self
             .state
             .index()
@@ -889,7 +924,7 @@ impl super::doc_service::DocHost for Bound<'_> {
         let Some(storage) = self.state.storage.as_deref() else {
             return;
         };
-        {
+        let stamped = {
             let Ok(books) = self.state.books.try_borrow() else {
                 return;
             };
@@ -908,7 +943,8 @@ impl super::doc_service::DocHost for Bound<'_> {
             if super::doc_cache::complete(storage, &cache.identity(), bytes).is_err() {
                 return;
             }
-        }
+            bytes
+        };
         if let Ok(mut books) = self.state.books.try_borrow_mut()
             && let Some(cache) = books
                 .iter_mut()
@@ -916,6 +952,7 @@ impl super::doc_service::DocHost for Bound<'_> {
                 .and_then(|book| book.cache.as_mut())
         {
             cache.finished = true;
+            cache.stamped = stamped;
         }
     }
 
