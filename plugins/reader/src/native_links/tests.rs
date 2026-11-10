@@ -91,13 +91,11 @@ fn only_the_newest_places_are_kept() {
 
 #[test]
 fn the_spans_of_a_page_are_one_for_each_section() {
-    let mut a = word("a", 5, 6);
-    let mut b = word("b", 20, 25);
+    let a = word("a", 5, 6);
+    let b = word("b", 20, 25);
     let mut c = word("c", 1, 3);
     c.start = Locator::new(1, 1);
     c.end = Locator::new(1, 3);
-    a.bidi = b.bidi;
-    b.bidi = a.bidi;
     let spans = spans(&[a, b, c]).unwrap();
     assert_eq!(spans, [(0, 5, 25), (1, 1, 3)]);
 }
