@@ -163,6 +163,8 @@ struct Entry {
     host: bool,
     ssid: Ssid,
     phase: Phase,
+    /// Times its sender, not started, was asked to start for its delivery.
+    starts: u8,
 }
 
 /// Attempts the host stopped waiting for (superseded, left, the sender
@@ -364,6 +366,7 @@ impl RadioRequests {
             host,
             ssid,
             phase: Phase::Reserved,
+            starts: 0,
         });
         Ok(())
     }
@@ -587,6 +590,20 @@ impl RadioRequests {
     #[must_use]
     pub fn due(&self) -> Option<u64> {
         self.retry_at.filter(|_| self.has_outcomes())
+    }
+
+    /// Counts one start asked for the sender of the `nth` ended request, which
+    /// must still be `request`; the count so far, `u8::MAX` when it is not.
+    pub fn note_start(&mut self, nth: usize, request: u32) -> u8 {
+        self.entries
+            .iter_mut()
+            .filter(|entry| matches!(entry.phase, Phase::Done(_)))
+            .nth(nth)
+            .filter(|entry| entry.request == request)
+            .map_or(u8::MAX, |entry| {
+                entry.starts = entry.starts.saturating_add(1);
+                entry.starts
+            })
     }
 
     /// Releases the `nth` ended request when it is still `request` (its sender
