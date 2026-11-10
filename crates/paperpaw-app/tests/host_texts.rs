@@ -64,6 +64,8 @@ const KEYS: &[&str] = &[
     "core.plugin.uses",
     "core.plugin.yes",
     "core.plugin.yes.remove",
+    "core.plugin.remove-data",
+    "core.plugin.yes.remove-data",
 ];
 
 fn placeholders(text: &str) -> Vec<&str> {

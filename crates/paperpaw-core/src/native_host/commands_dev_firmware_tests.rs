@@ -1,7 +1,9 @@
 //! The firmware commands in the DEV stage: checked whole, accepted at submit,
 //! given back when the batch never applies.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
-use super::super::{DevBatchOutput, DevContext, DevHost, InputClock, NoStoredNetworks};
+use super::super::{
+    DevBatchOutput, DevContext, DevHost, FEATURE_WIFI, InputClock, NoStoredNetworks,
+};
 use super::*;
 use crate::{
     Kernel,
@@ -33,10 +35,15 @@ const HOST: &[Feature<'static>] = &[
         key: "uses.storage",
         revision: 1,
     },
+    Feature {
+        key: FEATURE_WIFI,
+        revision: 1,
+    },
 ];
 const FIRMWARE: u32 = 1;
 const INSTALL: u32 = 2;
 const STORAGE: u32 = 4;
+const WIFI: u32 = 8;
 const OWNER: u64 = 9;
 
 struct Names;
@@ -398,12 +405,20 @@ fn install_plugin(request: u32, flags: u32) -> WireCommand<'static> {
 }
 
 fn author<'a>(request: u32, author: &'a [u8], recovery: &'a [u8]) -> WireCommand<'a> {
+    author_with(request, author, recovery, &[])
+}
+
+fn author_with<'a>(
+    request: u32,
+    author: &'a [u8],
+    recovery: &'a [u8],
+    sha256: &'a [u8],
+) -> WireCommand<'a> {
     WireCommand::InstallAuthor {
         request,
         author,
         recovery,
-        // The digest of the folder (draft 35) is wired in the removal slice.
-        sha256: &[],
+        sha256,
     }
 }
 
@@ -546,7 +561,7 @@ fn the_evidence_of_the_batch_reaches_the_job() {
         Some(&d),
         &[
             install_plugin(5, 1),
-            author(5, &key, &recovery),
+            author_with(5, &key, &recovery, &[7; 32]),
             rotation(5, &[9; 32], &signature),
         ],
     );
@@ -568,7 +583,8 @@ fn the_evidence_of_the_batch_reaches_the_job() {
     let author = evidence.author.expect("the author record");
     assert_eq!(
         (author.author, author.recovery, author.sha256),
-        (Some(key), Some(recovery), None)
+        (Some(key), Some(recovery), Some([7; 32])),
+        "the catalog's digest reaches the job, which refuses other code with 18"
     );
     assert_eq!(evidence.rotations().len(), 1);
     assert_eq!(evidence.rotations()[0].to, [9; 32]);
@@ -579,4 +595,259 @@ fn the_evidence_of_the_batch_reaches_the_job() {
         panic!("an install")
     };
     assert!(evidence.author.is_none() && evidence.rotations().is_empty());
+}
+
+#[test]
+fn the_digest_is_none_or_32_bytes_and_a_wrong_length_is_refused_at_validation() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    let (key, sha) = ([1_u8; 32], [4_u8; 32]);
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    for bad in [1_usize, 16, 31] {
+        assert_eq!(
+            run(&[
+                install_plugin(1, 0),
+                author_with(1, &key, &key, &sha[..bad])
+            ]),
+            ERR_INVALID,
+            "digest of {bad} bytes"
+        );
+    }
+    assert_eq!(
+        run(&[install_plugin(1, 0), author_with(1, &key, &key, &sha)]),
+        OK
+    );
+    assert_eq!(
+        run(&[install_plugin(1, 0), author_with(1, &key, &key, &[])]),
+        OK
+    );
+}
+
+#[test]
+fn evidence_after_another_device_command_is_refused_at_validation() {
+    let kernel = Kernel::builder(crate::tests::DEVICE)
+        .wifi(true)
+        .build()
+        .unwrap();
+    let d = plugin_driver();
+    let key = [1_u8; 32];
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL | WIFI, Some(&d), commands).0;
+    // Between the install and its evidence stands another command: the
+    // batch is refused whole, before anything is taken.
+    assert_eq!(
+        run(&[
+            install_plugin(1, 0),
+            WireCommand::WifiOn {},
+            author(1, &key, &[])
+        ]),
+        ERR_INVALID
+    );
+    assert_eq!(
+        run(&[
+            install_plugin(1, 0),
+            WireCommand::RemovePlugin {
+                request: 2,
+                plugin: "x",
+                flags: 0
+            },
+            author(1, &key, &[])
+        ]),
+        ERR_INVALID
+    );
+    assert_eq!(d.borrow().waiting(), 0, "nothing was accepted");
+    // Another command before the install, or after its evidence, is fine.
+    assert_eq!(
+        run(&[
+            WireCommand::WifiOn {},
+            install_plugin(1, 0),
+            author(1, &key, &[])
+        ]),
+        OK
+    );
+}
+
+fn remove_plugin(request: u32, plugin: &str, flags: u32) -> WireCommand<'_> {
+    WireCommand::RemovePlugin {
+        request,
+        plugin,
+        flags,
+    }
+}
+
+#[test]
+fn a_removal_needs_the_feature_a_plugin_host_a_request_a_name_and_reserved_flags() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[remove_plugin(1, "dials", 0)]).0,
+        ERR_DENIED
+    );
+    let bare = driver();
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&bare),
+            &[remove_plugin(1, "dials", 0)]
+        )
+        .0,
+        ERR_UNSUPPORTED
+    );
+    for (request, plugin, flags) in [(0, "dials", 0), (1, "", 0), (1, "dials", 1)] {
+        assert_eq!(
+            stage(
+                &kernel,
+                INSTALL,
+                Some(&d),
+                &[remove_plugin(request, plugin, flags)]
+            )
+            .0,
+            ERR_INVALID,
+            "{request} {plugin:?} {flags}"
+        );
+    }
+    // Evidence belongs to installs only.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&d),
+            &[remove_plugin(1, "dials", 0), author(1, &[1; 32], &[])]
+        )
+        .0,
+        ERR_INVALID
+    );
+    // One firmware-queue command a batch.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&d),
+            &[remove_plugin(1, "dials", 0), remove_plugin(2, "dials", 0)]
+        )
+        .0,
+        ERR_INVALID
+    );
+    // Accepted at submit; the name is checked by the job (a built-in or a
+    // name no plugin has ends with reason 15), and given back with the batch.
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[remove_plugin(1, "dials", 0)]);
+    assert_eq!(status, OK);
+    assert!(d.borrow().holds(OWNER, 1));
+    drop(output);
+    assert_eq!(d.borrow().waiting(), 0);
+}
+
+fn revoked_cmd<'a>(plugin: &'a str, key: &'a [u8], signature: &'a [u8]) -> WireCommand<'a> {
+    WireCommand::TrustRevoked {
+        plugin,
+        key,
+        signature,
+    }
+}
+
+#[test]
+fn trust_revoked_is_checked_whole_and_capped_at_eight_per_batch() {
+    let kernel = kernel();
+    let d = driver();
+    let (key, signature) = ([1_u8; 32], [2_u8; 64]);
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    let one = revoked_cmd("notes", &key, &signature);
+    assert_eq!(run(&[one]), OK);
+    // The batch holds eight records at most, so the cap of eight is also what
+    // the wire carries; the host's own count is the second line.
+    assert_eq!(run(&[one; 8]), OK, "the cap itself");
+    for (what, bad) in [
+        ("empty plugin", revoked_cmd("", &key, &signature)),
+        ("key of 31", revoked_cmd("notes", &key[..31], &signature)),
+        ("key of 0", revoked_cmd("notes", &[], &signature)),
+        ("signature 63", revoked_cmd("notes", &key, &signature[..63])),
+        ("signature 0", revoked_cmd("notes", &key, &[])),
+    ] {
+        assert_eq!(run(&[one, bad]), ERR_INVALID, "{what}");
+    }
+    // The feature and a firmware host are needed, as for any install command.
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[one]).0,
+        ERR_DENIED,
+        "no uses.install"
+    );
+    assert_eq!(stage(&kernel, INSTALL, None, &[one]).0, ERR_UNSUPPORTED);
+    // It is no firmware command: one install_firmware still fits beside it.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL | FIRMWARE,
+            Some(&d),
+            &[install(1, "u.ppu"), one]
+        )
+        .0,
+        OK
+    );
+    assert_eq!(
+        d.borrow().waiting(),
+        0,
+        "none of it was accepted before a drain"
+    );
+}
+
+#[test]
+fn a_revocation_that_holds_is_kept_at_the_next_pump_and_the_others_are_dropped() {
+    use paperpaw_native::signature::{public_key, sign_message};
+    use paperpaw_sdk::{MemoryStorage, native::keys};
+    let card = MemoryStorage::new();
+    let (author_seed, recovery_seed) = ([3_u8; 32], [4_u8; 32]);
+    let (author, recovery) = (public_key(&author_seed), public_key(&recovery_seed));
+    assert!(keys::remember_first_install(
+        &card, "notes", &author, &recovery
+    ));
+    let say = |plugin: &str, seed: &[u8; 32]| {
+        sign_message(keys::revocation_message(plugin, &author).as_bytes(), seed)
+    };
+    let (holds, forged) = (say("notes", &recovery_seed), say("notes", &[9; 32]));
+    let mut kernel = kernel();
+    let d = plugin_driver();
+    let sent = |kernel: &Kernel, signature: &[u8; 64]| {
+        stage(
+            kernel,
+            INSTALL,
+            Some(&d),
+            &[revoked_cmd("notes", &author, signature)],
+        )
+    };
+    let (status, output) = sent(&kernel, &forged);
+    assert_eq!(status, OK);
+    drain(&mut kernel, output);
+    assert!(d.borrow().has_work(0), "it waits for the pump");
+    d.borrow_mut().pump(&card, &Names, 100);
+    assert!(
+        !keys::is_revoked(&card, "notes"),
+        "a forged one holds nothing"
+    );
+    assert!(!d.borrow().has_work(0));
+    let (status, output) = sent(&kernel, &holds);
+    assert_eq!(status, OK);
+    drain(&mut kernel, output);
+    d.borrow_mut().pump(&card, &Names, 100);
+    assert!(keys::is_revoked(&card, "notes"));
+    // Taken once, never off: the same again changes nothing.
+    let (_, output) = sent(&kernel, &holds);
+    drain(&mut kernel, output);
+    d.borrow_mut().pump(&card, &Names, 100);
+    assert_eq!(keys::revoked(&card).len(), 1);
+}
+
+#[test]
+fn revocations_past_the_queue_are_dropped_and_counted() {
+    use paperpaw_sdk::native::keys::Revocation;
+    let d = driver();
+    for _ in 0..crate::native_host::firmware_driver::MAX_REVOCATIONS_QUEUED {
+        assert!(
+            d.borrow_mut()
+                .queue_revocation(Revocation::new("notes", [1; 32], [2; 64]))
+        );
+    }
+    assert!(
+        !d.borrow_mut()
+            .queue_revocation(Revocation::new("notes", [1; 32], [2; 64]))
+    );
 }

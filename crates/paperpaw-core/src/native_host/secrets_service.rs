@@ -127,12 +127,24 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+    #[allow(
+        dead_code,
+        reason = "the removal job uses [`forget_owner`]; tests this"
+    )]
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
-        check_owner(plugin)?;
-        let mut file = File::new(&*self.host)?;
-        file.rewrite(&Change::DropOwner(plugin))
-            .map_err(|e| self.failed(e))
+        forget_owner(&*self.host, plugin).map_err(|e| self.failed(e))
     }
+}
+
+/// Removes every secret of `plugin` from the file `host` keeps (the removal of
+/// a plugin with its data, decision 124); safe to repeat.
+///
+/// # Errors
+/// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+pub(crate) fn forget_owner(host: &dyn SecretsHost, plugin: &str) -> Result<(), i32> {
+    check_owner(plugin)?;
+    let mut file = File::new(host)?;
+    file.rewrite(&Change::DropOwner(plugin))
 }
 
 /// The `core.secrets` backend.

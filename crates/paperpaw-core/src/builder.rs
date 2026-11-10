@@ -570,6 +570,21 @@ impl BuilderParts {
             self.staged
                 .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
         }
+        // A plugin install or removal a cut left is finished (or set aside)
+        // before any plugin is found, so a plugin is the old or the new one.
+        let mut said: Vec<String> = Vec::new();
+        let to_finish = crate::native_host::plugin_start::replay_at_start(
+            kernel.shared.storage.as_ref(),
+            &mut |line| said.push(line),
+        );
+        // A removal waits for the host to forget its plugin's secrets and
+        // grants: the first pass of the kernel finishes it.
+        if to_finish && let Some(driver) = &kernel.firmware {
+            driver.borrow_mut().want_resume();
+        }
+        for line in said {
+            kernel.warn_runtime(line);
+        }
         kernel.install_staged(mem::take(&mut self.staged), &dirs, &built_in);
         kernel.add_plugins(
             mem::take(&mut self.plugins),
@@ -955,6 +970,9 @@ impl Kernel {
             plugin_dirs
         };
         let storage = self.shared.storage.clone();
+        // What no journal owns is swept once the stages the shell handed over
+        // were taken (`install_staged`).
+        crate::native_host::plugin_start::sweep(storage.as_ref());
         let mut with_code = Vec::new();
         for dir in &dirs {
             let mut problems = Vec::new();

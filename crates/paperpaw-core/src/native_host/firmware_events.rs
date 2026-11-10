@@ -83,6 +83,7 @@ impl Kernel {
                 .map_or(true, |driver| driver.has_work(now));
         }
         self.firmware_wire(&driver);
+        self.firmware_resume(&driver);
         self.native_outbox_run();
         self.feed_install_grants(&driver);
         {
@@ -95,6 +96,8 @@ impl Kernel {
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
             };
         }
+        self.firmware_unload_pump(&driver);
+        self.firmware_forget_pump(&driver);
         // Progress only marked the request (see `firmware_changes`).
         self.firmware_changes(&driver);
         self.firmware_told(&driver);
@@ -104,6 +107,98 @@ impl Kernel {
             || driver
                 .try_borrow()
                 .map_or(true, |driver| driver.has_work(now))
+    }
+
+    /// Forgets what the host holds of a plugin removed with its data: its
+    /// secrets (`core.secrets`, where wired) and its grants
+    /// (`core.grant.<kind>.<id>`, decisions 124, 126 and 131), so a reinstall of
+    /// the id does not regain what the user granted the old one. Safe to repeat.
+    /// `false`: the secrets could not be forgotten (the journal stays).
+    pub(crate) fn forget_removed(&mut self, plugin: &str) -> bool {
+        let secrets = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.secrets())
+            .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
+        let forgot =
+            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok());
+        if forgot {
+            self.forget_grants(plugin);
+        }
+        forgot
+    }
+
+    /// The grants of `plugin`: only values that were set are reset (the file
+    /// and the event follow [`Kernel::reset_setting`]).
+    pub(crate) fn forget_grants(&mut self, plugin: &str) {
+        let mut set: alloc::vec::Vec<paperpaw_sdk::Id> = alloc::vec::Vec::new();
+        for spec in self.shared.settings.specs() {
+            let id = spec.id.as_str();
+            let is_its = id
+                .strip_prefix("core.grant.")
+                .and_then(|rest| rest.split_once('.'))
+                .is_some_and(|(_, owner)| owner == plugin);
+            if is_its && self.shared.settings.is_set(id) && set.len() < 8 {
+                set.push(spec.id.clone());
+            }
+        }
+        for id in set {
+            self.reset_setting(&id);
+        }
+    }
+
+    /// A removal that waits for the host to forget its plugin's state: done,
+    /// the job goes on. Never from a callback.
+    fn firmware_forget_pump(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
+            return;
+        };
+        let ok = self.forget_removed(id.as_str());
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.plugin_forgotten(ok);
+        }
+    }
+
+    /// The first pass after a start that left a removal journal at its forget
+    /// step: finished with the host's help, once.
+    fn firmware_resume(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        if !driver.try_borrow_mut().is_ok_and(|mut d| d.take_resume()) {
+            return;
+        }
+        let storage = self.shared.storage.clone();
+        let done = super::plugin_swap::resume(storage.as_ref(), &mut |id| self.forget_removed(id));
+        if let super::plugin_swap::Replayed::Failed(why) = done {
+            self.warn_runtime(alloc::format!(
+                "plugins/.journal not finished (reason {why}): tried again at the next start"
+            ));
+        }
+    }
+
+    /// A removal's first step: the instances of the plugin it removes are
+    /// closed and the plugin leaves the list (REG op 6; event 70 is raised),
+    /// then the job goes on. Never from a callback.
+    fn firmware_unload_pump(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_unload()) else {
+            return;
+        };
+        // An id that does not parse is none to close: the job goes on.
+        if let Ok(id) = paperpaw_sdk::Id::parse(id.as_str()) {
+            let _ = self.unload_plugin(&id);
+            self.plugins_changed();
+        }
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.plugin_unloaded();
+        }
     }
 
     /// After a stop or a sender's stop: a plugin job that must finish (or runs

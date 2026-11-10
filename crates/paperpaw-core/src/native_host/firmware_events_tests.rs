@@ -123,3 +123,54 @@ fn the_firmware_events_can_be_registered_for() {
     assert!(super::super::events::is_event_tag(97));
     assert!(!super::super::events::is_event_tag(98));
 }
+
+/// A removal with its data forgets the plugin's grants, `core.grant.<kind>.<id>`
+/// of exactly that id, and no other plugin's.
+fn is_set(kernel: &Kernel, id: &str) -> bool {
+    kernel.shared.settings.is_set(id)
+}
+
+#[test]
+fn removed_with_its_data_a_plugin_loses_its_grants_and_only_its_own() {
+    use paperpaw_sdk::{SettingSpec, SettingValue, builtin};
+    let mut kernel = kernel();
+    let ids = [
+        "core.grant.install.dials",
+        "core.grant.style.dials",
+        "core.grant.install.dials-plus",
+        "core.grant.install.clock",
+    ];
+    for id in ids {
+        kernel
+            .shared
+            .settings
+            .define(SettingSpec::switch(
+                id,
+                "grant",
+                false,
+                builtin::groups::OTHER,
+            ))
+            .unwrap();
+        kernel
+            .shared
+            .settings
+            .set(id, SettingValue::Bool(true))
+            .unwrap();
+    }
+    assert!(
+        kernel.forget_removed("dials"),
+        "no secrets host wired: nothing to fail"
+    );
+    assert!(
+        !is_set(&kernel, ids[0]) && !is_set(&kernel, ids[1]),
+        "the plugin's own grants went"
+    );
+    assert!(
+        is_set(&kernel, ids[2]) && is_set(&kernel, ids[3]),
+        "no other plugin's grant did"
+    );
+    // Nothing to forget: nothing changes, and nothing is said.
+    kernel.forget_grants("dials");
+    kernel.forget_grants("nobody");
+    assert!(is_set(&kernel, ids[2]) && is_set(&kernel, ids[3]));
+}
