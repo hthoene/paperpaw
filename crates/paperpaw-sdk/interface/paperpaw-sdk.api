@@ -4186,6 +4186,8 @@ pub fn paperpaw_sdk::native::document::Documents::metadata<'a>(&self, &paperpaw_
 pub fn paperpaw_sdk::native::document::Documents::text<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocTextQuery, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocTextPart<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::readers<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::document::ReaderCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::ReaderPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::report(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &paperpaw_sdk::native::document::Report<'_>, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::document::Format<'a>(_)
 impl<'a> paperpaw_sdk::native::document::Format<'a>
 pub fn paperpaw_sdk::native::document::Format<'a>::extensions(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str> + use<'a>
@@ -4257,6 +4259,15 @@ pub struct paperpaw_sdk::native::document::ReaderPageEnd
 impl paperpaw_sdk::native::document::ReaderPageEnd
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::ReaderCursor>
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::total(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::Report<'a>
+impl<'a> paperpaw_sdk::native::document::Report<'a>
+pub const fn paperpaw_sdk::native::document::Report<'a>::chapter(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::chapter_left(self, u32) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::finished(self) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::insert(self, u32) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::new(paperpaw_sdk::native::document::DocPosition, u32) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::pages(self, u32, u32) -> Self
+pub const fn paperpaw_sdk::native::document::Report<'a>::title(self, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::SectionEntry(_)
 impl paperpaw_sdk::native::document::SectionEntry
 pub const fn paperpaw_sdk::native::document::SectionEntry::index(&self) -> u32
@@ -4814,6 +4825,7 @@ pub fn paperpaw_sdk::native::events::PowerChange<'a>::stretch(&self) -> u32
 #[non_exhaustive] pub struct paperpaw_sdk::native::events::ReadingView<'a>
 impl<'a> paperpaw_sdk::native::events::ReadingView<'a>
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::chapter(&self) -> &'a str
+pub fn paperpaw_sdk::native::events::ReadingView<'a>::chapter_left(&self) -> core::option::Option<u32>
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::insert(&self) -> u32
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::now_ms(&self) -> u64
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::offset(&self) -> u32

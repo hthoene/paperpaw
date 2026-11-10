@@ -125,7 +125,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 19 | `formats` | `doc_page` | `doc_format`*, `end` | every format, paged |
 | 20 | `format_for` | `doc_path` | `doc_format` | which format reads a file; `ERR_NOT_FOUND` |
 | 21 | `readers` | `doc_page` (`scope`: a format id or empty) | `doc_reader`*, `end` | reading apps |
-| 22 | `report` | `doc_report` | (none) | where the reader is; section 2.4 (draft 37) |
+| 22 | `report` | `doc_report` | (none) | where the reader is; section 2.4 |
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -179,7 +179,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   before the `uses.storage` check of root 1, so a plugin without the feature gets `ERR_INVALID`
   for such a path too, not `ERR_DENIED`. The host checks the roots, finds the format, gives a new
   document id and calls the format's op 2 `open`; its answer becomes `doc_state`.
-- [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
+- [D] **Root 5, the handed file.** A reader whose instance was made from a hand-over
   (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
   file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
   resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path

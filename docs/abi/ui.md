@@ -403,7 +403,7 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
-- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+- [D] **No subscription**: `event.answered` goes to the asking plugin by its request,
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
   addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
