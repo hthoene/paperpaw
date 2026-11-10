@@ -27,6 +27,7 @@ pub mod native_news;
 pub mod native_plugin;
 mod native_screen;
 mod native_shelf;
+mod native_widgets;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 mod widget;

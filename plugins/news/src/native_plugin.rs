@@ -9,7 +9,7 @@ use core::cell::RefCell;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
-    callbacks::{DrawFrame, Input},
+    callbacks::{DrawFrame, DrawPurpose, Input},
     commands::CommandSender,
     device::{Device, DeviceClass},
     events::{Event, Incoming, kinds},
@@ -23,7 +23,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{Messages, Screens, files::Volume, mem, read_event, text, widget::Settings};
 
-use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, WORK_TOKEN};
+use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, SETTING_TOKEN, WORK_TOKEN};
 
 /// The key of the work that fetches the news in the background.
 const WORK_KEY: &str = "news.fetch";
@@ -35,6 +35,7 @@ use crate::native_fetch::{Done, Ended, FEED_REQUEST, Fetcher, Started, Wire};
 use crate::native_news::{MAX_FEED_FILE, MAX_TEXT, MAX_TEXT_SMALL};
 use crate::native_screen::{Ask, View};
 use crate::native_shelf::Shelved;
+use crate::native_widgets::{Tap, Widgets};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/news_declarations.rs"));
@@ -47,6 +48,7 @@ pub struct NativeNews {
     shelf: Shelved,
     pub(crate) handles: Handles,
     pub(crate) screens: Screens<View>,
+    pub(crate) widgets: Widgets,
     /// The question of the screen that is open, and what it is for.
     pub(crate) asked: Option<(AskId, Ask)>,
 }
@@ -211,6 +213,15 @@ impl Plugin for NativeNews {
         {
             registrations::submit(host, batch)?;
         }
+        // The home widget, and the subscription to the settings that change (it
+        // shows them anew): a host that does not admit a part of them yet answers
+        // `Unsupported`, and the plugin goes on without it.
+        for batch in image::WIDGETS.iter().chain(image::WIDGET_EVENTS) {
+            match registrations::submit(host, batch) {
+                Ok(()) | Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
+        }
         Ok(Self::default())
     }
 
@@ -219,7 +230,7 @@ impl Plugin for NativeNews {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
@@ -229,7 +240,11 @@ impl Plugin for NativeNews {
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
-            kinds::Answered
+            kinds::Answered,
+            kinds::SettingChanged,
+            kinds::WidgetMade,
+            kinds::WidgetDropped,
+            kinds::StageCall
         ) else {
             return Ok(());
         };
@@ -253,7 +268,26 @@ impl Plugin for NativeNews {
             Event::HttpDone(done) if token == HTTP_TOKEN => {
                 let ended = self.ended(host, &done);
                 // The names of the feeds and their books may have changed.
+                self.widgets.refresh(host);
                 ended.and(self.refresh(host))
+            }
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            Event::SettingChanged { key, .. } if token == SETTING_TOKEN => {
+                if key.starts_with("news.widget.") {
+                    self.widgets.refresh(host);
+                }
+                Ok(())
             }
             Event::ScreenOpened { instance, .. } if token == SCREEN => {
                 self.screen_opened(host, instance)
@@ -272,6 +306,9 @@ impl Plugin for NativeNews {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         if token != SCREEN {
             return Err(Error::Unsupported);
         }
@@ -279,6 +316,17 @@ impl Plugin for NativeNews {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a headline opens its book, a tap on the empty widget the list.
+        if let Some(tap) = self.widgets.tapped(host, &input)? {
+            match tap {
+                Tap::Book(path) => self.open_book(host, &path)?,
+                Tap::List => {
+                    let mut scratch = [0; 128];
+                    CommandSender::new(host, &mut scratch).open(Open::screen("news.list")?)?;
+                }
+            }
+            return Ok(Handled::Yes);
+        }
         if token != SCREEN {
             return Ok(Handled::No);
         }

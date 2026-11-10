@@ -266,7 +266,7 @@ impl NativeNews {
     }
 
     /// Opens the book at `path` in the reader the reader chose.
-    fn open_book(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+    pub(crate) fn open_book(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let params = [Param::new(PATH, path)?];
         let handover = self
@@ -437,12 +437,7 @@ mod tests {
         assert_eq!(items.len(), 4);
         assert_eq!(
             targets,
-            [
-                Target::Fetch,
-                Target::Feed(0),
-                Target::Feed(1),
-                Target::Add
-            ]
+            [Target::Fetch, Target::Feed(0), Target::Feed(1), Target::Add]
         );
         let titles: Vec<&str> = items
             .iter()
