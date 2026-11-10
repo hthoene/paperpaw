@@ -378,6 +378,10 @@ pub fn main_groups(
 /// already at their default outside a book scope (nothing to reload), the
 /// language on a reset of all, and on a page what that page does not show.
 ///
+/// A reset of all sends one command per key in one callback, and the host
+/// caps the commands of a callback at 8 (open ruling #422): the caller must
+/// split the plan across callbacks before that cap is enforced.
+///
 /// # Errors
 /// [`Error::NoMemory`] when the list cannot be built.
 pub fn reset_plan(

@@ -187,3 +187,17 @@ puts it (`focus`); moving it is a redraw.
 token (the main page below a group's page included) is made anew for every setting changed, where
 interface 6 made a covered page anew once when it showed again; only a page below another of the
 same screen waits (`settings-covered-by-foreign-screen`).
+
+## Held removal: to settle at activation (review remarks on the removal PR)
+
+- `crates/paperpaw-app/tests/raw_ids.rs` checks only the registry's titles, notes and choice options
+  for every language, not rendered rows: add the rendered native settings screens (every page and
+  chooser, in every language) to the activation list, with the tests set aside by the removal.
+- The catalogue keys `settings.theme.own` and `settings.theme.none.help`, and the theme descriptions the
+  interface-6 chooser showed, are not used by the native plugin (the native chooser shows the preset
+  titles only). **Difference from interface 6:** those texts are not shown; restore them in the
+  native chooser or drop the keys at activation.
+- A reset of all (`reset_plan`) submits one command per key in a single callback; the host caps the
+  commands of a callback at 8 (open ruling #422), so the caller must split the plan then.
+- While the removal is held, a build without `native-linked` has no Settings page: merge right after
+  native activation.
