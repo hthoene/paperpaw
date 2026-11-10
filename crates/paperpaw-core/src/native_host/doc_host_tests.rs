@@ -12,7 +12,7 @@ use crate::native_host::{
     admitted_features::AdmittedFeatures,
     call_services::validate_reply,
     declaration_store::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations},
-    doc_service,
+    doc_service::{self, DocHost},
     host_services::HostServices,
     registrations::{REGISTRATION_MAX_BYTES, records_encode},
     ui_guard::{Row, Rows, UiStackView},
@@ -606,4 +606,128 @@ fn a_refused_allocation_leaves_the_index_to_be_made_whole_by_the_next_call() {
             assert_eq!(w.state.skipped(), 0);
         });
     }
+}
+
+/// The next `event.document_closed` of `owner` as (document, reason).
+fn closed_event(w: &World<'_>, owner: u64) -> Result<Option<(u32, u32)>, i32> {
+    let mut out = [0_u8; 64];
+    let Some(length) = w.state.next_event(owner, &mut out)? else {
+        return Ok(None);
+    };
+    match wire::record_decode_one(&out[..length]).unwrap() {
+        Record::EventDocumentClosed(event) => Ok(Some((event.document, event.reason))),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_stopped_format_closes_its_book_and_the_opener_hears_it_once() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        assert_eq!(closed_event(w, OPENER), Ok(None), "nothing happened yet");
+        w.stop("epub");
+        // The next call brings the index in line: reason 1, the format stopped.
+        assert_eq!(w.format_for("a.epub"), Err(ERR_NOT_FOUND));
+        assert_eq!(w.format_for("a.epub"), Err(ERR_NOT_FOUND));
+        w.state.set_now(1_234);
+        assert_eq!(closed_event(w, OPENER), Ok(Some((document, 1))));
+        assert_eq!(closed_event(w, OPENER), Ok(None), "one event per close");
+    });
+}
+
+#[test]
+fn only_the_opener_of_a_book_is_told_and_one_that_closes_it_hears_nothing() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        let other = w.open(0, "b.epub").unwrap();
+        assert_ne!(document, other);
+        w.call(
+            AdmittedFeatures::NONE,
+            18,
+            &[Record::ServiceDocRef(wire::ServiceDocRef {
+                document: other,
+            })],
+        )
+        .unwrap();
+        doc_service::end_by_host(&*w.state, document, 3).unwrap();
+        // A document that ended is left alone by a second ending.
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
+        assert_eq!(closed_event(w, OPENER + 1), Ok(None), "not their book");
+        assert!(w.state.table.has_closed());
+        assert_eq!(closed_event(w, OPENER), Ok(Some((document, 3))));
+        assert_eq!(closed_event(w, OPENER), Ok(None));
+        assert!(!w.state.table.has_closed());
+    });
+}
+
+#[test]
+fn an_opener_that_stopped_leaves_no_event_behind() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.open(0, "a.epub").unwrap();
+        w.stop("epub");
+        let _ = w.format_for("a.epub");
+        assert!(w.state.table.has_closed());
+        doc_service::opener_stopped(&*w.state, OPENER).unwrap();
+        assert_eq!(closed_event(w, OPENER), Ok(None));
+        assert!(!w.state.table.has_closed());
+    });
+}
+
+#[test]
+fn an_event_that_does_not_fit_stays_until_there_is_room() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
+        let mut small = [0_u8; 4];
+        assert!(w.state.next_event(OPENER, &mut small).is_err());
+        assert_eq!(closed_event(w, OPENER), Ok(Some((document, 2))));
+    });
+}
+
+#[test]
+fn a_refused_allocation_makes_no_document_state_and_no_event_allocates() {
+    let in_use = HostServices::new().in_use().clone();
+    for nth in 1..=8 {
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(nth));
+        let made = DocState::try_new(Limits::LARGE, 1_000, in_use.clone());
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(0));
+        if let Err(status) = made {
+            assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
+        }
+    }
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
+        // Building the event takes no allocation: refusing every one is no
+        // matter.
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(1));
+        let event = closed_event(w, OPENER);
+        let armed = crate::native_host::shell::tests::FAIL_NTH.with(Cell::get);
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(0));
+        assert_eq!(event, Ok(Some((document, 2))));
+        assert_eq!(armed, 1, "no allocation was asked for");
+    });
+}
+
+#[test]
+fn an_event_asks_for_one_pass_and_one_for_an_owner_that_does_not_run_stays_quiet() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        assert!(!w.state.events_waiting());
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
+        assert!(w.state.events_waiting(), "the pump is asked for a pass");
+        // The pass starts, but the owner is not running: nothing takes the
+        // event, and nothing asks for another pass for it.
+        w.state.set_now(10);
+        assert!(!w.state.events_waiting());
+        assert!(w.state.table.has_closed());
+        // The owner's callback runs on a later pass and still hears it.
+        assert_eq!(closed_event(w, OPENER), Ok(Some((document, 2))));
+    });
 }
