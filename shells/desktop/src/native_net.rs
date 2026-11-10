@@ -9,8 +9,8 @@
 //! appends to the staged path core made (core renames it over the target); an
 //! upload from a file is read whole (a computer has the memory; the request
 //! still ends when its bytes stop coming). Serving (`listen`) is not backed on
-//! the desktop yet: a plugin that asks to serve is refused (`Refused`), and
-//! `uses.network` for sockets is not offered with it.
+//! the desktop yet: a plugin that asks to serve is refused (`Refused`). Sockets
+//! are `native_sock`'s.
 //!
 //! **Redirects** are followed here by `paperpaw_http::follow`, the rules of
 //! `network.md` 3.1 that the other shells keep (at most 10; never from
@@ -87,6 +87,8 @@ pub struct NativeNet {
     view: Rc<DeviceView>,
     pending: RefCell<HashMap<u32, Pending>>,
     demand: Cell<bool>,
+    /// A network was up at the last pump.
+    was_up: Cell<bool>,
 }
 
 impl std::fmt::Debug for NativeNet {
@@ -108,6 +110,7 @@ impl NativeNet {
             view,
             pending: RefCell::new(HashMap::new()),
             demand: Cell::new(false),
+            was_up: Cell::new(false),
         }
     }
 
@@ -126,6 +129,11 @@ impl NativeNet {
     /// Hands core the answers that have come (waiting up to `wait` for the
     /// first), then lets it take its turn (`tick`).
     pub fn pump(&self, reports: &NetReports, wait: Option<std::time::Duration>) {
+        // A network gone since the last pump ends every request.
+        let up = ShellNetwork::network_up(self);
+        if self.was_up.replace(up) && !up {
+            let _ = reports.network_lost();
+        }
         loop {
             let response = {
                 let mut http = self.http.borrow_mut();

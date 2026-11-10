@@ -739,6 +739,9 @@ impl Device {
         let net = self.linked.net.borrow();
         if let Some(net) = net.as_ref() {
             net.transport.pump(&net.reports, wait);
+            if let Some((sockets, reports)) = &net.sockets {
+                sockets.pump(reports, !self.profile.wifi || self.wifi.is_online());
+            }
         }
     }
 
