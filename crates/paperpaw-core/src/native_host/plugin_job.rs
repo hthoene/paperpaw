@@ -240,6 +240,20 @@ pub(crate) trait PluginJob {
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);
+    /// Whether the job may not be abandoned where it stands (an install past
+    /// the point where the card holds half of a change: its journal is
+    /// written). The host then steps it on to its end, bounded, after
+    /// `abort`, and the job ends with its own reason; any other job just
+    /// ends with the reason `abort` was given. Default: it may be abandoned.
+    fn must_finish(&self) -> bool {
+        false
+    }
+    /// Whether the job runs on when the plugin that asked stops (an install
+    /// the user confirmed): nobody is told its end. Default: it stops with
+    /// its sender.
+    fn keep_without_sender(&self) -> bool {
+        false
+    }
 }
 
 /// The buffer a job reads through: 4 KiB, taken fallibly when the job's
