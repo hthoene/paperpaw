@@ -1,7 +1,7 @@
 use super::*;
 use crate::fail_alloc::sweep;
 use crate::native_grid;
-use paperpaw_sdk::Rect;
+use paperpaw_sdk::{Point, Rect, widgets::CellSpan};
 
 fn grid() -> Geometry {
     Geometry::of(Rect::new(0, 0, 400, 300), 4, 3, 0)
@@ -101,6 +101,18 @@ fn the_options_are_move_resize_remove_and_cancel_with_their_words() {
             "home.edit.cancel"
         ]
     );
+    let with: Vec<&str> = choices(true).iter().map(|(_, key)| *key).collect();
+    assert_eq!(
+        with,
+        [
+            "core.grid.move",
+            "core.grid.resize",
+            "core.grid.settings",
+            "core.grid.remove",
+            "home.edit.cancel"
+        ]
+    );
+    assert_eq!(choices(false).len(), 4);
     assert_eq!(help(Mode::Move), "core.grid.move.help");
     assert_eq!(help(Mode::Resize), "core.grid.resize.help");
 }
@@ -109,4 +121,66 @@ fn the_options_are_move_resize_remove_and_cancel_with_their_words() {
 fn every_allocation_may_be_refused() {
     let list = items("a.b@2 0/0 2x1, c.d 2/0 1x1");
     sweep(|| removed(&list, 0).map(drop));
+}
+
+#[test]
+fn a_finger_moves_an_item_by_as_many_cells_as_it_went() {
+    let from = Cells::new(1, 1, 1, 1);
+    let at = |x, y| Point::new(x, y);
+    let moved = dragged(
+        &grid(),
+        from,
+        (at(150, 150), at(250, 250)),
+        false,
+        (1, None),
+    );
+    assert_eq!(moved, Some(Cells::new(2, 2, 1, 1)));
+    // Not past the left or the top: the cell where it would go is the first.
+    let back = dragged(&grid(), from, (at(150, 150), at(10, 10)), false, (1, None));
+    assert_eq!(back, Some(Cells::new(0, 0, 1, 1)));
+    // Off the grid: nowhere.
+    assert_eq!(
+        dragged(
+            &grid(),
+            from,
+            (at(150, 150), at(150, 900)),
+            false,
+            (1, None)
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_finger_on_the_corner_sizes_the_item_to_the_cell_under_it() {
+    let from = Cells::new(0, 0, 1, 1);
+    let to = |x, y, least, span| {
+        dragged(
+            &grid(),
+            from,
+            (Point::new(90, 90), Point::new(x, y)),
+            true,
+            (least, span),
+        )
+    };
+    assert_eq!(to(250, 150, 1, None), Some(Cells::new(0, 0, 3, 2)));
+    // Never under one cell: a finger left of and above the item's corner.
+    assert_eq!(to(10, 10, 1, None), Some(Cells::new(0, 0, 1, 1)));
+    // A widget is no lower than it can do with, nor than the grid.
+    assert_eq!(to(150, 50, 2, None), Some(Cells::new(0, 0, 2, 2)));
+    assert_eq!(to(150, 50, 9, None), Some(Cells::new(0, 0, 2, 3)));
+    // Nor under what it declared.
+    let span = CellSpan::new(2, 2).min(2, 2);
+    assert_eq!(to(50, 50, 1, Some(span)), Some(Cells::new(0, 0, 2, 2)));
+}
+
+#[test]
+fn an_item_may_take_cells_inside_the_grid_clear_of_the_others() {
+    let items = items("tool:a 0/0 1x1, tool:b 1/0 2x1");
+    let g = grid();
+    assert!(free(&items, 0, Cells::new(0, 1, 1, 1), &g));
+    // Its own cells are free to it.
+    assert!(free(&items, 1, Cells::new(1, 0, 2, 1), &g));
+    assert!(!free(&items, 0, Cells::new(1, 0, 1, 1), &g));
+    assert!(!free(&items, 0, Cells::new(3, 0, 2, 1), &g));
 }

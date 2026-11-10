@@ -9,12 +9,14 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
 const EDGES: usize = 16;
 const PLUGIN_BYTES: usize = 4096;
 const DEVICE_BYTES: usize = 8192;
-/// Pending bits: five hints, the reread bit, the registry bit, then the
-/// coalesced lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]).
-const BITS: u8 = 11;
+/// Pending bits: five hints, the reread bit, the registry bit, the coalesced
+/// lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]), then
+/// the preview hint.
+const BITS: u8 = 12;
 const REREAD: u8 = 5;
 const REGISTRY: u8 = 6;
 const CORE_FIRST: u8 = 7;
+const PREVIEW: u8 = 11;
 /// The events that keep a pending bit, in bit order from `CORE_FIRST`: a
 /// second one before the first was told is one (tick, resume) or, for suspend
 /// and stopping, never lost to a full store (`events::bypasses_queue`).
@@ -245,6 +247,10 @@ impl Pending {
 
     /// Hints keep only an ordered pending bit; encode their current state at delivery.
     pub(crate) fn hint(&mut self, tag: u32) -> Result<(), i32> {
+        if tag == wire::EVENT_PREVIEW_CHANGED_TAG {
+            self.touch(PREVIEW);
+            return Ok(());
+        }
         let id = tag
             .checked_sub(wire::EVENT_PLUGINS_CHANGED_TAG)
             .filter(|id| *id < 5)
@@ -288,6 +294,9 @@ impl Pending {
         }
         if id == REGISTRY {
             return Some(Ready::Registry(core::mem::take(&mut self.registry)));
+        }
+        if id == PREVIEW {
+            return Some(Ready::Hint(wire::EVENT_PREVIEW_CHANGED_TAG));
         }
         if id < REREAD {
             return Some(Ready::Hint(wire::EVENT_PLUGINS_CHANGED_TAG + u32::from(id)));

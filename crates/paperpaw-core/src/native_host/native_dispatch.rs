@@ -174,7 +174,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
-        shell::dispatch_token_draw(
+        let result = shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
@@ -182,7 +182,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             frame,
             canvas,
         )
-        .map_err(status)
+        .map_err(status);
+        if matches!(result, Ok(0)) {
+            self.identity.mark_drew();
+        }
+        result
     }
 }
 
@@ -321,6 +325,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
+    }
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Input(bytes),
+            Some(stage),
+        )
     }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();
