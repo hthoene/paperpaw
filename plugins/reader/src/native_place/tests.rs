@@ -41,3 +41,22 @@ fn an_unknown_progress_keeps_the_stored_one() {
     assert_eq!(pick(&none), 777_000);
     assert_eq!(Stored::default(), Stored { at: None, ppm: 0 });
 }
+
+#[test]
+fn a_title_is_cut_at_a_character_boundary() {
+    assert_eq!(cut_title("Short"), "Short");
+    let long: alloc::string::String = core::iter::repeat_n('é', 200).collect();
+    let cut = cut_title(&long);
+    assert_eq!(cut.len(), 256);
+    assert!(cut.chars().all(|c| c == 'é'));
+    // A three-byte letter straddling the limit is left out whole.
+    let mixed: alloc::string::String = core::iter::repeat_n('a', 255).chain(['€']).collect();
+    assert_eq!(cut_title(&mixed).len(), 255);
+}
+
+#[test]
+fn the_book_is_read_to_the_end_from_999_thousandths() {
+    assert!(!reaches_end(998_999));
+    assert!(reaches_end(999_000));
+    assert!(reaches_end(1_000_000));
+}

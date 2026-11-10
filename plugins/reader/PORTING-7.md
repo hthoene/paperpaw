@@ -277,3 +277,16 @@ relative to the data folder).
   the old file is not ported); the progress stored is written again where it is unknown. **X4 timing list:** the extra
   `work.declare` at every page turn. The quiet time is started again on a turn only (as Beta 3), and a
   host without work is asked once.
+
+## The reader's report (`core.document` op 22, todo 455)
+
+- On open and after every turn the screen lays out the page on show (if it is not yet: the draw then
+  reuses it) and calls `Documents::report` with the place, the progress (the stored one where the
+  book's sections are too many), the title (the book's, cut at 256 bytes on a character boundary) and
+  `finished` once, when the page ends the book (progress at its end 0.999 or more, as Beta 3's
+  `at_end`). The host raises `book_opened`, `page_turned`, `book_finished` and `book_closed` from it; the
+  reader raises none itself. A refusal or a page that cannot be laid out is no report.
+- **Not told yet:** the chapter and `chapter_left` (the table of contents: R6), `page`/`pages` (the page
+  index), a report for a page seen again after a setting changed (no reflow yet), and the end of a
+  one-page book is told with its open. The page is laid out in the input callback now (it was at the
+  draw): on the X4 timing list with the back-layout.
