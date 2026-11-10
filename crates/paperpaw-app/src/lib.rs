@@ -78,10 +78,8 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 14] = [
+pub const STORE_PLUGINS: [&str; 11] = [
     "aids",
-    "browser",
-    "calibre",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -90,7 +88,6 @@ pub const STORE_PLUGINS: [&str; 14] = [
     "news",
     "notes-vault",
     "picture-home",
-    "read-later-cloud",
     "vocabulary",
     "widgets",
 ];
@@ -155,13 +152,9 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "browser",
-    "calibre",
     "fonts-browser",
     "mail",
     "news",
-    "opds",
-    "read-later-cloud",
     "store",
     "transfer",
     "update",
@@ -219,7 +212,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
@@ -229,10 +221,6 @@ pub fn install_with(
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_transfer::Transfer);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_opds::Opds);
-    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
@@ -266,12 +254,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         StorePlugins::Left => StorePlugins::Left,
         _ => StorePlugins::Off(&|_| false),
     };
-    b = offered(b, shipped_off, paperpaw_plugin_browser::Browser);
-    b = offered(
-        b,
-        shipped_off,
-        paperpaw_plugin_read_later_cloud::ReadLaterCloud,
-    );
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b
 }

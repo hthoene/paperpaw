@@ -244,6 +244,7 @@ fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     NativeDeclarations {
         store: RefCell::new(store),
         catalog: Default::default(),
+        members: Default::default(),
         items: Default::default(),
         item_room: Default::default(),
     }

@@ -67,6 +67,8 @@ pub(crate) fn pending(
 pub(crate) struct NativeDeclarations {
     pub(crate) store: core::cell::RefCell<super::declaration_store::DeclarationStore>,
     pub(crate) catalog: super::reg_catalog::RegCatalog,
+    /// What a plugin's callback froze of the stages it runs.
+    pub(crate) members: core::cell::RefCell<super::stage_members::StageMembers>,
     /// The item states plugins pushed (`command.set_item_state`).
     pub(crate) items: core::cell::RefCell<super::item_state::ItemStates>,
     /// The entries callbacks in flight reserved in `items` and have not
