@@ -71,7 +71,7 @@ fn every_entry_of_a_registered_plugin_runs_it_as_the_frame_owner() {
     );
     assert_eq!(frame_owner::owner(), None, "back after an error return");
     // Nested: another plugin's frame is the previous owner, and is back.
-    frame_owner::within(99, ptr::null(), || {
+    frame_owner::within(99, ptr::null(), ptr::null(), || {
         assert_eq!(
             dispatch_registration(&batch, 0, &depth, Invocation::Event(&[1, 2, 3])),
             Ok(OK)
@@ -167,5 +167,49 @@ fn the_table_and_the_host_table_are_two_doors_to_one_heap() {
         }
     });
     assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before);
+    drop(hosted);
+}
+
+/// Another services type: its table's entries read no context of a frame
+/// that was pushed for `Heap`, and none of a frame pushed for another table.
+struct Other;
+
+impl Services for Other {
+    fn alloc(&self, _: usize, _: usize) -> *mut u8 {
+        ptr::null_mut()
+    }
+    unsafe fn dealloc(&self, _: *mut u8, _: usize, _: usize) {}
+    unsafe fn realloc(&self, _: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
+        ptr::null_mut()
+    }
+    fn micros(&self) -> u64 {
+        0
+    }
+}
+
+#[test]
+fn a_table_reads_only_the_context_of_a_frame_pushed_for_it() {
+    reset(NORMAL);
+    let hosted = fake();
+    let context = hosted.owner().context();
+    let (heap, other) = (handed_heap::<Heap>(), handed_heap::<Other>());
+    context.run_plugin(|| {
+        // SAFETY: nothing is allocated through the wrong table.
+        unsafe {
+            let block = (heap.alloc.unwrap())(16, 8);
+            assert!(!block.is_null());
+            (heap.dealloc.unwrap())(block, 16, 8);
+            assert!((other.alloc.unwrap())(16, 8).is_null());
+            assert!(
+                (other.realloc.unwrap())(ptr::NonNull::<u8>::dangling().as_ptr().cast(), 8, 8, 16)
+                    .is_null()
+            );
+        }
+    });
+    // A frame of no table (a bug) gives the entries nothing either.
+    frame_owner::within(1, ptr::null(), ptr::null(), || {
+        // SAFETY: as above.
+        assert!(unsafe { (heap.alloc.unwrap())(16, 8) }.is_null());
+    });
     drop(hosted);
 }

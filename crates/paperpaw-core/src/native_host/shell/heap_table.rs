@@ -18,7 +18,12 @@ impl<S> Context<S> {
     /// destructor, a callback), with the plugin as the frame owner. Every
     /// entry of host code into plugin code goes through here.
     pub(crate) fn run_plugin<R>(&self, call: impl FnOnce() -> R) -> R {
-        frame_owner::within(self.resources.owner_id(), ptr::from_ref(self).cast(), call)
+        frame_owner::within(
+            self.resources.owner_id(),
+            ptr::from_ref(self).cast(),
+            ptr::from_ref(self.heap).cast(),
+            call,
+        )
     }
 }
 
@@ -49,21 +54,28 @@ impl<S: Services> SharedHeap<S> {
 
 /// The `PpHeap` table every plugin hosted with `S` is handed, for the loader
 /// to write the address of into the plugin's heap word.
+///
+/// Never inlined: the address of the table is the identity of `S` for the
+/// frame owner ([`frame_owner::context_of`]), and a constant reference copied
+/// into each use would have as many addresses as uses. Every user of the
+/// table (the loader, a context's frames, the entries) asks this one function.
 #[must_use]
+#[inline(never)]
 pub fn handed_heap<S: Services>() -> &'static PpHeap {
     SharedHeap::<S>::TABLE
 }
 
-/// The context of the frame owner: a `Context<S>` of the `S` this table was
-/// made for, since only [`Context::run_plugin`] pushes frames.
-fn frame_context() -> Option<*mut c_void> {
-    frame_owner::context().map(|context| context.cast_mut())
+/// The context of the frame owner, if the frame was pushed for the table of
+/// this `S`: only then is it a `Context<S>`.
+fn frame_context<S: Services>() -> Option<*mut c_void> {
+    frame_owner::context_of(ptr::from_ref(handed_heap::<S>()).cast())
+        .map(|context| context.cast_mut())
 }
 
 /// `alloc`: null outside a frame, and for every refusal of the shared heap
 /// (a zero size, a bad alignment, no room).
 unsafe extern "C" fn alloc<S: Services>(size: usize, align: usize) -> *mut c_void {
-    let Some(ctx) = frame_context() else {
+    let Some(ctx) = frame_context::<S>() else {
         return ptr::null_mut();
     };
     let mut block = ptr::null_mut();
@@ -84,7 +96,7 @@ unsafe extern "C" fn dealloc<S: Services>(block: *mut c_void, size: usize, align
     if block.is_null() {
         return;
     }
-    let Some(ctx) = frame_context() else {
+    let Some(ctx) = frame_context::<S>() else {
         return;
     };
     // SAFETY: as `alloc`; the block is this heap's with this size and
@@ -103,7 +115,7 @@ unsafe extern "C" fn realloc<S: Services>(
     align: usize,
     new_size: usize,
 ) -> *mut c_void {
-    let Some(ctx) = frame_context() else {
+    let Some(ctx) = frame_context::<S>() else {
         return ptr::null_mut();
     };
     let mut moved = ptr::null_mut();

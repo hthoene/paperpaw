@@ -9,10 +9,12 @@
 //! declared token and a command stage. An entry of a new kind is not accepted
 //! without going through here and a test (`frame_owner_tests.rs`).
 //!
-//! The record lives on the stack of the call; the one pointer to the
-//! innermost is a static (a shell has one core running plugin code, as for
-//! [`host_slot`](super::host_slot)) and a thread-local in tests, where the
-//! test threads run side by side.
+//! The record lives on the stack of the call. The pointer to the innermost
+//! is thread-local wherever there are threads (the desktop, Android, the web
+//! and every test binary run plugin code on more than one thread, and a
+//! pointer shared across them would point into another thread's finished
+//! stack), and one static on bare metal (`target_os = "none"`: one core runs
+//! plugin code there, as for [`host_slot`](super::host_slot)).
 
 use core::ffi::c_void;
 use core::ptr;
@@ -27,11 +29,14 @@ struct Frame {
     owner: u64,
     /// Its `Context<S>`, for the typed table entries of that shell.
     context: *const c_void,
+    /// The `PpHeap` table of its services type `S`: an entry reads the
+    /// context only if the frame was pushed for its own table.
+    table: *const c_void,
     /// The frame this one was pushed over, or null.
     previous: *const Frame,
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 mod current {
     use super::Frame;
     use core::ptr;
@@ -48,7 +53,7 @@ mod current {
     }
 }
 
-#[cfg(test)]
+#[cfg(not(target_os = "none"))]
 mod current {
     extern crate std;
     use super::Frame;
@@ -59,12 +64,13 @@ mod current {
         static CURRENT: Cell<*const Frame> = const { Cell::new(ptr::null()) };
     }
 
+    // `try_with`: a thread that is ending has no frame (and never panics here).
     pub(super) fn get() -> *const Frame {
-        CURRENT.with(Cell::get)
+        CURRENT.try_with(Cell::get).unwrap_or(ptr::null())
     }
 
     pub(super) fn set(frame: *const Frame) {
-        CURRENT.with(|current| current.set(frame));
+        let _ = CURRENT.try_with(|current| current.set(frame));
     }
 }
 
@@ -78,12 +84,19 @@ impl Drop for Restore {
 }
 
 /// Runs `call`, which enters the code of the plugin with host owner key
-/// `owner` and context `context` (a pinned `Context<S>`), with that plugin as
-/// the frame owner; the previous owner is back when it returns.
-pub(crate) fn within<R>(owner: u64, context: *const c_void, call: impl FnOnce() -> R) -> R {
+/// `owner`, context `context` (a pinned `Context<S>`) and the `PpHeap` table
+/// `table` of its services type, with that plugin as the frame owner; the
+/// previous owner is back when it returns.
+pub(crate) fn within<R>(
+    owner: u64,
+    context: *const c_void,
+    table: *const c_void,
+    call: impl FnOnce() -> R,
+) -> R {
     let frame = Frame {
         owner,
         context,
+        table,
         previous: current::get(),
     };
     let _restore = Restore(frame.previous);
@@ -91,13 +104,16 @@ pub(crate) fn within<R>(owner: u64, context: *const c_void, call: impl FnOnce() 
     call()
 }
 
-/// The context of the plugin whose code runs now, or `None` outside any
-/// frame.
-pub(crate) fn context() -> Option<*const c_void> {
+/// The context of the plugin whose code runs now, if the frame was pushed
+/// for `table` (the `PpHeap` table of the caller's services type); `None`
+/// outside any frame and for a frame of another services type or table.
+pub(crate) fn context_of(table: *const c_void) -> Option<*const c_void> {
     let frame = current::get();
     // SAFETY: a non-null current frame is on the stack of a `within` that has
     // not returned (its guard clears it on the way out).
-    unsafe { frame.as_ref() }.map(|frame| frame.context)
+    unsafe { frame.as_ref() }
+        .filter(|frame| ptr::eq(frame.table, table))
+        .map(|frame| frame.context)
 }
 
 /// The host owner key of the plugin whose code runs now, or `None` outside

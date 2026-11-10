@@ -894,7 +894,7 @@ fn every_token_entry_runs_as_the_frame_owner_and_gives_it_back() {
             assert_eq!(frame_owner::owner(), None, "status {status}");
         }
         // Nested in another plugin's frame.
-        frame_owner::within(99, ptr::null(), || {
+        frame_owner::within(99, ptr::null(), ptr::null(), || {
             run(frame, &mut canvas);
             assert_eq!(frame_owner::owner(), Some(99));
         });

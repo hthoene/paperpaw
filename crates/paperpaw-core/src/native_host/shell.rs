@@ -19,8 +19,9 @@ use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
 
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
-    self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
-    read_plugin_draw, read_plugin_drop, read_plugin_input, read_plugin_size, read_plugin_state,
+    self, PpBuffer, PpBytes, PpHeap, PpHost, PpPlugin, Services, ShellCtx,
+    read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop, read_plugin_input,
+    read_plugin_size, read_plugin_state,
 };
 use paperpaw_platform::Rect;
 
@@ -129,6 +130,8 @@ pub struct Context<S> {
     /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
     /// a static, never a copy per plugin (152 bytes on the X4).
     table: &'static PpHost,
+    /// The `PpHeap` table of `S`, the identity of this context's frames.
+    heap: &'static PpHeap,
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
@@ -312,6 +315,7 @@ impl<S: Services, M> Hosted<S, M> {
         owned.push_str(id);
         let context = Context {
             table: SharedTable::<S>::TABLE,
+            heap: handed_heap::<S>(),
             id: owned.into_boxed_str(),
             report,
             resources,
