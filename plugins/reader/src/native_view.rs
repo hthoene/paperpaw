@@ -405,7 +405,7 @@ impl Open {
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         let setup = Setup::read(host)?;
-        let area = self.area(setup).ok_or(Error::NoSpace)?;
+        let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let drawn = self.draw_with(host, docs, frame, &setup, &fonts, area);
         let released = fonts.release();
