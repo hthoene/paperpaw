@@ -50,7 +50,9 @@ const CASES: [Case; 8] = [
         golden: None,
         blocked_by: &["H1", "H4"],
     },
-    // The bar's items drawn by the host's status frame and the hints row.
+    // The bar drawn in its strip (the plate, the items of every plugin, a tap on
+    // one, shown after a press with the row of hints): native and unit-tested
+    // without the host; seen only on a host with a screen stack.
     Case {
         name: "picture-home-bars",
         golden: None,
@@ -115,7 +117,7 @@ fn picture_home_bar_items_editor() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1: the status frame and the hints row are not drawn by the native screen yet"]
+#[ignore = "BLOCKED H1: the bar is native (unit-tested without the host) but is seen only on a host with a screen stack"]
 fn picture_home_bars() {
     CASES[5].refuse().unwrap();
 }

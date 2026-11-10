@@ -401,7 +401,7 @@ place `status-line` that names the three lists. `tests/widgets_declarations.rs` 
 the id, the title and the category with the interface-6 registration; `tests/scripted_widgets.rs`
 has a status instance.
 
-`src/native_status_layout.rs` is the pure arithmetic of `blocks.rs`: the three parts (left, centre
+`paperpaw_ui_kit::status_line::layout` (formerly `src/native_status_layout.rs`) is the pure arithmetic of `blocks.rs`: the three parts (left, centre
 and right) and the dropping of the items of the lowest priority (of equal ones the centre's, then the left's,
 then the right's) until the line fits, with 0.4 of a text size between items; a text that is
 still too wide is shortened to its room.

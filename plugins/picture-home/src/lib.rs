@@ -44,6 +44,7 @@ pub mod native_add;
 pub mod native_add_screen;
 pub use paperpaw_ui_kit::dashboard::arrange as native_arrange;
 pub mod native_backdrop;
+pub mod native_bar;
 pub mod native_backdrop_host;
 pub mod native_dash;
 pub mod native_dashboard;

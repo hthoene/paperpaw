@@ -79,8 +79,8 @@ over the host's budget says so ("This change is too big to save at once.") and k
 On its side the pages are shown (placed anew) but not arranged: the pencil says to turn the screen
 upright, as interface 6 did. A dashboard opened again keeps its page and its widgets.
 
-Differences from interface 6, each a named step below: no bar in its
-strip, no hints row, words instead of the pencil, plus and tick icons, and
+Differences from interface 6, each a named step below: words instead of the
+pencil, plus and tick icons, a bar that goes within a minute, and
 the parts of the picture's recipe the host cannot do (*Slice 6*).
 
 ## Slice 5: Add
@@ -192,9 +192,8 @@ Blocked, each named (nothing invented):
   that reads the picture again).
 - `IMG-replaced`: a picture replaced by another file of the same name is not noticed (the key has no file
   size or time, `Asked::bytes` and `modified` are 0; interface 6 read them from the card).
-- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar is not drawn yet
-  (H1b #851, `picture-home-bars`), and no contract reads the brightness of a prepared picture behind
-  a rectangle.
+- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar (drawn, slice 7) has no plate under `Look::Clear` and
+  its ink is black: no contract reads the brightness of a prepared picture behind a rectangle.
 - A picture over 1,600 pixels on its long side is made smaller than interface 6's 2,400 (the host's limit).
 - A change of the screen's turn while the dashboard is open is met at the next show, as the page itself.
 
@@ -209,12 +208,16 @@ Blocked, each named (nothing invented):
 - The picture's parts the host cannot do are named under *Slice 6* (`IMG-turn`, `IMG-tone`,
   `IMG-dots`, `IMG-stretch`, `IMG-tile-many`, `IMG-replaced`, `IMG-ink`); the rest is ported and
   waits for the production loader (`picture-home-picture`).
-- `H1`: the bar drawn through the host's status frame and the hints row (`picture-home-bars`). The
-  bar's strip is kept free when it is not off (the page does not move when it comes) and the
-  settings that place it are read (`native_dash::frame`); nothing is drawn in it, and the press that
-  shows a bar that shows after a press (`takes_buttons`, `HintVisibility`) is not there. The hints
-  row is the kernel's: no contract lets a native screen ask for it to show (always, never, after a
-  press) yet.
+- The bar: ported (`native_bar.rs`: the five looks, full or compact, where its plate sits;
+  `paperpaw_ui_kit::status_line`: the items of the three lists with their values, laid out as interface 6,
+  drawn here and by their owners; `native_dashboard/bar.rs`: drawing, a tap on an item that does
+  something, and the bar that shows after a press: the first key press (not the power key) only shows
+  it, and the row of hints with it through `command.show_hints`). Differences: a bar shown after a
+  press goes at the first minute tick after its four seconds (`event.tick` is the only clock a screen
+  has, so up to a minute, not four seconds); the row of hints shows after a press or by the kernel's
+  own setting, no contract lets a screen ask for it always or never; the ink of a bar without a plate
+  is black (`IMG-ink`); the bar is on the dashboard only (not while the picture is made, as the page).
+  The bar's drawing and taps need a host with a screen stack (`picture-home-bars`, H1).
 - Icons: tools show their name only, the pencil, *Done* and the dots' pill no icon until icons are
   admitted (#517).
 - The widgets' updates (the minute tick, `widget_changed`) and a change of settings while the
@@ -233,25 +236,22 @@ device.
 
 ### Still missing for native-only
 
-With *Add* and the picture open, three things stand between this plugin and the interface-6 one,
-and the picture has parts the host cannot do:
+With *Add*, the picture, the bar and the finger's drag open, the picture's parts the host cannot do
+stand between this plugin and the interface-6 one:
 
 1. The picture's remaining parts (*Slice 6*): the turn of a phone's picture, brightness and contrast,
    dots by force, stretching, many tiles, a replaced file of the same name, and the bar's ink over it
-   (with the bar).
-2. The bar: the host's status frame drawn in the strip the dashboard keeps free, and the hints row
-   (H1b #851, in train 7), with the press that shows a bar that shows after a press
-   (`picture-home-bars`).
+   (Kernel writes the fields on #244: `PrepareImage`/`ImageStyle`).
 
 The icons (#517) and the widgets' updates are smaller steps named above.
 
-### Gate: not in `NATIVE_PLUGINS` or `complete.txt` before the bar and the drag are open
+### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 
 `make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and
-the picture open (slices 4 to 6), but the bar and the hints row are missing and the picture lacks the
-parts named under *Slice 6*: a picture home screen without its bar is not what the reader has now. So
-`NativePictureHome` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when
-the bar is drawn (together with the removal step below). The gate stays.
+the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture lacks the
+parts named under *Slice 6*. `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
+`tools/plugin-files7/complete.txt` with the activation (together with the removal step below), once
+the picture's parts are in or accepted as named.
 
 ### Removal step (one later sweep)
 
