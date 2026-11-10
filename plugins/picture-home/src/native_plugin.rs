@@ -3,13 +3,16 @@
 //! Here: the picture chooser (the screen `pick`: the pictures of the folder
 //! on the card, read through `core.files`, and what a choice sets), the
 //! editor of the bar's three item settings (the screen `status-items`, the
-//! kit's status items view), the dashboard (`native_dashboard`: the pages on a
-//! plain background, arranged while editing) and the declarations the image
-//! carries. *Add* is declared and answers `Unsupported` when opened until its
-//! slice (`PORTING-7.md`); nothing opens it while the interface-6 home screen of
-//! this plugin is the one the app has.
+//! kit's status items view), the dashboard (`native_dashboard`: the pages with
+//! the picture behind them, arranged while editing) and the declarations the image
+//! carries, and *Add* (the screen `add`: the tools and widgets to put on a page,
+//! *Add a page*, *Remove this page*). Nothing opens the screens while the
+//! interface-6 home screen of this plugin is the one the app has
+//! (`PORTING-7.md`).
 use crate::{
-    declarations::{DASHBOARD, PICK, STATUS_ITEMS},
+    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS},
+    native_add_screen::{self as add_screen, AddScreen},
+    native_backdrop_host,
     native_dashboard::Dashboard,
     native_pages, native_pick,
     native_picture::Pictures,
@@ -24,6 +27,7 @@ use paperpaw_sdk::{
         events::{Event, Incoming, kinds},
         files::Files,
         formatting::Arg,
+        image::ImageReady,
         registrations,
         registry::StatusScope,
         reply::Reply,
@@ -52,8 +56,6 @@ const PICTURE: &str = "picture-home.picture";
 const PICK_SCREEN: &str = "picture-home.pick";
 const ITEMS_SCREEN: &str = "picture-home.status-items";
 const DASHBOARD_SCREEN: &str = "picture-home.dashboard";
-/// The screens whose slices come later.
-const LATER_SCREENS: [&str; 1] = ["picture-home.add"];
 /// The settings of the bar's items, each with the key of its title: the only
 /// ones the screen `status-items` is declared as the editor of.
 const BAR_ITEMS: [(&str, &str); 3] = [
@@ -99,6 +101,9 @@ pub struct NativePictureHome {
     editors: Screens<Editor>,
     choosers: Screens<Chooser>,
     dashboards: Screens<Dashboard>,
+    adds: Screens<AddScreen>,
+    /// Counts the requests for the picture behind the dashboard.
+    cookie: u32,
 }
 
 impl Plugin for NativePictureHome {
@@ -121,8 +126,7 @@ impl Plugin for NativePictureHome {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) =
-            read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
         else {
             return Ok(());
         };
@@ -151,10 +155,23 @@ impl Plugin for NativePictureHome {
                 self.dashboards.shown(DASHBOARD, instance)?;
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.shown();
+                    // Without the picture the page is
+                    // plain, and nothing else fails for it.
+                    dashboard.want_picture(host, &mut self.cookie).ok();
                 }
                 Ok(())
             }
+            Event::ScreenShown {
+                screen: add_screen::SCREEN,
+                instance: Some(instance),
+                ..
+            } => self.adds.shown(ADD, instance),
+            Event::ImageReady(ready) => self.image_ready(host, &ready),
             Event::ScreenClosed { instance, .. } => {
+                if let Some(dashboard) = self.dashboards.get(instance) {
+                    dashboard.close(host);
+                }
+                self.adds.close(instance);
                 self.editors.close(instance);
                 self.choosers.close(instance);
                 self.dashboards.close(instance);
@@ -182,6 +199,10 @@ impl Plugin for NativePictureHome {
                 let dashboard = self.dashboards.top(token).ok_or(Error::State)?;
                 dashboard.draw(host, ui, &mut frame)
             }
+            ADD => {
+                let add = self.adds.top(token).ok_or(Error::State)?;
+                add.draw(host, &mut frame)
+            }
             _ => Err(Error::State),
         }
     }
@@ -192,6 +213,14 @@ impl Plugin for NativePictureHome {
             let ui = self.ui.as_ref().ok_or(Error::State)?;
             return match self.dashboards.top(token) {
                 Some(dashboard) => dashboard.input(host, ui, &input),
+                None => Ok(Handled::No),
+            };
+        }
+        if token == ADD {
+            self.ensure_ui(host)?;
+            let ui = self.ui.as_ref().ok_or(Error::State)?;
+            return match self.adds.top(token) {
+                Some(add) => add.input(host, ui, &input),
                 None => Ok(Handled::No),
             };
         }
@@ -210,6 +239,20 @@ impl Plugin for NativePictureHome {
 }
 
 impl NativePictureHome {
+    /// The host's answer to a picture asked for: it goes to the dashboard that
+    /// asked; one nobody waits for gives its picture back.
+    fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        for dashboard in self.dashboards.all() {
+            if dashboard.waits_for(ready.cookie()) {
+                return dashboard.image_ready(host, ready);
+            }
+        }
+        if let Some(image) = ready.image() {
+            native_backdrop_host::release(host, image);
+        }
+        Ok(())
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -225,10 +268,12 @@ impl NativePictureHome {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        if LATER_SCREENS.contains(&screen) {
-            return Err(Error::Unsupported);
-        }
         match screen {
+            add_screen::SCREEN => {
+                self.ensure_ui(host)?;
+                let add = self.add_screen(host, handover)?;
+                self.adds.open(instance, add)
+            }
             DASHBOARD_SCREEN => {
                 self.ensure_ui(host)?;
                 let (edit, page) = self.dashboard_params(host, handover)?;
@@ -245,6 +290,28 @@ impl NativePictureHome {
             }
             _ => Err(Error::Invalid),
         }
+    }
+
+    /// The *Add* screen for the page and kind the handover names; opened with
+    /// none it adds to the first page.
+    fn add_screen(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<AddScreen, Error> {
+        let (page, kind) = match handover {
+            Some(handover) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                let mut input = buffer(SERVICE_BUFFER)?;
+                let mut output = buffer(SERVICE_BUFFER)?;
+                add_screen::params(
+                    ui.params(host, handover, &mut input, &mut output)?
+                        .map(|param| param.map(|param| (param.key(), param.value()))),
+                )?
+            }
+            None => (0, None),
+        };
+        AddScreen::new(host, page, kind)
     }
 
     /// What opens the dashboard asks: to edit (`mode` = `edit`, *Edit home

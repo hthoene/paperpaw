@@ -1927,6 +1927,8 @@ pub struct EventActionRun<'a> {
     pub now_ms: u64,
     /// UTF-8 text of at most 128 bytes.
     pub action: &'a str,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub flags: u32,
 }
 
 impl<'a> EventActionRun<'a> {
@@ -1935,23 +1937,41 @@ impl<'a> EventActionRun<'a> {
     }
 
     fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             action: body.string(EVENT_ACTION_RUN_ACTION_MAX_BYTES)?,
+            flags: body.opt_u32(bits, 0x01, 0)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.flags != 0 {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 8;
         len += blob_len(self.action.len(), EVENT_ACTION_RUN_ACTION_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_blob(self.action.as_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
     }
 }
 
@@ -1965,7 +1985,11 @@ impl<'a> WireEncode for EventActionRun<'a> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
@@ -22139,6 +22163,7 @@ impl Record<'_> {
             Record::EventPageTurned(record) => record.bits(),
             Record::ServiceEnd(record) => record.bits(),
             Record::EventScreenShown(record) => record.bits(),
+            Record::EventActionRun(record) => record.bits(),
             Record::InputPointer(record) => record.bits(),
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
