@@ -173,3 +173,17 @@ fn every_allocation_may_be_refused() {
         Ok(())
     });
 }
+
+#[test]
+fn a_part_past_the_heads_length_is_refused_at_once() {
+    let mut assembler = Assembler::new();
+    assert_eq!(
+        assembler.push([Piece::Head(head(2)), Piece::Text("abc")], false),
+        Err(Error::Invalid)
+    );
+    // The block was forgotten.
+    assert_eq!(
+        assembler.push([Piece::Text("a")], true),
+        Err(Error::Invalid)
+    );
+}

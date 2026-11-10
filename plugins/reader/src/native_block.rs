@@ -190,8 +190,9 @@ impl Assembler {
         let block = self.block.as_mut().ok_or(Error::Invalid)?;
         match piece {
             Piece::Text(part) => {
-                if block.text.len() + part.len() > MAX_TEXT {
-                    return Err(Error::NoSpace);
+                // The head said how long the text is: no part may take it past that.
+                if block.text.len() + part.len() > self.expect {
+                    return Err(Error::Invalid);
                 }
                 block
                     .text
