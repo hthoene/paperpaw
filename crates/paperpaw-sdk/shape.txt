@@ -2769,6 +2769,7 @@ struct paperpaw_sdk::native::canvas::Canvas<'cb> { host: &'cb paperpaw_sdk::nati
 struct paperpaw_sdk::native::canvas::clip::ClipGuard<'a, 'cb> { canvas: &'a mut paperpaw_sdk::native::canvas::Canvas<'cb>, previous: paperpaw_sdk::native::callbacks::FrameRect, restored: bool }
 struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, scratch: &'buf mut [u8] }
 struct paperpaw_sdk::native::commands::device::FirmwareOptions<'a> { allow_older: bool, foreign: bool, key: core::option::Option<&'a [u8; 32]> }
+struct paperpaw_sdk::native::commands::item_state::ItemState<'a> { flags: u32, label: &'a str, label_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>], badge: &'a str, badge_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>] }
 struct paperpaw_sdk::native::commands::registry::PreviewSetting<'a> { key: &'a str, value: paperpaw_sdk::native::settings::SettingValue<'a> }
 struct paperpaw_sdk::native::declare::ActionDecl<'a> { name: &'a str, title: &'a str, token: u32, needs_screen: bool }
 struct paperpaw_sdk::native::declare::Declarations<F> { sink: F, bytes: alloc::vec::Vec<u8>, used: usize, count: usize, total: usize, failed: core::option::Option<paperpaw_sdk::native::declare::Latched>, abort_sent: bool }
@@ -3099,6 +3100,9 @@ struct paperpaw_sdk::native::document::formats::Format<'a>(0: paperpaw_sdk::nati
 struct paperpaw_sdk::native::document::formats::FormatCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::document::formats::FormatPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::document::formats::FormatPageEnd }
 struct paperpaw_sdk::native::document::formats::FormatPageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::document::formats::FormatCursor> }
+struct paperpaw_sdk::native::document::meta::DocTextPart<'a> { text: &'a str, total: u32, next: core::option::Option<u32> }
+struct paperpaw_sdk::native::document::meta::DocTextQuery { kind: u32, index: u32, offset: u32 }
+struct paperpaw_sdk::native::document::meta::Metadata<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocMeta<'a>)
 struct paperpaw_sdk::native::document::readers::Reader<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocReader<'a>)
 struct paperpaw_sdk::native::document::readers::ReaderCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::document::readers::ReaderPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::document::readers::ReaderPageEnd }
@@ -3205,6 +3209,8 @@ struct paperpaw_sdk::native::library::annotations::Annotation<'a>(0: paperpaw_sd
 struct paperpaw_sdk::native::library::annotations::AnnotationCursor { offset: u32, generation: u32 }
 struct paperpaw_sdk::native::library::annotations::AnnotationPage<'a> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::annotations::AnnotationPageEnd }
 struct paperpaw_sdk::native::library::annotations::AnnotationPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::annotations::AnnotationCursor> }
+struct paperpaw_sdk::native::library::book_text::BookTextPart<'a> { text: &'a str, total: u32, next: core::option::Option<u32> }
+struct paperpaw_sdk::native::library::book_text::BookTextQuery { kind: u32, index: u32, offset: u32 }
 struct paperpaw_sdk::native::library::cover::Cover { image: paperpaw_sdk::native::image::ImageId, info: paperpaw_sdk::native::image::ImageInfo }
 struct paperpaw_sdk::native::library::edits::AnnotationEdit<'a> { action: paperpaw_sdk::native::library::edits::Action, kind: paperpaw_sdk::native::library::annotations::AnnotationKind, start: (u32, u32), end: (u32, u32), percent: u32, conversion: core::option::Option<u64>, created: u64, updated: u64, client_key: &'a str, text: &'a str, note: &'a str, xpointers: core::option::Option<(&'a str, &'a str)> }
 struct paperpaw_sdk::native::library::edits::Committed { transaction: u32, generation: u32, edits: u32, added: u32 }

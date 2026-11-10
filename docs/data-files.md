@@ -68,7 +68,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/store/author.txt` | store | the key the plugin library names for the author of the code plugin being downloaded, until it is installed | |
 | `.paperpaw/plugins/<id>/install.txt` | SDK `install` | a download of a plugin not yet complete, in the folder of the plugin that installs (the store, the fonts browser) | |
 | `.paperpaw/plugins/calibre/host.txt` | calibre | the address of the computer the reader chose to trust | version 1 |
-| `.paperpaw/plugins/opds/catalogs.txt` | opds | a catalog per line: name, address, user, (password, empty), folder, `sync`, `webdav` | version 1 |
+| `.paperpaw/plugins/opds/catalogs.txt` | opds | a catalog per line: name, address, user, (password, empty: a password an older version kept here moves to the passwords and keys), folder (below the library folder), `sync`, `webdav` | version 1 |
 | `.paperpaw/plugins/opds/synced/<md5 of the address>.txt` | opds | the books a catalog's sync fetched, by their ids in the catalog, so that one deleted is not fetched again | |
 | `.paperpaw/plugins/news/feeds.txt` | news | a feed per line: address, name | version 1 |
 | `.paperpaw/plugins/browser/bookmarks.txt`, `history.txt` | browser | a page per line: title, address | version 1 |
@@ -131,8 +131,8 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/stats/days.bin` | stats | the bytes of `pages.bin` it covers |
 | `.paperpaw/plugins/dictionary/<hash>/` | dictionary | the dictionary's `.ifo` |
 | `.paperpaw/plugins/news/headlines.txt`, `wallabag/entries.json`, `wallabag/entry.json`, `read-later-cloud/list.json`, `read-later-cloud/doc.json`, `fonts-browser/catalog.json` | their plugins | fetched again |
-| `.paperpaw/plugins/opds/tmp/<n>.<ext>` | opds | an answer to a request each, removed once it is handled; what is left goes at the next start, with the files of earlier versions |
-| `.paperpaw/plugins/opds/covers/<md5 of the address>.gray` | opds | a catalog's cover decoded, by its address |
+| `.paperpaw/plugins/opds/feed.tmp`, `description.tmp`, `book.tmp`, `cover.tmp`, `sync-feed.tmp`, `sync-book.tmp` | opds | the answer to the request of each kind, removed once it is handled (a book moves into the library); what is left goes at the next start. The files of earlier versions (`tmp/<n>.<ext>`) are not removed any more |
+| `.paperpaw/plugins/opds/covers/<md5 of the address>.img`, `covers.txt` | opds | a catalog's cover as the catalog sent it, by its address (the host decodes it for the list), and the names of the 48 newest, oldest first: the oldest go past that. The `.gray` files of earlier versions are not used |
 | `.paperpaw/plugins/store/index.txt`, `index.head`, `index.bin`, `search.bin`, `plugin-<id>.part`, `shot.gray` | store | the plugin library's list for this device, fetched again; a plugin's page and a screenshot as they are shown |
 | `.paperpaw/plugins/store/list.part`, `sort.bin`, `shot-<n>.part` | store | the list and a screenshot while they are downloaded, the list's sort while it is sorted |
 | `.paperpaw/plugins/joplin/info.json`, `locks.txt`, `found.md`, `note.md` | joplin | fetched or written again with each sending, removed after it |

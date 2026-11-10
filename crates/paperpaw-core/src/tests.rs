@@ -3278,6 +3278,7 @@ mod hyphenation_tables;
 mod input;
 mod input_kinds;
 mod kernel_calls;
+mod key_guard;
 mod library_catalog;
 mod net_demand;
 mod net_policy_wiring;

@@ -22,7 +22,6 @@ pub use native_entry::NATIVE_ENTRY;
 pub mod native_plugin;
 pub mod pictures;
 
-#[cfg(any(test, feature = "reader-filter"))]
 pub mod reader_filter;
 
 use alloc::borrow::Cow;

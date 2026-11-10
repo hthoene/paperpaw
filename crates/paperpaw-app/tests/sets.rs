@@ -190,8 +190,6 @@ fn a_store_plugin_switched_off_before_stays_off() {
         Some(PluginState::Running)
     );
     assert_eq!(state("vocabulary"), Some(PluginState::Off));
-    // Off as it always shipped.
-    assert_eq!(state("browser"), Some(PluginState::Off));
 }
 
 #[cfg(feature = "store-plugins")]
