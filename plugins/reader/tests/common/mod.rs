@@ -811,7 +811,7 @@ impl paperpaw_sdk::Plugin for VaultMarkdown {
         paperpaw_sdk::Manifest::new(
             paperpaw_sdk::Id::new_static("notes-vault"),
             "Notes vault",
-            "1.0.0",
+            paperpaw_sdk::package_version!(),
         )
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
