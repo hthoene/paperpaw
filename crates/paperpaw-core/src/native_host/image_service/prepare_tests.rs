@@ -14,6 +14,8 @@ const ENV: Env = Env {
     colour: false,
     max_side: 4096,
     png_row_max: usize::MAX,
+    turn_band: 1 << 20,
+    turn_reads: usize::MAX,
 };
 const B: u64 = 2;
 
@@ -45,7 +47,8 @@ fn a_request_is_decoded_to_a_prepared_image_the_plugin_owns() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 40, 20);
-    t.prepare(A, "a.png", 16, 7, false).unwrap();
+    t.prepare(A, "a.png", 16, 7, false, &Recipe::default())
+        .unwrap();
     assert!(t.prepare_pending());
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.owner, ready.cookie, ready.status), (A, 7, READY));
@@ -75,11 +78,13 @@ fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 64, 64);
-    t.prepare(A, "a.png", 0, 1, false).unwrap();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, Env { screen: 32, ..ENV }).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.width), (READY, 32));
-    t.prepare(A, "a.png", 0, 2, false).unwrap();
+    t.prepare(A, "a.png", 0, 2, false, &Recipe::default())
+        .unwrap();
     t.owner_stopped(A).unwrap();
     assert_eq!(step(&t, &storage), None, "its waiting request went too");
     assert_eq!(t.info(A, ready.image), Err(ERR_NOT_FOUND));
@@ -101,13 +106,17 @@ fn a_bad_file_answers_with_a_status_never_an_id() {
         ("cut.png", DAMAGED),
         ("none.png", NOT_FOUND),
     ] {
-        t.prepare(A, path, 16, 3, false).unwrap();
+        t.prepare(A, path, 16, 3, false, &Recipe::default())
+            .unwrap();
         let ready = step(&t, &storage).unwrap();
         assert_eq!((ready.status, ready.image), (status, 0), "{path}");
     }
     // Nothing was kept: no id, no file left, no count against the plugin.
     assert!(t.lock().unwrap().entries.is_empty());
-    assert_eq!(t.prepare(A, "", 16, 3, false), Err(ERR_INVALID));
+    assert_eq!(
+        t.prepare(A, "", 16, 3, false, &Recipe::default()),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]
@@ -116,19 +125,28 @@ fn four_wait_and_eight_prepared_and_waiting_is_the_most() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
     // Another plugin has its own four.
-    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    t.prepare(B, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     for _ in 0..4 {
         assert_eq!(step(&t, &storage).unwrap().owner, A, "oldest first");
     }
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     // 4 prepared + 4 waiting is 8: no ninth.
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
 }
 
 #[test]
@@ -140,8 +158,9 @@ fn ready_is_one_event_record() {
         image: 3,
         width: 10,
         height: 20,
+        luma: None,
     };
-    let mut out = [0_u8; 64];
+    let mut out = [0_u8; 96];
     let n = wire::record_encode_one(&ready.record(99), &mut out).unwrap();
     let (record, used) = wire::record_decode_prefix(&out[..n]).unwrap();
     assert_eq!(used, n);
@@ -213,7 +232,8 @@ fn boot_cleanup_spares_a_file_a_live_image_uses() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
-    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    t.prepare(A, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(
         t.sweep_cache(&storage, 8, &mut SweepCursor::default()),
@@ -233,7 +253,8 @@ fn prepare_decode_release_without_telling_never_grows_the_answers() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for round in 0..40 {
-        t.prepare(A, "a.png", 8, round, false).unwrap();
+        t.prepare(A, "a.png", 8, round, false, &Recipe::default())
+            .unwrap();
         assert!(t.prepare_step(&storage, ENV).unwrap());
         let image = t.lock().unwrap().ready[0].image;
         // The plugin lets go of it before it is told anything.
@@ -258,16 +279,21 @@ fn answers_not_told_count_with_the_waiting_ones_until_they_are() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
     // Four answers wait to be told: no fifth request, and no growth.
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
     assert_eq!(t.prepare_room(A), 0);
     assert_eq!(t.lock().unwrap().ready.len(), 4);
     assert!(told(&t).is_some());
     assert_eq!(t.prepare_room(A), 1);
-    t.prepare(A, "a.png", 8, 9, false).unwrap();
+    t.prepare(A, "a.png", 8, 9, false, &Recipe::default())
+        .unwrap();
 }
 
 #[test]
@@ -280,7 +306,8 @@ fn every_prepared_image_of_every_plugin_can_end_at_once_without_losing_a_file() 
     let mut images = std::vec::Vec::new();
     for owner in owners {
         for n in 0..4 {
-            t.prepare(owner, "a.png", 8, n, false).unwrap();
+            t.prepare(owner, "a.png", 8, n, false, &Recipe::default())
+                .unwrap();
         }
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
@@ -336,7 +363,8 @@ fn the_eighth_prepared_image_then_a_ninth_plugins_first_has_room_for_its_file() 
     png(&storage, "a.png", 8, 8);
     for round in 0..2 {
         for n in 0..4 {
-            t.prepare(A, "a.png", 8, round * 4 + n, false).unwrap();
+            t.prepare(A, "a.png", 8, round * 4 + n, false, &Recipe::default())
+                .unwrap();
         }
         while t.prepare_step(&storage, ENV).unwrap() {}
         for _ in 0..4 {
@@ -344,7 +372,8 @@ fn the_eighth_prepared_image_then_a_ninth_plugins_first_has_room_for_its_file() 
         }
     }
     assert_eq!(t.lock().unwrap().entries.len(), 8);
-    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    t.prepare(B, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     assert!(t.prepare_step(&storage, ENV).unwrap());
     // All nine can end: the list has a place for each file.
     let inner = t.lock().unwrap();
@@ -358,7 +387,8 @@ fn files_a_sweep_must_leave_do_not_hide_the_deletable_ones_behind_them() {
     png(&storage, "a.png", 8, 8);
     // Three live images' files sort first; four stale ones come after.
     for n in 0..3 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
     let live: std::vec::Vec<String> = t
@@ -394,12 +424,15 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "big.png", 64, 64);
-    t.prepare(A, "big.png", 0, 1, false).unwrap();
+    t.prepare(A, "big.png", 0, 1, false, &Recipe::default())
+        .unwrap();
     let x4 = Env {
         screen: 480,
         colour: false,
         max_side: 16,
         png_row_max: 8192,
+        turn_band: 32 * 1024,
+        turn_reads: 16_384,
     };
     assert!(t.prepare_step(&storage, x4).unwrap());
     let ready = told(&t).unwrap();
@@ -408,7 +441,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         ready.width <= 16 && ready.height <= 16,
         "side 0 and 4096 stop at 16"
     );
-    t.prepare(A, "big.png", 4096, 2, false).unwrap();
+    t.prepare(A, "big.png", 4096, 2, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, x4).unwrap();
     let ready = told(&t).unwrap();
     assert!(ready.width <= 16, "a larger side is clamped too");
@@ -417,7 +451,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         png_row_max: 63,
         ..ENV
     };
-    t.prepare(A, "big.png", 8, 3, false).unwrap();
+    t.prepare(A, "big.png", 8, 3, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, narrow).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
@@ -425,7 +460,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         png_row_max: 64,
         ..ENV
     };
-    t.prepare(A, "big.png", 8, 4, false).unwrap();
+    t.prepare(A, "big.png", 8, 4, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, ok).unwrap();
     assert_eq!(told(&t).unwrap().status, READY);
 }
@@ -438,7 +474,8 @@ fn a_cache_name_left_by_an_earlier_boot_is_replaced_and_a_sweep_spares_the_live_
     // The first number a fresh table gives is the one an earlier boot left.
     let stale = file_name(A, 0).unwrap();
     storage.write(&stale, b"junk from the last boot").unwrap();
-    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    t.prepare(A, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(ready.status, READY, "the old file is replaced, not trusted");
     assert!(paperpaw_sdk::ui::probe_picture(&storage, &stale).is_ok());
@@ -707,14 +744,16 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     storage
         .write("huge.png", &png_header(4_000, 2_001))
         .unwrap();
-    t.prepare(A, "huge.png", 8, 1, false).unwrap();
+    t.prepare(A, "huge.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
     // A GIF the same way.
     storage
         .write("huge.gif", &gif_with_frame((5_000, 5_000), (5_000, 5_000)))
         .unwrap();
-    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    t.prepare(A, "huge.gif", 8, 2, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // A JPEG whose frame header comes after a long application segment.
     let mut jpeg = std::vec![0xff, 0xd8, 0xff, 0xe1, 0x10, 0x00];
@@ -723,7 +762,8 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
     jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
     storage.write("huge.jpg", &jpeg).unwrap();
-    t.prepare(A, "huge.jpg", 8, 3, false).unwrap();
+    t.prepare(A, "huge.jpg", 8, 3, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // Exactly 8 Mpx passes the check (the damaged body then fails the decode).
     assert_eq!(source_pixels(&storage, "huge.jpg"), Ok(Some(9_000_000)));
@@ -734,7 +774,8 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
         source_pixels(&storage, "edge.png"),
         Ok(Some(SOURCE_PIXELS_MAX))
     );
-    t.prepare(A, "edge.png", 8, 4, false).unwrap();
+    t.prepare(A, "edge.png", 8, 4, false, &Recipe::default())
+        .unwrap();
     assert_ne!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // A header with no size, or a JPEG with no frame header, is damaged.
     storage.write("zero.png", &png_header(0, 5)).unwrap();
@@ -776,7 +817,8 @@ fn a_gif_frame_is_counted_and_may_not_be_larger_than_its_screen() {
         .write("bypass.gif", &gif_with_frame((4, 4), (5_000, 5_000)))
         .unwrap();
     assert_eq!(source_pixels(&storage, "bypass.gif"), Err(DAMAGED));
-    t.prepare(A, "bypass.gif", 8, 1, false).unwrap();
+    t.prepare(A, "bypass.gif", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.image), (DAMAGED, 0));
     // A frame inside its screen is counted at the larger of the two.
@@ -789,7 +831,8 @@ fn a_gif_frame_is_counted_and_may_not_be_larger_than_its_screen() {
         .write("huge.gif", &gif_with_frame((4_000, 2_001), (4_000, 2_001)))
         .unwrap();
     assert_eq!(source_pixels(&storage, "huge.gif"), Ok(Some(8_004_000)));
-    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    t.prepare(A, "huge.gif", 8, 2, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // No image descriptor (the file ends in the extension), or one with no
     // size, is damaged.
@@ -814,7 +857,8 @@ fn the_longest_side_is_1600_everywhere() {
         ..ENV
     };
     assert_eq!(crate::native_host::image_service::MAX_SIDE, 1_600);
-    t.prepare(A, "p.png", 4096, 1, false).unwrap();
+    t.prepare(A, "p.png", 4096, 1, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, roomy).unwrap();
     assert_eq!(told(&t).unwrap().status, READY);
     assert_eq!(

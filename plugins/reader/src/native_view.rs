@@ -552,6 +552,11 @@ impl View {
             return self.show_toc(host, ui);
         }
         if let Input::Action { action, .. } = input
+            && let Some(handled) = self.r3_action(host, (docs, library, ui), action)?
+        {
+            return Ok(handled);
+        }
+        if let Input::Action { action, .. } = input
             && let Some(handled) = self.other_action(host, (docs, library), action)?
         {
             return Ok(handled);
@@ -1095,5 +1100,7 @@ fn say_with(
 }
 
 mod count;
+mod r3;
+
 #[cfg(test)]
 mod tests;
