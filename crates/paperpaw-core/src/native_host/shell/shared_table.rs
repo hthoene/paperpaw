@@ -7,7 +7,7 @@ use super::{PpHost, Services, host_table};
 /// of it on the heap (`abi/heap-word.md`, built-ins).
 pub(super) struct SharedTable<S>(core::marker::PhantomData<S>);
 
-impl<S: Services> SharedTable<S> {
+impl<S: Services + 'static> SharedTable<S> {
     /// Evaluated at compile time; a reference to a constant without interior
     /// mutability is promoted to a `'static` (read-only data, not heap).
     pub(super) const TABLE: &'static PpHost = &host_table::<S>();
@@ -18,7 +18,7 @@ impl<S: Services> SharedTable<S> {
 /// own (a static for a code scan) can check at start that it is this table:
 /// see [`same_table`].
 #[must_use]
-pub fn handed_table<S: Services>() -> &'static PpHost {
+pub fn handed_table<S: Services + 'static>() -> &'static PpHost {
     SharedTable::<S>::TABLE
 }
 

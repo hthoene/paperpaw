@@ -19,11 +19,15 @@ mod convert;
 #[path = "../declarations.rs"]
 pub mod declarations;
 pub mod native_book;
+pub mod native_books;
 pub mod native_convert;
 mod native_entry;
 pub mod native_fetch;
 pub mod native_news;
 pub mod native_plugin;
+mod native_screen;
+mod native_shelf;
+mod native_widgets;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 mod widget;

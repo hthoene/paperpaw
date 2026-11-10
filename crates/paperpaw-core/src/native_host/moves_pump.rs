@@ -33,6 +33,9 @@ pub(crate) const WAIT_MAX_MS: u64 = 64_000;
 impl crate::Kernel {
     /// One step of the library's move job. `true` when another pass should
     /// follow at once.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_moves_pump(&mut self) -> bool {
         let instances = &self.shared.native_instances;
         let Some(hosts) = instances

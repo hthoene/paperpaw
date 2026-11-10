@@ -400,3 +400,5 @@ mod readers;
 
 #[path = "document_formats_tests.rs"]
 mod formats_tests;
+#[path = "document_report_tests.rs"]
+mod report_tests;

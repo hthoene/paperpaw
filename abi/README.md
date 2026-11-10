@@ -48,7 +48,8 @@ released minor fail. Each record field list is checked separately.
 Use `bash tools/abi-check.sh --ci` with mandatory `ABI_BASELINE` in CI.
 CI must compare with a trusted integration/release lock as well as generated
 freshness; editing both definition and local lock is not compatibility evidence.
-The initial draft may require reviewed baseline replacement before freezing.
+Until a minor is released (interface 7 until 1.0) only the lock matching the code
+is checked: a PR that changes the ABI carries its regenerated lock (`--write-lock`).
 
 The C header and Rust module declare the same first-27 host table. Both remain
 raw table skeletons. Never create a full `&PpHost` from a shorter table; checked

@@ -642,6 +642,21 @@ pub static SERVICES: &[ServiceSchema] = &[
                 paged: true,
                 reply_rows: 64,
             },
+            ServiceOp {
+                id: 22,
+                name: "report",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1183],
+                reply: &[],
+                max_input: 1024,
+                max_reply: 64,
+                bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
         ],
     },
     ServiceSchema {
@@ -2292,6 +2307,8 @@ pub mod core_document_v1 {
     pub const OP_FORMAT_FOR: u32 = 20;
     /// Operation `readers`.
     pub const OP_READERS: u32 = 21;
+    /// Operation `report`.
+    pub const OP_REPORT: u32 = 22;
 }
 
 /// Constants of `core.files` major 1.

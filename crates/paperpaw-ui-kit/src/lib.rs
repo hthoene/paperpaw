@@ -28,6 +28,8 @@ mod fail_alloc;
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod chips;
+pub mod covers;
+pub mod dashboard;
 pub mod dialog;
 pub mod event;
 pub mod files;
@@ -44,6 +46,7 @@ pub mod paint;
 pub mod screens;
 pub mod sheet;
 pub mod status_items;
+pub mod status_line;
 pub mod style;
 pub mod text;
 pub mod uitext;

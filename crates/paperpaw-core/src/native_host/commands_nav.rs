@@ -182,6 +182,7 @@ impl CommandStage<'_> {
     }
 
     /// Makes room for the policy changes of `batch`.
+    #[inline(never)]
     pub(super) fn reserve_policies(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch
             .iter()
@@ -198,6 +199,7 @@ impl CommandStage<'_> {
     }
 
     /// Stages the checked changes of a batch (room was reserved).
+    #[inline(never)]
     pub(super) fn stage_policy(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
         let nav = self.nav()?;
         let change = match *command {

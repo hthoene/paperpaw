@@ -271,6 +271,9 @@ impl crate::Kernel {
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_image_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
