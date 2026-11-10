@@ -213,10 +213,15 @@ fn a_tree_too_big_for_one_call_is_busy_and_the_next_call_goes_on() {
         }
     }
     let storage = MemoryStorage::new();
-    made_cache(&storage, 1, false);
+    made_cache(&storage, 1, true);
+    assert_eq!(is_complete(&storage, &id(1)), Ok(true));
     let slow = Slow(&storage, core::cell::Cell::new(0));
     assert_eq!(clear(&slow, &folder(1)), Err(ERR_BUSY));
     assert_eq!(slow.1.get(), CLEAR_STEPS);
+    // The tree is not gone, but the stamp is: the folder no longer says it is
+    // whole (a removal cut half way is a cache that is not used).
+    assert!(exists(&storage, &folder(1)));
+    assert_eq!(is_complete(&storage, &id(1)), Ok(false));
     // The card is as it is; a storage that gets done is done.
     assert_eq!(clear(&storage, &folder(1)), Ok(()));
     assert!(!exists(&storage, &folder(1)));
