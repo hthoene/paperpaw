@@ -366,6 +366,11 @@ fn a_made_plugin_registers_dispatches_and_is_destroyed_once_before_its_module() 
         .commit()
         .unwrap();
     assert_eq!(batch.len(), 2);
+    // The records are read in place, without dispatching; none past the end.
+    assert!(matches!(batch.record(0), Some(Registration::Event { .. })));
+    assert!(matches!(batch.record(1), Some(Registration::Draw { .. })));
+    assert!(batch.record(2).is_none() && batch.record(7).is_none());
+    assert_eq!(EVENTS.with(Cell::get), 0, "reading runs no plugin code");
     let depth = DispatchDepth::new();
     assert_eq!(
         dispatch_registration(&batch, 0, &depth, Invocation::Event(&[1, 2, 3])),
