@@ -14,7 +14,7 @@ mod handover;
 pub mod stages;
 mod widgets;
 pub use widgets::{
-    Compose, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,
+    Compose, MadeWidget, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,
     WidgetTarget,
 };
 mod params;

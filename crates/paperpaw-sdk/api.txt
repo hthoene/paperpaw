@@ -6965,6 +6965,9 @@ pub paperpaw_sdk::native::ui::Compose::Widget(paperpaw_sdk::native::ui::WidgetHa
 pub paperpaw_sdk::native::ui::HintInput::Any
 pub paperpaw_sdk::native::ui::HintInput::Buttons
 pub paperpaw_sdk::native::ui::HintInput::Touch
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::MadeWidget
+pub paperpaw_sdk::native::ui::MadeWidget::Own
+pub paperpaw_sdk::native::ui::MadeWidget::Widget(paperpaw_sdk::native::ui::WidgetHandle)
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::QuestionKind
 pub paperpaw_sdk::native::ui::QuestionKind::Choice
 pub paperpaw_sdk::native::ui::QuestionKind::Confirm
@@ -7094,7 +7097,7 @@ impl paperpaw_sdk::native::ui::Ui
 pub fn paperpaw_sdk::native::ui::Ui::compose<'cb>(&'cb paperpaw_sdk::native::Host<'cb>, paperpaw_sdk::native::ui::Compose<'cb>, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Ui::widget_drop(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Ui::widget_input(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, u32, paperpaw_platform::geometry::Point, paperpaw_sdk::native::ui::WidgetInputKind, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::ui::Ui::widget_make(&self, &paperpaw_sdk::native::Host<'_>, &str, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_make(&self, &paperpaw_sdk::native::Host<'_>, &str, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::MadeWidget, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Ui::widget_measure(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::WidgetSize, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Ui::widget_place(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::callbacks::FrameRect, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::ui::Ui::widget_targets<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::callbacks::FrameRect, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::WidgetTarget>, paperpaw_sdk::native::Error>
@@ -7139,7 +7142,6 @@ pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::waits_ready(self) -> bool
 pub struct paperpaw_sdk::native::ui::WidgetHandle
 impl paperpaw_sdk::native::ui::WidgetHandle
 pub const fn paperpaw_sdk::native::ui::WidgetHandle::instance(self) -> paperpaw_sdk::native::ui::Instance
-pub const fn paperpaw_sdk::native::ui::WidgetHandle::is_own(self) -> bool
 pub struct paperpaw_sdk::native::ui::WidgetSize
 impl paperpaw_sdk::native::ui::WidgetSize
 pub const fn paperpaw_sdk::native::ui::WidgetSize::height(self) -> u32
