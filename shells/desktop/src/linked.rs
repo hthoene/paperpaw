@@ -256,7 +256,9 @@ pub fn register(
                 storage.clone(),
                 transport.clone(),
                 transport.clone(),
-                NetLimits::new(0, 8),
+                // The one pool and its TLS sessions are the same in both
+                // wirings (`SockLimits::large`: 4).
+                NetLimits::new(0, 8).tls_sessions(4),
             ))
             .sockets(SockInputs::new(
                 storage,
