@@ -55,6 +55,9 @@ impl PluginJob for PluginJobs {
     fn unloaded(&mut self) {
         each!(self, job => job.unloaded());
     }
+    fn forgotten(&mut self, ok: bool) {
+        each!(self, job => job.forgotten(ok));
+    }
     fn abort(&mut self, reason: u8) {
         each!(self, job => job.abort(reason));
     }

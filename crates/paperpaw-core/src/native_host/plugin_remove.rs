@@ -17,13 +17,33 @@
 //!    leaves `battery-plus`), never from anything a plugin gave. Every move is
 //!    the card's journalled `rename`, so a cut leaves a folder in one place or
 //!    the other.
-//! 6. **Clean:** the moved folders are removed where they are, then the journal.
+//! 6. **Forget:** with the data, the host forgets what it holds of the plugin
+//!    (`JobStep::Forget`): its secrets (`core.secrets`, if wired) and its
+//!    grants (`core.grant.<kind>.<id>`, so a reinstall of the id does not
+//!    regain a trusted installer). Safe to repeat. It comes **after the
+//!    moves**, so a removal that fails with nothing moved loses neither, and
+//!    **before the journal goes**, so a cut keeps the journal: the start's
+//!    replay has no host yet and stops here (`Replayed::Forgetting`), and the
+//!    kernel's first pass finishes the journal with the host
+//!    (`plugin_swap::resume`). Nothing is forgotten without the user's yes
+//!    with the data.
+//! 7. **Journal gone, then clean:** the journal is removed once the plugin is
+//!    out of its place and its secrets are forgotten; the moved folders
+//!    (`.removing-<id>`) are then removed **a bounded piece a step**
+//!    (`Storage::remove_tree_step`), so a large data folder never holds the
+//!    device for long. A cut or a failure there leaves the folders to the start's
+//!    sweep, which goes on in the same bounded way (`plugin_start::sweep`); no
+//!    journal is needed for garbage no plugin can reach.
 //!
 //! [`Removing`] is the one state machine for the live job and for the start's
 //! replay: each step looks at the card and does the next thing, so a cut at any
 //! point is finished by the same code. A state that no step of it makes (the
 //! target and its moved copy at once) can never be finished: the start sets the
 //! journal aside (`plugin_swap::replay`) instead of blocking every later change.
+//!
+//! The result of closing the plugin's instances (`JobStep::Unload`) is not
+//! read: an instance that does not close ends with the device's next start, and
+//! the removal goes on (the plugin is out of the list before its folder moves).
 //!
 //! Pins and origin marks of a removed plugin stay (a reinstall of the id must
 //! still come from its pinned author). A loaded code plugin's flash room
@@ -46,6 +66,9 @@ use super::shared::try_box;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RemoveStep {
     More,
+    /// The host must forget the plugin's secrets and grants; the answer is
+    /// [`Removing::forgotten`].
+    Forget,
     /// The plugin is gone and the journal removed.
     Done,
     /// Stopped with this reason; the journal stays (the next start finishes).
@@ -58,9 +81,10 @@ pub(crate) enum RemoveStep {
 enum Part {
     Code,
     Data,
+    Forget,
+    Journal,
     CleanCode,
     CleanData,
-    Journal,
     Done,
 }
 
@@ -72,6 +96,10 @@ pub(crate) struct Removing {
     data: String,
     data_out: String,
     part: Part,
+    /// Where the bounded removal of the folder being cleaned goes on.
+    place: u64,
+    /// The host could not forget what it holds of the plugin.
+    forget_failed: bool,
     /// A folder was moved already: the removal can only go forward.
     moved: bool,
 }
@@ -88,6 +116,8 @@ impl Removing {
             data_out: data_removing_path(id)?,
             removal,
             part: Part::Code,
+            place: 0,
+            forget_failed: false,
             moved: false,
         })
     }
@@ -95,6 +125,22 @@ impl Removing {
     /// Whether a folder was moved: from then on a failure keeps the journal.
     pub(crate) fn moved(&self) -> bool {
         self.moved
+    }
+
+    /// Whether the journal is gone: what is left is garbage the sweep finds.
+    pub(crate) fn settled(&self) -> bool {
+        matches!(self.part, Part::CleanCode | Part::CleanData | Part::Done)
+    }
+
+    /// The host's answer to [`RemoveStep::Forget`]; `false`: it could not.
+    pub(crate) fn forgotten(&mut self, ok: bool) {
+        if self.part == Part::Forget {
+            if ok {
+                self.part = Part::Journal;
+            } else {
+                self.forget_failed = true;
+            }
+        }
     }
 
     /// One step.
@@ -106,27 +152,33 @@ impl Removing {
             }
             Part::Data => {
                 if !self.removal.data {
-                    self.part = Part::CleanCode;
+                    self.part = Part::Journal;
                     return RemoveStep::More;
                 }
                 let (from, to) = (self.data.clone(), self.data_out.clone());
-                self.relocate(storage, &from, &to, Part::CleanCode)
+                self.relocate(storage, &from, &to, Part::Forget)
             }
+            Part::Forget if self.forget_failed => RemoveStep::Failed(reason::CARD),
+            Part::Forget => RemoveStep::Forget,
+            Part::Journal => match storage.remove(JOURNAL) {
+                Ok(()) | Err(StorageError::NotFound) => {
+                    self.part = Part::CleanCode;
+                    RemoveStep::More
+                }
+                Err(error) => RemoveStep::Failed(io(error)),
+            },
             Part::CleanCode => {
                 let gone = self.code_out.clone();
                 self.clean(storage, &gone, Part::CleanData)
             }
             Part::CleanData => {
-                let gone = self.data_out.clone();
-                self.clean(storage, &gone, Part::Journal)
-            }
-            Part::Journal => match storage.remove(JOURNAL) {
-                Ok(()) | Err(StorageError::NotFound) => {
+                if !self.removal.data {
                     self.part = Part::Done;
-                    RemoveStep::Done
+                    return RemoveStep::Done;
                 }
-                Err(error) => RemoveStep::Failed(io(error)),
-            },
+                let gone = self.data_out.clone();
+                self.clean(storage, &gone, Part::Done)
+            }
             Part::Done => RemoveStep::Done,
         }
     }
@@ -153,18 +205,22 @@ impl Removing {
         RemoveStep::More
     }
 
-    /// Removes what was moved aside, where it is.
+    /// Removes what was moved aside, where it is, a bounded piece a step
+    /// (`Storage::remove_tree_step`). The journal is gone: an error leaves the
+    /// rest to the start's sweep.
     fn clean(&mut self, storage: &dyn Storage, gone: &str, next: Part) -> RemoveStep {
-        match present(storage, gone) {
-            Ok(true) => {
-                if let Err(error) = storage.remove_dir_all(gone) {
-                    return RemoveStep::Failed(io(error));
-                }
+        match storage.remove_tree_step(gone, false, self.place) {
+            Ok(step) if !step.done => {
+                self.place = step.next;
+                return RemoveStep::More;
             }
-            Ok(false) => {}
-            Err(why) => return RemoveStep::Failed(why),
+            Ok(_) | Err(_) => {}
         }
+        self.place = 0;
         self.part = next;
+        if next == Part::Done {
+            return RemoveStep::Done;
+        }
         RemoveStep::More
     }
 }
@@ -178,6 +234,8 @@ enum Phase {
     Unload,
     Unloading,
     Removing,
+    /// Waiting for the host to forget the plugin's secrets and grants.
+    Forgetting,
     Ended,
 }
 
@@ -242,6 +300,20 @@ impl PluginRemove {
             Ok(false) => return self.end(reason::OTHER),
             Err(why) => return self.end(why),
         }
+        // A folder an earlier removal moved aside and is still cleaning (cut,
+        // or not done yet) would meet this one's move: refused here, before
+        // any journal is written, so no later install is blocked by it; the
+        // start's sweep finishes it.
+        for out in [removing_path(id), data_removing_path(id)] {
+            let Some(out) = out else {
+                return self.end(reason::OTHER);
+            };
+            match present(env.storage, &out) {
+                Ok(false) => {}
+                Ok(true) => return self.end(reason::OTHER),
+                Err(why) => return self.end(why),
+            }
+        }
         let Some(mut buf) = io_buffer() else {
             return self.end(reason::OTHER);
         };
@@ -302,6 +374,10 @@ impl PluginRemove {
         };
         match removing.step(storage) {
             RemoveStep::More => JobStep::More,
+            RemoveStep::Forget => {
+                self.phase = Phase::Forgetting;
+                JobStep::Forget(self.id)
+            }
             RemoveStep::Done => {
                 let mut flags = 0;
                 if !self.data {
@@ -392,6 +468,14 @@ impl PluginJob for PluginRemove {
                 JobStep::Wait
             }
             Phase::Removing => self.removing(storage),
+            Phase::Forgetting => {
+                if self.aborted {
+                    // The device is going down: the journal stays, and the
+                    // kernel's first pass after the next start finishes it.
+                    return self.end(reason::OTHER);
+                }
+                JobStep::Wait
+            }
             Phase::Ended => JobStep::Done(Finished::refused(reason::OTHER)),
         }
     }
@@ -408,18 +492,27 @@ impl PluginJob for PluginRemove {
         }
     }
 
+    fn forgotten(&mut self, ok: bool) {
+        if self.phase == Phase::Forgetting {
+            if let Some(removing) = self.removing.as_mut() {
+                removing.forgotten(ok);
+            }
+            self.phase = Phase::Removing;
+        }
+    }
+
     fn must_finish(&self) -> bool {
         // From the journal on the user's yes is carried out, whatever stops.
         matches!(
             self.phase,
-            Phase::Unload | Phase::Unloading | Phase::Removing
+            Phase::Unload | Phase::Unloading | Phase::Removing | Phase::Forgetting
         )
     }
 
     fn keep_without_sender(&self) -> bool {
         matches!(
             self.phase,
-            Phase::Journal | Phase::Unload | Phase::Unloading | Phase::Removing
+            Phase::Journal | Phase::Unload | Phase::Unloading | Phase::Removing | Phase::Forgetting
         ) || (self.phase == Phase::Waiting
             && matches!(self.answer, Some(Answer::Yes | Answer::YesAndData)))
     }

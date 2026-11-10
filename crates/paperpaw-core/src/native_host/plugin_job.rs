@@ -130,6 +130,10 @@ pub(crate) enum JobStep {
     /// The host closes the instances of this plugin (a removal's first step
     /// after its journal); the job waits for [`PluginJob::unloaded`].
     Unload(Text<ID_MAX>),
+    /// The host forgets the plugin's host-held state (its secrets and its
+    /// grants), a removal with its data, after its folders moved; the job waits
+    /// for [`PluginJob::forgotten`]. Safe to repeat.
+    Forget(Text<ID_MAX>),
     /// Done: `reason` as in `device.md` 5.5, and for a check its facts (kept
     /// in the plugin's result slot).
     Done(Finished),
@@ -245,6 +249,10 @@ pub(crate) trait PluginJob {
     fn answer(&mut self, answer: Answer);
     /// The host closed the instances the job asked for ([`JobStep::Unload`]).
     fn unloaded(&mut self) {}
+    /// The host forgot the plugin's state ([`JobStep::Forget`]); `ok`: all of it.
+    fn forgotten(&mut self, ok: bool) {
+        let _ = ok;
+    }
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);

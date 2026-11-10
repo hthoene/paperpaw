@@ -562,10 +562,15 @@ impl BuilderParts {
         // A plugin install or removal a cut left is finished (or set aside)
         // before any plugin is found, so a plugin is the old or the new one.
         let mut said: Vec<String> = Vec::new();
-        crate::native_host::plugin_start::replay_at_start(
+        let to_finish = crate::native_host::plugin_start::replay_at_start(
             kernel.shared.storage.as_ref(),
             &mut |line| said.push(line),
         );
+        // A removal waits for the host to forget its plugin's secrets and
+        // grants: the first pass of the kernel finishes it.
+        if to_finish && let Some(driver) = &kernel.firmware {
+            driver.borrow_mut().want_resume();
+        }
         for line in said {
             kernel.warn_runtime(line);
         }

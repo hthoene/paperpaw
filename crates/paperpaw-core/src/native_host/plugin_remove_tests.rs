@@ -73,6 +73,9 @@ struct Run {
     done: Finished,
     asked: Option<PluginQuestion>,
     unloads: u32,
+    /// The plugins the host was asked to forget, and whether the journal was
+    /// still there and the data already moved when it was.
+    forgets: std::vec::Vec<(std::string::String, bool)>,
 }
 
 /// Steps `job` on `storage`: the question gets `answer`, an unload is answered
@@ -83,6 +86,7 @@ fn drive(job: &mut PluginRemove, storage: &dyn Storage, answer: Answer) -> Run {
         done: Finished::refused(0),
         asked: None,
         unloads: 0,
+        forgets: std::vec::Vec::new(),
     };
     for _ in 0..200 {
         let env = JobEnv {
@@ -103,6 +107,11 @@ fn drive(job: &mut PluginRemove, storage: &dyn Storage, answer: Answer) -> Run {
                 run.unloads += 1;
                 job.unloaded();
             }
+            JobStep::Forget(id) => {
+                let ready = card_is_ready_to_forget(storage);
+                run.forgets.push((id.as_str().into(), ready));
+                job.forgotten(true);
+            }
             JobStep::Done(done) => {
                 run.done = done;
                 return run;
@@ -110,6 +119,14 @@ fn drive(job: &mut PluginRemove, storage: &dyn Storage, answer: Answer) -> Run {
         }
     }
     panic!("never ended");
+}
+
+/// The data was moved aside and the journal is there: what the forget step
+/// stands between.
+fn card_is_ready_to_forget(card: &dyn Storage) -> bool {
+    is_there(card, plugin_swap::JOURNAL)
+        && !is_there(card, ".paperpaw/plugins/dials")
+        && is_there(card, ".paperpaw/plugins/.removing-dials")
 }
 
 fn is_there(card: &dyn Storage, path: &str) -> bool {
@@ -305,6 +322,7 @@ fn after_a_cut(allowed: usize, with_data: bool) -> bool {
     };
     let host = host();
     let mut remove = job();
+    let mut forgets = 0;
     for _ in 0..200 {
         let env = JobEnv {
             storage: &cut,
@@ -316,13 +334,39 @@ fn after_a_cut(allowed: usize, with_data: bool) -> bool {
             JobStep::More | JobStep::Wait => {}
             JobStep::Ask(_) => remove.answer(answer),
             JobStep::Unload(_) => remove.unloaded(),
+            JobStep::Forget(_) => {
+                forgets += 1;
+                remove.forgotten(true);
+            }
             JobStep::Done(_) => break,
         }
     }
-    // The next start: it finishes the journal and says nothing.
+    // The next start: it finishes the journal and says nothing; a removal
+    // stopped at the forget step waits for the host, the first pass has it.
     let mut said = std::vec::Vec::new();
-    crate::native_host::plugin_start::replay_at_start(&card, &mut |line| said.push(line));
+    let waiting =
+        crate::native_host::plugin_start::replay_at_start(&card, &mut |line| said.push(line));
     assert!(said.is_empty(), "{allowed}: {said:?}");
+    if waiting {
+        assert!(
+            card.exists(plugin_swap::JOURNAL),
+            "{allowed}: the journal stays"
+        );
+        let mut asked = std::vec::Vec::new();
+        let done = plugin_swap::resume(&card, &mut |id| {
+            asked.push(std::string::String::from(id));
+            true
+        });
+        assert!(
+            matches!(done, Replayed::Removed { .. }),
+            "{allowed}: {done:?}"
+        );
+        forgets += asked.len();
+        assert_eq!(asked, ["dials"], "{allowed}");
+        assert!(!card.exists(plugin_swap::JOURNAL), "{allowed}");
+    }
+    // What the journal left to clean goes in bounded pieces, by the sweep.
+    crate::native_host::plugin_start::sweep(&card);
     nothing_left_over(&card);
     neighbours_intact(&card);
     let there = is_there(&card, "plugins/dials");
@@ -342,6 +386,14 @@ fn after_a_cut(allowed: usize, with_data: bool) -> bool {
             assert!(card.exists(".paperpaw/plugins/dials/deep/more.txt"));
         }
     }
+    // Once the data is gone for good the host was asked to forget the plugin,
+    // whatever cut came (the journal stays until it was), and never without it.
+    let data_gone = !is_there(&card, ".paperpaw/plugins/dials");
+    assert_eq!(
+        data_gone && with_data,
+        forgets >= 1,
+        "{allowed}: forgets {forgets}"
+    );
     there
 }
 
@@ -377,6 +429,7 @@ fn a_card_error_before_the_first_move_leaves_the_plugin_and_no_journal() {
         let mut said = std::vec::Vec::new();
         crate::native_host::plugin_start::replay_at_start(&card, &mut |line| said.push(line));
         assert!(said.is_empty(), "{nth}: {said:?}");
+        crate::native_host::plugin_start::sweep(&card);
         nothing_left_over(&card);
         neighbours_intact(&card);
         if run.done.reason != 0 && is_there(&card, "plugins/dials") {
@@ -466,5 +519,135 @@ fn a_removal_record_reads_back_and_a_damaged_one_does_not() {
         );
         assert!(card.size(BAD).is_ok());
         card.remove(BAD).unwrap();
+    }
+}
+
+#[test]
+fn removed_with_its_data_the_host_forgets_the_plugin_after_the_moves_and_before_the_journal_goes() {
+    let card = card();
+    let run = drive(&mut job(), &card, Answer::YesAndData);
+    assert_eq!(run.done.reason, 0);
+    assert_eq!(run.forgets, [("dials".into(), true)]);
+    nothing_left_over(&card);
+}
+
+#[test]
+fn removed_keeping_its_data_the_host_forgets_nothing() {
+    let card = card();
+    let run = drive(&mut job(), &card, Answer::Yes);
+    assert_eq!(run.done.reason, 0);
+    assert!(run.forgets.is_empty());
+}
+
+#[test]
+fn a_forget_that_fails_ends_the_job_and_the_first_pass_after_start_finishes_it() {
+    let card = card();
+    let host = host();
+    let mut remove = job();
+    let mut asked = 0;
+    let done = loop {
+        let env = JobEnv {
+            storage: &card,
+            host: &host,
+            built_ins: &Names,
+            granted: false,
+        };
+        match remove.step(&env) {
+            JobStep::More | JobStep::Wait => {}
+            JobStep::Ask(_) => remove.answer(Answer::YesAndData),
+            JobStep::Unload(_) => remove.unloaded(),
+            JobStep::Forget(_) => {
+                asked += 1;
+                remove.forgotten(false);
+            }
+            JobStep::Done(done) => break done,
+        }
+    };
+    assert_eq!(asked, 1);
+    assert_eq!(done.reason, reason::CARD);
+    assert!(card.exists(plugin_swap::JOURNAL), "the journal stays");
+    // The next start stops at the forget step: nothing is removed beyond the
+    // moves, and the journal waits for the host.
+    let mut said = std::vec::Vec::new();
+    assert!(crate::native_host::plugin_start::replay_at_start(
+        &card,
+        &mut |line| said.push(line)
+    ));
+    assert!(said.is_empty(), "{said:?}");
+    assert!(card.exists(plugin_swap::JOURNAL));
+    assert!(is_there(&card, ".paperpaw/plugins/.removing-dials"));
+    // The first pass has the host: a host that cannot forget keeps it waiting,
+    // one that can finishes the removal.
+    let done = plugin_swap::resume(&card, &mut |_| false);
+    assert_eq!(done, Replayed::Failed(reason::CARD));
+    assert!(card.exists(plugin_swap::JOURNAL));
+    let done = plugin_swap::resume(&card, &mut |id| id == "dials");
+    assert!(
+        matches!(done, Replayed::Removed { data: true, .. }),
+        "{done:?}"
+    );
+    crate::native_host::plugin_start::sweep(&card);
+    assert!(!card.exists(plugin_swap::JOURNAL));
+    assert!(!is_there(&card, "plugins/dials"));
+    nothing_left_over(&card);
+    neighbours_intact(&card);
+}
+
+#[test]
+fn a_large_data_folder_is_cleaned_by_the_bounded_walk_and_the_sweeps_finish_what_the_job_left() {
+    let card = card();
+    for n in 0..300 {
+        card.write(&std::format!(".paperpaw/plugins/dials/bulk/f{n}.txt"), b"x")
+            .unwrap();
+    }
+    // A card that counts: bounded tree steps, and whole-tree removals. How many
+    // entries one step removes is the card's own contract (`remove_tree_step`:
+    // at most 64 removals and 256 reads); the job only goes by it.
+    let counting = Cut::after(&card, usize::MAX);
+    let run = drive(&mut job(), &counting, Answer::YesAndData);
+    assert_eq!(run.done.reason, 0);
+    assert_eq!(counting.whole_trees.get(), 0, "no remove_dir_all");
+    assert!(
+        counting.tree_steps.get() >= 2,
+        "{}",
+        counting.tree_steps.get()
+    );
+    // What the job left (nothing, or a rest) is finished by the starts' sweeps,
+    // a bounded number of pieces each, in a bounded number of starts.
+    let mut starts = 0;
+    while is_there(&card, ".paperpaw/plugins/.removing-dials")
+        || is_there(&card, "plugins/.removing-dials")
+    {
+        starts += 1;
+        assert!(
+            starts <= 50,
+            "never finished: {:?} {:?}",
+            card.remove_tree_step(".paperpaw/plugins/.removing-dials", false, 0),
+            counting.tree_steps.get()
+        );
+        crate::native_host::plugin_start::sweep(&card);
+    }
+    assert!(!is_there(&card, ".paperpaw/plugins/dials"));
+    nothing_left_over(&card);
+    neighbours_intact(&card);
+}
+
+#[test]
+fn a_leftover_removal_folder_refuses_before_any_journal_is_written() {
+    for left in [
+        "plugins/.removing-dials",
+        ".paperpaw/plugins/.removing-dials",
+    ] {
+        let card = card();
+        card.write(&std::format!("{left}/x.txt"), b"x").unwrap();
+        let run = drive(&mut job(), &card, Answer::YesAndData);
+        assert_eq!(run.done.reason, reason::OTHER, "{left}");
+        assert_eq!(run.unloads, 0, "{left}: nothing was closed");
+        assert!(!card.exists(plugin_swap::JOURNAL), "{left}: no journal");
+        assert!(is_there(&card, "plugins/dials"), "{left}");
+        // The sweep finishes the leftover; the removal can then be asked again.
+        crate::native_host::plugin_start::sweep(&card);
+        let again = drive(&mut job(), &card, Answer::Yes);
+        assert_eq!(again.done.reason, 0, "{left}");
     }
 }

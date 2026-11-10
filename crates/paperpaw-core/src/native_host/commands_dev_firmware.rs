@@ -38,9 +38,12 @@ use core::{
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
 };
+use paperpaw_sdk::native::keys::Revocation;
 
 /// At most one firmware command in a batch.
 pub(super) const MAX_PER_BATCH: usize = 1;
+/// At most this many `trust_revoked` in a batch (`device.md` 3).
+pub(super) const MAX_REVOKED_PER_BATCH: usize = 8;
 const FEATURE_FIRMWARE: &str = "uses.firmware";
 const FEATURE_INSTALL: &str = "uses.install";
 /// `install_firmware.flags` bits 0 (older) and 1 (foreign).
@@ -109,6 +112,11 @@ pub(crate) enum FirmwareOp {
     },
     /// `firmware_restart`: the host asks the user.
     Restart(FirmwareContext),
+    /// `trust_revoked`: handed to the driver, which keeps it if it holds.
+    Revoke {
+        ctx: FirmwareContext,
+        revocation: Revocation,
+    },
 }
 
 /// The requests a stage accepted and no drain applied yet; dropped, it takes
@@ -233,7 +241,8 @@ pub(super) fn area(command: &WireCommand<'_>) -> Option<&'static str> {
         WireCommand::InstallPlugin { .. }
         | WireCommand::RemovePlugin { .. }
         | WireCommand::InstallAuthor { .. }
-        | WireCommand::InstallRotation { .. } => Some(FEATURE_INSTALL),
+        | WireCommand::InstallRotation { .. }
+        | WireCommand::TrustRevoked { .. } => Some(FEATURE_INSTALL),
         // A kind beyond 1 is refused by its own rule (`ERR_DENIED`).
         WireCommand::CheckFile { .. } => Some(FEATURE_FIRMWARE),
         _ => None,
@@ -256,6 +265,42 @@ impl CommandStage<'_> {
         let features = self.dev.as_ref().ok_or(ERR_UNSUPPORTED)?.ctx.features;
         owner_paths::access_with(features, root, path, false)?;
         owner_paths::OwnerPaths::join(Some(self.owner.as_str()), root, path)
+    }
+
+    /// The key and the signature of a `trust_revoked` are whole; whether it
+    /// holds is the store's rule, checked where it is kept.
+    fn validate_revocation(
+        &self,
+        plugin: &str,
+        key: &[u8],
+        signature: &[u8],
+    ) -> Result<usize, i32> {
+        let _ = self.firmware()?;
+        if plugin.is_empty() || key.len() != 32 || signature.len() != 64 {
+            return Err(ERR_INVALID);
+        }
+        Ok(plugin.len())
+    }
+
+    /// Keys and the digest of an `install_author` are none or whole, an
+    /// `install_rotation`'s are (`device.md` 5.2).
+    fn validate_evidence(&self, command: &WireCommand<'_>) -> Result<usize, i32> {
+        let _ = self.firmware()?;
+        let whole = match *command {
+            WireCommand::InstallAuthor {
+                author,
+                recovery,
+                sha256,
+                ..
+            } => [author, recovery, sha256]
+                .iter()
+                .all(|bytes| matches!(bytes.len(), 0 | 32)),
+            WireCommand::InstallRotation { to, signature, .. } => {
+                to.len() == 32 && signature.len() == 64
+            }
+            _ => false,
+        };
+        if whole { Ok(0) } else { Err(ERR_INVALID) }
     }
 
     /// Checks one firmware command; the bytes it will copy.
@@ -329,31 +374,14 @@ impl CommandStage<'_> {
                 }
                 Ok(plugin.len())
             }
-            // Keys and the digest are none or whole (`device.md` 5.2).
-            WireCommand::InstallAuthor {
-                author,
-                recovery,
-                sha256,
-                ..
-            } => {
-                let _ = self.firmware()?;
-                if matches!(author.len(), 0 | 32)
-                    && matches!(recovery.len(), 0 | 32)
-                    && matches!(sha256.len(), 0 | 32)
-                {
-                    Ok(0)
-                } else {
-                    Err(ERR_INVALID)
-                }
+            WireCommand::InstallAuthor { .. } | WireCommand::InstallRotation { .. } => {
+                self.validate_evidence(command)
             }
-            WireCommand::InstallRotation { to, signature, .. } => {
-                let _ = self.firmware()?;
-                if to.len() == 32 && signature.len() == 64 {
-                    Ok(0)
-                } else {
-                    Err(ERR_INVALID)
-                }
-            }
+            WireCommand::TrustRevoked {
+                plugin,
+                key,
+                signature,
+            } => self.validate_revocation(plugin, key, signature),
             WireCommand::FirmwareRestart {} => {
                 let ctx = self.firmware()?;
                 let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
@@ -407,6 +435,23 @@ impl CommandStage<'_> {
                     .map_err(|_| ERR_NO_MEMORY)?;
                 id.push_str(plugin);
                 Ok(DevOp::Firmware(FirmwareOp::PluginRemove { request, id }))
+            }
+            WireCommand::TrustRevoked {
+                plugin,
+                key,
+                signature,
+            } => {
+                let (Ok(key), Ok(signature)) = (key.try_into(), signature.try_into()) else {
+                    return Err(ERR_INVALID);
+                };
+                let mut id = String::new();
+                id.try_reserve_exact(plugin.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                id.push_str(plugin);
+                Ok(DevOp::Firmware(FirmwareOp::Revoke {
+                    ctx: self.firmware()?.clone(),
+                    revocation: Revocation::new(id, key, signature),
+                }))
             }
             WireCommand::CheckFile {
                 request,
@@ -559,6 +604,17 @@ impl crate::Kernel {
             | FirmwareOp::PluginRemove { request, .. } => {
                 if let Some(release) = fw {
                     release.applied(request);
+                }
+            }
+            FirmwareOp::Revoke { ctx, revocation } => {
+                // Nothing answers it: one that finds no room is counted, and
+                // the library lists it again.
+                let queued = ctx
+                    .driver
+                    .try_borrow_mut()
+                    .is_ok_and(|mut driver| driver.queue_revocation(revocation));
+                if !queued {
+                    ctx.skip();
                 }
             }
             FirmwareOp::Restart(ctx) => {

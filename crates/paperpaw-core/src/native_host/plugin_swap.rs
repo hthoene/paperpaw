@@ -646,6 +646,9 @@ pub(crate) enum Replayed {
     Finished { id: Text<ID_MAX>, rolled_back: bool },
     /// A removal finished, for this plugin.
     Removed { id: Text<ID_MAX>, data: bool },
+    /// A removal stopped where the host must forget what it holds of the plugin
+    /// (its secrets and grants); the journal stays, [`resume`] finishes it.
+    Forgetting,
     /// A journal this host does not read, or can never finish, was set aside.
     SetAside,
     /// Stopped with this reason; the journal stays for the next start.
@@ -668,7 +671,7 @@ pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
         Ok(Found::None) => return Replayed::Nothing,
         Ok(Found::SetAside) => return Replayed::SetAside,
         Ok(Found::Entry(entry)) => entry,
-        Ok(Found::Removal(removal)) => return replay_removal(storage, &removal),
+        Ok(Found::Removal(removal)) => return replay_removal(storage, &removal, None),
         Err(why) => return Replayed::Failed(why),
     };
     let Some(mut swap) = Swap::new(entry, false) else {
@@ -690,15 +693,43 @@ pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
     set_aside(storage)
 }
 
+/// Finishes a removal journal the start left at its forget step, with the
+/// host's help: `forget` forgets the plugin's secrets and grants (`false`: it
+/// could not, the journal stays for the next start). Nothing else is touched.
+pub(crate) fn resume(storage: &dyn Storage, forget: &mut dyn FnMut(&str) -> bool) -> Replayed {
+    match read(storage) {
+        Ok(Found::Removal(removal)) => replay_removal(storage, &removal, Some(forget)),
+        Ok(_) => Replayed::Nothing,
+        Err(why) => Replayed::Failed(why),
+    }
+}
+
 #[inline(never)]
-fn replay_removal(storage: &dyn Storage, removal: &Removal) -> Replayed {
+fn replay_removal(
+    storage: &dyn Storage,
+    removal: &Removal,
+    mut forget: Option<&mut dyn FnMut(&str) -> bool>,
+) -> Replayed {
     use super::plugin_remove::{RemoveStep, Removing};
     let Some(mut removing) = Removing::new(*removal) else {
         return Replayed::Failed(reason::OTHER);
     };
     for _ in 0..16 {
         match removing.step(storage) {
+            // The journal is gone: what is left is cleaned by the sweep, in
+            // bounded pieces.
+            RemoveStep::More if removing.settled() => {
+                return Replayed::Removed {
+                    id: removal.id,
+                    data: removal.data,
+                };
+            }
             RemoveStep::More => {}
+            // No host at the start: the journal stays for the first pass.
+            RemoveStep::Forget => match forget.as_mut() {
+                None => return Replayed::Forgetting,
+                Some(forget) => removing.forgotten(forget(removal.id.as_str())),
+            },
             RemoveStep::Done => {
                 return Replayed::Removed {
                     id: removal.id,

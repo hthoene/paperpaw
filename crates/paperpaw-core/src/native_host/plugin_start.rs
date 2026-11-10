@@ -4,7 +4,8 @@
 //! owns, at most [`SWEEP_MAX`] folders a start.
 //!
 //! Swept: a folder `.removing-<id>` of a removal, in `plugins/` and in
-//! `.paperpaw/plugins/`, and a half-written journal. Never a stage
+//! `.paperpaw/plugins/`, removed in bounded pieces ([`SWEEP_PIECES`] a folder a
+//! start; what is left goes on at the next start), and a half-written journal. Never a stage
 //! `.<id>.part` (the shell hands stages over to be installed after the start,
 //! and the next install of the id removes its own leftover stage), and never
 //! an `.old-<id>` folder: it can be the only copy of a plugin, and the journal
@@ -22,8 +23,10 @@ use super::plugin_swap::{JOURNAL, Replayed, TMP, replay};
 pub(crate) const SWEEP_MAX: usize = 8;
 
 /// Finishes what a cut left (before any plugin is found); each thing worth a
-/// line in the log is given to `say`.
-pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)) {
+/// line in the log is given to `say`. `true`: a removal journal waits for the
+/// host to forget its plugin's secrets and grants, which the kernel's first pass
+/// does (`plugin_swap::resume`); the journal stays until then.
+pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)) -> bool {
     // A journal that was being written when the power went is never the
     // journal: only the renamed one counts.
     if storage.size(TMP).is_ok() {
@@ -31,6 +34,7 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
     }
     match replay(storage) {
         Replayed::Nothing | Replayed::Finished { .. } | Replayed::Removed { .. } => {}
+        Replayed::Forgetting => return true,
         Replayed::SetAside => say(String::from(
             "plugins/.journal could not be finished: set aside as .journal.bad, no plugin was changed by it",
         )),
@@ -40,6 +44,7 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
             ));
         }
     }
+    false
 }
 
 /// Sweeps the leftovers no journal owns. Nothing is swept while a journal is
@@ -77,7 +82,22 @@ fn sweep_in(storage: &dyn Storage, dir: &str) {
         found.len() < SWEEP_MAX
     });
     for path in found {
-        let _ = storage.remove_dir_all(&path);
+        sweep_tree(storage, &path);
+    }
+}
+
+/// Most bounded pieces one folder gets at a start (`remove_tree_step` removes
+/// at most 64 entries and reads at most 256 per piece): a larger folder goes
+/// on at the next start, still named `.removing-…`.
+const SWEEP_PIECES: u32 = 32;
+
+fn sweep_tree(storage: &dyn Storage, path: &str) {
+    let mut place = 0;
+    for _ in 0..SWEEP_PIECES {
+        match storage.remove_tree_step(path, false, place) {
+            Ok(step) if !step.done => place = step.next,
+            Ok(_) | Err(_) => return,
+        }
     }
 }
 

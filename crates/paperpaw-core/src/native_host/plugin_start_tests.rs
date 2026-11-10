@@ -85,9 +85,52 @@ fn a_journalled_removal_is_finished_at_start_and_says_nothing() {
         },
     )
     .unwrap();
-    assert!(lines(&card).is_empty());
+    // With the data the removal stops where the host must forget the plugin's
+    // secrets and grants: the journal stays, said by no line, and the start
+    // reports that the first pass has to finish it.
+    let mut said = Vec::new();
+    assert!(replay_at_start(&card, &mut |line| said.push(line)));
+    assert!(said.is_empty(), "{said:?}");
     assert!(!card.exists("plugins/dials/plugin.ini"));
     assert!(!card.exists(".paperpaw/plugins/dials/notes.txt"));
+    assert!(card.size("plugins/.journal").is_ok());
+    // Nothing is swept while the journal is there.
+    sweep(&card);
+    assert!(card.exists(".paperpaw/plugins/.removing-dials/notes.txt"));
+    let mut asked = Vec::new();
+    let done = crate::native_host::plugin_swap::resume(&card, &mut |id| {
+        asked.push(String::from(id));
+        true
+    });
+    assert!(matches!(
+        done,
+        crate::native_host::plugin_swap::Replayed::Removed { data: true, .. }
+    ));
+    assert_eq!(asked, ["dials"]);
+    assert!(card.size("plugins/.journal").is_err());
+    sweep(&card);
+    assert!(!card.exists(".paperpaw/plugins/.removing-dials/notes.txt"));
+}
+
+#[test]
+fn a_removal_that_keeps_the_data_is_finished_at_start_with_no_host() {
+    let card = MemoryStorage::new();
+    card.write("plugins/dials/plugin.ini", b"x").unwrap();
+    card.write(".paperpaw/plugins/dials/notes.txt", b"x")
+        .unwrap();
+    begin_removal(
+        &card,
+        &Removal {
+            id: Text::new("dials"),
+            data: false,
+        },
+    )
+    .unwrap();
+    let mut said = Vec::new();
+    assert!(!replay_at_start(&card, &mut |line| said.push(line)));
+    assert!(said.is_empty(), "{said:?}");
+    assert!(!card.exists("plugins/dials/plugin.ini"));
+    assert!(card.exists(".paperpaw/plugins/dials/notes.txt"));
     assert!(card.size("plugins/.journal").is_err());
 }
 
