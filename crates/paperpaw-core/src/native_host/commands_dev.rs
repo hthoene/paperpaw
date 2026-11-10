@@ -505,12 +505,12 @@ impl<'a> CommandStage<'a> {
 
     /// Keep one validated DEV command after the ordinary ones before it.
     #[inline(never)]
-    pub(super) fn dev_push(&mut self, command: WireCommand<'_>) -> Result<(), i32> {
+    pub(super) fn dev_push(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
         let at = self.staged.len();
-        if firmware::is_evidence(&command) {
-            return self.firmware_evidence(&command);
+        if firmware::is_evidence(command) {
+            return self.firmware_evidence(command);
         }
-        let op = match command {
+        let op = match *command {
             WireCommand::WifiOn { .. } => DevOp::WifiOn,
             WireCommand::WifiOff { .. } => DevOp::WifiOff,
             WireCommand::WifiScan { .. } => DevOp::WifiScan,
@@ -535,7 +535,7 @@ impl<'a> CommandStage<'a> {
                 ssid,
                 password,
             } => join_op(request, true, ssid, password.expose())?,
-            _ => self.firmware_op(&command)?,
+            _ => self.firmware_op(command)?,
         };
         let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
         // Capacity was reserved by `dev_reserve`; this cannot reallocate.
