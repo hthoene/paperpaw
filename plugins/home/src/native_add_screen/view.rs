@@ -9,43 +9,32 @@ use paperpaw_ui_kit::{
 
 use super::*;
 
-/// The host as the gallery's stage: its instances are the screen's own.
-struct Live<'a> {
+/// The host as the gallery's stage: its instances are the screen's own, and the
+/// screen's frame is what they are drawn into.
+struct Live<'a, 'f> {
     host: &'a Host<'a>,
     ui: &'a Ui,
+    frame: &'a mut DrawFrame<'f>,
 }
 
-impl Stage for Live<'_> {
-    type Handle = WidgetHandle;
+impl Stage for Live<'_, '_> {
+    type Handle = Made;
 
-    fn make(&mut self, id: &str, area: Rect) -> Result<WidgetHandle, Error> {
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let widget = self
-            .ui
-            .widget_make(self.host, id, measure::PLACE, &mut input, &mut out)?;
-        let rect = paint::frame_rect(area);
-        if let Err(error) = self
-            .ui
-            .widget_place(self.host, widget, rect, &mut input, &mut out)
-        {
-            self.release(widget);
+    fn make(&mut self, id: &str, area: Rect) -> Result<Made, Error> {
+        let made = Made::make(self.host, self.ui, id, measure::PLACE)?;
+        if let Err(error) = made.place(self.host, self.ui, area) {
+            made.release(self.host, self.ui);
             return Err(error);
         }
-        Ok(widget)
+        Ok(made)
     }
 
-    fn release(&mut self, widget: WidgetHandle) {
-        if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
-            let _ = self.ui.widget_drop(self.host, widget, &mut input, &mut out);
-        }
+    fn release(&mut self, widget: Made) {
+        widget.release(self.host, self.ui);
     }
 
-    fn compose(&mut self, widget: WidgetHandle, area: Rect) -> Result<(), Error> {
-        // A widget of this plugin's own draws itself: the host answers `Busy`.
-        if widget.is_own() {
-            return Err(Error::Busy);
-        }
-        Ui::compose(self.host, Compose::Widget(widget), paint::frame_rect(area))
+    fn compose(&mut self, widget: &Made, area: Rect) -> Result<(), Error> {
+        widget.draw(self.host, self.ui, self.frame, area)
     }
 }
 
@@ -101,11 +90,7 @@ impl AddScreen {
 
     /// The gallery, and whether the arrow keys stay on its page; `None` where
     /// the host measures nothing (the X4 until its stack gate): the list.
-    fn lay_out(
-        &self,
-        host: &Host<'_>,
-        ui: &Ui,
-    ) -> Result<Option<(Gallery<WidgetHandle>, bool)>, Error> {
+    fn lay_out(&self, host: &Host<'_>, ui: &Ui) -> Result<Option<(Gallery<Made>, bool)>, Error> {
         let mut shown = Shown::current(host)?;
         let mut widgets = Vec::new();
         for row in 0..self.rows.len() {
@@ -185,10 +170,10 @@ impl AddScreen {
             focus: focus.focus(),
             page: laid.page_of(focus.focus()),
         };
-        let mut stage = Live { host, ui };
+        let mut stage = Live { host, ui, frame };
         let made = laid.show(&mut stage, scene.page, |row| widget_of(rows, entries, row));
         let drawn = match made {
-            Ok(()) => Self::paint(frame, laid, &mut stage, &scene, header),
+            Ok(()) => Self::paint(laid, &mut stage, &scene, header),
             Err(error) => Err(error),
         };
         match drawn {
@@ -205,16 +190,15 @@ impl AddScreen {
     /// The page painted: the header, each name and the frame round its widget,
     /// the widgets composed in, then a text row for each cell that is none.
     fn paint(
-        frame: &mut DrawFrame<'_>,
-        laid: &Gallery<WidgetHandle>,
-        stage: &mut Live<'_>,
+        laid: &Gallery<Made>,
+        stage: &mut Live<'_, '_>,
         scene: &Scene<'_>,
         header: &mut Page,
     ) -> Result<Drawn, Error> {
         let host = stage.host;
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = Self::paint_with(frame, &font, &display, laid, stage, scene, header);
+        let drawn = Self::paint_with(&font, &display, laid, stage, scene, header);
         let released = font.release();
         let drawn = drawn?;
         released?;
@@ -222,11 +206,10 @@ impl AddScreen {
     }
 
     fn paint_with(
-        frame: &mut DrawFrame<'_>,
         font: &Font<'_>,
         display: &snapshot::Snapshot,
-        laid: &Gallery<WidgetHandle>,
-        stage: &mut Live<'_>,
+        laid: &Gallery<Made>,
+        stage: &mut Live<'_, '_>,
         scene: &Scene<'_>,
         header: &mut Page,
     ) -> Result<Drawn, Error> {
@@ -267,10 +250,10 @@ impl AddScreen {
             )?;
             ring(&mut body, &style, preview.area, preview.row == scene.focus)?;
         }
-        paint::replay(frame, font, head.paint.iter().chain(body.iter()))?;
+        paint::replay(stage.frame, font, head.paint.iter().chain(body.iter()))?;
         let drawn = laid.compose(stage, scene.page);
         if let Drawn::Rows(missing) = &drawn {
-            Self::paint_rows(frame, font, host, &style, laid, scene, missing)?;
+            Self::paint_rows(stage.frame, font, host, &style, laid, scene, missing)?;
         }
         head.paint = Vec::new();
         *header = head;
@@ -283,7 +266,7 @@ impl AddScreen {
         font: &Font<'_>,
         host: &Host<'_>,
         style: &Style,
-        laid: &Gallery<WidgetHandle>,
+        laid: &Gallery<Made>,
         scene: &Scene<'_>,
         missing: &[usize],
     ) -> Result<(), Error> {
@@ -396,13 +379,7 @@ impl AddScreen {
 
     /// The row a key step goes to where the arrows stay on the page: round
     /// among its widgets.
-    fn step(
-        &self,
-        laid: &Gallery<WidgetHandle>,
-        page: usize,
-        focus: usize,
-        down: bool,
-    ) -> Option<usize> {
+    fn step(&self, laid: &Gallery<Made>, page: usize, focus: usize, down: bool) -> Option<usize> {
         if !self.arrows_stay {
             return None;
         }
@@ -418,7 +395,7 @@ impl AddScreen {
 
     /// The first widget of the next or the previous page (the same where there
     /// is none).
-    fn turned(laid: &Gallery<WidgetHandle>, page: usize, forward: bool) -> Option<usize> {
+    fn turned(laid: &Gallery<Made>, page: usize, forward: bool) -> Option<usize> {
         let to = if forward {
             page.saturating_add(1).min(laid.pages() - 1)
         } else {
