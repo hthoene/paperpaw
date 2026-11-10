@@ -223,6 +223,9 @@ the interface-6 ones are used as they are (`update.leaves`, `update.leaves.downl
   16 for every PaperPaw image, not only where `dev_check.flags` bit 5 is set, because the SDK's `FileCheck` has no
   accessor for bit 5 (an image that leaves nothing out answers no rows); one more service call per file.
   TODO: call op 16 only when `FileCheck::leaves_out()` (dev_check.flags bit 5, draft-36 carrier) says so, once it is on integration
+  Open (Port Reviewer 2, to settle with Kernel in device.md 5.1): after a `Busy` wait the plugin re-reads op 6 by the file's
+  old request; device.md keeps an op 6 result only until the plugin's next check, so it may answer NOT_FOUND and the
+  file then ends as unfit (safe, no recovery).
 - **An update the server named, not yet downloaded.** The answer lists the crates it has built in (`plugins`); what
   is built in now (`core.device` `builtins`) and not among them is left out. The page names them, each with the
   server's reason where it says one (*not in the plugin library*, *not ready yet*; the `missing` lines),
