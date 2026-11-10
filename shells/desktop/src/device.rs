@@ -739,6 +739,9 @@ impl Device {
         let net = self.linked.net.borrow();
         if let Some(net) = net.as_ref() {
             net.transport.pump(&net.reports, wait);
+            if let Some((sockets, reports)) = &net.sockets {
+                sockets.pump(reports, !self.profile.wifi || self.wifi.is_online());
+            }
         }
     }
 
@@ -1311,6 +1314,17 @@ mod tests {
             net.as_ref().unwrap().transport.network_demand(wanted);
         };
         assert!(device.linked.net.borrow().is_some(), "core.net is wired");
+        assert!(
+            device
+                .linked
+                .net
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .sockets
+                .is_some(),
+            "core.sockets is wired with it"
+        );
         assert!(device.profile.wifi && !device.wifi.is_online());
         // Nothing wanted: the radio stays as it was.
         device.poll_http(None);

@@ -22,7 +22,8 @@ use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
-    NetInputs, NetLimits, NetReports, SecretsInputs, WorkDevice, WorkInputs,
+    NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits, SockReports,
+    WorkDevice, WorkInputs,
 };
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
@@ -40,14 +41,17 @@ use crate::profiles::Profile;
 fn offered(wired: Wired) -> &'static [Service<'static>] {
     use std::sync::OnceLock;
     const OWN: &[&str] = &["core.ui", "core.registry"];
-    static OFFERED: [OnceLock<Vec<Service<'static>>>; 8] = [const { OnceLock::new() }; 8];
-    let index =
-        usize::from(wired.secrets) | usize::from(wired.work) << 1 | usize::from(wired.net) << 2;
+    static OFFERED: [OnceLock<Vec<Service<'static>>>; 16] = [const { OnceLock::new() }; 16];
+    let index = usize::from(wired.secrets)
+        | usize::from(wired.work) << 1
+        | usize::from(wired.net) << 2
+        | usize::from(wired.sockets) << 3;
     OFFERED[index].get_or_init(|| {
         let wired_keys = [
             (wired.secrets, "core.secrets"),
             (wired.work, "core.work"),
             (wired.net, "core.net"),
+            (wired.sockets, "core.sockets"),
         ]
         .into_iter()
         .filter_map(|(on, key)| on.then_some(key));
@@ -71,6 +75,7 @@ struct Wired {
     secrets: bool,
     work: bool,
     net: bool,
+    sockets: bool,
 }
 
 /// The consent features this shell backs: the registry (the kernel's own),
@@ -101,7 +106,8 @@ fn features(wired: Wired) -> &'static [Feature<'static>] {
     const SECRETS_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS];
     const NET_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, NETWORK];
     const BOTH: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS, NETWORK];
-    match (wired.secrets, wired.net) {
+    // `uses.network` is the one feature of HTTP and sockets (`network.md` 1).
+    match (wired.secrets, wired.net || wired.sockets) {
         (false, false) => BASE,
         (true, false) => SECRETS_ONLY,
         (false, true) => NET_ONLY,
@@ -171,6 +177,8 @@ pub struct Inputs {
 pub struct Net {
     pub transport: Rc<crate::native_net::NativeNet>,
     pub reports: NetReports,
+    /// TCP and UDP broadcast (`core.sockets`), where wired.
+    pub sockets: Option<(Rc<crate::native_sock::NativeSock>, SockReports)>,
 }
 
 impl std::fmt::Debug for Inputs {
@@ -239,13 +247,26 @@ pub fn register(
             storage.clone(),
             inputs.view.clone(),
         ));
-        wiring = std::mem::take(&mut wiring).net(NetInputs::new(
-            storage,
-            transport.clone(),
-            transport.clone(),
-            NetLimits::new(0, 8),
-        ));
-        transport
+        // Plain TCP and UDP broadcast, no TLS (the emulator has none). The
+        // same transport tells core of the network for both services: core
+        // combines their demand.
+        let sockets = Rc::new(crate::native_sock::NativeSock::new());
+        wiring = std::mem::take(&mut wiring)
+            .net(NetInputs::new(
+                storage.clone(),
+                transport.clone(),
+                transport.clone(),
+                // The one pool and its TLS sessions are the same in both
+                // wirings (`SockLimits::large`: 4).
+                NetLimits::new(0, 8).tls_sessions(4),
+            ))
+            .sockets(SockInputs::new(
+                storage,
+                sockets.clone(),
+                transport.clone(),
+                SockLimits::large(0),
+            ));
+        (transport, sockets)
     });
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
@@ -272,10 +293,16 @@ pub fn register(
         secrets: wired.secrets().is_some(),
         work: true,
         net: wired.net().is_some(),
+        sockets: wired.sockets().is_some(),
     };
-    *inputs.net.borrow_mut() = transport
-        .zip(wired.net().cloned())
-        .map(|(transport, reports)| Net { transport, reports });
+    *inputs.net.borrow_mut() =
+        transport
+            .zip(wired.net().cloned())
+            .map(|((transport, sockets), reports)| Net {
+                transport,
+                reports,
+                sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
+            });
     let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
     let host = metadata::Host {
         abi_major: 7,
