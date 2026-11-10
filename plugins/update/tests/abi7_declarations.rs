@@ -180,11 +180,12 @@ fn the_first_run_step_is_the_registrations() {
     assert_eq!(new.8, 8, "the Firmware need");
 }
 
-/// The card flow hears the start (to say how an install went), the end of an
-/// install and its progress: three subscriptions, each with its own token, in
-/// the batch the host's rules accept.
+/// It hears the start (to say how an install went), the end of an install and
+/// its progress, the answers and progress of its requests, the work that looks
+/// for updates and the setting that turns that on: seven subscriptions, each
+/// with its own token, in the batch the host's rules accept.
 #[test]
-fn the_events_are_the_start_the_end_and_the_progress_of_an_install() {
+fn the_events_are_the_card_flow_the_requests_the_work_and_the_setting() {
     let all = batches(|d| declarations::events(d).unwrap());
     assert_eq!(all.len(), 1);
     let native = declared::native("update", &all);
@@ -200,7 +201,11 @@ fn the_events_are_the_start_the_end_and_the_progress_of_an_install() {
         [
             declarations::STARTED,
             declarations::INSTALL_DONE,
-            declarations::FIRMWARE_CHANGED
+            declarations::FIRMWARE_CHANGED,
+            declarations::HTTP_DONE,
+            declarations::HTTP_PROGRESS,
+            declarations::WORK_DUE,
+            declarations::SETTING_CHANGED
         ]
         .map(|token| token.to_string())
     );

@@ -92,8 +92,28 @@ Deliberately different from interface 6:
 
 - Host acceptance: the plugin through the production loader needs the activation (#944, #417) and the
   shells' production `core.net` and storage wiring (Files/Firmware); no acceptance case passes by itself.
-- The fetch started by a rule as declared work (no native work declaration yet): interface 6's
-  `wallabag.fetch-due` has no counterpart.
 - The set-up screen on the production host (H1, H2) and the keyboard slot, as before.
 - The X4 file (`tools/plugin-files7`, listed in `complete.txt`): `wallabag-1.0.7-x4.ppn` is 148,152 B
   (117,356 code, 26,384 data). Not measured: the peak memory of a fetch.
+
+## The fetch for a rule: declared work
+
+Interface 6 ran the one action `wallabag.fetch` in two ways: from a reader it fetched at once, from a rule
+(no reader) it declared work that ran when fetching was cheap, within an hour (`wallabag.fetch-due`). The
+action stays one (`wallabag.fetch`, "Fetch articles"), as in Beta 3: `event.action_run` carries the origin
+(`flags` bit 0 `background`, draft 35, #885; SDK `Event::ActionRun { background, .. }`).
+
+- The reader's own run (the screen's row, a menu entry, a key): fetches at once.
+- A background run (a rule's, another plugin's `run_action`): declares the work `wallabag.fetch-due`
+  (`core.work`: network work, optional, within an hour; declaring it again replaces the one that waits). The
+  plugin subscribes to `event.work_due` (103, token `WORK_TOKEN`; a declaration without it is `ERR_STATE`);
+  when the work is due it fetches as the action does. A work the host refuses (a full table, the network off
+  for the plugin) or a missing work service costs that fetch and does not fail the callback; a refused
+  allocation is `NoMemory`.
+
+A rule's run (or a due work) while a fetch is under way changes nothing: `fetch` returns at once for a
+running fetch, and the work that was declared is then spent (the next rule run declares it again).
+
+No difference from Beta 3. **Stacked on #885** (the flag is not on integration before it merges; the PR
+carries the draft-35 `abi.def` change with it, so merge after it). The metadata lists `core.work`; tests:
+`tests/native_work_flow.rs` (scripted `core.work`, both origins), `tests/abi7_declarations.rs`.
