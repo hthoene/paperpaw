@@ -22,10 +22,11 @@
 //! Counting (S7) is the `Metered` storage the adapter is given: bytes read,
 //! bytes written and `sync` calls of the plugin whose code runs.
 
+use super::format_scope::{BookKind, FormatBook};
 use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
-    ERR_UNSUPPORTED, ERR_UTF8,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_UNSUPPORTED, ERR_UTF8,
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::Id;
@@ -56,6 +57,9 @@ pub struct StorageAdapter<'a> {
     /// `ERR_BUSY`, so the plugin's own `name.pp-staged` recipe can never meet
     /// the host's temporary file.
     in_use: Option<&'a super::paths_in_use::PathsInUse>,
+    /// The document of the format call the plugin is in, for roots 3, 4 and 6
+    /// (`document.md` 3, Roots); `None` outside such a call.
+    format: Option<&'a FormatBook<'a>>,
 }
 
 impl core::fmt::Debug for StorageAdapter<'_> {
@@ -80,6 +84,7 @@ impl<'a> StorageAdapter<'a> {
             storage,
             folder: Cow::Owned(folder),
             in_use: None,
+            format: None,
         })
     }
 
@@ -101,7 +106,15 @@ impl<'a> StorageAdapter<'a> {
             storage,
             folder: Cow::Borrowed(folder),
             in_use,
+            format: None,
         })
+    }
+
+    /// The adapter for a call of a format plugin: roots 3, 4 and 6 are the
+    /// document of `book`.
+    pub(crate) fn with_format(mut self, book: &'a FormatBook<'a>) -> Self {
+        self.format = Some(book);
+        self
     }
 
     /// `ERR_FULL` when `len` more bytes would leave less than the reserve.
@@ -115,10 +128,11 @@ impl<'a> StorageAdapter<'a> {
         &self,
         root: u32,
         path: &[u8],
+        write: bool,
         with: impl FnOnce(&str) -> Result<R, i32>,
     ) -> Result<R, i32> {
         if root != ROOT_PLUGIN {
-            return Err(ERR_UNSUPPORTED);
+            return self.resolve_format(root, path, write, with);
         }
         let relative = relative_path(path)?;
         let mut buf = [0u8; MAX_JOINED];
@@ -132,6 +146,80 @@ impl<'a> StorageAdapter<'a> {
         if !joined.starts_with(self.folder.as_ref())
             || !paperpaw_platform::storage::is_valid_path(joined)
         {
+            return Err(ERR_INVALID);
+        }
+        with(joined)
+    }
+
+    /// Roots 3 (the book), 4 (the user's CSS file) and 6 (the document's
+    /// cache), for a format plugin inside a call for a document. In order:
+    /// the root (`ERR_UNSUPPORTED` for any other, and for these outside such a
+    /// call or where the call has none: a document without a cache folder, a
+    /// call that does not read the CSS file), `ERR_DENIED` for a change of
+    /// root 3 or 4, the path rules, then what the root names. Root 6 keeps
+    /// `.complete` and `.host/` for the host: a change is `ERR_DENIED`, a read
+    /// `ERR_NOT_FOUND`.
+    fn resolve_format<R>(
+        &self,
+        root: u32,
+        path: &[u8],
+        write: bool,
+        with: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        const BOOK: u32 = 3;
+        const CSS: u32 = 4;
+        const CACHE: u32 = 6;
+        if !matches!(root, BOOK | CSS | CACHE) {
+            return Err(ERR_UNSUPPORTED);
+        }
+        let book = self.format.ok_or(ERR_UNSUPPORTED)?;
+        let (base, single) = match root {
+            BOOK => match book.kind {
+                BookKind::File => (book.path, true),
+                _ => (book.folder().unwrap_or(""), false),
+            },
+            CSS if book.css.is_empty() => return Err(ERR_UNSUPPORTED),
+            CSS => (book.css, true),
+            _ if book.cache.is_empty() => return Err(ERR_UNSUPPORTED),
+            _ => (book.cache, false),
+        };
+        if write && root != CACHE {
+            return Err(ERR_DENIED);
+        }
+        // The empty path names the book's file or the CSS file; a cache has no
+        // file at its top (a change of it would be the cache folder's).
+        let relative = if path.is_empty() && root != CACHE {
+            ""
+        } else {
+            relative_path(path)?
+        };
+        if single {
+            // One file: its name is the path "".
+            return if relative.is_empty() {
+                with(base)
+            } else {
+                Err(ERR_NOT_FOUND)
+            };
+        }
+        let first = relative.split('/').next().unwrap_or_default();
+        if root == CACHE && reserved_in_cache(first, relative) {
+            return Err(if write { ERR_DENIED } else { ERR_NOT_FOUND });
+        }
+        // A book at the top of the card must not reach the kernel's folders.
+        if root == BOOK && base.is_empty() && !first.is_empty() && reaches_kernel(first) {
+            return Err(ERR_INVALID);
+        }
+        let mut buf = [0u8; MAX_JOINED];
+        let slash = usize::from(!base.is_empty() && !relative.is_empty());
+        let end = base.len() + slash + relative.len();
+        let target = buf.get_mut(..end).ok_or(ERR_NO_SPACE)?;
+        target[..base.len()].copy_from_slice(base.as_bytes());
+        if slash == 1 {
+            target[base.len()] = b'/';
+        }
+        target[base.len() + slash..].copy_from_slice(relative.as_bytes());
+        let joined = core::str::from_utf8(target).map_err(|_| ERR_UTF8)?;
+        if !joined.is_empty() && !paperpaw_platform::storage::is_valid_path(joined) {
             return Err(ERR_INVALID);
         }
         with(joined)
@@ -181,7 +269,7 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status; nothing is touched.
     pub fn size(&self, root: u32, path: &[u8]) -> Result<u64, i32> {
-        self.resolve(root, path, |p| self.storage.size(p).map_err(status))
+        self.resolve(root, path, false, |p| self.storage.size(p).map_err(status))
     }
 
     /// Slot 21: reads into `out` from `offset`; the count of bytes copied,
@@ -200,7 +288,7 @@ impl<'a> StorageAdapter<'a> {
         if out.len() > MAX_DATA {
             return Err(ERR_NO_SPACE);
         }
-        self.resolve(root, path, |p| {
+        self.resolve(root, path, false, |p| {
             self.storage.read_at(p, offset, out).map_err(status)
         })
     }
@@ -235,7 +323,7 @@ impl<'a> StorageAdapter<'a> {
         if data.len() > MAX_DATA {
             return Err(ERR_NO_SPACE);
         }
-        self.resolve(root, path, |p| {
+        self.resolve(root, path, true, |p| {
             self.free_of_host_writers(p)?;
             self.check_room(data.len())?;
             self.with_parents(p, &act)
@@ -250,8 +338,8 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status.
     pub fn rename(&self, root: u32, from: &[u8], to: &[u8]) -> Result<(), i32> {
-        self.resolve(root, from, |f| {
-            self.resolve(root, to, |t| {
+        self.resolve(root, from, true, |f| {
+            self.resolve(root, to, true, |t| {
                 // Neither end may be a file a host writer holds.
                 self.free_of_host_writers(f)?;
                 self.free_of_host_writers(t)?;
@@ -273,7 +361,7 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status.
     pub fn remove(&self, root: u32, path: &[u8]) -> Result<(), i32> {
-        self.resolve(root, path, |p| {
+        self.resolve(root, path, true, |p| {
             self.free_of_host_writers(p)?;
             match self.storage.remove(p) {
                 Ok(()) | Err(StorageError::NotFound) => Ok(()),
@@ -289,6 +377,25 @@ impl<'a> StorageAdapter<'a> {
     pub fn sync(&self) -> Result<(), i32> {
         self.storage.sync().map_err(status)
     }
+}
+
+/// Whether `first` (the first segment of `relative`) or the whole path names
+/// what the host keeps in a document's cache: the stamp `.complete` at the
+/// top, anything under `.host`. A name with an 8.3 tail (`~`) at the top of the
+/// cache might be another spelling of either on a FAT card, so it is refused
+/// too (a cache file of a format named so is made under another name).
+fn reserved_in_cache(first: &str, relative: &str) -> bool {
+    let same = super::files_service::same_fold;
+    same(first, ".host")
+        || same(relative, ".complete")
+        || (!relative.contains('/') && first.contains('~'))
+}
+
+/// Whether the first segment of a card path is one of the kernel's folders,
+/// in any spelling the card takes for one.
+fn reaches_kernel(first: &str) -> bool {
+    let same = super::files_service::same_fold;
+    same(first, "plugins") || same(first, ".paperpaw")
 }
 
 /// The reserve to keep free: the larger of 256 KiB and 1 % of the card.

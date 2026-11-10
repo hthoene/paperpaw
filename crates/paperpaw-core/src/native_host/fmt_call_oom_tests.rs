@@ -67,6 +67,8 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
         conversion: 0,
         text: "",
         options: Options::NONE,
+        css_root: 0,
+        css_path: "",
     };
     let who = Opener {
         owner: 5,
