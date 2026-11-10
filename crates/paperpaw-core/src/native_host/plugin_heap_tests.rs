@@ -102,7 +102,7 @@ fn the_budget_is_a_ceiling_over_blocks_headers_and_padding() {
 #[test]
 fn the_padding_of_a_large_alignment_counts() {
     // A page-aligned block of one byte costs a whole page.
-    assert!(block_cost(1, 4096) >= 4096 + 1);
+    assert!(block_cost(1, 4096) > 4096);
     let fixture = Fixture::new(4096);
     let a = fixture.owner();
     let door = fixture.door(a);
