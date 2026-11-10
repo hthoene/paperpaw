@@ -101,6 +101,13 @@ fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
     serial.checked_add(1).map(|following| (serial, following))
 }
 
+/// Whether a failed native open is told to the user: not after a lack of
+/// memory, which the notice screen would meet as well (`notify` allocates
+/// without a check); the log diagnostic says it then.
+fn tells_the_user(status: i32) -> bool {
+    status != paperpaw_native::host_glue::ERR_NO_MEMORY
+}
+
 impl Kernel {
     /// Closed room screens keep enough of the unused key space to reopen.
     pub(crate) fn screen_keys_remaining(&self) -> u32 {
@@ -134,6 +141,19 @@ impl Kernel {
         });
     }
 
+    /// Tells the user that a screen could not be opened (the diagnostic above
+    /// is for the log); the words never name the screen or its params. Not
+    /// called after a lack of memory (see [`tells_the_user`]).
+    fn notify_native_open_failed(&mut self) {
+        let words = self.shared.translator.tr("core.screen.open-failed");
+        let mut text = String::new();
+        if text.try_reserve_exact(words.len()).is_err() {
+            return;
+        }
+        text.push_str(words);
+        self.notify(text);
+    }
+
     fn screen_stack_has_room(&mut self) -> bool {
         if self.shared.stack_rows.cleanup_pending() {
             self.warn_runtime("UI instance cleanup is still pending");
@@ -156,9 +176,15 @@ impl Kernel {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
         // Native allocation finishes before changing the serial, layout or screen.
-        let Ok(native_screen) = spec.prepare_native(params) else {
-            self.warn_native_open_failed();
-            return;
+        let native_screen = match spec.prepare_native(params) {
+            Ok(screen) => screen,
+            Err(status) => {
+                self.warn_native_open_failed();
+                if tells_the_user(status) {
+                    self.notify_native_open_failed();
+                }
+                return;
+            }
         };
         let on_open = spec.refresh_on_open();
         let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
@@ -1372,5 +1398,18 @@ impl Screen for Gone {
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
+    }
+}
+
+#[cfg(test)]
+mod open_notice_tests {
+    use super::tells_the_user;
+    use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
+
+    #[test]
+    fn a_failed_open_is_told_except_after_a_lack_of_memory() {
+        assert!(!tells_the_user(ERR_NO_MEMORY));
+        assert!(tells_the_user(ERR_UNSUPPORTED));
+        assert!(tells_the_user(-1));
     }
 }

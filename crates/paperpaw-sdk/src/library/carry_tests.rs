@@ -188,11 +188,14 @@ fn a_book_the_library_does_not_know_is_moved_and_removed_without_a_write() {
 }
 
 #[test]
-fn a_list_from_a_newer_version_is_left_as_it_is() {
+fn a_list_from_a_newer_version_is_left_as_it_is_and_fails_a_removal() {
     let newer = "# format 9\na.epub\n";
     let storage = Faulty::new(card().with(&favourites_file(), newer));
     try_moved(&storage, "a.epub", "c.epub").unwrap();
-    try_removed(&storage, "c.epub").unwrap();
+    assert_eq!(
+        try_removed(&storage, "c.epub"),
+        Err(StorageError::InvalidData)
+    );
     assert_eq!(
         storage.inner.get(&favourites_file()).unwrap(),
         newer.as_bytes()
@@ -381,4 +384,27 @@ fn damaged_data_on_a_read_is_left_out_without_an_error() {
     try_moved(&storage, "a.epub", "c.epub").unwrap();
     assert!(storage.exists(&book_file("c.epub")));
     assert!(storage.exists(&cover_file("c.epub")));
+}
+
+#[test]
+fn an_unreadable_list_fails_a_removal_after_the_other_parts() {
+    for list in [opened_file(), favourites_file()] {
+        let storage = Faulty::new(card().with(&list, "# format 9\na.epub\n"));
+        assert_eq!(
+            try_removed(&storage, "a.epub"),
+            Err(StorageError::InvalidData)
+        );
+        // The rest is forgotten; the list is as it was; a repeat gives the
+        // same answer.
+        assert!(!storage.exists(&book_file("a.epub")));
+        assert!(!storage.exists(&cover_file("a.epub")));
+        assert_eq!(
+            storage.inner.get(&list).unwrap(),
+            b"# format 9\na.epub\n".to_vec()
+        );
+        assert_eq!(
+            try_removed(&storage, "a.epub"),
+            Err(StorageError::InvalidData)
+        );
+    }
 }

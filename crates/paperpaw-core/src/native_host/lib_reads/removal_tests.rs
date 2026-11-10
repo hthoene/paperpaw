@@ -156,3 +156,31 @@ fn a_card_that_cannot_remove_the_details_is_the_steps_error_not_an_ok() {
     details(&*card.storage, "books/c.epub").unwrap();
     assert!(library::book(&*card.storage, "books/c.epub").is_none());
 }
+
+#[test]
+fn an_unreadable_list_makes_the_delete_step_fail_after_the_rest_is_forgotten() {
+    let card = card();
+    kept(&card, "books/c.epub");
+    let newer = b"# format 9\nbooks/c.epub\n";
+    card.storage
+        .write(".paperpaw/library/favourites.txt", newer)
+        .unwrap();
+    assert_eq!(
+        details(&*card.storage, "books/c.epub"),
+        Err(paperpaw_native::host_glue::ERR_INVALID)
+    );
+    // The details and the fields are gone; the list is as it was, so a repeat
+    // gives the same answer and the delete does not finish; the code is a
+    // permanent one, not the retried `ERR_IO`.
+    assert!(library::book(&*card.storage, "books/c.epub").is_none());
+    let mut read = [0_u8; 64];
+    let n = card
+        .storage
+        .read_at(".paperpaw/library/favourites.txt", 0, &mut read)
+        .unwrap();
+    assert_eq!(&read[..n], newer);
+    assert_eq!(
+        details(&*card.storage, "books/c.epub"),
+        Err(paperpaw_native::host_glue::ERR_INVALID)
+    );
+}
