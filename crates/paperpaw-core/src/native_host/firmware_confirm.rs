@@ -340,14 +340,11 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         // A touch counts only inside its own buttons.
-        if gesture.kind == GestureKind::Tap {
-            match self.dialog.hit(gesture.start) {
-                Some(at) => {
-                    let answer = self.answer_of(at);
-                    self.finish(answer, cx);
-                }
-                None => {}
-            }
+        if gesture.kind == GestureKind::Tap
+            && let Some(at) = self.dialog.hit(gesture.start)
+        {
+            let answer = self.answer_of(at);
+            self.finish(answer, cx);
         }
         Handled::Yes
     }

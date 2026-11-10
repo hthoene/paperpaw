@@ -1,7 +1,9 @@
 //! The firmware commands in the DEV stage: checked whole, accepted at submit,
 //! given back when the batch never applies.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
-use super::super::{DevBatchOutput, DevContext, DevHost, InputClock, NoStoredNetworks};
+use super::super::{
+    DevBatchOutput, DevContext, DevHost, FEATURE_WIFI, InputClock, NoStoredNetworks,
+};
 use super::*;
 use crate::{
     Kernel,
@@ -33,10 +35,15 @@ const HOST: &[Feature<'static>] = &[
         key: "uses.storage",
         revision: 1,
     },
+    Feature {
+        key: FEATURE_WIFI,
+        revision: 1,
+    },
 ];
 const FIRMWARE: u32 = 1;
 const INSTALL: u32 = 2;
 const STORAGE: u32 = 4;
+const WIFI: u32 = 8;
 const OWNER: u64 = 9;
 
 struct Names;
@@ -618,10 +625,13 @@ fn the_digest_is_none_or_32_bytes_and_a_wrong_length_is_refused_at_validation() 
 
 #[test]
 fn evidence_after_another_device_command_is_refused_at_validation() {
-    let kernel = kernel();
+    let kernel = Kernel::builder(crate::tests::DEVICE)
+        .wifi(true)
+        .build()
+        .unwrap();
     let d = plugin_driver();
     let key = [1_u8; 32];
-    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL | WIFI, Some(&d), commands).0;
     // Between the install and its evidence stands another command: the
     // batch is refused whole, before anything is taken.
     assert_eq!(

@@ -16,7 +16,7 @@ use paperpaw_sdk::{Instant, Params};
 
 fn en() -> paperpaw_i18n::Translator {
     let mut translator = paperpaw_i18n::Translator::new();
-    translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/en.ini")).unwrap());
+    translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/host/en.ini")).unwrap());
     translator
 }
 
@@ -115,8 +115,8 @@ fn names_from_the_plugin_cannot_forge_lines() {
 
 #[test]
 fn the_german_texts_cover_every_english_plugin_key() {
-    let en = include_str!("../../i18n/en.ini");
-    let de = include_str!("../../i18n/de.ini");
+    let en = include_str!("../../i18n/host/en.ini");
+    let de = include_str!("../../i18n/host/de.ini");
     for line in en.lines().filter(|l| l.starts_with("core.plugin.")) {
         let key = line.split(" = ").next().unwrap();
         assert!(
