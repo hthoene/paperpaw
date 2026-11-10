@@ -88,6 +88,7 @@ impl Plugin for NativeHome {
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
         }
