@@ -174,22 +174,40 @@ fn safe_mode_switches_the_crashing_plugin_off_for_good() {
         k.shared.native_safe_mode.as_ref().unwrap().switched_off,
         [Id::new_static("mail")]
     );
-    // A built-in plugin that crashed is switched off too.
+    // A built-in plugin that crashed is held back this start only: never
+    // saved off, so the device cannot be left without a role's only plugin
+    // that only a PC could switch on again.
     let mut b = kernel_with(
         "",
         "",
         Some(safe(SafeModeReason::FailedStarts, Some("stats"))),
     );
     let config = b.native_config();
-    assert_eq!(
-        b.native_decide(&config, "stats", true, false),
-        NativeDecision::Crashed
-    );
+    let once = b.native_decide(&config, "stats", true, false);
+    assert_eq!(once, NativeDecision::CrashedOnce);
+    assert!(!once.hosts() && once.enabled());
+    assert_eq!(once.problem(), Some(PluginProblem::Crashed));
     assert_eq!(
         b.native_decide(&config, "clock", true, false),
         NativeDecision::Host
     );
-    // The next start, without safe mode: still off, from the file.
+    let kept = read_config(b.shared.storage.as_ref()).ok().flatten();
+    assert!(
+        kept.as_deref().is_none_or(|file| !file.contains("stats")),
+        "{kept:?}"
+    );
+    assert!(
+        b.shared
+            .native_safe_mode
+            .as_ref()
+            .unwrap()
+            .switched_off
+            .is_empty()
+    );
+    // The next start, without safe mode, hosts it again.
+    let mut again = kernel(kept.as_deref().unwrap_or(""), "");
+    assert!(enabled(&mut again, "stats", true));
+    // The next start, without safe mode: the card plugin is still off.
     let mut next = kernel(&file, "");
     assert!(!enabled(&mut next, "mail", true));
     assert!(enabled(&mut next, "clock", true));
@@ -241,5 +259,12 @@ fn the_decision_says_how_to_list_the_plugin() {
             NativeDecision::Crashed.problem()
         ),
         (false, Some(PluginProblem::Crashed))
+    );
+    assert_eq!(
+        (
+            NativeDecision::CrashedOnce.enabled(),
+            NativeDecision::CrashedOnce.problem()
+        ),
+        (true, Some(PluginProblem::Crashed))
     );
 }
