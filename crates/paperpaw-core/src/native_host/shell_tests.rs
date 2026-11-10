@@ -828,6 +828,7 @@ mod instance_tests {
         EVENT_ONLY.with(|e| e.set(true));
         let instance = load().unwrap();
         let host = FlatHost {
+            log: Default::default(),
             meter: crate::meter::Meter::new(None),
             directory: None,
             stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -884,6 +885,7 @@ mod instance_tests {
             reset(NORMAL);
             EVENT_ONLY.with(|e| e.set(true));
             let host = FlatHost {
+                log: Default::default(),
                 meter: crate::meter::Meter::new(None),
                 directory: None,
                 stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -974,6 +976,7 @@ mod instance_tests {
 
     fn flat_host() -> crate::native_host::FlatHost {
         crate::native_host::FlatHost {
+            log: Default::default(),
             meter: crate::meter::Meter::new(None),
             directory: None,
             stack_rows: alloc::rc::Rc::new(Default::default()),

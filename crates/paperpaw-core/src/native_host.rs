@@ -21,6 +21,7 @@ pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
 
+pub(crate) mod device_log;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -497,6 +498,7 @@ pub struct FlatHost {
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
     pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
+    pub(crate) log: device_log::DeviceLog,
 }
 
 impl FlatHost {
@@ -528,6 +530,7 @@ impl crate::Kernel {
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
+            log: self.shared.device_log,
         }
     }
 }

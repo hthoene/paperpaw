@@ -73,6 +73,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
+            log: self.host.log,
             ui: self.identity.ui_services(),
         }
     }
