@@ -22,6 +22,72 @@ use paperpaw_sdk::{
     PixelFormat, Plugin, PluginProblem, Storage, StorageError,
 };
 
+/// The fonts browser as the store meets it: the plugin of its id, its action
+/// and its list screen, which asks for the library's list of fonts as the
+/// plugin does when its list opens. (The real plugin is an interface-7 plugin:
+/// it has no interface-6 form to register in a kernel.)
+pub struct FontsStandIn;
+
+const FONTS_LOADED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::HttpReply> =
+    paperpaw_sdk::event::Event::new("fonts-browser.loaded");
+const FONTS_LIST: Id = Id::new_static("fonts-browser.list");
+
+struct FontsList;
+
+impl paperpaw_sdk::Screen for FontsList {
+    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+
+    fn on_show(&mut self, cx: &mut paperpaw_sdk::Cx<'_, '_>) {
+        cx.command(paperpaw_sdk::Command::http(paperpaw_sdk::HttpRequest::new(
+            "GET",
+            "https://paperpaw.org/api/v1/fonts.json",
+            FONTS_LOADED,
+        )));
+    }
+}
+
+static FONTS_ACTIONS: [paperpaw_sdk::FixedAction; 1] =
+    [
+        paperpaw_sdk::FixedAction::new(Id::new_static("fonts-browser.open"), "fonts-browser.more")
+            .handler(|_, _, out| {
+                out.push(paperpaw_sdk::Command::OpenScreen(
+                    FONTS_LIST,
+                    paperpaw_sdk::Params::new(),
+                ));
+            }),
+    ];
+
+static FONTS_SCREENS: [paperpaw_sdk::FixedScreen; 1] =
+    [
+        paperpaw_sdk::FixedScreen::new(FONTS_LIST, "fonts-browser.title", |_, _| {
+            Box::new(FontsList)
+        })
+        .instances(paperpaw_sdk::Instances::SINGLE),
+    ];
+
+impl Plugin for FontsStandIn {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("fonts-browser"),
+            "More fonts",
+            paperpaw_sdk::package_version!(),
+        )
+        .uses(paperpaw_sdk::Uses::NETWORK)
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_screens(&FONTS_SCREENS)?;
+        r.add_actions(&FONTS_ACTIONS)?;
+        r.add_translations(std::borrow::Cow::Borrowed(include_str!(
+            "../../../fonts-browser/i18n/en.ini"
+        )))
+    }
+}
+
 pub const DEVICE: DeviceInfo = DeviceInfo::new(
     "xteink-x4",
     "Xteink X4",
@@ -293,7 +359,7 @@ impl Shopping {
             .storage(storage.clone())
             .network(true)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
+            .plugin(FontsStandIn)
             .plugin(paperpaw_plugin_menu::Menu)
             .plugin(paperpaw_plugin_keyboard::Keyboard)
             .plugin(Store)
@@ -343,7 +409,7 @@ impl Shopping {
             .storage(storage.clone())
             .network(network)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
+            .plugin(FontsStandIn)
             // Shows the notices.
             .plugin(paperpaw_plugin_menu::Menu)
             // Asks for text and numbers.

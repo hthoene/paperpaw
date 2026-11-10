@@ -2447,7 +2447,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-menu",
