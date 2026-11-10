@@ -19,7 +19,7 @@ fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_widgets::NATIVE_ENTRY.entry(),
         "widgets",
-        &["core.library", "core.registry", "core.ui"],
+        &["core.files", "core.library", "core.registry", "core.ui"],
     )
 }
 
