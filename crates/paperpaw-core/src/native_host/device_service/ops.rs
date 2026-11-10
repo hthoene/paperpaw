@@ -171,6 +171,10 @@ fn firmware_record<'a>(f: &FirmwareFacts<'a>) -> Record<'a> {
         total: f.total,
         reason: f.reason,
         request: f.request,
+        // The dual-boot facts (bit 0 shared, bit 1 ini_off) come with the
+        // dual-boot host side (Core todo 397); until then none are told,
+        // as an older host's record reads.
+        flags: 0,
     })
 }
 

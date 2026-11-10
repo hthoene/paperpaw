@@ -134,6 +134,7 @@ fn about_inventory_reads_use_schema_operations_and_borrowed_values() {
             total: 0,
             reason: 99,
             request: 0,
+            flags: 0,
         })],
     );
     let row = device.firmware(&host, &mut input, &mut out).unwrap();
