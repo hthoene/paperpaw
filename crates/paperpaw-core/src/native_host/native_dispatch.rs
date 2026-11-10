@@ -141,7 +141,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         // Nothing is called while the queue is full or cannot be made ready:
         // the callback would stage what could not wait, and a batch it
         // believes went through must not be dropped afterwards.
-        queue.reserve()?;
+        let slot = queue.reserve()?;
         let owner = paperpaw_sdk::Id::try_parse(self.instance.host().owner().context().plugin_id())
             .map_err(|error| match error {
                 paperpaw_sdk::IdError::NoMemory => host_glue::ERR_NO_MEMORY,
@@ -164,7 +164,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         if matches!(result, Ok(0)) || (input && matches!(result, Ok(1))) {
             let staged = super::screen_stage::staged_of(stage, owner_key);
             if !staged.is_empty() {
-                queue.put(staged)?;
+                slot.put(staged)?;
             }
         }
         result
