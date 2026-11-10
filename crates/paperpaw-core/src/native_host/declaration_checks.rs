@@ -35,7 +35,8 @@ impl Cap {
     /// `reg_plugin.problem`: too many readers.
     pub(crate) const READERS: u32 = 15;
 
-    /// The cap of `problem`; 0 where it does not fit (the row says "unknown").
+    /// The cap of `problem`; 0 where it does not fit a `u32` (no cap does
+    /// today: the row's 0 for "the host cannot say" has no producer yet).
     pub(crate) fn of(problem: u32, cap: usize) -> Self {
         Self {
             problem,

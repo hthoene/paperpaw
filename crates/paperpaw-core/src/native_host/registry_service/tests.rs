@@ -766,3 +766,24 @@ fn a_plugin_refused_at_a_declaration_cap_says_which_while_it_is_failed() {
             .any(|r| r.starts_with("plugin filer ") && r.contains("problem=0/0"))
     );
 }
+
+#[test]
+fn a_removed_plugin_leaves_no_refusal_behind() {
+    use crate::native_host::declaration_checks::Cap;
+    let mut kernel = kernel(0);
+    kernel.shared.registry.native_declarations = Some(
+        crate::native_host::shared::Shared::try_new(
+            crate::native_host::native_declarations::NativeDeclarations::default(),
+        )
+        .unwrap(),
+    );
+    fn kept(kernel: &crate::Kernel) -> bool {
+        let declared = kernel.shared.registry.native_declarations.as_ref().unwrap();
+        declared.refusal("demo").is_some()
+    }
+    let declared = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    declared.record_refusal("demo", Cap::of(Cap::FORMATS, 8));
+    assert!(kept(&kernel));
+    kernel.unload_plugin(&Id::new_static("demo"));
+    assert!(!kept(&kernel));
+}
