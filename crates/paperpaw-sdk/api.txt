@@ -5607,6 +5607,7 @@ pub fn paperpaw_sdk::native::registry::Registry::slot_offers<'a>(&self, &paperpa
 pub fn paperpaw_sdk::native::registry::Registry::slots<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistrySlot<'a>>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::registry::Registry::values<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::ValuesQuery<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryValue<'a>>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::registry::Registry::widgets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryWidget<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::widgets_previewing<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryWidget<'a>>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::registry::Registry
 pub fn paperpaw_sdk::native::registry::Registry::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::registry::Registry::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -5766,6 +5767,7 @@ pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::id(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::kind(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::min_cells(&self) -> (u8, u8)
 pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::plugin(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::previews(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::square(&self) -> bool
 pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::title(&self) -> &'a str
 pub mod paperpaw_sdk::native::reply
