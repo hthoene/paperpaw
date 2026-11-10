@@ -283,6 +283,7 @@ fn with_kernel_frame<R>(
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let guards: Vec<_> = (0..levels)
@@ -834,6 +835,7 @@ mod native {
             Retained::make(host).unwrap(),
             depth.try_clone().unwrap(),
             FlatHost {
+                log: Default::default(),
                 meter: Rc::clone(&kernel.shared.meter),
                 directory: None,
                 stack_rows: Rc::clone(&kernel.shared.stack_rows),

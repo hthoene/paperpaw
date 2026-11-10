@@ -13,6 +13,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
 
+mod native_network;
+pub(crate) use native_network::USES_NETWORK;
 mod runs;
 
 use paperpaw_platform::Instant;
@@ -215,6 +217,12 @@ pub(crate) struct Queue {
     ticking: bool,
     /// Notices of background work, as notes, not yet kept.
     notes: Vec<(String, paperpaw_sdk::work::Note)>,
+    /// Native plugins with `uses.network` (admitted with their network
+    /// settings, `native_network.rs`).
+    natives: Vec<String>,
+    /// The network settings kept in the program (see
+    /// [`Kernel::define_network_settings`]), for the native plugins too.
+    fixed: &'static [NetworkSettings],
     /// Plugins whose network the reader switched off.
     off: Vec<String>,
     /// Plugins whose work does not follow the mode.
@@ -755,7 +763,8 @@ impl Kernel {
             .plugins
             .iter()
             .filter(|p| p.manifest.uses.contains(Uses::NETWORK))
-            .map(|p| String::from(p.manifest.id.as_str()));
+            .map(|p| String::from(p.manifest.id.as_str()))
+            .chain(self.works.natives.iter().cloned());
         let (mut off, mut exempt) = (Vec::new(), Vec::new());
         for plugin in networked {
             let network = settings.get(&network_setting(&plugin));
@@ -1015,24 +1024,9 @@ impl Kernel {
             })
             .map(|p| String::from(p.manifest.id.as_str()))
             .collect();
+        self.works.fixed = fixed;
         for plugin in networked {
-            let defined = match fixed.iter().find(|(p, _)| *p == plugin) {
-                Some((_, specs)) => {
-                    (0..specs.len()).try_for_each(|at| self.shared.settings.define_fixed(specs, at))
-                }
-                None => {
-                    let (Ok(network), Ok(saving)) = (
-                        Id::parse(&network_setting(&plugin)),
-                        Id::parse(&saving_setting(&plugin)),
-                    ) else {
-                        continue;
-                    };
-                    network_specs(network, saving)
-                        .into_iter()
-                        .try_for_each(|spec| self.shared.settings.define(spec))
-                }
-            };
-            if let Err(e) = defined {
+            if let Err(e) = self.define_network_pair(&plugin, false) {
                 self.warn_runtime(alloc::format!("{plugin}: {e:?}"));
             }
         }

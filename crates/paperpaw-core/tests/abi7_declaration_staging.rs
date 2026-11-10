@@ -605,10 +605,13 @@ fn a_record_failing_validation_poisons_without_staging_the_valid_ones_before_it(
 fn callbacks_and_declarations_are_staged_together_or_not_at_all() {
     let owner = new_owner();
     let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
-    let eight: Vec<_> = (0..8).map(draw).collect();
-    assert_eq!(send(&owner, &mut construction, &encode(&eight)), OK);
+    // 32 callbacks, in four batches of eight, fill every slot.
+    for first in [0, 8, 16, 24] {
+        let eight: Vec<_> = (first..first + 8).map(draw).collect();
+        assert_eq!(send(&owner, &mut construction, &encode(&eight)), OK);
+    }
     // The callback slots are full: the declaration beside the draw is not kept.
-    let status = send(&owner, &mut construction, &encode(&[spec("a"), draw(8)]));
+    let status = send(&owner, &mut construction, &encode(&[spec("a"), draw(32)]));
     assert_eq!(status, ERR_NO_SPACE);
     assert!(construction.declarations().is_empty());
     assert!(matches!(
