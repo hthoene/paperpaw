@@ -84,6 +84,8 @@ impl Dispatch for Callee {
             usage: &kernel.shared.usage,
             plugins: &kernel.shared.plugins,
             work: &kernel.shared.work_states,
+            ui: None,
+            log: crate::native_host::device_log::DeviceLog::new(None),
         };
         let nested = frame
             .call_native(CALLER, token, &[], &mut [0; 8], &mut |_| Ok(()))
@@ -193,6 +195,8 @@ impl Fixture {
             usage: &kernel.shared.usage,
             plugins: &kernel.shared.plugins,
             work: &kernel.shared.work_states,
+            ui: None,
+            log: crate::native_host::device_log::DeviceLog::new(None),
         };
         let outer = crate::abi7::calls::Instance::new();
         let _outer = outer.enter(&self.depth.as_depth().0).unwrap();

@@ -199,10 +199,10 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
-pub(crate) mod doc_host;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
+pub(crate) mod doc_host;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -325,6 +325,7 @@ mod declaration_index;
 
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
+mod declaration_refusals;
 
 #[path = "native_host/declarations_uix.rs"]
 mod declarations_uix;
@@ -428,14 +429,14 @@ pub(crate) mod native_widget;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/core_events.rs"]
+pub(crate) mod core_events;
 #[path = "native_host/native_call.rs"]
 #[allow(
     dead_code,
     reason = "the document and lookup adapters call it through Frame::call_native"
 )]
 pub(crate) mod native_call;
-#[path = "native_host/core_events.rs"]
-pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
 
@@ -726,6 +727,7 @@ impl<C, M> HostOwner<C, M> {
             failure: None,
             image: None,
             submitted: false,
+            refused: None,
         })
     }
 
@@ -812,6 +814,8 @@ pub struct Construction<'a, C, M, T> {
     failure: Option<Error>,
     image: Option<&'a [u8]>,
     submitted: bool,
+    /// The declaration cap the batch was refused at, once `finish` said so.
+    refused: Option<declaration_checks::Cap>,
 }
 
 type StoredConstruction<'a, C, M, T, R> = (
@@ -844,12 +848,16 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             owned: &self.declarations,
             image: self.image,
             plugin: self.plugin_id,
+            refused: core::cell::Cell::new(None),
         }
     }
 
     fn finish_declarations(&mut self) -> Result<(), i32> {
         self.raw.sort_index();
-        self.declaration_view().finish()
+        let view = self.declaration_view();
+        let result = view.finish();
+        self.refused = view.refused.get();
+        result
     }
 
     /// Poison this transaction after any registration decoding or validation
@@ -933,7 +941,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
-        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map, |_, _| {})?;
         drop(raw);
         Ok((batch, staging))
     }
@@ -944,11 +952,17 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         mut self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, declaration_checks::Cap),
     ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
-        self.finish_declarations()?;
+        if let Err(status) = self.finish_declarations() {
+            if let Some(cap) = self.refused {
+                refused(self.plugin_id, cap);
+            }
+            return Err(status);
+        }
         let staging = map(&self.declaration_view())?;
         self.declarations = Declarations::default();
         let raw = core::mem::take(&mut self.raw);
