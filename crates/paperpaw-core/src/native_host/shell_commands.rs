@@ -51,7 +51,7 @@ impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
     /// Draw is render-only and must never use this helper. No second queue is kept.
-    pub(crate) fn with_native_commands<S, M>(
+    pub(crate) fn with_native_commands<S: 'static, M>(
         &mut self,
         batch: &Batch<'_, S, M, Registration>,
         depth: &DispatchDepth,

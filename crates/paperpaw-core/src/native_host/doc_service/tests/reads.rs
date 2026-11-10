@@ -735,9 +735,10 @@ fn pictures_get_the_openers_image_id_and_a_failed_one_is_no_picture() {
     // All ids out and none drawn: op 16 is busy for that picture, never a hang.
     fake.image.set(Some(Some(0)));
     assert_eq!(call_raw(&fake, 16, &input_for(16, id)), Err(ERR_BUSY));
-    // A picture that fails the cache-image check: the answer was malformed.
+    // A picture that fails the cache-image check is none (`ERR_NOT_FOUND`), not
+    // a malformed answer: the document is not struck for it.
     fake.image.set(Some(None));
-    assert_eq!(call_raw(&fake, 15, &input_for(15, id)), Err(ERR_INVALID));
+    assert_eq!(call_raw(&fake, 15, &input_for(15, id)), Err(ERR_NOT_FOUND));
     // The answer must be one picture.
     fake.image.set(Some(Some(41)));
     fake.say(&[picture(), picture()]);

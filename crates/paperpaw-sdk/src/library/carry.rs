@@ -100,12 +100,14 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
         storage,
         &opened_file(),
         MAX_OPENED,
+        Unreadable::Leave,
         replace,
     ))?;
     left.step(try_update_list(
         storage,
         &favourites_file(),
         MAX_FAVOURITES,
+        Unreadable::Leave,
         replace,
     ))?;
     left.end()
@@ -116,13 +118,17 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
 /// where an earlier version kept them) and its place among the recently
 /// opened and the favourites.
 ///
-/// What is not there counts as done, so a repeated call finishes; a list
-/// that cannot be read is left out, as for [`try_moved`].
+/// What is not there counts as done, so a repeated call finishes. A list
+/// that is there but cannot be read (a newer version's, damaged, no text)
+/// is not written over and is a permanent error, as the book would stay
+/// listed: the other parts are still forgotten, then
+/// [`StorageError::InvalidData`] is returned. ([`try_moved`] leaves such a
+/// list out.)
 ///
 /// # Errors
 /// As [`try_moved`]: the first error a retry may cure stops the call;
-/// else the first one no retry changes is returned once every other part
-/// was forgotten.
+/// else the first one no retry changes (an unreadable list included) is
+/// returned once every other part was forgotten.
 pub fn try_removed(storage: &dyn Storage, path: &str) -> Result<(), StorageError> {
     let mut left = Left::default();
     for file in [
@@ -142,12 +148,14 @@ pub fn try_removed(storage: &dyn Storage, path: &str) -> Result<(), StorageError
         storage,
         &opened_file(),
         MAX_OPENED,
+        Unreadable::Fail,
         without,
     ))?;
     left.step(try_update_list(
         storage,
         &favourites_file(),
         MAX_FAVOURITES,
+        Unreadable::Fail,
         without,
     ))?;
     left.end()
@@ -206,16 +214,33 @@ fn done(result: Result<(), StorageError>) -> Result<bool, StorageError> {
 /// write error returned. The list is written only where `change` says it
 /// changed it (no copy of a list of up to 500 paths to compare), so a
 /// repeat writes nothing.
+/// What a list that is there but cannot be read (a newer version's, damaged,
+/// no text) does to the call: it is never written over either way.
+#[derive(Clone, Copy)]
+enum Unreadable {
+    /// Left as it is; the call goes on (a move).
+    Leave,
+    /// [`StorageError::InvalidData`], a permanent error (a removal): the
+    /// book would stay listed.
+    Fail,
+}
+
 fn try_update_list(
     storage: &dyn Storage,
     path: &str,
     max: usize,
+    unreadable: Unreadable,
     change: impl FnOnce(&mut Vec<String>) -> bool,
 ) -> Result<(), StorageError> {
     let text = match Format::FIRST.try_load(storage, path, max * 512) {
         Ok(Some(text)) => text,
         Ok(None) | Err(Error::Storage(StorageError::NotFound)) => return Ok(()),
-        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => return Ok(()),
+        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => {
+            return match unreadable {
+                Unreadable::Leave => Ok(()),
+                Unreadable::Fail => Err(StorageError::InvalidData),
+            };
+        }
         Err(Error::Storage(e)) => return Err(e),
         Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
     };
