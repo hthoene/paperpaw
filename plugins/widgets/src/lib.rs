@@ -26,6 +26,7 @@ mod native_dates;
 mod native_day;
 mod native_defs;
 mod native_draw;
+mod native_favourites;
 mod native_entry;
 mod native_greeting;
 mod native_highlight;
@@ -35,6 +36,8 @@ mod native_numbers;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_quote;
+mod native_series;
+mod native_shelf;
 mod native_tiles;
 mod native_todo;
 mod native_todo_list;

@@ -12,6 +12,7 @@ use paperpaw_sdk::{
         commands::CommandSender,
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         fonts::{Font, FontRole},
+        image::ImageStyle,
         registrations,
         reply::Reply,
         ui::{
@@ -78,6 +79,9 @@ pub struct NativeWidgets {
     highlights: crate::native_quote::Showings,
     /// The library's numbers as last counted.
     numbers: crate::native_numbers::Cache,
+    /// The favourites and the series as last read.
+    favourites: crate::native_favourites::Cache,
+    series: crate::native_series::Cache,
 }
 
 impl NativeWidgets {
@@ -102,17 +106,28 @@ impl NativeWidgets {
         Ok(())
     }
 
-    fn stage(&self, host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+    fn stage(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
         let call = WidgetCall::decode(payload)?;
         let mut out = paperpaw_ui_kit::mem::buffer(REPLY)?;
         let written = match call {
             WidgetCall::Measure { instance, width } => {
-                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let item = self
+                    .items
+                    .iter()
+                    .find(|item| item.instance.get() == instance.get())
+                    .ok_or(Error::NotFound)?;
                 let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
                 let mut cx = Cx::open(host, &item.widget)?;
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let height = if item.token == crate::native_todo::TOKEN {
                     crate::native_todo::height_with(&mut cx, width, &self.todo)?
+                } else if item.token == crate::native_favourites::TOKEN {
+                    crate::native_favourites::height_with(&mut cx, width, &mut self.favourites)?
                 } else {
                     (behaviour.height)(&mut cx, width)?
                 };
@@ -123,9 +138,22 @@ impl NativeWidgets {
                 call.reply_place(&mut out)?
             }
             WidgetCall::Targets { instance, rect } => {
-                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let item = self
+                    .items
+                    .iter()
+                    .find(|item| item.instance.get() == instance.get())
+                    .ok_or(Error::NotFound)?;
                 let tap = behaviour(item.token).map(|b| b.tap);
-                if tap == Some(Tap::TickItems) {
+                if tap == Some(Tap::Books) {
+                    let cx = Cx::open(host, &item.widget)?;
+                    let area = frame_to_area(rect);
+                    let targets = if item.token == crate::native_favourites::TOKEN {
+                        crate::native_favourites::targets_with(&cx, area, &mut self.favourites)?
+                    } else {
+                        crate::native_series::targets_with(&cx, area, &mut self.series)?
+                    };
+                    call.reply_targets(&targets, &mut out)?
+                } else if tap == Some(Tap::TickItems) {
                     let cx = Cx::open(host, &item.widget)?;
                     let area = frame_to_area(rect);
                     let targets = crate::native_todo::targets(&cx, area, &self.todo)?;
@@ -302,41 +330,71 @@ impl Plugin for NativeWidgets {
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
-        let item = self
-            .items
-            .iter()
-            .find(|item| item.instance.get() == frame.id)
-            .ok_or(Error::NotFound)?;
-        let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
-        let mut cx = Cx::open(host, &item.widget)?;
-        let area = Rect::new(
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.x)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.y)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.width)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
-        );
-        let mut out = Vec::new();
-        if item.token == crate::native_todo::TOKEN {
-            crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
-        } else if item.token == crate::native_quote::TOKEN {
-            crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
-        } else if item.token == crate::native_highlight::TOKEN {
-            let kept = (&mut self.highlight, &self.highlights);
-            crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
-        } else if item.token == crate::native_numbers::TOKEN {
-            crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
-        } else {
-            (behaviour.draw)(&mut cx, &mut out, area)?;
-        }
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
+        let mut pictures = paperpaw_ui_kit::covers::Pictures::default();
         {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+            let item = self
+                .items
+                .iter()
+                .find(|item| item.instance.get() == frame.id)
+                .ok_or(Error::NotFound)?;
+            let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
+            let mut cx = Cx::open(host, &item.widget)?;
+            let area = Rect::new(
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.x)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.y)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.width)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
+            );
+            let mut out = Vec::new();
+            if item.token == crate::native_favourites::TOKEN {
+                let kept = (&mut self.favourites, &mut pictures);
+                crate::native_favourites::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_series::TOKEN {
+                let kept = (&mut self.series, &mut pictures);
+                crate::native_series::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_todo::TOKEN {
+                crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
+            } else if item.token == crate::native_quote::TOKEN {
+                crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
+            } else if item.token == crate::native_highlight::TOKEN {
+                let kept = (&mut self.highlight, &self.highlights);
+                crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_numbers::TOKEN {
+                crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
+            } else {
+                (behaviour.draw)(&mut cx, &mut out, area)?;
+            }
+            let bold = if out
+                .iter()
+                .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
+            {
+                Some(Font::acquire_role(host, FontRole::UiBold)?)
+            } else {
+                None
+            };
+            paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
+        }
+        // The covers go where nothing else is drawn. One the host no longer has
+        // (it ended the id for room) or cannot draw is left out: the next draw
+        // asks for it again.
+        for (image, at) in &pictures.placed {
+            frame
+                .draw_canvas()?
+                .draw_image(*image, paint::frame_rect(*at), ImageStyle::new().small())
+                .ok();
+        }
+        if pictures.busy {
+            // A cover still being made: the next tick draws the widget again.
+            let instance = frame.id;
+            if let Some(item) = self
+                .items
+                .iter_mut()
+                .find(|item| item.instance.get() == instance)
+            {
+                item.shown = None;
+            }
+        }
+        Ok(())
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
@@ -378,6 +436,25 @@ impl Plugin for NativeWidgets {
             self.todo.forget();
             CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
             return Ok(Handled::Yes);
+        }
+        if tap == Some(Tap::Books) {
+            if target & crate::native_shelf::BOOK_TARGET == 0 {
+                return Ok(Handled::No);
+            }
+            let index = usize::try_from(target & !crate::native_shelf::BOOK_TARGET).unwrap_or(0);
+            let widget = item.widget.as_str();
+            let book = if item.token == crate::native_favourites::TOKEN {
+                crate::native_favourites::book_at(host, widget, &mut self.favourites, index)?
+            } else {
+                crate::native_series::book_at(host, widget, &mut self.series, index)?
+            };
+            return match book {
+                Some(book) => {
+                    crate::native_books::open_book(host, book)?;
+                    Ok(Handled::Yes)
+                }
+                None => Ok(Handled::No),
+            };
         }
         if target != SETTINGS_TARGET {
             return Ok(Handled::No);
