@@ -37,23 +37,30 @@ const MAX_CHARS: usize = 512;
 /// # Errors
 /// `NoMemory`, and `Invalid` where the path would be too long.
 pub fn path(id: &str, version: &str, language: &str) -> Result<String, Error> {
+    let version = version.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.');
+    let language = language.chars().filter(char::is_ascii_alphanumeric);
+    // The length first: catalog strings may be of any size, and nothing is
+    // pushed before they are known to fit (digits of the size: at most 10).
+    let total = DIR.len() + 1 + id.len() + 1 + version.clone().count() + 1 + 10 + 1
+        + language.clone().count()
+        + ".ppfp".len();
+    if total > MAX_PATH || id.contains(['/', '\\']) || id.contains("..") {
+        return Err(Error::Invalid);
+    }
     let mut out = String::new();
-    out.try_reserve(MAX_PATH).map_err(|_| Error::NoMemory)?;
+    out.try_reserve_exact(total).map_err(|_| Error::NoMemory)?;
     out.push_str(DIR);
     out.push('/');
     out.push_str(id);
     out.push('-');
-    out.extend(
-        version
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '.'),
-    );
+    out.extend(version);
     out.push('-');
     push_number(&mut out, SIZE);
     out.push('-');
-    out.extend(language.chars().filter(char::is_ascii_alphanumeric));
+    out.extend(language);
     out.push_str(".ppfp");
-    if out.len() > MAX_PATH || id.contains(['/', '\\']) || out.contains("..") {
+    // Two dots in a row would look like a step up.
+    if out.contains("..") {
         return Err(Error::Invalid);
     }
     Ok(out)

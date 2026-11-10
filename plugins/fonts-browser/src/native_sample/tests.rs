@@ -41,3 +41,11 @@ fn the_address_asks_for_the_size_and_the_characters() {
         "https://x.org/s?v=1&size=26&text=%C3%A4%E2%80%A6"
     );
 }
+
+#[test]
+fn a_path_over_the_limit_is_refused_before_anything_is_built() {
+    let long = "x".repeat(10_000);
+    assert_eq!(path(&long, "1", "en"), Err(Error::Invalid));
+    assert_eq!(path("a", &long, "en"), Err(Error::Invalid));
+    assert_eq!(path("a", "1", &long), Err(Error::Invalid));
+}

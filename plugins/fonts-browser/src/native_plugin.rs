@@ -209,6 +209,10 @@ impl Plugin for NativeFontsBrowser {
                 Ok(())
             }
             Event::ScreenClosed { instance, .. } => {
+                // A sample still on its way is not waited for by a screen that is gone.
+                if token == FONT {
+                    self.sampling = None;
+                }
                 self.screens.close(instance);
                 Ok(())
             }
