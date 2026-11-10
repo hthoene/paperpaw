@@ -294,3 +294,19 @@ relative to the data folder).
   read to the end, also when the reader pages back. **Named:** a book of more than 4,096 sections has no
   progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
   the host, so a `finished` set locally may never be raised (a one-page book too).
+
+## Table of contents (native model, `native_toc.rs`)
+
+- Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
+  at most 500), the kept copy `headings.txt` (form of interface 6, valid while the book file keeps its
+  size), preferring the headings when the book's own table has at most one entry, the focus on the
+  chapter of a place, the scan's step past a block and the `section`/`offset` parameters. Allocation
+  is fallible and tested refused in turn.
+- **Not yet: the screen.** It needs the block and table-of-contents ops of `core.document` in the SDK
+  (Services, #2223), the storage for the kept copy, and the native reader entry (#954). Choosing an
+  entry goes back and goes to the place through `core.goto`'s successor, which is not declared yet.
+- Review remarks (PR #958), for the screen: the kept copy is read up to `MAX_KEPT` (80 KiB, as
+  500 headings of 120 characters need) and written only after a complete scan; a scan that ran out of
+  memory writes no mark; a refused write of the copy stays best effort. `kept_text` builds the whole
+  text in one `String` (about 70 KB at the limit): its size on the X4 is on the measurement list
+  (pieces through a sink if it does not fit).
