@@ -11,7 +11,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
         events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         image::{ImageId, ImageReady, ImageStyle, PrepareImage},
         registrations,
         reply::Reply,
