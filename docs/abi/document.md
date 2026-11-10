@@ -693,8 +693,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
 - [D] **Caps and names:** at most 8 `lookup.spec` per plugin (a ninth is `ERR_INVALID` for the
   batch) and 32 device-wide (`ERR_FULL` for the batch that would pass it), as for formats and
-  readers. A `name` twice in one plugin is `ERR_INVALID` for the batch; two plugins may use the
-  same name (a `lookup_ready` matched to the wrong one of them costs one more ask, nothing worse).
+  readers; the plugin does not load, `reg_plugin.problem` 18 (`registry.md`). A `name` twice in
+  one plugin is `ERR_INVALID` for the batch; two plugins may use the same name (a `lookup_ready`
+  matched to the wrong one of them costs one more ask, nothing worse).
 - [D] **Network providers** (`flags` bit 0) are called only while the host's network is connected
   at the ask (Wi-Fi connected as `event.wifi_changed` reports it, or the cable link up); else they
   are skipped without a page. A lookup never starts a join.

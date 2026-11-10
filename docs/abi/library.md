@@ -50,12 +50,18 @@ Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
 - [D] `book_field.spec` (interface 6 `BookField`): a field `<plugin>.<name>` the plugin keeps with
   books (a rating, "on loan"), `title` a catalog key; `flags` bit 0 `in_catalog` (a short value, at
   most 64 bytes, kept in the catalog so queries and rows show it), else at most 1,024 bytes kept per
-  book. Other bits `ERR_INVALID`. At most 8 per plugin, 64 device-wide.
+  book. Other bits `ERR_INVALID`. At most 8 per plugin (a ninth is `ERR_INVALID` for the batch)
+  and 64 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not load,
+  `reg_plugin.problem` 16 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for the
+  batch; two plugins may use the same name (the field is `<plugin>.<name>`).
 - [D] `book_badge.spec` (interface 6 `BookBadge`): a badge on a book's row, answered by its owner
   through the host-defined stage `core.book-badge` (major 1, generated stage schema; input
   `badge.ask` with up to 16 book keys of a page, reply up to 16 `badge.value`: `key`, `text: str 16`
   a few letters, or `icon: str 64`); asked when a page of rows is read, never while drawing; views
-  show two at most. `flags` reserved, 0.
+  show two at most. `flags` reserved, 0. At most 4 per plugin (a fifth is `ERR_INVALID` for the
+  batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not
+  load, `reg_plugin.problem` 17 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for
+  the batch; two plugins may use the same name.
 - [D] `book_data.spec` (interface 6 `add_book_data`, `add_book_cache`): the plugin keeps a folder
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also

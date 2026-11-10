@@ -182,10 +182,13 @@ Field meanings:
   not load (`state` 2 failed): 14 too many formats, 15 too many readers, `problem_arg` the cap it
   ran into, only ever 8 or 32 with 14 (formats per plugin, `ERR_FULL`, or device-wide, `ERR_FULL`;
   `document.md` 1) and 4 or 16 with 15 (readers per plugin, `ERR_INVALID`, or device-wide,
-  `ERR_FULL`; `document.md` 1), 0 where the host cannot say which. The cap decides the value, not
-  the status. A plugin showing these rows treats a value it does not know as "could not be
-  loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the host
-  itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
+  `ERR_FULL`; `document.md` 1); 16 too many book fields (`problem_arg` 8 per plugin or 64
+  device-wide), 17 too many book badges (4 per plugin or 16 device-wide; both `library.md` 1), 18
+  too many lookup providers (8 per plugin or 32 device-wide; `document.md` 7); 0 where the host
+  cannot say which. The cap decides the value, not the status. A duplicate name in one batch has no
+  problem number of its own. A plugin showing these rows treats a value it does not know as "could
+  not be loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the
+  host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
 - [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
