@@ -2769,6 +2769,7 @@ struct paperpaw_sdk::native::canvas::Canvas<'cb> { host: &'cb paperpaw_sdk::nati
 struct paperpaw_sdk::native::canvas::clip::ClipGuard<'a, 'cb> { canvas: &'a mut paperpaw_sdk::native::canvas::Canvas<'cb>, previous: paperpaw_sdk::native::callbacks::FrameRect, restored: bool }
 struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, scratch: &'buf mut [u8] }
 struct paperpaw_sdk::native::commands::device::FirmwareOptions<'a> { allow_older: bool, foreign: bool, key: core::option::Option<&'a [u8; 32]> }
+struct paperpaw_sdk::native::commands::item_state::ItemState<'a> { flags: u32, label: &'a str, label_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>], badge: &'a str, badge_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>] }
 struct paperpaw_sdk::native::commands::registry::PreviewSetting<'a> { key: &'a str, value: paperpaw_sdk::native::settings::SettingValue<'a> }
 struct paperpaw_sdk::native::declare::ActionDecl<'a> { name: &'a str, title: &'a str, token: u32, needs_screen: bool }
 struct paperpaw_sdk::native::declare::Declarations<F> { sink: F, bytes: alloc::vec::Vec<u8>, used: usize, count: usize, total: usize, failed: core::option::Option<paperpaw_sdk::native::declare::Latched>, abort_sent: bool }

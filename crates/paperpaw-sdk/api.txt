@@ -3319,6 +3319,8 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_prepare(&mut
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::image_release(&mut self, paperpaw_sdk::native::image::ImageId) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::lookup_ready(&mut self, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_item_state(&mut self, &str, &paperpaw_sdk::native::commands::ItemState<'_>, &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
@@ -3334,6 +3336,15 @@ pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::allow_older(se
 pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::foreign(self) -> Self
 pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::key(self, &'a [u8; 32]) -> Self
 pub const fn paperpaw_sdk::native::commands::FirmwareOptions<'a>::new() -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::ItemState<'a>
+impl<'a> paperpaw_sdk::native::commands::ItemState<'a>
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::badge(self, &'a str, &'a [paperpaw_sdk::native::formatting::Arg<'a>]) -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::faint(self) -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::hidden(self) -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::keep(self) -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::label(self, &'a str, &'a [paperpaw_sdk::native::formatting::Arg<'a>]) -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::new() -> Self
+pub const fn paperpaw_sdk::native::commands::ItemState<'a>::switch(self, bool) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::PreviewSetting<'a>
 impl<'a> paperpaw_sdk::native::commands::PreviewSetting<'a>
 pub const fn paperpaw_sdk::native::commands::PreviewSetting<'a>::new(&'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
@@ -3815,6 +3826,7 @@ pub fn paperpaw_sdk::native::device::Device::device<'a>(&self, &paperpaw_sdk::na
 pub fn paperpaw_sdk::native::device::Device::firmware<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::FirmwareInfo<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::device::Device::install<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceRequest, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::InstallProgress<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::device::Device::keys<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::PhysicalKey<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::device::Device::leaves_out<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::BuiltinPlugin<'a>>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::device::Device::memory(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::MemoryInfo, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::device::Device::native<'a>(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::NativeBuild<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::device::Device::networks<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::device::DeviceCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::device::DevicePage<'a, paperpaw_sdk::native::device::WifiNetwork<'a>>, paperpaw_sdk::native::Error>
