@@ -236,7 +236,11 @@ native screens replace these callers.
   library folder (the folder of `core.library-folder`, default `books`): staged in the data folder
   (`export.part`, `store::export`), then moved onto the card with `core.files` `move` (replacing the old file)
   once whole, so a refusal (memory, a full card) leaves the old file and removes the staged one. The reader is
-  told "Saved as {path}." or "The words could not be saved." (en and de, interface 6's texts).
+  told "Saved as {path}." or "The words could not be saved." (en and de, interface 6's texts). The notice is best
+  effort: a refusal of it is not an error of the export. The whole export runs in one callback (as in interface 6);
+  it moves to the work service (`core.work`) when long exports matter.
+- *Go to the book* is offered when the book's file is on the card; every refusal of the check other than memory
+  counts as "no book" and the hold asks about deleting directly.
 - A tap or *Select* on a word says "Hold a word to delete it." (`vocabulary.hold-to-delete`, en and de) until looking
   it up works.
 - Tested: the rows (pages, order, notes), the word a row names, the delete and the count after it

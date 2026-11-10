@@ -198,6 +198,7 @@ fn export_is_the_row_after_the_last_word() {
     for (first, max) in [(2, 3), (3, 3), (0, 10)] {
         let row = rows.export_row(first, max).unwrap().unwrap();
         assert_eq!((row.title.as_str(), row.note.as_str()), ("Export", "Help"));
+        assert_eq!(row.value, "›");
     }
     // The words' own rows are the words only.
     assert_eq!(rows.rows(0, 10).unwrap().len(), 3);

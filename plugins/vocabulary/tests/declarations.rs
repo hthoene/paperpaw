@@ -132,6 +132,9 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
+    // The review's help hints wait for the host's admission of `HelpHint`
+    // (#892, `core.ui` hints); nothing else waits.
+    waiting.retain(|record| record != "help: HelpHint");
     assert!(waiting.is_empty(), "{waiting:?}");
 }
 

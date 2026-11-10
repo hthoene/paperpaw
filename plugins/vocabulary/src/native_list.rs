@@ -83,7 +83,7 @@ impl<'s> WordRows<'s> {
         }
         Ok(Some(RowItem {
             title: text::copy(title)?,
-            value: String::new(),
+            value: text::copy("›")?,
             note: text::copy(note)?,
             zone: None,
             stepper: false,

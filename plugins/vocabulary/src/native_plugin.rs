@@ -360,7 +360,15 @@ impl NativeVocabulary {
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => words.copy("vocabulary.export-failed")?,
         };
-        CommandSender::new(host, &mut [0; 512]).notify(Notify::new(&said)?)
+        // The words are written (or not) either way: a notice the host refuses
+        // is lost, not an error of the export.
+        let Ok(notify) = Notify::new(&said) else {
+            return Ok(());
+        };
+        match CommandSender::new(host, &mut [0; 1024]).notify(notify) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
     }
 
     /// The answer to a question about a word: the book opens, the question

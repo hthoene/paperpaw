@@ -25,7 +25,7 @@ const BUFFER: usize = 4096;
 /// path, or a book since taken off, has none to go to).
 ///
 /// # Errors
-/// [`Error::NoMemory`] and the host's refusals other than a missing file.
+/// [`Error::NoMemory`] only: every other refusal of the host counts as no book.
 pub(crate) fn book_there(host: &Host<'_>, word: &Word) -> Result<bool, Error> {
     if word.path.is_empty() {
         return Ok(false);
@@ -35,9 +35,11 @@ pub(crate) fn book_there(host: &Host<'_>, word: &Word) -> Result<bool, Error> {
     let found = files.stat(host, Root::Files, &word.path, &mut input, &mut out);
     let there = match found {
         Ok(entry) => Ok(!entry.is_folder()),
-        // A path the host does not take is no book of this card.
-        Err(Error::NotFound | Error::Invalid | Error::Denied) => Ok(false),
-        Err(error) => Err(error),
+        // A missing file or a path the host does not take is no book of this card.
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        // Any other refusal (card full, busy, …) leaves the hold on the
+        // delete question: no book to go to.
+        Err(_) => Ok(false),
     };
     let released = files.release(host);
     let there = there?;
