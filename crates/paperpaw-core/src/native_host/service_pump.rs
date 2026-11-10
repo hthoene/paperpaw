@@ -178,6 +178,8 @@ impl crate::Kernel {
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
         let widget_more = self.native_widget_pump();
+        // A changed screen stack reaches the plugins that subscribed (`stack_events`).
+        let stack_more = self.native_stack_pump();
         // The library's move job goes on, a bounded step a pass (`moves_pump`).
         let moves_more = self.native_moves_pump();
         // Questions open their dialogs and their answers come back.
@@ -192,6 +194,7 @@ impl crate::Kernel {
                 || image_more
                 || setting_more
                 || widget_more
+                || stack_more
                 || moves_more
                 || dialog_more
                 || wifi_more

@@ -24,7 +24,7 @@ pub(crate) struct CommandTarget {
 }
 
 /// `event.registry_changed.what` bit 0: menus and the item states they show.
-const REGISTRY_MENUS: u32 = 1;
+use crate::native_host::REGISTRY_MENUS;
 
 impl crate::Shared {
     /// The frame a command-staging callback runs with: no callback, instance,
@@ -44,6 +44,7 @@ impl crate::Shared {
             usage: &self.usage,
             plugins: &self.plugins,
             work: &self.work_states,
+            log: self.device_log,
             ui: None,
         }
     }

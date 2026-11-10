@@ -20,16 +20,30 @@
 //! * **Stopping.** [`Driver::abort_all`] (suspend, shutdown, card swap) ends
 //!   the running job and every waiting one with reason 20;
 //!   [`Driver::sender_stopped`] drops one plugin's requests.
+//! * **Plugin jobs.** A [`PluginJob`] (a plugin check, an install, a removal:
+//!   `plugin_job`) shares the queue, the request limit and the outcomes; it
+//!   runs when it is the queue's head and no firmware job runs, and takes one
+//!   bounded step per pump ([`JobEnv`]). The jobs are kept inline as
+//!   [`PluginJobs`] in a vector of their own, reserved exactly at submit (a
+//!   firmware-only device keeps none, and a queue entry stays small); the
+//!   queue only names them. A firmware job waits behind it
+//!   and the other way round: never two at once. Without a plugin host
+//!   ([`Driver::set_plugin_host`]) none is accepted.
 //! * **Not here.** Nothing of this runs inside a plugin's callback; the pump
-//!   is called from the main loop. Plugin installs (kind 0) are a seam: they
-//!   share the queue and its limit but have no job type yet.
+//!   is called from the main loop.
 use super::firmware_install::{
     Answer, Ask, BuiltIns, Event, FirmwareInstall, Job, KIND_CHECK, KIND_FIRMWARE, Outcome,
     Question,
 };
+use super::plugin_job::{
+    Finished, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost, PluginJob,
+};
+use super::plugin_jobs::PluginJobs;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
+};
 use paperpaw_platform::{Storage, firmware::FirmwareHost};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
@@ -42,6 +56,8 @@ pub(crate) const PER_PLUGIN_MAX: usize = 2;
 pub(crate) const KEPT_MAX: usize = 8;
 /// Reason 20 (`ERR_CANCELLED`): the host stopped the job.
 const STOPPED: u8 = 20;
+/// Most steps [`Driver::finish_stopped`] takes at once.
+const FINISH_STEPS: u32 = 256;
 
 /// What op 13 reads of one request (`dev_install.state`: 0 waiting in the
 /// queue, 1 running, 2 ended, its outcome in `outcome`).
@@ -76,12 +92,49 @@ struct Kept {
     outcome: Option<Outcome>,
 }
 
+/// One job in the queue: a firmware install or check, or a plugin job.
+enum Queued {
+    Firmware(Job),
+    /// A plugin job, kept in [`Driver`]'s `plugin_jobs` under this key.
+    Plugin {
+        owner: u64,
+        request: u32,
+    },
+}
+
+impl Queued {
+    fn owner(&self) -> u64 {
+        match self {
+            Self::Firmware(job) => job.owner,
+            Self::Plugin { owner, .. } => *owner,
+        }
+    }
+
+    fn request(&self) -> u32 {
+        match self {
+            Self::Firmware(job) => job.request,
+            Self::Plugin { request, .. } => *request,
+        }
+    }
+}
+
 /// The firmware request table, queue and pump.
 pub(crate) struct Driver {
     host: Box<dyn FirmwareHost>,
     machine: Rc<RefCell<FirmwareInstall>>,
     entries: Vec<Entry>,
-    queue: Vec<Job>,
+    queue: Vec<Queued>,
+    /// The plugin jobs, waiting and running, room reserved at submit.
+    plugin_jobs: Vec<PluginJobs>,
+    /// The plugin job that runs, `(owner, request)` (the machine is idle
+    /// meanwhile).
+    running: Option<(u64, u32)>,
+    /// The running job was aborted but must finish ([`PluginJob::must_finish`])
+    /// or runs on without its sender: it is stepped on to its end, and the
+    /// flag says whether its sender is still there to be told.
+    finishing: Option<bool>,
+    /// What the device tells a plugin job; `None`: no plugin job is accepted.
+    plugin_host: Option<PluginHost>,
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
@@ -113,6 +166,10 @@ impl Driver {
             machine,
             entries: Vec::new(),
             queue: Vec::new(),
+            plugin_jobs: Vec::new(),
+            running: None,
+            finishing: None,
+            plugin_host: None,
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
@@ -229,8 +286,8 @@ impl Driver {
         });
     }
 
-    fn accept(&mut self, job: Job, kind: u32) {
-        let (owner, request) = (job.owner, job.request);
+    fn accept(&mut self, job: Queued, kind: u32) {
+        let (owner, request) = (job.owner(), job.request());
         self.take_slot(owner, kind, request);
         self.entries.push(Entry {
             owner,
@@ -258,7 +315,47 @@ impl Driver {
     ) -> Result<(), i32> {
         let job = Job::install(owner, request, path, key, flags)?;
         self.room(owner, request, KIND_FIRMWARE)?;
-        self.accept(job, KIND_FIRMWARE);
+        self.accept(Queued::Firmware(job), KIND_FIRMWARE);
+        Ok(())
+    }
+
+    /// The device tells plugin jobs about itself (`PluginHost`): from now on
+    /// [`Self::submit_plugin`] accepts them.
+    pub(crate) fn set_plugin_host(&mut self, host: PluginHost) {
+        self.plugin_host = Some(host);
+    }
+
+    /// Whether plugin jobs are accepted (a plugin host is set).
+    pub(crate) fn plugins_accepted(&self) -> bool {
+        self.plugin_host.is_some()
+    }
+
+    /// A plugin job at submit (`check_file` kind 0, later an install and a
+    /// removal): the same limits, request table and outcome room as a firmware
+    /// request, accepted whole or not at all.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` with no plugin host, a kind that is not a plugin
+    /// job's; else as [`Self::submit_install`].
+    pub(crate) fn submit_plugin(&mut self, job: PluginJobs) -> Result<(), i32> {
+        let (owner, request, kind) = (job.owner(), job.request(), job.kind());
+        if self.plugin_host.is_none() || !matches!(kind, KIND_INSTALL | KIND_REMOVAL | KIND_CHECK) {
+            return Err(ERR_UNSUPPORTED);
+        }
+        self.room(owner, request, kind)?;
+        // Exactly the room of this job: nothing is kept for jobs to come.
+        self.plugin_jobs
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        if kind == KIND_CHECK {
+            // The result slot last: it is the one reservation that changes the machine.
+            self.machine
+                .try_borrow_mut()
+                .map_err(|_| ERR_BUSY)?
+                .reserve_check(owner)?;
+        }
+        self.accept(Queued::Plugin { owner, request }, kind);
+        self.plugin_jobs.push(job);
         Ok(())
     }
 
@@ -275,7 +372,7 @@ impl Driver {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .reserve_check(owner)?;
-        self.accept(job, KIND_CHECK);
+        self.accept(Queued::Firmware(job), KIND_CHECK);
         Ok(())
     }
 
@@ -288,10 +385,14 @@ impl Driver {
         let queued = self
             .queue
             .iter()
-            .position(|job| (job.owner, job.request) == (owner, request));
+            .position(|job| (job.owner(), job.request()) == (owner, request));
         if let Some(at) = queued {
             let job = self.queue.remove(at);
             let kind = self.kind_of(&job);
+            if matches!(job, Queued::Plugin { .. }) {
+                self.plugin_jobs
+                    .retain(|plugin| (plugin.owner(), plugin.request()) != (owner, request));
+            }
             self.entries
                 .retain(|entry| (entry.owner, entry.request) != (owner, request));
             // The result place reserved for the check goes with it, unless
@@ -453,28 +554,113 @@ impl Driver {
         self.note(event)
     }
 
-    /// One bounded step: the queue's head starts when the machine is idle,
-    /// else the open job takes one device step. Never called from a callback.
+    /// One bounded step: a plugin job that runs takes its step; else the
+    /// queue's head starts when the machine is idle, else the open job takes
+    /// one device step. Never called from a callback.
     pub(crate) fn pump(
         &mut self,
         storage: &dyn Storage,
         built_ins: &dyn BuiltIns,
         now_ms: u64,
     ) -> Event {
+        if self.running.is_some() {
+            return self.plugin_step(storage, built_ins);
+        }
         let Ok(mut machine) = self.machine.try_borrow_mut() else {
             return Event::Quiet;
         };
+        if !machine.busy()
+            && let Some(&Queued::Plugin { owner, request }) = self.queue.first()
+        {
+            self.queue.remove(0);
+            drop(machine);
+            self.running = Some((owner, request));
+            // Its first step comes with the next pump.
+            return Event::Quiet;
+        }
         let event = if machine.busy() || self.queue.is_empty() {
             machine.step(&mut *self.host, storage, built_ins, now_ms)
-        } else {
-            let job = self.queue.remove(0);
+        } else if let Queued::Firmware(job) = self.queue.remove(0) {
             match machine.start(job, &mut *self.host) {
                 Some(outcome) => Event::Ended(outcome),
                 None => Event::Quiet,
             }
+        } else {
+            Event::Quiet
         };
         drop(machine);
         self.note(event)
+    }
+
+    /// One bounded step of the plugin job that runs; its end is noted like a
+    /// firmware job's, and a check's facts are kept in its owner's result slot.
+    fn plugin_step(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> Event {
+        let Some((owner, request)) = self.running else {
+            return Event::Quiet;
+        };
+        let Some(at) = self.plugin_at(owner, request) else {
+            // Not reachable: a running job is always kept.
+            self.running = None;
+            self.finishing = None;
+            return Event::Quiet;
+        };
+        let kind = self.plugin_jobs[at].kind();
+        let finished = match self.plugin_host.as_ref() {
+            Some(host) => match self.plugin_jobs[at].step(&JobEnv {
+                storage,
+                host,
+                built_ins,
+                // Only the host-held `core.grant.install.<asker>` may say so,
+                // and nothing reads it yet (B2c-2b): never granted.
+                granted: false,
+            }) {
+                JobStep::More | JobStep::Wait => return Event::Quiet,
+                JobStep::Ask(_) => {
+                    // The host's confirmation for a plugin install is not
+                    // wired yet (B2c-2b): the question is not asked, which
+                    // is a dismissal (reason 3), never a yes.
+                    self.plugin_jobs[at].answer(super::plugin_job::Answer::Dismissed);
+                    return Event::Quiet;
+                }
+                JobStep::Done(finished) => finished,
+            },
+            // Not reachable (no job is accepted without a host): ends, told.
+            None => Finished::refused(1),
+        };
+        // The job goes (its `Drop` releases what it holds).
+        self.plugin_jobs.remove(at);
+        self.running = None;
+        if self.finishing.take() == Some(false) {
+            // Its sender stopped meanwhile: no entry, no outcome, no result.
+            return Event::Quiet;
+        }
+        if kind == KIND_CHECK {
+            match self.machine.try_borrow_mut() {
+                Ok(mut machine) => {
+                    machine.keep_plugin(
+                        owner,
+                        request,
+                        finished.reason,
+                        finished.facts,
+                        finished.needs_draft,
+                    );
+                }
+                Err(_) => self.skip(),
+            }
+        }
+        self.note(Event::Ended(Outcome {
+            owner,
+            request,
+            kind,
+            reason: finished.reason,
+        }))
+    }
+
+    /// The place of the plugin job `(owner, request)`.
+    fn plugin_at(&self, owner: u64, request: u32) -> Option<usize> {
+        self.plugin_jobs
+            .iter()
+            .position(|job| (job.owner(), job.request()) == (owner, request))
     }
 
     /// Records what ended: the entry goes, the outcome waits for delivery.
@@ -527,7 +713,8 @@ impl Driver {
             let machine = self.machine.try_borrow();
             let running = machine
                 .as_ref()
-                .is_ok_and(|machine| machine.runs(owner, request));
+                .is_ok_and(|machine| machine.runs(owner, request))
+                || self.running == Some((owner, request));
             let waiting = !running;
             let (done, total) = machine.map_or((0, 0), |machine| machine.progress());
             return Some(Lookup {
@@ -576,7 +763,7 @@ impl Driver {
     /// waits for [`Self::due`], so the device may idle.
     pub(crate) fn has_work(&self, now: u64) -> bool {
         let held = self.blocked_until.is_some_and(|until| now < until);
-        if self.restart_wanted || (!held && self.tell_pending()) {
+        if self.restart_wanted || self.running.is_some() || (!held && self.tell_pending()) {
             return true;
         }
         self.machine.try_borrow().map_or(true, |machine| {
@@ -693,22 +880,45 @@ impl Driver {
         if let Some(outcome) = aborted {
             self.end(outcome);
         }
-        for job in core::mem::take(&mut self.queue) {
-            let kind = if self.kind_of(&job) == KIND_CHECK {
-                KIND_CHECK
+        // The plugin job that runs is stopped where it stands (its `Drop`
+        // releases what it holds) and ends like a waiting one. One that must
+        // finish (past the point where the card holds half of a change)
+        // stays, aborted: [`Self::finish_stopped`] steps it on.
+        let mut running = None;
+        if let Some((owner, request)) = self.running.take()
+            && let Some(at) = self.plugin_at(owner, request)
+        {
+            self.plugin_jobs[at].abort(STOPPED);
+            // A job whose sender stopped already (`Some(false)`) has no entry
+            // and nobody to tell: that stays so.
+            let orphan = self.finishing == Some(false);
+            if self.plugin_jobs[at].must_finish() {
+                self.running = Some((owner, request));
+                self.finishing.get_or_insert(true);
             } else {
-                KIND_FIRMWARE
-            };
+                self.plugin_jobs.remove(at);
+                self.finishing = None;
+                if !orphan {
+                    running = Some(Queued::Plugin { owner, request });
+                }
+            }
+        }
+        // The waiting jobs go with their queue entries, below.
+        let kept = self.running;
+        self.plugin_jobs
+            .retain(|job| kept == Some((job.owner(), job.request())));
+        for job in running.into_iter().chain(core::mem::take(&mut self.queue)) {
+            let kind = self.kind_of(&job);
             if kind == KIND_CHECK
                 && let Ok(mut machine) = self.machine.try_borrow_mut()
             {
                 // The check never ran: its result slot says why, so ops 6 and
                 // 16 do not answer `ERR_BUSY` until its plugin's next check.
-                machine.stopped_check(job.owner, job.request, STOPPED);
+                machine.stopped_check(job.owner(), job.request(), STOPPED);
             }
             self.end(Outcome {
-                owner: job.owner,
-                request: job.request,
+                owner: job.owner(),
+                request: job.request(),
                 kind,
                 reason: STOPPED,
             });
@@ -716,7 +926,13 @@ impl Driver {
         // What is left has no job: a restart that waits for its answer. With
         // the machine borrowed the running job was not stopped and its entry
         // is still its own: it ends (once) when the job does.
-        while got && let Some(entry) = self.entries.first().copied() {
+        while got
+            && let Some(entry) = self
+                .entries
+                .iter()
+                .find(|entry| !self.is_finishing(entry))
+                .copied()
+        {
             self.end(Outcome {
                 owner: entry.owner,
                 request: entry.request,
@@ -726,22 +942,68 @@ impl Driver {
         }
     }
 
-    fn kind_of(&self, job: &Job) -> u32 {
+    /// Whether `entry` is the plugin job that runs on after its abort.
+    fn is_finishing(&self, entry: &Entry) -> bool {
+        self.finishing.is_some() && self.running == Some((entry.owner, entry.request))
+    }
+
+    /// After [`Self::abort_all`] or [`Self::sender_stopped`]: steps a plugin
+    /// job that must finish on, at most [`FINISH_STEPS`] steps; what is left
+    /// (and a job that merely runs on without its sender, which may take
+    /// long) is stepped by the pump.
+    pub(crate) fn finish_stopped(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) {
+        for _ in 0..FINISH_STEPS {
+            let must = self
+                .running
+                .and_then(|(owner, request)| self.plugin_at(owner, request))
+                .is_some_and(|at| self.finishing.is_some() && self.plugin_jobs[at].must_finish());
+            if !must {
+                break;
+            }
+            self.plugin_step(storage, built_ins);
+        }
+    }
+
+    fn kind_of(&self, job: &Queued) -> u32 {
         self.entries
             .iter()
-            .find(|entry| (entry.owner, entry.request) == (job.owner, job.request))
+            .find(|entry| (entry.owner, entry.request) == (job.owner(), job.request()))
             .map_or(KIND_FIRMWARE, |entry| entry.kind)
     }
 
     /// `owner` stopped: its waiting requests, its undelivered outcomes, its
     /// kept ones and its check result go. A job of its that runs is abandoned.
     pub(crate) fn sender_stopped(&mut self, owner: u64) -> Option<u128> {
-        // The one entry that is not queued is the job that runs.
-        let running = self
-            .entries
-            .iter()
-            .any(|entry| entry.owner == owner && !self.queue_has(entry));
-        self.queue.retain(|job| job.owner != owner);
+        // The one entry that is not queued is the job that runs: the plugin
+        // job's, or the machine's.
+        let plugin_runs = self.running.is_some_and(|(runs, _)| runs == owner);
+        let running = !plugin_runs
+            && self
+                .entries
+                .iter()
+                .any(|entry| entry.owner == owner && !self.queue_has(entry));
+        if plugin_runs
+            && let Some((runs, request)) = self.running
+            && let Some(at) = self.plugin_at(runs, request)
+        {
+            // One the user confirmed runs on, untold; any other stops, and
+            // nobody is told either (its sender is gone).
+            let keep = self.plugin_jobs[at].keep_without_sender();
+            if !keep {
+                self.plugin_jobs[at].abort(STOPPED);
+            }
+            if keep || self.plugin_jobs[at].must_finish() {
+                self.finishing = Some(false);
+            } else {
+                self.plugin_jobs.remove(at);
+                self.running = None;
+            }
+        }
+        // Its other jobs go; the one that runs on stays.
+        let kept = self.running;
+        self.plugin_jobs
+            .retain(|job| job.owner() != owner || kept == Some((job.owner(), job.request())));
+        self.queue.retain(|job| job.owner() != owner);
         if let Ok(mut machine) = self.machine.try_borrow_mut() {
             if running {
                 // Its sender is gone: nobody is told.
@@ -770,10 +1032,14 @@ impl Driver {
     fn queue_has(&self, entry: &Entry) -> bool {
         self.queue
             .iter()
-            .any(|job| (job.owner, job.request) == (entry.owner, entry.request))
+            .any(|job| (job.owner(), job.request()) == (entry.owner, entry.request))
     }
 }
 
 #[cfg(test)]
 #[path = "firmware_driver_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "firmware_driver_plugin_tests.rs"]
+pub(crate) mod plugin_tests;

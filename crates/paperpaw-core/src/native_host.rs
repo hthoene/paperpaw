@@ -21,6 +21,7 @@ pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
 
+pub(crate) mod device_log;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -78,6 +79,8 @@ pub(crate) mod plugin_install;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[path = "native_host/plugin_jobs.rs"]
+pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
@@ -103,6 +106,9 @@ pub(crate) mod secrets_service;
 
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
+
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
@@ -183,6 +189,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
@@ -190,6 +197,7 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+pub(crate) mod doc_host;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
@@ -257,6 +265,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+mod stack_events;
 #[allow(
     dead_code,
     reason = "the native stage.run host (#828) frames its replies with it"
@@ -276,8 +285,18 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod widget_inputs;
 mod wifi_events;
 mod work_pump;
+
+/// Bit 0 (`menus`) of `event.registry_changed`: menus and their item state.
+pub(crate) const REGISTRY_MENUS: u32 = 1;
+/// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
+/// change of the plugin set may change anything the registry holds.
+pub(crate) const REGISTRY_ALL: u32 = 0xFF;
+/// Bit 31 (`dropped`) of `event.registry_changed`: a staged REG batch of the
+/// plugin's own was dropped when applied. It goes to that plugin only.
+pub(crate) const REGISTRY_DROPPED: u32 = 1 << 31;
 
 /// The most callback registrations (event subscriptions and draws) one
 /// plugin makes over the whole construction. Records live in a `Vec` grown
@@ -404,10 +423,17 @@ pub(crate) mod native_widget;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_call.rs"]
+#[allow(
+    dead_code,
+    reason = "the document and lookup adapters call it through Frame::call_native"
+)]
+pub(crate) mod native_call;
 #[path = "native_host/core_events.rs"]
 pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
+
 #[path = "native_host/native_menus.rs"]
 #[allow(
     dead_code,
@@ -492,6 +518,7 @@ pub struct FlatHost {
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
     pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
+    pub(crate) log: device_log::DeviceLog,
 }
 
 impl FlatHost {
@@ -523,6 +550,7 @@ impl crate::Kernel {
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
+            log: self.shared.device_log,
         }
     }
 }
@@ -1074,6 +1102,13 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.records.len()
+    }
+
+    /// The record published at `index`, read in place (no dispatch, no
+    /// copy); `None` past the last one.
+    #[must_use]
+    pub fn record(&self, index: usize) -> Option<&T> {
+        self.records.get(index)
     }
 
     /// Whether this batch contains no records.

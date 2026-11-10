@@ -102,6 +102,9 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // An input of the plugin's own and a help hint stay in the declaration
         // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
         Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
+        // A format and a reading app stay in the declaration store too
+        // (`document.md` section 1); the document service reads them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }

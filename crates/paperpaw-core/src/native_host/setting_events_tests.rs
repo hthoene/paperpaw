@@ -52,6 +52,10 @@ impl NativeInstance for Probe {
             wire::Record::EventWifiChanged(event) => (wire::EVENT_WIFI_CHANGED_TAG, event.state),
             wire::Record::EventPowerChanged(event) => (wire::EVENT_POWER_CHANGED_TAG, event.level),
             wire::Record::EventStatusChanged(_) => (wire::EVENT_STATUS_CHANGED_TAG, 0),
+            wire::Record::EventRegistryChanged(event) => {
+                (wire::EVENT_REGISTRY_CHANGED_TAG, event.what)
+            }
+            wire::Record::EventPreviewChanged(_) => (wire::EVENT_PREVIEW_CHANGED_TAG, 0),
             wire::Record::EventChargeChanged(event) => {
                 (wire::EVENT_CHARGE_CHANGED_TAG, event.flags)
             }
@@ -500,4 +504,146 @@ fn a_key_that_turned_secret_before_delivery_is_not_told() {
         .unwrap();
     run(&mut w);
     assert!(w.a.1.borrow().is_empty(), "checked again at delivery");
+}
+
+const REGISTRY: &[u32] = &[
+    wire::EVENT_REGISTRY_CHANGED_TAG,
+    wire::EVENT_PREVIEW_CHANGED_TAG,
+];
+
+#[test]
+fn registry_bits_raised_before_they_were_told_are_one_event_with_every_bit() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_registry_changed(1);
+    w.kernel.native_registry_changed(1 << 4);
+    w.kernel.native_registry_changed(1);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(75, 0b1_0001)]);
+    assert_eq!(*w.order.borrow(), ['b']);
+    assert!(w.a.1.borrow().is_empty(), "a did not subscribe");
+    // Told: the next one starts from none.
+    w.kernel.native_registry_changed(1 << 2);
+    run(&mut w);
+    assert_eq!(w.hints.borrow()[1], (75, 0b100));
+}
+
+#[test]
+fn no_registry_bit_is_no_event_and_a_plugin_that_stopped_is_not_called() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_registry_changed(0);
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    w.kernel.native_registry_changed(1);
+    let owner = w.b.0;
+    w.kernel.shared.native_instances.stop(owner).unwrap();
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_changed_preview_reaches_its_subscribers_once_and_in_order_with_the_registry() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    w.kernel.native_registry_changed(2);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    run(&mut w);
+    // Each once, in the order of the last time it was raised.
+    assert_eq!(*w.hints.borrow(), [(75, 2), (76, 0)]);
+}
+
+#[test]
+fn a_registry_event_is_not_queued_for_a_plugin_that_subscribed_to_nothing_of_it() {
+    let w = world(false);
+    w.kernel.native_registry_changed(1);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn switching_a_plugin_off_tells_every_registry_bit_and_a_preview_tells_the_preview() {
+    let mut w = world_with(REGISTRY);
+    let id = Id::try_parse("c").unwrap();
+    w.kernel.set_plugin_enabled(&id, false);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(75, 0xFF)]);
+    w.hints.borrow_mut().clear();
+    let key = Id::try_parse("c.size").unwrap();
+    w.kernel
+        .preview_settings(alloc::vec![(key, Some(paperpaw_sdk::SettingValue::Int(3)))]);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(76, 0)]);
+    // Ending the shown preview tells; ending it again tells nothing.
+    w.hints.borrow_mut().clear();
+    w.kernel.preview_settings(alloc::vec::Vec::new());
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(76, 0)]);
+    w.hints.borrow_mut().clear();
+    w.kernel.preview_settings(alloc::vec::Vec::new());
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+}
+
+#[test]
+fn the_dropped_bit_goes_to_the_submitter_alone_and_only_if_it_subscribed() {
+    use crate::native_host::REGISTRY_DROPPED;
+    let mut w = world_with(REGISTRY);
+    // `a` did not subscribe to 75, `b` did: a drop of a's batch tells nobody,
+    // a drop of b's tells b alone.
+    w.kernel
+        .native_registry_dropped(&Id::try_parse("a").unwrap());
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    w.kernel
+        .native_registry_dropped(&Id::try_parse("b").unwrap());
+    w.kernel.native_registry_changed(1);
+    run(&mut w);
+    // One event, the bits of both together; never a bit for another plugin.
+    assert_eq!(*w.hints.borrow(), [(75, REGISTRY_DROPPED | 1)]);
+    assert_eq!(*w.order.borrow(), ['b']);
+}
+
+#[test]
+fn a_registry_bit_for_a_plugin_that_is_not_running_is_not_kept() {
+    let mut w = world_with(REGISTRY);
+    let id = Id::try_parse("b").unwrap();
+    let owner = w.b.0;
+    w.kernel.shared.native_instances.stop(owner).unwrap();
+    w.kernel.native_registry_dropped(&id);
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_panic() {
+    let mut w = world_with(REGISTRY);
+    let events = &w.kernel.shared.native_instances.setting_events;
+    {
+        let _held = events.queues.borrow_mut();
+        w.kernel.native_registry_changed(1);
+        w.kernel
+            .native_registry_dropped(&Id::try_parse("b").unwrap());
+    }
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
 }

@@ -581,6 +581,7 @@ impl PluginInstall {
                     facts: None,
                     flags: if code { DONE_AT_NEXT_START } else { 0 },
                     changed: Some(self.id),
+                    needs_draft: 0,
                 })
             }
             SwapStep::Done { rolled_back: true } => self.end(storage, reason::OTHER),

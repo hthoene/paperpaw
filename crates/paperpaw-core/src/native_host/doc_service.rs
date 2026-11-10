@@ -119,6 +119,14 @@ impl FormatCall<'_> {
 /// Everything the document service needs from the host. The shell implements
 /// it over its declarations, storage and stage broker; tests over fakes.
 pub(crate) trait DocHost {
+    /// This host as a trait object (so [`serve`](Self::serve) can hand it on).
+    fn as_dyn(&self) -> &dyn DocHost;
+    /// Runs `run` with the host that serves one call of `who`, bound to its
+    /// `frame` (the settings, the declarations, a directed stage call). A host
+    /// that needs none of it serves as it is; the production host binds them.
+    fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
+        run(self.as_dyn());
+    }
     /// The calling plugin: a never-reused host owner id. The shell's host
     /// does not know it; the backend wraps it in the call's owner.
     fn owner(&self) -> u64 {
@@ -325,6 +333,9 @@ struct Cx<'a> {
     owner: u64,
 }
 impl DocHost for Cx<'_> {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn owner(&self) -> u64 {
         self.owner
     }
@@ -437,28 +448,32 @@ mod op {
 
 /// The `core.document` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
-    let host = &Cx {
-        host: &*services.0,
-        owner: who.owner,
-    };
-    let host: &dyn DocHost = host;
-    match op.id {
-        op::OPEN => open(host, input, out),
-        op::STATE => state(host, input, out),
-        op::CLOSE => close(host, input),
-        op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::FORMAT_FOR => format_for(host, input, out),
-        op::META..=op::PROGRESS => read(host, op, input, out),
-        _ => Err(ERR_UNSUPPORTED),
-    }
+    let mut result = Err(ERR_STATE);
+    services.0.serve(frame, who, &mut |bound| {
+        let host = &Cx {
+            host: bound,
+            owner: who.owner,
+        };
+        let host: &dyn DocHost = host;
+        result = match op.id {
+            op::OPEN => open(host, input, out),
+            op::STATE => state(host, input, out),
+            op::CLOSE => close(host, input),
+            op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::FORMAT_FOR => format_for(host, input, out),
+            op::META..=op::PROGRESS => read(host, op, input, out),
+            _ => Err(ERR_UNSUPPORTED),
+        };
+    });
+    result
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {

@@ -1,7 +1,7 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! update is pinned by `states.rs` and `page/` on a kernel and by the goldens;
-//! these cases are the same behaviours through the production loader with the
-//! native plugin. They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host: the behaviours of
+//! the update (the interface-6 plugin is removed; its tests drove a kernel)
+//! through the production loader with the native plugin. They never pass by
+//! themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -31,12 +31,13 @@ const CASES: [Case; 3] = [
         golden: None,
         blocked_by: &["LEAVES-OUT", "FILE-FOR-NEXT-FIRMWARE"],
     },
-    // The page's states beyond the card's and the server's (an update that waits
-    // for plugins, dual boot) and the badge on its entry in the settings.
+    // The page's states beyond the card's and the server's: dual boot (the update
+    // that waits for plugins is native, `native_plugin/waiting.rs`) and the badge
+    // on its entry in the settings.
     Case {
         name: "update-page",
         golden: None,
-        blocked_by: &["ITEM-STATE", "WAITING", "DUAL-BOOT-FLAG"],
+        blocked_by: &["ITEM-STATE", "DUAL-BOOT-FLAG"],
     },
 ];
 
@@ -63,7 +64,7 @@ fn update_online() {
 }
 
 #[test]
-#[ignore = "BLOCKED ITEM-STATE/WAITING/DUAL-BOOT-FLAG: the entry's badge waits for CommandSender::set_item_state, an update that waits for plugins is not ported, and the dual-boot flag is missing"]
+#[ignore = "BLOCKED ITEM-STATE/DUAL-BOOT-FLAG: the entry's badge waits for CommandSender::set_item_state, and the dual-boot flag is missing"]
 fn update_page() {
     CASES[2].refuse().unwrap();
 }
