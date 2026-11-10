@@ -3,8 +3,9 @@
 //! host's is [`HostInk`], and the one place that decides how a run of text
 //! reaches the host is [`draw_run`], which draws with the weight and the tone
 //! of the letters' edges the reading settings give (`native_look`). Lines of mixed direction are set in logical
-//! order, underlines, strike-throughs, pictures and rules are not drawn yet
-//! (`PORTING-7.md`).
+//! order; the lines under, over and through runs and a table's rules are drawn
+//! (`native_decor`), pictures are not yet (`PORTING-7.md`).
+use crate::native_decor::{decorate, draw_rules};
 use crate::native_look::Look;
 use crate::native_typeset::{Faces, HostFonts, Measure, Role};
 use paperpaw_sdk::{
@@ -12,6 +13,7 @@ use paperpaw_sdk::{
     layout::{Page, Typesetter},
     native::{
         Error,
+        callbacks::FrameRect,
         canvas::Canvas,
         fonts::{Font, Ink as Inking, TextOrigin},
     },
@@ -32,9 +34,16 @@ pub trait Ink {
         baseline: i32,
         text: &str,
     ) -> Result<f32, Error>;
+
+    /// Fills the rectangle at `(x, y)`, `width` by `height` pixels, in the
+    /// pen's colour (a line under a run, a table's rule).
+    ///
+    /// # Errors
+    /// The host's refusal.
+    fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error>;
 }
 
-/// The page's lines drawn with their content box's top left at `(left, top)`.
+/// The page's lines (and rules) drawn with their content box's top left at `(left, top)`.
 /// Stops at the first refusal of the host.
 ///
 /// # Errors
@@ -50,6 +59,7 @@ pub fn draw_lines<M: Measure>(
         let baseline = (top + line.baseline + 0.5) as i32;
         let mut x = left + line.x;
         for run in &line.runs {
+            let from = x;
             let Some(text) = line.text.get(run.start..run.end) else {
                 continue;
             };
@@ -61,9 +71,10 @@ pub fn draw_lines<M: Measure>(
                 }
                 x += draw_word(ink, (role, size), x, baseline, word)?;
             }
+            decorate(ink, run.face.style, size, (from, x - from), baseline)?;
         }
     }
-    Ok(())
+    draw_rules(ink, &page.rules, (left, top))
 }
 
 /// One word drawn without the characters that are not drawn (zero-width and
@@ -158,6 +169,11 @@ impl Ink for HostInk<'_, '_> {
             text,
             self.look.ink(size),
         )
+    }
+
+    fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
+        self.canvas
+            .fill_rectangle(FrameRect::new(x, y, width, height), self.color)
     }
 }
 
