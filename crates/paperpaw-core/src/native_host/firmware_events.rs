@@ -72,6 +72,9 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
 impl Kernel {
     /// One step of the firmware table's job, then the outcomes that wait for
     /// their plugin. `true` while something is left (another pass).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_firmware_pump(&mut self) -> bool {
         let Some(driver) = self.firmware.clone() else {
             return false;

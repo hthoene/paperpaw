@@ -35,7 +35,8 @@
 //!
 //! The removal of a plugin (`plugin_remove`, record kind 1) shares the journal
 //! file: one change of the plugin folder at a time.
-use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{
     digest::fnv1a64,
@@ -372,11 +373,16 @@ pub(crate) fn read(storage: &dyn Storage) -> Result<Found, u8> {
         Err(StorageError::NotFound) => return Ok(Found::None),
         Err(error) => return Err(io(error)),
     };
-    let mut buf = [0_u8; RECORD_MAX];
     let found = if size > RECORD_MAX as u64 {
         None
     } else {
         let len = size as usize;
+        // On the heap, at the size of the file: the record's own room
+        // (`RECORD_MAX`) and the entry it decodes to would not both fit a
+        // frame of the limit the firmware keeps for the host's code.
+        let mut buf = Vec::new();
+        buf.try_reserve_exact(len).map_err(|_| reason::OTHER)?;
+        buf.resize(len, 0_u8);
         let mut done = 0;
         while done < len {
             match storage.read_at(JOURNAL, done as u64, &mut buf[done..len]) {
@@ -449,6 +455,31 @@ impl Swap {
             entry,
             phase: Phase::Moving,
             live,
+            rolled_back: false,
+        })
+    }
+
+    /// [`Self::new`] of a live swap of the install `id` with `pins`, in a box
+    /// of its own made here (the swap is 800 bytes: not built on the caller's
+    /// frame, nor copied to the box from it). `None` for no memory.
+    #[inline(never)]
+    pub(crate) fn live_box(id: Text<ID_MAX>, had_old: bool, pins: &Pins) -> Option<Box<Self>> {
+        let (stage, old, target) = (
+            stage_path(id.as_str())?,
+            old_path(id.as_str())?,
+            target_path(id.as_str())?,
+        );
+        super::shared::try_box_with(|| Self {
+            entry: Entry {
+                id,
+                had_old,
+                pins: *pins,
+            },
+            stage,
+            old,
+            target,
+            phase: Phase::Moving,
+            live: true,
             rolled_back: false,
         })
     }
