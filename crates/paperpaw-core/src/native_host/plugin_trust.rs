@@ -244,9 +244,16 @@ impl Inquiry {
         if size > FILE_MAX {
             return Err(Unreadable);
         }
-        let read = storage
-            .read_at(REVOKED, self.at, buf)
-            .map_err(|_| Unreadable)?;
+        // A read may return less than asked: the buffer is filled until it is
+        // full or the file's size says it ends.
+        let mut read = 0;
+        while read < buf.len() && self.at + (read as u64) < size {
+            match storage.read_at(REVOKED, self.at + read as u64, &mut buf[read..]) {
+                Ok(0) | Err(_) => return Err(Unreadable),
+                Ok(n) => read += n,
+            }
+        }
+        let end_of_file = self.at + read as u64 >= size;
         let mut start = 0;
         while let Some(end) = buf[start..read].iter().position(|byte| *byte == b'\n') {
             let line = &buf[start..start + end];
@@ -268,7 +275,7 @@ impl Inquiry {
                 None => {}
             }
         }
-        if read < buf.len() {
+        if end_of_file {
             // The end of the file; its last line may have no line end.
             if !self.skipping
                 && let Ok(text) = core::str::from_utf8(&buf[start..read])
