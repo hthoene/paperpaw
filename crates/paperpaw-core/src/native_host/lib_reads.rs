@@ -47,8 +47,10 @@ mod annotations;
 mod book;
 mod delete;
 mod field;
+mod importer;
 mod position;
 mod provide;
+mod removal;
 mod write;
 
 const PPM: u32 = 1_000_000;
@@ -301,6 +303,20 @@ pub(super) fn fail(error: data::Error) -> i32 {
         data::Error::Storage(e) => storage_status(e),
         _ => ERR_IO,
     }
+}
+
+/// The name of the file in `dir` that is kept for the book at `path` (its key
+/// and `.txt`), built fallibly.
+pub(super) fn kept_file(dir: &str, path: &str) -> Result<String, i32> {
+    let mut digits = [0_u8; library::KEY_LEN];
+    let key = library::key_into(path, &mut digits);
+    let mut name = String::new();
+    name.try_reserve_exact(dir.len() + 1 + key.len() + ".txt".len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for part in [dir, "/", key, ".txt"] {
+        name.push_str(part);
+    }
+    Ok(name)
 }
 
 fn storage_status(error: StorageError) -> i32 {
