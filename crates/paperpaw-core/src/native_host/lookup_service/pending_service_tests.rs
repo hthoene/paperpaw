@@ -23,7 +23,7 @@ struct Host {
     ready: Cell<bool>,
 }
 impl LookupHost for Host {
-    fn ask(&self, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(&self, _frame: &dyn Frame, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let (provider, pending) = match ask.cursor {
             0 => ("wiki", !self.ready.get()),
             1 => ("translate", !self.ready.get()),
@@ -81,7 +81,7 @@ fn rig(subscribed: &[u64]) -> Rig {
     });
     let hosts = crate::native_host::host_services::HostServices::new();
     let shared: Rc<dyn LookupHost> = host.clone();
-    hosts.wire_lookup(shared).unwrap();
+    hosts.wire_lookup(shared, Default::default()).unwrap();
     Rig {
         host,
         hosts,
@@ -193,6 +193,9 @@ fn a_full_table_answers_the_empty_entry_and_logs_it() {
     assert!(rig.host.log.borrow().is_empty());
     assert_eq!(rig.ask(7, "w4", 0), ("wiki".into(), 1, String::new()));
     assert_eq!(rig.service().pending_len(), 4);
+    assert_eq!(rig.host.log.borrow().len(), 1);
+    // Another ask meeting the full table adds no second line this minute.
+    assert_eq!(rig.ask(7, "w5", 0).1, 1);
     assert_eq!(rig.host.log.borrow().len(), 1);
     // The last provider's page keeps its own bits (none more).
     assert_eq!(rig.ask(7, "w4", 2).1, 0);

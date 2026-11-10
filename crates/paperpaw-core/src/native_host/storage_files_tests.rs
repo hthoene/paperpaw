@@ -33,6 +33,19 @@ fn the_host_folders_are_known_by_spelling_in_any_case() {
     assert!(files.excluded(1, "", "pluginſ"));
     assert!(files.excluded(0, ".paperpaw/plugins/a", ".receıved"));
     assert!(!files.excluded(1, "", "plugin\u{df}"));
+    // The kernel's settings file, at the card's top only.
+    for name in [
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.Ini",
+        "paperpaw.ını",
+    ] {
+        assert!(files.excluded(1, "", name), "{name}");
+    }
+    for name in ["paperpaw.inx", "paperpaw.ini2", "xpaperpaw.ini"] {
+        assert!(!files.excluded(1, "", name), "{name}");
+    }
+    assert!(!files.excluded(0, ".paperpaw/plugins/a", "paperpaw.ini"));
     assert!(!files.excluded(1, "", "Books"));
     assert!(!files.excluded(0, ".paperpaw/plugins/a", "notes"));
     assert!(!files.excluded(2, "", "plugins"), "only roots 0 and 1 hide");

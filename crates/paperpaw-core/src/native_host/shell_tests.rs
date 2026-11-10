@@ -3,6 +3,7 @@
 //! order against the module, and the refusals.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
+use super::frame_tests::in_frame;
 use super::*;
 use alloc::vec;
 use core::alloc::Layout;
@@ -20,6 +21,8 @@ std::thread_local! {
     /// Calls announced to the shell, and how many are open now.
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static OPEN: Cell<i32> = const { Cell::new(0) };
+    /// The shell refuses every call (`Hooks::call_begin` answers `false`).
+    static REFUSE: Cell<bool> = const { Cell::new(false) };
     /// Host slots the shell announced on this thread, and how many are open.
     static SLOTS: Cell<u32> = const { Cell::new(0) };
     static SLOTS_OPEN: Cell<i32> = const { Cell::new(0) };
@@ -114,7 +117,7 @@ pub(crate) fn scratch_zeroed_before_free() -> Option<bool> {
 #[global_allocator]
 static ALLOCATOR: Failing = Failing;
 
-const NORMAL: u8 = 0;
+pub(in crate::native_host) const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
 /// `make` returns OK with an output table that does not validate.
 const BAD_TABLE: u8 = 2;
@@ -135,7 +138,8 @@ fn logged() -> Vec<&'static str> {
     LOG.with(|log| log.borrow().clone())
 }
 
-fn reset(mode: u8) {
+pub(in crate::native_host) fn reset(mode: u8) {
+    super::frame_tests::clear();
     EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
@@ -143,13 +147,14 @@ fn reset(mode: u8) {
     MAKES.with(|m| m.set(0));
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
+    REFUSE.with(|r| r.set(false));
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
 }
 
 /// The shell's heap and clock.
-struct Heap;
+pub(in crate::native_host) struct Heap;
 
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
@@ -171,7 +176,7 @@ impl Services for Heap {
 }
 
 /// What keeps the plugin alive: its destructor checks the module still is.
-struct Module;
+pub(in crate::native_host) struct Module;
 
 impl Module {
     fn new() -> Self {
@@ -196,6 +201,7 @@ struct Fake {
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
     MAKES.with(|m| m.set(m.get() + 1));
+    in_frame(1, ctx);
     let mode = MODE.with(Cell::get);
     if mode == FAILS {
         return ERR_INVALID;
@@ -298,6 +304,7 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
     let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
+    in_frame(8, ctx);
     // SAFETY: the table and context outlive the destructor.
     unsafe {
         ((*host).heap_dealloc)(ctx, state, size_of::<Fake>(), align_of::<Fake>());
@@ -306,6 +313,8 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 
 unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
     // Started and the other events 32-39 have no reply family (section 6).
+    // SAFETY: the block `make` wrote, live while it is dispatched.
+    in_frame(2, unsafe { (*state.cast::<Fake>()).ctx });
     if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
@@ -317,6 +326,8 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply
 }
 
 unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    // SAFETY: as for `event`.
+    in_frame(4, unsafe { (*state.cast::<Fake>()).ctx });
     if !has_expected_core_frame(state) {
         return host_glue::ERR_STATE;
     }
@@ -327,14 +338,14 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32
     if frame.len == 1 { 1 } else { OK }
 }
 
-fn frame() -> Vec<u8> {
+pub(in crate::native_host) fn frame() -> Vec<u8> {
     let mut bytes = [0; 64];
     let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
     let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
     bytes[..len].to_vec()
 }
 
-fn fake() -> Hosted<Heap, Module> {
+pub(in crate::native_host) fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
     unsafe {
         Hosted::new(
@@ -351,7 +362,7 @@ fn fake() -> Hosted<Heap, Module> {
     .unwrap()
 }
 
-fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
+pub(in crate::native_host) fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
     hosted.owner().revoke();
     hosted.owner().finish().unwrap();
 }
@@ -366,6 +377,11 @@ fn a_made_plugin_registers_dispatches_and_is_destroyed_once_before_its_module() 
         .commit()
         .unwrap();
     assert_eq!(batch.len(), 2);
+    // The records are read in place, without dispatching; none past the end.
+    assert!(matches!(batch.record(0), Some(Registration::Event { .. })));
+    assert!(matches!(batch.record(1), Some(Registration::Draw { .. })));
+    assert!(batch.record(2).is_none() && batch.record(7).is_none());
+    assert_eq!(EVENTS.with(Cell::get), 0, "reading runs no plugin code");
     let depth = DispatchDepth::new();
     assert_eq!(
         dispatch_registration(&batch, 0, &depth, Invocation::Event(&[1, 2, 3])),
@@ -663,9 +679,13 @@ mod instance_tests {
     fn teardown_failed(_: &str, _: super::super::super::Error) {
         log("teardown_failed");
     }
-    fn begin(_: &str) {
+    fn begin(_: &str) -> bool {
+        if REFUSE.with(Cell::get) {
+            return false;
+        }
         CALLS.with(|c| c.set(c.get() + 1));
         OPEN.with(|o| o.set(o.get() + 1));
+        true
     }
     fn end(_: &str) {
         OPEN.with(|o| o.set(o.get() - 1));
@@ -679,7 +699,7 @@ mod instance_tests {
             call_end: end,
         }
     }
-    fn load() -> Result<Instance<Heap, Module>, Error> {
+    pub(super) fn load() -> Result<Instance<Heap, Module>, Error> {
         load_with(crate::native_host::HostResources::try_new().unwrap())
     }
     /// With the device's table made beforehand (a test that fails the nth
@@ -816,6 +836,7 @@ mod instance_tests {
         EVENT_ONLY.with(|e| e.set(true));
         let instance = load().unwrap();
         let host = FlatHost {
+            log: Default::default(),
             meter: crate::meter::Meter::new(None),
             directory: None,
             stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -872,6 +893,7 @@ mod instance_tests {
             reset(NORMAL);
             EVENT_ONLY.with(|e| e.set(true));
             let host = FlatHost {
+                log: Default::default(),
                 meter: crate::meter::Meter::new(None),
                 directory: None,
                 stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -915,7 +937,7 @@ mod instance_tests {
     }
 
     /// Points at the hosted plugin that `a_release_that_stays_busy...` keeps for good.
-    static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
+    pub(super) static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
         core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
     #[test]
@@ -962,6 +984,7 @@ mod instance_tests {
 
     fn flat_host() -> crate::native_host::FlatHost {
         crate::native_host::FlatHost {
+            log: Default::default(),
             meter: crate::meter::Meter::new(None),
             directory: None,
             stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -1258,6 +1281,7 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
                     super::super::storage_slots::read_at(
                         &context.environment,
                         "fake",
+                        None,
                         0,
                         PpBytes {
                             ptr: b"state".as_ptr(),
@@ -1459,3 +1483,6 @@ mod stage_broker_native;
 
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
+
+#[path = "shell_refuse_tests.rs"]
+mod refuse;

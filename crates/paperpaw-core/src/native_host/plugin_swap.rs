@@ -28,9 +28,15 @@
 //! the next start takes the pins and removes the old folder. Code that is not
 //! yet named as installed does not load, so a plugin is never half-trusted.
 //!
-//! A journal that cannot be read (a damaged record, an id no plugin has) is
-//! renamed to `.journal.bad` and counted, never trusted.
-use alloc::string::String;
+//! A journal that cannot be read (a damaged record, an id no plugin has), or
+//! one the start can never finish (a state no step of this host makes), is
+//! renamed to `.journal.bad` and counted, never trusted: it would otherwise
+//! block every later install with reason 1.
+//!
+//! The removal of a plugin (`plugin_remove`, record kind 1) shares the journal
+//! file: one change of the plugin folder at a time.
+use alloc::vec::Vec;
+use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{
     digest::fnv1a64,
@@ -43,17 +49,35 @@ use super::plugin_rules::{Pins, ROTATIONS_MAX, Rotation};
 
 /// The journal, its temporary file and where a bad one is set aside.
 pub(crate) const JOURNAL: &str = "plugins/.journal";
-const TMP: &str = "plugins/.journal.tmp";
+pub(crate) const TMP: &str = "plugins/.journal.tmp";
 pub(crate) const BAD: &str = "plugins/.journal.bad";
+/// One byte for each start at which the host could not forget a removed
+/// plugin's secrets: [`FORGET_TRIES`] of them end the waiting.
+/// The count is appended, so a card without room for one byte (full) never gives
+/// up: the removal waits on until there is room, as every install does.
+pub(crate) const TRIES: &str = "plugins/.journal.tries";
+/// Starts a removal waits for the host to forget what it holds of the plugin
+/// before it is finished without (the secrets stay, the user is told).
+pub(crate) const FORGET_TRIES: u64 = 3;
 const MAGIC: [u8; 4] = *b"PPIJ";
 const VERSION: u8 = 1;
 /// The longest record: the fixed part, the id, the keys, the rotations, the checksum.
 const RECORD_MAX: usize = 8 + ID_MAX + 32 * 3 + ROTATIONS_MAX * 96 + 8;
 
+const KIND_ENTRY: u8 = 0;
+const KIND_REMOVAL: u8 = 1;
+const FLAG_DATA: u8 = 1;
 const FLAG_HAD_OLD: u8 = 1;
 const FLAG_FIRST: u8 = 1 << 1;
 const FLAG_FIRST_RECOVERY: u8 = 1 << 2;
 const FLAG_CODE: u8 = 1 << 3;
+
+/// What a removal is: one plugin id, and whether its data goes too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Removal {
+    pub(crate) id: Text<ID_MAX>,
+    pub(crate) data: bool,
+}
 
 /// What the swap is: one plugin id, whether an old folder is replaced, and
 /// the pins to take.
@@ -73,6 +97,32 @@ pub(crate) fn stage_path(id: &str) -> Option<String> {
 }
 pub(crate) fn old_path(id: &str) -> Option<String> {
     named(id, ".old-", "")
+}
+/// Where a removal moves the plugin folder, `plugins/.removing-<id>`.
+pub(crate) fn removing_path(id: &str) -> Option<String> {
+    named(id, ".removing-", "")
+}
+/// The plugin's data folder `.paperpaw/plugins/<id>` and where a removal moves
+/// it, built from a valid id and nothing else.
+pub(crate) fn data_path(id: &str) -> Option<String> {
+    data_named(id, "")
+}
+pub(crate) fn data_removing_path(id: &str) -> Option<String> {
+    data_named(id, ".removing-")
+}
+
+fn data_named(id: &str, before: &str) -> Option<String> {
+    if !install::is_plugin_name(id) || id == "core" {
+        return None;
+    }
+    let dir = super::storage::PREFIX;
+    let mut path = String::new();
+    path.try_reserve_exact(dir.len() + before.len() + id.len())
+        .ok()?;
+    path.push_str(dir);
+    path.push_str(before);
+    path.push_str(id);
+    Some(path)
 }
 
 fn named(id: &str, before: &str, after: &str) -> Option<String> {
@@ -111,8 +161,8 @@ fn encode(entry: &Entry, out: &mut [u8]) -> usize {
     }
     out[..4].copy_from_slice(&MAGIC);
     out[4] = VERSION;
-    // Kind 0: an install. Kind 1 is the removal's (B2c-3).
-    out[5] = 0;
+    // Kind 0: an install. Kind 1 is the removal's ([`encode_removal`]).
+    out[5] = KIND_ENTRY;
     out[6] = flags;
     out[7] = pins.rotations().len() as u8;
     out[8] = id.len() as u8;
@@ -150,7 +200,7 @@ fn decode(bytes: &[u8]) -> Option<Entry> {
         usize::from(body[7]),
         usize::from(body[8]),
     );
-    if version != VERSION || kind != 0 || flags & !0b1111 != 0 || count > ROTATIONS_MAX {
+    if version != VERSION || kind != KIND_ENTRY || flags & !0b1111 != 0 || count > ROTATIONS_MAX {
         return None;
     }
     if body.len() != 9 + len + 96 + count * 96 {
@@ -195,6 +245,49 @@ fn decode(bytes: &[u8]) -> Option<Entry> {
     })
 }
 
+/// The removal record's bytes, in `out` (at least [`RECORD_MAX`]); their number.
+fn encode_removal(removal: &Removal, out: &mut [u8]) -> usize {
+    let id = removal.id.as_str().as_bytes();
+    out[..4].copy_from_slice(&MAGIC);
+    out[4] = VERSION;
+    out[5] = KIND_REMOVAL;
+    out[6] = if removal.data { FLAG_DATA } else { 0 };
+    out[7] = 0;
+    out[8] = id.len() as u8;
+    out[9..9 + id.len()].copy_from_slice(id);
+    let at = 9 + id.len();
+    let sum = fnv1a64(&out[..at]);
+    out[at..at + 8].copy_from_slice(&sum.to_le_bytes());
+    at + 8
+}
+
+/// The removal a record holds; `None` for anything that is not one.
+fn decode_removal(bytes: &[u8]) -> Option<Removal> {
+    let (body, sum) = bytes.split_at(bytes.len().checked_sub(8)?);
+    if fnv1a64(body).to_le_bytes() != sum || body.len() < 9 || body[..4] != MAGIC {
+        return None;
+    }
+    let (version, kind, flags, count, len) =
+        (body[4], body[5], body[6], body[7], usize::from(body[8]));
+    if version != VERSION
+        || kind != KIND_REMOVAL
+        || flags & !FLAG_DATA != 0
+        || count != 0
+        || body.len() != 9 + len
+        || len > ID_MAX
+    {
+        return None;
+    }
+    let id = core::str::from_utf8(&body[9..]).ok()?;
+    if !install::is_plugin_name(id) || id == "core" {
+        return None;
+    }
+    Some(Removal {
+        id: Text::new(id),
+        data: flags & FLAG_DATA != 0,
+    })
+}
+
 /// Whether an entry named like the last part of `path` is in its folder
 /// (`Storage::exists` asks for files; a plugin folder is a directory).
 ///
@@ -228,6 +321,22 @@ pub(crate) fn io(error: StorageError) -> u8 {
 /// is still there); the journal is then either not there or the old one, never
 /// half written.
 pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
+    let mut buf = [0_u8; RECORD_MAX];
+    let len = encode(entry, &mut buf);
+    write_journal(storage, &buf[..len])
+}
+
+/// Writes the journal of a removal, as [`begin`] does an install's.
+///
+/// # Errors
+/// As [`begin`].
+pub(crate) fn begin_removal(storage: &dyn Storage, removal: &Removal) -> Result<(), u8> {
+    let mut buf = [0_u8; RECORD_MAX];
+    let len = encode_removal(removal, &mut buf);
+    write_journal(storage, &buf[..len])
+}
+
+fn write_journal(storage: &dyn Storage, record: &[u8]) -> Result<(), u8> {
     // The journal of another install, one that could not be finished, is not
     // ours to replace: the start finishes it.
     match storage.size(JOURNAL) {
@@ -235,12 +344,10 @@ pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
         Err(StorageError::NotFound) => {}
         Err(error) => return Err(io(error)),
     }
-    let mut buf = [0_u8; RECORD_MAX];
-    let len = encode(entry, &mut buf);
     storage
         .create_dir(paperpaw_sdk::builtin::PLUGIN_DIR)
         .map_err(io)?;
-    storage.write(TMP, &buf[..len]).map_err(io)?;
+    storage.write(TMP, record).map_err(io)?;
     storage.sync().map_err(io)?;
     storage.rename(TMP, JOURNAL).map_err(io)?;
     storage.sync().map_err(io)
@@ -257,6 +364,7 @@ pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
 pub(crate) enum Found {
     None,
     Entry(Entry),
+    Removal(Removal),
     /// Not a record this host reads: set aside as `.journal.bad`.
     SetAside,
 }
@@ -273,11 +381,16 @@ pub(crate) fn read(storage: &dyn Storage) -> Result<Found, u8> {
         Err(StorageError::NotFound) => return Ok(Found::None),
         Err(error) => return Err(io(error)),
     };
-    let mut buf = [0_u8; RECORD_MAX];
-    let entry = if size > RECORD_MAX as u64 {
+    let found = if size > RECORD_MAX as u64 {
         None
     } else {
         let len = size as usize;
+        // On the heap, at the size of the file: the record's own room
+        // (`RECORD_MAX`) and the entry it decodes to would not both fit a
+        // frame of the limit the firmware keeps for the host's code.
+        let mut buf = Vec::new();
+        buf.try_reserve_exact(len).map_err(|_| reason::OTHER)?;
+        buf.resize(len, 0_u8);
         let mut done = 0;
         while done < len {
             match storage.read_at(JOURNAL, done as u64, &mut buf[done..len]) {
@@ -286,9 +399,11 @@ pub(crate) fn read(storage: &dyn Storage) -> Result<Found, u8> {
             }
         }
         decode(&buf[..len])
+            .map(Found::Entry)
+            .or_else(|| decode_removal(&buf[..len]).map(Found::Removal))
     };
-    match entry {
-        Some(entry) => Ok(Found::Entry(entry)),
+    match found {
+        Some(found) => Ok(found),
         None => {
             storage.rename(JOURNAL, BAD).map_err(io)?;
             Ok(Found::SetAside)
@@ -319,6 +434,8 @@ pub(crate) enum SwapStep {
     /// half done (the next start finishes it), and is gone where the old
     /// plugin was restored.
     Failed(u8),
+    /// A state no step of this swap makes: it can never be finished.
+    Stuck,
 }
 
 /// The swap of one entry, one card action a step.
@@ -346,6 +463,31 @@ impl Swap {
             entry,
             phase: Phase::Moving,
             live,
+            rolled_back: false,
+        })
+    }
+
+    /// [`Self::new`] of a live swap of the install `id` with `pins`, in a box
+    /// of its own made here (the swap is 800 bytes: not built on the caller's
+    /// frame, nor copied to the box from it). `None` for no memory.
+    #[inline(never)]
+    pub(crate) fn live_box(id: Text<ID_MAX>, had_old: bool, pins: &Pins) -> Option<Box<Self>> {
+        let (stage, old, target) = (
+            stage_path(id.as_str())?,
+            old_path(id.as_str())?,
+            target_path(id.as_str())?,
+        );
+        super::shared::try_box_with(|| Self {
+            entry: Entry {
+                id,
+                had_old,
+                pins: *pins,
+            },
+            stage,
+            old,
+            target,
+            phase: Phase::Moving,
+            live: true,
             rolled_back: false,
         })
     }
@@ -488,7 +630,7 @@ impl Swap {
             },
             // The stage, an old folder and a target at once: no step of this
             // swap makes it. Left for a person.
-            (true, true, true) => SwapStep::Failed(reason::OTHER),
+            (true, true, true) => SwapStep::Stuck,
         }
     }
 }
@@ -541,24 +683,43 @@ pub(crate) enum Replayed {
     Nothing,
     /// A swap finished (`rolled_back` false) or undone, for this plugin.
     Finished { id: Text<ID_MAX>, rolled_back: bool },
-    /// A journal this host does not read was set aside.
+    /// A removal finished, for this plugin.
+    Removed { id: Text<ID_MAX>, data: bool },
+    /// A removal stopped where the host must forget what it holds of the plugin
+    /// (its secrets and grants); the journal stays, [`resume`] finishes it.
+    Forgetting,
+    /// A removal finished after the host failed [`FORGET_TRIES`] starts in a
+    /// row to forget the plugin's secrets and grants: they stay on the card.
+    Unforgotten { id: Text<ID_MAX> },
+    /// A journal this host does not read, or can never finish, was set aside.
     SetAside,
     /// Stopped with this reason; the journal stays for the next start.
     Failed(u8),
 }
 
-/// The start's replay: finishes a journalled swap. Bounded: at most 8 steps.
+/// Renames the journal to [`BAD`]: what the start can never finish must not
+/// block every later change of the plugin folder.
+fn set_aside(storage: &dyn Storage) -> Replayed {
+    match storage.rename(JOURNAL, BAD) {
+        Ok(()) => Replayed::SetAside,
+        Err(error) => Replayed::Failed(io(error)),
+    }
+}
+
+/// The start's replay: finishes a journalled swap or removal. Bounded: at most
+/// 16 steps; a journal that is not finished by then is set aside.
 pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
     let entry = match read(storage) {
         Ok(Found::None) => return Replayed::Nothing,
         Ok(Found::SetAside) => return Replayed::SetAside,
         Ok(Found::Entry(entry)) => entry,
+        Ok(Found::Removal(removal)) => return replay_removal(storage, &removal, None),
         Err(why) => return Replayed::Failed(why),
     };
     let Some(mut swap) = Swap::new(entry, false) else {
         return Replayed::Failed(reason::OTHER);
     };
-    for _ in 0..8 {
+    for _ in 0..16 {
         match swap.step(storage) {
             SwapStep::More => {}
             SwapStep::Done { rolled_back } => {
@@ -568,9 +729,90 @@ pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
                 };
             }
             SwapStep::Failed(why) => return Replayed::Failed(why),
+            SwapStep::Stuck => return set_aside(storage),
         }
     }
-    Replayed::Failed(reason::OTHER)
+    set_aside(storage)
+}
+
+/// Finishes a removal journal the start left at its forget step, with the
+/// host's help: `forget` forgets the plugin's secrets and grants (`false`: it
+/// could not, the journal stays for the next start). Nothing else is touched.
+pub(crate) fn resume(storage: &dyn Storage, forget: &mut dyn FnMut(&str) -> bool) -> Replayed {
+    let done = match read(storage) {
+        Ok(Found::Removal(removal)) => replay_removal(storage, &removal, Some(forget)),
+        Ok(_) => Replayed::Nothing,
+        Err(why) => Replayed::Failed(why),
+    };
+    // The count belongs to the journal that is gone.
+    if matches!(
+        done,
+        Replayed::Removed { .. } | Replayed::Unforgotten { .. }
+    ) {
+        let _ = storage.remove(TRIES);
+    }
+    done
+}
+
+/// Counts a start at which the host could not forget; `true` once
+/// [`FORGET_TRIES`] are counted. A card that cannot count never gives up.
+fn tired_of_waiting(storage: &dyn Storage) -> bool {
+    storage.append(TRIES, b"x").is_ok() && storage.size(TRIES).is_ok_and(|n| n >= FORGET_TRIES)
+}
+
+#[inline(never)]
+fn replay_removal(
+    storage: &dyn Storage,
+    removal: &Removal,
+    mut forget: Option<&mut dyn FnMut(&str) -> bool>,
+) -> Replayed {
+    use super::plugin_remove::{RemoveStep, Removing};
+    let Some(mut removing) = Removing::new(*removal) else {
+        return Replayed::Failed(reason::OTHER);
+    };
+    let mut unforgotten = false;
+    for _ in 0..16 {
+        match removing.step(storage) {
+            // The journal is gone: what is left is cleaned by the sweep, in
+            // bounded pieces.
+            RemoveStep::More if removing.settled() && unforgotten => {
+                return Replayed::Unforgotten { id: removal.id };
+            }
+            RemoveStep::More if removing.settled() => {
+                return Replayed::Removed {
+                    id: removal.id,
+                    data: removal.data,
+                };
+            }
+            RemoveStep::More => {}
+            // No host at the start: the journal stays for the first pass.
+            RemoveStep::Forget => match forget.as_mut() {
+                None => return Replayed::Forgetting,
+                Some(forget) => {
+                    let ok = forget(removal.id.as_str());
+                    // A host that fails start after start must not keep every
+                    // later install waiting behind this journal.
+                    // ...but not before the secrets that stay are on the list
+                    // (`plugin_unforgotten`): they are retried at every start,
+                    // and the id is refused for an install until they are gone.
+                    unforgotten = !ok
+                        && tired_of_waiting(storage)
+                        && super::plugin_unforgotten::add(storage, removal.id.as_str());
+                    removing.forgotten(ok || unforgotten);
+                }
+            },
+            RemoveStep::Done if unforgotten => return Replayed::Unforgotten { id: removal.id },
+            RemoveStep::Done => {
+                return Replayed::Removed {
+                    id: removal.id,
+                    data: removal.data,
+                };
+            }
+            RemoveStep::Failed(why) => return Replayed::Failed(why),
+            RemoveStep::Stuck => return set_aside(storage),
+        }
+    }
+    set_aside(storage)
 }
 
 #[cfg(test)]

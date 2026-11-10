@@ -46,6 +46,9 @@ pub(crate) struct LibraryMoves {
     card: Rc<CardMoves>,
     /// The machine has read the journal at least once with a catalog.
     started: Cell<bool>,
+    /// How many moves were begun (wrapping): the pump's back-off starts again
+    /// when it changes (`moves_pump`).
+    begun: Cell<u32>,
     /// The walk over the moved folder, kept between steps.
     resume: Resume,
 }
@@ -58,6 +61,7 @@ impl LibraryMoves {
             card: Rc::new(CardMoves::new(storage.clone())),
             storage,
             started: Cell::new(false),
+            begun: Cell::new(0),
             resume: Resume::default(),
         }
     }
@@ -77,7 +81,14 @@ impl LibraryMoves {
     /// # Errors
     /// As [`Moves::begin`].
     pub(crate) fn begin(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
-        self.moves.begin(&*self.card, from, to, replace)
+        self.moves.begin(&*self.card, from, to, replace)?;
+        self.begun.set(self.begun.get().wrapping_add(1));
+        Ok(())
+    }
+
+    /// How many moves were begun, wrapping.
+    pub(crate) fn begun(&self) -> u32 {
+        self.begun.get()
     }
 
     /// Deletes the books at `paths` (at most 7, judged by the caller: books,
@@ -134,6 +145,7 @@ impl LibraryMoves {
     ///
     /// # Errors
     /// As [`Moves::open_book`].
+    #[allow(dead_code, reason = "the reader's open (Host, #946) calls it")]
     pub(crate) fn open_book(&self, book: &str) -> Result<(), i32> {
         self.moves.open_book(&*self.card, book)
     }

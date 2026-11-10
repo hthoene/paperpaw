@@ -345,6 +345,7 @@ impl CommandStage<'_> {
 
     /// The preset records of `batch`, checked and copied; their bytes are
     /// the second part of the answer.
+    #[inline(never)]
     pub(super) fn validate_presets(
         &self,
         batch: &CommandBatch<'_>,
@@ -415,10 +416,12 @@ impl Kernel {
                 Ok(()) => {}
                 Err(ERR_NOT_FOUND) => {
                     self.warn_runtime("native preset dropped: it is gone");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
                 Err(_) => {
                     self.warn_runtime("native preset dropped: it changes a guarded setting");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
             }

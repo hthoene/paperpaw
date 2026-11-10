@@ -412,6 +412,7 @@ struct Dictionary;
 impl LookupHost for Dictionary {
     fn ask(
         &self,
+        _frame: &dyn crate::abi7::context::Frame,
         _owner: u64,
         _ask: &registrations::ServiceLookupAsk<'_>,
         _out: &mut [u8],
@@ -443,7 +444,9 @@ fn a_lookup_reaches_the_wired_providers() {
             Err(ERR_UNSUPPORTED),
             "not wired"
         );
-        pool.hosts().wire_lookup(Rc::new(Dictionary)).unwrap();
+        pool.hosts()
+            .wire_lookup(Rc::new(Dictionary), Default::default())
+            .unwrap();
         assert_eq!(
             call(&scope, &owner, handle, lookup, &ask),
             Err(ERR_NOT_FOUND),

@@ -176,12 +176,22 @@ Field meanings:
   translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
-  firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none), `problem_arg`
-  its number (`built_for`); `update`: the version waiting, empty if none. The first row of op 5
-  is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
+  firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none, 1-12, 13 `Other`
+  with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
+  of interface 7, where a whole declaration batch was refused at one of them and the plugin did
+  not load (`state` 2 failed): 14 too many formats, 15 too many readers, `problem_arg` the cap it
+  ran into, only ever 8 or 32 with 14 (formats per plugin, `ERR_FULL`, or device-wide, `ERR_FULL`;
+  `document.md` 1) and 4 or 16 with 15 (readers per plugin, `ERR_INVALID`, or device-wide,
+  `ERR_FULL`; `document.md` 1); 16 too many book fields (`problem_arg` 8 per plugin or 64
+  device-wide), 17 too many book badges (4 per plugin or 16 device-wide; both `library.md` 1), 18
+  too many lookup providers (8 per plugin or 32 device-wide; `document.md` 7); 0 where the host
+  cannot say which. The cap decides the value, not the status. A duplicate name in one batch has no
+  problem number of its own. A plugin showing these rows treats a value it does not know as "could
+  not be loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the
+  host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
-- [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
+- [D] **Where op 20's rows come from**: kinds 0 and 1 from the native metadata the host
   admitted this run, which it keeps with the plugin's registry row: the validated view where its
   bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
   bytes (`metadata::MAX_BYTES`) made at admission; features from
@@ -214,12 +224,14 @@ Field meanings:
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
   `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
-  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
-  (draft 32): a settings page lists the widgets whose `previews` is its group. With
+  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none:
+  a settings page lists the widgets whose `previews` is its group. With
   `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
   then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
   6 took the last added; where two plugins preview one group the shown one may differ (accepted
-  for 1.0: no first-party group has two).
+  for 1.0: no first-party group has two). Without bit 0, op 19 leaves out every widget whose
+  `previews` is set (a widget picker never offers one); bit 0 with an empty `scope` is
+  `ERR_INVALID`.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's

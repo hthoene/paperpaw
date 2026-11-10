@@ -34,7 +34,13 @@ fn entry_bytes(provider: &str, flags: u32, text: &str) -> Vec<u8> {
     out
 }
 impl LookupHost for Fake {
-    fn ask(&self, owner: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(
+        &self,
+        _frame: &dyn Frame,
+        owner: u64,
+        ask: &Ask<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         self.asked
             .borrow_mut()
             .push((owner, ask.cursor, ask.text.into(), ask.language.into()));
@@ -102,7 +108,7 @@ fn ask(fake: &Rc<Fake>, record: Ask<'_>) -> Result<Vec<u8>, i32> {
     let env = kernel.shared.env(Instant(0));
     let host: Rc<dyn LookupHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
-    hosts.wire_lookup(host).unwrap();
+    hosts.wire_lookup(host, Default::default()).unwrap();
     let view = View { env: &env, hosts };
     let mut out = std::vec![0; op.max_reply];
     let length = view.run(op, &input[..used], &mut out)?;

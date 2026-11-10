@@ -4,6 +4,7 @@
 extern crate std;
 use super::*;
 use crate::abi7::core_frame::CoreFrame;
+use core::any::TypeId;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{Instant, PixelFormat};
 
@@ -22,6 +23,9 @@ std::thread_local! {
     static METER: core::cell::RefCell<Option<alloc::rc::Rc<crate::meter::Meter>>> =
         const { core::cell::RefCell::new(None) };
     static RUNNING: Cell<Option<bool>> = const { Cell::new(None) };
+    /// How many token callbacks ran as the frame owner, and how many did not.
+    static OURS: Cell<u32> = const { Cell::new(0) };
+    static NOT_OURS: Cell<u32> = const { Cell::new(0) };
     static SUBSCRIBE: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -143,6 +147,9 @@ fn invoked(state: *mut c_void, token: u32) -> bool {
         return false;
     }
     CALLS.with(|count| count.set(count.get() + 1));
+    let ours = super::super::frame_owner::owner() == Some(context.owner_key());
+    let seen = if ours { &OURS } else { &NOT_OURS };
+    seen.with(|count| count.set(count.get() + 1));
     METER.with(|meter| {
         if let Some(meter) = &*meter.borrow() {
             use paperpaw_sdk::secrets::Running;
@@ -240,6 +247,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     });
 }
@@ -493,6 +501,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
         Retained::make(hosted(false)).unwrap(),
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
@@ -552,6 +561,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
         instance,
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
@@ -692,6 +702,7 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
         Retained::make(hosted(false)).unwrap(),
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&rows),
@@ -740,6 +751,7 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
             Retained::make(hosted).unwrap(),
             super::super::flat::FlatDepth::try_new().unwrap(),
             super::super::FlatHost {
+                log: Default::default(),
                 meter: alloc::rc::Rc::clone(&kernel.shared.meter),
                 directory: None,
                 stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
@@ -844,4 +856,50 @@ fn a_nested_draw_is_charged_to_the_plugin_called() {
         drop(running);
     }
     METER.with(|meter| *meter.borrow_mut() = None);
+}
+
+/// Every kind of declared entry (input, event, draw, stage reply) runs the
+/// plugin as the frame owner, and the previous owner is back after it, also
+/// when the callback answers an error and when the call is nested in another
+/// plugin's.
+#[test]
+fn every_token_entry_runs_as_the_frame_owner_and_gives_it_back() {
+    use super::super::frame_owner;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    let mut framebuffer = paperpaw_graphics::Framebuffer::new(20, 80, PixelFormat::Gray8).unwrap();
+    let mut full_canvas = framebuffer.canvas();
+    let mut canvas = full_canvas.clipped(Rect::new(0, 5, 20, 4));
+    let draw_frame = super::super::frames::screen(0, 0, 20, 80, (5, 9));
+    let depth = DispatchDepth::new();
+    OURS.with(|count| count.set(0));
+    NOT_OURS.with(|count| count.set(0));
+    REPLY.with(|value| value.set(true));
+    let run = |frame: &CoreFrame<'_>, canvas: &mut paperpaw_graphics::Canvas<'_>| {
+        let _ = dispatch_token(&batch, TOKEN, &depth, frame, TokenInvocation::Input(&[]));
+        let _ = dispatch_token(&batch, TOKEN, &depth, frame, TokenInvocation::Event(&[]));
+        let _ = dispatch_token_draw(&batch, TOKEN, &depth, frame, &draw_frame, canvas);
+        let mut output = [0; 8];
+        let _ = super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output);
+    };
+    scoped(&kernel, |frame| {
+        // An answer and an error return: four entries each.
+        for status in [0, -3] {
+            RESULT.with(|value| value.set(status));
+            run(frame, &mut canvas);
+            assert_eq!(frame_owner::owner(), None, "status {status}");
+        }
+        // Nested in another plugin's frame.
+        frame_owner::within(99, ptr::null(), TypeId::of::<()>(), || {
+            run(frame, &mut canvas);
+            assert_eq!(frame_owner::owner(), Some(99));
+        });
+    });
+    assert_eq!(OURS.with(Cell::get), 12);
+    assert_eq!(NOT_OURS.with(Cell::get), 0);
 }

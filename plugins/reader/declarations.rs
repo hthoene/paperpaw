@@ -21,6 +21,14 @@ pub const FOOTNOTE: u32 = 14;
 pub const SEARCH: u32 = 15;
 pub const STARTED: u32 = 3;
 pub const BOOK_MOVED: u32 = 4;
+/// The device goes to sleep, stops, or the quiet time after a page turn has
+/// gone: the place of the page on show is written (`native_place`).
+pub const SUSPEND: u32 = 5;
+pub const STOPPING: u32 = 6;
+pub const WORK_DUE: u32 = 7;
+/// A setting changed: a page laid out with the reading settings is laid out again
+/// (`native_pages::affects_layout`), one drawn with the text look drawn again.
+pub const SETTING_CHANGED: u32 = 8;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
@@ -324,12 +332,17 @@ pub fn hold_keys<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The start (reopen the last book) and a book moved (the last book follows).
+/// The start (reopen the last book), a book moved (the last book follows), and
+/// what saves the place: sleep, stop, and the quiet time (`core.work`).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::BookMoved, BOOK_MOVED)?;
+    d.subscribe_event(EventKind::Suspend, SUSPEND)?;
+    d.subscribe_event(EventKind::Stopping, STOPPING)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_DUE)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()
 }
 

@@ -124,6 +124,27 @@ fn lookup(languages: &str, flags: u32) -> LookupSpec<'_> {
 }
 
 #[test]
+fn a_lookup_provider_name_is_at_most_64_bytes() {
+    fn spec(name: &str) -> LookupSpec<'_> {
+        LookupSpec {
+            name,
+            title: "lookup.dict",
+            languages: "",
+            flags: 0,
+            token: 1,
+        }
+    }
+    let name = |n: usize| "a".repeat(n);
+    assert_eq!(lookup_check("dictionary", &spec(&name(64))), Ok(()));
+    // `lookup_entry.provider` holds 64 bytes.
+    assert_eq!(
+        lookup_check("dictionary", &spec(&name(65))),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(lookup_check("dictionary", &spec("")), Err(ERR_INVALID));
+}
+
+#[test]
 fn a_lookup_provider_lists_up_to_32_language_tags_or_any() {
     assert_eq!(lookup_check("dictionary", &lookup("", 1)), Ok(()));
     assert_eq!(
@@ -213,13 +234,14 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
 }
 
 #[test]
-fn they_are_checked_and_then_refused_until_the_host_admits_them() {
+fn a_format_is_admitted_and_a_bad_one_is_invalid() {
     use crate::native_host::declarations::validate_record;
-    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let spec = format("epub", 0);
+    assert_eq!(validate_record(PLUGIN, &Record::FormatSpec(spec)), Ok(()));
+    // A lookup provider is admitted too.
     assert_eq!(
-        validate_record(PLUGIN, &Record::FormatSpec(spec)),
-        Err(ERR_UNSUPPORTED)
+        validate_record(PLUGIN, &Record::LookupSpec(lookup("en", 0))),
+        Ok(())
     );
     let mut bad = format("EPUB", 0);
     bad.name = "epub";

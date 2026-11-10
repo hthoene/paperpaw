@@ -2,9 +2,10 @@
 //! widget and setting records, and every widget has the behaviour its token
 //! says.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+
 use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
-    registrations::records_decode,
+    registrations::{Record, records_decode},
 };
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
@@ -89,4 +90,21 @@ fn every_declared_widget_has_a_distinct_token_a_behaviour_and_a_group() {
     ] {
         assert!(!tokens.contains(&other));
     }
+}
+
+/// A widget that `previews` a settings group is made for that group's
+/// settings page and never offered in the Add picker (`registry.md`, op 19).
+/// Beta 3's widget pack declared none, so every widget stays pickable.
+#[test]
+fn no_widget_of_the_pack_previews_a_settings_group() {
+    let mut seen = 0;
+    for batch in batches!(declarations::widgets) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, declarations::WIDGETS.len());
 }

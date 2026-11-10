@@ -30,7 +30,7 @@ const PER_OWNER: usize = 4;
 /// `true` when events remain for another pass.
 pub(super) fn pump(
     instances: &NativeInstances,
-    services: &[Option<&dyn ServiceEvents>; 2],
+    services: &[Option<&dyn ServiceEvents>; 3],
     env: &Env<'_>,
     call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {
@@ -46,6 +46,9 @@ pub(super) fn pump(
         return true;
     }
     let now = env.now().millis();
+    for service in services.iter().flatten() {
+        service.set_now(now);
+    }
     // Short of memory: the events wait, and the next try is not before
     // `RETRY_MS`, so a device without the bytes does not run the pump in a loop.
     if instances.service_retry().is_some_and(|at| now < at) {
@@ -174,10 +177,17 @@ impl crate::Kernel {
         let work_more = self.native_work_pump();
         // Pictures a plugin asked for decode one a turn (`image_pump`).
         let image_more = self.native_image_pump();
+        // The reading session's events are queued for the subscribers (the
+        // reader's report raised them), before the pump that tells them.
+        let reading_more = self.native_reading_pump();
         // Changed settings reach the plugins that subscribed (`setting_events`).
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
         let widget_more = self.native_widget_pump();
+        // A changed screen stack reaches the plugins that subscribed (`stack_events`).
+        let stack_more = self.native_stack_pump();
+        // The library's move job goes on, a bounded step a pass (`moves_pump`).
+        let moves_more = self.native_moves_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
@@ -188,8 +198,11 @@ impl crate::Kernel {
         self.shared.native_instances.set_service_more(
             more || work_more
                 || image_more
+                || reading_more
                 || setting_more
                 || widget_more
+                || stack_more
+                || moves_more
                 || dialog_more
                 || wifi_more
                 || firmware_more,
@@ -213,6 +226,7 @@ impl crate::Kernel {
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
+            .chain(instances.moves_retry())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())
@@ -229,6 +243,15 @@ impl crate::Kernel {
         self.native_services_each(|service, owner| {
             service.screen_closed(owner, u64::from(instance))
         })
+    }
+
+    /// The plugin `owner` was taken in: what each service holds of a power
+    /// cut's leftovers for it is cleaned up or restored (a `.received/`
+    /// folder, a staged file kept after a failed rename). Nothing is
+    /// reported: what cannot be done now is retried at the next claim or the
+    /// plugin's stop.
+    pub(crate) fn native_services_owner_started(&self, owner: u64) {
+        tell_owner_started(&self.shared.native_instances.event_services(), owner);
     }
 
     /// A work run reached its longest time: what each service started in it
@@ -261,6 +284,13 @@ impl crate::Kernel {
             }
         }
         result
+    }
+}
+
+/// Tells every wired service that `owner` started.
+pub(super) fn tell_owner_started(services: &[Option<&dyn ServiceEvents>], owner: u64) {
+    for service in services.iter().flatten() {
+        service.owner_started(owner);
     }
 }
 

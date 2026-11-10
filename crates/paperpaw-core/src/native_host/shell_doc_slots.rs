@@ -5,14 +5,18 @@ use crate::native_host::{fonts, host_slot, hyphen_service, image_service};
 use paperpaw_native::host_glue::Services;
 
 /// Names the four entry points in the host table.
-pub(super) const fn install<S: Services>(table: &mut PpHost) {
+pub(super) const fn install<S: Services + 'static>(table: &mut PpHost) {
     table.text_hyphenate = text_hyphenate::<S>;
     table.icon_glyph = icon_glyph::<S>;
     table.image_info = image_info::<S>;
     table.canvas_draw_image = canvas_draw_image::<S>;
 }
 
-pub(super) unsafe extern "C" fn image_info<S>(ctx: *mut c_void, image: u32, out: PpBuffer) -> i32 {
+pub(super) unsafe extern "C" fn image_info<S: 'static>(
+    ctx: *mut c_void,
+    image: u32,
+    out: PpBuffer,
+) -> i32 {
     // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
@@ -23,7 +27,7 @@ pub(super) unsafe extern "C" fn image_info<S>(ctx: *mut c_void, image: u32, out:
     unsafe { image_service::info_slot(&context.resources, image, out) }
 }
 
-pub(super) unsafe extern "C" fn canvas_draw_image<S>(
+pub(super) unsafe extern "C" fn canvas_draw_image<S: 'static>(
     ctx: *mut c_void,
     image: u32,
     x: i32,
@@ -51,7 +55,7 @@ pub(super) unsafe extern "C" fn canvas_draw_image<S>(
     )
 }
 
-pub(super) unsafe extern "C" fn icon_glyph<S>(
+pub(super) unsafe extern "C" fn icon_glyph<S: 'static>(
     ctx: *mut c_void,
     name: PpBytes,
     out: PpBuffer,
@@ -66,7 +70,7 @@ pub(super) unsafe extern "C" fn icon_glyph<S>(
     unsafe { fonts::icon_glyph(&context.environment, name, out) }
 }
 
-pub(super) unsafe extern "C" fn text_hyphenate<S>(
+pub(super) unsafe extern "C" fn text_hyphenate<S: 'static>(
     ctx: *mut c_void,
     language: PpBytes,
     word: PpBytes,

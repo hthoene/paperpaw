@@ -114,6 +114,8 @@ fn drive_with(
         match job.step(&env) {
             JobStep::More => {}
             JobStep::Wait => panic!("waited with no question"),
+            JobStep::Unload(_) => panic!("an install closes no plugin"),
+            JobStep::Forget(_) => panic!("an install forgets nothing"),
             JobStep::Ask(question) => {
                 // The harness's own allocation is not the job's.
                 let armed = FAIL_NTH.with(|n| n.replace(0));
@@ -273,6 +275,27 @@ fn declined_and_dismissed_leave_the_card_as_it_was() {
         assert_eq!(snapshot(&card), before);
         assert_eq!(native::known_author(&card, "dials"), None);
     }
+}
+
+/// A removed plugin whose secrets stayed (`plugin_unforgotten`): a plugin of
+/// its id is not installed until the host has forgotten them.
+#[test]
+fn an_id_whose_secrets_stayed_after_a_removal_is_not_installed() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    assert!(crate::native_host::plugin_unforgotten::add(&card, "dials"));
+    let before = snapshot(&card);
+    assert_eq!(
+        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
+        reason::ID_TAKEN
+    );
+    assert_eq!(snapshot(&card), before);
+    // The host forgot: the id is free again.
+    crate::native_host::plugin_unforgotten::retry(&card, &mut |_| true);
+    assert_eq!(
+        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
+        reason::OK
+    );
 }
 
 #[test]
@@ -713,31 +736,54 @@ fn an_aborted_job_removes_its_stage_before_the_journal_and_leaves_the_swap_after
         JobStep::Done(Finished::refused(reason::STOPPED))
     );
     assert!(!card.exists("plugins/.dials.part/plugin.ini"));
-    // Aborted once the journal is written: the next start finishes the swap.
+    // Aborted once the journal is written: the job must finish, steps on to
+    // its end and tells the real outcome (the swap is done, not "stopped").
     let mut job = self::job(0, Evidence::NONE);
     while job.phase != Phase::Swapping {
         if let JobStep::Ask(_) = job.step(&env) {
             job.answer(Answer::Yes);
         }
     }
+    assert!(job.must_finish());
     job.abort(reason::STOPPED);
-    assert_eq!(
-        job.step(&env),
-        JobStep::Done(Finished::refused(reason::STOPPED))
-    );
-    assert!(card.exists("plugins/.journal"));
-    assert!(matches!(
-        replay(&card),
-        Replayed::Finished {
-            rolled_back: false,
-            ..
+    let done = loop {
+        if let JobStep::Done(done) = job.step(&env) {
+            break done;
         }
-    ));
+    };
+    assert_eq!(done.reason, reason::OK);
+    assert!(!card.exists("plugins/.journal"));
     assert_eq!(
         text(&card, "plugins/dials/strings.ini").as_deref(),
         Some("hello\n")
     );
     assert!(clean(&card));
+}
+
+#[test]
+fn the_asking_plugin_going_away_stops_nothing_after_the_yes_and_everything_before() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let mut job = job(0, Evidence::NONE);
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Names,
+        granted: false,
+    };
+    loop {
+        if let JobStep::Ask(_) = job.step(&env) {
+            break;
+        }
+    }
+    // Asked, no answer yet: it goes with its sender.
+    assert!(!job.keep_without_sender() && !job.must_finish());
+    job.answer(Answer::Yes);
+    assert!(job.keep_without_sender());
+    while job.phase != Phase::Swapping {
+        job.step(&env);
+    }
+    assert!(job.keep_without_sender() && job.must_finish());
 }
 
 #[test]
@@ -786,6 +832,8 @@ fn an_allocation_that_fails_ends_the_install_without_a_panic_or_a_half_install()
                 }
                 match step {
                     JobStep::More | JobStep::Wait => {}
+                    JobStep::Unload(_) => panic!("an install closes no plugin"),
+                    JobStep::Forget(_) => panic!("an install forgets nothing"),
                     JobStep::Ask(_) => job.answer(Answer::Yes),
                     JobStep::Done(done) => return Some(done),
                 }

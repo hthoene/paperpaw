@@ -89,6 +89,9 @@ pub(in crate::native_host) struct Cut<'a> {
     pub(in crate::native_host) done: Cell<usize>,
     allowed: usize,
     fail_only: Option<usize>,
+    /// Bounded tree steps taken, and whole-tree removals (`remove_dir_all`).
+    pub(in crate::native_host) tree_steps: Cell<usize>,
+    pub(in crate::native_host) whole_trees: Cell<usize>,
 }
 
 impl<'a> Cut<'a> {
@@ -98,6 +101,8 @@ impl<'a> Cut<'a> {
             done: Cell::new(0),
             allowed,
             fail_only: None,
+            tree_steps: Cell::new(0),
+            whole_trees: Cell::new(0),
         }
     }
     /// Action `nth` fails and the power goes `after` actions in all.
@@ -107,6 +112,8 @@ impl<'a> Cut<'a> {
             done: Cell::new(0),
             allowed: after,
             fail_only: Some(nth),
+            tree_steps: Cell::new(0),
+            whole_trees: Cell::new(0),
         }
     }
     pub(in crate::native_host) fn failing(card: &'a MemoryStorage, nth: usize) -> Self {
@@ -115,6 +122,8 @@ impl<'a> Cut<'a> {
             done: Cell::new(0),
             allowed: usize::MAX,
             fail_only: Some(nth),
+            tree_steps: Cell::new(0),
+            whole_trees: Cell::new(0),
         }
     }
     /// Whether the next mutating action happens.
@@ -158,7 +167,19 @@ impl Storage for Cut<'_> {
         self.go()?;
         self.card.create_dir(p)
     }
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.go()?;
+        self.tree_steps.set(self.tree_steps.get() + 1);
+        self.card.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.whole_trees.set(self.whole_trees.get() + 1);
         self.go()?;
         self.card.remove_dir_all(p)
     }

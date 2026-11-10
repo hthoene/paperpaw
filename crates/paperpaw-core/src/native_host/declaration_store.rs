@@ -7,6 +7,7 @@
 //! native plugins can change image bytes without a sandbox.
 
 use super::{
+    declaration_checks::Cap,
     declarations,
     registrations::{Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
@@ -78,7 +79,7 @@ impl DeclKey {
     }
 }
 
-const KIND_COUNT: usize = 31;
+const KIND_COUNT: usize = 34;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
 
@@ -123,8 +124,14 @@ pub(crate) enum Kind {
     InputSpec,
     /// `help.hint` (category 17): a hint for any screen.
     HelpHint,
+    /// `format.spec` (category 31): a book format the plugin reads.
+    Format,
+    /// `reader.spec` (category 32): a reading app the plugin offers.
+    Reader,
+    /// `lookup.spec` (category 33): a lookup provider the plugin offers.
+    Lookup,
 }
-const _: () = assert!(Kind::HelpHint as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::Lookup as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -159,6 +166,9 @@ impl Kind {
             Self::SetupStep => 8,
             Self::InputSpec => 16,
             Self::HelpHint => 17,
+            Self::Format => 31,
+            Self::Reader => 32,
+            Self::Lookup => 33,
         }
     }
 
@@ -195,6 +205,9 @@ impl Kind {
             Record::SetupStep(_) => Self::SetupStep,
             Record::InputSpec(_) => Self::InputSpec,
             Record::HelpHint(_) => Self::HelpHint,
+            Record::FormatSpec(_) => Self::Format,
+            Record::ReaderSpec(_) => Self::Reader,
+            Record::LookupSpec(_) => Self::Lookup,
             _ => return None,
         })
     }
@@ -212,6 +225,8 @@ struct Slot {
 pub(crate) struct Allocations {
     #[cfg(test)]
     pub(crate) fail_after: Option<usize>,
+    /// The declaration cap `prepare` refused the plugin at, if it was one.
+    pub(crate) cap: Option<super::declaration_checks::Cap>,
 }
 impl Allocations {
     pub(crate) fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
@@ -539,6 +554,11 @@ impl PendingDeclarations {
                 // So do `input.spec` and `help.hint`.
                 usize::MAX,
                 usize::MAX,
+                // And `format.spec`, `reader.spec` and `lookup.spec` (their
+                // counts are checked at commit).
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
             ];
             if self
                 .owned_counts
@@ -627,6 +647,66 @@ impl DeclarationStore {
             allocations.reserve(&mut self.owners, 1)?;
             self.owners.len()
         };
+        // At most 32 formats on the device (`document.md` section 1): the
+        // plugin's own 8 are checked with its batch; here the others count.
+        let others: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Format).len())
+            .sum();
+        if others + pending.of_kind(Kind::Format).len() > super::format_index::DEVICE {
+            allocations.cap = Some(Cap::of(Cap::FORMATS, super::format_index::DEVICE));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
+        // And 16 reading apps on the device, counted the same way.
+        let readers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Reader).len())
+            .sum();
+        if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
+            allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
+        // And 32 lookup providers on the device (`document.md` section 7).
+        let providers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Lookup).len())
+            .sum();
+        if providers + pending.of_kind(Kind::Lookup).len()
+            > super::declaration_checks::LOOKUPS_DEVICE
+        {
+            allocations.cap = Some(Cap::of(
+                Cap::LOOKUPS,
+                super::declaration_checks::LOOKUPS_DEVICE,
+            ));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {
             store: self,
@@ -693,6 +773,16 @@ impl DeclarationStore {
             .filter(|owner| owner.source.generation() == owner.generation)
             .ok_or(paperpaw_native::host_glue::ERR_NOT_FOUND)?;
         owner.source.native_lease()
+    }
+
+    /// The plugin id of the live owner `key`.
+    pub(crate) fn plugin_id_of_owner(&self, key: u64) -> Option<&str> {
+        self.owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .filter(|owner| owner.source.generation() == owner.generation)
+            .map(PendingDeclarations::plugin_id)
     }
 
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
@@ -947,6 +1037,13 @@ fn check_indexed_name(
     Ok(())
 }
 
+#[path = "declaration_formats.rs"]
+mod formats;
+#[allow(
+    unused_imports,
+    reason = "read by the document service's production host"
+)]
+pub(crate) use formats::{FormatDecl, ReaderDecl};
 #[path = "declaration_stages.rs"]
 mod stages;
 #[allow(

@@ -63,6 +63,7 @@ struct Service {
     busy_next: Cell<bool>,
     ticks: Cell<u32>,
     deadline: Cell<Option<u64>>,
+    started: RefCell<Vec<u64>>,
 }
 impl ServiceEvents for Service {
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
@@ -101,6 +102,9 @@ impl ServiceEvents for Service {
     }
     fn next_deadline(&self) -> Option<u64> {
         self.deadline.get()
+    }
+    fn owner_started(&self, owner: u64) {
+        self.started.borrow_mut().push(owner);
     }
 }
 
@@ -151,7 +155,7 @@ fn run(f: &Fixture, service: &Service) -> bool {
 }
 
 /// One pass of the real pump over `services`, at time 0.
-pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 2]) -> bool {
+pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 3]) -> bool {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -164,7 +168,12 @@ fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(ms));
-    pump(&f.instances, &[Some(service), None], &env, &plain(&env))
+    pump(
+        &f.instances,
+        &[Some(service), None, None],
+        &env,
+        &plain(&env),
+    )
 }
 
 fn queue(service: &Service, owner: u64, tags: &[u8]) {
@@ -254,7 +263,7 @@ fn nothing_is_delivered_inside_a_callback_and_the_pass_stays_wanted() {
     f.instances.test_enter_callback();
     assert!(pump(
         &f.instances,
-        &[Some(&service), None],
+        &[Some(&service), None, None],
         &env,
         &plain(&env)
     ));
@@ -279,7 +288,7 @@ fn no_wired_service_means_no_pass_and_no_buffer() {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
-    assert!(!pump(&f.instances, &[None, None], &env, &plain(&env)));
+    assert!(!pump(&f.instances, &[None, None, None], &env, &plain(&env)));
 }
 
 #[test]
@@ -308,4 +317,13 @@ fn a_refused_buffer_waits_for_its_retry_time_and_never_asks_for_an_immediate_pas
     assert!(!run_at(&f, &service, 10_000));
     crate::native_host::net_service::fail_nth(0);
     assert_eq!(f.seen[0].borrow().len(), 2);
+}
+
+#[test]
+fn every_wired_service_is_told_an_owner_started() {
+    let (first, second) = (Service::default(), Service::default());
+    tell_owner_started(&[Some(&first), None, Some(&second)], 7);
+    tell_owner_started(&[None, None, None], 8);
+    assert_eq!(first.started.borrow().as_slice(), [7]);
+    assert_eq!(second.started.borrow().as_slice(), [7]);
 }

@@ -33,7 +33,9 @@ use super::{
 };
 use crate::native_host::codec;
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
 use paperpaw_sdk::Env;
 
 /// Most `fmt.option` rows a call forwards (`document.md` 3).
@@ -61,10 +63,46 @@ pub(crate) trait ImageMap {
     ) -> Result<Option<wire::ServiceDocImage>, i32>;
 }
 
-/// Who a call is for and what it needs from the host.
-pub(crate) struct Stage<'a> {
+/// How one framed payload reaches the format at a [`Target`] and its checked
+/// reply comes back (the front of `out`, its length returned).
+pub(crate) trait Route {
+    /// # Errors
+    /// What [`format_call::call`] says.
+    fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32>;
+}
+
+/// Through the retained instance registry (the shell's own loop).
+pub(crate) struct Registry<'a> {
     pub(crate) registry: &'a NativeInstances,
     pub(crate) env: &'a Env<'a>,
+}
+impl Route for Registry<'_> {
+    fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        format_call::call(self.registry, target, payload, out, self.env)
+    }
+}
+
+/// Through the calling plugin's frame (`Frame::call_native`): the format
+/// runs in its own instance at depth 2, the reply is written where the
+/// caller lent room and checked before it counts.
+pub(crate) struct FrameRoute<'a>(pub(crate) &'a dyn crate::abi7::context::Frame);
+impl Route for FrameRoute<'_> {
+    fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let framed = format_call::framed(payload)?;
+        let room = out.len().min(PAYLOAD_MAX);
+        self.0.call_native(
+            target.plugin,
+            target.token,
+            &framed,
+            &mut out[..room],
+            &mut |reply| format_call::accept_reply(reply),
+        )
+    }
+}
+
+/// Who a call is for and what it needs from the host.
+pub(crate) struct Stage<'a> {
+    pub(crate) route: &'a dyn Route,
     pub(crate) images: &'a dyn ImageMap,
 }
 
@@ -253,7 +291,7 @@ impl<'a> Stage<'a> {
         let used = local::records_encode(&rows, &mut payload)?;
         drop(rows);
         payload.truncate(used);
-        format_call::call(self.registry, target, &payload, out, self.env)
+        self.route.call(target, &payload, out)
     }
 
     /// The format's batch in `out[..length]` as a bare stream in service tags.
@@ -333,7 +371,14 @@ impl<'a> Stage<'a> {
             .images
             .map(who.owner, call.document, &image, call.op == fmt::BLOCK)?;
         let Some(doc) = mapped else {
-            return Ok(put);
+            // A block keeps its text without the picture; the cover or a
+            // picture asked for alone is none: `ERR_NOT_FOUND` (`document.md`
+            // 5), the format's file is at fault, not the caller's request.
+            return if call.op == fmt::BLOCK {
+                Ok(put)
+            } else {
+                Err(ERR_NOT_FOUND)
+            };
         };
         let mut scratch = [0_u8; 64];
         let written = codec::encode_one(&Record::ServiceDocImage(doc), &mut scratch)?;
