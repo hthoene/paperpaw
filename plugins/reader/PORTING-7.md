@@ -129,3 +129,16 @@ relative to the data folder).
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
+
+## The block assembler (view slice R1a, `native_block.rs`)
+
+- Joins the fragments of `core.document` op 6 into the `Block` the layout takes: head fields as data
+  (`Head`), text parts, runs, checkpoints, inline languages, annotations. Checked: the text is as long
+  as the head said (at most 64 KiB), runs sorted, inside the text and on character boundaries, checkpoints
+  in order, at most 2,048 parts and 15 languages. A refusal forgets the block; allocation is fallible
+  and tested refused in turn. `pieces(&BlockFragment)` turns a fragment into the data the assembler
+  takes (the fragment type has no public constructor, so the join is tested on pieces).
+- Gaps: a picture block and a table row read as a paragraph of their text (images wait for `core.image`
+  and the table records); the fragment-to-pieces step is covered by the hosted test of the view slice.
+- Builds on the SDK Documents facade (PR #959, merged into this branch locally: the stack is #954,
+  #959, this).
