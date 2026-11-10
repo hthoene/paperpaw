@@ -431,3 +431,7 @@ that sends and reads it is in place.
   answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
   another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
   slices is gone (nothing asked it).
+
+## Widgets and the settings pages
+
+The widgets are declared without `previews` (Kernel ruling, #228, as in Beta 3): they are offered in the Add picker, and a settings page does not show a sample of the widget. A preview-only widget would add one later.

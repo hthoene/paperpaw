@@ -67,8 +67,8 @@ fn the_settings_and_the_start_are_declared() {
         count += records_decode(&batch).unwrap().len();
     }
     assert_eq!(
-        count, 3,
-        "the start, the minute tick and the work of the card files"
+        count, 4,
+        "the start, the minute tick, the work of the card files and the waking"
     );
 }
 
@@ -94,9 +94,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
-    // Nothing is offered that ends in a refusal: the phone,
-    // the sleep card and the widget are declared with their ports.
-    for absent in ["phone", "sleep-card", "widget", "scan-card"] {
+    // Nothing is offered that ends in a refusal: the phone and the scan
+    // action are declared with their ports.
+    for absent in ["phone", "widget", "scan-card"] {
         assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
     }
 }
@@ -108,7 +108,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 4] = [
+    let builders: [(&str, Build); 6] = [
+        ("navigation", |sink| declarations::navigation(sink)),
+        ("widgets", |sink| declarations::widgets(sink)),
         ("stages", |sink| declarations::stages(sink)),
         ("settings", |sink| declarations::settings(sink)),
         ("events", |sink| declarations::events(sink)),
@@ -130,4 +132,75 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
         }
     }
     assert!(waiting.is_empty(), "{waiting:?}");
+}
+
+/// The three widgets, each with its group of settings: the look they share
+/// (seven settings), the size and the alignment, and what each has of its own.
+#[test]
+fn the_widgets_are_declared_with_their_settings() {
+    let all = records(|sink| declarations::widgets(sink));
+    for widget in ["widget.word", "widget.saved", "widget.due"] {
+        assert!(all.contains(widget), "{widget}: {all}");
+    }
+    assert!(all.contains("core.widgets.words"), "{all}");
+    // The settings of interface 6, by name (the plugin's id is put before it).
+    for key in [
+        "widget.word.pick",
+        "widget.word.sentence",
+        "widget.word.book",
+        "widget.saved.newest",
+        "widget.saved.books",
+        "widget.saved.languages",
+        "widget.due.caption",
+    ] {
+        assert!(all.contains(&format!("name: \"{key}\"")), "{key}: {all}");
+    }
+}
+
+/// A widget has the settings the shared look gives it, and its own, in the
+/// order interface 6 listed them.
+#[test]
+fn every_widget_has_the_shared_look_then_its_own() {
+    for widget in declarations::WIDGETS {
+        let kinds: Vec<_> = widget.all().collect();
+        assert_eq!(kinds.len(), 7 + widget.options.len(), "{}", widget.name);
+    }
+    let counts: Vec<_> = declarations::WIDGETS
+        .iter()
+        .map(|widget| widget.all().count())
+        .collect();
+    // Interface 6: 13, 13 and 10 settings (the group is not a setting).
+    assert_eq!(counts, [13, 13, 10]);
+}
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// vocabulary widgets declared none, so each stays pickable.
+#[test]
+fn no_widget_previews_a_settings_group() {
+    use paperpaw_core::native_host::registrations::Record;
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, declarations::WIDGETS.len());
+}
+
+/// The flash card is offered as a sleep screen, as in Beta 3: a screen of its
+/// own (one at a time), offered to the slot `core.sleep` below the sleep
+/// plugin's own, and a choice of `sleep.show`.
+#[test]
+fn the_sleep_card_is_offered_to_the_sleep_screen() {
+    let screens = records(|sink| declarations::ui(sink));
+    assert!(screens.contains("sleep-card"), "{screens}");
+    let all = records(|sink| declarations::navigation(sink));
+    assert!(all.contains("core.sleep"), "{all}");
+    assert!(all.contains("vocabulary.sleep-card"), "{all}");
+    assert!(all.contains("sleep.show"), "{all}");
+    assert!(all.contains("priority: -1"), "{all}");
 }

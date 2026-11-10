@@ -119,10 +119,10 @@ fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
 }
 
 #[test]
-fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
+fn record_past_the_cap_is_returned_unchanged_on_capacity_refusal() {
     let owner = Box::pin(HostOwner::new((), ()));
     let mut construction = owner.as_ref().begin("weather").unwrap();
-    for index in 0..8 {
+    for index in 0..32 {
         assert!(construction.stage(Box::new(index.to_string())).is_ok());
     }
     let record = Box::new(String::from("retained by caller"));
@@ -142,7 +142,7 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     ));
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     let mut retry = owner.as_ref().begin("weather").unwrap();
-    for index in 0..8 {
+    for index in 0..32 {
         retry.stage(index.to_string()).unwrap();
     }
     let batch = retry
@@ -153,7 +153,7 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
             destroy: ignore_context,
         })
         .unwrap();
-    assert_eq!(batch.len(), 8);
+    assert_eq!(batch.len(), 32);
     assert!(!batch.is_empty());
     assert_eq!(
         batch.dispatch(7, &DispatchDepth::new(), |_, item| item.clone()),
@@ -417,7 +417,7 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
         let state = Rc::new(Observations::default());
         let owner = tracked_owner(&state);
         let mut construction = owner.as_ref().begin("weather").unwrap();
-        for _ in 0..8 {
+        for _ in 0..32 {
             assert!(construction.stage(Record::new(&state, "staged")).is_ok());
         }
         let expected = if overflow {
@@ -435,7 +435,7 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
         assert!(
             matches!(construction.commit(paperpaw_core::native_host::Teardown { report: |_, _, _| {}, cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
         );
-        assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
+        assert_eq!(state.records_dropped.get(), if overflow { 33 } else { 32 });
         assert_eq!(state.destroyed.get(), 0);
         assert_eq!(state.module_dropped.get(), 0);
         assert!(state.context_live.get() && state.module_live.get());
@@ -459,7 +459,7 @@ fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
         let state = Rc::new(Observations::default());
         let owner = tracked_owner(&state);
         let mut construction = owner.as_ref().begin("weather").unwrap();
-        for _ in 0..8 {
+        for _ in 0..32 {
             assert!(construction.stage(Record::new(&state, "staged")).is_ok());
         }
         let expected = if overflow {
@@ -476,7 +476,7 @@ fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
         assert!(
             matches!(construction.commit(paperpaw_core::native_host::Teardown { report: |_, _, _| {}, cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
         );
-        assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
+        assert_eq!(state.records_dropped.get(), if overflow { 33 } else { 32 });
         assert_eq!(state.destroyed.get(), 0);
         assert_eq!(state.module_dropped.get(), 0);
         // Err retains loader ownership: call the supplied destructor ourselves.
