@@ -836,3 +836,44 @@ fn a_committed_write_replaces_the_kernels_text_and_asks_for_a_copy() {
     assert!(!cell.take_copy());
     assert_eq!(cell.text_for_copy().as_deref(), Some("new!"));
 }
+
+/// Whichever allocation of a write fails, the clipboard is the old text or the
+/// new one, never a mix, and the next write works.
+#[test]
+fn a_clipboard_write_that_finds_no_memory_leaves_the_old_text() {
+    for nth in 1..=10 {
+        view(|v| {
+            v.clip_write(1, 0, "old", true).unwrap();
+            v.fail.set(nth);
+            let written = v.clip_write(1, 0, "new text", true);
+            v.fail.set(0);
+            let read = v.clip_read(0).unwrap().0;
+            match written {
+                Ok(()) => assert_eq!(read, "new text", "allocation {nth}"),
+                Err(_) => assert_eq!(read, "old", "allocation {nth}"),
+            }
+            v.clip_write(1, 0, "next", true).unwrap();
+            assert_eq!(v.clip_read(0).unwrap().0, "next");
+        });
+    }
+}
+
+/// A text written in many small parts reserves room a few times, not once a
+/// part: the capacity doubles up to the cap.
+#[test]
+fn a_clipboard_written_in_many_parts_is_assembled_and_read_whole() {
+    view(|v| {
+        let mut expected = String::new();
+        for n in 0..400_u32 {
+            let part = std::format!("{n:02}-");
+            v.clip_write(1, expected.len() as u32, &part, false)
+                .unwrap();
+            expected.push_str(&part);
+        }
+        v.clip_write(1, expected.len() as u32, "", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().1 as usize, expected.len());
+        let (part, total, _) = v.clip_read(0).unwrap();
+        assert_eq!(total as usize, expected.len());
+        assert!(expected.starts_with(&part));
+    });
+}

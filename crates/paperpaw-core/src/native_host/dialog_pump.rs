@@ -82,12 +82,7 @@ impl crate::Kernel {
         // goes out to the system (`Io::Copy`); a text left begun by a callback
         // that returned is dropped.
         store.bind_clipboard(&self.shared.clipboard);
-        if self.shared.clipboard.take_copy() {
-            match self.shared.clipboard.text_for_copy() {
-                Some(text) => self.io.clipboard.copy(text),
-                None => self.warn_runtime("the clipboard could not be copied out: no memory"),
-            }
-        }
+        self.clipboard_copy_out();
         store.clipboard_callbacks_over();
         if store.callbacks_over().is_err() {
             return true;
@@ -150,6 +145,18 @@ impl crate::Kernel {
             more |= store.has_delivery(owner);
         }
         more
+    }
+
+    /// A text op 18 committed goes out to the system (`Io::Copy`); with no
+    /// memory for the copy it is skipped and the log says so.
+    fn clipboard_copy_out(&mut self) {
+        if !self.shared.clipboard.take_copy() {
+            return;
+        }
+        match self.shared.clipboard.text_for_copy() {
+            Some(text) => self.io.clipboard.copy(text),
+            None => self.warn_runtime("the clipboard could not be copied out: no memory"),
+        }
     }
 
     /// Opens the dialog of one starting request and tells the store how it
