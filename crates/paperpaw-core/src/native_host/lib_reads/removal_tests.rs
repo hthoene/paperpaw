@@ -105,3 +105,54 @@ fn a_repeat_after_a_cut_finds_it_done_and_a_book_that_kept_nothing_is_no_error()
     marks(&*card.storage, "books/e.epub").unwrap();
     assert!(!exists(&card, &positions::file("books/c.epub")));
 }
+
+/// A card that cannot remove the details file.
+struct Stuck(alloc::rc::Rc<paperpaw_sdk::MemoryStorage>);
+impl Storage for Stuck {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        if path.ends_with(".ini") {
+            return Err(paperpaw_platform::StorageError::Io);
+        }
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_card_that_cannot_remove_the_details_is_the_steps_error_not_an_ok() {
+    let card = card();
+    kept(&card, "books/c.epub");
+    let stuck = Stuck(card.storage.clone());
+    assert_eq!(
+        details(&stuck, "books/c.epub"),
+        Err(paperpaw_native::host_glue::ERR_IO)
+    );
+    // The fields are still there: a later book at this path must not inherit
+    // them, so the step is repeated; with a working card it is done.
+    assert!(library::book(&*card.storage, "books/c.epub").is_some());
+    details(&*card.storage, "books/c.epub").unwrap();
+    assert!(library::book(&*card.storage, "books/c.epub").is_none());
+}

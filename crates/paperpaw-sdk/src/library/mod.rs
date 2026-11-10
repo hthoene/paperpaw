@@ -42,7 +42,7 @@ pub mod split;
 
 pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_status};
 #[cfg(any(test, feature = "kernel"))]
-pub use fallible::{ProvidedText, try_provide, try_set_field};
+pub use fallible::{ProvidedText, try_provide, try_removed, try_set_field};
 pub use fingerprint::Fingerprint;
 pub use indexed::try_indexed;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
