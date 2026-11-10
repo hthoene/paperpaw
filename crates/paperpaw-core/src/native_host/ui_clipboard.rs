@@ -23,7 +23,11 @@
 //!   keeping it off the clipboard is the dialog plugin's duty (decision 44).
 //!
 //! Memory: the committed text and, while a replacement is written, the new one
-//! (4 KiB each at most); the commit moves the new string in, no copy.
+//! (4 KiB each at most); the commit moves the new string in, no copy. There is
+//! one staged text for the whole device, not one per plugin: a second writer's
+//! callback drops the first's, so what a plugin can make the host hold for it
+//! is bounded by that one 4 KiB buffer and no plugin's own heap budget is
+//! involved (the text is host memory, as the committed clipboard is).
 use super::{
     codec,
     host_services::Caller,
@@ -125,10 +129,18 @@ impl UiStore {
         if state.staged.len() + data.len() > CLIPBOARD_MAX {
             return Err(ERR_NO_SPACE);
         }
-        state
-            .staged
-            .try_reserve_exact(data.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
+        // Room is asked for when the part does not fit, and then for double
+        // what is held (never past the cap): a text written in many parts
+        // reallocates a few times, not once a part. Fallible; a refusal leaves
+        // the text as it was.
+        let need = state.staged.len() + data.len();
+        if need > state.staged.capacity() {
+            let want = need.max((state.staged.capacity() * 2).min(CLIPBOARD_MAX));
+            state
+                .staged
+                .try_reserve_exact(want - state.staged.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+        }
         state.staged.push_str(data);
         state.by = Some(who);
         if last {
