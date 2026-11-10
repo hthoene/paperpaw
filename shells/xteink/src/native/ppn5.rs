@@ -338,11 +338,22 @@ mod x4 {
         Ok(raw.make)
     }
 
-    /// The features this firmware advertises to plugins (`uses.*`): none yet.
-    /// A feature is listed here in the change that wires its family, with the
-    /// check of `Hosted::features().feature(key)` in front of what it gates;
-    /// admission keeps the bits of the ones a plugin asked for either way.
-    const X4_FEATURES: &[metadata::Feature<'static>] = &[];
+    /// The features this firmware advertises to plugins (`uses.*`): the card's
+    /// files and the library, whose services are wired over the card
+    /// (`device_host::CARD_SERVICES`). A feature is listed here in the change
+    /// that wires its family, with the check of `Hosted::features().feature(key)`
+    /// in front of what it gates; admission keeps the bits of the ones a plugin
+    /// asked for either way.
+    const X4_FEATURES: &[metadata::Feature<'static>] = &[
+        metadata::Feature {
+            key: "uses.library",
+            revision: 1,
+        },
+        metadata::Feature {
+            key: "uses.storage",
+            revision: 1,
+        },
+    ];
 
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.

@@ -105,10 +105,47 @@ pub fn make(
     device
 }
 
-/// The services offered to admission: the data services and `core.device`
-/// (this host answers it), built once at compile time.
-pub static OFFERED: [Service<'static>; DATA_SERVICES.len() + DEVICE_SERVICES.len()] = {
-    let mut all = [DATA_SERVICES[0]; DATA_SERVICES.len() + DEVICE_SERVICES.len()];
+/// The services this firmware wires over the card and the network's bridge
+/// besides the data services and `core.device` (`native::Loader`: `core.work`
+/// with the network, `core.document`, `core.library` and `core.files` over the
+/// card). Offered exactly as wired (the desktop's rule): a plugin that needs
+/// one that is not wired is refused at admission, not at its first call. Not
+/// `core.secrets` (the device key's sealer, #411), `core.net`, `core.sockets`
+/// or `core.ui`: those stay out of the list until their families are offered.
+pub const CARD_SERVICES: &[Service<'static>] = &[
+    Service {
+        key: "core.document",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    Service {
+        key: "core.files",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    Service {
+        key: "core.library",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    Service {
+        key: "core.work",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+];
+
+/// The services offered to admission: the data services, `core.device` (this
+/// host answers it) and what is wired over the card ([`CARD_SERVICES`]),
+/// built once at compile time.
+pub static OFFERED: [Service<'static>;
+    DATA_SERVICES.len() + DEVICE_SERVICES.len() + CARD_SERVICES.len()] = {
+    let mut all =
+        [DATA_SERVICES[0]; DATA_SERVICES.len() + DEVICE_SERVICES.len() + CARD_SERVICES.len()];
     let mut at = 0;
     while at < DATA_SERVICES.len() {
         all[at] = DATA_SERVICES[at];
@@ -118,6 +155,11 @@ pub static OFFERED: [Service<'static>; DATA_SERVICES.len() + DEVICE_SERVICES.len
     while more < DEVICE_SERVICES.len() {
         all[at + more] = DEVICE_SERVICES[more];
         more += 1;
+    }
+    let mut card = 0;
+    while card < CARD_SERVICES.len() {
+        all[at + more + card] = CARD_SERVICES[card];
+        card += 1;
     }
     all
 };
