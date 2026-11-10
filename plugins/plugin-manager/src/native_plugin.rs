@@ -496,13 +496,10 @@ impl NativePluginManager {
         let device = self.device.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut say = Speaker::new(host)?;
-        let plugins = self.read_plugins(host)?;
-        let name = |id: &str| -> Result<String, Error> {
-            match plugins.iter().find(|p| p.id == id) {
-                Some(row) => copy(&row.name),
-                None => copy(id),
-            }
-        };
+        // A plugin's name is asked of the registry where a notice names it: the
+        // whole list (about seventy rows) is not read, and nothing of the model
+        // is held at a start. The list is read when its screen opens.
+        let name = |id: &str| self.plugin_name(host, id);
         let mut scratch = [0; 512];
         let mut skipped = Vec::new();
         let mut cursor = DeviceCursor::start();
@@ -696,6 +693,17 @@ impl NativePluginManager {
             }
         }
         Ok(offers)
+    }
+
+    /// What a plugin is called: its name, else its id (a plugin the registry
+    /// does not know, such as one that was not installed).
+    fn plugin_name(&self, host: &Host<'_>, id: &str) -> Result<String, Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        match self.registry()?.plugin(host, id, &mut input, &mut out) {
+            Ok(detail) => copy(detail.plugin().name()),
+            Err(Error::NotFound) => copy(id),
+            Err(error) => Err(error),
+        }
     }
 
     /// What a candidate screen is called: its plugin's name, else its own id.
