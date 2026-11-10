@@ -61,6 +61,11 @@ paperpaw-text.workspace = true
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # And a language of an Arabic interface's size, compiled (ADR 0033).
 paperpaw-i18n.workspace = true
+paperpaw-digest.workspace = true
+# A server and a certificate of its own, for the TLS sockets' tests (the
+# same crates and features as `paperpaw-serve`'s, already in the lock).
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 # The German pack of the snapshot with hyphenated German names, built from the
 # same sources as the shipped one.
 paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }

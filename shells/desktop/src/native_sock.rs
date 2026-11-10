@@ -9,13 +9,17 @@
 //! happened to a channel that `pump` drains. A read is allowed only as far as
 //! core asked for it (`read`), so nothing arrives unasked.
 //!
-//! **No TLS:** the emulator carries no TLS library, so no [`SockTls`] is
-//! given and core answers a `connect` with `tls`, `start_tls` and `peer` with
-//! `ERR_UNSUPPORTED` (it fails closed: nothing is sent in the clear for a
-//! plugin that asked for TLS). A plugin that needs TLS sockets (mail) cannot
-//! connect on the desktop yet.
+//! **TLS** is `paperpaw_serve::secure` (rustls with ring; the authorities
+//! PaperPaw ships, Mozilla's list as on the X4, or the pins a plugin gave; no
+//! mode trusts what it is shown). Core starts a handshake ([`SockTls::begin`])
+//! on a connected socket that holds the device's session; it runs on a thread
+//! of its own and passes or fails through `secured`, `untrusted` or
+//! `tls_failed`. Nothing of the plugin goes out before it passed, and
+//! `begin` refuses a socket with bytes of the peer waiting, a read or unsent
+//! bytes (a STARTTLS injection would pass as secure): `ERR_STATE`, and core
+//! ends the socket. Pins of both kinds at once are refused (`ERR_INVALID`).
 //!
-//! [`SockTls`]: paperpaw_core::native_host::shell_wiring::SockTls
+//! [`SockTls::begin`]: paperpaw_core::native_host::shell_wiring::SockTls::begin
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -27,12 +31,20 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use paperpaw_core::native_host::shell_wiring::{Connect, SockFailure, SockReports, SockTransport};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND};
+use paperpaw_core::native_host::shell_wiring::{
+    Connect, PeerInfo, SockFailure, SockReports, SockTls, SockTransport, TlsFailure, TlsOpen,
+    UntrustedWhy,
+};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_serve::secure::{Failure, Pins, Session};
 
 /// The bytes a connection's writer holds at most (the queue core keeps is
 /// smaller: this only bounds what the transport takes at once).
 const WRITE_HELD: usize = 16 << 10;
+
+/// How long a handshake may take at most (core ends the socket sooner when
+/// the plugin set a shorter time).
+const HANDSHAKE_MAX: Duration = Duration::from_secs(60);
 
 /// The most one read from the connection takes at a time.
 const READ_PIECE: usize = 16 << 10;
@@ -48,6 +60,9 @@ trait Sink {
     fn peer_closed(&self, id: u32) -> Result<(), i32>;
     fn writable(&self, id: u32) -> Result<(), i32>;
     fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32>;
+    fn secured(&self, id: u32, peer: &PeerInfo) -> Result<(), i32>;
+    fn untrusted(&self, id: u32, why: UntrustedWhy, peer: &PeerInfo) -> Result<(), i32>;
+    fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32>;
     fn network_lost(&self) -> Result<(), i32>;
     fn tick(&self) -> Result<(), i32>;
 }
@@ -71,6 +86,15 @@ impl Sink for SockReports {
     fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32> {
         SockReports::answered(self, id, from, data)
     }
+    fn secured(&self, id: u32, peer: &PeerInfo) -> Result<(), i32> {
+        SockReports::secured(self, id, peer)
+    }
+    fn untrusted(&self, id: u32, why: UntrustedWhy, peer: &PeerInfo) -> Result<(), i32> {
+        SockReports::untrusted(self, id, why, peer)
+    }
+    fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32> {
+        SockReports::tls_failed(self, id, how)
+    }
     fn network_lost(&self) -> Result<(), i32> {
         SockReports::network_lost(self)
     }
@@ -88,6 +112,9 @@ enum Event {
     PeerClosed(u32),
     Writable(u32),
     Answer(u32, String, Vec<u8>),
+    Secured(u32, PeerInfo),
+    Untrusted(u32, UntrustedWhy, PeerInfo),
+    TlsFailed(u32, TlsFailure),
 }
 
 impl Event {
@@ -98,7 +125,10 @@ impl Event {
             | Event::Data(id, _)
             | Event::PeerClosed(id)
             | Event::Writable(id)
-            | Event::Answer(id, ..) => *id,
+            | Event::Answer(id, ..)
+            | Event::Secured(id, _)
+            | Event::Untrusted(id, ..)
+            | Event::TlsFailed(id, _) => *id,
         }
     }
 }
@@ -115,6 +145,11 @@ struct Link {
     wants_room: AtomicBool,
     /// The connection, once made (to shut it down on close).
     stream: Mutex<Option<TcpStream>>,
+    /// The secure session, once the handshake passed: reading and writing go
+    /// through it from then on.
+    secure: Mutex<Option<Session>>,
+    /// A handshake is running or passed: no second one.
+    secured: AtomicBool,
 }
 
 impl Link {
@@ -126,7 +161,17 @@ impl Link {
             held: AtomicUsize::new(0),
             wants_room: AtomicBool::new(false),
             stream: Mutex::new(None),
+            secure: Mutex::new(None),
+            secured: AtomicBool::new(false),
         })
+    }
+
+    /// The secure session, if the handshake passed.
+    fn session(&self) -> Option<Session> {
+        self.secure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn is_closed(&self) -> bool {
@@ -137,6 +182,10 @@ impl Link {
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.wake.notify_all();
+        // The session says it is done (`close_notify`) before the connection goes.
+        if let Some(session) = self.session() {
+            session.close_write();
+        }
         let stream = self.stream.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(stream) = stream.as_ref() {
             let _ = stream.shutdown(Shutdown::Both);
@@ -256,6 +305,10 @@ impl NativeSock {
             Event::PeerClosed(id) => reports.peer_closed(*id),
             Event::Writable(id) => reports.writable(*id),
             Event::Answer(id, from, data) => reports.answered(*id, from.as_bytes(), data),
+            // Core ends the socket after these two, and closes it.
+            Event::Secured(id, peer) => reports.secured(*id, peer),
+            Event::Untrusted(id, why, peer) => reports.untrusted(*id, *why, peer),
+            Event::TlsFailed(id, how) => reports.tls_failed(*id, *how),
         };
         if done == Err(ERR_BUSY) {
             self.again.borrow_mut().push(event);
@@ -296,6 +349,92 @@ impl NativeSock {
         thread::spawn(move || {
             run_connection(id, (host, port, timeout), &thread_link, &events, queue);
         });
+    }
+
+    /// Starts the handshake of socket `id` for `server_name`, trusting `pins`
+    /// (`(kind, hash)`: 0 the leaf certificate's SHA-256, 1 its key's; none:
+    /// the authorities PaperPaw ships). The result comes from the pump.
+    fn start_handshake(
+        &self,
+        id: u32,
+        server_name: &str,
+        pins: &[(u32, [u8; 32])],
+    ) -> Result<(), i32> {
+        let entries = self.entries.borrow();
+        let Some(Entry {
+            link,
+            writer: Some(_),
+        }) = entries.get(&id)
+        else {
+            return Err(ERR_NOT_FOUND);
+        };
+        let certificates: Vec<[u8; 32]> = pins.iter().filter(|p| p.0 == 0).map(|p| p.1).collect();
+        let keys: Vec<[u8; 32]> = pins.iter().filter(|p| p.0 == 1).map(|p| p.1).collect();
+        // Both kinds at once are not backed.
+        if !certificates.is_empty() && !keys.is_empty() {
+            return Err(ERR_INVALID);
+        }
+        // A read under way, bytes not sent yet or bytes of the peer waiting:
+        // what is said in clear could pass as secure.
+        if *link.allow.lock().unwrap_or_else(PoisonError::into_inner) > 0
+            || link.held.load(Ordering::Acquire) > 0
+            || link.secured.load(Ordering::Acquire)
+        {
+            return Err(ERR_STATE);
+        }
+        let mut tcp = {
+            let stream = link.stream.lock().unwrap_or_else(PoisonError::into_inner);
+            stream
+                .as_ref()
+                .and_then(|stream| stream.try_clone().ok())
+                .ok_or(ERR_STATE)?
+        };
+        let _ = tcp.set_nonblocking(true);
+        let waiting = tcp.peek(&mut [0u8; 1]);
+        let _ = tcp.set_nonblocking(false);
+        if !matches!(&waiting, Err(error) if error.kind() == ErrorKind::WouldBlock) {
+            return Err(ERR_STATE);
+        }
+        link.secured.store(true, Ordering::Release);
+        let (link, events) = (link.clone(), self.events.clone());
+        let name = server_name.to_owned();
+        drop(entries);
+        thread::spawn(move || {
+            let pins = if !certificates.is_empty() {
+                Pins::Certificates(&certificates)
+            } else if !keys.is_empty() {
+                Pins::Keys(&keys)
+            } else {
+                Pins::Authorities
+            };
+            let outcome = paperpaw_serve::secure::handshake(&mut tcp, &name, pins, HANDSHAKE_MAX);
+            if link.is_closed() {
+                return;
+            }
+            let event = match outcome {
+                Ok((session, peer)) => {
+                    *link.secure.lock().unwrap_or_else(PoisonError::into_inner) = Some(session);
+                    Event::Secured(
+                        id,
+                        PeerInfo::new(peer.certificate, peer.key, peer.time_checked),
+                    )
+                }
+                Err(Failure::Untrusted { peer, not_pinned }) => Event::Untrusted(
+                    id,
+                    if not_pinned {
+                        UntrustedWhy::NotPinned
+                    } else {
+                        UntrustedWhy::UnknownIssuer
+                    },
+                    PeerInfo::new(peer.certificate, peer.key, peer.time_checked),
+                ),
+                Err(Failure::Name) => Event::TlsFailed(id, TlsFailure::Name),
+                Err(Failure::Expired) => Event::TlsFailed(id, TlsFailure::Expired),
+                Err(_) => Event::TlsFailed(id, TlsFailure::Tls),
+            };
+            let _ = events.send(event);
+        });
+        Ok(())
     }
 
     /// A socket that ended: its entry and what it still held go.
@@ -386,7 +525,11 @@ fn run_connection(
             return;
         }
         let n = allowed.min(piece.len());
-        match reader.read(&mut piece[..n]) {
+        let read = match link.session() {
+            Some(session) => session.read(&mut reader, &mut piece[..n]),
+            None => reader.read(&mut piece[..n]),
+        };
+        match read {
             Ok(0) => {
                 if !link.is_closed() {
                     let _ = events.send(Event::PeerClosed(id));
@@ -423,7 +566,11 @@ fn write_connection(
         if link.is_closed() {
             return;
         }
-        if let Err(error) = stream.write_all(&chunk) {
+        let written = match link.session() {
+            Some(session) => session.write_all(&chunk),
+            None => stream.write_all(&chunk),
+        };
+        if let Err(error) = written {
             if !link.is_closed() {
                 let _ = events.send(Event::Failed(id, failure(&error)));
             }
@@ -463,6 +610,23 @@ fn run_broadcast(id: u32, socket: &UdpSocket, link: &Link, events: &Sender<Event
                     ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
                 ) => {}
             Err(_) => return,
+        }
+    }
+}
+
+impl SockTls for NativeSock {
+    fn begin(&self, id: u32, to: &TlsOpen<'_>) -> Result<(), i32> {
+        let pins: Vec<(u32, [u8; 32])> = to.pins.iter().map(|pin| (pin.kind, pin.hash)).collect();
+        self.start_handshake(id, to.server_name, &pins)
+    }
+
+    fn end(&self, id: u32) {
+        if let Some(entry) = self.entries.borrow().get(&id) {
+            *entry
+                .link
+                .secure
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = None;
         }
     }
 }
@@ -721,6 +885,15 @@ mod tests {
         fn answered(&self, id: u32, _: &[u8], _: &[u8]) -> Result<(), i32> {
             self.take(format!("answered {id}"))
         }
+        fn secured(&self, id: u32, _: &PeerInfo) -> Result<(), i32> {
+            self.take(format!("secured {id}"))
+        }
+        fn untrusted(&self, id: u32, why: UntrustedWhy, _: &PeerInfo) -> Result<(), i32> {
+            self.take(format!("untrusted {id} {why:?}"))
+        }
+        fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32> {
+            self.take(format!("tls_failed {id} {how:?}"))
+        }
         fn network_lost(&self) -> Result<(), i32> {
             self.take(String::from("network_lost"))
         }
@@ -770,10 +943,160 @@ mod tests {
         for _ in 0..(ANSWERS_MAX * 3) {
             flooder.send_to(b"x", target).unwrap();
         }
-        thread::sleep(Duration::from_millis(500));
+        // The cap's worth of answers comes (as fast as the machine is), and
+        // no more.
+        for _ in 0..ANSWERS_MAX {
+            arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        thread::sleep(Duration::from_millis(300));
         link.close();
         reader.join().unwrap();
-        assert_eq!(arrived.try_iter().count(), ANSWERS_MAX);
+        assert_eq!(arrived.try_iter().count(), 0);
         assert_eq!(sock.open(), 0);
+    }
+    /// A server with a certificate of its own (nobody vouches for it): its
+    /// SHA-256 hashes, and the port of a server that runs `script` once on
+    /// the secure stream.
+    fn tls_server(
+        script: impl FnOnce(&mut rustls::StreamOwned<rustls::ServerConnection, TcpStream>)
+        + Send
+        + 'static,
+    ) -> (u16, [u8; 32], [u8; 32], thread::JoinHandle<()>) {
+        use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec![String::from("x.test")])
+            .unwrap()
+            .self_signed(&key)
+            .unwrap();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert.der().clone()],
+                PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key.serialize_der())),
+            )
+            .unwrap();
+        let config = Arc::new(config);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut stream =
+                rustls::StreamOwned::new(rustls::ServerConnection::new(config).unwrap(), tcp);
+            script(&mut stream);
+        });
+        let hash = |bytes: &[u8]| paperpaw_digest::sha256::digest(bytes);
+        let (der, spki) = (
+            cert.der().to_vec(),
+            rcgen::PublicKeyData::subject_public_key_info(&key),
+        );
+        (port, hash(&der), hash(&spki), server)
+    }
+
+    #[test]
+    fn a_pinned_server_is_secured_and_the_plugins_bytes_go_through_the_session() {
+        let (port, certificate, _, server) = tls_server(|stream| {
+            use std::io::{Read as _, Write as _};
+            stream.write_all(b"hello").unwrap();
+            stream.flush().unwrap();
+            let mut got = [0u8; 8];
+            let n = stream.read(&mut got).unwrap();
+            stream.write_all(&got[..n]).unwrap();
+            stream.flush().unwrap();
+            let _ = stream.read(&mut got);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 11, port);
+        assert!(matches!(next(&sock), Event::Connected(11)));
+        sock.start_handshake(11, "x.test", &[(0, [9; 32]), (0, certificate)])
+            .unwrap();
+        let Event::Secured(11, peer) = next(&sock) else {
+            panic!("not secured");
+        };
+        assert_eq!(peer.certificate, certificate);
+        sock.read(11, 5);
+        let Event::Data(11, hello) = next(&sock) else {
+            panic!("no data");
+        };
+        assert_eq!(hello, b"hello");
+        assert_eq!(sock.send(11, b"ping").unwrap(), 4);
+        sock.read(11, 8);
+        let Event::Data(11, echo) = next(&sock) else {
+            panic!("no echo");
+        };
+        assert_eq!(echo, b"ping");
+        sock.close(11);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_server_nobody_vouches_for_is_untrusted_and_not_trusted_for_it() {
+        let (port, _, key, server) = tls_server(|stream| {
+            use std::io::Read as _;
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 12, port);
+        assert!(matches!(next(&sock), Event::Connected(12)));
+        // The shipped authorities do not know it: untrusted, with its hashes.
+        sock.start_handshake(12, "x.test", &[]).unwrap();
+        let Event::Untrusted(12, UntrustedWhy::UnknownIssuer, peer) = next(&sock) else {
+            panic!("not untrusted");
+        };
+        assert_eq!(peer.key, key);
+        sock.close(12);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_pin_of_another_certificate_is_not_pinned() {
+        let (port, _, _, server) = tls_server(|stream| {
+            use std::io::Read as _;
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 13, port);
+        assert!(matches!(next(&sock), Event::Connected(13)));
+        sock.start_handshake(13, "x.test", &[(1, [7; 32])]).unwrap();
+        assert!(matches!(
+            next(&sock),
+            Event::Untrusted(13, UntrustedWhy::NotPinned, _)
+        ));
+        sock.close(13);
+        server.join().unwrap();
+    }
+
+    /// What would pass as secure if it were accepted: bytes of the peer in
+    /// clear before the switch, a read under way, bytes not sent, pins of
+    /// both kinds, an unknown socket.
+    #[test]
+    fn a_handshake_is_refused_where_clear_bytes_could_pass_as_secure() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            use std::io::Write as _;
+            let (mut tcp, _) = listener.accept().unwrap();
+            tcp.write_all(b"220 injected").unwrap();
+            thread::sleep(Duration::from_millis(1500));
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 14, port);
+        assert!(matches!(next(&sock), Event::Connected(14)));
+        // Mixed kinds, before anything else.
+        assert_eq!(
+            sock.start_handshake(14, "x.test", &[(0, [1; 32]), (1, [2; 32])]),
+            Err(ERR_INVALID)
+        );
+        // The server's greeting is waiting in clear (give it time to arrive).
+        thread::sleep(Duration::from_millis(300));
+        assert_eq!(sock.start_handshake(14, "x.test", &[]), Err(ERR_STATE));
+        // A read under way.
+        sock.read(14, 4);
+        assert_eq!(sock.start_handshake(14, "x.test", &[]), Err(ERR_STATE));
+        assert_eq!(sock.start_handshake(99, "x.test", &[]), Err(ERR_NOT_FOUND));
+        sock.close(14);
+        server.join().unwrap();
     }
 }
