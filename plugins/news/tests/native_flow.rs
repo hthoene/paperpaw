@@ -61,6 +61,7 @@ fn the_fetch_action_declares_a_work_for_when_it_is_cheap() {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: "news.fetch",
+            flags: 0,
         }),
     );
     assert_eq!(run.status, 0);
@@ -84,6 +85,7 @@ fn a_work_that_cannot_be_declared_costs_that_fetch_only() {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: "news.fetch",
+            flags: 0,
         }),
     );
     assert_eq!(run.status, 0);
