@@ -177,9 +177,6 @@ fn newest(
             },
         };
         for row in rows.into_iter().filter(wanted) {
-            if all.len() > keep {
-                all.truncate(keep);
-            }
             all.try_reserve(1).map_err(|_| Error::NoMemory)?;
             all.push((account, row));
         }
@@ -645,5 +642,54 @@ impl Widgets {
             // A refusal is the next tick's.
             commands.widget_changed(item.instance).ok();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "test assertions")]
+    use super::*;
+    use paperpaw_sdk::MemoryStorage;
+
+    fn row(uid: u32, date: i64) -> Row {
+        Row {
+            uid,
+            date,
+            ..Row::default()
+        }
+    }
+
+    fn keep_index(storage: &MemoryStorage, account: u8, rows: &[Row]) {
+        let file = store::index_file(account, "INBOX").unwrap();
+        store::write_index(storage, &file, rows).unwrap();
+    }
+
+    fn any(_: &Row) -> bool {
+        true
+    }
+
+    #[test]
+    fn the_newest_of_two_accounts_are_kept_not_the_oldest() {
+        let storage = MemoryStorage::new();
+        // Account 0 holds the older mails, account 1 the newest ones.
+        keep_index(&storage, 0, &[row(3, 300), row(2, 200), row(1, 100)]);
+        keep_index(&storage, 1, &[row(30, 3000), row(20, 2000), row(10, 1000)]);
+        let got = newest(&storage, &[0, 1], "INBOX", 3, any).unwrap();
+        let seen: Vec<(u8, u32)> = got.iter().map(|(a, r)| (*a, r.uid)).collect();
+        assert_eq!(seen, [(1, 30), (1, 20), (1, 10)]);
+        // One more than the second account holds: the first account's newest follows.
+        let got = newest(&storage, &[0, 1], "INBOX", 4, any).unwrap();
+        let seen: Vec<(u8, u32)> = got.iter().map(|(a, r)| (*a, r.uid)).collect();
+        assert_eq!(seen, [(1, 30), (1, 20), (1, 10), (0, 3)]);
+    }
+
+    #[test]
+    fn a_tie_goes_to_the_lower_account() {
+        let storage = MemoryStorage::new();
+        keep_index(&storage, 0, &[row(5, 500)]);
+        keep_index(&storage, 1, &[row(5, 500)]);
+        let got = newest(&storage, &[1, 0], "INBOX", 2, any).unwrap();
+        let seen: Vec<u8> = got.iter().map(|(a, _)| *a).collect();
+        assert_eq!(seen, [0, 1]);
     }
 }
