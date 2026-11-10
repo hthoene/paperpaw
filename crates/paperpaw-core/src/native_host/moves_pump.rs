@@ -10,16 +10,25 @@
 //!   book-moved events, setting changes) goes to the kernel's command queue,
 //!   which runs right after the pump (`Kernel::finish`).
 //! * `More`: another pass at once. `Wait` (the card or memory refused the
-//!   step; the job is kept): the next try is [`WAIT_MS`] later, and the
+//!   step; the job is kept): the next try is [`WAIT_MS`] later (twice as long
+//!   after each refusal in a row, at most [`WAIT_MAX_MS`]; the first one is
+//!   logged), and the
 //!   service pump's next wake-up says so (`service_due`). `Idle`: nothing is
 //!   scheduled; each pass looks again, which costs one flag read, so a move
 //!   that starts in a callback is carried by the next pass.
+//! * What a step sends is bounded by the step: at most `STEP_BOOKS` books, one
+//!   event each, and the settings that follow the folder.
 //! * Journals that could not be read were set aside by the job; the pump logs
 //!   how many, once a pass at most.
 use super::lib_moves_service::Pump;
 
-/// How long a refused step waits before it is tried again.
+/// How long a refused step waits before it is tried again; each refusal in a
+/// row doubles it, up to [`WAIT_MAX_MS`], so a card that stays broken does
+/// not keep the device awake every two seconds.
 pub(crate) const WAIT_MS: u64 = 2_000;
+
+/// The longest wait between two tries.
+pub(crate) const WAIT_MAX_MS: u64 = 64_000;
 
 impl crate::Kernel {
     /// One step of the library's move job. `true` when another pass should
@@ -51,12 +60,25 @@ impl crate::Kernel {
             self.warn_runtime("a library move journal could not be read and was set aside");
         }
         match pump {
-            Pump::More => true,
-            Pump::Idle => false,
+            Pump::More => {
+                self.shared.native_instances.moves_ok();
+                true
+            }
+            Pump::Idle => {
+                self.shared.native_instances.moves_ok();
+                false
+            }
             Pump::Wait => {
+                let failures = self.shared.native_instances.moves_failed();
+                let wait = WAIT_MS
+                    .checked_shl(u32::from(failures.saturating_sub(1)))
+                    .map_or(WAIT_MAX_MS, |wait| wait.min(WAIT_MAX_MS));
                 self.shared
                     .native_instances
-                    .set_moves_retry(Some(now.saturating_add(WAIT_MS)));
+                    .set_moves_retry(Some(now.saturating_add(wait)));
+                if failures == 1 {
+                    self.warn_runtime("a library move step was refused and will be retried");
+                }
                 false
             }
         }

@@ -178,6 +178,8 @@ pub(crate) struct NativeInstances {
     /// When the library's move job may be pumped again after a step that
     /// failed (`moves_pump`).
     moves_retry: Cell<Option<u64>>,
+    /// How many steps in a row were refused (the back-off of `moves_pump`).
+    moves_failures: Cell<u8>,
     /// Where the event pump goes on (the running plugin it starts at).
     service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
@@ -634,6 +636,18 @@ impl NativeInstances {
 
     pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
         self.moves_retry.set(at);
+    }
+
+    /// Counts one more refused step and returns how many in a row.
+    pub(crate) fn moves_failed(&self) -> u8 {
+        let failures = self.moves_failures.get().saturating_add(1);
+        self.moves_failures.set(failures);
+        failures
+    }
+
+    /// A step was not refused: the back-off starts again.
+    pub(crate) fn moves_ok(&self) {
+        self.moves_failures.set(0);
     }
 
     pub(crate) fn work_seen(&self) -> u8 {

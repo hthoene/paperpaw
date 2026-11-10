@@ -5,7 +5,7 @@
 extern crate std;
 use super::*;
 use crate::{Instant, Kernel, native_host::HostResources};
-use alloc::{borrow::Cow, rc::Rc};
+use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::{Command, FormatSpec, Id, MemoryStorage, document::DocumentError, library};
@@ -238,4 +238,30 @@ fn a_device_without_the_job_has_nothing_to_pump() {
     let mut kernel = Kernel::builder(crate::tests::DEVICE).build().unwrap();
     assert!(!kernel.native_moves_pump());
     kernel.native_service_pump();
+}
+
+#[test]
+fn a_card_that_stays_broken_is_tried_less_and_less_often() {
+    let mut w = world();
+    begun(&w);
+    w.refuse.set(true);
+    let mut now = 10_000;
+    let mut waits = Vec::new();
+    for _ in 0..8 {
+        w.kernel.now = Instant(now);
+        while w.kernel.native_moves_pump() {}
+        let at = w.kernel.shared.native_instances.moves_retry().unwrap();
+        waits.push(at - now);
+        now = at;
+    }
+    assert_eq!(
+        waits,
+        [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000, 64_000]
+    );
+    // A card that is back ends the job and the back-off starts again.
+    w.refuse.set(false);
+    w.kernel.now = Instant(now);
+    while w.kernel.native_moves_pump() {}
+    assert!(!w.moves.moves().active());
+    assert_eq!(w.kernel.shared.native_instances.moves_retry(), None);
 }
