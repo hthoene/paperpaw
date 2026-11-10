@@ -36,12 +36,6 @@ paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = tru
 # The interlinear sample (ADR 0032), with `--features interlinear`.
 paperpaw-sample-interlinear = { path = "../../samples/interlinear", optional = true }
 
-# The first-party plugins that are interface-7 plugins, linked in and
-# registered by `linked` (the reviewed Linux x86-64 profile; elsewhere the
-# app keeps their interface-6 form).
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-paperpaw-app = { workspace = true, features = ["native-linked"] }
-
 # What a browser does not give Rust: it hands time and random numbers in
 # (see `host`).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -79,6 +73,12 @@ window = ["dep:winit", "dep:softbuffer"]
 hello = ["dep:paperpaw-sample-hello"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
 interlinear = ["dep:paperpaw-sample-interlinear"]
+# The first-party plugins that are interface-7 plugins, linked in and
+# registered by `linked` (Linux x86-64, the one profile they declare; elsewhere
+# the app keeps their interface-6 form). Off until every host service and
+# event the plugins need is wired (#2220): the app without their interface-6
+# form lacks the screens of the ones that cannot register yet.
+native-linked = ["paperpaw-app/native-linked"]
 
 [lints]
 workspace = true
