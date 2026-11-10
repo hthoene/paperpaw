@@ -1556,7 +1556,6 @@ dependencies = [
  "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-news",
- "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",

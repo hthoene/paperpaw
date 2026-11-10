@@ -127,7 +127,6 @@ dependencies = [
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
- "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
@@ -146,14 +145,6 @@ dependencies = [
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-epub"
-version = "1.0.5"
-dependencies = [
- "miniz_oxide",
  "paperpaw-sdk",
 ]
 
@@ -183,15 +174,6 @@ dependencies = [
 name = "paperpaw-plugin-news"
 version = "1.0.10"
 dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-vault"
-version = "1.0.4"
-dependencies = [
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

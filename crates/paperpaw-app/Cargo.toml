@@ -27,7 +27,6 @@ store-plugins = [
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
-    "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
     "dep:paperpaw-plugin-format-docx",
@@ -89,7 +88,6 @@ paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
 paperpaw-plugin-format-docx = { workspace = true, optional = true }

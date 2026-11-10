@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
     "fonts-browser",
     "format-docx",
@@ -86,7 +86,6 @@ pub const STORE_PLUGINS: [&str; 11] = [
     "format-mobi",
     "mail",
     "news",
-    "notes-vault",
     "picture-home",
     "vocabulary",
     "widgets",
@@ -211,7 +210,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);

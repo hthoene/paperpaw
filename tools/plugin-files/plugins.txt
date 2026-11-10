@@ -22,7 +22,7 @@ mail news
 # menu-editor look  (no file until the store build moves to interface 7, #228)
 news news
 # notes-overview notes  (no file until the store build moves to interface 7, #228)
-notes-vault notes
+# notes-vault notes  (no file until the store build moves to interface 7, #228)
 picture-home look
 # profiles reading  (no file until the store build moves to interface 7, #228)
 # reading-goal reading  (no file until the store build moves to interface 7, #228)

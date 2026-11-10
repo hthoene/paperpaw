@@ -118,7 +118,6 @@ mod shim {
                 m::index::Step::More => {}
                 m::index::Step::Done(state) => break state,
                 m::index::Step::Failed => panic!("walk failed"),
-                other => panic!("{other:?}"),
             }
         };
         let mut tagger = m::index::Tagger::new();

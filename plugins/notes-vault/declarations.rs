@@ -130,12 +130,36 @@ type Widget = (&'static str, u32, (u8, u8), &'static str, &'static [Opt]);
 
 /// The six widgets, in the order the catalogue lists them.
 pub const WIDGETS: [Widget; 6] = [
-    ("recent", RECENT_TOKEN, (2, 2), "core.frame.none", RECENT_OPTIONS),
-    ("pinned", PINNED_TOKEN, (2, 1), "core.frame.none", PINNED_OPTIONS),
+    (
+        "recent",
+        RECENT_TOKEN,
+        (2, 2),
+        "core.frame.none",
+        RECENT_OPTIONS,
+    ),
+    (
+        "pinned",
+        PINNED_TOKEN,
+        (2, 1),
+        "core.frame.none",
+        PINNED_OPTIONS,
+    ),
     ("day", DAY_TOKEN, (2, 1), "core.frame.none", DAY_OPTIONS),
-    ("random", RANDOM_TOKEN, (2, 1), "core.frame.none", RANDOM_OPTIONS),
+    (
+        "random",
+        RANDOM_TOKEN,
+        (2, 1),
+        "core.frame.none",
+        RANDOM_OPTIONS,
+    ),
     ("tags", TAGS_TOKEN, (2, 1), "core.frame.none", TAGS_OPTIONS),
-    ("search", SEARCH_TOKEN, (2, 1), "core.frame.line", SEARCH_OPTIONS),
+    (
+        "search",
+        SEARCH_TOKEN,
+        (2, 1),
+        "core.frame.line",
+        SEARCH_OPTIONS,
+    ),
 ];
 
 /// The widgets, their settings groups and their settings: the look every
@@ -150,10 +174,7 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         let spec = WidgetDecl::new(name, group, "core.widgets.personal", token)
             .map_err(|_| DeclareError::TooLong("widget"))?
             .cells(columns, rows);
-        d.widget(
-            spec.previews(group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        d.widget(spec)?;
         let mut look = shared_look("core.align.left");
         look[1] = Opt::Frame(frame);
         declare_all(
