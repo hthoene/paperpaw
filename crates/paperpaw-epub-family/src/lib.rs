@@ -16,7 +16,7 @@
 //! [`HtmlDocument`]), Markdown (`.md`, see [`MarkdownDocument`]),
 //! FictionBooks (`.fb2`, see [`Fb2Document`]) and comic book archives
 //! (`.cbz`, see [`CbzDocument`]): each a plugin of its own, so that it can
-//! be switched off or replaced alone ([`HtmlFormat`], [`MarkdownFormat`],
+//! be switched off or replaced alone (`format-html`, [`MarkdownFormat`],
 //! [`Fb2Format`], [`CbzFormat`]).
 
 #![no_std]
@@ -60,9 +60,6 @@ pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, ma
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
 
-/// HTML files, e.g. web pages: the plugin and its format.
-pub const HTML_PLUGIN: Id = Id::new_static("format-html");
-pub const HTML: Id = Id::new_static("format-html.html");
 /// FictionBook 2.
 pub const FB2_PLUGIN: Id = Id::new_static("format-fb2");
 pub const FB2: Id = Id::new_static("format-fb2.fb2");
@@ -97,16 +94,6 @@ static EPUB_HOW: [(&str, &str); 2] = [
         include_str!("../../../plugins/format-epub/how/de.txt"),
     ),
 ];
-static HTML_HOW: [(&str, &str); 2] = [
-    (
-        "en",
-        include_str!("../../../plugins/format-html/how/en.txt"),
-    ),
-    (
-        "de",
-        include_str!("../../../plugins/format-html/how/de.txt"),
-    ),
-];
 static FB2_HOW: [(&str, &str); 2] = [
     ("en", include_str!("../../../plugins/format-fb2/how/en.txt")),
     ("de", include_str!("../../../plugins/format-fb2/how/de.txt")),
@@ -127,7 +114,7 @@ static CBZ_HOW: [(&str, &str); 2] = [
 ];
 
 /// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
-/// their own ([`HtmlFormat`], [`Fb2Format`], [`MarkdownFormat`],
+/// their own (`format-html`, [`Fb2Format`], [`MarkdownFormat`],
 /// [`CbzFormat`]), so each can be switched off or replaced alone; they
 /// share the conversion of this crate.
 #[derive(Debug, Default)]
@@ -170,47 +157,6 @@ impl Plugin for EpubFormat {
         )))?;
         r.add_translations(Cow::Borrowed(include_str!(
             "../../../plugins/format-epub/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// HTML files (`.html`, `.htm`, `.xhtml`), e.g. saved web pages: only a
-/// page's reading matter (see [`HtmlDocument`]).
-#[derive(Debug, Default)]
-pub struct HtmlFormat;
-
-impl Plugin for HtmlFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            HTML_PLUGIN,
-            "HTML",
-            "Opens web pages saved as files, showing only what is to be read.",
-            &HTML_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "html-")?;
-        r.add_format(FormatSpec::new(
-            HTML,
-            "format-html.title",
-            vec![
-                Cow::Borrowed("html"),
-                Cow::Borrowed("htm"),
-                Cow::Borrowed("xhtml"),
-            ],
-            Box::new(|storage, path, options| {
-                HtmlDocument::open(storage, path, options.publisher_styles)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-html/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-html/i18n/de.ini"
         )))?;
         Ok(())
     }
@@ -414,10 +360,6 @@ mod tests {
             (
                 include_str!("../../../plugins/format-epub/i18n/en.ini"),
                 include_str!("../../../plugins/format-epub/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-html/i18n/en.ini"),
-                include_str!("../../../plugins/format-html/i18n/de.ini"),
             ),
             (
                 include_str!("../../../plugins/format-fb2/i18n/en.ini"),

@@ -26,3 +26,4 @@ lock
 wikipedia
 wallabag
 browser
+format-html

@@ -52,6 +52,7 @@ native-linked = [
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
+    "dep:paperpaw-plugin-format-html",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-opds",
@@ -66,6 +67,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-format-html/linked",
     "paperpaw-plugin-keyboard/linked",
     "paperpaw-plugin-lock/linked",
     "paperpaw-plugin-menu/linked",
@@ -93,7 +95,7 @@ paperpaw-epub-family.workspace = true
 # indexes (build.rs); the interface-6 registrations come from the family
 # crate until the removals.
 paperpaw-plugin-format-epub.workspace = true
-paperpaw-plugin-format-html.workspace = true
+paperpaw-plugin-format-html = { workspace = true, optional = true }
 paperpaw-plugin-format-fb2.workspace = true
 paperpaw-plugin-format-markdown.workspace = true
 paperpaw-plugin-format-cbz.workspace = true
