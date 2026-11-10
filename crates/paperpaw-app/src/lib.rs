@@ -216,7 +216,6 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "fonts-browser",
     "mail",
     "news",
     "store",

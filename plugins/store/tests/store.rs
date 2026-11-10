@@ -462,7 +462,7 @@ fn larger_sizes_are_discovered_from_the_reading_settings() {
 /// built in (switched off or on); no menu plugin, the dialogs are the
 /// kernel's own.
 fn discovering(fonts: Option<bool>, network: bool) -> Kernel {
-    let mut builder = Kernel::builder(common::DEVICE)
+    let builder = Kernel::builder(common::DEVICE)
         .storage(Shared::default())
         .network(network)
         .catalog_device("x4")
