@@ -54,6 +54,8 @@ fn without_a_device_default_the_plugins_own_stands() {
 
 #[test]
 fn what_the_user_set_still_wins_and_a_bad_value_is_warned_about() {
+    // A value the user sets (or a stored one, applied once the setting
+    // exists) is above any default, whatever put the default there.
     let mut kernel = kernel_with(&[("factory.flag", "off")]);
     kernel
         .shared

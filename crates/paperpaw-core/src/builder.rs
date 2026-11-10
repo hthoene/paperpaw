@@ -1140,19 +1140,28 @@ impl Kernel {
     /// (`keep_device_default`), set now that it has: a plugin published after
     /// the kernel was built (a native one) gets the device's value as the
     /// default, as a plugin of the first pass does. A value the user set
-    /// still wins, as for any default.
+    /// still wins, as for any default. A default is used up once its setting
+    /// exists (applied, or warned about when the value does not fit); one for
+    /// an id that no plugin ever declares stays unused.
     pub(crate) fn apply_late_defaults(&mut self) {
-        let mut waiting = mem::take(&mut self.late_device_defaults);
-        for (id, value) in &waiting {
+        let waiting = mem::take(&mut self.late_device_defaults);
+        let mut left = Vec::new();
+        // At most as many as were kept: no new place is needed.
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_device_defaults = waiting;
+            return;
+        }
+        for (id, value) in waiting {
             if self.shared.settings.spec(id.as_str()).is_none() {
+                left.push((id, value));
                 continue;
             }
-            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
+            // Applied once, or warned about once: not kept.
+            if let Err(error) = self.shared.settings.set_default_from_text(&id, &value) {
                 self.warn_runtime(format!("device default `{id}`: {error}"));
             }
         }
-        // Kept: a plugin removed and published again is given them again.
-        self.late_device_defaults.append(&mut waiting);
+        self.late_device_defaults = left;
     }
 
     /// The language, night mode and colours the settings say.
