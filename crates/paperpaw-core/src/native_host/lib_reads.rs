@@ -51,6 +51,7 @@ mod importer;
 mod position;
 mod provide;
 mod removal;
+mod status;
 mod write;
 
 const PPM: u32 = 1_000_000;
