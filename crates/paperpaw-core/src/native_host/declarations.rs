@@ -127,7 +127,9 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         // host admits them (DOC/LIB hand-off).
         Record::FormatSpec(spec) => docs::format_check(plugin_id, spec),
         Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec),
-        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        // A lookup provider: admitted (the counts are the commit's and the
+        // store's, `document.md` section 7).
+        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec),
         Record::BookFieldSpec(spec) => {
             docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
         }
@@ -268,6 +270,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDocPath(_)
         | Record::ServiceDocReader(_)
         | Record::ServiceDocProgress(_)
+        | Record::ServiceDocReport(_)
         | Record::ServiceDocBlock(_)
         | Record::ServiceDocTextPart(_)
         | Record::ServiceDocColumns(_)

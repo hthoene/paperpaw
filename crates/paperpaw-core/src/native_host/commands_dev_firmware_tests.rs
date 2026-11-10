@@ -851,3 +851,66 @@ fn revocations_past_the_queue_are_dropped_and_counted() {
             .queue_revocation(Revocation::new("notes", [1; 32], [2; 64]))
     );
 }
+
+fn dual_boot(request: u32, mode: u32) -> WireCommand<'static> {
+    WireCommand::FirmwareDualBoot { request, mode }
+}
+
+#[test]
+fn firmware_dual_boot_is_unsupported_until_the_host_opens_it() {
+    use crate::native_host::plugin_job::PluginHost;
+    use paperpaw_native::{
+        header5::{Host as Loader, X4_PROFILE},
+        metadata::Host as Offered,
+    };
+    let kernel = kernel();
+    let d = driver();
+    d.borrow_mut().set_plugin_host(PluginHost {
+        loader: Loader::x4(1),
+        offered: Offered {
+            abi_major: 7,
+            minor: 1,
+            profile: X4_PROFILE,
+            services: &[],
+            features: &[],
+        },
+        signers: &[],
+    });
+    // The feature first, then the gate: nothing is queued either way.
+    assert_eq!(
+        stage(&kernel, 0, Some(&d), &[dual_boot(1, 1)]).0,
+        ERR_DENIED
+    );
+    assert_eq!(
+        stage(&kernel, FIRMWARE, None, &[dual_boot(1, 1)]).0,
+        ERR_UNSUPPORTED
+    );
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[dual_boot(1, 1)]).0,
+        ERR_UNSUPPORTED
+    );
+    assert_eq!(d.borrow().waiting(), 0);
+    d.borrow_mut().open_dual_boot();
+    // A mode beyond 1 and request 0 are invalid at submit, nothing queued.
+    for command in [dual_boot(1, 2), dual_boot(0, 1)] {
+        assert_eq!(
+            stage(&kernel, FIRMWARE, Some(&d), &[command]).0,
+            ERR_INVALID
+        );
+    }
+    assert_eq!(d.borrow().waiting(), 0);
+    // Both modes are accepted into the queue, one firmware command a batch.
+    let (status, output) = stage(&kernel, FIRMWARE, Some(&d), &[dual_boot(1, 0)]);
+    assert_eq!(status, OK);
+    drop(output);
+    assert_eq!(
+        stage(
+            &kernel,
+            FIRMWARE,
+            Some(&d),
+            &[dual_boot(2, 1), dual_boot(3, 1)]
+        )
+        .0,
+        ERR_INVALID
+    );
+}

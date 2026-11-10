@@ -33,7 +33,9 @@ use super::{
 };
 use crate::native_host::codec;
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
 use paperpaw_sdk::Env;
 
 /// Most `fmt.option` rows a call forwards (`document.md` 3).
@@ -369,7 +371,14 @@ impl<'a> Stage<'a> {
             .images
             .map(who.owner, call.document, &image, call.op == fmt::BLOCK)?;
         let Some(doc) = mapped else {
-            return Ok(put);
+            // A block keeps its text without the picture; the cover or a
+            // picture asked for alone is none: `ERR_NOT_FOUND` (`document.md`
+            // 5), the format's file is at fault, not the caller's request.
+            return if call.op == fmt::BLOCK {
+                Ok(put)
+            } else {
+                Err(ERR_NOT_FOUND)
+            };
         };
         let mut scratch = [0_u8; 64];
         let written = codec::encode_one(&Record::ServiceDocImage(doc), &mut scratch)?;

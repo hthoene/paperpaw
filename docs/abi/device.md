@@ -523,8 +523,9 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
     once (Senior R4): from the write on, the host treats the setup as declared until the next
     start (`dev_firmware.flags` bit 0 set, `install_firmware` reason 19), and that start detects
     again.
-  - **Order and failure:** the host reads `paperpaw.ini` whole (a file it cannot read whole, or
-    over its size, ends with reason 16 and nothing is written), sets `dual-boot` in the last
+  - **Order and failure:** the host reads `paperpaw.ini` whole, at most 16 KiB (16,384 bytes) of
+    UTF-8 (a file it cannot read whole, a longer one or one that is not UTF-8 ends with reason 16
+    and nothing is written), sets `dual-boot` in the last
     `[firmware]` section (adding the section if there is none, the rest of the file as it was),
     writes it whole and atomically as settings saves are, and only then removes
     `.paperpaw/boot.txt` (mode 1): a power cut at any point leaves the setup declared, the safe

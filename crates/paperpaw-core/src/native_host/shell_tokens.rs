@@ -22,7 +22,7 @@ pub(crate) enum TokenInvocation<'a> {
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token<S, M>(
+pub(crate) fn dispatch_token<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -38,7 +38,7 @@ pub(crate) fn dispatch_token<S, M>(
 /// the plugin's `commands.submit` for its duration (every callback but
 /// `draw` gets one). The stage is the caller's: it reads what was accepted
 /// after the callback returned.
-pub(crate) fn dispatch_token_staged<S, M>(
+pub(crate) fn dispatch_token_staged<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -54,7 +54,7 @@ pub(crate) fn dispatch_token_staged<S, M>(
     })?
 }
 
-pub(super) fn invoke_token<S>(
+pub(super) fn invoke_token<S: 'static>(
     context: core::pin::Pin<&super::Context<S>>,
     token: u32,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -70,9 +70,9 @@ pub(super) fn invoke_token<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the admitted owner retains state and code. The
             // host-produced payload is borrowed only until this returns.
-            Ok(status_only(unsafe {
+            Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            }))
+            })))
         }
         TokenInvocation::Input(bytes) => {
             let Some(callback) = instance.input else {
@@ -80,7 +80,8 @@ pub(super) fn invoke_token<S>(
             };
             // SAFETY: the admitted owner retains state and code, and this
             // host-produced input is borrowed only for the callback.
-            let status = unsafe { callback(instance.state, token, borrowed(bytes)) };
+            let status =
+                context.run_plugin(|| unsafe { callback(instance.state, token, borrowed(bytes)) });
             Ok(if status > 1 {
                 host_glue::ERR_INVALID
             } else {
@@ -97,7 +98,7 @@ pub(super) fn invoke_token<S>(
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token_draw<S, M>(
+pub(crate) fn dispatch_token_draw<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -126,7 +127,9 @@ pub(crate) fn dispatch_token_draw<S, M>(
                 canvas_scope.scope(canvas, || {
                     // SAFETY: the admitted owner retains state and code. Encoded
                     // bytes and the canvas scope live only for this callback.
-                    status_only(unsafe { callback(instance.state, token, borrowed(&bytes[..len])) })
+                    status_only(context.run_plugin(|| unsafe {
+                        callback(instance.state, token, borrowed(&bytes[..len]))
+                    }))
                 })
             })?
             .map_err(Into::into)
@@ -134,7 +137,7 @@ pub(crate) fn dispatch_token_draw<S, M>(
 }
 
 // The accessors the command stage reads (`shell.rs` is at its line limit).
-impl<S> super::Context<S> {
+impl<S: 'static> super::Context<S> {
     /// The host owner key of the plugin (the key of its native instance).
     #[allow(
         dead_code,
