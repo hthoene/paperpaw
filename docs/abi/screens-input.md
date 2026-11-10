@@ -309,11 +309,14 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   room for it `ERR_NO_MEMORY`; a host with no card wired `ERR_UNSUPPORTED`. No `uses.*`: the file is
   the plugin's own. The host reads it from the card through its font engine as it reads document
   fonts: a font pack (`.ppfp`) where it is, a glyph at a time (its index and a glyph cache of at most
-  16 KiB are kept, no copy of the file on the heap); a TrueType or OpenType file is read whole into
-  memory, so only where the build has outlines and the heap has room. It counts towards the 8
+  4 KiB on the X4, 16 KiB elsewhere, are kept, no copy of the file on the heap); a TrueType or
+  OpenType file is read whole into memory, so only where the build has outlines (else `ERR_INVALID`,
+  before any of it is read) and the heap has room. It counts towards the 8
   handles. Once the file is changed or removed after the acquire (its size, time or identity on the
   card), `text.*` through the handle answers `ERR_STATE` (acquire again), as for a replaced pack;
-  the card is asked once for each callback, not at every text call.
+  the card is asked once for each callback, not at every text call, so a file rewritten within the
+  callback that draws from it is noticed at the next callback (what a pack cannot read draws
+  nothing).
 - [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
   out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
   icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
@@ -329,9 +332,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
-  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, a `data:` handle its path (<= 640 B joined) and the opened
-  font (a pack's index within the device's pack limits and a glyph cache of at most 16 KiB; a font
-  file that is not a pack is held whole), so up to about 1 KiB per plugin for 8 handles by id; `handle.release` frees; teardown frees
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, a `data:` handle its path (<= 640 B joined), the pack's index (within the
+  device's pack limits) and a glyph cache that grows as glyphs are drawn, of at most 4 KiB on the X4
+  (16 KiB elsewhere; a refused allocation keeps a glyph less, never fails a draw), so up to about
+  1 KiB per plugin for 8 handles by id and 32 KiB for 8 `data:` handles on the X4; a TrueType or
+  OpenType file is held whole where the build has outlines (the X4's has none: packs only); `handle.release` frees; teardown frees
   all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
   pack that provides it was removed or replaced (updated) after the acquire, even if the same
   id is registered again, or the id no longer resolves. The plugin acquires again (on

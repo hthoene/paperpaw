@@ -55,3 +55,13 @@ fn a_missing_file_a_bad_pack_and_a_bad_font_are_told_apart() {
         );
     }
 }
+
+#[cfg(not(feature = "outline"))]
+#[test]
+fn a_file_that_is_no_pack_is_refused_unread_where_the_build_has_no_outlines() {
+    let card = card();
+    assert_eq!(
+        open_file(&card, "f/bad.ttf", PackLimits::SMALL).unwrap_err(),
+        OpenError::Font(FontError::OutlinesNotSupported)
+    );
+}

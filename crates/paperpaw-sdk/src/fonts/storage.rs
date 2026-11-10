@@ -79,7 +79,9 @@ pub enum OpenError {
 /// book's fonts and the chosen family's are opened: a pack (`.ppfp`) is read
 /// where it is, a glyph at a time, so only its index is kept; another file
 /// (TrueType, OpenType) is read whole into memory, as large as
-/// `MAX_FONT_FILE` at most, and is where the heap has no room for it
+/// `MAX_FONT_FILE` at most, only in a build with outlines (the `outline`
+/// feature; else [`FontError::OutlinesNotSupported`], before any of it is
+/// read), and is where the heap has no room for it
 /// [`FontError::OutOfMemory`].
 ///
 /// # Errors
@@ -103,6 +105,11 @@ pub fn open_file(
         return paperpaw_text::StoredPack::open_within(source, limits)
             .map(Font::Stored)
             .map_err(OpenError::Font);
+    }
+    // A build without outlines (the X4's) opens packs only: the file is
+    // refused before any of it is read.
+    if !cfg!(feature = "outline") {
+        return Err(OpenError::Font(FontError::OutlinesNotSupported));
     }
     if size > super::MAX_FONT_FILE {
         return Err(OpenError::Storage(StorageError::TooLarge));

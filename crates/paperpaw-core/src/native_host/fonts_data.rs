@@ -14,10 +14,25 @@ use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::{FontError, FontHandle, FontOpenError, FontSet, Fonts, Id};
+use paperpaw_sdk::{FontError, FontHandle, FontOpenError, FontSet, Fonts, Id, PackLimits};
 
-/// The glyphs a data font keeps at most (a book's own fonts keep more).
-const CACHE: usize = 16 * 1024;
+/// The glyphs a data font keeps at most, on a device of the small memory
+/// class (the X4: eight handles take 32 KiB at most of its 256 KiB heap) and
+/// elsewhere. The cache grows as glyphs are drawn, and a refused allocation
+/// only keeps a glyph less (`paperpaw_text::GlyphCache`): a draw never fails
+/// for it.
+pub(crate) const CACHE_SMALL: usize = 4 * 1024;
+pub(crate) const CACHE_LARGE: usize = 16 * 1024;
+
+/// The cache of a device whose font packs are read within `limits`: the large
+/// one only where the limits are the large class's (a class to come is small).
+pub(crate) fn cache_for(limits: PackLimits) -> usize {
+    if limits == PackLimits::LARGE {
+        CACHE_LARGE
+    } else {
+        CACHE_SMALL
+    }
+}
 
 /// What the card said of the file when it was opened: any change of it is a
 /// change of the file.
@@ -89,7 +104,7 @@ impl DataFont {
                 FontOpenError::Font(FontError::OutOfMemory) => ERR_NO_MEMORY,
                 _ => ERR_INVALID,
             })?;
-        let mut set = FontSet::new(CACHE);
+        let mut set = FontSet::new(cache_for(limits));
         set.add(Id::new_static("core.data-font"), font);
         try_box(Self {
             set,
@@ -107,7 +122,10 @@ impl DataFont {
 
     /// `ERR_STATE` once the file is not as it was opened: changed, replaced
     /// or removed. The card is asked once for each `epoch` (callback); where
-    /// the frame has none, at every call.
+    /// the frame has none, at every call. A plugin that rewrites its own font
+    /// file within the callback it draws in is not noticed until the next one:
+    /// what the pack gives meanwhile is read with the pack's own checks, so a
+    /// glyph that cannot be read draws nothing (a failed read), never a panic.
     pub(crate) fn check(&self, owner: &OwnerResources, epoch: Option<u64>) -> Result<(), i32> {
         if epoch.is_some() && self.checked.get() == epoch {
             return Ok(());
