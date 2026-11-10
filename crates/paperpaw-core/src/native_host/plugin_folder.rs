@@ -73,6 +73,10 @@ pub(crate) struct Walk {
     at: usize,
     place: u64,
     found: Found,
+    /// Whether the files of each piece are kept for [`Walk::take_files`] (an install
+    /// copies them); a check only counts.
+    keep: bool,
+    files: Vec<(String, u64)>,
     /// The name the top-level code file has on the card (a FAT lists the
     /// case it was stored in, which may not be the one of [`CODE_FILES`]).
     code_name: Text<CODE_NAME_MAX>,
@@ -81,6 +85,15 @@ pub(crate) struct Walk {
 impl Walk {
     /// A walk over the folder at `root`. No memory is `None`.
     pub(crate) fn new(root: &str) -> Option<Self> {
+        Self::make(root, false)
+    }
+
+    /// A walk that hands over the files of each piece, for a copy.
+    pub(crate) fn copying(root: &str) -> Option<Self> {
+        Self::make(root, true)
+    }
+
+    fn make(root: &str, keep: bool) -> Option<Self> {
         let root = root.trim_end_matches('/');
         if root.is_empty() || root.len() > PATH_MAX {
             return None;
@@ -103,6 +116,8 @@ impl Walk {
                 manifest: false,
                 code: None,
             },
+            keep,
+            files: Vec::new(),
         })
     }
 
@@ -113,6 +128,11 @@ impl Walk {
 
     pub(crate) fn root(&self) -> &str {
         &self.root
+    }
+
+    /// The files (path below the root, size) the last step found, once.
+    pub(crate) fn take_files(&mut self) -> Vec<(String, u64)> {
+        core::mem::take(&mut self.files)
     }
 
     /// The code file's name as the card lists it.
@@ -126,8 +146,13 @@ impl Walk {
         next: Option<u64>,
         found: Found,
         code_name: Option<Text<CODE_NAME_MAX>>,
+        kept: Vec<(String, u64)>,
         subdirs: Vec<String>,
     ) -> Walked {
+        if self.files.try_reserve(kept.len()).is_err() {
+            return Walked::Refused(reason::OTHER);
+        }
+        self.files.extend(kept);
         self.found = found;
         if let Some(name) = code_name {
             self.code_name = name;
@@ -166,6 +191,8 @@ impl Walk {
         let mut seen = 0_usize;
         let mut failed: Option<u8> = None;
         let mut subdirs: Vec<String> = Vec::new();
+        let mut kept: Vec<(String, u64)> = Vec::new();
+        let keep = self.keep;
         let mut found = self.found;
         let mut code_name = None;
         let top = rel.is_empty();
@@ -191,8 +218,12 @@ impl Walk {
                 return false;
             }
             if entry.is_dir {
-                if known + subdirs.len() >= DIRS_MAX || subdirs.try_reserve(1).is_err() {
+                if known + subdirs.len() >= DIRS_MAX {
                     failed = Some(reason::DAMAGED);
+                    return false;
+                }
+                if subdirs.try_reserve(1).is_err() {
+                    failed = Some(reason::OTHER);
                     return false;
                 }
                 subdirs.push(name);
@@ -219,13 +250,20 @@ impl Walk {
                     code_name = Some(Text::new(entry.name));
                 }
             }
+            if keep {
+                if kept.try_reserve(1).is_err() {
+                    failed = Some(reason::OTHER);
+                    return false;
+                }
+                kept.push((name, entry.size));
+            }
             true
         });
         if let Some(reason) = failed {
             return Walked::Refused(reason);
         }
         match listed {
-            Ok(next) => self.settle(next, found, code_name, subdirs),
+            Ok(next) => self.settle(next, found, code_name, kept, subdirs),
             // A path that names nothing, or a file: not a plugin folder.
             Err(StorageError::NotFound | StorageError::InvalidPath) => {
                 Walked::Refused(reason::DAMAGED)

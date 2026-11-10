@@ -16,9 +16,9 @@ use paperpaw_platform::DirEntry;
 use paperpaw_sdk::{MemoryStorage, native::keys};
 use std::{format, string::String, vec, vec::Vec};
 
-const AUTHOR_SEED: [u8; 32] = [3; 32];
-const OTHER_SEED: [u8; 32] = [4; 32];
-const RECOVERY_SEED: [u8; 32] = [7; 32];
+pub(in crate::native_host) const AUTHOR_SEED: [u8; 32] = [3; 32];
+pub(in crate::native_host) const OTHER_SEED: [u8; 32] = [4; 32];
+pub(in crate::native_host) const RECOVERY_SEED: [u8; 32] = [7; 32];
 const SOURCE: &str = "Download/dials";
 
 static SERVICES: [Service<'static>; 1] = [Service {
@@ -32,11 +32,11 @@ static FEATURES: [Feature<'static>; 1] = [Feature {
     revision: 1,
 }];
 
-fn author() -> [u8; 32] {
+pub(in crate::native_host) fn author() -> [u8; 32] {
     public_key(&AUTHOR_SEED)
 }
 
-fn host() -> PluginHost {
+pub(in crate::native_host) fn host() -> PluginHost {
     static NAMED: std::sync::OnceLock<[(&'static str, [u8; 32]); 1]> = std::sync::OnceLock::new();
     PluginHost {
         loader: Loader::x4(1),
@@ -52,7 +52,7 @@ fn host() -> PluginHost {
 }
 
 /// Built into the running image: stats, weather, clock.
-struct Names;
+pub(in crate::native_host) struct Names;
 impl BuiltIns for Names {
     fn count(&self) -> usize {
         3
@@ -65,7 +65,11 @@ impl BuiltIns for Names {
 }
 
 /// A metadata record (`abi/generated/metadata-layout.json`) of the X4 profile.
-fn record(services: &[&str], features: &[(&str, bool)], minor: u16) -> Vec<u8> {
+pub(in crate::native_host) fn record(
+    services: &[&str],
+    features: &[(&str, bool)],
+    minor: u16,
+) -> Vec<u8> {
     let target = "esp32c3-riscv32imc-ilp32-soft-le";
     let mut body = Vec::new();
     let export = "PAPERPAW_ENTRY";
@@ -109,12 +113,16 @@ fn record(services: &[&str], features: &[(&str, bool)], minor: u16) -> Vec<u8> {
     out
 }
 
-fn good_record() -> Vec<u8> {
+pub(in crate::native_host) fn good_record() -> Vec<u8> {
     record(&["core.plugin"], &[("uses.registry", false)], 1)
 }
 
 /// A format-5 code file around `record`, signed by `seed` when given.
-fn code_file(record: &[u8], seed: Option<&[u8; 32]>, image_len: u32) -> Vec<u8> {
+pub(in crate::native_host) fn code_file(
+    record: &[u8],
+    seed: Option<&[u8; 32]>,
+    image_len: u32,
+) -> Vec<u8> {
     let mut header = Header5 {
         target: paperpaw_native::Chip::Esp32C3,
         abi_major: 7,
@@ -152,10 +160,11 @@ fn code_file(record: &[u8], seed: Option<&[u8; 32]>, image_len: u32) -> Vec<u8> 
     file
 }
 
-const INI: &str = "[plugin]\nid = dials\nname = Dials\nversion = 1.2.0\n";
+pub(in crate::native_host) const INI: &str =
+    "[plugin]\nid = dials\nname = Dials\nversion = 1.2.0\n";
 
 /// The folder `dir` of a data plugin.
-fn data_folder(card: &MemoryStorage, dir: &str) {
+pub(in crate::native_host) fn data_folder(card: &MemoryStorage, dir: &str) {
     card.write(&format!("{dir}/plugin.ini"), INI.as_bytes())
         .unwrap();
     card.write(&format!("{dir}/strings.ini"), b"hello\n")
@@ -164,13 +173,13 @@ fn data_folder(card: &MemoryStorage, dir: &str) {
 }
 
 /// The folder `dir` of a code plugin with `code`.
-fn code_folder(card: &MemoryStorage, dir: &str, code: &[u8]) {
+pub(in crate::native_host) fn code_folder(card: &MemoryStorage, dir: &str, code: &[u8]) {
     card.write(&format!("{dir}/plugin.ini"), INI.as_bytes())
         .unwrap();
     card.write(&format!("{dir}/code.ppn"), code).unwrap();
 }
 
-fn signed_folder(card: &MemoryStorage, dir: &str) -> Vec<u8> {
+pub(in crate::native_host) fn signed_folder(card: &MemoryStorage, dir: &str) -> Vec<u8> {
     let code = code_file(&good_record(), Some(&AUTHOR_SEED), 4096);
     code_folder(card, dir, &code);
     code
@@ -187,6 +196,7 @@ fn run_with(card: &dyn Storage, host: &PluginHost, source: &str) -> (Finished, u
         storage: card,
         host,
         built_ins: &Names,
+        granted: false,
     };
     for steps in 1..10_000 {
         if let JobStep::Done(finished) = job.step(&env) {
@@ -745,7 +755,7 @@ fn a_check_changes_nothing_on_the_card() {
     assert_eq!(snapshot(&card), before);
 }
 
-fn snapshot(card: &MemoryStorage) -> Vec<(String, Vec<u8>)> {
+pub(in crate::native_host) fn snapshot(card: &MemoryStorage) -> Vec<(String, Vec<u8>)> {
     let mut files = Vec::new();
     let mut dirs = vec![String::new()];
     while let Some(dir) = dirs.pop() {
@@ -776,18 +786,18 @@ fn snapshot(card: &MemoryStorage) -> Vec<(String, Vec<u8>)> {
 
 /// A card that counts what a step reads and lists, and can fail reads and
 /// size questions of one path.
-struct Counting {
-    inner: MemoryStorage,
-    most_read: Cell<usize>,
+pub(in crate::native_host) struct Counting {
+    pub(in crate::native_host) inner: MemoryStorage,
+    pub(in crate::native_host) most_read: Cell<usize>,
     listed: Cell<usize>,
-    most_listed: Cell<usize>,
-    fail: RefCell<Option<&'static str>>,
+    pub(in crate::native_host) most_listed: Cell<usize>,
+    pub(in crate::native_host) fail: RefCell<Option<&'static str>>,
 }
 
 use core::cell::{Cell, RefCell};
 
 impl Counting {
-    fn new(inner: MemoryStorage) -> Self {
+    pub(in crate::native_host) fn new(inner: MemoryStorage) -> Self {
         Self {
             inner,
             most_read: Cell::new(0),
@@ -849,6 +859,15 @@ impl Storage for Counting {
     fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
         self.inner.rename(f, t)
     }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.remove_dir_all(p)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.inner.sync()
+    }
 }
 
 #[test]
@@ -902,6 +921,7 @@ fn a_stopped_job_ends_with_its_reason_and_holds_nothing() {
         storage: &card,
         host: &host(),
         built_ins: &Names,
+        granted: false,
     };
     assert_eq!(job.step(&env), JobStep::More);
     assert_eq!(job.step(&env), JobStep::More);
@@ -923,7 +943,7 @@ fn a_stopped_job_ends_with_its_reason_and_holds_nothing() {
 
 /// A card whose calls do not count for an armed allocation failure: only the
 /// job's own allocations do.
-struct Shielded<'a>(&'a MemoryStorage);
+pub(in crate::native_host) struct Shielded<'a>(pub(in crate::native_host) &'a MemoryStorage);
 
 fn shielded<T>(call: impl FnOnce() -> T) -> T {
     let armed = FAIL_NTH.with(|n| n.replace(0));
@@ -971,6 +991,15 @@ impl Storage for Shielded<'_> {
     fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
         shielded(|| self.0.rename(f, t))
     }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        shielded(|| self.0.create_dir(p))
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        shielded(|| self.0.remove_dir_all(p))
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        shielded(|| self.0.sync())
+    }
 }
 
 #[test]
@@ -982,6 +1011,7 @@ fn an_allocation_that_fails_ends_the_check_with_reason_1_and_never_panics() {
         storage: &shield,
         host: &host(),
         built_ins: &Names,
+        granted: false,
     };
     let (mut refused, mut at_submit) = (0, 0);
     // The Nth allocation of the job, for each N up to the number it makes.
