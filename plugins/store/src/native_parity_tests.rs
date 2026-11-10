@@ -319,3 +319,100 @@ fn what_the_old_code_cut_fits_the_caps() {
     let cut = crate::catalog::cut(&name, native::MAX_NAME);
     assert!(cut.len() <= native::MAX_NAME);
 }
+
+proptest! {
+    /// The A to Z key of a name is the old one for any name.
+    #[test]
+    fn the_name_key_is_the_old_one(name in "\\PC{0,40}") {
+        prop_assert_eq!(
+            crate::native_index::name_key(&name),
+            crate::catalog::name_key(&name)
+        );
+    }
+}
+
+/// An index the interface-6 store kept on the card (its line from the old
+/// `Entry::line`, offsets, head and sections in the Beta 3 format) is read
+/// by the native `Index` as it is.
+#[test]
+fn an_index_kept_by_interface_6_is_read_natively() {
+    use crate::native_index::{HEAD, INDEX, Index, OFFSETS, SECTIONS_FILE};
+    use paperpaw_sdk::{MemoryStorage, Storage};
+    let old = |id: &str, name: &str, group: usize| Old {
+        id: id.into(),
+        name: name.into(),
+        summary: "Does it.".into(),
+        group,
+        author: "A".into(),
+        licence: "MIT".into(),
+        version: "1.0.0".into(),
+        sdk: "0.4".into(),
+        size: 30,
+        added: 20_260_101,
+        updated: 20_260_202,
+        ..Old::default()
+    };
+    let entries = [
+        old("a-one", "A one", 0),
+        old("b-two", "B\ttwo", 0),
+        old("c-three", "C three", 2),
+    ];
+    let (mut text, mut offsets, mut at) = (String::new(), Vec::new(), 0u32);
+    for entry in &entries {
+        let line = entry.line();
+        offsets.extend_from_slice(&at.to_le_bytes());
+        at += line.len() as u32;
+        text.push_str(&line);
+    }
+    let storage = MemoryStorage::new();
+    storage.write(INDEX, text.as_bytes()).unwrap();
+    storage.write(OFFSETS, &offsets).unwrap();
+    storage
+        .write(SECTIONS_FILE, b"recommended\tc-three,a-one\nnew\t\n")
+        .unwrap();
+    storage
+        .write(HEAD, b"store-index 5\t0:2,2:1\tfair\t2,0,0,0,0\n")
+        .unwrap();
+    let index = Index::kept(&storage).unwrap().expect("the Beta 3 head");
+    assert_eq!(index.runs(), &[(0, 2), (2, 1)]);
+    assert!(index.fair());
+    assert_eq!(index.section(&storage, 0).unwrap(), ["c-three", "a-one"]);
+    for (n, entry) in entries.iter().enumerate() {
+        let read = index.entry(&storage, n).unwrap().expect("a line");
+        assert_eq!(read.id, entry.id);
+        // The tab of a name was made a space when the line was written.
+        assert_eq!(read.name, entry.name.replace('\t', " "));
+        assert_eq!(
+            (read.group, read.size, read.added),
+            (entry.group, entry.size, entry.added)
+        );
+    }
+    let mut seen = Vec::new();
+    index
+        .scan(&storage, &mut |n, e| {
+            seen.push((n, e.id));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(seen.len(), 3);
+}
+
+proptest! {
+    /// Whether a version is an update, and what a pre-release is, are the old
+    /// code's for any two texts.
+    #[test]
+    fn offers_is_the_old_one(
+        offered in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        here in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        betas in any::<bool>(),
+    ) {
+        prop_assert_eq!(
+            crate::native_page::offers(&offered, &here, betas),
+            crate::origin::offers(&offered, &here, betas)
+        );
+        prop_assert_eq!(
+            crate::native_page::is_pre_release(&offered),
+            crate::origin::is_pre_release(&offered)
+        );
+    }
+}

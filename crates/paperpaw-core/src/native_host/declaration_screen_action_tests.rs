@@ -137,6 +137,7 @@ fn every_new_kind_allocation_refusal_leaves_the_store_unpublished() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = pending(&source, owned, &mut allocations).and_then(|p| {
                 store

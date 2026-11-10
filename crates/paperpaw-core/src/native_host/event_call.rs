@@ -68,6 +68,34 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
+        self.native_staged_call(owner, |env, stage| {
+            lease.service_event_staged(bytes, env, stage)
+        })
+    }
+
+    /// As [`Self::native_event_call`], for the `input` callback of a widget
+    /// at `token` with the `input.widget` record `bytes`.
+    ///
+    /// # Errors
+    /// As [`Self::native_event_call`].
+    pub(crate) fn native_input_call(
+        &self,
+        owner: u64,
+        lease: &NativeLease,
+        token: u32,
+        bytes: &[u8],
+    ) -> Result<i32, i32> {
+        self.native_staged_call(owner, |env, stage| {
+            lease.input_staged(token, bytes, env, stage)
+        })
+    }
+
+    /// The staged call of `owner`'s callback that `call` makes.
+    fn native_staged_call(
+        &self,
+        owner: u64,
+        call: impl FnOnce(&paperpaw_sdk::Env<'_>, &mut CommandStage<'_>) -> Result<i32, i32>,
+    ) -> Result<i32, i32> {
         let instances = &self.shared.native_instances;
         if instances.outbox.full() {
             return Err(ERR_BUSY);
@@ -91,7 +119,7 @@ impl crate::Kernel {
                     .work_services()
                     .is_some_and(|work| work.sched.quiet(owner)),
             );
-            let mut status = lease.service_event_staged(bytes, &env, &mut stage);
+            let mut status = call(&env, &mut stage);
             let staged = if matches!(status, Ok(0 | 1)) {
                 let images = stage.take_image_commands();
                 // The widgets it said changed; their makers hear of it from
@@ -143,6 +171,9 @@ impl crate::Kernel {
 
     /// Runs the batch in the outbox: its commands and picture requests, for
     /// the plugin that staged them (one that is gone loses them).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_outbox_run(&mut self) {
         let Some(staged) = self.shared.native_instances.outbox.take() else {
             return;

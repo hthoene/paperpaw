@@ -9,7 +9,7 @@ pub(crate) const SECRET: u8 = 4;
 pub(crate) const HOST: u8 = 8;
 pub(crate) const GUARD_DIALOG: u8 = 16;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct StackRow {
     pub(crate) instance: u32,
     pub(crate) owner: u64,
@@ -35,6 +35,12 @@ pub(crate) struct StackRows {
     rows: [Cell<StackRow>; STACK_MAX],
     len: Cell<u8>,
     generation: Cell<u64>,
+    /// How often the stack differed after an update (wrapping): what
+    /// `event.stack_changed` is raised from (`stack_events`).
+    changes: Cell<u32>,
+    /// The `changes` each subscriber of `event.stack_changed` was last told
+    /// (`(owner, changes)`), kept by `stack_events`.
+    pub(super) told: core::cell::RefCell<alloc::vec::Vec<(u64, u32)>>,
     closes: [Cell<PendingUi>; STACK_MAX],
     close_error: Cell<i32>,
     cleanup_sweep: Cell<bool>,
@@ -50,6 +56,8 @@ impl Default for StackRows {
             rows: [const { Cell::new(EMPTY) }; STACK_MAX],
             len: Cell::new(0),
             generation: Cell::new(1),
+            changes: Cell::new(0),
+            told: core::cell::RefCell::default(),
             closes: [const { Cell::new(NO_PENDING) }; STACK_MAX],
             close_error: Cell::new(0),
             cleanup_sweep: Cell::new(false),
@@ -160,6 +168,10 @@ impl StackRows {
     pub(crate) fn generation(&self) -> u64 {
         self.generation.get()
     }
+    /// How often the stack changed (wrapping), for `event.stack_changed`.
+    pub(super) fn changes(&self) -> u32 {
+        self.changes.get()
+    }
     pub(crate) fn valid(&self, generation: u64) -> bool {
         generation != 0
             && self.generation.get() == generation
@@ -237,8 +249,10 @@ impl StackRows {
     }
     pub(crate) fn update(&self, rows: impl IntoIterator<Item = StackRow>) {
         let mut count = 0;
+        let mut differs = false;
         for row in rows {
             if let Some(slot) = self.rows.get(count) {
+                differs |= slot.get() != row;
                 slot.set(row);
             }
             count += 1;
@@ -246,7 +260,11 @@ impl StackRows {
                 break;
             }
         }
+        differs |= usize::from(self.len.get()) != count;
         self.len.set(u8::try_from(count).unwrap_or(u8::MAX));
+        if differs {
+            self.changes.set(self.changes.get().wrapping_add(1));
+        }
         for pending in &self.closes {
             let action = pending.get();
             let instance = action.instance;

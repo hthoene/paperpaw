@@ -264,7 +264,7 @@ impl Dashboard {
 
     /// The widget of a cell placed at the rectangle it has now.
     fn place_again(host: &Host<'_>, ui: &Ui, cell: &Cell) -> Result<(), Error> {
-        let Some(widget) = cell.widget.filter(|w: &WidgetHandle| !w.is_own()) else {
+        let Some(MadeWidget::Widget(widget)) = cell.widget else {
             return Ok(());
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);

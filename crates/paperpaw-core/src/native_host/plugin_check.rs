@@ -39,7 +39,7 @@ use super::plugin_job::{
     JobStep, KIND_CHECK, PluginFacts, PluginJob, io_buffer, reason,
 };
 use super::plugin_trust;
-use super::shared::try_box;
+use super::shared::{try_box, try_box_with};
 
 /// The code file this device reads (`CODE_FILES[0]`).
 const CODE: &str = "code.ppn";
@@ -97,14 +97,24 @@ impl PluginCheck {
     /// # Errors
     /// `None` for no memory.
     pub(crate) fn new(owner: u64, request: u32, source: &str) -> Option<Self> {
+        Some(Self::with_source(owner, request, Self::path(source)?, None))
+    }
+
+    /// The card path `source`, copied fallibly.
+    fn path(source: &str) -> Option<String> {
         let mut path = String::new();
         path.try_reserve_exact(source.len()).ok()?;
         path.push_str(source);
-        Some(Self {
+        Some(path)
+    }
+
+    #[inline(always)]
+    fn with_source(owner: u64, request: u32, source: String, hint: Option<Text<ID_MAX>>) -> Self {
+        Self {
             owner,
             request,
             phase: Phase::Start,
-            source: path,
+            source,
             walk: None,
             code: String::new(),
             buf: Vec::new(),
@@ -119,8 +129,8 @@ impl PluginCheck {
             digest: None,
             inquiry: plugin_trust::Inquiry::new(),
             stopped: None,
-            hint: None,
-        })
+            hint,
+        }
     }
 
     /// A check of the staged copy at `stage` of the plugin `id` (an install
@@ -131,10 +141,25 @@ impl PluginCheck {
         Some(check)
     }
 
+    /// [`Self::staged`] in a box of its own made here (the job is 960 bytes:
+    /// not built on the caller's frame, nor copied to the box from it).
+    #[inline(never)]
+    pub(crate) fn staged_box(owner: u64, request: u32, stage: &str, id: &str) -> Option<Box<Self>> {
+        let source = Self::path(stage)?;
+        try_box_with(|| Self::with_source(owner, request, source, Some(Text::new(id))))
+    }
+
     fn end(&mut self, reason: u8) -> JobStep {
         self.release();
         self.phase = Phase::Ended;
         JobStep::Done(Finished::refused(reason))
+    }
+
+    /// Ends with reason 10 for a file that needs a newer interface revision.
+    fn end_needing(&mut self, needs_draft: u32) -> JobStep {
+        self.release();
+        self.phase = Phase::Ended;
+        JobStep::Done(Finished::needs_newer(needs_draft))
     }
 
     /// Drops what the job holds, so a finished or aborted job is small.
@@ -206,7 +231,10 @@ impl PluginCheck {
             Err(why) => return self.end(why),
         };
         let id = manifest.id.as_str();
-        if id == "core" || env.built_ins.index_of(id).is_some() {
+        if id == "core"
+            || env.built_ins.index_of(id).is_some()
+            || super::plugin_unforgotten::has(env.storage, id)
+        {
             return self.end(reason::ID_TAKEN);
         }
         self.manifest = Some(manifest);
@@ -272,6 +300,12 @@ impl PluginCheck {
         }
         let header = match Header5::read(&self.buf[..HEADER_LEN], size, &env.host.loader) {
             Ok(header) => header,
+            Err(Refusal::NeedsNewerMinor) => {
+                // The revision the file needs: `needs_minor`, at byte 10 of
+                // its header (the loader's refusal carries no number).
+                let needs = u16::from_le_bytes([self.buf[10], self.buf[11]]);
+                return self.end_needing(u32::from(needs));
+            }
             Err(why) => return self.end(header_reason(why)),
         };
         self.size = size;
@@ -282,32 +316,45 @@ impl PluginCheck {
             return self.end(reason::NO_ROOM);
         }
         let sha = header.digest();
-        if header.signed {
-            let mut trailer = [0_u8; SIGNATURE_LEN];
-            if let Err(why) = read_exact(storage, path, header.file_len(), &mut trailer) {
-                return self.end(why);
-            }
-            let Some(signature) = Signature::read(&trailer) else {
-                return self.end(reason::DAMAGED);
-            };
-            if u64::from(signature.signed_len) != header.file_len() {
-                return self.end(reason::DAMAGED);
-            }
-            let Ok(mut check) = signature.check() else {
-                return self.end(reason::DAMAGED);
-            };
-            check.absorb(&self.buf[..HEADER_LEN]);
-            let Some(check) = try_box(check) else {
-                return self.end(reason::OTHER);
-            };
-            self.check = Some(check);
-            self.signature = Some(signature);
+        if header.signed
+            && let Some(step) = self.signed(env, &header)
+        {
+            return step;
         }
         self.sha = Some(sha);
         self.at = HEADER_LEN as u64;
         self.header = Some(header);
         self.phase = Phase::Body;
         JobStep::More
+    }
+
+    /// The signature of a signed file: its trailer read, the checks begun over
+    /// the header. `Some` where the job ended (with `JobStep::Done`).
+    // Its own frame: the signature's check state is large and the header's
+    // frame holds the job's other locals.
+    #[inline(never)]
+    fn signed(&mut self, env: &JobEnv<'_>, header: &Header5) -> Option<JobStep> {
+        let storage = env.storage;
+        let mut trailer = [0_u8; SIGNATURE_LEN];
+        if let Err(why) = read_exact(storage, self.code.as_str(), header.file_len(), &mut trailer) {
+            return Some(self.end(why));
+        }
+        let Some(signature) = Signature::read(&trailer) else {
+            return Some(self.end(reason::DAMAGED));
+        };
+        if u64::from(signature.signed_len) != header.file_len() {
+            return Some(self.end(reason::DAMAGED));
+        }
+        let Ok(mut check) = signature.check() else {
+            return Some(self.end(reason::DAMAGED));
+        };
+        check.absorb(&self.buf[..HEADER_LEN]);
+        let Some(check) = try_box(check) else {
+            return Some(self.end(reason::OTHER));
+        };
+        self.check = Some(check);
+        self.signature = Some(signature);
+        None
     }
 
     #[inline(never)]
@@ -440,6 +487,7 @@ impl PluginJob for PluginCheck {
         KIND_CHECK
     }
 
+    #[inline(never)]
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep {
         if let Some(why) = self.stopped {
             return self.end(why);

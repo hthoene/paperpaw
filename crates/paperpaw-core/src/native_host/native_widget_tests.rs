@@ -179,6 +179,7 @@ impl World {
             usage: &self.kernel.shared.usage,
             plugins: &self.kernel.shared.plugins,
             work: &self.kernel.shared.work_states,
+            log: Default::default(),
             ui: None,
         };
         let measure = widget::Record::WidgetMeasure(widget::WidgetMeasure::new(9, 200));
