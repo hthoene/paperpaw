@@ -192,13 +192,83 @@ fn the_fields_are_checked_before_anything_is_accepted() {
         flags: 0,
     };
     assert_eq!(stage(&kernel, FIRMWARE, Some(&d), &[card]).0, ERR_DENIED);
-    // A plugin check is not here yet; a kind beyond 1 is denied.
+    // A plugin check needs a plugin host (the driver has none here); a kind
+    // beyond 1 is denied.
     assert_eq!(
         stage(&kernel, all, Some(&d), &[check(1, 0)]).0,
         ERR_UNSUPPORTED
     );
     assert_eq!(stage(&kernel, all, Some(&d), &[check(1, 2)]).0, ERR_DENIED);
     assert_eq!(d.borrow().waiting(), 0, "a refusal accepts nothing");
+}
+
+/// A driver that accepts plugin jobs.
+fn plugin_driver() -> Rc<RefCell<Driver>> {
+    use crate::native_host::plugin_job::PluginHost;
+    use paperpaw_native::{
+        header5::{Host as Loader, X4_PROFILE},
+        metadata::Host as Offered,
+    };
+    let d = driver();
+    d.borrow_mut().set_plugin_host(PluginHost {
+        loader: Loader::x4(1),
+        offered: Offered {
+            abi_major: 7,
+            minor: 1,
+            profile: X4_PROFILE,
+            services: &[],
+            features: &[],
+        },
+        signers: &[],
+    });
+    d
+}
+
+#[test]
+fn a_plugin_check_is_a_job_of_the_queue_for_uses_install_with_a_plugin_host() {
+    let mut kernel = kernel();
+    let d = plugin_driver();
+    // `uses.install` admits kind 0, `uses.firmware` kind 1: not each other's.
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[check(1, 0)]).0,
+        ERR_DENIED
+    );
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&d), &[check(1, 1)]).0,
+        ERR_DENIED
+    );
+    // Request 0 and a root that is not the plugin's may not be read.
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&d), &[check(0, 0)]).0,
+        ERR_INVALID
+    );
+    let card = WireCommand::CheckFile {
+        request: 1,
+        root: 1,
+        path: "Download/dials",
+        kind: 0,
+    };
+    assert_eq!(stage(&kernel, INSTALL, Some(&d), &[card]).0, ERR_DENIED);
+    assert_eq!(d.borrow().waiting(), 0, "a refusal accepts nothing");
+    // Accepted at submit, taken back when the batch never applies.
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[check(1, 0)]);
+    assert_eq!(status, OK);
+    assert!(d.borrow().holds(OWNER, 1));
+    drop(output);
+    assert_eq!(d.borrow().waiting(), 0);
+    // A drained one is kept, and takes a place of the shared table.
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[check(2, 0)]);
+    assert_eq!(status, OK);
+    drain(&mut kernel, output);
+    assert!(d.borrow().holds(OWNER, 2));
+    let (status, output) = stage(&kernel, INSTALL | FIRMWARE, Some(&d), &[check(3, 1)]);
+    assert_eq!(status, OK);
+    drain(&mut kernel, output);
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&d), &[check(4, 0)]).0,
+        ERR_FULL,
+        "two open requests per plugin, plugin jobs and firmware ones alike"
+    );
 }
 
 #[test]

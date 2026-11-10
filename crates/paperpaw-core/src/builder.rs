@@ -29,6 +29,8 @@ struct BuilderParts {
     firmware: Option<Firmware>,
     /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
     firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
+    /// What plugin checks, installs and removals compare a plugin with.
+    plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
@@ -96,6 +98,27 @@ impl KernelBuilder {
         host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
     ) -> Self {
         self.0.firmware_host = Some(host);
+        self
+    }
+
+    /// What the device tells plugin jobs about itself (`device.md` 5.1, 5.2):
+    /// what its loader reads (`loader`), what it offers a plugin's metadata
+    /// (`offered`) and the signing keys it knows by name (`signers`; every
+    /// other key is shown by its fingerprint). Without it (and without
+    /// [`Self::firmware_host`], whose queue plugin jobs share) `check_file` of
+    /// kind 0 is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub fn plugin_host(
+        mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
+            loader,
+            offered,
+            signers,
+        });
         self
     }
 
@@ -793,14 +816,16 @@ impl BuilderParts {
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
             firmware: self.firmware_host.take().map(|host| {
-                alloc::rc::Rc::new(core::cell::RefCell::new(
-                    crate::native_host::firmware_driver::Driver::new(
-                        host,
-                        alloc::rc::Rc::new(core::cell::RefCell::new(
-                            crate::native_host::firmware_install::FirmwareInstall::new(),
-                        )),
-                    ),
-                ))
+                let mut driver = crate::native_host::firmware_driver::Driver::new(
+                    host,
+                    alloc::rc::Rc::new(core::cell::RefCell::new(
+                        crate::native_host::firmware_install::FirmwareInstall::new(),
+                    )),
+                );
+                if let Some(plugins) = self.plugin_host.take() {
+                    driver.set_plugin_host(plugins);
+                }
+                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
             }),
             shown_since: Instant(0),
             scope: None,
@@ -1098,6 +1123,7 @@ impl Kernel {
             caps: Capabilities::default(),
             firmware: None,
             firmware_host: None,
+            plugin_host: None,
             code: None,
             after_trial: None,
             safe_mode: None,

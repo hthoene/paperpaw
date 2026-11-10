@@ -265,7 +265,9 @@ pub(crate) fn read_manifest(
         }
     }
     let id = id.unwrap_or_else(|| Text::new(folder));
-    if id.as_str().is_empty() || !install::is_plugin_name(id.as_str()) {
+    // `core` is the host's own id: no plugin name (`is_plugin_name`), but the
+    // check says "taken" (15), not "damaged", as the doc has it (5.5).
+    if id.as_str() != "core" && (id.as_str().is_empty() || !install::is_plugin_name(id.as_str())) {
         return Err(reason::DAMAGED);
     }
     let version = version.unwrap_or_else(|| Text::new("0.1.0"));
