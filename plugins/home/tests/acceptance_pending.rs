@@ -96,12 +96,14 @@ const CASES: [Case; 13] = [
         blocked_by: &["HOME-add-layouts", "H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
-    // the item, by its corner), and the options' *Settings* entry. Moving,
-    // sizing and removing with the buttons are done (unit-tested).
+    // the item, by its corner). The cells a drag makes, where they are free and
+    // moving, sizing and removing with the buttons are done (unit-tested); the
+    // finger itself needs a host that delivers pointers to the dashboard on a
+    // screen stack.
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["H4", "HOME-item-settings"],
+        blocked_by: &["H1"],
     },
 ];
 
@@ -188,7 +190,7 @@ fn home_add() {
 }
 
 #[test]
-#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs pointer input to native screens (H4a, no PR yet)"]
+#[ignore = "BLOCKED H1: the finger's drag of an item and its corner is native (the cells it makes are unit-tested) but is seen only on a host with a screen stack that delivers pointers to the dashboard"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

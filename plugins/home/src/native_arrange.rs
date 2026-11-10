@@ -12,8 +12,12 @@
 //! does).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
+    Point,
     native::Error,
-    widgets::grid::{Cells, Geometry},
+    widgets::{
+        CellSpan,
+        grid::{self, Cells, Geometry},
+    },
 };
 use paperpaw_ui_kit::{mem::push, text::copy};
 
@@ -101,6 +105,42 @@ pub fn put(items: &mut [Item], index: usize, to: Cells, geometry: &Geometry) -> 
     }
     items[index].at = Some(to);
     Put::Done
+}
+
+/// Whether item `index` may take the cells `to`: inside the grid and clear of
+/// every other item.
+#[must_use]
+pub fn free(items: &[Item], index: usize, to: Cells, geometry: &Geometry) -> bool {
+    to.fits(geometry.columns, geometry.rows)
+        && !items
+            .iter()
+            .enumerate()
+            .any(|(i, item)| i != index && item.at.is_some_and(|other| other.overlaps(&to)))
+}
+
+/// The cells an item at `from` takes when a finger that came down at `start` is
+/// at `point`: moved by as many cells as the finger moved, or with `resize` (its
+/// corner taken) its corner in the cell under the finger. A widget is kept at
+/// least as high as it can do with (`least` rows) and as its declared cells say
+/// (`span`: its least size, square). `None` off the grid.
+#[must_use]
+pub fn dragged(
+    geometry: &Geometry,
+    from: Cells,
+    (start, point): (Point, Point),
+    resize: bool,
+    (least, span): (u8, Option<CellSpan>),
+) -> Option<Cells> {
+    let to = grid::dragged(geometry, from, start, point, resize)?;
+    if !resize {
+        return Some(to);
+    }
+    let kept = match span {
+        Some(span) => span.keep(to, to.w != from.w),
+        None => to,
+    };
+    let h = kept.h.max(least.max(1)).min(geometry.rows.max(1));
+    Some(Cells::new(kept.col, kept.row, kept.w, h))
 }
 
 /// `items` without item `index`, and the placement whose values go with it:

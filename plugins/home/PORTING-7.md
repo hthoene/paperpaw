@@ -42,7 +42,7 @@ each what it waits for.
 - *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
   the finger's drag of an item and its corner (the footer items' grips are native: slice 4f).
 - The fitting of the pages to a new grid (`native_pages::reflow` is ready).
-- The ready-made layouts and the rows' icons of *Add*; the finger's drag of an item and its corner.
+- The ready-made layouts and the rows' icons of *Add*.
 - The help hints (`help.hint` declarations).
 
 ## Activation items (todo 90)
@@ -194,7 +194,23 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   as before. Resizing with the buttons keeps a widget at least as high as it can do with and one
   cell wide, as interface 6 did (it did not read the least width or the square hint there either).
 
-- Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4): `home-edit-arrange`. The options' *Settings* entry is native (slice 4e, below).
+- Arranging while editing with a finger (slice 4i, todo 417): a finger that comes down on an item
+  takes it (the screen answers *handled*, so the host makes no gesture of that finger and sends its
+  moves and its lift); one that comes down on the corner square (half a row, at least 16 px) sizes
+  it. The item stays where it is and a frame shows where it would land (thick where the cells are
+  free, thin where not); the frame follows the finger and the screen is drawn again only where the
+  landing cells change. Lifted where it came down it is a tap: the item has the focus and its options
+  open. Lifted elsewhere the item goes there if the cells are free (`native_arrange::dragged` is the
+  grid's `dragged`, then a widget's declared least size and its least rows, as the buttons' sizing
+  keeps them), is kept like a button step, and the page is laid out anew; where another item is in
+  the way it says so and the item stays. One finger only (`contact`); a cancelled finger puts
+  nothing down; a finger down again, or the screen shown again, starts afresh (no end is waited for).
+  The drop is put on a copy of the items and written, so a refused write leaves what shows as it was.
+  Two small strokes in the corner of each item while editing show where to size it.
+  Not covered without a real host: the finger itself and the refresh cost of a redraw per landing
+  change on the X4 (a partial redraw of the whole page; Beta 3 redrew the cells' area only, there is
+  no area command), and the corner marks drawn on each item while editing (X4 per-sample cost list): `home-edit-arrange` (H1). The options' *Settings* entry is native (slice 4e,
+  below).
 - *Add*'s ready-made layouts and the rows' icons: `home-add` (#517). The things of a tool kind are
   listed by name.
 - *Add*'s gallery (slice 4g, `native_gallery`, `native_add_screen/view.rs`): the widgets of a kind
