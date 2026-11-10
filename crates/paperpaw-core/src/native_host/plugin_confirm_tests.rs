@@ -3,11 +3,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
 use crate::native_host::firmware_confirm::{ANSWERED, NONCE, SCREEN};
-use crate::native_host::firmware_install::Answer;
 use crate::native_host::firmware_driver::plugin_tests::{asking_job, kernel_host};
+use crate::native_host::firmware_install::Answer;
 use crate::native_host::plugin_job::{
     KIND_INSTALL, USE_KEY_MAX, USES_SHOWN, Uses, reason as job_reason,
 };
+use alloc::string::ToString;
 use paperpaw_platform::firmware::{Text, WRITE_BLOCK};
 use paperpaw_platform::firmware_fake::{FakeFirmware, paperpaw_facts};
 use paperpaw_sdk::builtin::actions;
@@ -239,7 +240,12 @@ mod kernel_side {
         }
         assert_eq!(ended(&kernel), None, "forged answers count for nothing");
         let driver = kernel.firmware.clone().unwrap();
-        assert!(driver.borrow_mut().answer_shown(nonce ^ 1, Answer::Yes).is_none());
+        assert!(
+            driver
+                .borrow_mut()
+                .answer_shown(nonce ^ 1, Answer::Yes)
+                .is_none()
+        );
         // The user presses on the screen: the focus starts on No.
         let _ = kernel.run_action(Instant(600), actions::CONFIRM);
         assert_eq!(ended(&kernel), Some(2));

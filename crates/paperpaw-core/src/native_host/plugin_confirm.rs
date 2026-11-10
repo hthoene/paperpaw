@@ -8,7 +8,7 @@
 use super::firmware_confirm::{Texts, clean, fingerprint, open_params};
 use super::plugin_job::{KIND_REMOVAL, PluginQuestion, Relation};
 use crate::Kernel;
-use alloc::{rc::Rc, string::String, string::ToString, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_i18n::Arg;
 
@@ -61,7 +61,10 @@ pub(crate) fn texts(
             let more = if question.uses.more { ", …" } else { "" };
             lines.push(i18n.format(
                 "core.plugin.uses",
-                &[("keys", Arg::Str(&alloc::format!("{}{more}", clean(&keys.join(", ")))))],
+                &[(
+                    "keys",
+                    Arg::Str(&alloc::format!("{}{more}", clean(&keys.join(", ")))),
+                )],
             ));
         }
     }

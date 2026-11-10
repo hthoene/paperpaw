@@ -37,7 +37,7 @@ pub(crate) const SCREEN: Id = Id::new_static("core.firmware-confirm");
 /// The event the screen answers with; the kernel's alone (see
 /// [`Kernel::firmware_answer`]).
 pub(crate) const ANSWERED: Id = Id::new_static("core.firmware-answered");
-const NONCE: &str = "nonce";
+pub(super) const NONCE: &str = "nonce";
 const TITLE: &str = "title";
 const TEXT: &str = "text";
 const YES_WORD: &str = "yes";
@@ -367,7 +367,11 @@ impl Kernel {
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
     ) -> bool {
         self.firmware_restart_pump(driver);
-        if let Some(question) = driver.try_borrow().ok().and_then(|d| d.peek_plugin_question()) {
+        if let Some(question) = driver
+            .try_borrow()
+            .ok()
+            .and_then(|d| d.peek_plugin_question())
+        {
             return self.plugin_confirm_pump(driver, &question);
         }
         let Some(ask) = driver.try_borrow().ok().and_then(|d| d.peek_ask()) else {
@@ -473,7 +477,7 @@ impl Kernel {
 
     /// The name of the plugin `owner` for the dialog: its translated name,
     /// else the manifest's, else its id.
-    fn firmware_asker_name(&self, owner: u64) -> String {
+    pub(super) fn firmware_asker_name(&self, owner: u64) -> String {
         let Some(id) = self.shared.native_instances.id(owner) else {
             return String::new();
         };

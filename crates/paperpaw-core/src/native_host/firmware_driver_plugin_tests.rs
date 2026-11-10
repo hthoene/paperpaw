@@ -557,9 +557,7 @@ fn a_sender_that_stops_takes_an_install_that_may_be_abandoned() {
 }
 
 #[test]
-fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
-    // The confirmation of a plugin install is wired with the install
-    // (B2c-2b): until then the host answers "dismissed" at once.
+fn a_question_waits_for_the_host_and_one_it_cannot_show_is_a_dismissal_never_a_yes() {
     let mut d = driver(true);
     let seen = Rc::new(Seen::default());
     d.submit_plugin(PluginJobs::Script(Script {
@@ -575,6 +573,21 @@ fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
         answered: None,
     }))
     .unwrap();
+    for now in 0..10 {
+        d.pump(&NoStorage, &Names, now * 100);
+    }
+    // It asked once and waits: nothing steps it, and it is no work.
+    assert_eq!(seen.steps.get(), 1);
+    let asked = d.peek_plugin_question().expect("a question waits");
+    assert!(!d.has_work(1_000));
+    // The host shows it (nonce 7): it is no longer waiting to be shown, and
+    // only the screen's nonce answers.
+    d.plugin_question_shown(7, &asked);
+    assert!(d.peek_plugin_question().is_none());
+    assert!(d.answer_shown(8, Answer::Yes).is_none());
+    assert_eq!(seen.steps.get(), 1);
+    // The screen cannot be kept: dismissed (reason 3), never a yes.
+    assert!(d.answer_shown(7, Answer::Dismissed).is_some());
     let ended = run(&mut d);
     assert!(
         matches!(ended, Event::Ended(o) if (o.owner, o.kind, o.reason) == (1, KIND_INSTALL, 3))
