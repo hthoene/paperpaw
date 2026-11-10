@@ -137,7 +137,7 @@ fn a_field_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
     let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
     moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
     let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
-    assert_eq!(host.field_kind("stars.rating").unwrap().in_catalog, false);
+    assert!(!host.field_kind("stars.rating").unwrap().in_catalog);
     assert_eq!(
         host.set_field(BookRef::Path("books/c.epub"), "stars.rating", "4"),
         Err(paperpaw_native::host_glue::ERR_BUSY)
