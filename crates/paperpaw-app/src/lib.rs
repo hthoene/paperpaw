@@ -141,8 +141,9 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// The plugins the store offers as files too ([`STORE_PLUGINS`]) are in the
 /// list only with the feature `native-linked-store`; whether one registers is
 /// [`native_registers`]. Not in the list yet, because their ports are not
-/// finished and their interface-6 forms stay (each one's `PORTING-7.md` says
-/// what is open): home, reader, dictionary, store, wifi, transfer,
+/// finished (each one's `PORTING-7.md` says what is open) or the interface-6
+/// reader still reads books through their interface-6 forms: the formats (txt,
+/// xtc, docx, images, mobi), home, reader, dictionary, store, wifi, transfer,
 /// fonts-browser, vocabulary, news, picture-home.
 #[cfg(feature = "native-linked")]
 pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
@@ -152,17 +153,6 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
-    #[cfg(feature = "native-linked-store")]
-    ("format-docx", &paperpaw_plugin_format_docx::NATIVE_ENTRY),
-    #[cfg(feature = "native-linked-store")]
-    (
-        "format-images",
-        &paperpaw_plugin_format_images::NATIVE_ENTRY,
-    ),
-    #[cfg(feature = "native-linked-store")]
-    ("format-mobi", &paperpaw_plugin_format_mobi::NATIVE_ENTRY),
-    ("format-txt", &paperpaw_plugin_format_txt::NATIVE_ENTRY),
-    ("format-xtc", &paperpaw_plugin_format_xtc::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
@@ -344,13 +334,9 @@ pub fn install_with(
     let mut b = builder;
     // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
     // feature says, are not installed here: one plugin, one form.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_plugin_format_xtc::XtcFormat);
-    }
     b = b
+        .plugin(paperpaw_plugin_format_txt::TxtFormat)
+        .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_format_epub::EpubFormat)
         .plugin(paperpaw_plugin_format_epub::HtmlFormat)
         .plugin(paperpaw_plugin_format_epub::Fb2Format)
@@ -373,7 +359,7 @@ pub fn install_with(
     {
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
     }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);

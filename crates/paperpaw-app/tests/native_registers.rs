@@ -116,20 +116,14 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), ids.len());
-    // Every store plugin that was ported is in the table, behind its feature.
-    for id in [
-        "aids",
-        "format-docx",
-        "format-images",
-        "format-mobi",
-        "mail",
-        "notes-vault",
-        "widgets",
-    ] {
+    // The store plugins whose ports are finished are in the table, behind
+    // their feature.
+    for id in ["aids", "mail", "notes-vault", "widgets"] {
         assert!(ids.contains(&id), "{id}");
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }
-    // The ones that are not finished are not.
+    // The ones that are not finished, or that the interface-6 reader still
+    // needs (the formats), are not.
     for id in [
         "home",
         "reader",
@@ -137,6 +131,11 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         "picture-home",
         "vocabulary",
         "dictionary",
+        "format-txt",
+        "format-xtc",
+        "format-docx",
+        "format-images",
+        "format-mobi",
     ] {
         assert!(!ids.contains(&id), "{id}");
     }
