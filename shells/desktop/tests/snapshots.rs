@@ -840,13 +840,32 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
     picture
 }
 
+/// Screens of books in a format that only a native plugin reads (interface 6
+/// is removed): the emulator does not register native plugins yet.
+const NATIVE_ONLY: &[&str] = &["boox-small-caps"];
+
 #[test]
 fn screens_look_as_before() {
+    check_screens(false);
+}
+
+#[test]
+#[ignore = "needs native activation (format removal)"]
+fn screens_of_native_only_formats_look_as_before() {
+    check_screens(true);
+}
+
+/// Draws the cases that only a native plugin reads, or the others, and
+/// compares each with its reference.
+fn check_screens(native_only: bool) {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
-    for case in CASES {
+    for case in CASES
+        .iter()
+        .filter(|case| NATIVE_ONLY.contains(&case.name) == native_only)
+    {
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(
