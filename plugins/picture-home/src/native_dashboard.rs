@@ -8,8 +8,7 @@
 //! hands inputs on through the host.
 //!
 //! Not yet (named steps in `PORTING-7.md`): the picture behind the page (image
-//! slots 36 and 37), the bar drawn in its strip and the hints row, *Add* (its
-//! button is left out), the icons of tools and of the footer, the finger's drag
+//! slots 36 and 37), the bar drawn in its strip and the hints row, the icons of tools and of the footer, the finger's drag
 //! while editing, and the widgets' updates.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -30,6 +29,7 @@ use paperpaw_ui_kit::{
     paint, text,
 };
 
+use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
@@ -72,6 +72,8 @@ struct Laid {
     plate: Option<Color>,
     /// Where the pencil (*Done* while editing) is, and its word.
     pencil: Option<(Rect, String)>,
+    /// Where *Add* is, while editing.
+    plus: Option<Rect>,
     /// The items shown, each with its cells: what is kept when one is moved,
     /// sized or removed.
     items: Vec<grid::Item>,
@@ -89,6 +91,8 @@ enum Next {
     Edit(bool),
     /// The options of the item of this cell open.
     Options(usize),
+    /// The *Add* screen opens for the page that shows.
+    Add,
 }
 
 mod arrange;
@@ -242,6 +246,7 @@ impl Dashboard {
         let mut cells = Vec::new();
         let buttons = Buttons {
             editing,
+            plus: editing,
             pencil: pencil_on,
         };
         let made = Self::fill(
@@ -278,6 +283,7 @@ impl Dashboard {
             arrows_stay: src.arrows_stay,
             plate: plate_of(&src),
             pencil: pencil_on.then_some((footer.pencil, word)),
+            plus: editing.then_some(footer.plus),
             items,
             slot,
             wide,
@@ -443,15 +449,7 @@ impl Dashboard {
                 Some(_) => {}
             }
         }
-        if buttons.pencil {
-            push(
-                &mut targets,
-                Target {
-                    rect: footer.pencil,
-                    owner: Owner::Button(Button::Pencil),
-                },
-            )?;
-        }
+        footer_targets(&mut targets, footer, buttons)?;
         Ok(targets)
     }
 
@@ -546,6 +544,9 @@ impl Dashboard {
         }
         if let Some((rect, word)) = &laid.pencil {
             name(&mut below, font, &style, *rect, word)?;
+        }
+        if let Some(rect) = laid.plus {
+            name(&mut below, font, &style, rect, "+")?;
         }
         if let (Some(nav), true) = (self.nav, laid.dots || self.editing) {
             for dot in dash::dots(laid.frame.footer, style.gap, laid.pages, nav.page) {
@@ -737,6 +738,10 @@ impl Dashboard {
                 redraw(host)
             }
             Next::Options(cell) => self.open_options(host, cell),
+            Next::Add => {
+                let page = self.nav.map_or(0, |nav| nav.page);
+                add_screen::open(host, ui, page, None)
+            }
         }
     }
 }
@@ -746,7 +751,36 @@ impl Dashboard {
 struct Buttons {
     /// Editing: each item is one target, not what its widget answers.
     editing: bool,
+    plus: bool,
     pencil: bool,
+}
+
+/// The footer's buttons as targets, in the order the focus reaches them: *Add*
+/// (while editing), then the pencil.
+fn footer_targets(
+    targets: &mut Vec<Target>,
+    footer: &Footer,
+    buttons: Buttons,
+) -> Result<(), Error> {
+    if buttons.plus {
+        push(
+            targets,
+            Target {
+                rect: footer.plus,
+                owner: Owner::Button(Button::Plus),
+            },
+        )?;
+    }
+    if buttons.pencil {
+        push(
+            targets,
+            Target {
+                rect: footer.pencil,
+                owner: Owner::Button(Button::Pencil),
+            },
+        )?;
+    }
+    Ok(())
 }
 
 fn tool_target(rect: Rect, index: usize) -> Target {
@@ -767,11 +801,12 @@ fn plate_of(src: &HostSource) -> Option<Color> {
 }
 
 /// What a press on `owner` is without asking the host: the pencil starts or ends
-/// editing, and while editing an item offers its options and nothing else runs.
-/// `None`: it runs.
+/// editing, *Add* opens its screen, and while editing an item offers its options
+/// and nothing else runs. `None`: it runs.
 const fn decide(owner: Owner, editing: bool) -> Option<Next> {
     match owner {
         Owner::Button(Button::Pencil) => Some(Next::Edit(!editing)),
+        Owner::Button(Button::Plus) => Some(Next::Add),
         // An item tapped or chosen while editing offers its options.
         Owner::Tool(cell) if editing => Some(Next::Options(cell)),
         Owner::Widget { item, .. } if editing => Some(Next::Options(item)),
@@ -949,6 +984,57 @@ mod tests {
         let pencil = Owner::Button(Button::Pencil);
         assert_eq!(decide(pencil, false), Some(Next::Edit(true)));
         assert_eq!(decide(pencil, true), Some(Next::Edit(false)));
+    }
+
+    #[test]
+    fn add_opens_its_screen_and_is_reached_before_the_pencil() {
+        assert_eq!(decide(Owner::Button(Button::Plus), true), Some(Next::Add));
+        let footer = Footer {
+            pencil: Rect::new(300, 400, 120, 60),
+            plus: Rect::new(10, 400, 120, 60),
+        };
+        let owners = |buttons: Buttons| {
+            let mut targets = Vec::new();
+            footer_targets(&mut targets, &footer, buttons).unwrap();
+            targets.iter().map(|t| t.owner).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            owners(Buttons {
+                editing: true,
+                plus: true,
+                pencil: true
+            }),
+            [Owner::Button(Button::Plus), Owner::Button(Button::Pencil)]
+        );
+        // Not editing: the pencil alone, or nothing where it is off.
+        assert_eq!(
+            owners(Buttons {
+                editing: false,
+                plus: false,
+                pencil: true
+            }),
+            [Owner::Button(Button::Pencil)]
+        );
+        assert!(
+            owners(Buttons {
+                editing: false,
+                plus: false,
+                pencil: false
+            })
+            .is_empty()
+        );
+        crate::fail_alloc::sweep(|| {
+            let mut targets = Vec::new();
+            footer_targets(
+                &mut targets,
+                &footer,
+                Buttons {
+                    editing: true,
+                    plus: true,
+                    pencil: true,
+                },
+            )
+        });
     }
 
     #[test]

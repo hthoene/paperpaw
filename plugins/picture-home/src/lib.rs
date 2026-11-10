@@ -40,6 +40,8 @@ pub use native_entry::NATIVE_ENTRY;
 mod add;
 mod bar;
 mod dashboard;
+pub mod native_add;
+pub mod native_add_screen;
 pub mod native_arrange;
 pub mod native_dash;
 pub mod native_dashboard;
