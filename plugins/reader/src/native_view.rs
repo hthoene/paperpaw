@@ -8,13 +8,17 @@
 use crate::{
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
+    native_links::DocRef,
     native_look::Look,
+    native_marking::{Ctx, Marking, Outcome},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
     native_typeset::{Faces, HostFonts},
+    native_wordbox,
 };
 use alloc::string::String;
+use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
@@ -31,6 +35,7 @@ use paperpaw_sdk::{
         snapshot::{self, Snapshot},
         ui::{HandoverId, Notify, Ui},
     },
+    reading::WordBox,
 };
 use paperpaw_ui_kit::{
     Messages, Style as UiStyle,
@@ -77,6 +82,10 @@ struct Open {
     at: (u32, u32),
     /// The page on show, laid out at the first draw after it changed.
     page: Option<Page>,
+    /// The words of `page` with their boxes (made with it): what a touch hits.
+    words: Vec<WordBox>,
+    /// What is chosen, looked up and followed on the page.
+    marking: Marking,
     trail: Trail,
     /// The book's path, for its saved place.
     path: String,
@@ -233,6 +242,8 @@ impl View {
             whole_pages,
             at,
             page: None,
+            words: Vec::new(),
+            marking: Marking::new(),
             trail: Trail::new(),
             path: found.path,
             conversion,
@@ -328,6 +339,30 @@ impl View {
         self.body = Body::Message("reader.no-book");
     }
 
+    /// *Go to the note* of `path`'s book: follows `href`, and draws again
+    /// where the page moved. Another book's note is none of this screen's.
+    ///
+    /// # Errors
+    /// Allocation and the host's refusals.
+    pub fn follow(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        (path, href): (&str, &str),
+    ) -> Result<(), Error> {
+        let Body::Open(open) = &mut self.body else {
+            return Ok(());
+        };
+        if open.path != path || !open.follow(host, docs, href)? {
+            return Ok(());
+        }
+        open.unsaved = true;
+        open.turned = true;
+        open.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+    }
+
     /// What an input did: turns the page.
     ///
     /// # Errors
@@ -341,10 +376,19 @@ impl View {
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
-        let moved = match native_pages::turn(input) {
-            Turn::Ignored => return Ok(Handled::No),
-            Turn::Next => open.next()?,
-            Turn::Previous => open.previous(host, docs)?,
+        let moved = match open.mark(host, docs, input)? {
+            Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
+            Outcome::Jump { section, offset } => {
+                open.jump((section, offset));
+                true
+            }
+            Outcome::Turn { forward: true } => open.next()?,
+            Outcome::Turn { forward: false } => open.previous(host, docs)?,
+            _ => match native_pages::turn(input) {
+                Turn::Ignored => return Ok(Handled::No),
+                Turn::Next => open.next()?,
+                Turn::Previous => open.previous(host, docs)?,
+            },
         };
         if moved {
             open.unsaved = true;
@@ -545,6 +589,63 @@ impl Open {
         )
     }
 
+    /// What the marking makes of `input` on the page on show (nothing where the
+    /// page has not been drawn).
+    fn mark(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        input: &Input<'_>,
+    ) -> Result<Outcome, Error> {
+        if self.page.is_none() {
+            return Ok(Outcome::Ignored);
+        }
+        let setup = Setup::read(host)?;
+        let area = self.area(&setup).ok_or(Error::NoSpace)?;
+        let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &self.words,
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        self.marking.input(host, &ctx, input)
+    }
+
+    /// Follows the link `href` of the book (*Go to the note*): goes to its
+    /// target, the page left kept for *Back*; whether the page moved.
+    fn follow(&mut self, host: &Host<'_>, docs: &Documents, href: &str) -> Result<bool, Error> {
+        let setup = Setup::read(host)?;
+        let area = self.area(&setup).ok_or(Error::NoSpace)?;
+        let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &[],
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        match self.marking.follow_target(host, &ctx, href)? {
+            Outcome::Jump { section, offset } => {
+                self.jump((section, offset));
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Goes to the page that starts at `to` (a followed link, or the way back).
+    fn jump(&mut self, to: (u32, u32)) {
+        self.at = to;
+        self.page = None;
+        self.trail.clear();
+        self.marking.reset();
+        self.marking.landed(Locator::new(to.0, to.1));
+    }
+
     /// The page after the one on show; whether there is one.
     fn next(&mut self) -> Result<bool, Error> {
         let Some(page) = &self.page else {
@@ -659,8 +760,12 @@ impl Open {
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
             self.page = Some(page);
+            self.words = Vec::new();
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
+        if self.words.is_empty() {
+            self.words = native_wordbox::word_boxes(&faces, page, area)?;
+        }
         let rect = frame.rect;
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
@@ -670,7 +775,17 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines(&mut ink, &faces, page, origin)
+        draw_lines(&mut ink, &faces, page, origin)?;
+        let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &self.words,
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        self.marking.draw_overlay(host, &ctx, frame)
     }
 }
 

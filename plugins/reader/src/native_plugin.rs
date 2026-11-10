@@ -6,9 +6,11 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{SCREEN, STOPPING, SUSPEND, WORK_DUE},
+    declarations::{FOOTNOTE, SCREEN, STOPPING, SUSPEND, WORK_DUE},
+    native_footnote::{Footnote, Pressed},
     native_view::View,
 };
+use alloc::string::String;
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -58,6 +60,11 @@ pub struct NativeReader {
     /// The host has no work for the reader: not asked again.
     no_work: bool,
     screens: Screens<View>,
+    /// The notes over the pages.
+    notes: Screens<Footnote>,
+    /// *Go to the note* pressed: the book and the link, followed when its
+    /// reading screen is shown again.
+    follow: Option<(String, String)>,
 }
 
 impl NativeReader {
@@ -83,6 +90,37 @@ impl NativeReader {
         };
         let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
         self.screens.open(instance, view)
+    }
+
+    /// A note opened over the page.
+    fn open_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let note = Footnote::open(host, ui, handover)?;
+        self.notes.open(instance, note)
+    }
+
+    /// The reading screen is on show again: a note's *Go to the note* is followed
+    /// in it.
+    fn follow_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let Some((path, href)) = self.follow.take() else {
+            return Ok(());
+        };
+        let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) else {
+            return Ok(());
+        };
+        view.follow(host, docs, (&path, &href))
     }
 
     /// Writes the place of every reading screen not saved.
@@ -161,15 +199,29 @@ impl Plugin for NativeReader {
                 self.save_now(host);
                 Ok(())
             }
-            // Only the reading screen has a view yet (`PORTING-7.md`).
-            _ if token != SCREEN => Ok(()),
+            // Only the reading screen and the note have a view yet (`PORTING-7.md`).
+            _ if token != SCREEN && token != FOOTNOTE => Ok(()),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == FOOTNOTE => self.open_note(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
+            Event::ScreenClosed { instance, .. } if token == FOOTNOTE => {
+                self.notes.close(instance);
+                Ok(())
+            }
             Event::ScreenOpened {
                 instance, handover, ..
             } => self.open(host, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } => self.screens.shown(SCREEN, instance),
+            } => {
+                self.screens.shown(SCREEN, instance)?;
+                self.follow_note(host, instance)
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.close(host, instance);
                 Ok(())
@@ -179,6 +231,13 @@ impl Plugin for NativeReader {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == FOOTNOTE {
+            return self
+                .notes
+                .top(token)
+                .ok_or(Error::State)?
+                .draw(host, &mut frame);
+        }
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
         };
@@ -186,6 +245,16 @@ impl Plugin for NativeReader {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == FOOTNOTE {
+            let Some(note) = self.notes.top(token) else {
+                return Ok(Handled::No);
+            };
+            let (handled, pressed) = note.input(host, &input)?;
+            if let Pressed::Go { path, href } = pressed {
+                self.follow = Some((path, href));
+            }
+            return Ok(handled);
+        }
         let (handled, turned) = match (self.screens.top(token), &self.docs) {
             (Some(view), Some(docs)) => {
                 let handled = view.input(host, (docs, self.library.as_ref()), &input)?;

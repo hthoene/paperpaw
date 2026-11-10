@@ -314,10 +314,11 @@ impl Marking {
             return Ok(Outcome::Redraw);
         }
         let word = word_at(ctx.words, at.x, at.y);
-        if self.selection.is_none() && kind == InputGestureKind::Tap {
-            if let Some(outcome) = self.on_tap(host, ctx, at, word)? {
-                return Ok(outcome);
-            }
+        if self.selection.is_none()
+            && kind == InputGestureKind::Tap
+            && let Some(outcome) = self.on_tap(host, ctx, at, word)?
+        {
+            return Ok(outcome);
         }
         match (kind, self.selection) {
             (InputGestureKind::LongPress, _) => Ok(match word {

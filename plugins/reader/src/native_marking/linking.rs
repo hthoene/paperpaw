@@ -176,12 +176,37 @@ impl Marking {
             return Ok(Outcome::Handled);
         }
         let popup = setting_text(host, FOOTNOTES).is_ok_and(|v| v == FOOTNOTES_POPUP);
-        if popup && (link.kind == LinkKind::Footnote || note_like(label)) {
-            if let Some(note) = native_links::note_text(host, &doc, href)? {
-                open_note(host, &note, ctx.path, href)?;
-                return Ok(Outcome::Handled);
-            }
+        if popup
+            && (link.kind == LinkKind::Footnote || note_like(label))
+            && let Some(note) = native_links::note_text(host, &doc, href)?
+        {
+            open_note(host, &note, ctx.path, href)?;
+            return Ok(Outcome::Handled);
         }
+        let Some(target) = native_links::target_of(host, &doc, href)? else {
+            return Ok(Outcome::Handled);
+        };
+        self.returns.followed(ctx.page_start)?;
+        Ok(Outcome::Jump {
+            section: target.section,
+            offset: target.offset,
+        })
+    }
+
+    /// Goes to the target of link `href` of the page (*Go to the note*): a place
+    /// in the book, the page left remembered for *Back*.
+    ///
+    /// # Errors
+    /// Allocation and the host's refusals.
+    pub fn follow_target(
+        &mut self,
+        host: &Host<'_>,
+        ctx: &Ctx<'_>,
+        href: &str,
+    ) -> Result<Outcome, Error> {
+        let Some(doc) = ctx.doc else {
+            return Ok(Outcome::Handled);
+        };
         let Some(target) = native_links::target_of(host, &doc, href)? else {
             return Ok(Outcome::Handled);
         };

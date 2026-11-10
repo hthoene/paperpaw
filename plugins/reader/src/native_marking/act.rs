@@ -118,7 +118,7 @@ pub fn look_up(
     CommandSender::new(host, &mut scratch).open(Open::slot("core.lookup")?.handover(handover))?;
     let sentence = sentence(ctx.words, lo, hi)?;
     // A refused run does not stop the lookup.
-    let _ = native_words::run(
+    native_words::run(
         host,
         &Looked {
             word: phrase,
@@ -129,6 +129,7 @@ pub fn look_up(
             section: start.section,
             offset: start.offset,
         },
-    );
+    )
+    .ok();
     Ok(())
 }
