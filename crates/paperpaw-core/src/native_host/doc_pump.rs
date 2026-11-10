@@ -4,17 +4,29 @@
 //! (`doc_prepare` picks the document, calls the format and records its
 //! answer; this file only finds the moment and keeps the retry).
 //!
-//! The format is entered through the retained instance registry, at depth 1,
-//! as its own call: no opener callback runs. A step that cannot be made now
-//! (the format is not started, a table is held) is tried again after
-//! [`RETRY_MS`], not at once, so a format that is slow to start does not
-//! keep the device awake; a step that was made asks for the next pass at once
+//! The format is entered through the retained instance registry, outside any
+//! callback (depth 0), as its own call: no opener callback runs. A step that
+//! cannot be made now (the format is not started, a table is held) is tried
+//! again after [`RETRY_MS`], doubled for each failure in a row up to
+//! [`RETRY_MAX_MS`], not at once, so a format that is slow to start (or never
+//! starts) does not keep the device awake; a step that was made asks for the next pass at once
 //! while a document still prepares (the format itself works for at most 50 ms
 //! of its own clock per call, and the pump runs between inputs).
 use super::{doc_service::PrepareStep, native_host_call::HostRoute};
 
-/// The wait before a step that could not be made is tried again.
+/// The wait before a step that could not be made is tried again; it doubles
+/// for each failure in a row (as the library move job's does) ...
 const RETRY_MS: u64 = 500;
+/// ... up to this (500 ms shifted at most seven times).
+const RETRY_MAX_MS: u64 = RETRY_MS << 7;
+
+/// The wait after `failures` steps in a row that could not be made.
+const fn wait(failures: u8) -> u64 {
+    let shift = failures.saturating_sub(1);
+    let shift = if shift > 7 { 7 } else { shift };
+    let ms = RETRY_MS << shift;
+    if ms > RETRY_MAX_MS { RETRY_MAX_MS } else { ms }
+}
 
 impl crate::Kernel {
     /// One step of the preparing loop; `true` while more are to be made
@@ -38,8 +50,23 @@ impl crate::Kernel {
         if instances.depth() != 0 {
             return false;
         }
+        // Nothing prepares: no environment, no route.
+        if !documents.0.preparing() {
+            instances.doc_ok();
+            instances.set_doc_retry(None);
+            return false;
+        }
         // What a callback staged runs before the format is entered.
         if instances.outbox.full() {
+            self.native_outbox_run();
+            let instances = &self.shared.native_instances;
+            if instances.outbox.full() {
+                // It did not drain (a plugin that cannot be called): no busy
+                // loop, a later pass looks again.
+                let failures = instances.doc_failed();
+                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
+                return false;
+            }
             return true;
         }
         let step = {
@@ -56,17 +83,44 @@ impl crate::Kernel {
         let instances = &self.shared.native_instances;
         match step {
             PrepareStep::Idle => {
+                instances.doc_ok();
                 instances.set_doc_retry(None);
                 false
             }
             PrepareStep::More => {
+                instances.doc_ok();
                 instances.set_doc_retry(None);
                 true
             }
             PrepareStep::Later => {
-                instances.set_doc_retry(Some(self.now.millis() + RETRY_MS));
+                let failures = instances.doc_failed();
+                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native_host::native_instances::NativeInstances;
+
+    #[test]
+    fn the_wait_doubles_to_its_cap_and_starts_over_after_a_step() {
+        let instances = NativeInstances::default();
+        let mut last = 0;
+        for _ in 0..12 {
+            let now = wait(instances.doc_failed());
+            assert!(now >= last && now <= RETRY_MAX_MS, "{now}");
+            last = now;
+        }
+        assert_eq!(wait(1), RETRY_MS);
+        assert_eq!(wait(2), 2 * RETRY_MS);
+        assert_eq!(last, RETRY_MAX_MS);
+        assert_eq!(RETRY_MAX_MS, 64_000);
+        // A step that was made: the back-off starts over.
+        instances.doc_ok();
+        assert_eq!(wait(instances.doc_failed()), RETRY_MS);
     }
 }

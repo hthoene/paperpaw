@@ -9,13 +9,16 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
-    ERR_NOT_FOUND, ERR_STATE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_TIMEOUT,
 };
 
 /// `doc_state.state`.
 pub(crate) const READY: u32 = 0;
 pub(crate) const PREPARING: u32 = 1;
 pub(crate) const FAILED: u32 = 2;
+/// A preparation that answers "more" this many times in a row without
+/// rising above its best progress has failed (`ERR_TIMEOUT`).
+pub(crate) const STALL_CAP: u8 = 32;
 
 /// How many taken documents are remembered as `ERR_CANCELLED` (48 bytes).
 const EVICTED: usize = 4;
@@ -127,6 +130,10 @@ pub(crate) struct Document {
     /// `event.document_changed` (88) waits for it, one per document (the
     /// latest values are read when it is delivered).
     changed: bool,
+    /// The highest progress a preparation answered, and how many answers in a
+    /// row did not rise above it (`STALL_CAP`).
+    best_ppm: u32,
+    stalls: u8,
     strikes: u8,
 }
 
@@ -270,6 +277,8 @@ impl DocumentTable {
             format_gone: false,
             block: None,
             changed: false,
+            best_ppm: 0,
+            stalls: 0,
             strikes: 0,
         });
         self.next_id.set(next);
@@ -342,6 +351,9 @@ impl DocumentTable {
         document.status = status;
         document.flags = flags;
         document.conversion = conversion;
+        // A preparation starts here.
+        document.best_ppm = progress_ppm;
+        document.stalls = 0;
         Ok(())
     }
 
@@ -369,9 +381,21 @@ impl DocumentTable {
             .copied()
     }
 
+    /// Whether any document is preparing (a held table counts as one: the
+    /// step will find out).
+    pub(crate) fn any_preparing(&self) -> bool {
+        self.documents.try_borrow().map_or(true, |rows| {
+            rows.iter()
+                .any(|d| d.state == PREPARING && d.closed_by_host == 0)
+        })
+    }
+
     /// The format's answer to a `prepare`: the document's state, progress,
-    /// status and flags. Whether the state or the progress moved is told to
-    /// the opener (`event.document_changed`); returns whether it did.
+    /// status and flags. A preparation that answers "more" [`STALL_CAP`] times
+    /// in a row without rising above its best progress has failed with
+    /// `ERR_TIMEOUT` (`document.md` 2.1), as if the format had said so.
+    /// Returns whether the state or the progress moved (the opener hears of it
+    /// with `event.document_changed`), and the state and status now held.
     ///
     /// # Errors
     /// `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
@@ -382,16 +406,29 @@ impl DocumentTable {
         progress_ppm: u32,
         status: i32,
         flags: u32,
-    ) -> Result<bool, i32> {
+    ) -> Result<(bool, u32, i32), i32> {
         let mut rows = self.rows()?;
         let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        let (mut state, mut status) = (state, status);
+        if state == PREPARING {
+            if progress_ppm > document.best_ppm {
+                document.best_ppm = progress_ppm;
+                document.stalls = 0;
+            } else {
+                document.stalls = document.stalls.saturating_add(1);
+                if document.stalls >= STALL_CAP {
+                    state = FAILED;
+                    status = ERR_TIMEOUT;
+                }
+            }
+        }
         let moved = document.state != state || document.progress_ppm != progress_ppm;
         document.state = state;
         document.progress_ppm = progress_ppm;
         document.status = status;
         document.flags = flags;
         document.changed |= moved;
-        Ok(moved)
+        Ok((moved, state, status))
     }
 
     /// The state or the progress of `owner`'s oldest changed document, given

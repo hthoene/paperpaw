@@ -32,7 +32,9 @@ mod args;
 mod check;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY};
+pub(crate) use table::{
+    Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY, STALL_CAP,
+};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -199,6 +201,10 @@ pub(crate) trait DocHost {
     /// next preparing document gets op 3 `prepare`, between inputs, from the
     /// kernel's pump (no opener callback runs), and its answer is recorded.
     /// A host without a preparing loop has nothing to do.
+    /// Whether a document is preparing (the pump asks before it makes a route).
+    fn preparing(&self) -> bool {
+        false
+    }
     fn prepare_step(
         &self,
         _hosts: &super::host_services::HostServices,
@@ -286,6 +292,8 @@ pub(crate) enum PrepareStep {
 /// the document's state, progress, status and flags are the format's, and
 /// the opener hears of a change (`event.document_changed`). Returns the new
 /// state, its status and whether the state or the progress moved. A
+/// preparation that answers "more" 32 times in a row without rising above its
+/// best progress fails with `ERR_TIMEOUT` (the returned state is then 2). A
 /// malformed answer is `ERR_INVALID` and records nothing.
 ///
 /// # Errors
@@ -297,14 +305,14 @@ pub(crate) fn prepared(
 ) -> Result<(u32, i32, bool), i32> {
     let state: wire::ServiceDocState<'_> = check::only(answer)?;
     check::state(&state)?;
-    let moved = table.set_prepared(
+    let (moved, now, status) = table.set_prepared(
         document.id,
         state.state,
         state.progress_ppm,
         state.status,
         state.flags,
     )?;
-    Ok((state.state, state.status, moved))
+    Ok((now, status, moved))
 }
 
 /// The opener stopped: its documents end, and each format gets op 4 `close`

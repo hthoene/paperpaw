@@ -469,6 +469,9 @@ impl super::doc_service::DocHost for DocState {
     fn select_format(&self, _: u32, _: &str, _: &str) -> Result<FormatRef, i32> {
         Err(ERR_UNSUPPORTED)
     }
+    fn preparing(&self) -> bool {
+        self.table.any_preparing()
+    }
     fn prepare_step(
         &self,
         hosts: &super::host_services::HostServices,

@@ -30,7 +30,7 @@ use crate::native_host::{
 };
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
+    ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_TIMEOUT,
 };
 
 /// The reply buffer of one step (the stage's answer, `PAYLOAD_MAX` bytes).
@@ -219,7 +219,7 @@ impl DocState {
                 status,
                 document.flags,
             )
-            .unwrap_or(false)
+            .is_ok_and(|(moved, ..)| moved)
         {
             self.fresh.set(true);
         }
@@ -234,7 +234,16 @@ impl DocState {
         route: &dyn Route,
         document: &doc_service::Document,
     ) -> Result<(), i32> {
-        let (target, kind) = self.format_target(document.format)?;
+        let (target, kind) = match self.format_target(document.format) {
+            Ok(found) => found,
+            // The format left the index: it will not be there again for this
+            // document, so the document fails (retrying would never end).
+            Err(ERR_CANCELLED) => {
+                self.fail_prepared(hosts, document, ERR_CANCELLED);
+                return Ok(());
+            }
+            Err(status) => return Err(status),
+        };
         let css = {
             let books = self.books.try_borrow().map_err(|_| ERR_BUSY)?;
             let book = books
@@ -281,7 +290,9 @@ impl DocState {
         }
         if state == READY {
             self.document_ready(hosts, document.id);
-        } else if state == FAILED && status == ERR_NO_SPACE {
+        } else if state == FAILED && (status == ERR_NO_SPACE || status == ERR_TIMEOUT) {
+            // The format's partial cache goes (the same for a preparation
+            // that stalled, `document.md` 2.1).
             self.discard_cache(hosts, document.id);
         }
         Ok(())

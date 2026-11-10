@@ -223,3 +223,99 @@ fn a_device_with_two_places_prepares_one_book_at_a_time_in_open_order() {
     assert!(Limits::X4.one_preparation());
     assert!(!Limits::LARGE.one_preparation());
 }
+
+#[test]
+fn a_format_that_stopped_while_a_book_prepares_ends_it_and_the_opener_hears_it() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = preparing(w, "books/a.epub");
+        w.stop("epub");
+        // The next call brings the index in line: reason 1, the format stopped.
+        assert_eq!(w.format_for("a.epub"), Err(ERR_NOT_FOUND));
+        assert_eq!(
+            step(w),
+            PrepareStep::Idle,
+            "a closed document is not stepped"
+        );
+        let mut out = [0_u8; 64];
+        let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
+        match wire::record_decode_one(&out[..length]).unwrap() {
+            Record::EventDocumentClosed(event) => {
+                assert_eq!((event.document, event.reason), (document, 1))
+            }
+            other => panic!("{other:?}"),
+        }
+    });
+}
+
+#[test]
+fn a_table_that_says_nothing_prepares_is_asked_nothing() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        assert!(!w.state.preparing());
+        preparing(w, "books/a.epub");
+        assert!(w.state.preparing());
+        answer(w, READY, 1_000_000, 0);
+        step(w);
+        assert!(!w.state.preparing());
+    });
+}
+
+/// The opener's view of the document after `steps` answers of `progress`.
+fn run_steps(w: &World<'_>, steps: u32, progress: impl Fn(u32) -> u32) -> Option<(u32, u32, u32)> {
+    let mut last = None;
+    for at in 1..=steps {
+        answer(w, PREPARING, progress(at), 0);
+        assert_eq!(step(w), PrepareStep::More);
+        while let Some(event) = changed_event(w) {
+            last = Some(event);
+        }
+    }
+    last
+}
+
+#[test]
+fn a_format_that_answers_more_without_progress_32_times_fails_with_a_timeout() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = preparing(w, "books/a.epub");
+        // 31 answers without rising above the start: still preparing.
+        run_steps(w, 31, |_| 0);
+        assert!(w.state.preparing());
+        // The 32nd fails the document, as if the format had said so.
+        answer(w, PREPARING, 0, 0);
+        assert_eq!(step(w), PrepareStep::More);
+        assert_eq!(changed_event(w), Some((document, FAILED, 0)));
+        assert!(!w.state.preparing());
+        assert_eq!(step(w), PrepareStep::Idle);
+    });
+}
+
+#[test]
+fn progress_of_one_ppm_a_call_keeps_the_preparation_going_and_falling_back_counts() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = preparing(w, "books/a.epub");
+        let last = run_steps(w, 100, |at| at);
+        assert_eq!(last, Some((document, PREPARING, 100)));
+        assert!(w.state.preparing());
+        // Falling back below the best is no progress: 32 of them fail it.
+        run_steps(w, 31, |at| 100 - at);
+        assert!(w.state.preparing());
+        answer(w, PREPARING, 0, 0);
+        step(w);
+        assert!(!w.state.preparing());
+    });
+}
+
+#[test]
+fn a_rise_starts_the_count_over() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        preparing(w, "books/a.epub");
+        run_steps(w, 31, |_| 0);
+        run_steps(w, 1, |_| 10);
+        run_steps(w, 31, |_| 10);
+        assert!(w.state.preparing(), "the count started over at the rise");
+    });
+}
