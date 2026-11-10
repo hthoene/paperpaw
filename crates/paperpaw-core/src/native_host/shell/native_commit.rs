@@ -9,7 +9,7 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         self,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(Batch<'a, S, M, T>, R), Error> {
-        let (batch, value, raw) = self.commit_native_stored(map)?;
+        let (batch, value, raw) = self.commit_native_stored(map, |_, _| {})?;
         drop(raw);
         Ok((batch, value))
     }
@@ -17,6 +17,7 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
     pub(crate) fn commit_native_stored<R>(
         mut self,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, declaration_checks::Cap),
     ) -> Result<StoredNative<'a, S, M, T, R>, Error> {
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
         let result = transaction
@@ -29,6 +30,7 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
                     destroy: destroy_context::<S>,
                 },
                 map,
+                refused,
             )
             .map_err(Error::Status)?;
         self.armed = false;
