@@ -10,6 +10,7 @@ use crate::{
     declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN},
     native_catalog::{Catalog, Font},
     native_job::Job,
+    native_sample,
     native_view::{Installed, Row, Trouble, rows, should_fetch},
 };
 use alloc::{string::String, vec::Vec};
@@ -96,6 +97,10 @@ struct Sample {
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one view per open screen; boxing it would be an allocation that can fail"
+)]
 enum View {
     List(ListView),
     Font(FontView),
@@ -798,10 +803,10 @@ impl NativeFontsBrowser {
             return Ok(());
         };
         let sentence = Messages::new()?.copy(host, "fonts-browser.sample")?;
-        if !native_sample::draw(host, frame, area, (&sentence, &sample.path))? {
-            if let Some(gone) = view.sample.take() {
-                paperpaw_sdk::Storage::remove(&DataStorage::new(host), &gone.path).ok();
-            }
+        if !native_sample::draw(host, frame, area, (&sentence, &sample.path))?
+            && let Some(gone) = view.sample.take()
+        {
+            paperpaw_sdk::Storage::remove(&DataStorage::new(host), &gone.path).ok();
         }
         Ok(())
     }

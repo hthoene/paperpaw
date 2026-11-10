@@ -135,7 +135,7 @@ pub fn draw(
     };
     let drawn = draw_in(host, frame, area, sentence, &sample);
     let released = sample.release();
-    drawn.and_then(|()| released).map(|()| true)
+    drawn.and(released).map(|()| true)
 }
 
 fn draw_in(
