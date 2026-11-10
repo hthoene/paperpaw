@@ -19,7 +19,7 @@
 //!   off are added to [`SafeMode::switched_off`](paperpaw_sdk::native::SafeMode).
 //!   A plugin that crashes at every start is thus off from the next one on.
 //! - **Off is listed, not hosted.** An off plugin costs no instance and no
-//!   declarations: its row says off ([`PluginState::Off`]); switching it on
+//!   declarations: its row says off (`PluginState::Off`); switching it on
 //!   asks for a restart, as before.
 use crate::{Kernel, RESERVED_PLUGIN_ID, config::read_config};
 use alloc::string::String;
