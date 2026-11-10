@@ -41,9 +41,8 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's picture widget and the books family except the battery, the
-library in numbers and the highlight: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, the
-picture draws pictures, all of which wait for the image slots 36/37 (draft 22, Services'
+The books family except the battery, the
+library in numbers and the highlight: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, all of which wait for the image slots 36/37 (draft 22, Services'
 SDK facade). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
@@ -278,3 +277,27 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   The host's transient heap for drawing the picture (up to about 30 KiB) belongs on the X4 measurement list
   with home's peaks.
 - Acceptance on the host (`widgets-logo-asks-for-and-draws-its-picture`) waits for H1/H3.
+
+## Picture (widget, token 122)
+
+- `native_picture.rs` (what to choose, what an answer means: host-free, tested) and `native_picture_host.rs` (the
+  host calls). The folder (`widgets.picture.folder`, chosen on the folder chooser, `core.choose-folder`; default
+  `Pictures`) is listed with `core.files` (root 1, `uses.storage` optional) a page at a time: once to count the
+  pictures (JPEG, PNG or GIF, not hidden), once to read the name of the one chosen; names are never kept. Which one:
+  the day's (`of_the_day`, as the quote) or the next each time it shows (`Showings`, counted in memory), moved on
+  by the turns a tap makes (`picture.txt`, the file of interface 6, same format). The chosen file is asked for with
+  `image_prepare` (library root, the screen's size, colour where the screen has it); the host decodes it and
+  draws it in bands (`canvas.draw_image`, filled with `ImageStyle::fill` or whole), the name below as a caption
+  (without ending, `_` as spaces). One picture is held for each widget placed; the one shown stays until the new is
+  ready, then it is given back; the widget going gives it back too.
+- Chosen again at the widget being made, at a tap, and at the minute tick when what it depends on (day, turns,
+  showing, folder) changed, or after a refusal for want of memory. A folder that cannot be read or holds no picture,
+  and a file the host cannot show, give the interface-6 words (`widgets.picture.none`); not asked again for the same
+  day or turn.
+- Differences from interface 6, on purpose: the picture is no longer decoded into a file of the plugin's own
+  (`picture.pixels`, `picture.stamp`) and drawn row by row by the plugin: the host's picture cache decodes and draws
+  it, so those files are not written; the folder is read through `core.files` (a page at a time) and counted, as
+  before; a tap chooses the next at once. While the picture is asked for, the widget shows its frame only.
+- X4: the host draws the picture in bands (transient host heap, to measure next to home's peaks); the plugin holds
+  one `ImageId` and a caption per widget, and listing buffers (1.5 KiB + 4 KiB, heap) while it lists.
+- Acceptance on the host (`widgets-picture-shows-and-turns-on-tap`) waits for H1/H3/H4.

@@ -33,6 +33,8 @@ mod native_logo;
 mod native_moon;
 mod native_note;
 mod native_numbers;
+mod native_picture;
+mod native_picture_host;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_quote;

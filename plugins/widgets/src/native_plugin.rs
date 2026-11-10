@@ -49,6 +49,13 @@ pub(crate) struct Item {
     shown: Option<u64>,
 }
 
+impl Item {
+    /// The widget's id as the host names it, with its placement.
+    pub(crate) fn widget(&self) -> &str {
+        &self.widget
+    }
+}
+
 /// What an open question is for.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Asked {
@@ -81,6 +88,10 @@ pub struct NativeWidgets {
     numbers: crate::native_numbers::Cache,
     /// The logo picture, held and asked for.
     logo: crate::native_logo::Logo,
+    /// The pictures of the picture widgets, held and asked for.
+    pub(crate) pictures: crate::native_picture::Pictures,
+    /// How often a picture was shown.
+    pub(crate) picture_showings: crate::native_quote::Showings,
 }
 
 impl NativeWidgets {
@@ -103,6 +114,9 @@ impl NativeWidgets {
             shown: None,
         });
         self.want_logo(host, widget);
+        if token == crate::native_picture::TOKEN {
+            self.picture_made(host, instance.get())?;
+        }
         Ok(())
     }
 
@@ -183,6 +197,7 @@ impl NativeWidgets {
     /// A widget that fails (its time or its command) is left for the next
     /// tick and costs the others nothing: the tick itself is not refused.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.tick_pictures(host);
         // A logo that was refused for want of memory is asked for again.
         if self.has_logo() && self.logo.wants() {
             self.ask_logo(host, 0).ok();
@@ -400,6 +415,7 @@ impl Plugin for NativeWidgets {
                 match paperpaw_ui_kit::widget::settings::base(widget) {
                     "widgets.quote" => self.showings.made(now_ms),
                     "widgets.highlight" => self.highlights.made(now_ms),
+                    "widgets.picture" => self.picture_showings.made(now_ms),
                     _ => {}
                 }
                 self.made(host, widget, instance)
@@ -407,7 +423,11 @@ impl Plugin for NativeWidgets {
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
                 self.drop_logo(host);
+                self.picture_dropped(host, instance.get());
                 Ok(())
+            }
+            Event::ImageReady(ready) if crate::native_picture::is_cookie(ready.cookie()) => {
+                self.picture_ready(host, &ready)
             }
             Event::ImageReady(ready) => self.logo_ready(host, &ready),
             Event::SettingChanged {
@@ -465,9 +485,14 @@ impl Plugin for NativeWidgets {
             paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
         );
         let mut out = Vec::new();
-        let mut logo = None;
+        let mut image = None;
         if item.token == crate::native_logo::TOKEN {
-            logo = crate::native_logo::draw_with(&mut cx, &mut out, area, self.logo.held())?;
+            image = crate::native_logo::draw_with(&mut cx, &mut out, area, self.logo.held())?
+                .map(|(image, room)| (image, room, false));
+        } else if item.token == crate::native_picture::TOKEN {
+            let state = self.pictures.state(frame.id);
+            image = crate::native_picture::draw_with(&mut cx, &mut out, area, state)?
+                .map(|placed| (placed.image, placed.rect, placed.fill));
         } else if item.token == crate::native_todo::TOKEN {
             crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
         } else if item.token == crate::native_quote::TOKEN {
@@ -489,12 +514,17 @@ impl Plugin for NativeWidgets {
             None
         };
         paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
-        // The logo over what the frame drew. Where the host refuses it, the
-        // widget is the frame and the name.
-        if let Some((image, room)) = logo {
+        // The picture over what the frame drew. Where the host refuses it, the
+        // widget is the frame and its words.
+        if let Some((image, room, fill)) = image {
+            let style = if fill {
+                ImageStyle::new().fill()
+            } else {
+                ImageStyle::new()
+            };
             frame
                 .draw_canvas()?
-                .draw_image(image, paint::frame_rect(room), ImageStyle::new())
+                .draw_image(image, paint::frame_rect(room), style)
                 .ok();
         }
         Ok(())
@@ -561,6 +591,11 @@ impl Plugin for NativeWidgets {
             Some(Tap::Run(action)) => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
+            }
+            Some(Tap::TurnPicture) => {
+                crate::native_picture::turn(host, base)?;
+                let instance = item.instance.get();
+                self.choose_picture(host, instance)?;
             }
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
