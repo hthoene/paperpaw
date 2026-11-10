@@ -139,8 +139,13 @@ finishes the port; until then nothing is dropped.
 - Fallible throughout (`NoMemory`, an allocation sweep in
   `tests/native_queue_refusal.rs`); a queue or request that cannot be read (too
   big, not text, no file) is none, as before. Differences on purpose: at most 512
-  lines are read of a queue; a card that refuses a write is `Io` for the caller to
-  say (interface 6 ignored it), and no directory is made (the data folder exists).
+  lines are read of a queue and at most 32 ids of a request (`MAX_WANTED`, as the ask is
+  capped; interface 6 read them all); a card that refuses a write is `Io` for the caller
+  to say (interface 6 ignored it), and no directory is made (the data folder exists).
+- **The fetch must check every id** it reads from `queue.txt` or `request.txt` with
+  `is_plugin_name` before it builds an address from it (`Queue::advance` drops those
+  that are none, and `Request::open` keeps the ids as written: a damaged or planted
+  file is not trusted).
 - Still the plugin's (host pieces): the event that asks (77) and its answer (78),
   the dialog (`Ui::ask`), the fetch of a page and the download, the install, the
   first-run offer's names (`styles.rs`'s hint) and what the fetch screen shows.

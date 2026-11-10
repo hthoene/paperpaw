@@ -70,6 +70,17 @@ fn the_queue_goes_on_one_turn_at_a_time() {
 }
 
 #[test]
+fn keeping_an_empty_queue_with_no_file_is_fine() {
+    let storage = MemoryStorage::new();
+    assert!(storage.size(QUEUE).is_err());
+    Queue::default().keep(&storage).unwrap();
+    // And with a file: it goes.
+    storage.write(QUEUE, b"a\n").unwrap();
+    Queue::default().keep(&storage).unwrap();
+    assert!(storage.size(QUEUE).is_err());
+}
+
+#[test]
 fn what_is_no_plugin_name_goes_when_its_turn_would_come() {
     let mut queue = Queue::default();
     queue

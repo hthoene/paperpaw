@@ -181,7 +181,11 @@ impl Queue {
     /// `NoMemory`; `Io` where the card refuses.
     pub fn keep(&self, storage: &dyn Storage) -> Result<(), Error> {
         if self.lines.is_empty() {
-            return storage.remove(QUEUE).map_err(|_| Error::Io);
+            // No file is as good as a removed one.
+            return match storage.remove(QUEUE) {
+                Ok(()) | Err(paperpaw_sdk::StorageError::NotFound) => Ok(()),
+                Err(_) => Err(Error::Io),
+            };
         }
         let mut text = String::new();
         for line in &self.lines {
