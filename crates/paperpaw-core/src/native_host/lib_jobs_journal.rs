@@ -4,11 +4,16 @@
 //!
 //! ```text
 //! delete (kind 1)  flags bit 0: with_notes
-//!   count u8 (1..=7)  { len u16 LE  path  identity u64 LE  bak_identity u64 LE }*count
+//!   count u8 (1..=7)  removed u8  { len u16 LE  path  identity u64 LE  bak_identity u64 LE }*count
 //! import (kind 2)  flags bit 0: replace, bit 2: the file has arrived
 //!   identity u64 LE  from_len u16  to_len u16  importer_len u8
 //!   from  to  importer
 //! ```
+//!
+//! `removed` has bit `n` set once book `n`'s files are done with (removed, or
+//! replaced by a file that is not the entry's): a replay never looks at that
+//! path again (on FAT the identity is the first cluster, which a later file may
+//! reuse, so the identity alone cannot tell a book from its successor).
 //!
 //! The identities are those of the file and of its `.bak` sibling **before the
 //! entry is written** (0: none there): the job removes a file only while it is
@@ -50,7 +55,12 @@ pub(crate) struct Book {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum JobRecord {
     /// Books deleted with everything kept for them.
-    Delete { with_notes: bool, books: Vec<Book> },
+    Delete {
+        with_notes: bool,
+        books: Vec<Book>,
+        /// Bit `n`: book `n`'s files are done with (never looked at again).
+        removed: u8,
+    },
     /// A file brought into the library.
     Import {
         from: String,
@@ -82,11 +92,15 @@ fn le16(bytes: &[u8], at: usize) -> Result<usize, i32> {
 /// The record of `job`.
 pub(crate) fn encode(job: &JobRecord) -> Result<Vec<u8>, i32> {
     let (kind, flags, payload) = match job {
-        JobRecord::Delete { with_notes, books } => {
-            if books.is_empty() || books.len() > DELETE_MAX {
+        JobRecord::Delete {
+            with_notes,
+            books,
+            removed,
+        } => {
+            if books.is_empty() || books.len() > DELETE_MAX || removed >> books.len() != 0 {
                 return Err(ERR_INVALID);
             }
-            let mut size = 1;
+            let mut size = 2;
             for book in books {
                 if book.path.is_empty() || book.path.len() > MAX_PATH {
                     return Err(ERR_INVALID);
@@ -123,9 +137,10 @@ pub(crate) fn encode(job: &JobRecord) -> Result<Vec<u8>, i32> {
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&[VERSION, kind, flags]);
     match job {
-        JobRecord::Delete { books, .. } => {
+        JobRecord::Delete { books, removed, .. } => {
             // At most `DELETE_MAX`.
             out.push(books.len() as u8);
+            out.push(*removed);
             for book in books {
                 out.extend_from_slice(&(book.path.len() as u16).to_le_bytes());
                 out.extend_from_slice(book.path.as_bytes());
@@ -170,7 +185,11 @@ pub(crate) fn decode(record: &[u8]) -> Result<Option<JobRecord>, i32> {
             }
             let mut books: Vec<Book> = Vec::new();
             books.try_reserve_exact(count).map_err(|_| ERR_NO_MEMORY)?;
-            let mut at = 1;
+            let removed = *payload.get(1).ok_or(ERR_IO)?;
+            if removed >> count != 0 {
+                return Err(ERR_IO);
+            }
+            let mut at = 2;
             for _ in 0..count {
                 let len = le16(payload, at)?;
                 if len == 0 || len > MAX_PATH {
@@ -195,6 +214,7 @@ pub(crate) fn decode(record: &[u8]) -> Result<Option<JobRecord>, i32> {
             Ok(Some(JobRecord::Delete {
                 with_notes: flags & WITH_NOTES != 0,
                 books,
+                removed,
             }))
         }
         KIND_IMPORT => {
@@ -267,6 +287,25 @@ impl Journal<'_> {
         self.put(&encode(job)?).inspect_err(|_| {
             let _ = self.clear_entry();
         })
+    }
+
+    /// Records which books of the open delete are done with (`removed`, bit
+    /// `n` for book `n`; the record written whole again, synced).
+    ///
+    /// # Errors
+    /// `ERR_STATE` when the open entry is no delete; `ERR_INVALID` for a bit
+    /// past the books; as [`Self::read_job`].
+    pub(crate) fn mark_removed(&self, removed: u8) -> Result<(), i32> {
+        match self.read_job()? {
+            Some(JobRecord::Delete {
+                with_notes, books, ..
+            }) => self.put(&encode(&JobRecord::Delete {
+                with_notes,
+                books,
+                removed,
+            })?),
+            _ => Err(paperpaw_native::host_glue::ERR_STATE),
+        }
     }
 
     /// Records that the import's file has arrived (the record written whole
