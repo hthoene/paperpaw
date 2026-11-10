@@ -114,8 +114,12 @@ impl NativeWidgets {
             shown: None,
         });
         self.want_logo(host, widget);
-        if token == crate::native_picture::TOKEN {
-            self.picture_made(host, instance.get())?;
+        if token == crate::native_picture::TOKEN
+            && let Err(error) = self.picture_made(host, instance.get())
+        {
+            // No slot for its picture: the widget is not kept half made.
+            self.items.retain(|item| item.instance != instance);
+            return Err(error);
         }
         Ok(())
     }
@@ -594,8 +598,8 @@ impl Plugin for NativeWidgets {
             }
             Some(Tap::TurnPicture) => {
                 crate::native_picture::turn(host, base)?;
-                let instance = item.instance.get();
-                self.choose_picture(host, instance)?;
+                // Every picture widget takes the turn, as before.
+                self.tick_pictures(host);
             }
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;

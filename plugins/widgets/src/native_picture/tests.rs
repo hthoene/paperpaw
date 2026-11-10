@@ -113,6 +113,57 @@ fn a_widget_asks_gets_its_picture_and_shows_it() {
 }
 
 #[test]
+fn only_a_missing_or_forbidden_folder_means_there_is_no_picture() {
+    for error in [
+        Error::NotFound,
+        Error::Denied,
+        Error::Unsupported,
+        Error::Invalid,
+    ] {
+        assert_eq!(refusal(error), Refusal::None, "{error:?}");
+    }
+    // No room for another image, a busy card or service: again at the minute.
+    for error in [
+        Error::Full,
+        Error::Busy,
+        Error::Io,
+        Error::State,
+        Error::NoSpace,
+        Error::NoMemory,
+        Error::Timeout,
+        Error::Other(5),
+    ] {
+        assert_eq!(refusal(error), Refusal::Later, "{error:?}");
+    }
+}
+
+#[test]
+fn widgets_that_ask_alike_have_cookies_of_their_own() {
+    let mut pictures = Pictures::default();
+    // Numbers 256 apart: told apart all the same.
+    pictures.made(1).unwrap();
+    pictures.made(257).unwrap();
+    let a = pictures.asking(1, 1, String::new()).unwrap();
+    let b = pictures.asking(257, 1, String::new()).unwrap();
+    assert_ne!(a, b);
+    let answer = |cookie| (cookie, ImageStatus::Ready, Some(id(5)), (2, 2));
+    assert_eq!(
+        pictures.ready(answer(b)),
+        Next::Ready {
+            instance: 257,
+            release: None
+        }
+    );
+    assert_eq!(
+        pictures.ready(answer(a)),
+        Next::Ready {
+            instance: 1,
+            release: None
+        }
+    );
+}
+
+#[test]
 fn an_answer_to_an_older_request_is_not_the_last_ones() {
     let mut pictures = Pictures::default();
     pictures.made(1).unwrap();

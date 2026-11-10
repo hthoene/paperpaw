@@ -39,8 +39,8 @@ pub const PATH_MAX: usize = 512;
 pub const FOLDER_MAX: usize = PATH_MAX;
 /// The endings of the pictures shown.
 const PICTURES: [&str; 4] = [".jpg", ".jpeg", ".png", ".gif"];
-/// What the cookies of this widget's requests begin with: the rest is the
-/// widget and the generation of its request.
+/// What the cookies of this widget's requests begin with: the rest counts
+/// the requests.
 const COOKIE: u32 = 0x5049_0000;
 /// The values of the setting of how the picture takes its place.
 const FILL: &str = "widgets.picture.fit.fill";
@@ -49,6 +49,28 @@ const FILL: &str = "widgets.picture.fit.fill";
 #[must_use]
 pub const fn is_cookie(cookie: u32) -> bool {
     cookie & 0xffff_0000 == COOKIE
+}
+
+/// What a refusal of the host means for the picture of a widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// There is none: the folder is missing or not granted, or nothing here
+    /// can be asked for. Not tried again until something changes.
+    None,
+    /// For now: the card or the service is busy, the host has no room for
+    /// another image (it prepares 8 and queues 4 for a plugin, and a widget
+    /// holds two while the next loads). Chosen again at the next minute.
+    Later,
+}
+
+/// What the refusal `error` means: only a missing, forbidden or unsupported
+/// folder, or a request that cannot be made, means there is no picture.
+#[must_use]
+pub const fn refusal(error: Error) -> Refusal {
+    match error {
+        Error::NotFound | Error::Denied | Error::Unsupported | Error::Invalid => Refusal::None,
+        _ => Refusal::Later,
+    }
 }
 
 /// Whether `name` is a picture shown: a file with one of the endings, not
@@ -231,6 +253,9 @@ pub enum Next {
 #[derive(Debug, Default)]
 pub struct Pictures {
     slots: Vec<Slot>,
+    /// Counts the requests of all widgets, so that every request has a cookie
+    /// of its own and an answer to an older one is not taken for a later one's.
+    counter: u16,
 }
 
 #[derive(Debug)]
@@ -243,9 +268,6 @@ struct Slot {
     open: Option<(u32, String)>,
     /// Nothing to show for the folder (until another is chosen).
     empty: bool,
-    /// Counts the requests, so that an answer to one made before the last is
-    /// not taken for the last's.
-    generation: u8,
 }
 
 /// How a widget's picture is, for drawing.
@@ -275,7 +297,6 @@ impl Pictures {
             held: None,
             open: None,
             empty: false,
-            generation: 0,
         });
         Ok(())
     }
@@ -318,9 +339,9 @@ impl Pictures {
     /// The request for the picture `caption` of `instance`, chosen for `mark`,
     /// is about to be made: its cookie.
     pub fn asking(&mut self, instance: u32, mark: u64, caption: String) -> Option<u32> {
+        self.counter = self.counter.wrapping_add(1);
+        let cookie = COOKIE | u32::from(self.counter);
         let slot = self.slot_mut(instance)?;
-        slot.generation = slot.generation.wrapping_add(1);
-        let cookie = COOKIE | (instance & 0xff) << 8 | u32::from(slot.generation);
         slot.mark = Some(mark);
         slot.empty = false;
         slot.open = Some((cookie, caption));

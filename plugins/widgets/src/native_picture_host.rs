@@ -2,7 +2,7 @@
 //! (`core.files`), asks for the picture chosen (`image_prepare`), holds and gives
 //! back the pictures the host answers with, and tells the widget to draw again.
 //! What to choose and what an answer means is `native_picture`'s.
-use crate::native_picture::{self, Folder, Next, PATH_MAX};
+use crate::native_picture::{self, Folder, Next, PATH_MAX, Refusal};
 use crate::native_plugin::NativeWidgets;
 use paperpaw_sdk::native::{
     Error, Host,
@@ -111,8 +111,15 @@ impl NativeWidgets {
         let chosen = Self::list_pictures(host, &folder, position);
         let name = match chosen {
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // A folder that cannot be read has none.
-            Err(_) | Ok(None) => return self.no_picture(host, instance, mark),
+            // A folder that is missing or not granted has none; a busy card or
+            // service is tried again at the next minute (nothing is recorded).
+            Err(error) => {
+                return match native_picture::refusal(error) {
+                    Refusal::None => self.no_picture(host, instance, mark),
+                    Refusal::Later => Ok(()),
+                };
+            }
+            Ok(None) => return self.no_picture(host, instance, mark),
             Ok(Some(name)) => name,
         };
         let path = if folder.is_empty() {
@@ -134,12 +141,16 @@ impl NativeWidgets {
         let mut scratch = mem::buffer(PATH_MAX + 128)?;
         match CommandSender::new(host, &mut scratch).image_prepare(&request) {
             Ok(()) => Ok(()),
-            Err(Error::NoMemory) => {
-                self.pictures.refused(instance);
-                Err(Error::NoMemory)
-            }
-            // Refused otherwise (the card is not granted): there is none.
-            Err(_) => self.no_picture(host, instance, mark),
+            Err(error) => match native_picture::refusal(error) {
+                // The card is not granted, or the request cannot be made.
+                Refusal::None => self.no_picture(host, instance, mark),
+                // No room for another image now, or busy (or no memory):
+                // chosen again at the next minute.
+                Refusal::Later => {
+                    self.pictures.refused(instance);
+                    Ok(())
+                }
+            },
         }
     }
 

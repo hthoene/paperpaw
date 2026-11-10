@@ -300,4 +300,10 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   before; a tap chooses the next at once. While the picture is asked for, the widget shows its frame only.
 - X4: the host draws the picture in bands (transient host heap, to measure next to home's peaks); the plugin holds
   one `ImageId` and a caption per widget, and listing buffers (1.5 KiB + 4 KiB, heap) while it lists.
+- A refusal means "no picture" only for `NotFound`, `Denied`, `Unsupported` and `Invalid` (a missing or forbidden folder, a
+  request that cannot be made); `Full`, `Busy`, `Io`, `State`, `NoSpace` and the like (the host prepares 8 images and queues 4
+  for a plugin, and a widget holds two while the next loads) are chosen again at the next minute. A tap turns the shared
+  `picture.txt` and every picture widget is chosen again, as in interface 6. Every request has a cookie of its own (one
+  counter), so answers of two widgets cannot be mixed. A widget whose slot cannot be made is not kept.
+- X4 timing list: a folder of about 1,000 pictures is walked twice for each choice (count, then name).
 - Acceptance on the host (`widgets-picture-shows-and-turns-on-tap`) waits for H1/H3/H4.
