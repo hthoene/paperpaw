@@ -23,7 +23,8 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE,
 };
 use paperpaw_platform::MemoryClass;
 
@@ -141,6 +142,23 @@ pub(crate) struct Param<'a> {
     pub(crate) value: &'a str,
 }
 
+/// The file an instance's hand-over names (see [`UiStore::handed_file`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Handed<'a> {
+    /// The plugin that made the hand-over, as its owner key, not its id. The
+    /// host hands owner keys out once (`HostResources::try_owner`, a counter
+    /// that is never reused and refuses at its end), so a key that outlives
+    /// its plugin can never name another one. The reader resolves it with
+    /// `native_instances.id(key)` when it opens the file and answers
+    /// `ERR_NOT_FOUND` when there is no such installed plugin any more.
+    pub(crate) maker: u64,
+    /// Where the file is in the maker's folders: `0` its data folder, `2`
+    /// its install folder.
+    pub(crate) root: u32,
+    /// The path as the hand-over carries it, not yet checked.
+    pub(crate) path: &'a str,
+}
+
 /// What the screen opened event says about an instance's hand-over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Info {
@@ -209,9 +227,19 @@ impl Wiped {
 }
 
 enum State {
-    Made { owner: u64, epoch: u64 },
-    Claimed { owner: u64, batch: u64 },
-    Owned { instance: u32 },
+    Made {
+        owner: u64,
+        epoch: u64,
+    },
+    Claimed {
+        owner: u64,
+        batch: u64,
+    },
+    /// `maker` is the plugin that made and claimed it (kept when it stops).
+    Owned {
+        instance: u32,
+        maker: u64,
+    },
 }
 
 /// A text is kept in chunks: a chunk is one allocation, filled in place by
@@ -655,19 +683,18 @@ impl UiStore {
         let new = match id {
             Some(id) => {
                 let at = Self::position(&inner, id).ok_or(ERR_STATE)?;
-                if !matches!(inner.entries[at].state, State::Claimed { .. }) {
+                let State::Claimed { owner, .. } = inner.entries[at].state else {
                     return Err(ERR_STATE);
-                }
-                Some(at)
+                };
+                Some((at, owner))
             }
             None => None,
         };
-        let old = inner
-            .entries
-            .iter()
-            .position(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance));
-        if let Some(at) = new {
-            inner.entries[at].state = State::Owned { instance };
+        let old = inner.entries.iter().position(
+            |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+        );
+        if let Some((at, maker)) = new {
+            inner.entries[at].state = State::Owned { instance, maker };
         }
         if let Some(old) = old {
             Self::free(&mut inner, old);
@@ -702,7 +729,7 @@ impl UiStore {
             .entries
             .iter()
             .filter_map(|entry| match entry.state {
-                State::Owned { instance } => Some(instance),
+                State::Owned { instance, .. } => Some(instance),
                 _ => None,
             })
             .chain(
@@ -719,10 +746,9 @@ impl UiStore {
     /// An instance closed: what it owns is freed.
     pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;
-        let owned = inner
-            .entries
-            .iter()
-            .position(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance));
+        let owned = inner.entries.iter().position(
+            |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+        );
         if let Some(at) = owned {
             Self::free(&mut inner, at);
         }
@@ -774,7 +800,7 @@ impl UiStore {
                     Some(id) => entry.id == id,
                     None => {
                         owned
-                            && matches!(entry.state, State::Owned { instance: i } if i == instance)
+                            && matches!(entry.state, State::Owned { instance: i, .. } if i == instance)
                     }
                 })
                 .map_or((&[][..], 0), |entry| (&entry.params.0[..], entry.count))
@@ -790,12 +816,67 @@ impl UiStore {
         inner
             .entries
             .iter()
-            .find(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance))
+            .find(|entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance))
             .map(|entry| Info {
                 handover: entry.id,
                 params: entry.count,
                 text_bytes: u32::try_from(entry.text.bytes).unwrap_or(u32::MAX),
             })
+    }
+
+    /// The one file `instance`'s hand-over names: its params `root` (`0` or
+    /// `2`) and `path`, and the plugin that made it, for root 5 of
+    /// `doc_open` (`document.md` 2.1). Nothing is copied: `visit` sees them
+    /// in place and must not reenter the store; the store stays borrowed for
+    /// the length of `visit`, so a caller copies the path out and does its
+    /// card I/O afterwards. `root` is exactly `"0"` or `"2"`: any other text
+    /// (`"02"`, `" 2"`, `"+2"`) is not a root.
+    ///
+    /// # Errors
+    /// `ERR_DENIED` for an instance without a hand-over, a hand-over without
+    /// both params, a root other than `0` or `2`, or a repeated param;
+    /// `ERR_STATE` while the store is busy.
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(Handed<'_>),
+    ) -> Result<(), i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
+        let entry = inner
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance))
+            .ok_or(ERR_DENIED)?;
+        let State::Owned { maker, .. } = entry.state else {
+            return Err(ERR_DENIED);
+        };
+        let (mut root, mut path) = (None, None);
+        let mut rest = &entry.params.0[..];
+        while !rest.is_empty() {
+            let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+                return Err(ERR_DENIED);
+            };
+            let slot = match param.key {
+                "root" => &mut root,
+                "path" => &mut path,
+                _ => {
+                    rest = &rest[used..];
+                    continue;
+                }
+            };
+            if slot.replace(param.value).is_some() {
+                return Err(ERR_DENIED);
+            }
+            rest = &rest[used..];
+        }
+        let root = match root {
+            Some("0") => 0,
+            Some("2") => 2,
+            _ => return Err(ERR_DENIED),
+        };
+        let path = path.ok_or(ERR_DENIED)?;
+        visit(Handed { maker, root, path });
+        Ok(())
     }
 
     /// Op 17: the params of `instance`'s hand-over as `ui_param` records into
@@ -821,7 +902,9 @@ impl UiStore {
             .entries
             .iter()
             .find(|entry| entry.id == handover)
-            .filter(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance))
+            .filter(
+                |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+            )
             .ok_or(ERR_STATE)
     }
 
