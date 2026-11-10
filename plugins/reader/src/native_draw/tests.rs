@@ -134,3 +134,12 @@ fn the_first_refusal_of_the_host_ends_the_drawing() {
     );
     assert_eq!(ink.calls.len(), 1);
 }
+
+#[test]
+fn characters_that_are_not_drawn_are_left_out_of_a_word() {
+    let (page, faces) = page("zero\u{200b}width soft\u{feff}", TextStyle::REGULAR);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    let words: Vec<&str> = ink.calls.iter().map(|c| c.3.as_str()).collect();
+    assert_eq!(words, ["zerowidth", "soft"]);
+}

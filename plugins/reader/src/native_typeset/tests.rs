@@ -130,3 +130,19 @@ fn the_table_has_a_slot_for_every_key() {
         assert!(slot(key) < CACHE_ENTRIES);
     }
 }
+
+#[test]
+fn what_is_not_drawn_takes_no_room_and_spaces_follow_the_word_spacing() {
+    let fake = Fake::default();
+    let faces = Faces::new(&fake, 20.0, 1.0).unwrap().word_spacing(1.5);
+    let plain = face(TextStyle::REGULAR, 0, 0);
+    assert!(faces.advance(plain, '\u{200b}').abs() < 1e-6);
+    assert!(faces.advance(plain, '\u{feff}').abs() < 1e-6);
+    assert!((faces.advance(plain, ' ') - 15.0).abs() < 1e-4);
+    assert!((faces.advance(plain, 'a') - 10.0).abs() < 1e-4);
+    // Out of range or not a number: kept to what the setting allows.
+    let wide = Faces::new(&fake, 20.0, 1.0).unwrap().word_spacing(9.0);
+    assert!((wide.advance(plain, ' ') - 20.0).abs() < 1e-4);
+    let nan = Faces::new(&fake, 20.0, 1.0).unwrap().word_spacing(f32::NAN);
+    assert!((nan.advance(plain, ' ') - 10.0).abs() < 1e-4);
+}

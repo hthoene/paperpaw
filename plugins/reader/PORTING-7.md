@@ -192,3 +192,10 @@ relative to the data folder).
 - Gaps: lines of mixed direction are drawn in logical order; underline, overline, strike-through,
   super/subscript shifts, small capitals, pictures, rules (tables), annotations and the lines between
   inserted blocks are not drawn; no hanging punctuation.
+- Review remarks (PR #986): characters that are not drawn (zero-width, direction marks, byte order mark) take
+  no room and are left out of a word (copied only where one is present); a space is the font's own
+  times the reader's word spacing (`Faces::word_spacing`, 0.5 to 2.0). Named, not changed: the pen
+  moves by the advance the host drew while the layout summed the widths it measured (the same font,
+  so they agree); all lines of a page are sent for each drawn band (Beta 3 skipped lines outside the
+  clip: the host clips, the cost is on the first-page timing list for the X4); a page is drawn in one
+  colour and each word is one host call, no per-word ink.

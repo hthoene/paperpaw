@@ -59,13 +59,41 @@ pub fn draw_lines<M: Measure>(
                 if n > 0 {
                     x += space;
                 }
-                if !word.is_empty() {
-                    x += ink.run(role, size, x, baseline, word)?;
-                }
+                x += draw_word(ink, (role, size), x, baseline, word)?;
             }
         }
     }
     Ok(())
+}
+
+/// One word drawn without the characters that are not drawn (zero-width and
+/// control ones): copied only where one is present, fallibly. The advance.
+fn draw_word(
+    ink: &mut impl Ink,
+    (role, size): (Role, f32),
+    x: f32,
+    baseline: i32,
+    word: &str,
+) -> Result<f32, Error> {
+    if !word.chars().any(paperpaw_sdk::text::is_invisible) {
+        return if word.is_empty() {
+            Ok(0.0)
+        } else {
+            ink.run(role, size, x, baseline, word)
+        };
+    }
+    let mut visible = alloc::string::String::new();
+    visible
+        .try_reserve(word.len())
+        .map_err(|_| Error::NoMemory)?;
+    visible.extend(
+        word.chars()
+            .filter(|&c| !paperpaw_sdk::text::is_invisible(c)),
+    );
+    if visible.is_empty() {
+        return Ok(0.0);
+    }
+    ink.run(role, size, x, baseline, &visible)
 }
 
 /// How a run of text reaches the host: the one place to change when the host

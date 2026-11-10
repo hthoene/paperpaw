@@ -136,6 +136,8 @@ pub struct Faces<M> {
     measure: M,
     /// The size of body text, in pixels.
     base: f32,
+    /// How wide a space is, as a part of the font's own (the reader's word spacing).
+    word_spacing: f32,
     /// Ascent and line height of body text: the reader's line spacing.
     body: (f32, f32),
     table: RefCell<Vec<Slot>>,
@@ -168,10 +170,23 @@ impl<M: Measure> Faces<M> {
         Ok(Self {
             measure,
             base,
+            word_spacing: 1.0,
             body,
             table: RefCell::new(table),
             failed: Cell::new(false),
         })
+    }
+
+    /// The same with spaces `factor` of the font's own width (0.5 to 2.0, as the
+    /// reader's word spacing setting allows).
+    #[must_use]
+    pub fn word_spacing(mut self, factor: f32) -> Self {
+        self.word_spacing = if factor.is_finite() {
+            factor.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        self
     }
 
     /// Whether the host refused a measure since the last [`take_failed`](Self::take_failed).
@@ -217,6 +232,10 @@ const fn slot(key: u64) -> usize {
 
 impl<M: Measure> Typesetter for Faces<M> {
     fn advance(&self, face: Face, c: char) -> f32 {
+        // What is not drawn takes no room (zero-width and control characters).
+        if paperpaw_sdk::text::is_invisible(c) {
+            return 0.0;
+        }
         let (role, size) = (Role::of(face), self.size(face));
         let key = u64::from(c) | (role as u64) << 24 | u64::from(size.to_bits()) << 32 | 1 << 63;
         let at = slot(key);
@@ -228,7 +247,13 @@ impl<M: Measure> Typesetter for Faces<M> {
         }
         let mut buffer = [0u8; 4];
         let width = match self.measure.width(role, size, c.encode_utf8(&mut buffer)) {
-            Ok(width) if width.is_finite() => width,
+            Ok(width) if width.is_finite() => {
+                if c == ' ' {
+                    width * self.word_spacing
+                } else {
+                    width
+                }
+            }
             _ => return self.refused(),
         };
         if let Ok(mut table) = self.table.try_borrow_mut()
