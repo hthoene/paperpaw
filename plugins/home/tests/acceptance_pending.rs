@@ -61,7 +61,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-footer-items-editor-grip-drag",
         golden: None,
-        blocked_by: &["KIT-grip-drag"],
+        blocked_by: &["H1", "H4"],
     },
     // The status line above the grid (its items, drawn by their owners and
     // composed), tapped for the item's action.
@@ -157,7 +157,7 @@ fn home_help_hints() {
 }
 
 #[test]
-#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet (kit work, plugin side); the pointer input itself is H4a (no PR yet)"]
+#[ignore = "BLOCKED H1/H4: the kit view takes the finger's drag of a grip (unit-tested in paperpaw-ui-kit), but nothing is drawn or taken through a host yet: H1 screens and H4 pointer delivery to a native screen on a real host (Input says the host already forwards raw pointers)"]
 fn home_footer_items_editor_grip_drag() {
     CASES[7].refuse().unwrap();
 }

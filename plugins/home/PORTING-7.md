@@ -40,7 +40,7 @@ each what it waits for.
   clock are native: slice 4a).
 - The status line above the grid (composed through slot 35).
 - *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
-  the finger's drag of an item, its corner and the footer items' grips.
+  the finger's drag of an item and its corner (the footer items' grips are native: slice 4f).
 - The help hints (`help.hint` declarations).
 
 ## Activation items (todo 90)
@@ -77,7 +77,7 @@ with the setting's id. It is built on `paperpaw_ui_kit::status_items` (the model
 with its texts), so the same screen serves picture-home and the reader. What is declared is
 compared with the interface-6 registration (only the editor's name differs). Its callbacks wait for
 the native entry (ignored case `home-footer-items-editor`, H1/H4); the finger's drag of a grip is
-a hold and a tap in the kit (ignored case `home-footer-items-editor-grip-drag`, `KIT-grip-drag`).
+native in the kit since slice 4f (below).
 The native entry will need `uses core.registry` in its metadata: the view reads the registered
 items with the kit's `status_items::view::read_entries`.
 
@@ -103,7 +103,7 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
 
 - *The grid's columns or rows changed*: done in slice 4d (below).
 - The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
-  a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
+  a grip is native in the kit (slice 4f).
 - The host admits every declaration home makes and `make` runs to the end in the real registered
   scope (`tests/hosted_construction.rs`; it was refused with `DeclarationViewsUnavailable` before
   the registry views were wired).
@@ -436,6 +436,27 @@ rows in a dashboard, so the whole path is an acceptance case on a real host (`ho
 H1/H4). **On the device (gate):** one registry read (4 KiB) when the options open, and the same
 plus a values read and the handover (3 x 4 KiB) when *Settings* is chosen.
 
+## Slice 4f: the grip drag of the footer items' editor
+
+`paperpaw_ui_kit` (shared by home, picture-home and the reader's status editors):
+`ItemList::set_grips` gives the first rows a grip (three bars at the row's end, the start in a
+right-to-left language; the focus fill runs under it) and `set_drag` frames the row taken along and
+draws a bar where it would land; `grip_at` and `drop_row` read the last frame. `StatusItemsView`
+takes `Input::Pointer`: a contact that comes **down on the grip of a shown item** (another is shown to
+move it past) is taken (`Handled::Yes`, so the host sends it its moves and its end and makes no
+gesture of it); a move to another row redraws the bar, a move within the row draws nothing
+(`Step::Taken`); lifting puts the item at the row under the finger (above the shown ones the first,
+below them the last) and the setting is written; a cancel puts nothing. The same finger down again over
+a lost end starts afresh; another finger meanwhile is not taken; a finger takes over from the buttons.
+The hold-and-tap and the buttons work as before. Tests: `status_items/view/tests.rs` (take, move,
+drop in either direction and past the ends, one shown item has no grip, other contacts, cancel, buttons
+and finger, refusal sweep).
+
+Not in this slice: the **dashboard's** finger drag of an item and of its corner (the cells' drag with
+a shadow and the resize grip): it takes its own slice (cell hit testing, a drop check). Buttons and
+the options' dialog move and resize items as before. **On the device (gate):** the redraw per move
+sample is a partial redraw of the list; the cost per sample is measured with the e-ink driver.
+
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
 Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the missing piece.
@@ -455,5 +476,5 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
 | gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
 | options' *Settings* (`HOME-item-settings`) | | (a) done (slice 4e: `native_item_settings`) |
-| grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
+| grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (a) done (slice 4f: pointer samples in the kit's items view); the host already forwards raw pointers to the screen on top (Input Engineer, todo 379), a status 1 on the down captures the contact |
 | hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |
