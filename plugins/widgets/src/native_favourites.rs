@@ -123,7 +123,6 @@ fn read(host: &Host<'_>) -> Result<Vec<Row>, Error> {
                 },
             )?;
         }
-        drop(page);
         // The files: a book gone from the card is left out.
         let mut kept = Vec::new();
         let (mut ask, mut answer) = (mem::buffer(1024)?, buffers()?.1);

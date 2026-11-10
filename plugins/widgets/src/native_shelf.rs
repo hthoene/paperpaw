@@ -568,7 +568,7 @@ pub fn render(
     let books = shown.books.get(range).unwrap_or_default();
     laid.truncate(books.len());
     let covers = covers_of(cx.host, books)?;
-    pictures.busy = covers.iter().any(|cover| *cover == Covered::Busy);
+    pictures.busy = covers.contains(&Covered::Busy);
     let align = cx.settings.align()?;
     pack(&mut laid, &covers, rest, cx.style().gap, align);
     if rest != look.area {
