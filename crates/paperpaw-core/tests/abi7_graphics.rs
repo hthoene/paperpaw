@@ -492,3 +492,38 @@ fn toned_text_refuses_before_drawing_and_returns_the_measured_advance() {
     .unwrap();
     assert_eq!(advance, font.measure(12.0, "abc"));
 }
+
+#[test]
+fn toned_text_without_widening_or_tone_is_text_draw() {
+    let fonts = fonts();
+    let font = fonts.get("test.font").unwrap();
+    for text in ["", "a", "abc", "אב a", "a\u{0301}"] {
+        for size in [0.0, 12.0, 18.0] {
+            let (mut plain, mut inked) = (frame(PixelFormat::Gray8), frame(PixelFormat::Gray8));
+            let drawn = graphics::text_draw(
+                &mut plain.canvas(),
+                &font,
+                size,
+                -1.5,
+                16,
+                text,
+                Color::BLACK,
+            )
+            .unwrap();
+            let toned = graphics::text_draw_toned(
+                &mut inked.canvas(),
+                &font,
+                size,
+                -1.5,
+                16,
+                text,
+                Color::BLACK,
+                0,
+                font.text_ink().tone(),
+            )
+            .unwrap();
+            assert_eq!(drawn, toned);
+            assert_eq!(plain.view().data, inked.view().data);
+        }
+    }
+}

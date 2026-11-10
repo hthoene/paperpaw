@@ -153,10 +153,11 @@ pub fn text_draw(
 }
 
 /// Draws like [`text_draw`] with glyphs widened by `extra` pixels and the
-/// coverage drawn in `tone` (slot 41, `text.draw_inked`). Everything that can
-/// refuse, the advance included, is worked out before the first pixel, so a
-/// refused call draws nothing; the advance is the one `text_measure` gives
-/// (widening does not change it).
+/// coverage drawn in `tone` (slot 41, `text.draw_inked`). Every argument is
+/// checked before the first pixel, so a refused call draws nothing; the text
+/// is shaped once, as `text_draw` does, and the advance it returns is the
+/// one the draw gives (widening does not change it), checked as `text_draw`'s
+/// is.
 #[allow(
     clippy::too_many_arguments,
     reason = "matches the font drawing operation's scalar inputs"
@@ -180,7 +181,5 @@ pub fn text_draw_toned(
     if text.len() > MAX_TEXT_BYTES {
         return Err(InvalidInput);
     }
-    let advance = nonnegative(font.measure(size, text))?;
-    font.draw_toned(canvas, size, x, baseline, text, color, extra, tone);
-    Ok(advance)
+    nonnegative(font.draw_toned(canvas, size, x, baseline, text, color, extra, tone))
 }
