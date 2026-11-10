@@ -123,6 +123,14 @@ impl FormatCall<'_> {
     }
 }
 
+/// The file a hand-over names, resolved (`doc_open` root 5).
+pub(crate) struct HandedBook {
+    /// Its path on the card (the maker's data or install folder joined).
+    pub(crate) card_path: alloc::string::String,
+    /// The maker's owner key.
+    pub(crate) maker: u64,
+}
+
 /// Everything the document service needs from the host. The shell implements
 /// it over its declarations, storage and stage broker; tests over fakes.
 pub(crate) trait DocHost {
@@ -154,8 +162,16 @@ pub(crate) trait DocHost {
     /// `ERR_NOT_FOUND` (the maker is not installed, or no such file),
     /// `ERR_STATE` (the store is busy), `ERR_UNSUPPORTED` until wired,
     /// `ERR_NO_MEMORY`.
-    fn handed_open(&self, _path: &str) -> Result<alloc::string::String, i32> {
+    fn handed_open(&self, _path: &str) -> Result<HandedBook, i32> {
         Err(ERR_UNSUPPORTED)
+    }
+    /// The document `document`, just opened, reads a file of `maker`'s
+    /// folders (root 5): the host remembers it, so the document ends when
+    /// the maker goes (`document_of_maker`).
+    fn handed_maker(&self, _document: u32, _maker: u64) {}
+    /// A document that reads a file of `maker`'s folders and is not ended yet.
+    fn document_of_maker(&self, _maker: u64) -> Option<u32> {
+        None
     }
     /// Section 1: the format that reads `path` (the longest extension, the
     /// user's choice, priority). `requested` is a format id or empty.
@@ -389,8 +405,14 @@ impl DocHost for Cx<'_> {
     fn root_access(&self, root: u32) -> Result<(), i32> {
         self.host.root_access(root)
     }
-    fn handed_open(&self, path: &str) -> Result<alloc::string::String, i32> {
+    fn handed_open(&self, path: &str) -> Result<HandedBook, i32> {
         self.host.handed_open(path)
+    }
+    fn handed_maker(&self, document: u32, maker: u64) {
+        self.host.handed_maker(document, maker);
+    }
+    fn document_of_maker(&self, maker: u64) -> Option<u32> {
+        self.host.document_of_maker(maker)
     }
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
         self.host.select_format(root, path, requested)
@@ -583,7 +605,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     if !request.css_path.is_empty() {
         host.root_access(request.css_root)?;
     }
-    let format = match handed.as_deref() {
+    let format = match handed.as_ref().map(|book| book.card_path.as_str()) {
         // Read as the card's own path: a sniff reads that file.
         Some(card) => host.select_format(1, card, request.format)?,
         None => host.select_format(request.root, request.path, request.format)?,
@@ -617,10 +639,15 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     if let Some(victim) = took {
         taken(host, &victim);
     }
-    let held = handed.as_deref().unwrap_or(request.path);
+    let held = handed
+        .as_ref()
+        .map_or(request.path, |book| book.card_path.as_str());
     if let Err(error) = host.reader_opened(id, request.root, held) {
         table.discard(id);
         return Err(error);
+    }
+    if let Some(book) = &handed {
+        host.handed_maker(id, book.maker);
     }
     table.hold_reader(id);
     let answered = (|| {

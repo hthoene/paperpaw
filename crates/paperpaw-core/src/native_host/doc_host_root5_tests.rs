@@ -127,3 +127,36 @@ fn a_maker_that_is_gone_or_a_missing_file_is_not_found() {
         let _ = ERR_INVALID;
     });
 }
+
+#[test]
+fn a_maker_that_goes_while_its_file_is_open_ends_the_document_and_its_hold() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.install("maker", MAKER, &[]);
+        hand_over(w, MAKER, 4, &[p("root", "2"), p("path", "docs/a.epub")]);
+        let joined = card_path(2, "docs/a.epub");
+        w.card.write(&joined, b"book").unwrap();
+        let reply = open5(w, "docs/a.epub").unwrap();
+        let Record::ServiceDocState(state) = wire::record_decode_one(&reply).unwrap() else {
+            panic!("not a state")
+        };
+        let document = state.document;
+        assert!(w.hosts.in_use().holds(&joined, false));
+        // The maker is updated or removed: the folder may go under the reader.
+        w.hosts.owner_retired(MAKER).unwrap();
+        assert!(
+            !w.hosts.in_use().holds(&joined, false),
+            "the hold is let go"
+        );
+        let mut out = [0_u8; 64];
+        let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
+        match wire::record_decode_one(&out[..length]).unwrap() {
+            Record::EventDocumentClosed(event) => {
+                assert_eq!((event.document, event.reason), (document, 3));
+            }
+            other => panic!("{other:?}"),
+        }
+        // Another maker's retirement leaves a document alone.
+        assert_eq!(w.hosts.owner_retired(MAKER), Ok(()), "safe to repeat");
+    });
+}

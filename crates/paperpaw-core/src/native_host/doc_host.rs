@@ -70,6 +70,8 @@ struct Book {
     /// cannot be refused.
     path: String,
     held: bool,
+    /// The owner key of the plugin whose folder the book is in (root 5), else 0.
+    maker: u64,
     /// The cache the format reads and writes as root 6, once the open began
     /// to make it.
     cache: Option<Cache>,
@@ -274,6 +276,7 @@ impl DocState {
             document,
             path: copy,
             held,
+            maker: 0,
             cache: None,
         });
         Ok(())
@@ -399,6 +402,20 @@ macro_rules! frameless {
         }
         fn reader_closed(&self, document: u32) {
             self.state().reader_closed(document);
+        }
+        fn handed_maker(&self, document: u32, maker: u64) {
+            if let Ok(mut books) = self.state().books.try_borrow_mut()
+                && let Some(book) = books.iter_mut().find(|book| book.document == document)
+            {
+                book.maker = maker;
+            }
+        }
+        fn document_of_maker(&self, maker: u64) -> Option<u32> {
+            let books = self.state().books.try_borrow().ok()?;
+            books
+                .iter()
+                .find(|book| maker != 0 && book.maker == maker)
+                .map(|book| book.document)
         }
         fn map_image(
             &self,
@@ -838,7 +855,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     #[inline(never)]
-    fn handed_open(&self, path: &str) -> Result<String, i32> {
+    fn handed_open(&self, path: &str) -> Result<super::doc_service::HandedBook, i32> {
         // Until the `core.ui` store is wired no file is handed.
         if self.who.hosts.ui().is_none() {
             return Err(ERR_UNSUPPORTED);
@@ -870,7 +887,10 @@ impl super::doc_service::DocHost for Bound<'_> {
         let joined = OwnerPaths::join(Some(&id?), root, &file_path)?;
         let storage = self.state.storage.as_ref().ok_or(ERR_UNSUPPORTED)?;
         match storage.size(&joined) {
-            Ok(_) => Ok(joined),
+            Ok(_) => Ok(super::doc_service::HandedBook {
+                card_path: joined,
+                maker,
+            }),
             Err(paperpaw_platform::StorageError::NotFound) => Err(ERR_NOT_FOUND),
             Err(error) => Err(super::storage::status(error)),
         }
