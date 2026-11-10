@@ -112,7 +112,6 @@ pub fn register(kernel: &mut Kernel, profile: &'static Profile) -> Result<usize,
             linked_report,
         )
     };
-    for w in kernel.take_warnings() { eprintln!("DEBUGWARN {w:?}"); }
     let mut registered = 0;
     for (id, status) in outcome {
         match status {

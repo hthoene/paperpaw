@@ -1,0 +1,1 @@
+The desktop shell and the emulator now activate the first-party interface-7 plugins (`NATIVE_PLUGINS`) through `paperpaw-app/native-linked` on Linux x86-64: they are registered with the desktop's `core.ui` and `core.device` services, and the interface-6 form of each ported plugin is no longer installed (#228).

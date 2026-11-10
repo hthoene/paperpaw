@@ -222,7 +222,10 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
-) -> alloc::vec::Vec<(&'static str, Result<(), paperpaw_core::native_host::shell::Error>)> {
+) -> alloc::vec::Vec<(
+    &'static str,
+    Result<(), paperpaw_core::native_host::shell::Error>,
+)> {
     use paperpaw_core::native_host::shell::Error;
     let mut outcome = alloc::vec::Vec::new();
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
