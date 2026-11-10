@@ -283,6 +283,7 @@ fn capital_book(capital: bool, embedded: bool) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_drop_capital_spans_the_first_lines_and_its_word_stays_whole() {
     let (mut plain, mut capped) = (capital_book(false, true), capital_book(true, true));
     let (plain_lines, capped_lines) = (plain.lines(3), capped.lines(3));
@@ -320,6 +321,7 @@ fn in_a_font_of_fixed_sizes_a_drop_capital_is_left_out() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_list_items_lines_stand_under_its_text_not_its_marker() {
     let words = "lorem ipsum dolor sit amet ".repeat(8);
     let body =

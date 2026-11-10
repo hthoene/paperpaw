@@ -18,6 +18,7 @@ const ALICE: &[u8] = include_bytes!("../../../samples/library/books/alice-in-won
 const CONFIG: &str = "[reader]\nstatus.bottom-left = recorder.status\nstatus.bottom-center =\nstatus.bottom-right =\n";
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_tapped_status_item_does_what_it_says() {
     let mut reading = Reading::new(TOUCH, Shared::default(), "books/alice.epub", ALICE, CONFIG);
     reading.open();

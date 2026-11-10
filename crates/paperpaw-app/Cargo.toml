@@ -52,6 +52,7 @@ native-linked = [
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
+    "dep:paperpaw-plugin-format-epub",
     "dep:paperpaw-plugin-format-markdown",
     "dep:paperpaw-plugin-format-cbz",
     "dep:paperpaw-plugin-format-html",
@@ -70,6 +71,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-format-epub/linked",
     "paperpaw-plugin-format-markdown/linked",
     "paperpaw-plugin-format-cbz/linked",
     "paperpaw-plugin-format-html/linked",
@@ -96,11 +98,8 @@ paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
-paperpaw-epub-family.workspace = true
-# The five plugins' crates, listed here for the plugin list and the catalog
-# indexes (build.rs); the interface-6 registrations come from the family
-# crate until the removals.
-paperpaw-plugin-format-epub.workspace = true
+# The EPUB family's native plugins, linked under `native-linked`.
+paperpaw-plugin-format-epub = { workspace = true, optional = true }
 paperpaw-plugin-format-html = { workspace = true, optional = true }
 paperpaw-plugin-format-fb2 = { workspace = true, optional = true }
 paperpaw-plugin-format-markdown = { workspace = true, optional = true }

@@ -28,6 +28,7 @@ fn battery(percent: u8) -> SystemStatus {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_status_lines_wait_while_pages_are_turned() {
     let mut reading = Reading::new(
         BUTTONS,
@@ -75,6 +76,7 @@ fn the_status_lines_wait_while_pages_are_turned() {
 /// count goes on below it (only overlays cover the page) and the bar is
 /// told the page and the pages, without closing it (#117).
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_menu_bar_learns_the_pages_counted_below_it() {
     let mut reading = Reading::new(BUTTONS, Shared::default(), "books/alice.epub", ALICE, "");
     reading.open_unsettled();

@@ -12,7 +12,6 @@ paperpaw-core.workspace = true
 paperpaw-sdk.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-fat.workspace = true
-paperpaw-epub-family.workspace = true
 
 [dev-dependencies]
 paperpaw-zip = { workspace = true, features = ["testing"] }

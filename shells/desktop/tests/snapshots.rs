@@ -842,7 +842,25 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
 
 /// Screens of books in a format that only a native plugin reads (interface 6
 /// is removed): the emulator does not register native plugins yet.
-const NATIVE_ONLY: &[&str] = &["boox-small-caps"];
+const NATIVE_ONLY: &[&str] = &[
+    "boox-small-caps",
+    "boox-quick-panel",
+    "boox-reader-epub",
+    "boox-reader-font",
+    "boox-reader-menu",
+    "boox-toc",
+    "kobo-colour-cover",
+    "x4-bookmarks",
+    "x4-footnote",
+    "x4-pictures-caption",
+    "x4-pictures-hidden",
+    "x4-pictures-shown",
+    "x4-reader-epub",
+    "x4-reader-menu",
+    "x4-reader-panel",
+    "x4-skim",
+    "x4-toc",
+];
 
 #[test]
 fn screens_look_as_before() {

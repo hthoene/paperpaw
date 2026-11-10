@@ -50,6 +50,7 @@ fn turned_the_book_stays_open_at_its_place() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn turned_the_contents_and_the_marks_keep_their_entry() {
     let mut reading = Reading::new(BUTTONS, Shared::default(), "books/alice.epub", ALICE, "");
     reading.open();

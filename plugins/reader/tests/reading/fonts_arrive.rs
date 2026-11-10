@@ -149,7 +149,6 @@ fn lean_reading_of(book: &'static str, bytes: &[u8]) -> Reading {
         .plugin(Lean)
         .plugin(Installer)
         .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Reader)
         .plugin(Listener(heard.clone()))
         .build()

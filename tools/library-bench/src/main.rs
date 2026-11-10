@@ -396,7 +396,8 @@ fn main() -> Result<(), String> {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_epub_family::EpubFormat)
+        // EPUB is a native plugin only (format removal): until the host runs
+        // native plugins here, the books are listed but not opened.
         .plugin(Bench { more, walks })
         .build()
         .map_err(|e| format!("{e:?}"))?;

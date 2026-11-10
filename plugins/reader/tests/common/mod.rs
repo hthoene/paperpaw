@@ -317,10 +317,9 @@ impl Reading {
             .user_config(format!("{CONFIG}{config}"))
             .speech(speech)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_epub_family::EpubFormat);
-        // Markdown is a native plugin only (format removal): the tests that read
-        // a `.md` book are ignored until native activation.
+            .plugin(paperpaw_plugin_format_txt::TxtFormat);
+        // EPUB and Markdown are native plugins only (format removal): the tests
+        // that read such a book are ignored until native activation.
         // Later: its Markdown, with wikilinks, is the one used.
         let builder = if vault {
             builder.plugin(paperpaw_plugin_notes_vault::NotesVault)
