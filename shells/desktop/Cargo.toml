@@ -21,6 +21,7 @@ paperpaw-core = { workspace = true, features = ["color", "outline"] }
 paperpaw-table.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-serve.workspace = true
+paperpaw-http.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-platform.workspace = true
 paperpaw-default-packs.workspace = true

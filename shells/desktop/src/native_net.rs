@@ -11,17 +11,34 @@
 //! still ends when its bytes stop coming). Serving (`listen`) is not backed on
 //! the desktop yet: a plugin that asks to serve is refused (`Refused`), and
 //! `uses.network` for sockets is not offered with it.
+//!
+//! **Redirects** are followed here by `paperpaw_http::follow`, the rules of
+//! `network.md` 3.1 that the other shells keep (at most 10; never from
+//! `https` to `http`; 303, and 301 or 302 after a `POST`, go on as a `GET`
+//! without a body; no body and only the 12 harmless headers to another
+//! origin), and `curl` is told not to follow any (no `-L`: it would send key
+//! headers on, and a body, and follow down to `http`). A redirect from `http`
+//! to `https` is told to core (`redirected_to_https`) and the request goes on
+//! when core starts it again. `timeout_ms` of a request in memory counts from
+//! its first start.
+//!
+//! **The network on demand:** core tells the network manager plugin of a
+//! wanted network (`event.network_wanted`) and the shell hears of it
+//! ([`NativeNet::wanted`]). No manager plugin is linked on the desktop, so
+//! `Device::poll_native_net` brings the emulated Wi-Fi up for it, as
+//! `--wifi online` does, on a profile where PaperPaw manages Wi-Fi.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Instant;
 
 use paperpaw_core::native_host::shell_wiring::{
     HttpDone, HttpJob, HttpReason, NetReports, ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
 use paperpaw_core::sdk::HttpError;
 use paperpaw_core::{HttpCall, HttpResponse};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
 
 use crate::http::Http;
@@ -30,10 +47,37 @@ use crate::linked::DeviceView;
 /// The bytes of one append of a download to its file.
 const CHUNK: usize = 4096;
 
+/// Redirects followed at most (`network.md` 3.1).
+const MAX_REDIRECTS: u32 = 10;
+
 /// What a request needs when its answer comes.
 struct Pending {
     save_path: Option<String>,
     max_file: u64,
+    /// The request as it goes now: changed by each redirect followed.
+    call: HttpCall,
+    /// Redirects followed so far.
+    hops: u32,
+    /// When it first started (`timeout_ms` of a request in memory counts
+    /// from there, redirects and all).
+    started: Instant,
+    /// The first call's `timeout_ms`.
+    timeout_ms: u32,
+    /// Redirected to `https` and told to core: it goes on when core starts
+    /// it again.
+    parked: bool,
+}
+
+impl Pending {
+    /// The time left to a request in memory (a file's is by its bytes
+    /// moving, as for each hop), at least 1 ms; `None` where it is spent.
+    fn time_left(&self) -> Option<u32> {
+        if self.save_path.is_some() || self.call.body_from.is_some() {
+            return Some(self.timeout_ms);
+        }
+        let spent = u32::try_from(self.started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        self.timeout_ms.checked_sub(spent).filter(|left| *left > 0)
+    }
 }
 
 /// The shell side of `core.net` (see the module).
@@ -92,13 +136,40 @@ impl NativeNet {
             };
             let Some(response) = response else { break };
             // A request aborted since has no one to tell.
-            let Some(pending) = self.pending.borrow_mut().remove(&response.id) else {
+            let Some(mut pending) = self.pending.borrow_mut().remove(&response.id) else {
                 continue;
             };
-            // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
-            let _ = reports.finished(response.id, done_of(&response, &pending, &*self.storage));
+            let id = response.id;
+            match followed(&mut pending, response, |id| reports.redirected_to_https(id)) {
+                Outcome::Done(response) => {
+                    // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
+                    let _ = reports.finished(id, done_of(&response, &pending, &*self.storage));
+                }
+                Outcome::Send => {
+                    self.resume(&mut pending);
+                    self.pending.borrow_mut().insert(id, pending);
+                }
+                Outcome::Parked => {
+                    self.pending.borrow_mut().insert(id, pending);
+                }
+                Outcome::Gone => {}
+            }
         }
         let _ = reports.tick();
+    }
+
+    /// Sends the request on as it is now; where its time is spent, it is
+    /// answered `Timeout` at the next pump.
+    fn resume(&self, pending: &mut Pending) {
+        let mut http = self.http.borrow_mut();
+        let Some(left) = pending.time_left() else {
+            let failed =
+                HttpResponse::failed(pending.call.id, HttpError::Timeout, "no answer in time");
+            http.answer_now(failed);
+            return;
+        };
+        pending.call.timeout_ms = left;
+        http.start_unfollowed(pending.call.clone());
     }
 }
 
@@ -122,25 +193,32 @@ impl ShellHttp for NativeNet {
             })
             .unwrap_or(usize::MAX),
             timeout_ms: job.timeout_ms,
-            want_headers: Vec::new(),
+            // The redirects are followed here, by their `Location`.
+            want_headers: vec![String::from("location")],
             save_to: job.save_path.map(str::to_owned),
             progress: false,
         };
-        call.load_body(&*self.storage).map_err(|_| ERR_IO)?;
-        {
-            let mut pending = self.pending.borrow_mut();
-            if pending.contains_key(&job.id) {
+        // A request redirected to `https` goes on as it was parked (its
+        // address, method, body and headers as redirected).
+        if let Some(pending) = self.pending.borrow_mut().get_mut(&job.id) {
+            if !std::mem::take(&mut pending.parked) {
                 return Err(ERR_INVALID);
             }
-            pending.insert(
-                job.id,
-                Pending {
-                    save_path: job.save_path.map(str::to_owned),
-                    max_file: job.max_file,
-                },
-            );
+            self.resume(pending);
+            return Ok(());
         }
-        self.http.borrow_mut().start(call);
+        call.load_body(&*self.storage).map_err(|_| ERR_IO)?;
+        let mut pending = Pending {
+            save_path: job.save_path.map(str::to_owned),
+            max_file: job.max_file,
+            call,
+            hops: 0,
+            started: Instant::now(),
+            timeout_ms: job.timeout_ms,
+            parked: false,
+        };
+        self.resume(&mut pending);
+        self.pending.borrow_mut().insert(job.id, pending);
         Ok(())
     }
 
@@ -178,6 +256,85 @@ impl ShellNetwork for NativeNet {
     }
 }
 
+/// What a request's answer comes to.
+enum Outcome {
+    /// The answer is the request's.
+    Done(HttpResponse),
+    /// A redirect was followed: the request goes on as it is now.
+    Send,
+    /// Redirected to `https` and told to core: core starts it again.
+    Parked,
+    /// Cancelled meanwhile: no one to tell.
+    Gone,
+}
+
+/// Follows the redirect `response` is, if it is one (`network.md` 3.1, by
+/// `paperpaw_http::follow`): `pending.call` becomes the request that goes
+/// on. `to_https` tells core of a redirect to `https` (`redirected_to_https`).
+fn followed(
+    pending: &mut Pending,
+    response: HttpResponse,
+    to_https: impl FnOnce(u32) -> Result<(), i32>,
+) -> Outcome {
+    let id = response.id;
+    let failed = |error, why: &str| Outcome::Done(HttpResponse::failed(id, error, why));
+    let location = response
+        .headers
+        .iter()
+        .find(|(name, _)| name == "location")
+        .map(|(_, value)| value.as_str())
+        .filter(|location| !location.is_empty());
+    let redirect =
+        response.error.is_none() && matches!(response.status, 301 | 302 | 303 | 307 | 308);
+    let (true, Some(location)) = (redirect, location) else {
+        let mut response = response;
+        if pending.hops > 0 && response.error.is_none() {
+            response.url = Some(pending.call.url.clone());
+        }
+        return Outcome::Done(response);
+    };
+    if pending.hops >= MAX_REDIRECTS {
+        return failed(HttpError::Refused, "too many redirects");
+    }
+    let call = &mut pending.call;
+    let step = match paperpaw_http::follow(
+        &call.url,
+        response.status,
+        location,
+        &call.method,
+        call.body.is_some(),
+    ) {
+        Ok(step) => step,
+        Err(refusal) => return failed(HttpError::Refused, refusal.reason()),
+    };
+    let https = |url: &str| {
+        url.get(..8)
+            .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+    };
+    let upgrade = !https(&call.url) && https(&step.url);
+    if step.to_get {
+        call.method = String::from("GET");
+        call.body = None;
+        call.body_from = None;
+    }
+    step.keep(&mut call.headers);
+    call.url = step.url;
+    pending.hops += 1;
+    if !upgrade {
+        return Outcome::Send;
+    }
+    // The plain connection is closed (curl's ended with the answer); core
+    // starts the request again when the session is its.
+    match to_https(id) {
+        Ok(()) => {
+            pending.parked = true;
+            Outcome::Parked
+        }
+        Err(code) if code == ERR_NOT_FOUND => Outcome::Gone,
+        Err(_) => failed(HttpError::Io, "the redirect to https was not taken"),
+    }
+}
+
 /// Core's reason for a failed request.
 fn reason_of(error: Option<&HttpError>) -> HttpReason {
     match error {
@@ -199,6 +356,10 @@ fn done_of<'a>(
     storage: &dyn Storage,
 ) -> HttpDone<'a> {
     let reason = reason_of(response.error.as_ref());
+    // An answer longer than the file may be was cut short by the client.
+    if pending.save_path.is_some() && crate::http::too_large(response) {
+        return HttpDone::new(0, HttpReason::TooLarge);
+    }
     if reason != HttpReason::Ok {
         return HttpDone::new(0, reason);
     }
@@ -231,6 +392,67 @@ mod tests {
     use super::*;
     use paperpaw_sdk::MemoryStorage;
 
+    fn pending(save_path: Option<&str>, max_file: u64) -> Pending {
+        flight("GET", "https://a.example/x", &[], None, save_path, max_file)
+    }
+
+    fn flight(
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&[u8]>,
+        save_path: Option<&str>,
+        max_file: u64,
+    ) -> Pending {
+        Pending {
+            save_path: save_path.map(String::from),
+            max_file,
+            call: HttpCall {
+                id: 1,
+                method: method.into(),
+                url: url.into(),
+                headers: headers
+                    .iter()
+                    .map(|(n, v)| (String::from(*n), String::from(*v)))
+                    .collect(),
+                body: body.map(<[u8]>::to_vec),
+                body_from: None,
+                max_response: 1000,
+                timeout_ms: 30_000,
+                want_headers: vec![String::from("location")],
+                save_to: save_path.map(String::from),
+                progress: false,
+            },
+            hops: 0,
+            started: Instant::now(),
+            timeout_ms: 30_000,
+            parked: false,
+        }
+    }
+
+    fn redirect(status: u16, location: &str) -> HttpResponse {
+        HttpResponse {
+            id: 1,
+            status,
+            headers: vec![(String::from("location"), location.into())],
+            ..HttpResponse::default()
+        }
+    }
+
+    /// No redirect to `https` is expected.
+    fn no_upgrade(_: u32) -> Result<(), i32> {
+        panic!("not an upgrade");
+    }
+
+    fn header_names(pending: &Pending) -> Vec<&str> {
+        pending
+            .call
+            .headers
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect()
+    }
+
     fn answer(status: u16, body: &[u8]) -> HttpResponse {
         HttpResponse {
             id: 1,
@@ -245,10 +467,7 @@ mod tests {
     #[test]
     fn a_memory_answer_carries_its_body_and_its_headers() {
         let storage = MemoryStorage::new();
-        let pending = Pending {
-            save_path: None,
-            max_file: 0,
-        };
+        let pending = pending(None, 0);
         let response = answer(200, b"hello");
         let done = done_of(&response, &pending, &storage);
         assert_eq!((done.status, done.reason), (200, HttpReason::Ok));
@@ -261,10 +480,7 @@ mod tests {
     fn a_download_is_appended_to_its_staged_file_in_pieces_and_not_in_the_body() {
         let storage = MemoryStorage::new();
         storage.write("a.pp-staged", b"").unwrap();
-        let pending = Pending {
-            save_path: Some(String::from("a.pp-staged")),
-            max_file: 100_000,
-        };
+        let pending = pending(Some("a.pp-staged"), 100_000);
         let big = vec![7u8; CHUNK * 2 + 10];
         let response = answer(200, &big);
         let done = done_of(&response, &pending, &storage);
@@ -276,10 +492,7 @@ mod tests {
     fn an_error_answer_or_a_too_large_file_does_not_touch_the_staged_file() {
         let storage = MemoryStorage::new();
         storage.write("a.pp-staged", b"").unwrap();
-        let pending = Pending {
-            save_path: Some(String::from("a.pp-staged")),
-            max_file: 4,
-        };
+        let pending = pending(Some("a.pp-staged"), 4);
         // 404: the body is the answer's, the file stays empty.
         let response = answer(404, b"nope");
         let done = done_of(&response, &pending, &storage);
@@ -294,10 +507,7 @@ mod tests {
     #[test]
     fn failures_keep_their_reason() {
         let storage = MemoryStorage::new();
-        let pending = Pending {
-            save_path: None,
-            max_file: 0,
-        };
+        let pending = pending(None, 0);
         for (error, reason) in [
             (HttpError::Dns, HttpReason::Dns),
             (HttpError::Tls, HttpReason::Tls),
@@ -309,5 +519,181 @@ mod tests {
             let done = done_of(&response, &pending, &storage);
             assert_eq!((done.status, done.reason), (0, reason));
         }
+    }
+    const KEYED: [(&str, &str); 5] = [
+        ("Accept", "text/html"),
+        ("X-Api-Key", "k"),
+        ("Authorization", "Bearer t"),
+        ("Cookie", "s=1"),
+        ("Content-Type", "text/plain"),
+    ];
+
+    #[test]
+    fn a_downgrade_to_plain_http_is_refused() {
+        let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
+        let Outcome::Done(done) = followed(&mut p, redirect(302, "http://a.example/y"), no_upgrade)
+        else {
+            panic!("not refused");
+        };
+        assert_eq!(done.error, Some(HttpError::Refused));
+        assert_eq!(p.call.url, "https://a.example/x", "nothing was sent on");
+    }
+
+    #[test]
+    fn another_origin_gets_only_the_harmless_headers_and_the_same_one_all() {
+        let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
+        assert!(matches!(
+            followed(&mut p, redirect(302, "https://b.example/y"), no_upgrade),
+            Outcome::Send
+        ));
+        assert_eq!(header_names(&p), ["Accept", "Content-Type"]);
+        assert_eq!(p.call.url, "https://b.example/y");
+        let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
+        assert!(matches!(
+            followed(&mut p, redirect(302, "/z"), no_upgrade),
+            Outcome::Send
+        ));
+        assert_eq!(header_names(&p).len(), 5);
+        assert_eq!(p.call.url, "https://a.example/z");
+    }
+
+    #[test]
+    fn a_body_does_not_go_to_another_origin_and_a_303_makes_a_get() {
+        let mut p = flight(
+            "POST",
+            "https://a.example/x",
+            &KEYED,
+            Some(b"secret"),
+            None,
+            0,
+        );
+        let Outcome::Done(done) =
+            followed(&mut p, redirect(307, "https://b.example/y"), no_upgrade)
+        else {
+            panic!("not refused");
+        };
+        assert_eq!(done.error, Some(HttpError::Refused));
+        // The same origin keeps method and body on a 307.
+        let mut p = flight(
+            "POST",
+            "https://a.example/x",
+            &KEYED,
+            Some(b"secret"),
+            None,
+            0,
+        );
+        assert!(matches!(
+            followed(&mut p, redirect(307, "/y"), no_upgrade),
+            Outcome::Send
+        ));
+        assert_eq!(
+            (p.call.method.as_str(), p.call.body.as_deref()),
+            ("POST", Some(&b"secret"[..]))
+        );
+        // A 303 goes on as a GET without a body, even to another origin.
+        let mut p = flight(
+            "POST",
+            "https://a.example/x",
+            &KEYED,
+            Some(b"secret"),
+            None,
+            0,
+        );
+        assert!(matches!(
+            followed(&mut p, redirect(303, "https://b.example/y"), no_upgrade),
+            Outcome::Send
+        ));
+        assert_eq!(
+            (p.call.method.as_str(), p.call.body.as_deref()),
+            ("GET", None)
+        );
+        assert_eq!(header_names(&p), ["Accept", "Content-Type"]);
+    }
+
+    #[test]
+    fn eleven_redirects_end_refused_and_ten_are_followed() {
+        let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
+        for n in 1..=10 {
+            let to = format!("/{n}");
+            assert!(matches!(
+                followed(&mut p, redirect(302, &to), no_upgrade),
+                Outcome::Send
+            ));
+        }
+        let Outcome::Done(done) = followed(&mut p, redirect(302, "/11"), no_upgrade) else {
+            panic!("followed an eleventh");
+        };
+        assert_eq!(done.error, Some(HttpError::Refused));
+        assert_eq!(p.call.url, "https://a.example/10");
+    }
+
+    #[test]
+    fn a_redirect_to_https_is_told_to_core_and_waits_to_be_started_again() {
+        let mut p = flight("GET", "http://a.example/x", &KEYED, None, None, 0);
+        let mut told = None;
+        let outcome = followed(&mut p, redirect(301, "https://a.example/x"), |id| {
+            told = Some(id);
+            Ok(())
+        });
+        assert!(matches!(outcome, Outcome::Parked));
+        assert_eq!(
+            (told, p.parked, p.call.url.as_str()),
+            (Some(1), true, "https://a.example/x")
+        );
+        // Same host, the schemes' own ports: the same server, all headers.
+        assert_eq!(header_names(&p).len(), 5);
+        // Cancelled meanwhile: nothing more to do.
+        let mut p = flight("GET", "http://a.example/x", &[], None, None, 0);
+        let outcome = followed(&mut p, redirect(301, "https://a.example/x"), |_| {
+            Err(ERR_NOT_FOUND)
+        });
+        assert!(matches!(outcome, Outcome::Gone));
+    }
+
+    #[test]
+    fn the_final_address_and_an_ordinary_answer_are_kept() {
+        let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
+        assert!(matches!(
+            followed(&mut p, redirect(302, "/1"), no_upgrade),
+            Outcome::Send
+        ));
+        let Outcome::Done(done) = followed(&mut p, answer(200, b"ok"), no_upgrade) else {
+            panic!("not done");
+        };
+        assert_eq!(done.url.as_deref(), Some("https://a.example/1"));
+        // A 302 with no Location is an answer like any other.
+        let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
+        let Outcome::Done(done) = followed(&mut p, answer(302, b""), no_upgrade) else {
+            panic!("not done");
+        };
+        assert_eq!((done.status, done.url), (302, None));
+    }
+
+    #[test]
+    fn an_oversized_download_is_too_large_and_not_refused() {
+        let storage = MemoryStorage::new();
+        let p = pending(Some("a.pp-staged"), 4);
+        let cut = HttpResponse::failed(1, HttpError::Refused, "the answer is larger than 4 bytes");
+        let done = done_of(&cut, &p, &storage);
+        assert_eq!((done.status, done.reason), (0, HttpReason::TooLarge));
+        // Another refusal stays a refusal.
+        let other = HttpResponse::failed(1, HttpError::Refused, "too many redirects");
+        assert_eq!(done_of(&other, &p, &storage).reason, HttpReason::Refused);
+    }
+
+    #[test]
+    fn a_request_in_memory_runs_out_of_time_over_its_redirects() {
+        let mut p = pending(None, 0);
+        p.timeout_ms = 1;
+        p.started = Instant::now() - std::time::Duration::from_millis(50);
+        assert_eq!(p.time_left(), None);
+        let mut p = pending(Some("a"), 0);
+        p.timeout_ms = 1;
+        p.started = Instant::now() - std::time::Duration::from_millis(50);
+        assert_eq!(
+            p.time_left(),
+            Some(1),
+            "a file's time is by its bytes moving"
+        );
     }
 }

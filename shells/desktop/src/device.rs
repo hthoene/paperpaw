@@ -190,6 +190,10 @@ impl Storage for Card {
 /// they saved (e.g. reading progress).
 const SHUT_DOWN_WAIT: Duration = Duration::from_secs(5);
 
+/// How long each kind of request is looked at in turn while both are in
+/// flight ([`Device::poll_http`]).
+const MIXED_SLICE: Duration = Duration::from_millis(20);
+
 /// Adds plugins to the standard app, after its own: e.g. a plugin being
 /// written, for `paperpaw-dev` (see [`Device::with_plugins`]). Called
 /// again at each restart, as a device builds its kernel at each start.
@@ -247,6 +251,10 @@ pub struct Device {
     fixtures: bool,
     /// Online from each start, on USB ([`Device::set_wifi_online`]).
     wifi_online: bool,
+    /// The emulated Wi-Fi was brought up for the native plugins' wanted
+    /// network (until none is wanted any more).
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    native_wifi_asked: bool,
     /// Interface-7 plugins the developer switch loaded from the card
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -394,6 +402,8 @@ impl Device {
             warnings: Vec::new(),
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
+            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+            native_wifi_asked: false,
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
             linked,
@@ -675,19 +685,34 @@ impl Device {
     /// Delivers HTTP answers that have arrived; with `wait`, waits that
     /// long for the requests still in flight.
     pub fn poll_http(&mut self, wait: Option<std::time::Duration>) {
-        self.poll_native_net(wait);
-        while let Some((id, received, total)) = self.http.next_progress() {
-            let now = self.now();
-            let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
-            self.execute(effects);
-        }
-        while self.http.in_flight > 0 {
-            let Some(response) = self.http.next(wait) else {
+        // One deadline for both kinds of request: where both are in flight,
+        // each is looked at in turn for a short slice, so that neither holds
+        // the other's answers up for the whole wait.
+        let end = wait.map(|wait| StdInstant::now() + wait);
+        loop {
+            let left = end.map(|end| end.saturating_duration_since(StdInstant::now()));
+            let mixed = self.native_in_flight() > 0 && self.http.in_flight > 0;
+            let slice = left.map(|left| if mixed { left.min(MIXED_SLICE) } else { left });
+            let before = self.native_in_flight();
+            self.poll_native_net(if mixed { None } else { slice });
+            let mut delivered = self.native_in_flight() < before;
+            while let Some((id, received, total)) = self.http.next_progress() {
+                let now = self.now();
+                let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
+                self.execute(effects);
+            }
+            while self.http.in_flight > 0 {
+                let Some(response) = self.http.next(slice) else {
+                    break;
+                };
+                delivered = true;
+                let now = self.now();
+                let effects = budget::track(|| self.kernel.http_response(now, response));
+                self.execute(effects);
+            }
+            if !mixed || delivered || left.is_none_or(|left| left <= MIXED_SLICE) {
                 break;
-            };
-            let now = self.now();
-            let effects = budget::track(|| self.kernel.http_response(now, response));
-            self.execute(effects);
+            }
         }
     }
 
@@ -695,6 +720,22 @@ impl Device {
     /// it take its turn.
     #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     fn poll_native_net(&mut self, wait: Option<std::time::Duration>) {
+        let wanted = self
+            .linked
+            .net
+            .borrow()
+            .as_ref()
+            .is_some_and(|net| net.transport.wanted());
+        // Where PaperPaw manages Wi-Fi and a request waits for a network, the
+        // emulated radio is brought up as `--wifi online` does (no network
+        // manager plugin is linked to do it on `event.network_wanted`).
+        if !wanted {
+            self.native_wifi_asked = false;
+        } else if !self.native_wifi_asked && self.profile.wifi && !self.wifi.is_online() {
+            self.native_wifi_asked = true;
+            let now = self.now();
+            self.go_online(now);
+        }
         let net = self.linked.net.borrow();
         if let Some(net) = net.as_ref() {
             net.transport.pump(&net.reports, wait);
@@ -799,18 +840,9 @@ impl Device {
             self.execute(effects);
         }
         let end = StdInstant::now() + SHUT_DOWN_WAIT;
-        // The native plugins' answers, for as long as they come.
-        while self.native_in_flight() > 0 && StdInstant::now() < end {
-            self.poll_native_net(Some(end.saturating_duration_since(StdInstant::now())));
-        }
-        while self.http.in_flight > 0 {
-            let left = end.saturating_duration_since(StdInstant::now());
-            let Some(response) = self.http.next(Some(left)).filter(|_| !left.is_zero()) else {
-                break;
-            };
-            let now = self.now();
-            let effects = budget::track(|| self.kernel.http_response(now, response));
-            self.execute(effects);
+        // Both kinds of answer, for as long as they come, to one deadline.
+        while (self.native_in_flight() > 0 || self.http.in_flight > 0) && StdInstant::now() < end {
+            self.poll_http(Some(end.saturating_duration_since(StdInstant::now())));
         }
     }
 
@@ -1259,6 +1291,43 @@ mod tests {
         // A card that cannot be opened: no store.
         let missing = Library::Dir(file.clone());
         assert!(linked_inputs(&missing, false).storage.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A wanted network brings the emulated Wi-Fi up once per demand: not
+    /// again while the demand lasts (the radio switched off since stays
+    /// off), and again for the next demand.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
+        use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (mut device, root) = device("wifi-demand");
+        let demand = |device: &Device, wanted| {
+            let net = device.linked.net.borrow();
+            net.as_ref().unwrap().transport.network_demand(wanted);
+        };
+        assert!(device.linked.net.borrow().is_some(), "core.net is wired");
+        assert!(device.profile.wifi && !device.wifi.is_online());
+        // Nothing wanted: the radio stays as it was.
+        device.poll_http(None);
+        assert!(!device.wifi.is_online());
+        demand(&device, true);
+        device.poll_http(None);
+        assert!(device.wifi.is_online(), "the demand brought it up");
+        // Off by the user while the demand lasts: not brought up again.
+        let now = device.now();
+        device.wifi.apply(WifiCommand::Off, now);
+        device.poll_http(None);
+        assert!(!device.wifi.is_online());
+        // Released, then wanted again: up again.
+        demand(&device, false);
+        device.poll_http(None);
+        demand(&device, true);
+        device.poll_http(None);
+        assert!(device.wifi.is_online());
         let _ = std::fs::remove_dir_all(root);
     }
 
