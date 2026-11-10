@@ -41,6 +41,11 @@ impl GuardState for RowsGuard<'_> {
         guard_owner(self.0)
     }
 
+    fn on_stack(&self, screen_instance: u32) -> bool {
+        let view: &dyn UiStackView = self.0;
+        (0..view.len()).any(|i| view.row(i).is_some_and(|r| r.instance == screen_instance))
+    }
+
     fn below_guard(&self, screen_instance: u32) -> bool {
         let view: &dyn UiStackView = self.0;
         let at =
@@ -109,13 +114,22 @@ impl crate::Kernel {
                 return false;
             }
         };
-        if ui.widget_input_allowed(&input, &RowsGuard(&self.shared.stack_rows))
-            && let Ok(InstanceState::Running(lease)) = instances.state(owner)
-        {
+        let allowed = ui.widget_input_allowed(&input, &RowsGuard(&self.shared.stack_rows));
+        let lease = match instances.state(owner) {
+            Ok(InstanceState::Running(lease)) if allowed => Some(lease),
+            _ => None,
+        };
+        // The tap leaves the queue before its callback runs, so it is tried
+        // once whatever the callback does (fails, traps, drops its own
+        // instance). A table in use leaves it for the next pass.
+        if ui.widget_input_delivered(&input).is_err() {
+            return false;
+        }
+        if let Some(lease) = lease {
             // A failing callback is not told again.
             let _ = self.native_input_call(owner, &lease, input.token, &record[..len]);
         }
-        ui.widget_input_delivered(&input).is_ok()
+        true
     }
 }
 

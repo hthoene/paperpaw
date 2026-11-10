@@ -29,6 +29,8 @@ const WHO: u64 = 700;
 type Seen = (u32, u32, u32, i32, i32, u32);
 
 struct Owner {
+    pool: Rc<HostResources>,
+    drops_own: Rc<Cell<bool>>,
     seen: Rc<RefCell<Vec<Seen>>>,
     fail: Rc<Cell<bool>>,
     staged: Rc<Cell<Option<i32>>>,
@@ -53,6 +55,15 @@ impl NativeInstance for Owner {
         self.seen
             .borrow_mut()
             .push((token, tap.instance, tap.target, tap.x, tap.y, tap.kind));
+        if self.drops_own.get() {
+            // It drops the very instance it was told of, inside the callback.
+            let ui = self.pool.hosts().ui().unwrap();
+            ui.widgets
+                .handles
+                .borrow_mut()
+                .drop_widget(WHO, tap.instance)
+                .unwrap();
+        }
         // The callback has its command stage: a command is accepted in it.
         let mut batch = [0; 64];
         let len = commands_encode(
@@ -97,6 +108,7 @@ struct World {
     key: u64,
     seen: Rc<RefCell<Vec<Seen>>>,
     fail: Rc<Cell<bool>>,
+    drops_own: Rc<Cell<bool>>,
     staged: Rc<Cell<Option<i32>>>,
 }
 
@@ -114,10 +126,22 @@ fn world(lease: bool) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
+    // WHO's screens 1, 2 and 5 are on the stack, nobody guards.
+    kernel
+        .shared
+        .stack_rows
+        .update([1, 2, 5].map(|instance| StackRow {
+            instance,
+            owner: WHO,
+            flags: 0,
+        }));
     let seen = Rc::new(RefCell::new(Vec::new()));
     let (fail, staged) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(None)));
+    let drops_own = Rc::new(Cell::new(false));
     let lease = lease.then(|| {
         NativeLease::try_new(Owner {
+            pool: Rc::clone(&pool),
+            drops_own: Rc::clone(&drops_own),
             seen: Rc::clone(&seen),
             fail: Rc::clone(&fail),
             staged: Rc::clone(&staged),
@@ -140,6 +164,7 @@ fn world(lease: bool) -> World {
         key,
         seen,
         fail,
+        drops_own,
         staged,
     }
 }
@@ -302,4 +327,33 @@ fn a_failing_callback_is_not_told_again() {
     assert_eq!(w.seen.borrow().len(), 1);
     assert!(!w.pump());
     assert_eq!(w.seen.borrow().len(), 1, "tried once");
+}
+
+#[test]
+fn a_callback_that_drops_its_own_instance_is_not_told_again() {
+    let mut w = world(true);
+    w.drops_own.set(true);
+    let a = w.made(5, false);
+    w.tap(a, 1);
+    assert!(!w.pump());
+    assert_eq!(w.seen.borrow().len(), 1);
+    assert!(!w.waiting());
+    assert!(!w.pump());
+    assert_eq!(w.seen.borrow().len(), 1, "tried once");
+}
+
+#[test]
+fn a_forwarding_screen_that_closed_meanwhile_gets_no_delivery_even_without_a_guard() {
+    let mut w = world(true);
+    let a = w.made(5, false);
+    w.tap(a, 1);
+    // Screen 5 is gone from the stack before the pump runs.
+    w.kernel.shared.stack_rows.update([StackRow {
+        instance: 1,
+        owner: WHO,
+        flags: 0,
+    }]);
+    assert!(!w.pump());
+    assert!(w.seen.borrow().is_empty());
+    assert!(!w.waiting());
 }

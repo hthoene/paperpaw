@@ -149,8 +149,10 @@ impl UiServices {
         let Ok(found) = handles.widget_of(input.who, input.instance) else {
             return false;
         };
-        !(guard.guard_plugin().is_some_and(|g| g != input.who)
-            && (found.private || guard.below_guard(found.screen)))
+        // The forwarding screen must still be on the stack, guard or none.
+        guard.on_stack(found.screen)
+            && !(guard.guard_plugin().is_some_and(|g| g != input.who)
+                && (found.private || guard.below_guard(found.screen)))
     }
 
     /// The next tap for `owner` whose instance is still made, as the
@@ -184,7 +186,7 @@ impl UiServices {
         Ok(Some((*input, length)))
     }
 
-    /// The first delivery attempt of `input` is over, whatever its outcome.
+    /// `input` leaves the queue: it is being delivered (once), or discarded.
     #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
     pub(crate) fn widget_input_delivered(&self, input: &PendingInput) -> Result<(), i32> {
         let mut inputs = self.widgets.inputs.try_borrow_mut().map_err(|_| ERR_BUSY)?;
