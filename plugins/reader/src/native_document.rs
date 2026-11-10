@@ -76,6 +76,11 @@ pub fn read_block(
                 cursor = BlockCursor::start();
                 fragments = 0;
             }
+            // Only the first ask of a block can mean the section has no further block.
+            Err(Error::NotFound) if fragments > 0 || restarts > 0 => {
+                assembler.restart();
+                return Err(Error::Invalid);
+            }
             Err(error) => {
                 assembler.restart();
                 return Err(error);
@@ -91,7 +96,20 @@ pub fn document_error(error: Error) -> DocumentError {
         Error::NoMemory => DocumentError::OutOfMemory,
         Error::Busy => DocumentError::NotReady,
         Error::Unsupported => DocumentError::UnsupportedFormat,
+        Error::Invalid | Error::NoSpace => DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
+            "a block of the document service",
+        )),
         _ => DocumentError::Other(0),
+    }
+}
+
+/// What the layout is given for the end of a read: a section's end
+/// (`NotFound` of a first ask) is no block, not an error.
+pub fn block_result(read: Result<Block, Error>) -> Result<Option<Block>, DocumentError> {
+    match read {
+        Ok(block) => Ok(Some(block)),
+        Err(Error::NotFound) => Ok(None),
+        Err(error) => Err(document_error(error)),
     }
 }
 
@@ -186,12 +204,7 @@ impl Document for HostDocument<'_> {
                 None => more.map(Next::More).ok_or(Error::Invalid),
             }
         });
-        match read {
-            Ok(block) => Ok(Some(block)),
-            // The section ends before a further block.
-            Err(Error::NotFound) => Ok(None),
-            Err(error) => Err(document_error(error)),
-        }
+        block_result(read)
     }
 }
 

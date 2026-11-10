@@ -170,3 +170,8 @@ relative to the data folder).
   the view turns into a notice. `Measure` is the seam: tests use a fake that counts the asks.
 - Gaps: no kerning, small capitals, superscripts, letter spacing, the book's own fonts or shaped (Arabic)
   text widths yet; the base size comes from the reader's settings in the view slice.
+- Review remarks (PR #972): `NotFound` ends a section only as the answer to the first ask of a block;
+  after a fragment or a restart it is `Invalid` (a malformed block), so a section is never cut short in
+  silence. The document's metadata (title, authors, language, direction) is not read into the adapter
+  yet (the facade has it): the layout does not need it. X4 measurement list: the two read buffers (4.3 KiB),
+  a block of over 100 KB (see the assembler's caps) and the frame of `read_block`.
