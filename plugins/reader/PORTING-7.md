@@ -321,3 +321,90 @@ relative to the data folder).
   the note use it). Out-of-memory in the frames of a selection leaves the rest of the frames out. **X4 list:**
   up to 2,048 words per page (~100 KB worst case), 16 KiB of copied text, two service buffers per open, and
   `line_boxes` is quadratic in the words (measure at activation).
+
+## Table of contents (native model, `native_toc.rs`)
+
+- Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
+  at most 500), the kept copy `headings.txt` (form of interface 6, valid while the book file keeps its
+  size), preferring the headings when the book's own table has at most one entry, the focus on the
+  chapter of a place, the scan's step past a block and the `section`/`offset` parameters. Allocation
+  is fallible and tested refused in turn.
+- **Not yet: the screen.** It needs the block and table-of-contents ops of `core.document` in the SDK
+  (Services, #2223), the storage for the kept copy, and the native reader entry (#954). Choosing an
+  entry goes back and goes to the place through `core.goto`'s successor, which is not declared yet.
+- Review remarks (PR #958), for the screen: the kept copy is read up to `MAX_KEPT` (80 KiB, as
+  500 headings of 120 characters need) and written only after a complete scan; a scan that ran out of
+  memory writes no mark; a refused write of the copy stays best effort. `kept_text` builds the whole
+  text in one `String` (about 70 KB at the limit): its size on the X4 is on the measurement list
+  (pieces through a sink if it does not fit).
+
+## The table-of-contents screen (view slice R6a, `native_toc_view.rs`)
+
+- The action `reader.show-toc` (menu, key) opens the screen `reader.toc` with a hand-over of the book
+  on show (`path`, `root`, `section`, `offset`). The screen opens the book itself (its own document, closed
+  with the screen), lists the book's own table (`core.document` op 7, at most 500 entries, titles cleaned
+  and cut as `native_toc::title_of`, indented by level down to the 4th), puts the focus on the chapter the
+  reader is in (`current_of_table`, exact targets by op 8 where the host's place is approximate) and says
+  `reader.no-toc` / `reader.preparing` / `reader.error` where there is nothing to list.
+- A choice (tap, press) goes to the entry's exact place in the reading screen below (`View::go_to`: the
+  page left is kept to turn back to; the place is written as a turn's and reported to the host when the
+  reading screen is shown again, as the host drops the report of a screen below the top) and closes the
+  screen. Both screens are this plugin's, so no hand-over carries the place back.
+- **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
+  (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
+  chapter of the page for the status line and the report, next/previous chapter actions, and the
+  skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
+  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
+  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
+  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
+  `read_handover` error is "no book".
+
+## The font, justify and chapter actions (view slice R3a, `native_actions.rs`)
+
+- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-40 (the
+  setting's range; a font pack may allow less: the host fits it back; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
+  a native plugin cannot read: named). `reader.toggle-justify`. Both change the setting by command; the
+  page is laid out again by the setting-changed reflow (Port E, #1064), until it lands the change shows at
+  the next layout.
+- `reader.next-chapter` / `reader.prev-chapter`: the first chapter start at or after the page's end / the
+  last before its start, from the book's table (`core.document` op 7; starts in the page's section made
+  exact by op 8, as Beta 3). Goes as a turn (trail, place saved, reported); nothing happens where there is
+  no chapter. A book with no table has none (the headings scan is not ported: R6).
+- **Not yet:** go to page / percent (need a number dialog and the page index), the quick-settings panel
+  screen, book info, the status-line actions, the bookmark (annotations screen, R5).
+
+## Reflow (view slice R8a, Port E)
+
+- The page on show is laid out with a key (the reading settings and the display's width, height and density,
+  `LayoutKey`); each draw compares it with the current one and, when they differ, lays the page out again from
+  the place it starts at and forgets the trail of earlier pages (their starts belong to the old layout). A
+  turned screen is covered by this: it is another size.
+- `event.setting_changed` (token 8 in `declarations::events`; a host that does not admit it answers
+  `Unsupported` and the next draw's key check shows the change): a layout setting calls `View::reflow` (page
+  laid out again, the place reported to the host anew), an ink setting only `View::repaint`.
+- The layout settings are listed by id (`native_pages::affects_layout`: font size, line and word spacing,
+  margins, justify, `core.reading-font`, `core.hyphenate`, `core.hyphen-min-left/right`; an empty key, "read all
+  settings again", too); the ink settings are `core.font-weight`, `core.smooth-text` and the `core.text-*` ones.
+  `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
+  book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
+  out in the event callback.
+- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+
+## Lines under, over and through text, and table rules (view slice R8b, Port E)
+
+- `native_decor.rs`: after each run `draw_lines` draws what the run's `TextStyle` asks for, over the run's
+  whole width (its spaces too; Beta 3 decorated each word and the space between two words, so a run that
+  ends in a space has a line one space longer here), with the geometry of Beta 3's `ReadingFaces::decorate`: underline at `size / 10` (at least 1)
+  below the baseline, overline at 0.78 of the size above it, strike-through at 0.28; the thickness is
+  `size / 16` (at least 1); the line style is one line, two (the second as far below as it is thick), dotted
+  (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
+  line has at most 4,096 pieces. `Ink::fill` (a filled rectangle in the pen's colour, `canvas.fill_rect`) is the
+  one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
+- Differences: a run's colour is the page's (no per-run ink); lines of mixed direction are set in logical order
+  (the existing gap), so a line follows the run's place in that order.
+- X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
+  Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
+- **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
+  both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
+  `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).

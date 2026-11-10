@@ -6,6 +6,7 @@
 //! not ported yet (the place saved last time, progress, menus, selection,
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
+    native_actions,
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
     native_links::DocRef,
@@ -33,7 +34,7 @@ use paperpaw_sdk::{
         library::Library,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{HandoverId, Notify, Ui},
+        ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
     reading::WordBox,
 };
@@ -72,6 +73,15 @@ enum When {
     Closing,
 }
 
+/// The root as a hand-over writes it.
+const fn root_code(root: Root) -> &'static str {
+    match root {
+        Root::Data => "0",
+        Root::Handed => "5",
+        _ => "1",
+    }
+}
+
 /// An open book and the page on show.
 #[derive(Debug)]
 struct Open {
@@ -86,9 +96,14 @@ struct Open {
     words: Vec<WordBox>,
     /// What is chosen, looked up and followed on the page.
     marking: Marking,
+    /// What the page on show was laid out with: a change of the reading
+    /// settings or of the screen lays it out again.
+    laid: Option<LayoutKey>,
     trail: Trail,
     /// The book's path, for its saved place.
     path: String,
+    /// The root the book was opened on, as a hand-over writes it.
+    root: &'static str,
     /// The conversion the open document's places belong to.
     conversion: u64,
     /// The sections' lengths, for progress; none where the book has too many.
@@ -102,6 +117,8 @@ struct Open {
     unsaved: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
+    /// A jump from another screen is not yet reported to the host.
+    report_due: bool,
     /// The book's title as a report carries it.
     title: String,
     /// The book was reported read to the end.
@@ -118,15 +135,24 @@ pub struct View {
 
 /// The hand-over's values, as far as the screen reads them.
 #[derive(Debug, Default)]
-struct Handover {
-    path: String,
-    root: Option<String>,
-    section: Option<String>,
-    offset: Option<String>,
+pub(crate) struct Handover {
+    pub(crate) path: String,
+    pub(crate) root: Option<String>,
+    pub(crate) section: Option<String>,
+    pub(crate) offset: Option<String>,
     page: Option<String>,
 }
 
 impl Handover {
+    /// The root the book is opened on (the library's unless the hand-over says).
+    pub(crate) fn root(&self) -> Root {
+        match self.root.as_deref() {
+            Some("0") => Root::Data,
+            Some("5") => Root::Handed,
+            _ => Root::Library,
+        }
+    }
+
     fn get(&self, key: &str) -> Option<&str> {
         match key {
             native_open::SECTION => self.section.as_deref(),
@@ -137,7 +163,11 @@ impl Handover {
     }
 }
 
-fn read_handover(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<Handover, Error> {
+pub(crate) fn read_handover(
+    host: &Host<'_>,
+    ui: &Ui,
+    handover: HandoverId,
+) -> Result<Handover, Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut found = Handover::default();
     for param in ui.params(host, handover, &mut input, &mut out)? {
@@ -175,11 +205,7 @@ impl View {
             return Ok(Self::message("reader.no-book"));
         }
         let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-        let root = match found.root.as_deref() {
-            Some("0") => Root::Data,
-            Some("5") => Root::Handed,
-            _ => Root::Library,
-        };
+        let root = found.root();
         let book = OpenBook::new(&found.path).root(root).publisher_styles();
         let state = match docs.open_book(host, &book, &mut input, &mut out) {
             Ok(state) => (
@@ -244,7 +270,9 @@ impl View {
             page: None,
             words: Vec::new(),
             marking: Marking::new(),
+            laid: None,
             trail: Trail::new(),
+            root: root_code(root),
             path: found.path,
             conversion,
             progress,
@@ -252,6 +280,7 @@ impl View {
             saved_at: None,
             unsaved: false,
             turned: false,
+            report_due: false,
             said: false,
             title,
             finished: false,
@@ -313,6 +342,35 @@ impl View {
         }
     }
 
+    /// A reading setting changed (or the screen turned): the page on show is laid
+    /// out again at the next draw from the place it starts at, the trail of the
+    /// pages before it is forgotten (they are found anew), and the host is told
+    /// where the reader is on the page seen again (`announce`). A screen that
+    /// shows no book has nothing to lay out.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub fn reflow(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
+        if let Body::Open(open) = &mut self.body {
+            open.page = None;
+            open.laid = None;
+            open.trail.clear();
+            open.announce(host, docs);
+        }
+        redraw(host, RedrawMode::Full)
+    }
+
+    /// Only the way the text is inked changed: the page is drawn again.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub fn repaint(&self, host: &Host<'_>) -> Result<(), Error> {
+        match &self.body {
+            Body::Open(_) => redraw(host, RedrawMode::Full),
+            Body::Message(_) => Ok(()),
+        }
+    }
+
     /// Whether the last input turned the page (the quiet time is to be
     /// started again, as Beta 3 did on a turn only); asked once.
     pub fn take_turned(&mut self) -> bool {
@@ -328,6 +386,107 @@ impl View {
         if let Body::Open(open) = &mut self.body {
             open.save(host, library, When::Now);
         }
+    }
+
+    /// The actions besides the page turns: the font size, the justification
+    /// and the chapters; `None` for any other.
+    fn other_action(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        action: &str,
+    ) -> Result<Option<Handled>, Error> {
+        match action {
+            "reader.font-larger" => native_actions::font_step(host, 1)?,
+            "reader.font-smaller" => native_actions::font_step(host, -1)?,
+            "reader.toggle-justify" => native_actions::toggle_justify(host)?,
+            "reader.next-chapter" | "reader.prev-chapter" => {
+                if let Body::Open(open) = &mut self.body {
+                    open.step_chapter(host, (docs, library), action == "reader.next-chapter")?;
+                }
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(Handled::Yes))
+    }
+
+    /// Opens the table of contents of the book on show.
+    fn show_toc(&self, host: &Host<'_>, ui: &Ui) -> Result<Handled, Error> {
+        let Some(params) = self.toc_params() else {
+            return Ok(Handled::No);
+        };
+        let [(k0, v0), (k1, v1), (k2, v2), (k3, v3)] = &params;
+        let list = [
+            Param::new(k0, v0)?,
+            Param::new(k1, v1)?,
+            Param::new(k2, v2)?,
+            Param::new(k3, v3)?,
+        ];
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let handover = ui.handover(host, &list, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .open(NavOpen::screen("reader.toc")?.handover(handover))?;
+        Ok(Handled::Yes)
+    }
+
+    /// Goes to `place` (a jump from the table of contents): the page before is
+    /// kept to turn back to, the place is reported and written as any turn's.
+    ///
+    /// # Errors
+    /// `NoMemory`, and the host's refusal to redraw.
+    pub fn go_to(&mut self, place: (u32, u32)) -> Result<(), Error> {
+        let Body::Open(open) = &mut self.body else {
+            return Ok(());
+        };
+        if place.0 >= open.sections || place == open.at {
+            return Ok(());
+        }
+        open.trail.push(open.at)?;
+        open.at = place;
+        open.page = None;
+        open.unsaved = true;
+        open.turned = true;
+        // Told when this screen is shown again: the host drops the report of
+        // a screen that is not on top (`document.md` 2.4).
+        open.report_due = true;
+        Ok(())
+    }
+
+    /// This screen is on top again: a jump made from a screen above is told to
+    /// the host now.
+    pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body
+            && core::mem::take(&mut open.report_due)
+        {
+            open.announce(host, docs);
+        }
+    }
+
+    /// The id of the book's document, for a screen of this plugin that reads
+    /// it too.
+    #[must_use]
+    pub const fn doc_id(&self) -> Option<DocId> {
+        match &self.body {
+            Body::Open(open) => Some(open.id),
+            Body::Message(_) => None,
+        }
+    }
+
+    /// The hand-over params of the table of contents of this book: where the
+    /// book is and where the reader is in it. `None` where no book is open.
+    #[must_use]
+    pub fn toc_params(&self) -> Option<[(&'static str, String); 4]> {
+        let Body::Open(open) = &self.body else {
+            return None;
+        };
+        let place = |n: u32| text::copy(text::decimal_u64(u64::from(n), &mut [0; 20])).ok();
+        Some([
+            ("path", text::copy(&open.path).ok()?),
+            ("root", text::copy(open.root).ok()?),
+            ("section", place(open.at.0)?),
+            ("offset", place(open.at.1)?),
+        ])
     }
 
     /// Closes the document of the screen.
@@ -370,14 +529,27 @@ impl View {
     pub fn input(
         &mut self,
         host: &Host<'_>,
-        (docs, library): (&Documents, Option<&Library>),
-        ui: Option<&Ui>,
+        (docs, library, ui): (&Documents, Option<&Library>, &Ui),
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
+        if matches!(
+            input,
+            Input::Action {
+                action: "reader.show-toc",
+                ..
+            }
+        ) {
+            return self.show_toc(host, ui);
+        }
+        if let Input::Action { action, .. } = input
+            && let Some(handled) = self.other_action(host, (docs, library), action)?
+        {
+            return Ok(handled);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
-        let marked = open.mark(host, (docs, ui), input)?;
+        let marked = open.mark(host, (docs, Some(ui)), input)?;
         let choosing = matches!(marked, Outcome::Turn { .. });
         let moved = match marked {
             Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
@@ -434,6 +606,14 @@ impl View {
     }
 }
 
+/// What a page is laid out with: the reading settings and the display's size
+/// and density (a turned screen is another size).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LayoutKey {
+    reading: Reading,
+    display: (u16, u16, u16),
+}
+
 /// The text the screen reads its page from: reading settings and the display.
 struct Setup {
     reading: Reading,
@@ -471,6 +651,18 @@ impl Setup {
         })
     }
 
+    /// What a page laid out with this setup depends on.
+    fn key(&self) -> LayoutKey {
+        LayoutKey {
+            reading: self.reading,
+            display: (
+                self.display.display_width(),
+                self.display.display_height(),
+                self.display.display_dpi(),
+            ),
+        }
+    }
+
     /// The size of body text in pixels.
     fn base(&self) -> f32 {
         self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
@@ -478,6 +670,44 @@ impl Setup {
 }
 
 impl Open {
+    /// The start of the chapter after (`forward`) or before the page on show,
+    /// gone to as a turn goes; nothing happens where there is none.
+    fn step_chapter(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        forward: bool,
+    ) -> Result<(), Error> {
+        let from = if forward {
+            if self.page.is_none() {
+                let setup = Setup::read(host)?;
+                self.page = Some(self.lay(host, docs, &setup, self.at)?);
+            }
+            let Some(page) = &self.page else {
+                return Ok(());
+            };
+            (page.end.section, page.end.offset)
+        } else {
+            self.at
+        };
+        let Some(to) = native_actions::chapter(host, docs, self.id, from, forward)? else {
+            return Ok(());
+        };
+        if to == self.at || to.0 >= self.sections {
+            return Ok(());
+        }
+        self.trail.push(self.at)?;
+        self.at = to;
+        self.page = None;
+        self.unsaved = true;
+        self.turned = true;
+        self.save(host, library, When::Turn);
+        self.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        Ok(())
+    }
+
     /// Says once that the place could not be saved; after the screen closed
     /// the device's message (`announce`) carries it, as nothing else would.
     fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
@@ -545,7 +775,10 @@ impl Open {
         };
         if self.page.is_none() {
             match self.lay(host, docs, &setup, self.at) {
-                Ok(page) => self.page = Some(page),
+                Ok(page) => {
+                    self.page = Some(page);
+                    self.laid = Some(setup.key());
+                }
                 Err(_) => return,
             }
         }
@@ -768,10 +1001,19 @@ impl Open {
     ) -> Result<(), Error> {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
+        // A turned screen or a changed reading setting (the host may draw before
+        // the plugin is told): the page is laid out again, and the pages before
+        // it are found anew (their starts were those of another layout).
+        let key = setup.key();
+        if self.page.is_some() && self.laid != Some(key) {
+            self.page = None;
+            self.trail.clear();
+        }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
             self.page = Some(page);
             self.words = Vec::new();
+            self.laid = Some(key);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
@@ -798,6 +1040,11 @@ impl Open {
         .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
         self.marking.draw_overlay(host, &ctx, frame)
     }
+}
+
+fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).queue_redraw(mode)
 }
 
 /// What a layout's refusal is as a host error.

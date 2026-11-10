@@ -2,8 +2,8 @@
 //! setting (kind, range, default, flags, title, help, the part and step it is
 //! edited in), the screen and its instance policy, the actions, the place in
 //! the tools and the icons; and the host's rules accept or refuse them as they
-//! should. The headlines widget is declared later; its group and settings are
-//! left out of the comparison (they are in a group of their own).
+//! should. The headlines widget, its group and its fourteen settings are
+//! compared the same way (order and keys of Beta 3).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -44,13 +44,22 @@ fn the_decoded_batches_say_what_the_registration_says() {
     all.extend(batches(|d| declarations::settings(d).unwrap()));
     all.extend(batches(|d| declarations::screens(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::widgets(d).unwrap()));
     let native = declared::native("news", &all);
     let old = declared::legacy("news", "core.group.library", legacy());
-    assert!(native.groups.is_empty());
-    assert_eq!(native.specs.len(), 1);
-    assert_eq!(native.specs, old.specs);
-    assert_eq!(native.extras, old.extras);
-    assert_eq!(native.extras.len(), 1);
+    // The widget's group and its fourteen settings, after the one in the library's.
+    let widget = declared::legacy("news", "news.widget.headlines", legacy());
+    assert_eq!(native.groups, widget.groups);
+    assert_eq!(
+        native.groups,
+        ["widget.headlines|news.widget.headlines|0||"]
+    );
+    assert_eq!(old.specs.len(), 1);
+    assert_eq!(widget.specs.len(), 14);
+    assert_eq!(native.specs, [old.specs.clone(), widget.specs].concat());
+    // Paper and ink keep colours their choices lack (the widget's extras).
+    assert_eq!(native.extras, [old.extras.clone(), widget.extras].concat());
+    assert_eq!(native.extras.len(), 3);
     assert!(native.extras[0].contains("news.plugin.name"));
     assert_eq!(native.screens, old.screens);
     assert_eq!(native.actions, old.actions);
@@ -58,7 +67,8 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.menu_entries, ["core.tools|news.open|44"]);
     assert_eq!(native.icons, old.icons);
     assert_eq!(native.icons.len(), 2);
-    assert!(native.others.is_empty(), "{:?}", native.others);
+    // The widget record is the one the comparison does not read.
+    assert_eq!(native.others, ["WidgetSpec"]);
 }
 
 /// The list opens one at a time: the decoded `screen.spec` flags (bits 6 and

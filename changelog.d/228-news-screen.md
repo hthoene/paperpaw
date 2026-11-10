@@ -1,0 +1,3 @@
+### Added
+
+- **News on interface 7: the list of feeds and the library** (#228). The feeds are listed on a screen of their own (*Fetch the news*, the feeds, *Add a feed*): a tap opens a feed's book or fetches a feed that has none, a hold offers to open, fetch or remove it, and the address of a new feed is typed on the keyboard. A fetched feed is put in the library as a book in the folder *News* with the library's own import. The headlines widget and the removal of the interface-6 News follow. After an update from Beta 3 each feed is fetched once more and its new book is saved beside the old one (the old book was not imported by this plugin), which may be deleted by hand.

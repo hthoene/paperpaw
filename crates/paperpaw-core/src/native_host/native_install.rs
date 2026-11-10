@@ -102,9 +102,10 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // An input of the plugin's own and a help hint stay in the declaration
         // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
         Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
-        // A format and a reading app stay in the declaration store too
-        // (`document.md` section 1); the document service reads them there.
-        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
+        // A format, a reading app and a lookup provider stay in the
+        // declaration store too (`document.md` sections 1 and 7); the
+        // document and lookup services read them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) | Record::LookupSpec(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -288,6 +289,12 @@ impl crate::Kernel {
             // With `uses.network` its network settings and policy (never a
             // refusal: a failure warns).
             self.admit_native_network(&owner, networked);
+            // What a power cut left of it in the services is cleaned up: only
+            // for a plugin that can use them (`uses.network` covers `core.net`
+            // and the sockets), so a plain plugin's start costs no card lookup.
+            if networked {
+                self.native_services_owner_started(key);
+            }
         }
         result
     }

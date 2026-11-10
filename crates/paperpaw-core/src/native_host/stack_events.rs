@@ -35,6 +35,9 @@ impl crate::Kernel {
     /// Tells the plugins that subscribed to `event.stack_changed` that the
     /// stack changed, a few a pass, outside any callback. `true` when a
     /// plugin still waits (another pass).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_stack_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() > 0 {
             return self.stack_changed_waits();

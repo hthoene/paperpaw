@@ -29,10 +29,11 @@
 //!
 //! Until the owner freezes it, an interface is a draft (`native::DRAFT`,
 //! `draft` in `interface.txt`): what plugins rely on may then change
-//! without a new interface, but only with the next draft, which is in the
-//! fingerprint, so builds of an earlier draft are refused. Freezing deletes
-//! `native::DRAFT` and the line (this test then takes 0, frozen), and from
-//! then on only a raise changes what plugins rely on.
+//! without a new interface and without a new draft (one interface 7
+//! until 1.0, owner decision 2026-11-10): the pull request that changes
+//! it carries the files the bless writes. Freezing deletes `native::DRAFT`
+//! and the line (this test then takes 0, frozen), and from then on only a
+//! raise changes what plugins rely on.
 
 #![allow(
     clippy::unwrap_used,
@@ -209,11 +210,10 @@ fn bless_refused(
         return None;
     }
     if interface == kept_interface && kept_draft != 0 {
-        return Some(format!(
-            "what plugins see changed at draft {kept_draft} of interface {interface}: take the \
-             next draft first (native::DRAFT {}), or 0 to freeze",
-            kept_draft + 1
-        ));
+        // One interface 7 until 1.0 (owner, 2026-11-10): nobody runs a
+        // plugin built against it outside this tree, so any change is
+        // blessed at the draft kept; the PR carries the files it writes.
+        return None;
     }
     if interface <= kept_interface {
         return Some(format!(

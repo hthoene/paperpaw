@@ -36,7 +36,7 @@ There is no alignment padding.
 | 46 | 1 | Charging Boolean |
 | 47 | 1 | Battery saver Boolean |
 | 48 | 1 | Touch input Boolean |
-| 49 | 2 | UTC offset in minutes, signed (draft 29) |
+| 49 | 2 | UTC offset in minutes, signed |
 | 51 | 1 | Reserved, zero |
 
 Presence bits are battery `1`, voltage `2`, Unix time `4` and UTC offset `8`.

@@ -44,8 +44,10 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
     reason = "the build script and the declaration test also use the builders"
 )]
 pub mod declarations;
+pub mod native_actions;
 pub mod native_aloud;
 pub mod native_block;
+pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
@@ -64,6 +66,8 @@ pub mod native_selection;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
+pub mod native_toc;
+pub mod native_toc_view;
 pub mod native_typeset;
 pub mod native_view;
 pub mod native_wordbox;
