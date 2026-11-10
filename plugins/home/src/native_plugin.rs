@@ -199,7 +199,7 @@ impl Plugin for NativeHome {
         match self.screens.top(token).ok_or(Error::State)? {
             Slot::Items(editor) => editor.view.draw(host, &mut frame),
             Slot::Dashboard(dashboard) => dashboard.draw(host, ui, &mut frame),
-            Slot::Add(add) => add.draw(host, &mut frame),
+            Slot::Add(add) => add.draw(host, ui, &mut frame),
             Slot::Drawer(drawer) => drawer.draw(host, &mut frame),
         }
     }

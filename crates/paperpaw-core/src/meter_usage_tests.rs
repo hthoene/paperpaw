@@ -108,3 +108,22 @@ fn awake_reason_caps_preserve_utf8_and_exact_boundary_text() {
             .unwrap();
     }
 }
+
+#[test]
+fn a_scoped_entry_charges_the_inner_plugin_and_pauses_the_outer() {
+    let meter = Meter::new(None);
+    let _outer = meter.enter("caller");
+    {
+        let _inner = meter.enter_scoped("callee");
+        meter.io(5, 7);
+        assert_eq!(meter.running.borrow().len(), 2);
+    }
+    meter.io(1, 2);
+    let table = meter.table.borrow();
+    let row = |id: &str| table.iter().find(|p| p.plugin.as_str() == id).unwrap();
+    assert_eq!((row("callee").read, row("callee").written), (5, 7));
+    assert_eq!((row("caller").read, row("caller").written), (1, 2));
+    assert_eq!((row("callee").calls, row("caller").calls), (1, 1));
+    drop(table);
+    assert_eq!(meter.running.borrow().len(), 1, "the callee left");
+}

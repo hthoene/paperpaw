@@ -567,6 +567,7 @@ impl Kernel {
         self.output
             .commands
             .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
     /// Adds a font file of `plugin`, described by its header.
@@ -1086,6 +1087,8 @@ impl Kernel {
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        // What menus, bindings, slots, screens and the rest hold follows the set.
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     /// Releases memory reserved while plugins registered: on small devices
