@@ -392,11 +392,12 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 
   Order: outside `draw` (no canvas) is `ERR_STATE` first; then a stale handle `ERR_STATE`; then
   the arguments (`size`, `text`, `tone`, `flags`) `ERR_INVALID` or `ERR_UTF8`. Every check
-  happens before anything is drawn, and a refused call draws nothing. X4: the curve is read from
-  the call's arguments (16 bytes), so the slot allocates nothing beyond what `text.draw` does
-  (its glyph cache and shaping paths, as in interface 6), and the drawing is the same code as
-  interface 6's `draw_toned`, so the flash cost is the slot and its checks alone. Hosts answer
-  `ERR_UNSUPPORTED` until wired.
+  happens before anything is drawn, and the host works out the advance (and its error) before it
+  draws too, so a refused call draws nothing: unlike `text.draw`, slot 41 is atomic. X4: the
+  curve is read from the call's arguments (16 bytes), so the slot allocates nothing beyond what
+  `text.draw` does (its glyph cache and shaping paths, as in interface 6), and the drawing is the
+  same code as interface 6's `draw_toned`, so the flash cost is the slot and its checks alone.
+  Hosts answer `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).
