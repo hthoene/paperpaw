@@ -58,6 +58,12 @@ pub enum Problem {
     TooManyFormats,
     /// As above for reading apps (problem 15).
     TooManyReaders,
+    /// As above for book fields (problem 16: 8 a plugin, 64 on the device).
+    TooManyFields,
+    /// As above for book badges (problem 17: 4 a plugin, 16 on the device).
+    TooManyBadges,
+    /// As above for lookup providers (problem 18: 8 a plugin, 32 on the device).
+    TooManyProviders,
     /// A number this plugin does not know.
     Other,
 }
@@ -82,6 +88,9 @@ impl Problem {
             12 => Self::Revoked,
             14 => Self::TooManyFormats,
             15 => Self::TooManyReaders,
+            16 => Self::TooManyFields,
+            17 => Self::TooManyBadges,
+            18 => Self::TooManyProviders,
             _ => Self::Other,
         })
     }
@@ -108,6 +117,9 @@ impl Problem {
             Self::Revoked => "plugin-manager.code.revoked",
             Self::TooManyFormats => "plugin-manager.formats.too-many",
             Self::TooManyReaders => "plugin-manager.readers.too-many",
+            Self::TooManyFields => "plugin-manager.fields.too-many",
+            Self::TooManyBadges => "plugin-manager.badges.too-many",
+            Self::TooManyProviders => "plugin-manager.providers.too-many",
             Self::Other => "plugin-manager.failed",
         }
     }
@@ -207,15 +219,23 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
         };
         match problem {
             // The limit the batch ran into, where the host says it.
-            Problem::TooManyFormats | Problem::TooManyReaders if row.problem_arg != 0 => {
+            Problem::TooManyFormats
+            | Problem::TooManyReaders
+            | Problem::TooManyFields
+            | Problem::TooManyBadges
+            | Problem::TooManyProviders
+                if row.problem_arg != 0 =>
+            {
                 let mut digits = [0u8; 20];
                 let cap = decimal(row.problem_arg as usize, &mut digits);
                 Some(say.say_with(key, "cap", cap)?)
             }
             // No limit said: the text would have a hole where it stands.
-            Problem::TooManyFormats | Problem::TooManyReaders => {
-                Some(say.say("plugin-manager.failed")?)
-            }
+            Problem::TooManyFormats
+            | Problem::TooManyReaders
+            | Problem::TooManyFields
+            | Problem::TooManyBadges
+            | Problem::TooManyProviders => Some(say.say("plugin-manager.failed")?),
             _ => Some(say.say(key)?),
         }
     } else if row.id == SELF_ID && !row.required() {
@@ -413,10 +433,14 @@ mod tests {
         for (at, problem) in order.into_iter().enumerate() {
             assert_eq!(Problem::from_wire(at as u32 + 1), Some(problem));
         }
-        // 13 is not named; 14 and 15 are the caps of formats and readers.
+        // 13 is not named; 14 to 18 are the caps of formats, readers, fields,
+        // badges and lookup providers.
         assert_eq!(Problem::from_wire(13), Some(Problem::Other));
         assert_eq!(Problem::from_wire(14), Some(Problem::TooManyFormats));
         assert_eq!(Problem::from_wire(15), Some(Problem::TooManyReaders));
+        assert_eq!(Problem::from_wire(16), Some(Problem::TooManyFields));
+        assert_eq!(Problem::from_wire(17), Some(Problem::TooManyBadges));
+        assert_eq!(Problem::from_wire(18), Some(Problem::TooManyProviders));
         assert_eq!(Problem::from_wire(99), Some(Problem::Other));
         assert_eq!(Problem::Other.key(), "plugin-manager.failed");
     }
@@ -538,6 +562,40 @@ mod tests {
             ..formats.clone()
         };
         assert!(note_of(&readers, "d").starts_with("plugin-manager.readers.too-many[cap=16] d"));
+        for (problem, arg, key) in [
+            (
+                Problem::TooManyFields,
+                64,
+                "plugin-manager.fields.too-many[cap=64] d",
+            ),
+            (
+                Problem::TooManyBadges,
+                4,
+                "plugin-manager.badges.too-many[cap=4] d",
+            ),
+            (
+                Problem::TooManyProviders,
+                32,
+                "plugin-manager.providers.too-many[cap=32] d",
+            ),
+        ] {
+            let capped = PluginRow {
+                problem: Some(problem),
+                problem_arg: arg,
+                ..formats.clone()
+            };
+            assert!(
+                note_of(&capped, "d").starts_with(key),
+                "{}",
+                note_of(&capped, "d")
+            );
+            // No limit from the host: the plain "could not be loaded".
+            let bare = PluginRow {
+                problem_arg: 0,
+                ..capped
+            };
+            assert!(note_of(&bare, "d").starts_with("plugin-manager.failed d"));
+        }
         // Without a limit from the host the words would have a hole: the
         // plain "could not be loaded" is said.
         let bare = PluginRow {
