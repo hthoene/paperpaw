@@ -268,6 +268,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDocPath(_)
         | Record::ServiceDocReader(_)
         | Record::ServiceDocProgress(_)
+        | Record::ServiceDocReport(_)
         | Record::ServiceDocBlock(_)
         | Record::ServiceDocTextPart(_)
         | Record::ServiceDocColumns(_)
