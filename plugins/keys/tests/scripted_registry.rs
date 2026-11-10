@@ -1,6 +1,7 @@
 //! The registry-change event (75) over the scripted host: with no screen open
-//! the plugin has nothing to refresh and stages nothing; with its list screen
-//! open it rebuilds the rows from the registry and queues a redraw.
+//! the plugin has nothing to refresh and reads nothing; with its screen open it
+//! reads the rows from the registry again. The redraw it then queues is a screen
+//! command that the scripted host cannot take (no screen stack, BLOCKED H1).
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_core::native_host::registrations::{EventRegistryChanged, EventScreenOpened, Record};
