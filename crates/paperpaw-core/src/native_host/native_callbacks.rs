@@ -90,6 +90,7 @@ impl CallbackRuntime {
             state,
             epoch,
             ending: None,
+            failed: Cell::new(false),
         })
     }
 
@@ -105,8 +106,15 @@ pub(crate) struct NativeCallbackEpoch {
     epoch: u64,
     /// The pool and plugin whose status handles end with this callback.
     ending: Option<(super::resources::OwnerResourceView, u64)>,
+    /// Whether the callback returned a failure (what it asked never starts).
+    failed: Cell<bool>,
 }
 impl NativeCallbackEpoch {
+    /// The callback returned a failure status.
+    pub(crate) fn set_failed(&self) {
+        self.failed.set(true);
+    }
+
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -132,6 +140,9 @@ impl Drop for NativeCallbackEpoch {
             // next grant, which drops its earlier callbacks', and to its
             // stop; none outlives its callback in a lookup (epoch check).
             ui.callback_ended(plugin, self.epoch).ok();
+            if self.failed.get() {
+                ui.callback_failed(plugin, self.epoch).ok();
+            }
         }
     }
 }

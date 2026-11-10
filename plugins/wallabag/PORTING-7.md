@@ -93,8 +93,8 @@ Deliberately different from interface 6:
 - Host acceptance: the plugin through the production loader needs the activation (#944, #417) and the
   shells' production `core.net` and storage wiring (Files/Firmware); no acceptance case passes by itself.
 - The set-up screen on the production host (H1, H2) and the keyboard slot, as before.
-- Not measured: the X4 file size (`tools/plugin-files7`, no `complete.txt` entry before it is) and peak
-  memory of a fetch.
+- The X4 file (`tools/plugin-files7`, listed in `complete.txt`): `wallabag-1.0.7-x4.ppn` is 148,152 B
+  (117,356 code, 26,384 data). Not measured: the peak memory of a fetch.
 
 ## The fetch for a rule: declared work
 

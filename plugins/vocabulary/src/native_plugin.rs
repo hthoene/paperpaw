@@ -24,7 +24,7 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN,
-    TICK_TOKEN, WORDS_TOKEN, WORK_TOKEN,
+    TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{DecksView, Numbers};
@@ -55,7 +55,12 @@ pub struct NativeVocabulary {
 
 impl Plugin for NativeVocabulary {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SETTINGS.iter().chain(image::EVENTS).chain(image::UI) {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::EVENTS)
+            .chain(image::STAGES)
+            .chain(image::UI)
+        {
             registrations::submit(host, batch)?;
         }
         // The services are opened by the first callback: opening needs a live frame.
@@ -69,7 +74,7 @@ impl Plugin for NativeVocabulary {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -80,6 +85,11 @@ impl Plugin for NativeVocabulary {
             }
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
+            Event::StageCall {
+                stage: WORD_STAGE,
+                payload,
+                ..
+            } if token == WORD_TOKEN => self.word_looked_up(host, payload),
             Event::ActionRun {
                 action: "vocabulary.flash-cards",
                 ..
@@ -372,6 +382,31 @@ impl NativeVocabulary {
         } else {
             self.reviews.shown(token, instance)
         }
+    }
+
+    /// A word was looked up: kept as the settings say; where it cannot be, the
+    /// reader is told (the call itself is answered: there is nothing to reply).
+    fn word_looked_up(&mut self, host: &Host<'_>, payload: &[u8]) -> Result<(), Error> {
+        use crate::stages_subscribed::reader_word_looked_up_v1::WordLooked;
+        let looked = WordLooked::decode(payload).map_err(|_| Error::Invalid)?;
+        let mut scratch = [0u8; 64];
+        let mut on = |key: &str, default: bool| match paperpaw_sdk::native::settings::read_setting(
+            host,
+            key,
+            &mut scratch,
+        )? {
+            paperpaw_sdk::native::settings::SettingValue::Bool(value) => Ok::<bool, Error>(value),
+            _ => Ok(default),
+        };
+        let collect = on("vocabulary.collect", true)?;
+        let from_lookups = on("vocabulary.cards-from-lookups", false)?;
+        let data = DataStorage::new(host);
+        if crate::native_collect::keep(&DataFolder(&data), collect, from_lookups, &looked).is_err()
+        {
+            let said = HostWords::new(host)?.copy("vocabulary.save-failed")?;
+            CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
+        }
+        Ok(())
     }
 
     /// The minute tick: a card answered *Again* may be due in the review.

@@ -82,7 +82,8 @@ impl crate::Kernel {
                 CALLBACK_COMMANDS,
                 CALLBACK_COMMAND_BYTES,
             )
-            .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining());
+            .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
+            .with_widgets(instances.ui_services(), owner);
             stage.set_images_held(self.image_held(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
@@ -90,16 +91,32 @@ impl crate::Kernel {
                     .work_services()
                     .is_some_and(|work| work.sched.quiet(owner)),
             );
-            let status = lease.service_event_staged(bytes, &env, &mut stage);
+            let mut status = lease.service_event_staged(bytes, &env, &mut stage);
             let staged = if matches!(status, Ok(0 | 1)) {
                 let images = stage.take_image_commands();
-                let (commands, redraw, _hop) = stage.into_ui_output();
-                (!commands.is_empty() || redraw.is_some() || !images.is_empty()).then_some(Staged {
-                    owner,
-                    commands,
-                    redraw,
-                    images,
-                })
+                // The widgets it said changed; their makers hear of it from
+                // the pump. The table is not held across a callback, so a
+                // failed borrow is a host fault: the callback fails
+                // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
+                let widgets = stage.take_widget_changes();
+                let marked = match instances.ui_services() {
+                    Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
+                    _ => Ok(()),
+                };
+                if let Err(error) = marked {
+                    status = Err(error);
+                    None
+                } else {
+                    let (commands, redraw, _hop) = stage.into_ui_output();
+                    (!commands.is_empty() || redraw.is_some() || !images.is_empty()).then_some(
+                        Staged {
+                            owner,
+                            commands,
+                            redraw,
+                            images,
+                        },
+                    )
+                }
             } else {
                 // An error drops the whole batch with the stage.
                 None
