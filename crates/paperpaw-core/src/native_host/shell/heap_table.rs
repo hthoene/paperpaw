@@ -7,11 +7,13 @@
 //! from the frame owner ([`frame_owner`]), whose context the table entries of
 //! the shell's services type `S` read back.
 
-use super::{Context, Services, with_shell};
+use super::{Context, Services};
 use crate::native_host::frame_owner;
+use crate::native_host::plugin_heap::Charged;
 use core::ffi::c_void;
 use core::ptr;
 use paperpaw_native::host_glue::{self, MAJOR, MINOR, OK, PpHeap};
+use paperpaw_native::host_glue::{ERR_INVALID, ShellCtx};
 
 impl<S> Context<S> {
     /// Runs `call`, which enters the code of this plugin (`make`, its
@@ -72,6 +74,31 @@ fn frame_context<S: Services>() -> Option<*mut c_void> {
         .map(|context| context.cast_mut())
 }
 
+/// Runs `call` with a [`ShellCtx`] over the shell's allocator as the plugin
+/// heap has it: owners and a budget ([`Charged`]), charging the plugin whose
+/// context `ctx` is. Both doors of the heap come through here.
+///
+/// # Safety
+///
+/// `ctx` is null or a live, pinned `Context<S>`.
+pub(super) unsafe fn with_heap<S: Services>(
+    ctx: *mut c_void,
+    call: impl FnOnce(*mut c_void) -> i32,
+) -> i32 {
+    // SAFETY: as documented.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return ERR_INVALID;
+    };
+    let (state, owner) = context.resources.heap();
+    let charged = Charged {
+        inner: &context.services,
+        state,
+        owner,
+    };
+    let mut shell = ShellCtx::new(&charged);
+    call(ptr::from_mut(&mut shell).cast())
+}
+
 /// `alloc`: null outside a frame, and for every refusal of the shared heap
 /// (a zero size, a bad alignment, no room).
 unsafe extern "C" fn alloc<S: Services>(size: usize, align: usize) -> *mut c_void {
@@ -82,7 +109,7 @@ unsafe extern "C" fn alloc<S: Services>(size: usize, align: usize) -> *mut c_voi
     // SAFETY: `ctx` is the pinned `Context<S>` of the plugin whose code runs
     // (pushed by `run_plugin`); `block` is writable.
     let status = unsafe {
-        with_shell::<S>(ctx, |shell| {
+        with_heap::<S>(ctx, |shell| {
             host_glue::heap_alloc(shell, size, align, &raw mut block)
         })
     };
@@ -102,7 +129,7 @@ unsafe extern "C" fn dealloc<S: Services>(block: *mut c_void, size: usize, align
     // SAFETY: as `alloc`; the block is this heap's with this size and
     // alignment (the plugin's contract, section 3).
     let _ = unsafe {
-        with_shell::<S>(ctx, |shell| {
+        with_heap::<S>(ctx, |shell| {
             host_glue::heap_dealloc(shell, block, size, align)
         })
     };
@@ -121,7 +148,7 @@ unsafe extern "C" fn realloc<S: Services>(
     let mut moved = ptr::null_mut();
     // SAFETY: as `alloc` and `dealloc`.
     let status = unsafe {
-        with_shell::<S>(ctx, |shell| {
+        with_heap::<S>(ctx, |shell| {
             host_glue::heap_realloc(shell, block, old_size, align, new_size, &raw mut moved)
         })
     };

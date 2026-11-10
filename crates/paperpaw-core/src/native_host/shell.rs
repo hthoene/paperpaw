@@ -691,7 +691,9 @@ unsafe extern "C" fn heap_alloc<S: Services>(
     out: *mut *mut c_void,
 ) -> i32 {
     // SAFETY: typed context and the generated heap.alloc pointer contract.
-    unsafe { with_shell::<S>(ctx, |shell| host_glue::heap_alloc(shell, size, align, out)) }
+    unsafe {
+        heap_table::with_heap::<S>(ctx, |shell| host_glue::heap_alloc(shell, size, align, out))
+    }
 }
 
 unsafe extern "C" fn heap_dealloc<S: Services>(
@@ -702,7 +704,7 @@ unsafe extern "C" fn heap_dealloc<S: Services>(
 ) -> i32 {
     // SAFETY: typed context and the generated heap.dealloc allocation contract.
     unsafe {
-        with_shell::<S>(ctx, |shell| {
+        heap_table::with_heap::<S>(ctx, |shell| {
             host_glue::heap_dealloc(shell, block, size, align)
         })
     }
@@ -718,7 +720,7 @@ unsafe extern "C" fn heap_realloc<S: Services>(
 ) -> i32 {
     // SAFETY: typed context and the generated heap.realloc allocation contract.
     unsafe {
-        with_shell::<S>(ctx, |shell| {
+        heap_table::with_heap::<S>(ctx, |shell| {
             host_glue::heap_realloc(shell, block, old_size, align, new_size, out)
         })
     }
