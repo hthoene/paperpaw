@@ -20,9 +20,9 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{icons, mem::buffer, paint, text::copy, widget::Cx};
 
-use crate::declarations::{CARD, CLOCK, DATE, SHELF};
+use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
 use crate::native_recent::{self, Known, Pictures};
-use crate::{native_card, native_clock, native_date, native_shelf};
+use crate::{native_card, native_clock, native_date, native_shelf, native_status};
 
 /// The most bytes of a stage reply (sizes and no targets).
 const REPLY: usize = 256;
@@ -42,6 +42,8 @@ struct Item {
     waiting: Cell<bool>,
     /// The books of the card or the shelf whose files the host found gone.
     known: Known,
+    /// Where the screen last placed it, for a tap on one of its items.
+    placed: Cell<Option<Rect>>,
 }
 
 /// The instances the screens made of the widgets.
@@ -58,6 +60,7 @@ fn token_of(widget: &str) -> Option<u32> {
         "home.clock" => Some(CLOCK),
         "home.continue" => Some(CARD),
         "home.recent" => Some(SHELF),
+        "home.status" => Some(STATUS_WIDGET),
         _ => None,
     }
 }
@@ -81,6 +84,7 @@ impl Widgets {
             shown: None,
             waiting: Cell::new(false),
             known: Known::default(),
+            placed: Cell::new(None),
         });
         Ok(())
     }
@@ -106,6 +110,7 @@ impl Widgets {
     pub fn stage(
         &self,
         host: &Host<'_>,
+        ui: &Ui,
         payload: &[u8],
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
@@ -120,18 +125,29 @@ impl Widgets {
                     DATE => same(native_date::height(&mut cx, width)?),
                     CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
                     SHELF => native_shelf::height(&cx, &item.known, width)?,
+                    STATUS_WIDGET => same(native_status::height(&cx)?),
                     _ => same(native_clock::height(&mut cx, width)?),
                 };
                 call.reply_size(u32::from(height), u32::from(least), &mut out)?
             }
-            WidgetCall::Place { instance, .. } => {
-                self.find(instance.get()).ok_or(Error::NotFound)?;
+            WidgetCall::Place { instance, rect } => {
+                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                item.placed.set(Some(to_rect(rect)));
                 call.reply_place(&mut out)?
             }
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                item.placed.set(Some(to_rect(rect)));
                 let mut found: Vec<WidgetTarget> = Vec::new();
                 match item.token {
+                    STATUS_WIDGET => {
+                        let cx = Cx::open(host, &item.widget)?;
+                        let inner = cx.shape.look(to_rect(rect)).area;
+                        for (id, at) in native_status::targets(&cx, ui, inner)? {
+                            let target = WidgetTarget::new(id, paint::frame_rect(at));
+                            paperpaw_ui_kit::mem::push(&mut found, target)?;
+                        }
+                    }
                     CARD => paperpaw_ui_kit::mem::push(
                         &mut found,
                         WidgetTarget::new(native_card::TARGET, rect),
@@ -164,19 +180,16 @@ impl Widgets {
     /// # Errors
     /// [`Error::NotFound`] for an instance that is not ours here; font and host
     /// refusals, [`Error::NoMemory`].
-    pub fn draw(&self, host: &Host<'_>, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+    pub fn draw(&self, host: &Host<'_>, ui: &Ui, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
         let item = self.find(frame.id).ok_or(Error::NotFound)?;
+        let area = to_rect(frame.rect);
+        if item.token == STATUS_WIDGET {
+            return native_status::draw_widget(host, ui, &mut frame, &item.widget, area);
+        }
         let mut cx = Cx::open(host, &item.widget)?;
-        let clamp = paperpaw_ui_kit::geometry::clamp_u16;
-        let area = Rect::new(
-            clamp(i64::from(frame.rect.x)),
-            clamp(i64::from(frame.rect.y)),
-            clamp(i64::from(frame.rect.width)),
-            clamp(i64::from(frame.rect.height)),
-        );
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
         let icons = if item.token == CARD {
@@ -237,6 +250,9 @@ impl Widgets {
         if kind != WidgetInputKind::Tap || target == 0 {
             return Ok(false);
         }
+        if item.token == STATUS_WIDGET {
+            return status_tap(host, ui, item, target);
+        }
         let book = match item.token {
             CARD => native_recent::read(host, &item.known, 0, 1)?
                 .into_iter()
@@ -261,7 +277,7 @@ impl Widgets {
     /// The minute came: tells the makers whose widget shows something new since
     /// the last minute. A widget that fails (its time or its command) is left for
     /// the next tick and costs the others nothing.
-    pub fn tick(&mut self, host: &Host<'_>) {
+    pub fn tick(&mut self, host: &Host<'_>, ui: &Ui) {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
@@ -269,6 +285,9 @@ impl Widgets {
                 DATE => native_date::shows(host),
                 CARD => native_card::shows(host),
                 SHELF => native_shelf::shows(host, &item.widget),
+                STATUS_WIDGET => {
+                    Cx::open(host, &item.widget).and_then(|cx| native_status::shows(&cx, ui))
+                }
                 _ => native_clock::shows(host),
             };
             let Ok(now) = now else {
@@ -318,4 +337,30 @@ fn open_book(host: &Host<'_>, ui: &Ui, book: &native_recent::Book) -> Result<(),
     let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
     CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+}
+
+/// The widget rectangle the host gave, as the kit's.
+fn to_rect(rect: paperpaw_sdk::native::callbacks::FrameRect) -> Rect {
+    let clamp = paperpaw_ui_kit::geometry::clamp_u16;
+    Rect::new(
+        clamp(i64::from(rect.x)),
+        clamp(i64::from(rect.y)),
+        clamp(i64::from(rect.width)),
+        clamp(i64::from(rect.height)),
+    )
+}
+
+/// A tap on an item of the status line that has an action of its owner's: run it.
+fn status_tap(host: &Host<'_>, ui: &Ui, item: &Item, target: u32) -> Result<bool, Error> {
+    let Some(place) = item.placed.get() else {
+        return Ok(false);
+    };
+    let cx = Cx::open(host, &item.widget)?;
+    let inner = cx.shape.look(place).area;
+    let Some(action) = native_status::action(&cx, ui, inner, target)? else {
+        return Ok(false);
+    };
+    let mut scratch = [0; 256];
+    CommandSender::new(host, &mut scratch).run_action(&action)?;
+    Ok(true)
 }

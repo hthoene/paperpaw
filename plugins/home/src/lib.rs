@@ -70,6 +70,8 @@ pub mod native_recent;
 pub mod native_shelf;
 pub mod native_shown;
 pub mod native_source;
+pub mod native_status;
+pub mod native_status_layout;
 pub mod native_widgets;
 
 mod add;

@@ -11,6 +11,7 @@ const DATE: u32 = 20;
 const CLOCK: u32 = 21;
 const CARD: u32 = 22;
 const SHELF: u32 = 23;
+const STATUS: u32 = 24;
 
 fn made(widget: &str, instance: u32) -> Vec<u8> {
     event_batch(&Record::EventWidgetMade(EventWidgetMade {
@@ -44,6 +45,7 @@ fn the_widgets_are_declared_and_a_screens_widgets_come_and_go() {
         (CLOCK, "home.clock@home.page-2/1", 8),
         (CARD, "home.continue", 11),
         (SHELF, "home.recent@home.page-1/2", 12),
+        (STATUS, "home.status", 13),
         // Not one of its widgets: nothing is kept, nothing refused.
         (CLOCK, "other.widget", 9),
     ] {
@@ -51,7 +53,7 @@ fn the_widgets_are_declared_and_a_screens_widgets_come_and_go() {
         assert_eq!(done.status, 0, "{widget}");
         assert!(done.commands.is_empty(), "{widget}");
     }
-    for instance in [5, 6, 7, 8, 9, 10, 11, 12] {
+    for instance in [5, 6, 7, 8, 9, 10, 11, 12, 13] {
         let done = plugin.event(DATE, &dropped(instance)).unwrap();
         assert_eq!(done.status, 0, "{instance}");
     }

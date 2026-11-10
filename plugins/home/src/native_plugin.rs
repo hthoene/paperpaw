@@ -163,9 +163,10 @@ impl Plugin for NativeHome {
                 stage: "core.widget",
                 payload,
                 ..
-            } => self.widgets.stage(host, payload, reply),
+            } => self.widgets.stage(host, self.ui()?, payload, reply),
             Event::Tick { .. } if token == TICK => {
-                self.widgets.tick(host);
+                self.widgets
+                    .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
             Event::WidgetChanged { .. } => self.refresh(host),
@@ -176,7 +177,9 @@ impl Plugin for NativeHome {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if frame.purpose == DrawPurpose::Widget {
-            return self.widgets.draw(host, frame);
+            return self
+                .widgets
+                .draw(host, self.ui.as_ref().ok_or(Error::State)?, frame);
         }
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
