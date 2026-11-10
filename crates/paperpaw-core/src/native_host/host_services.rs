@@ -46,6 +46,9 @@ pub(crate) struct HostServices {
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
     hyphen: OnceCell<HyphenServices>,
+    /// The card, for the font files of a plugin's data folder (`font.acquire`
+    /// `data:<path>`).
+    font_card: OnceCell<Rc<dyn paperpaw_platform::Storage>>,
     images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
@@ -127,6 +130,7 @@ impl HostServices {
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             hyphen: OnceCell::new(),
+            font_card: OnceCell::new(),
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
@@ -270,6 +274,19 @@ impl HostServices {
         self.lookup
             .set(LookupServices::new(host, log))
             .map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the card the data fonts are opened on, once.
+    pub(crate) fn wire_font_card(
+        &self,
+        card: Rc<dyn paperpaw_platform::Storage>,
+    ) -> Result<(), i32> {
+        self.font_card.set(card).map_err(|_| ERR_STATE)
+    }
+
+    /// The card of the data fonts, if wired.
+    pub(crate) fn font_card(&self) -> Option<&Rc<dyn paperpaw_platform::Storage>> {
+        self.font_card.get()
     }
 
     /// Wire `text.hyphenate` once.
