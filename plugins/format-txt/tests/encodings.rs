@@ -1,5 +1,5 @@
 //! Plain text in every shape it comes in: UTF-8 with and without BOM,
-//! Windows-1252, invalid UTF-8, UTF-16 (not read as such), line ends of
+//! Windows-1252, invalid UTF-8, UTF-16 (from its UTF-8 copy), line ends of
 //! every system, very long lines, empty files, Project Gutenberg markers
 //! in odd places. The text must come through, offsets must point back
 //! into the file.
@@ -11,12 +11,42 @@
 )]
 
 use paperpaw_plugin_format_txt::TxtDocument;
-use paperpaw_sdk::MemoryStorage;
+use paperpaw_plugin_format_txt::preparation::Preparation;
 use paperpaw_sdk::document::{Block, Document, Locator};
+use paperpaw_sdk::native::Error;
+use paperpaw_sdk::{MemoryStorage, Storage};
 
+const COPY: &str = "books/text.utf8";
+
+/// The book as the provider opens it: a UTF-16 file is read from its UTF-8
+/// copy, made first the way the host's preparation calls make it.
 fn open(data: impl Into<Vec<u8>>) -> (MemoryStorage, TxtDocument) {
     let storage = MemoryStorage::new().with("books/text.txt", data);
-    let doc = TxtDocument::open(&storage, "books/text.txt").unwrap();
+    let mut bom = [0u8; 2];
+    storage.read_at("books/text.txt", 0, &mut bom).unwrap();
+    if matches!(bom, [0xff, 0xfe] | [0xfe, 0xff]) {
+        let size = storage.size("books/text.txt").unwrap();
+        let mut preparation = Preparation::new(size, bom == [0xfe, 0xff]).unwrap();
+        while !preparation
+            .advance(
+                |offset, buf| {
+                    storage
+                        .read_at("books/text.txt", offset, buf)
+                        .map_err(|_| Error::Io)
+                },
+                |first, bytes| {
+                    let written = if first {
+                        storage.write(COPY, bytes)
+                    } else {
+                        storage.append(COPY, bytes)
+                    };
+                    written.map_err(|_| Error::Io)
+                },
+            )
+            .unwrap()
+        {}
+    }
+    let doc = TxtDocument::open_converted(&storage, "books/text.txt", COPY).unwrap();
     (storage, doc)
 }
 
@@ -135,9 +165,8 @@ fn a_character_cut_by_the_sniffed_start_is_still_utf8() {
 }
 
 #[test]
-fn utf16_is_not_read_as_such_but_opens() {
-    // Only UTF-8 and Windows-1252 are read (see the crate's docs): a
-    // UTF-16 file comes out as its bytes, without a panic.
+fn utf16_is_read_from_its_converted_copy() {
+    // A UTF-16 file is read from the UTF-8 copy the host's preparation made.
     for little in [true, false] {
         let mut file = if little {
             vec![0xff, 0xfe]

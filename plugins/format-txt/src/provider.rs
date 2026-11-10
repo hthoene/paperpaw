@@ -510,7 +510,8 @@ fn start(io: &dyn Io) -> Result<(Body, bool), Error> {
         _ => None,
     };
     let Some(big) = big else {
-        let document = TxtDocument::open(io, "").map_err(|e| document_error(&e))?;
+        let document =
+            TxtDocument::open_converted(io, "", UTF8_CACHE).map_err(|e| document_error(&e))?;
         return Ok((Body::Ready(document), false));
     };
     // The host removes a cache that is not whole, so a copy that is there is.

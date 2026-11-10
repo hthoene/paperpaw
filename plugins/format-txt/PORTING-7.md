@@ -2,6 +2,11 @@
 
 Version 1.0.2. Slice 1 of the format ports (#228, assignment #1344).
 
+Status: **complete, native only** (ticket #228). The interface-6 form is removed (see "Removal step"); the
+plugin is listed in `paperpaw_app::NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`. Until the shells
+activate native plugins (Core #944, Host #417) a `.txt` book does not open at all: the PR is held until
+activation.
+
 ## Ported
 
 `src/provider.rs`: `TxtProvider::call(io, input, out)` answers one `core.format@1` call
@@ -11,9 +16,10 @@ with the generated `core_format_v1` codecs (no hand-encoded records): op 2 open,
 fragments between records with `more`/`next`/generation), 19 progress. Ops 1 and 9-18 answer
 answer as `document.md` says a format with none does: op 1 no rows (not a sniffer), ops 9, 14 and 16 an empty list (`fmt.end`, total 0), ops 10-13, 15, 17 and 18 `NotFound`; anything else `Unsupported`. The book
 is root 3 (path `""`), the copy root 6; `HostIo` maps both. The parser (`TxtDocument`) is the
-interface-6 one, shared, so the blocks are the same; `tests/provider.rs` compares the two on the
-same files (UTF-8, Windows-1252, UTF-16 both orders, Gutenberg header), fragments, refusals and
-random bytes.
+one the interface-6 plugin had, so the blocks are the same; `tests/provider.rs` compares the provider with the
+document's own reading of the same files (UTF-8, Windows-1252, UTF-16 both orders, Gutenberg header),
+fragments, refusals and random bytes; `tests/encodings.rs`, `positions.rs` and `robustness.rs` are the golden
+coverage of the parser (UTF-16 from the copy `Preparation` makes).
 
 ## Native entry (slice 2)
 
@@ -48,20 +54,29 @@ A refused allocation is `NoMemory` end to end: `HostIo` carries it through `Stor
 
 - X4: a UTF-16 conversion takes 1 KiB per `prepare` call (about 50 ms budget per call is not measured); stack and time on the device are not measured. Gate stays open until the device test (owner OK).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step (done)
 
-Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both
-in a shipped build: `NativeTxt` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
-1. `TxtFormat` and its `Plugin` impl, `FORMAT`, the `add_book_cache` and `add_format` registration,
-   the `HOW` table kept for the manifest (the texts move to the native how-to when the host shows it);
-2. `TxtDocument::open`/`utf8_copy` and the plugin-folder UTF-8 cache (`document.rs`): the document is
-   opened by the provider from roots 3 and 6 only;
-3. the app's `install_with` line and the dev-dependencies of reader, files, file-manager and kosync
-   on `TxtFormat` (their tests move to the native host path), `fuzz/fuzz_targets/txt.rs` to the provider;
-4. list `NativeTxt` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
+Status: **complete**. Gone with interface 6: `TxtFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`,
+`add_format`, the `HOW` table, the manifest and its `uses`), `TxtDocument::open` and `utf8_copy` with the
+plugin-folder UTF-8 cache and its `.source` stamp (`.paperpaw/plugins/format-txt/<hash>.txt`; its row in
+`docs/data-files.md` goes too: the copy is the host's `text.utf8` in the document cache, made by `Preparation`
+and stamped by the host) and `push_utf16` (the converter is `utf16.rs`). `TxtDocument::open_converted` is the one
+way to open a book. The app no longer registers `TxtFormat` (`paperpaw-plugin-format-txt` is an optional
+dependency of the app, enabled by `native-linked`), `NativeTxt` is in `NATIVE_PLUGINS` and `complete.txt`.
+`fuzz/fuzz_targets/txt.rs` converts a UTF-16 input with `Preparation` and opens it with `open_converted`.
+The inline test of the plugin-folder copy (a replaced file of the same size is copied anew) went with the
+stamp; the host owns that now (`cache stamps`).
 
-## Left in place (intermediate)
+The reader's tests that read a `.txt` book (`plugins/reader/tests`) are ignored with
+`needs native activation (format removal)` and keep their assertions; they run again when the shells
+activate native plugins (see the PR notes for the list). The `how/*.txt` texts stay in the package; the
+registry cannot read them yet (`plugin-how-text-read`).
 
-The interface-6 `TxtFormat` registration, `TxtDocument` use of `utf8_copy` and its plugin-folder
-cache stay until the host activates native plugins; they go together then (no shim).
-X4 `.ppn` size: not measurable yet (built into Beta 3, no artifact; no entry point yet).
+## Still blocked on the host
+
+- Host adapter `fmt.call` (Host #417) and activation (Core #944): the declaration is refused as `Unsupported`
+  today (`tests/hosted_construction.rs`).
+- The reader's tests of `.txt` books through the kernel need the host to open a format through a loaded plugin.
+- Title fallback (root 3 has no file name), `doc_meta` series bit and `fmt.option` rows: as above.
+
+X4 `.ppn` size: see the PR notes (built with `tools/plugin-files7/build.sh x4 <out> --only format-txt`).
