@@ -269,3 +269,79 @@ fn the_command_is_unsupported_until_the_host_opens_it() {
     );
     assert!(!d.dual_boot_open());
 }
+
+#[test]
+fn a_latch_that_found_the_machine_borrowed_is_kept_and_applied_next() {
+    let card = card_with("[firmware]\ndual-boot = off\n");
+    let mut d = driver(false);
+    let machine = d.machine();
+    {
+        // A host fault: the machine is held when the job ends.
+        let _held = machine.borrow_mut();
+        d.dual_after(After::Declared);
+        assert!(d.has_work(0));
+    }
+    // Free again: the next pass applies it, and nothing is lost.
+    d.pump(&card, &Names, 100);
+    assert_eq!(machine.borrow().dual_flags() & 1, 1);
+    assert!(!d.has_work(0));
+    d.submit_install(7, 4, "u.ppu", None, 0).unwrap();
+    let outcome = pump_to_end(&mut d, &card);
+    assert_eq!((outcome.kind, outcome.reason), (1, 19));
+}
+
+/// A card whose removals fail: the power went between the file and the note.
+struct NoRemove<'a>(&'a MemoryStorage);
+impl Storage for NoRemove<'_> {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, _: &str) -> Result<(), paperpaw_platform::StorageError> {
+        Err(paperpaw_platform::StorageError::Io)
+    }
+}
+
+#[test]
+fn a_cut_between_the_file_and_the_note_keeps_the_users_yes_and_the_note() {
+    let card = card_with("[firmware]\ndual-boot = on\n");
+    let mut job = job(Mode::Off);
+    let run = drive(&mut job, &NoRemove(&card), Answer::Yes);
+    // The file is written first and whole; the note that stays is harmless
+    // (`off` wins over it), and the restart still comes.
+    assert_eq!(run.done.reason, 0);
+    assert_eq!(job.after(), After::Restart);
+    assert_eq!(card_choice(&card), Ok(Choice::Off));
+    assert!(card.size(NOTE_PATH).is_ok());
+}
+
+#[test]
+fn a_plugin_that_holds_the_install_grant_is_still_asked_for_mode_1() {
+    // `drive` steps with `granted: true`, as a trusted installer's job runs.
+    let card = card_with("[firmware]\ndual-boot = on\n");
+    let mut job = job(Mode::Off);
+    let run = drive(&mut job, &card, Answer::No);
+    assert!(run.asked.is_some());
+    assert_eq!(run.done.reason, 2);
+    assert_eq!(card_choice(&card), Ok(Choice::On));
+}

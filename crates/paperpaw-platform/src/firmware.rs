@@ -301,7 +301,9 @@ pub trait FirmwareHost {
 
     /// Restarts the running image, where no new one waits (the end of
     /// `command.firmware_dual_boot` with mode 1). Returns only where it cannot
-    /// (`Err(Reason::NOT_HERE)`). Default: it cannot.
+    /// (`Err(Reason::NOT_HERE)`). Default: it cannot. A host that says
+    /// [`Self::dual_boot_capable`] must implement it: else a yes writes the
+    /// file and the device never restarts.
     fn restart_running(&mut self) -> Result<(), Reason> {
         Err(Reason::NOT_HERE)
     }

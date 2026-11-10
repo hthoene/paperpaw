@@ -9,10 +9,19 @@
 //!   the rest of the file stays as it was, line endings included), and
 //!   [`Storage::write`] replaces the file, which is atomic where the medium
 //!   allows: a power cut leaves the old or the new file, never half of one.
-//! * **The same reading as the firmware's.** The last `dual-boot` of a
-//!   `[firmware]` section wins; `off`, `false`, `no` and `0` mean off (any
-//!   case), `auto` or nothing mean auto, anything else means on (a typo of
-//!   the guard must not leave the other firmware open to an update).
+//! * **The same reading as the firmware's.** One reader decides everything
+//!   here (the choice, where the key is set, whether an edit worked), and it
+//!   reads as the X4's own (`paperpaw_x4::dual_boot::IniScan`) does: line by
+//!   line, a header as `[name]`, an entry by `paperpaw_config::parse` (quotes,
+//!   escapes, comments), a line over [`MAX_LINE`] bytes by its start only (a
+//!   header leaves the section, a `dual-boot` entry guards, any other line
+//!   changes nothing), a line that is no UTF-8 skipped. The last `dual-boot`
+//!   of a `[firmware]` section wins; `off`, `false`, `no` and `0` mean off
+//!   (any case), `auto` or nothing mean auto, anything else means on (a typo
+//!   of the guard must not leave the other firmware open to an update).
+//! * **Checked after the edit.** The edited bytes are read again by the same
+//!   reader and are written only if they say the mode asked for: else
+//!   [`Failure::Unexpected`] and nothing is written.
 //! * Allocation is fallible and bounded by the file's size and a few lines.
 use alloc::vec::Vec;
 use paperpaw_platform::Storage;
@@ -37,6 +46,9 @@ pub(crate) enum Failure {
     NoMemory,
     /// The card refused the write; the old file is as it was.
     Write,
+    /// The edited file does not read as the mode asked for (a line the editor
+    /// and the firmware read differently); nothing is written.
+    Unexpected,
 }
 
 /// The value written for `command.firmware_dual_boot`'s `mode`.
@@ -55,6 +67,14 @@ impl Mode {
             0 => Some(Self::Auto),
             1 => Some(Self::Off),
             _ => None,
+        }
+    }
+
+    /// What the reader reads of the line this mode writes.
+    fn choice(self) -> Choice {
+        match self {
+            Self::Auto => Choice::Auto,
+            Self::Off => Choice::Off,
         }
     }
 
@@ -92,43 +112,78 @@ impl Choice {
     }
 }
 
-/// One line as the section scan sees it.
-enum Line<'a> {
-    /// `[name]`.
-    Header(&'a str),
-    /// `key = value`, comments and blank lines being neither.
-    Entry(&'a str, &'a str),
+/// The longest line the firmware's reader takes whole; a longer one counts by
+/// its start only (`paperpaw_x4::dual_boot`).
+pub(crate) const MAX_LINE: usize = 256;
+
+/// What one line of the file is to the reader.
+enum Seen {
+    /// `[name]`: whether the section is `[firmware]`.
+    Header(bool),
+    /// A `dual-boot` entry, and what it chooses (a line too long to be read
+    /// chooses on: the safe way).
+    Key(Choice),
     Other,
 }
 
-fn classify(line: &str) -> Line<'_> {
+/// `line` (without its ending) as the firmware's reader sees it.
+fn read_line(line: &[u8]) -> Seen {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.len() > MAX_LINE {
+        // Too long to be one of ours: by its start only.
+        let start = line.iter().position(|b| !b.is_ascii_whitespace());
+        let head = start.map_or(&[][..], |at| &line[at..line.len().min(MAX_LINE)]);
+        return if head.first() == Some(&b'[') {
+            Seen::Header(false)
+        } else if head.starts_with(KEY.as_bytes()) {
+            Seen::Key(Choice::On)
+        } else {
+            Seen::Other
+        };
+    }
+    let Ok(line) = core::str::from_utf8(line) else {
+        return Seen::Other;
+    };
     let line = line.trim();
     if let Some(header) = line.strip_prefix('[') {
-        return header
-            .split_once(']')
-            .map_or(Line::Other, |(name, _)| Line::Header(name.trim()));
+        return Seen::Header(
+            header
+                .split_once(']')
+                .is_some_and(|(name, _)| name.trim() == SECTION),
+        );
     }
-    if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-        return Line::Other;
+    if line.is_empty() {
+        return Seen::Other;
     }
-    line.split_once('=').map_or(Line::Other, |(key, value)| {
-        Line::Entry(key.trim(), value.trim())
-    })
+    let mut seen = Seen::Other;
+    for entry in paperpaw_config::parse(line).flatten() {
+        if entry.key == KEY {
+            seen = Seen::Key(Choice::of(&entry.value.as_str()));
+        }
+    }
+    seen
 }
 
-/// What `text` chooses: the last `dual-boot` of a `[firmware]` section.
-pub(crate) fn choice(text: &str) -> Choice {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+/// What `bytes` choose: the last `dual-boot` of a `[firmware]` section.
+pub(crate) fn choice_of(bytes: &[u8]) -> Choice {
+    // A byte order mark some editors put first.
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     let mut inside = false;
     let mut choice = Choice::Auto;
-    for line in text.lines() {
-        match classify(line) {
-            Line::Header(name) => inside = name == SECTION,
-            Line::Entry(KEY, value) if inside => choice = Choice::of(value),
+    for line in bytes.split(|byte| *byte == b'\n') {
+        match read_line(line) {
+            Seen::Header(firmware) => inside = firmware,
+            Seen::Key(value) if inside => choice = value,
             _ => {}
         }
     }
     choice
+}
+
+/// What `text` chooses (see [`choice_of`]).
+#[cfg(test)]
+pub(crate) fn choice(text: &str) -> Choice {
+    choice_of(text.as_bytes())
 }
 
 /// Where `dual-boot` is set in `text` and where the section ends.
@@ -147,16 +202,24 @@ fn places(text: &str) -> Places {
         end: None,
     };
     for (index, line) in text.split_inclusive('\n').enumerate() {
-        match classify(line) {
-            Line::Header(name) => {
-                inside = name == SECTION;
+        // The first line may carry a byte order mark, as the reader skips it.
+        let bytes = line.as_bytes();
+        let bytes = if index == 0 {
+            bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)
+        } else {
+            bytes
+        };
+        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        match read_line(bytes) {
+            Seen::Header(firmware) => {
+                inside = firmware;
                 if inside {
                     // A newer section starts: its own end and key.
                     places.end = Some(index + 1);
                     places.key = None;
                 }
             }
-            Line::Entry(KEY, _) if inside => {
+            Seen::Key(_) if inside => {
                 places.key = Some(index);
                 places.end = Some(index + 1);
             }
@@ -220,6 +283,10 @@ pub(crate) fn edit(text: &str, mode: Mode) -> Result<Vec<u8>, Failure> {
         }
         _ => {}
     }
+    // Written only if the firmware's own reader reads what was asked for.
+    if choice_of(&out) != mode.choice() {
+        return Err(Failure::Unexpected);
+    }
     Ok(out)
 }
 
@@ -258,11 +325,11 @@ pub(crate) fn read(storage: &dyn Storage) -> Result<Vec<u8>, Failure> {
 /// What the card's `paperpaw.ini` chooses.
 ///
 /// # Errors
-/// As [`read`], and [`Failure::Unreadable`] for a file that is not UTF-8.
+/// As [`read`].
 pub(crate) fn card_choice(storage: &dyn Storage) -> Result<Choice, Failure> {
-    let bytes = read(storage)?;
-    let text = core::str::from_utf8(&bytes).map_err(|_| Failure::Unreadable)?;
-    Ok(choice(text))
+    // As the firmware reads it: a line that is no UTF-8 is skipped, not a
+    // refusal of the file.
+    Ok(choice_of(&read(storage)?))
 }
 
 /// Sets `dual-boot` in the card's `paperpaw.ini`: read whole, edited, written

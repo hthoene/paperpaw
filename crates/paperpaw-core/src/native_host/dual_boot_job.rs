@@ -100,7 +100,7 @@ impl DualBoot {
         }
         let choice = match dual_boot_ini::card_choice(env.storage) {
             Ok(choice) => choice,
-            Err(Failure::Unreadable | Failure::NoMemory | Failure::Write) => {
+            Err(Failure::Unreadable | Failure::NoMemory | Failure::Write | Failure::Unexpected) => {
                 return self.end(reason::CARD);
             }
         };

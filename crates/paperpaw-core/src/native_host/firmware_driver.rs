@@ -190,6 +190,10 @@ pub(crate) struct Driver {
     dual_restart: bool,
     /// The host opened `firmware_dual_boot` ([`Self::open_dual_boot`]).
     dual_open: bool,
+    /// What a dual-boot change wrote that the machine did not take yet (it
+    /// was borrowed): applied at the next pass, never dropped, so the
+    /// latch of mode 0 protects as soon as the machine is free.
+    dual_pending: Option<After>,
     /// `paperpaw.ini`'s `dual-boot` was read for `dev_firmware.flags` (once,
     /// at the first idle pass with the card).
     ini_read: bool,
@@ -229,6 +233,7 @@ impl Driver {
             stopping: false,
             dual_restart: false,
             dual_open: false,
+            dual_pending: None,
             ini_read: false,
         }
     }
@@ -814,6 +819,11 @@ impl Driver {
         if self.running.is_none() && !self.revocations.is_empty() {
             self.keep_revocations(storage);
         }
+        if let Some(after) = self.dual_pending.take()
+            && !self.dual_machine(after)
+        {
+            self.dual_pending = Some(after);
+        }
         if !self.ini_read && self.running.is_none() && self.host.dual_boot_capable() {
             self.read_ini(storage);
         }
@@ -935,25 +945,32 @@ impl Driver {
     /// What a dual-boot change that wrote `paperpaw.ini` leaves behind: the
     /// flags follow the file, `auto` latches the setup as declared, and a yes
     /// to `off` restarts the device.
-    fn dual_after(&mut self, after: After) {
-        let off = match after {
-            After::Nothing => return,
-            After::Restart => true,
-            After::Declared => false,
-        };
-        match self.machine.try_borrow_mut() {
-            Ok(mut machine) => {
-                machine.set_ini_off(off);
-                if !off {
-                    machine.latch_declared();
-                }
-            }
-            Err(_) => self.skip(),
+    pub(crate) fn dual_after(&mut self, after: After) {
+        if after == After::Nothing {
+            return;
         }
-        if off {
+        if !self.dual_machine(after) {
+            // The machine is borrowed: kept, applied at the next pass.
+            self.dual_pending = Some(after);
+        }
+        if after == After::Restart {
             self.dual_restart = true;
             self.restart_wanted = true;
         }
+    }
+
+    /// Tells the machine what a dual-boot change wrote: the flags follow the
+    /// file and `auto` latches the setup as declared. `false`: it is borrowed.
+    fn dual_machine(&mut self, after: After) -> bool {
+        let off = after == After::Restart;
+        let Ok(mut machine) = self.machine.try_borrow_mut() else {
+            return false;
+        };
+        machine.set_ini_off(off);
+        if !off {
+            machine.latch_declared();
+        }
+        true
     }
 
     /// Reads `paperpaw.ini`'s `dual-boot` once for `dev_firmware.flags`; a file
@@ -1080,6 +1097,7 @@ impl Driver {
         let stepping = self.running.is_some() && self.plugin_question.is_none();
         let revoking = self.running.is_none() && !self.revocations.is_empty();
         if self.restart_wanted
+            || self.dual_pending.is_some()
             || stepping
             || revoking
             || self.resume

@@ -3,6 +3,7 @@
 //! last `[firmware]` section with the rest of the file as it was.
 extern crate std;
 use super::*;
+use alloc::{format, vec};
 use paperpaw_sdk::MemoryStorage;
 use std::string::String;
 
@@ -109,7 +110,9 @@ fn a_file_over_the_size_or_unreadable_is_refused_and_nothing_is_written() {
     card.write(INI_PATH, &[0xff, 0xfe, 0x00]).unwrap();
     assert_eq!(set(&card, Mode::Off), Err(Failure::Unreadable));
     assert_eq!(read(&card).unwrap(), [0xff, 0xfe, 0x00]);
-    assert_eq!(card_choice(&card), Err(Failure::Unreadable));
+    // The reader skips what is no UTF-8 (as the firmware does): it chooses
+    // nothing here, but an edit of such a file is refused.
+    assert_eq!(card_choice(&card), Ok(Choice::Auto));
     assert_eq!(
         edit(&"a".repeat(INI_MAX + 1), Mode::Off),
         Err(Failure::Unreadable)
@@ -128,4 +131,106 @@ fn a_missing_file_is_an_empty_one_and_the_write_replaces_the_file_whole() {
     assert_eq!(Mode::of(0), Some(Mode::Auto));
     assert_eq!(Mode::of(1), Some(Mode::Off));
     assert_eq!(Mode::of(2), None);
+}
+
+#[test]
+fn quoted_and_escaped_values_are_read_as_the_firmware_reads_them() {
+    // The X4's reader is `paperpaw_config::parse` per line: quotes count.
+    assert_eq!(choice("[firmware]\ndual-boot = \"off\"\n"), Choice::Off);
+    assert_eq!(choice("[firmware]\ndual-boot = \"auto\"\n"), Choice::Auto);
+    assert_eq!(choice("[firmware]\ndual-boot = \"on\"\n"), Choice::On);
+    // Unquoted, an inline `#` is part of the value: it is no `off`, so on.
+    assert_eq!(choice("[firmware]\ndual-boot = off # not on\n"), Choice::On);
+    // The editor sets the line the firmware reads as the key, not a copy.
+    for (text, mode) in [
+        ("[firmware]\ndual-boot = \"off\"\n", Mode::Auto),
+        ("[firmware]\ndual-boot = \"on\"\n", Mode::Off),
+    ] {
+        let out = edited(text, mode);
+        assert_eq!(
+            choice(&out),
+            if mode == Mode::Off {
+                Choice::Off
+            } else {
+                Choice::Auto
+            },
+            "{text:?}"
+        );
+        assert_eq!(out.matches("dual-boot").count(), 1, "{out:?}");
+    }
+    // Text after a closing quote makes the entry an error to the reader (the
+    // line is skipped, so it chooses nothing): the edit adds its own line and
+    // keeps the CRLF endings.
+    let out = edited("[firmware]\r\n  dual-boot=\"off\" # mine\r\n", Mode::Off);
+    assert_eq!(choice(&out), Choice::Off, "{out:?}");
+    assert!(out.ends_with("dual-boot = off\r\n"), "{out:?}");
+}
+
+#[test]
+fn a_line_over_the_firmwares_limit_counts_by_its_start_only() {
+    let long = std::format!("# {}", "x".repeat(2 * MAX_LINE));
+    // A long comment changes nothing; a long entry guards (on); a long
+    // header leaves the section.
+    assert_eq!(
+        choice(&std::format!("[firmware]\ndual-boot = off\n{long}\n")),
+        Choice::Off
+    );
+    let entry = std::format!("[firmware]\ndual-boot = off {}\n", "w".repeat(MAX_LINE));
+    assert_eq!(choice(&entry), Choice::On);
+    let header = std::format!("[firmware]\ndual-boot = off\n[{}]\n", "z".repeat(MAX_LINE));
+    assert_eq!(choice(&header), Choice::Off);
+    // The editor replaces that guarding entry and reads back what it asked.
+    assert_eq!(choice(&edited(&entry, Mode::Off)), Choice::Off);
+    assert_eq!(choice(&edited(&entry, Mode::Auto)), Choice::Auto);
+}
+
+#[test]
+fn a_line_that_is_no_utf8_is_skipped_by_the_reader_and_refuses_the_edit() {
+    let card = MemoryStorage::new();
+    card.write(INI_PATH, b"[firmware]\n\xff\xfe\ndual-boot = off\n")
+        .unwrap();
+    assert_eq!(card_choice(&card), Ok(Choice::Off));
+    assert_eq!(set(&card, Mode::Auto), Err(Failure::Unreadable));
+}
+
+proptest::proptest! {
+    /// Whatever the file, an edit that is written reads back as asked, and
+    /// the rest of the text is not lost.
+    #[test]
+    fn an_edit_always_reads_back_as_the_mode_asked(
+        lines in proptest::collection::vec(
+            proptest::prop_oneof![
+                proptest::strategy::Just(String::from("[firmware]")),
+                proptest::strategy::Just(String::from("[core]")),
+                proptest::strategy::Just(String::from("dual-boot = off")),
+                proptest::strategy::Just(String::from("dual-boot = \"off\"")),
+                proptest::strategy::Just(String::from("dual-boot = on")),
+                proptest::strategy::Just(String::from("  DUAL-BOOT = auto # x")),
+                proptest::strategy::Just(String::from("# dual-boot = on")),
+                proptest::strategy::Just(String::from("x = \"[firmware]\"")),
+                proptest::strategy::Just(format!("dual-boot = off {}", "w".repeat(300))),
+                proptest::strategy::Just(format!("[{}]", "z".repeat(300))),
+                "[ -~]{0,40}",
+            ],
+            0..12,
+        ),
+        crlf in proptest::bool::ANY,
+        last_newline in proptest::bool::ANY,
+        off in proptest::bool::ANY,
+    ) {
+        let mut text = lines.join(if crlf { "\r\n" } else { "\n" });
+        if last_newline && !text.is_empty() {
+            text.push('\n');
+        }
+        let (mode, want) = if off {
+            (Mode::Off, Choice::Off)
+        } else {
+            (Mode::Auto, Choice::Auto)
+        };
+        match edit(&text, mode) {
+            Ok(out) => proptest::prop_assert_eq!(choice_of(&out), want),
+            // A refusal is allowed (nothing is written), a wrong file is not.
+            Err(failure) => proptest::prop_assert_eq!(failure, Failure::Unexpected),
+        }
+    }
 }
