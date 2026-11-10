@@ -40,6 +40,11 @@ impl Shared {
         canvas: &mut paperpaw_graphics::Canvas<'_>,
         env: &paperpaw_sdk::Env<'_>,
     ) {
+        if active.drawn || active.ready {
+            // Counted already: nothing to note, no lookup.
+            active.screen.draw(canvas, env);
+            return;
+        }
         let native = (self.registry.screens.get(&active.id)).is_some_and(|spec| spec.is_native());
         self.native_instances.take_drew();
         active.screen.draw(canvas, env);
