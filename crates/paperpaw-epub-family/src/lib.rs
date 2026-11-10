@@ -16,7 +16,7 @@
 //! [`HtmlDocument`]), Markdown (`.md`, see [`MarkdownDocument`]),
 //! FictionBooks (`.fb2`, see [`Fb2Document`]) and comic book archives
 //! (`.cbz`, see [`CbzDocument`]): each a plugin of its own, so that it can
-//! be switched off or replaced alone (`format-html`, [`MarkdownFormat`],
+//! be switched off or replaced alone (`format-html`, `format-markdown`,
 //! `format-fb2`, `format-cbz`).
 
 #![no_std]
@@ -60,10 +60,6 @@ pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, ma
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
 
-/// Markdown.
-pub const MARKDOWN_PLUGIN: Id = Id::new_static("format-markdown");
-pub const MARKDOWN: Id = Id::new_static("format-markdown.markdown");
-
 /// A plugin's manifest: its id, its name and what it does.
 fn manifest(
     id: Id,
@@ -88,19 +84,9 @@ static EPUB_HOW: [(&str, &str); 2] = [
         include_str!("../../../plugins/format-epub/how/de.txt"),
     ),
 ];
-static MARKDOWN_HOW: [(&str, &str); 2] = [
-    (
-        "en",
-        include_str!("../../../plugins/format-markdown/how/en.txt"),
-    ),
-    (
-        "de",
-        include_str!("../../../plugins/format-markdown/how/de.txt"),
-    ),
-];
 
 /// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
-/// their own (`format-html`, `format-fb2`, [`MarkdownFormat`],
+/// their own (`format-html`, `format-fb2`, `format-markdown`,
 /// `format-cbz`), so each can be switched off or replaced alone; they
 /// share the conversion of this crate.
 #[derive(Debug, Default)]
@@ -143,42 +129,6 @@ impl Plugin for EpubFormat {
         )))?;
         r.add_translations(Cow::Borrowed(include_str!(
             "../../../plugins/format-epub/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// Markdown (`.md`, `.markdown`, see [`MarkdownDocument`]).
-#[derive(Debug, Default)]
-pub struct MarkdownFormat;
-
-impl Plugin for MarkdownFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            MARKDOWN_PLUGIN,
-            "Markdown",
-            "Opens Markdown files (.md), e.g. notes.",
-            &MARKDOWN_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "md-")?;
-        r.add_format(FormatSpec::new(
-            MARKDOWN,
-            "format-markdown.title",
-            vec![Cow::Borrowed("md"), Cow::Borrowed("markdown")],
-            Box::new(|storage, path, options| {
-                MarkdownDocument::open(storage, path, options.publisher_styles)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-markdown/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-markdown/i18n/de.ini"
         )))?;
         Ok(())
     }
@@ -270,16 +220,10 @@ mod tests {
 
     #[test]
     fn translations_are_complete() {
-        for (en, de) in [
-            (
-                include_str!("../../../plugins/format-epub/i18n/en.ini"),
-                include_str!("../../../plugins/format-epub/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-markdown/i18n/en.ini"),
-                include_str!("../../../plugins/format-markdown/i18n/de.ini"),
-            ),
-        ] {
+        for (en, de) in [(
+            include_str!("../../../plugins/format-epub/i18n/en.ini"),
+            include_str!("../../../plugins/format-epub/i18n/de.ini"),
+        )] {
             let (en, de) = (Catalog::parse(en).unwrap(), Catalog::parse(de).unwrap());
             let issues = check::compare(&en, &de);
             assert!(issues.is_empty(), "{issues:?}");

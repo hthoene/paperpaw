@@ -52,6 +52,7 @@ native-linked = [
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
+    "dep:paperpaw-plugin-format-markdown",
     "dep:paperpaw-plugin-format-cbz",
     "dep:paperpaw-plugin-format-html",
     "dep:paperpaw-plugin-format-fb2",
@@ -69,6 +70,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-format-markdown/linked",
     "paperpaw-plugin-format-cbz/linked",
     "paperpaw-plugin-format-html/linked",
     "paperpaw-plugin-format-fb2/linked",
@@ -101,7 +103,7 @@ paperpaw-epub-family.workspace = true
 paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-html = { workspace = true, optional = true }
 paperpaw-plugin-format-fb2 = { workspace = true, optional = true }
-paperpaw-plugin-format-markdown.workspace = true
+paperpaw-plugin-format-markdown = { workspace = true, optional = true }
 paperpaw-plugin-format-cbz = { workspace = true, optional = true }
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
