@@ -11,7 +11,7 @@ aids reading
 # diagnostics system  (no file until the store build moves to interface 7, #228)
 # end-of-book reading  (no file until the store build moves to interface 7, #228)
 fonts-browser look
-format-mobi reading
+# format-mobi reading  (no file until the store build moves to interface 7, #228)
 format-docx reading
 format-images reading
 # joplin notes  (no file until the store build moves to interface 7, #228)
