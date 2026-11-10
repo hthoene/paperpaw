@@ -25,6 +25,7 @@ paperpaw-sdk = { workspace = true, features = ["unstable"] }
 [dev-dependencies]
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-txt.workspace = true

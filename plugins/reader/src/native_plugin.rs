@@ -16,19 +16,24 @@ use paperpaw_sdk::{
     },
 };
 
+#[expect(
+    dead_code,
+    reason = "the events are in the image, submitted once the host admits event.book_moved"
+)]
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reader_declarations.rs"));
 }
 
 /// The batches the reader submits, in the order the host needs them: the
-/// settings and screens before what refers to them.
-const BATCHES: [&[&[u8]]; 7] = [
+/// settings and screens before what refers to them. Not the events: the host
+/// does not admit `event.book_moved` yet (the registration is refused as a
+/// whole), so the reader hears nothing until it does (`PORTING-7.md`).
+const BATCHES: [&[&[u8]]; 6] = [
     image::SETTINGS,
     image::SCREENS,
     image::NAVIGATION,
     image::KEYS,
     image::HOLD_KEYS,
-    image::EVENTS,
     image::STAGES,
 ];
 
