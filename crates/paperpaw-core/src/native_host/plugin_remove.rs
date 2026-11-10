@@ -396,6 +396,7 @@ impl PluginRemove {
                     facts: None,
                     flags,
                     changed: Some(self.id),
+                    needs_draft: 0,
                 })
             }
             RemoveStep::Failed(why) => {

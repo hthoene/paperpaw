@@ -73,6 +73,12 @@ window = ["dep:winit", "dep:softbuffer"]
 hello = ["dep:paperpaw-sample-hello"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
 interlinear = ["dep:paperpaw-sample-interlinear"]
+# The first-party plugins that are interface-7 plugins, linked in and
+# registered by `linked` (Linux x86-64, the one profile they declare; elsewhere
+# the app keeps their interface-6 form). Off until every host service and
+# event the plugins need is wired (#2220): the app without their interface-6
+# form lacks the screens of the ones that cannot register yet.
+native-linked = ["paperpaw-app/native-linked"]
 
 [lints]
 workspace = true

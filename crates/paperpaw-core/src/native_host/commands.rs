@@ -433,6 +433,7 @@ impl<'a> CommandStage<'a> {
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
+                        | WireCommand::ScreenReady {}
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
@@ -504,7 +505,10 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             // Kept apart, applied before the others (`stage_policy`).
-            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+            if matches!(
+                command,
+                WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+            ) {
                 self.stage_policy(&command)?;
                 continue;
             }

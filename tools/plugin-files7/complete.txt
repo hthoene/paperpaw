@@ -18,7 +18,6 @@ notes-overview
 read-later-cloud
 readwise
 rules
-sleep
 weather
 reading-goal
 translate

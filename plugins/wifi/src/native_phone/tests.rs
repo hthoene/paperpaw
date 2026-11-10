@@ -287,35 +287,40 @@ fn requests_are_answered_as_the_old_screen_answers_them() {
 }
 
 #[test]
-fn the_form_is_read_as_the_old_screen_read_it() {
-    // The rules of Beta 3's page: `+` is a space, `%XX` a byte, bytes that
-    // are no text are lost (the field is then not a network), a field over 32
-    // bytes of its name or none is no network.
-    let chosen_of = |form| {
-        chosen(form)
-            .unwrap()
-            .map(|(ssid, password)| (ssid.as_str().to_string(), password.as_str().to_string()))
-    };
-    let pair = |ssid: &str, password: &str| Some((ssid.to_string(), password.to_string()));
-    assert_eq!(chosen_of("ssid=Home&password=pw"), pair("Home", "pw"));
-    assert_eq!(
-        chosen_of("ssid=Home+Net&password=p%26ss+w"),
-        pair("Home Net", "p&ss w")
-    );
-    assert_eq!(chosen_of("ssid=Home&password="), pair("Home", ""));
-    assert_eq!(
-        chosen_of("ssid=%E2%82%AC&password=x"),
-        pair("\u{20ac}", "x")
-    );
-    assert_eq!(chosen_of("ssid=&password=x"), None);
-    assert_eq!(chosen_of(""), None);
-    assert_eq!(chosen_of("noequals&ssid=x"), pair("x", ""));
-    assert_eq!(field("t=abc&ssid=x", "t").unwrap(), Some("abc".to_string()));
-    assert_eq!(
-        field("ssid=a&ssid=b", "ssid").unwrap(),
-        Some("a".to_string())
-    );
-    assert_eq!(field("ssid=a", "none").unwrap(), None);
+fn the_form_is_read_as_the_old_screen_reads_it() {
+    let forms = [
+        "ssid=Home+Net&other=&password=p%26ss+w",
+        "ssid=Home&other=+Cafe+&password=",
+        "other=&password=x",
+        "t=abc&ssid=%E2%82%AC&password=%ZZ",
+        "ssid=a%FFb&password=",
+        "ssid=Home&password=%FF",
+        "ssid=Home&password=%FE%FFab%C3",
+        "ssid=Home&password=%E2%82",
+        "ssid=&password=x",
+        "",
+        "noequals&ssid=x",
+        "ssid=a&ssid=b",
+    ];
+    let long = format!("other={}", "n".repeat(33));
+    for form in forms.iter().copied().chain(core::iter::once(long.as_str())) {
+        for name in ["t", "ssid", "other", "password", "none"] {
+            assert_eq!(
+                field(form, name).unwrap(),
+                crate::phone::field(form, name),
+                "{form} {name}"
+            );
+        }
+        let old = crate::phone::chosen(form);
+        let new = chosen(form).unwrap();
+        assert_eq!(
+            new.as_ref()
+                .map(|(ssid, password)| (ssid.as_str(), password.as_str())),
+            old.as_ref()
+                .map(|(ssid, password)| (ssid.as_str(), password.as_str())),
+            "{form}"
+        );
+    }
     assert_eq!(
         escape("a&b<c>\"d\"").unwrap(),
         "a&amp;b&lt;c&gt;&quot;d&quot;"

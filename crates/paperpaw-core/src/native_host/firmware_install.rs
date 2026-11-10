@@ -334,6 +334,8 @@ struct CheckResult {
     reason: u8,
     facts: Facts,
     bits: Bits,
+    /// `dev_check.needs_draft` (a plugin check that ended with reason 10).
+    needs_draft: u32,
 }
 
 /// What a finished check found: a firmware image's facts or a plugin's. One
@@ -352,9 +354,16 @@ pub(crate) struct Checked {
     pub(crate) reason: u8,
     facts: Facts,
     bits: Bits,
+    needs_draft: u32,
 }
 
 impl Checked {
+    /// `dev_check.needs_draft`: the interface revision a plugin file needs,
+    /// 0 for any other result.
+    pub(crate) fn needs_draft(&self) -> u32 {
+        self.needs_draft
+    }
+
     /// The firmware image's facts, `None` for a plugin's check or one that
     /// found none.
     pub(crate) fn facts(&self) -> Option<&CheckFacts> {
@@ -573,6 +582,7 @@ impl FirmwareInstall {
                 reason: result.reason,
                 facts: result.facts,
                 bits: result.bits,
+                needs_draft: result.needs_draft,
             }),
         }
     }
@@ -796,6 +806,7 @@ impl FirmwareInstall {
                     reason,
                     facts,
                     bits,
+                    needs_draft: 0,
                 },
             );
         } else if reason != 0 {
@@ -895,6 +906,7 @@ impl FirmwareInstall {
                 reason,
                 facts: Facts::None,
                 bits: Bits::NONE,
+                needs_draft: 0,
             },
         );
     }
@@ -907,6 +919,7 @@ impl FirmwareInstall {
         request: u32,
         reason: u8,
         facts: Option<PluginFacts>,
+        needs_draft: u32,
     ) {
         self.keep(
             owner,
@@ -915,6 +928,7 @@ impl FirmwareInstall {
                 reason,
                 facts: facts.map_or(Facts::None, Facts::Plugin),
                 bits: Bits::NONE,
+                needs_draft,
             },
         );
     }

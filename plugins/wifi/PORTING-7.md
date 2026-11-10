@@ -2,20 +2,17 @@
 
 Version 1.0.4. Partial: the decisions of the plugin, what it declares, the screens and the file on the card, up to what the
 host cannot do yet. The native plugin (`native_plugin::NativeWifi`) has a `NATIVE_ENTRY` (feature
-`linked`) and metadata in `native/`. **The interface-6 `Wifi` plugin is removed** (`lib.rs` keeps only the
-public ids and setting handles the shell reads, `WHILE_CHARGING` among them; the old `policy.rs`, `page.rs`,
-`networks.rs`, `phone.rs` and the suites `radio`, `phone`, `networks` and `native_phone_parity` went with it, no shim).
-The app lists the plugin in `NATIVE_PLUGINS` (feature `native-linked`). **Admitting it on a device needs
-the raised per-plugin callback cap of 32 (#871)**: its registrations are over the old cap.
+`linked`) and metadata in `native/`; the interface-6 `Wifi` and everything of it stays registered
+until the host activates native plugins (then it goes together, no shim).
 
 ## Ported
 
 - `src/native_policy.rs`: when the radio is on and which network is joined (the module
   documentation of `policy.rs` says how), on inputs of the plugin's own (`Radio`, `Net`, `Known`)
   and outputs `Step::{On, Scan, Join}` that the native screen turns into `CommandSender::wifi_on`,
-  `wifi_scan` and `wifi_join` (`uses.wifi`, a `request` number, flag 0 or "remember"). The
-  decisions are pinned by the unit tests of `native_policy` (the random run against the interface-6
-  policy, 200 runs of 40 events, ran until the interface-6 code was removed). Allocation is fallible and swept; a password
+  `wifi_scan` and `wifi_join` (`uses.wifi`, a `request` number, flag 0 or "remember"). A test drives
+  this and the interface-6 policy with the same random events (200 runs of 40 events) and
+  compares what they answer and the state they keep. Allocation is fallible and swept; a password
   is wiped when dropped and never printed.
 - `src/native_radio.rs`: what the plugin does with the radio's events, on facts the native screen reads
   first (`Facts`: the radio, busy, whether work waits, the networks in reach, the networks joined
@@ -36,10 +33,10 @@ the raised per-plugin callback cap of 32 (#871)**: its registrations are over th
   ten minutes of idle time; what the radio keeps for the user) as a state fed what happened that
   answers a list of `Effect`s (radio on, scan, host, serve, respond with a page, choose a network,
   wake, back), and `native_phone/page.rs` (the form read fallibly, the passwords typed wiped, and
-  the choose, joining and not-found pages). The four scenarios of the interface-6 `tests/phone.rs` ran on it, the
-  form is pinned on the old functions' answers (`the_form_is_read_as_the_old_screen_read_it`), and
-  the pages were compared byte for byte with what the interface-6 screen served on the real kernel
-  before it was removed. Allocation is swept; a refused one leaves the stage as it was (the name is copied before the
+  the choose, joining and not-found pages). The four scenarios of `tests/phone.rs` run on it, the
+  form is compared with the old functions on the same text, and `tests/native_phone_parity.rs`
+  compares every page byte for byte with what the interface-6 screen serves on the real kernel.
+  Allocation is swept; a refused one leaves the stage as it was (the name is copied before the
   password moves on). The form is at most 1,024 bytes (a longer body counts as none, as before).
   **Gate for the screen (`NET-serve`):** the body of a request can hold the password, so the screen
   wipes it (the body file or buffer, and the text read from it) once `Phone::request` returns; the
@@ -49,7 +46,7 @@ the raised per-plugin callback cap of 32 (#871)**: its registrations are over th
 - `declarations.rs`: the group (order 85, its page), the four settings, the three screens (single
   instance), the action and the status item that open the page, the icons, the `Wifi` needs of the
   settings (hidden where PaperPaw does not manage the radio) and the first-run step (applies only
-  with `Wifi`). `tests/abi7_declarations.rs` holds the image against the builder and the ids, titles and numbers the interface-6 registration had.
+  with `Wifi`). `tests/abi7_declarations.rs` compares each with the interface-6 registration.
 
 - `src/native_own.rs` (slice 3): the device's own network for the phone: the readable password
   (`readable`: 15 letters of the 18, each as likely, bytes that would favour one are drawn again), the
@@ -114,7 +111,7 @@ the raised per-plugin callback cap of 32 (#871)**: its registrations are over th
   `core.files`: it is the plugin's own storage, as `env.storage()` was), read once at a start
   (`Started`, where there is a radio): at most 16 KiB (a larger file is removed unread and said,
   `wifi.file-too-large`), lines `ssid = …` and `password = …` read as the old plugin read them
-  (pinned on the old function's answers for samples, `it_reads_the_lines_as_beta_3_read_them`). The networks are kept among the secrets (a network
+  (compared on samples with the old function). The networks are kept among the secrets (a network
   without a password does not take the password kept; a name over 32 bytes or a password over 63
   cannot be a network and is skipped at parse time, with its network, before anything is copied: a 16 KiB file costs no large copies), then the file is removed. Where the device keeps no passwords
   (`Unsupported`) the file stays for the next start and the user is told (`core.secrets-unsupported`);
@@ -210,11 +207,3 @@ the raised per-plugin callback cap of 32 (#871)**: its registrations are over th
   host does so (`net_service/serving.rs`) it answers `ERR_STATE`, which the plugin takes as "not on
   screen" and does not fail on; the end-to-end case is the ignored `wifi_phone_serve_from_event`
   (`BLOCKED NET-serve-event`).
-
-## Interface-6 builds without the legacy plugin
-
-With the interface-6 `Wifi` plugin gone, the app's interface-6 settings page no
-longer has the `wifi.group` group (the Wi-Fi row). The kernel's
-`core.device-name` setting names that group, so until the host activates the
-native settings plugin it shows under "Other". Activation (todo 90) brings the
-group back through the native declaration.

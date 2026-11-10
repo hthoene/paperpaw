@@ -26,7 +26,7 @@ use alloc::{
 use paperpaw_i18n::Arg;
 use paperpaw_platform::{Instant, firmware::Signer};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::ui::{Dialog, Ui, UiStyle};
+use paperpaw_sdk::ui::{Dialog, Ui, UiStyle, button_reach};
 use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id, Params,
     Rect, RefreshMode, Screen,
@@ -319,8 +319,17 @@ impl Screen for HostConfirm {
         if let Some(focus) = self.dialog.step(self.focus, along)
             && focus != self.focus
         {
+            // Only the two buttons change: the one that lost the focus
+            // and the one that has it now.
+            for index in [self.focus, focus] {
+                match self.dialog.button(index) {
+                    Some(button) => {
+                        cx.request_redraw_area(button_reach(&self.style, button));
+                    }
+                    None => cx.request_redraw_area(self.dialog.panel()),
+                }
+            }
             self.focus = focus;
-            cx.request_redraw_area(self.dialog.panel());
             cx.request_refresh(RefreshMode::Fast);
         }
         // Every other action does nothing: only the user's answer counts.

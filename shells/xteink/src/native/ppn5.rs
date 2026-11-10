@@ -422,8 +422,15 @@ mod x4 {
     /// plugin that still runs).
     pub(super) struct FlashModule;
 
-    fn call_begin(id: &str) {
+    fn call_begin(id: &str) -> bool {
+        // The ESP32-S3's band needs the call to start at interrupt level 0
+        // on the first core (todo 185): otherwise it is refused, and the
+        // plugin is not run.
+        if !crate::stack::dispatch_allowed() {
+            return false;
+        }
         crate::safe_mode::calling(id);
+        true
     }
 
     fn call_end(_id: &str) {
