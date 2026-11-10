@@ -39,12 +39,35 @@ interface-7 port uses it, none builds its own.
   widget's settings (ids, kinds, defaults, choices, titles, help keys) with the
   interface-6 registration.
 
+- Favourites and Series (`native_favourites`, `native_series`, the shared shelf in `native_shelf`):
+  the books as covers in a row or in rows (favourites), or in the series' order with their numbers
+  (series), a caption just above them, those read marked, the one being read underlined or its label
+  light on dark, a tap on a cover or its label opens the book (one target for each, at most 24). The
+  books are the library's (`Show::Favourites`, or one query of the series ordered by the catalog's
+  numbers), kept for the catalog's generation; a book whose file is gone from the card is left out.
+  The host draws the covers (`core.library` op `cover`, `draw_image` after the paint is replayed:
+  `paperpaw_ui_kit::covers`); a book without one, or whose cover is refused, is a frame with its
+  title, and one still being made is drawn again at the next minute tick (the item keeps a `retry` flag that the
+  tick turns into `widget_changed`, cleared once queued).
+  Differences from interface 6, none with a visible effect on a card of up to 8 books:
+  - The host keeps 8 picture ids for a plugin, so a shelf asks for the covers of its first 8 books
+    only (`MOST_COVERS`); the books after them show as frames with their titles.
+  - Favourites come newest *added* first (the catalog does not keep when a book was made a
+    favourite); at most one library page (up to 32 books) is read, so a *count* above what a page
+    holds shows what it holds.
+  - Series: a book's name is matched ignoring ASCII case; the members are the library's own order.
+  - The targets are the places as laid out, not the packed ones (a cover of another shape than 2:3
+    is narrower than its place); a tap beside it, within the place, still opens the book.
+  Host acceptance (H1/H3: widgets composed, covers drawn) is pending; no pixels were checked.
+  X4 list (unmeasured): the favourites read each of up to 24 books with `library.book` when the
+  catalog's generation changes (once per generation, not per draw); two Series widgets with
+  different names share one cache, so each draw of one re-reads the library for its own series.
+
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets and the books family except the battery, the
-library in numbers and the highlight: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, the
-picture and the logo draw pictures, all of which wait for the image slots 36/37 (draft 22, Services'
-SDK facade). The interface-6 pack stays in `src/` until every widget is ported; then the last
+The words family's picture widget (Port D) and `progress`, `reading` and `next` of the
+books family (they draw book covers; the image slots 36/37 and the SDK facade are on integration, so
+they are not waiting for the host). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
@@ -62,6 +85,13 @@ note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
 - "Chosen for this widget" (the reader's value against the one for all widgets)
   is the registry's `source` of the setting not being the default, or the
   placement setting it itself; the legacy `is_chosen` said the same.
+
+- The widgets are declared without `previews` (Kernel ruling, #228): a widget
+  that previews a settings group is never offered in the Add picker, and Beta 3
+  declared none. The widget pack's settings groups are named like their widget,
+  but the registry links a group to a widget only through `previews`, so a
+  settings page does not list a sample of the widget. Beta 3 had no such
+  sample either; a separate preview-only widget would add one later.
 
 ## Acceptance pending on the host
 
@@ -255,3 +285,26 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   library without any highlight costs one scan a minute (up to about 200 host calls with the source
   *all*, 12 books with *recent*), not one per draw. That worst case is an X4 timing gate (not measured).
   `shows` (the minute tick) treats a refused library call as the draw does.
+
+## Logo (widget, token 121)
+
+- `native_logo.rs`. The logo is a picture the host decodes and draws (`image_prepare`, `canvas.draw_image`,
+  `docs/abi/document.md` 5): the one the setting `core.logo` names (JPEG, PNG or GIF on the card, library root,
+  `uses.storage` optional), else PaperPaw's own (`pictures/logo.png`, 192 × 192 like the sleep screen's and square like the drawn logo was, in the plugin's install folder, root 2;
+  `card-files` ships it). One request is open at a time and one picture (decoded to 320 px at most) is held,
+  shared by every logo widget; the last widget going gives it back. `Logo` decides what to ask and what an
+  answer means (tested without a host); `native_plugin.rs` sends the commands, reacts to `event.image_ready` and
+  to `core.logo` changing (held picture released, new one asked for), asks again at the next minute after a
+  refusal for memory or the card, and draws the picture over the replayed paint.
+- Differences from interface 6, on purpose: PaperPaw's own logo is no longer drawn as shapes (the native canvas has
+  no mask primitive) but is the installed picture (black sheet, white paw, so the widget's ink setting no longer
+  colours it; a test checks that the file is square); until it is ready, or where the host cannot read it (a plugin
+  built into the image has no install folder), only the name shows, if wanted. A picture set is no longer
+  re-decoded into a file of the plugin's own: the host's picture cache does that. Settings, sizes, name and
+  layout are the same (parity test).
+- A request's cookie carries a generation, counted up when `core.logo` changes, so the answer to a request made
+  before the change is not taken for the new one's. A request the host refuses outright (the card not granted
+  to the plugin, `uses.storage` being optional) moves on to the next file, so PaperPaw's own logo shows then.
+  The host's transient heap for drawing the picture (up to about 30 KiB) belongs on the X4 measurement list
+  with home's peaks.
+- Acceptance on the host (`widgets-logo-asks-for-and-draws-its-picture`) waits for H1/H3.

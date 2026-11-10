@@ -149,12 +149,19 @@
   ],
   "services": [
     "core.device",
+    "core.document",
     "core.files",
     "core.net",
+    "core.registry",
     "core.secrets",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
+    {
+      "key": "uses.install",
+      "required": true
+    },
     {
       "key": "uses.network",
       "required": true
@@ -162,6 +169,10 @@
     {
       "key": "uses.storage",
       "required": true
+    },
+    {
+      "key": "uses.wifi",
+      "required": false
     }
   ]
 }

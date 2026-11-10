@@ -36,11 +36,12 @@ pub(crate) const SCREEN: Id = Id::new_static("core.firmware-confirm");
 /// The event the screen answers with; the kernel's alone (see
 /// [`Kernel::firmware_answer`]).
 pub(crate) const ANSWERED: Id = Id::new_static("core.firmware-answered");
-const NONCE: &str = "nonce";
+pub(super) const NONCE: &str = "nonce";
 const TITLE: &str = "title";
 const TEXT: &str = "text";
 const YES_WORD: &str = "yes";
 const NO_WORD: &str = "no";
+const DATA_WORD: &str = "data";
 const ANSWER: &str = "answer";
 /// Input within this long of being shown is dropped (`device.md` 5.0).
 const GUARD_MS: u64 = 500;
@@ -54,13 +55,15 @@ pub(crate) struct Texts {
     pub(crate) body: String,
     pub(crate) yes: String,
     pub(crate) no: String,
+    /// A second yes, in the middle (a plugin removal's "with its data").
+    pub(crate) data: Option<String>,
 }
 
 /// `text` with what could forge a line or a sign in the dialog (control
 /// characters, line and paragraph separators, bidirectional controls that
 /// reorder the text around them) replaced by a space: the image's own names
 /// are not the host's words.
-fn clean(text: &str) -> String {
+pub(super) fn clean(text: &str) -> String {
     text.chars()
         .map(|c| if forges(c) { ' ' } else { c })
         .collect()
@@ -77,7 +80,7 @@ fn forges(c: char) -> bool {
 }
 
 /// The first eight bytes of a key, in groups of four hex digits.
-fn fingerprint(key: &[u8; 32]) -> String {
+pub(super) fn fingerprint(key: &[u8; 32]) -> String {
     let mut text = String::new();
     for (at, byte) in key.iter().take(8).enumerate() {
         if at > 0 && at % 2 == 0 {
@@ -133,19 +136,21 @@ pub(crate) fn texts(i18n: &paperpaw_i18n::Translator, asker: &str, ask: &Ask) ->
         body: lines.join("\n"),
         yes: String::from(i18n.tr(yes)),
         no: String::from(i18n.tr("core.firmware.no")),
+        data: None,
     }
 }
 
 /// The buttons, in their order.
-const YES: usize = 0;
-const NO: usize = 1;
+pub(super) const YES: usize = 0;
 
 /// The confirmation screen; see the [module documentation](self).
 pub(crate) struct HostConfirm {
     /// The box the host's confirmations share (`dialogs::ConfirmBox`).
     board: super::dialogs::ConfirmBox,
     nonce: String,
-    labels: [String; 2],
+    /// The buttons in their order: yes, [yes with data,] no. The focus starts
+    /// on the last, *No*.
+    labels: Vec<String>,
     /// When it was shown: the input guard and the timeout count from here.
     shown: Option<Instant>,
     /// It has answered (or ended as dismissed): nothing is told twice.
@@ -156,10 +161,15 @@ impl HostConfirm {
     /// The screen the kernel opened with `params` (see [`open_params`]).
     pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
         let get = |key| params.get(key).unwrap_or("");
-        let labels = [String::from(get(YES_WORD)), String::from(get(NO_WORD))];
-        let buttons = [labels[YES].as_str(), labels[NO].as_str()];
-        // The focus starts on No.
-        let board = super::dialogs::ConfirmBox::new(env, get(TITLE), get(TEXT), &buttons, NO);
+        let mut labels = Vec::from([String::from(get(YES_WORD))]);
+        if let Some(data) = params.get(DATA_WORD) {
+            labels.push(String::from(data));
+        }
+        labels.push(String::from(get(NO_WORD)));
+        let buttons: Vec<&str> = labels.iter().map(String::as_str).collect();
+        // The focus starts on No, the last.
+        let board =
+            super::dialogs::ConfirmBox::new(env, get(TITLE), get(TEXT), &buttons, labels.len() - 1);
         Self {
             board,
             nonce: String::from(get(NONCE)),
@@ -175,6 +185,18 @@ impl HostConfirm {
             .is_some_and(|at| env.now().0.saturating_sub(at.0) >= GUARD_MS)
     }
 
+    /// What pressing the button `at` answers: the first is a yes, a middle one
+    /// a yes with the data, the last a no.
+    fn answer_of(&self, at: usize) -> Answer {
+        if at == YES {
+            Answer::Yes
+        } else if at + 1 == self.labels.len() {
+            Answer::No
+        } else {
+            Answer::YesAndData
+        }
+    }
+
     /// Tells the kernel the answer, once, and closes.
     fn finish(&mut self, answer: Answer, cx: &mut Cx<'_, '_>) {
         if self.done {
@@ -184,6 +206,7 @@ impl HostConfirm {
         let code = match answer {
             Answer::Yes => "yes",
             Answer::No => "no",
+            Answer::YesAndData => "yes-data",
             Answer::Dismissed => "dismissed",
         };
         cx.command(Command::Emit(
@@ -260,11 +283,7 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         if *action == actions::CONFIRM {
-            let answer = if self.board.focus() == YES {
-                Answer::Yes
-            } else {
-                Answer::No
-            };
+            let answer = self.answer_of(self.board.focus());
             self.finish(answer, cx);
             return Handled::Yes;
         }
@@ -284,8 +303,10 @@ impl Screen for HostConfirm {
         }
         // A touch counts only inside its own buttons.
         match self.board.on_gesture(gesture, cx) {
-            Touch::Button(YES) => self.finish(Answer::Yes, cx),
-            Touch::Button(_) => self.finish(Answer::No, cx),
+            Touch::Button(at) => {
+                let answer = self.answer_of(at);
+                self.finish(answer, cx);
+            }
             Touch::Taken => {}
         }
         Handled::Yes
@@ -294,12 +315,16 @@ impl Screen for HostConfirm {
 
 /// The params the kernel opens the screen with.
 pub(crate) fn open_params(texts: &Texts, nonce: u128) -> Params {
-    Params::new()
+    let params = Params::new()
         .with(NONCE, nonce.to_string())
         .with(TITLE, texts.title.clone())
         .with(TEXT, texts.body.clone())
         .with(YES_WORD, texts.yes.clone())
-        .with(NO_WORD, texts.no.clone())
+        .with(NO_WORD, texts.no.clone());
+    match &texts.data {
+        Some(data) => params.with(DATA_WORD, data.clone()),
+        None => params,
+    }
 }
 
 /// What an answer event says: the nonce and the answer.
@@ -311,6 +336,7 @@ pub(crate) fn read_answer(event: &Id, params: &Params) -> Option<(u128, Answer)>
     let answer = match params.get(ANSWER)? {
         "yes" => Answer::Yes,
         "no" => Answer::No,
+        "yes-data" => Answer::YesAndData,
         "dismissed" => Answer::Dismissed,
         _ => return None,
     };
@@ -326,6 +352,13 @@ impl Kernel {
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
     ) -> bool {
         self.firmware_restart_pump(driver);
+        if let Some(question) = driver
+            .try_borrow()
+            .ok()
+            .and_then(|d| d.peek_plugin_question())
+        {
+            return self.plugin_confirm_pump(driver, &question);
+        }
         let Some(ask) = driver.try_borrow().ok().and_then(|d| d.peek_ask()) else {
             return false;
         };
@@ -392,6 +425,7 @@ impl Kernel {
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.abort_all();
         }
+        self.firmware_finish_stopped(&driver);
     }
 
     /// The plugin `key` stopped: its requests and its confirmation go.
@@ -406,6 +440,7 @@ impl Kernel {
         if let Some(nonce) = nonce {
             self.firmware_close_screen(nonce);
         }
+        self.firmware_finish_stopped(&driver);
     }
 
     /// Closes the confirmation opened with `nonce`. The host closes its own
@@ -427,7 +462,7 @@ impl Kernel {
 
     /// The name of the plugin `owner` for the dialog: its translated name,
     /// else the manifest's, else its id.
-    fn firmware_asker_name(&self, owner: u64) -> String {
+    pub(super) fn firmware_asker_name(&self, owner: u64) -> String {
         let Some(id) = self.shared.native_instances.id(owner) else {
             return String::new();
         };
