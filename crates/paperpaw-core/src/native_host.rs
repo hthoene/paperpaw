@@ -109,6 +109,9 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
+
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
@@ -265,6 +268,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+mod stack_events;
 #[allow(
     dead_code,
     reason = "the native stage.run host (#828) frames its replies with it"
@@ -284,6 +288,7 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod widget_inputs;
 mod wifi_events;
 mod work_pump;
 
@@ -1090,7 +1095,7 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     /// copy); `None` past the last one.
     #[must_use]
     pub fn record(&self, index: usize) -> Option<&T> {
-        self.records.get(..self.len)?.get(index)?.as_ref()
+        self.records.get(index)
     }
 
     /// Whether this batch contains no records.
