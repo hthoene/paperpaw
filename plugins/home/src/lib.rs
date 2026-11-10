@@ -61,6 +61,7 @@ pub mod native_dashboard;
 pub mod native_date;
 pub mod native_drawer;
 pub mod native_focus;
+pub mod native_gallery;
 pub mod native_grid;
 pub mod native_icons;
 pub mod native_item_settings;

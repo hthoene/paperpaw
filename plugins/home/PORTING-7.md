@@ -40,8 +40,7 @@ each what it waits for.
   clock are native: slice 4a).
 - The status line above the grid (composed through slot 35).
 - The fitting of the pages to a new grid (`native_pages::reflow` is ready).
-- *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
-  the finger's drag of an item, its corner and the footer items' grips.
+- The ready-made layouts and the rows' icons of *Add*; the finger's drag of an item and its corner.
 - The help hints (`help.hint` declarations).
 
 ## Activation items (todo 90)
@@ -199,8 +198,26 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   cell wide, as interface 6 did (it did not read the least width or the square hint there either).
 
 - Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4): `home-edit-arrange`. The options' *Settings* entry is native (slice 4e, below).
-- *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made
-  layouts and the rows' icons: `home-add` (#517). The things are listed by name.
+- *Add*'s ready-made layouts and the rows' icons: `home-add` (#517). The things of a tool kind are
+  listed by name.
+- *Add*'s gallery (slice 4g, `native_gallery`, `native_add_screen/view.rs`): the widgets of a kind
+  as they would show, a page of them at a time, as interface 6. Kernel's ruling (#228): live
+  instances. At the first draw or input the widgets of the kind are measured (made, measured,
+  dropped; `native_measure`) and laid out as large as each would be on the page (up to three rows,
+  as many to a page as fit). The page with the focus is made and placed (`widget_make` +
+  `widget_place`) and composed (`ui.compose`) into its cell, under its name, with a frame (strong
+  where it has the focus); leaving the page or the screen lets the instances go. The keys move among
+  the widgets (the arrow keys stay on the page where `core.arrows-stay-on-page` is on), the page
+  keys go to the first widget of the page before or after, *Confirm* or a tap on a name or widget
+  adds it, a tap in the header goes back or turns the page. Fallbacks, never a panic: a widget the
+  host cannot make or compose (full, no memory, a trap, gone) or one of home's own (the host
+  answers `Busy`; the dashboard does not draw them either, see above) is a text row in its cell
+  (icon of its kind, name, cells as `4×2`); where the host composes or places nothing
+  (`ERR_UNSUPPORTED`: the X4 until its stack gate, ui.md 5.1/8.2) the whole gallery is the list of
+  names, as before. The tests drive the page logic with a scripted stage (compose, refusals, and
+  the all-`Unsupported` host). **Not covered without a real host:** the drawing and composition
+  themselves (the scripted host has no screen stack or slot 35), and on the X4 the instances of
+  one page (at most the cells that fit) and the measuring at open.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
   the key.
 - At a show the focus is drawn only if `home.focus-at-once` is on **and** the last input was by buttons
@@ -441,7 +458,8 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
 | reflow (`HOME-reflow-slice`, was in `HOME-dashboard-slice`) | the setting-change handler | (c) plugin work, host ready: event 64 admitted (#763) |
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
-| gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
+| gallery (`HOME-add-gallery`) | H3 composition | (a) done (slice 4g); drawn on a real host only |
+| ready-made layouts, rows' icons (`HOME-add-layouts`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
 | options' *Settings* (`HOME-item-settings`) | | (a) done (slice 4e: `native_item_settings`) |
 | grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
 | hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |

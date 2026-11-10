@@ -86,13 +86,14 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["event.widget_changed", "H3"],
     },
-    // Adding a widget or tool to a page: the gallery that draws widgets as they
-    // would show, the ready-made layouts and the icons of the rows. The list
-    // steps, the page actions and the writes are done (unit-tested).
+    // Adding a widget or tool to a page: the ready-made layouts and the icons of
+    // the rows. The list steps, the page actions, the writes and the gallery's
+    // layout, page keys and fallbacks are done (unit-tested; the gallery's
+    // drawing needs a host with a screen stack and composition).
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "H1", "H4"],
+        blocked_by: &["HOME-add-layouts", "H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
     // the item, by its corner), and the options' *Settings* entry. Moving,
@@ -181,7 +182,7 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show (plugin work; composition #827, draft), the ready-made layouts and the icons of the rows (plugin work; the icon admission #517 and the glyph call #624 are merged) are not ported; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
+#[ignore = "BLOCKED HOME-add-layouts: the ready-made layouts and the icons of the rows are not ported (plugin work; the icon admission #517 and the glyph call #624 are merged); the gallery is native but its drawing is seen only on a host with a screen stack and composition; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }
