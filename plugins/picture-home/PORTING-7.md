@@ -45,7 +45,7 @@ The model, without the host (the same rules as `plugins/home`'s slices 3b to 3d,
 the two plugins are separate crates), with the unit tests that pin it (sweeps that refuse each
 allocation, the SDK's grid text, the interface-6 settings and constants):
 
-- `native_grid.rs`: items (a widget or a tool) with their cells, the text they are kept as
+- `native_grid` (in `paperpaw_ui_kit::dashboard::grid`, shared with home; re-exported under this name): items (a widget or a tool) with their cells, the text they are kept as
   (`parse`/`write`, the SDK's format), `fit` and `add`. Home's `refit` (a landscape home derived from
   the portrait one) is not here: this plugin has no layout of its own for a screen on its side.
 - `native_pages.rs`: the four pages (`picture-home.page-1` to `-4`), `expand` (the tools for
@@ -56,7 +56,7 @@ allocation, the SDK's grid text, the interface-6 settings and constants):
   a callback's staged writes (`fits`).
 - `native_dash.rs`: the places of the bar's strip (kept free, shown or not, at the top or bottom, as
   interface 6), the grid, the footer (the pencil, *Add*), the dots and page turning.
-- `native_focus.rs`, `native_arrange.rs`, `native_measure.rs`: the buttons' focus over the page's
+- `native_focus` and `native_arrange` (in `paperpaw_ui_kit::dashboard::{focus, arrange}`, shared with home; re-exported under these names) and `native_measure.rs`: the buttons' focus over the page's
   targets, the steps of moving and sizing an item and what removing leaves, the rows of a widget.
 - `native_source.rs` (`HostSource`: the pages, the grid's columns and rows, the switches, the plate,
   the bar's visibility and place, the widgets and the tools from the registry's menus

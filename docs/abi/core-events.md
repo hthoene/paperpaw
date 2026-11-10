@@ -2,7 +2,7 @@
 
 Status: contract of family 1b (#228). Everything here is appended: event records 64-74 in the
 `event` growth block (`screens-input.md` section 8). The records change the SDK `Record` shape, so
-this is the next draft (13). Items marked [D] are decided.
+this changed interface 7. Items marked [D] are decided.
 
 It builds on the event rules already in place: registration with `registration.event`, one record
 per `dispatch_event`, borrowed input valid for the call only, held back during a callback, and the
@@ -25,7 +25,7 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` |
-| 65 | `event.book_opened` | `now_ms`, `section`, `offset`, `progress_ppm`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page`, `pages`, `insert` |
+| 65 | `event.book_opened` | `now_ms`, `section`, `offset`, `progress_ppm`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page`, `pages`, `insert`, `chapter_left` |
 | 66 | `event.book_closed` | the same fields |
 | 67 | `event.book_finished` | the same fields |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |
@@ -113,11 +113,12 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 - [D] **37 and 65-67** are raised by the host's reading session. A book is opened through the host
   (the LIB/DOC open path); the host knows which book is open and stamps `now_ms`, `path` and
   `reason` itself. The plugin that holds the reader role for that book reports position, title,
-  chapter, counters and "finished" through the reader report of the DOC family. The host checks the
-  report against the open session (the reader's own book only, the field rules above) and raises
-  the event. Until the reader is ported, 37 keeps today's producer (the kernel raises it from the
-  interface-6 reader's page turns, and Battery already subscribes to it); 65-67 are not produced
-  before then. When the reader port moves to the DOC report, 37 and 65-67 switch to it together.
+  chapter, counters and "finished" through the reader report of the DOC family, `core.document` op
+  22 `report` (`document.md` 2.4, draft 37). The host checks the report against the open session
+  (the reader's own book only, the field rules above) and raises the event. Until the reader is
+  ported, 37 keeps today's producer (the kernel raises it from the interface-6 reader's page turns,
+  and Battery already subscribes to it); 65-67 are not produced before then. When the reader port
+  moves to the DOC report, 37 and 65-67 switch to it together.
 - [D] **64, 70-74** come from the host's own state: settings stores, plugin lifecycle, Wi-Fi, power
   wear (`work.rs`) and the battery status.
 

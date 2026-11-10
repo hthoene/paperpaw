@@ -260,6 +260,8 @@ pub const COMMAND_SET_HINT_TAG: u32 = 1594;
 pub const COMMAND_SET_HINT_ACTION_MAX_BYTES: usize = 128;
 /// Maximum bytes of `command.set_hint.label`.
 pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.firmware_dual_boot` command.
+pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -658,6 +660,13 @@ pub enum Command<'a> {
         kind: u32,
         /// UTF-8 text of at most 64 bytes.
         label: &'a str,
+    },
+    /// The `command.firmware_dual_boot` command (`docs/abi/registry.md`).
+    FirmwareDualBoot {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        mode: u32,
     },
 }
 
@@ -1356,6 +1365,13 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     label: text(body.bytes()?, COMMAND_SET_HINT_LABEL_MAX_BYTES)?,
                 }
             }
+            COMMAND_FIRMWARE_DUAL_BOOT_TAG => {
+                body.bitmap()?;
+                Command::FirmwareDualBoot {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    mode: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1668,6 +1684,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             len += blob_len(label.len(), COMMAND_SET_HINT_LABEL_MAX_BYTES)?;
             Ok((COMMAND_SET_HINT_TAG, len))
         }
+        Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
     }
 }
 
@@ -2051,6 +2068,12 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&kind.to_le_bytes());
                     offset += 4;
                     write_blob(label.as_bytes(), out, &mut offset);
+                }
+                Command::FirmwareDualBoot { request, mode } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
                 }
                 Command::SetSetting { .. } => {}
             }

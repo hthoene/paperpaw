@@ -39,11 +39,35 @@ interface-7 port uses it, none builds its own.
   widget's settings (ids, kinds, defaults, choices, titles, help keys) with the
   interface-6 registration.
 
+- Favourites and Series (`native_favourites`, `native_series`, the shared shelf in `native_shelf`):
+  the books as covers in a row or in rows (favourites), or in the series' order with their numbers
+  (series), a caption just above them, those read marked, the one being read underlined or its label
+  light on dark, a tap on a cover or its label opens the book (one target for each, at most 24). The
+  books are the library's (`Show::Favourites`, or one query of the series ordered by the catalog's
+  numbers), kept for the catalog's generation; a book whose file is gone from the card is left out.
+  The host draws the covers (`core.library` op `cover`, `draw_image` after the paint is replayed:
+  `paperpaw_ui_kit::covers`); a book without one, or whose cover is refused, is a frame with its
+  title, and one still being made is drawn again at the next minute tick (the item keeps a `retry` flag that the
+  tick turns into `widget_changed`, cleared once queued).
+  Differences from interface 6, none with a visible effect on a card of up to 8 books:
+  - The host keeps 8 picture ids for a plugin, so a shelf asks for the covers of its first 8 books
+    only (`MOST_COVERS`); the books after them show as frames with their titles.
+  - Favourites come newest *added* first (the catalog does not keep when a book was made a
+    favourite); at most one library page (up to 32 books) is read, so a *count* above what a page
+    holds shows what it holds.
+  - Series: a book's name is matched ignoring ASCII case; the members are the library's own order.
+  - The targets are the places as laid out, not the packed ones (a cover of another shape than 2:3
+    is narrower than its place); a tap beside it, within the place, still opens the book.
+  Host acceptance (H1/H3: widgets composed, covers drawn) is pending; no pixels were checked.
+  X4 list (unmeasured): the favourites read each of up to 24 books with `library.book` when the
+  catalog's generation changes (once per generation, not per draw); two Series widgets with
+  different names share one cache, so each draw of one re-reads the library for its own series.
+
 ## Not ported yet (explicit)
 
-The books family except the battery, the
-library in numbers and the highlight: `progress`, `reading`, `next`, `series` and `favourites` draw book covers, all of which wait for the image slots 36/37 (draft 22, Services'
-SDK facade). The interface-6 pack stays in `src/` until every widget is ported; then the last
+`progress`, `reading` and `next` of the books family (they draw book covers; the image slots 36/37 and the SDK
+facade are on integration, so they are not waiting for the host). The interface-6 pack stays in `src/` until every
+widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
@@ -61,6 +85,13 @@ note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
 - "Chosen for this widget" (the reader's value against the one for all widgets)
   is the registry's `source` of the setting not being the default, or the
   placement setting it itself; the legacy `is_chosen` said the same.
+
+- The widgets are declared without `previews` (Kernel ruling, #228): a widget
+  that previews a settings group is never offered in the Add picker, and Beta 3
+  declared none. The widget pack's settings groups are named like their widget,
+  but the registry links a group to a widget only through `previews`, so a
+  settings page does not list a sample of the widget. Beta 3 had no such
+  sample either; a separate preview-only widget would add one later.
 
 ## Acceptance pending on the host
 

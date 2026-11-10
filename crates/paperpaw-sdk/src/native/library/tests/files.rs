@@ -286,3 +286,68 @@ fn names_the_card_takes_pass_and_a_refusal_is_the_calls_status() {
         .is_err()
     );
 }
+
+#[test]
+fn move_to_sends_the_record_and_the_replace_flag() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let (mut input, mut out) = ([0; 2048], [0; 4096]);
+    reply(&state, &[row("/Books/New/a.epub", 0, 0)]);
+    lib.move_to(
+        &host,
+        "/Books/a.epub",
+        "/Books/New/a.epub",
+        true,
+        &mut input,
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(state.op.get(), schema::OP_MOVE);
+    let bytes = state.input.borrow();
+    let sent = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(
+        sent.iter().next(),
+        Some(Record::ServiceLibMove(m))
+            if (m.from, m.to, m.flags) == ("/Books/a.epub", "/Books/New/a.epub", 1)
+    ));
+}
+
+#[test]
+fn move_to_refuses_bad_paths_before_the_call_and_a_refusal_is_the_calls_status() {
+    let table = table();
+    let mut state = State::default();
+    let (host, lib) = host_and_lib(&table, &mut state);
+    let (mut input, mut out) = ([0; 2048], [0; 4096]);
+    for (from, to) in [("", "/b"), ("/a", ""), ("/a\n", "/b"), ("/a", "/b\u{0}")] {
+        assert_eq!(
+            lib.move_to(&host, from, to, false, &mut input, &mut out)
+                .unwrap_err(),
+            Error::Invalid
+        );
+    }
+    let long = "x".repeat(513);
+    assert_eq!(
+        lib.move_to(&host, &long, "/b", false, &mut input, &mut out)
+            .unwrap_err(),
+        Error::NoSpace
+    );
+    assert_eq!(
+        lib.move_to(&host, "/a", &long, false, &mut input, &mut out)
+            .unwrap_err(),
+        Error::NoSpace
+    );
+    assert_eq!(state.calls.get(), 0);
+    // A host status in the reply row is the call's status; a malformed reply is Invalid.
+    reply(&state, &[row("/b", -3, 0)]);
+    assert!(
+        lib.move_to(&host, "/a", "/b", false, &mut input, &mut out)
+            .is_err()
+    );
+    reply(&state, &[]);
+    assert_eq!(
+        lib.move_to(&host, "/a", "/b", false, &mut input, &mut out)
+            .unwrap_err(),
+        Error::Invalid
+    );
+}
