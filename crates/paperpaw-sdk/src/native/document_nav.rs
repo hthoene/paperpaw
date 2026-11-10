@@ -261,7 +261,67 @@ impl DocSpan {
     }
 }
 
+/// One section of a document: its number and its length for progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SectionEntry(wire::ServiceDocSection);
+impl SectionEntry {
+    fn decode(record: RawRecord<'_>) -> Result<Self, Error> {
+        record
+            .decode::<wire::ServiceDocSection>()
+            .map(Self)
+            .map_err(|_| Error::Invalid)
+    }
+    /// The section's number, as [`DocPosition::section`] names it.
+    #[must_use]
+    pub const fn index(&self) -> u32 {
+        self.0.index
+    }
+    /// The section's length in source units, for progress. Unknown row flags are
+    /// ignored, so a later host may add some.
+    #[must_use]
+    pub const fn length(&self) -> u32 {
+        self.0.length
+    }
+    /// The section is one whole-page picture.
+    #[must_use]
+    pub const fn whole_page_picture(&self) -> bool {
+        self.0.flags & 1 != 0
+    }
+}
+
 impl Documents {
+    /// List the sections (op 5) with their lengths, in bounded pages; continue
+    /// with the cursor of [`DocPage::end`]. The reader adds the lengths up to
+    /// compute progress (the format's own progress, op 17, is not wrapped here
+    /// yet). `input` is 256
+    /// bytes; `out` 4,096.
+    ///
+    /// # Errors
+    /// Invalid for a malformed page; State for a cursor whose list changed (start
+    /// again); Busy while the document is preparing; otherwise the host's refusals.
+    pub fn sections<'a>(
+        &self,
+        host: &Host<'_>,
+        document: DocId,
+        cursor: DocCursor,
+        input: &mut [u8],
+        out: &'a mut [u8],
+    ) -> Result<DocPage<'a, SectionEntry>, Error> {
+        let ask = wire::ServiceDocPage {
+            document: document.0,
+            scope: "",
+            cursor: cursor.offset,
+            generation: cursor.generation,
+        };
+        let n = self.call(host, schema::OP_SECTIONS, &[&ask], input, out)?;
+        DocPage::decode(
+            out.get(..n).ok_or(Error::Invalid)?,
+            cursor,
+            SectionEntry::decode,
+        )
+    }
+
     /// List the table of contents (op 7) in reading order, in bounded pages;
     /// continue with the cursor of [`DocPage::end`]. `input` is 256 bytes;
     /// `out` 4,096.

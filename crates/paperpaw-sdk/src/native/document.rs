@@ -451,7 +451,7 @@ mod readers;
 pub use readers::{Reader, ReaderCursor, ReaderPage, ReaderPageEnd};
 #[path = "document_nav.rs"]
 mod nav;
-pub use nav::{DocCursor, DocPage, DocPageEnd, DocSpan, Link, LinkKind, TocEntry};
+pub use nav::{DocCursor, DocPage, DocPageEnd, DocSpan, Link, LinkKind, SectionEntry, TocEntry};
 #[path = "document_blocks.rs"]
 mod blocks;
 pub use blocks::{
