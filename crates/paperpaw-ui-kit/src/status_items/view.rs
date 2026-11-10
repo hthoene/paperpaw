@@ -12,10 +12,10 @@
 //! page buttons move it a place, *Confirm*, *Back* or *Menu* put it down.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Handled,
+    Handled, Point,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind},
+        callbacks::{DrawFrame, Input, InputGestureKind, PointerPhase},
         commands::{CommandSender, RedrawMode},
         registry::{PageCursor, Registry, StatusScope},
     },
@@ -61,11 +61,14 @@ impl Texts {
 
 /// What an input did to the view.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Step {
     /// Not for the view (the screen goes back for *Back*).
     Ignored,
     /// Taken; the screen is drawn again.
     Redraw,
+    /// Taken, nothing to draw (a finger moved within the place it was at).
+    Taken,
     /// The setting changed to this text.
     Changed(String),
     /// The header's action should run (back, previous or next page).
@@ -93,6 +96,16 @@ pub struct StatusItemsView {
     list: ItemList,
     title: String,
     texts: Texts,
+    /// The shown item a finger has taken along by its grip.
+    drag: Option<Drag>,
+}
+
+/// A finger on a grip: its contact, the item's place and where it would land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Drag {
+    contact: u32,
+    from: usize,
+    to: usize,
 }
 
 impl StatusItemsView {
@@ -113,6 +126,7 @@ impl StatusItemsView {
             list: ItemList::default(),
             title,
             texts,
+            drag: None,
         };
         let items = view.build()?;
         view.list.replace(items);
@@ -214,10 +228,16 @@ impl StatusItemsView {
         let step = match *input {
             Input::Action { action, .. } => self.action(input, action)?,
             Input::Gesture { kind, .. } => self.gesture(input, kind)?,
+            Input::Pointer {
+                position,
+                phase,
+                contact,
+                ..
+            } => self.pointer(position, phase, contact)?,
             _ => Step::Ignored,
         };
         let items = match step {
-            Step::Ignored => None,
+            Step::Ignored | Step::Taken => None,
             _ => Some(self.build()?),
         };
         Ok((step, items))
@@ -250,6 +270,61 @@ impl StatusItemsView {
         match self.list.decide(input) {
             ItemStep::Focus(to) => {
                 self.list.set_focus(to);
+                Ok(Step::Redraw)
+            }
+            _ => Ok(Step::Ignored),
+        }
+    }
+
+    /// A finger on the grip of a shown item takes it along: a bar shows where it
+    /// lands, lifting the finger puts it there. Only a contact that comes down
+    /// on a grip is taken (the host then gives the view its moves and its end);
+    /// the others are left to the gestures.
+    fn pointer(
+        &mut self,
+        position: Point,
+        phase: PointerPhase,
+        contact: u32,
+    ) -> Result<Step, Error> {
+        match (phase, self.drag) {
+            // The same finger down again: its end got lost, so it starts afresh.
+            (PointerPhase::Down, held) if held.is_none_or(|d| d.contact == contact) => {
+                self.drag = None;
+                let shown = self.chooser.chosen()?.len();
+                let row = self.list.grip_at(position).filter(|row| *row < shown);
+                let Some(row) = row.filter(|_| shown > 1) else {
+                    return Ok(Step::Ignored);
+                };
+                // A finger takes over from the buttons.
+                self.chooser.put_down();
+                self.list.set_focus(row);
+                self.drag = Some(Drag {
+                    contact,
+                    from: row,
+                    to: row,
+                });
+                Ok(Step::Redraw)
+            }
+            (PointerPhase::Move, Some(mut drag)) if drag.contact == contact => {
+                let to = self.list.drop_row(position.y).unwrap_or(drag.to);
+                if to == drag.to {
+                    return Ok(Step::Taken);
+                }
+                drag.to = to;
+                self.drag = Some(drag);
+                Ok(Step::Redraw)
+            }
+            (PointerPhase::Up, Some(drag)) if drag.contact == contact => {
+                self.drag = None;
+                let to = self.list.drop_row(position.y).unwrap_or(drag.to);
+                if self.chooser.move_to(drag.from, to)? {
+                    self.list.set_focus(to);
+                    return Ok(Step::Changed(self.chooser.value()?));
+                }
+                Ok(Step::Redraw)
+            }
+            (PointerPhase::Cancel, Some(drag)) if drag.contact == contact => {
+                self.drag = None;
                 Ok(Step::Redraw)
             }
             _ => Ok(Step::Ignored),
@@ -317,7 +392,7 @@ impl StatusItemsView {
         let Some(step) = self.run(input, |step| Self::send(host, setting, step))? else {
             return Ok(Handled::No);
         };
-        if !matches!(step, Step::Header(_)) {
+        if !matches!(step, Step::Header(_) | Step::Taken) {
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         }
@@ -357,7 +432,7 @@ impl StatusItemsView {
                     paperpaw_sdk::native::settings::SettingValue::Text(value),
                 )
             }
-            Step::Redraw | Step::Ignored => Ok(()),
+            Step::Redraw | Step::Taken | Step::Ignored => Ok(()),
         }
     }
 
@@ -371,6 +446,10 @@ impl StatusItemsView {
         } else {
             &self.texts.hint
         };
+        // Shown items carry a grip where another is shown to move them past.
+        let shown = self.chooser.chosen()?.len();
+        self.list.set_grips(if shown > 1 { shown } else { 0 });
+        self.list.set_drag(self.drag.map(|d| (d.from, d.to)));
         self.list
             .draw_with(host, frame, &self.title, true, Footer::Note(hint))
     }
