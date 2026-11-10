@@ -124,19 +124,32 @@ fn the_settings_that_change_the_layout_are_told_from_those_that_change_the_ink()
         "core.margin",
         "core.margin-ends",
         "core.justify",
-        "core.font",
-        "core.font-family",
-        "core.hyphenation",
-        "core.publisher-styles",
+        "core.reading-font",
+        "core.hyphenate",
+        "core.hyphen-min-left",
+        "core.hyphen-min-right",
+        "",
     ] {
         assert!(affects_layout(key), "{key}");
-        assert!(!affects_ink(key) || key == "core.font-weight", "{key}");
+        assert!(!affects_ink(key), "{key}");
     }
-    for key in ["core.smooth-text", "core.text-contrast", "core.text-curve"] {
+    for key in [
+        "core.smooth-text",
+        "core.font-weight",
+        "core.text-contrast",
+        "core.text-sharpness",
+        "core.text-curve",
+    ] {
         assert!(affects_ink(key), "{key}");
         assert!(!affects_layout(key), "{key}");
     }
-    for key in ["core.theme", "reader.hold-chapters", "core.brightness", ""] {
+    // The publisher styles are applied when a book opens: no reflow applies them.
+    for key in [
+        "core.theme",
+        "reader.hold-chapters",
+        "core.brightness",
+        "core.publisher-styles",
+    ] {
         assert!(!affects_layout(key) && !affects_ink(key), "{key}");
     }
 }

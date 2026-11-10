@@ -54,3 +54,10 @@ fn a_page_is_laid_out_again_when_the_reading_or_the_display_changes() {
     };
     assert_ne!(key, justified);
 }
+
+#[test]
+fn the_root_of_a_hand_over_is_written_as_it_is_read() {
+    assert_eq!(root_code(Root::Data), "0");
+    assert_eq!(root_code(Root::Library), "1");
+    assert_eq!(root_code(Root::Handed), "5");
+}

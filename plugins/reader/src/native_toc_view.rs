@@ -25,8 +25,11 @@ use paperpaw_ui_kit::{
 /// One open table of contents.
 #[derive(Debug)]
 pub struct TocView {
-    /// The book's document, held while the screen is open.
+    /// The book's document: the reading screen's, or one opened here.
     document: Option<DocId>,
+    /// The document was opened by this screen (and is closed with it): the X4
+    /// holds one open document per plugin, so the reading screen's is used.
+    owned: bool,
     /// Entries as the host listed them: where each leads and whether that is exact.
     entries: Vec<(Entry, bool)>,
     list: ItemList,
@@ -61,6 +64,7 @@ impl TocView {
     fn none(message: &'static str) -> Self {
         Self {
             document: None,
+            owned: false,
             entries: Vec::new(),
             list: ItemList::default(),
             message: Some(message),
@@ -75,7 +79,7 @@ impl TocView {
         host: &Host<'_>,
         ui: &Ui,
         docs: &Documents,
-        handover: Option<HandoverId>,
+        (handover, shared): (Option<HandoverId>, Option<DocId>),
     ) -> Result<Self, Error> {
         let found = match handover {
             Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
@@ -84,20 +88,27 @@ impl TocView {
         if found.path.is_empty() {
             return Ok(Self::none("reader.no-book"));
         }
-        let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
-        let book = OpenBook::new(&found.path).root(found.root());
-        let (id, preparation) = match docs.open_book(host, &book, &mut input, &mut out) {
-            Ok(state) => (state.id(), state.preparation()),
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(Error::Busy) => return Ok(Self::none("reader.not-ready")),
-            Err(_) => return Ok(Self::none("reader.error")),
-        };
         let mut view = Self::none("reader.error");
+        let id = if let Some(id) = shared {
+            id
+        } else {
+            let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+            let book = OpenBook::new(&found.path).root(found.root());
+            let (id, preparation) = match docs.open_book(host, &book, &mut input, &mut out) {
+                Ok(state) => (state.id(), state.preparation()),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::Busy) => return Ok(Self::none("reader.not-ready")),
+                Err(_) => return Ok(Self::none("reader.error")),
+            };
+            view.owned = true;
+            if !matches!(preparation, Preparation::Ready) {
+                view.document = Some(id);
+                view.message = Some("reader.preparing");
+                return Ok(view);
+            }
+            id
+        };
         view.document = Some(id);
-        if !matches!(preparation, Preparation::Ready) {
-            view.message = Some("reader.preparing");
-            return Ok(view);
-        }
         let at = place_of(&found);
         match view.read(host, docs, id, at) {
             Ok(()) => {}
@@ -237,7 +248,8 @@ impl TocView {
 
     /// Gives the document back (the screen closed).
     pub fn close(&mut self, host: &Host<'_>, docs: &Documents) {
-        if let Some(id) = self.document.take()
+        let id = self.document.take();
+        if let Some(id) = id.filter(|_| self.owned)
             && let (Ok(mut input), Ok(mut out)) = (buffer(64), buffer(64))
         {
             docs.close(host, id, &mut input, &mut out).ok();
