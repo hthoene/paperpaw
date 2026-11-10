@@ -78,6 +78,23 @@ impl Screen for Plain {
     }
 }
 
+/// An overlay that covers all of the content: what lies below is not drawn.
+struct Cover;
+impl Screen for Cover {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
+        Handled::No
+    }
+    fn region(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_platform::Rect> {
+        Some(paperpaw_platform::Rect::new(
+            0,
+            0,
+            env.content().width,
+            env.content().height,
+        ))
+    }
+}
+
 struct Screens;
 impl Plugin for Screens {
     fn manifest(&self) -> Manifest {
@@ -92,6 +109,11 @@ impl Plugin for Screens {
                 Box::new(|_, _| Box::new(Plain)),
             ))?;
         }
+        r.add_screen(ScreenSpec::new(
+            Id::try_parse("s.cover").unwrap(),
+            "screen",
+            Box::new(|_, _| Box::new(Cover)),
+        ))?;
         Ok(())
     }
 }
@@ -181,4 +203,43 @@ fn an_instance_closed_before_it_was_drawn_is_never_told() {
             .skip(before)
             .all(|(screen, _)| screen != "s.two")
     );
+}
+
+#[test]
+fn a_screen_fully_covered_when_drawn_is_told_only_once_it_is_shown() {
+    let (mut kernel, told) = world(true);
+    let one = open(&mut kernel, "s.one");
+    let cover = open(&mut kernel, "s.cover");
+    draw(&mut kernel);
+    // The overlay was drawn; what it covers was not, so it is not ready yet.
+    assert!(
+        told.borrow()
+            .iter()
+            .any(|(s, i)| s == "s.cover" && *i == cover)
+    );
+    assert!(!told.borrow().iter().any(|(_, i)| *i == one));
+    kernel.apply(paperpaw_sdk::Command::Back);
+    kernel.finish();
+    kernel.output.redraw = true;
+    draw(&mut kernel);
+    assert_eq!(
+        told.borrow().iter().filter(|(_, i)| *i == one).count(),
+        1,
+        "told once it was drawn"
+    );
+}
+
+#[test]
+fn a_full_edge_queue_drops_the_event_with_one_log_and_keeps_the_order() {
+    let (mut kernel, told) = world(true);
+    let screen = Id::try_parse("s.one").unwrap();
+    // Nothing tells the plugin between these: 16 edges are held, the rest lost.
+    for instance in 0..20 {
+        kernel.native_screen_ready(&screen, instance);
+    }
+    assert_eq!(kernel.take_warnings().len(), 1);
+    draw(&mut kernel);
+    let told = told.borrow();
+    assert_eq!(told.len(), 16);
+    assert!(told.iter().map(|(_, i)| *i).eq(0..16));
 }

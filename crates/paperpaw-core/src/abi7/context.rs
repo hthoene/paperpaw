@@ -164,6 +164,40 @@ pub(crate) trait Frame {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 
+    /// One directed stage call to the native instance of `owner`'s `token`,
+    /// for a host service that runs another plugin (the document service's
+    /// format call, the lookup providers). The call goes through the stage
+    /// dispatch of the owner's instance: that pushes the owner's own frame,
+    /// the depth budget holds (the callee runs at depth 2, a third level is
+    /// `ERR_BUSY`), a plugin never calls itself (`ERR_BUSY`), and nothing of
+    /// the instance outlives the call.
+    ///
+    /// `accept` checks the callee's answer (`reply[..n]`) before it counts:
+    /// an `Err` is the status of the call and the callee is told its answer
+    /// was dropped. On success the answer is the first `n` bytes of `reply`;
+    /// on an error `reply` is unspecified. `ERR_UNSUPPORTED` for a frame
+    /// without stage authority.
+    fn call_native(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _input: &[u8],
+        _reply: &mut [u8],
+        _accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// The declaration store (a `DeclarationStore`, as `dyn Any`: this file is
+    /// also compiled by the integration tests, which have no such type), read
+    /// for the length of `visit` (the document service reads the formats and
+    /// reading apps there). `visit` must not invoke plugins or reenter the
+    /// store. `ERR_BUSY` while the store is being changed, `ERR_UNSUPPORTED`
+    /// for a frame without a directory.
+    fn with_declarations(&self, _visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
     /// A host view kept behind a service key, as `dyn Any`. **Not used by the
     /// families any more**: `core.device`, `core.document`, `core.library` and
     /// `core.lookup` reach theirs through the caller's `hosts`

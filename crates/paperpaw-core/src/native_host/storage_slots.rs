@@ -4,6 +4,7 @@
 
 use super::{
     environment::EnvironmentScope,
+    format_scope::FormatScope,
     paths_in_use::PathsInUse,
     storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
 };
@@ -14,10 +15,20 @@ use paperpaw_native::host_glue::{
     buffers,
 };
 
+/// The format calls under way and the host owner id of the plugin whose slot
+/// it is: what lets roots 3, 4 and 6 name the document the plugin's call is
+/// for. A plugin outside such a call has none of these roots.
+#[derive(Clone, Copy)]
+pub(crate) struct Format<'a> {
+    pub(crate) scope: &'a FormatScope,
+    pub(crate) owner: u64,
+}
+
 fn with_adapter<R>(
     scope: &EnvironmentScope,
     owner: &str,
     in_use: Option<&PathsInUse>,
+    format: Option<(Format<'_>, u32)>,
     call: impl FnOnce(&StorageAdapter<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
     let length = PREFIX
@@ -33,9 +44,23 @@ fn with_adapter<R>(
     let folder = core::str::from_utf8(folder).map_err(|_| ERR_INVALID)?;
     scope.with_frame(|frame| {
         let storage = frame.storage().ok_or(ERR_STATE)?;
-        let adapter =
-            StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
-        call(&adapter)
+        // Roots 3, 4 and 6 are the call's document, if the plugin is in one.
+        let Some((format, _)) = format.filter(|(_, root)| *root != ROOT_PLUGIN) else {
+            let adapter =
+                StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
+            return call(&adapter);
+        };
+        let mut call = Some(call);
+        let mut result = Err(ERR_UNSUPPORTED);
+        format.scope.current(format.owner, &mut |book| {
+            if let Some(call) = call.take() {
+                result = match StorageAdapter::borrowed_folder(storage, folder, in_use) {
+                    Some(adapter) => call(&adapter.with_format(book)),
+                    None => Err(ERR_INVALID),
+                };
+            }
+        });
+        result
     })?
 }
 
@@ -60,12 +85,15 @@ unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
 }
 
 unsafe fn path<'a>(root: u32, bytes: PpBytes) -> Result<&'a [u8], i32> {
-    if root != ROOT_PLUGIN {
+    if !matches!(root, ROOT_PLUGIN | 3 | 4 | 6) {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: the caller guarantees readable input.
     let bytes = unsafe { input(bytes, MAX_PATH) }?;
-    storage::relative_path(bytes)?;
+    // Roots 3 and 4 name one file by the empty path.
+    if !(bytes.is_empty() && matches!(root, 3 | 4)) {
+        storage::relative_path(bytes)?;
+    }
     Ok(bytes)
 }
 
@@ -82,6 +110,7 @@ fn status(result: Result<(), i32>) -> i32 {
 pub(crate) unsafe fn size(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     root: u32,
     bytes: PpBytes,
     out: *mut u64,
@@ -97,7 +126,9 @@ pub(crate) unsafe fn size(
         }
         // SAFETY: the caller guarantees live input storage.
         let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, None, |adapter| adapter.size(root, path))
+        with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
+            adapter.size(root, path)
+        })
     })();
     match result {
         Ok(value) => {
@@ -120,6 +151,7 @@ pub(crate) unsafe fn size(
 pub(crate) unsafe fn read_at(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     root: u32,
     bytes: PpBytes,
     offset: u64,
@@ -131,7 +163,7 @@ pub(crate) unsafe fn read_at(
         pair(out.ptr, out.cap, MAX_DATA)?;
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
-        with_adapter(scope, owner, None, |adapter| {
+        with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
             let mut scratch = read_scratch(out.len())?;
             let count = adapter.read_at(root, path, offset, &mut scratch)?;
             let bytes = scratch
@@ -188,13 +220,14 @@ mod scratch_fault {
 pub(crate) unsafe fn write(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, in_use, root, bytes, data, false) }
+    unsafe { put(scope, owner, format, in_use, root, bytes, data, false) }
 }
 
 /// Slot 23: append a chunk, preserving the reserve and path rules.
@@ -205,18 +238,24 @@ pub(crate) unsafe fn write(
 pub(crate) unsafe fn append(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, in_use, root, bytes, data, true) }
+    unsafe { put(scope, owner, format, in_use, root, bytes, data, true) }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the slot's inputs, as the other slots take them"
+)]
 unsafe fn put(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
@@ -228,13 +267,19 @@ unsafe fn put(
         let path = unsafe { path(root, bytes) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let data = unsafe { input(data, MAX_DATA) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            if append {
-                adapter.append(root, path, data)
-            } else {
-                adapter.write(root, path, data)
-            }
-        })
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| {
+                if append {
+                    adapter.append(root, path, data)
+                } else {
+                    adapter.write(root, path, data)
+                }
+            },
+        )
     })())
 }
 
@@ -246,6 +291,7 @@ unsafe fn put(
 pub(crate) unsafe fn rename(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     from: PpBytes,
@@ -256,9 +302,13 @@ pub(crate) unsafe fn rename(
         let from = unsafe { path(root, from) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let to = unsafe { path(root, to) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            adapter.rename(root, from, to)
-        })
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| adapter.rename(root, from, to),
+        )
     })())
 }
 
@@ -270,6 +320,7 @@ pub(crate) unsafe fn rename(
 pub(crate) unsafe fn remove(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
@@ -277,17 +328,26 @@ pub(crate) unsafe fn remove(
     status((|| {
         // SAFETY: the caller guarantees live readable input.
         let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            adapter.remove(root, path)
-        })
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| adapter.remove(root, path),
+        )
     })())
 }
 
 /// Slot 26: flush the current callback's storage view.
 pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
-    status(with_adapter(scope, owner, None, |adapter| adapter.sync()))
+    status(with_adapter(scope, owner, None, None, |adapter| {
+        adapter.sync()
+    }))
 }
 
+#[cfg(test)]
+#[path = "storage_slots_format_tests.rs"]
+mod format_tests;
 #[cfg(test)]
 #[path = "storage_slots_tests.rs"]
 mod tests;

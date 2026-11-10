@@ -1,0 +1,3 @@
+### Added
+
+- **`event.document_closed` (108) reaches the opener** (#228, `docs/abi/document.md` 2). When the host ends a document on its own (the format stopped, the card went, the book was moved or removed, its place was needed), the document service keeps one record for the opener and the kernel's pump delivers it, once and never dropped: an open leaves room for the close of every live document, and waits (`ERR_BUSY`) while undelivered events fill it. A plugin registers for 108 like any event, and now also for `event.image_ready` (90) and `event.lookup_ready` (110), whose producers deliver only to subscribers. A document the opener closed itself, or one whose opener stopped, raises nothing.
