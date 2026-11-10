@@ -49,6 +49,7 @@ mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
+mod core_texts;
 mod data_plugin;
 mod drawing;
 mod effects;

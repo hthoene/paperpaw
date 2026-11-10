@@ -1750,15 +1750,7 @@ fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
         })),
     )?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-    // Keep source offsets below the 15-bit static catalog-index limit.
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/de.ini")))?;
-    // The `core.setting.*` texts: a catalog of their own keeps each one under
-    // the same limit.
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/settings/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/settings/de.ini")))?;
+    crate::core_texts::add(r)?;
     Ok(())
 }
 
