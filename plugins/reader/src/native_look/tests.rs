@@ -63,3 +63,14 @@ fn a_curve_of_its_own_replaces_contrast_and_sharpness() {
     assert!(!look.sharp);
     assert!(Look::from_values(0, false, None, Some(own), None, None).sharp);
 }
+
+#[test]
+fn a_curve_too_long_to_read_is_no_curve_and_does_not_refuse_the_page() {
+    assert_eq!(Look::own_curve(Err(Error::NoSpace)), Ok(None));
+    assert_eq!(Look::own_curve(Ok(SettingValue::Absent)), Ok(None));
+    assert_eq!(Look::own_curve(Err(Error::State)), Err(Error::State));
+    assert_eq!(
+        Look::own_curve(Ok(SettingValue::Text("nonsense"))),
+        Ok(None)
+    );
+}

@@ -64,10 +64,7 @@ impl Look {
             SettingValue::Bool(true)
         );
         let mut curve = [0; 256];
-        let own = match settings::read_setting(host, "core.text-curve", &mut curve)? {
-            SettingValue::Text(text) => ToneCurve::parse_for(text, None),
-            _ => None,
-        };
+        let own = Self::own_curve(settings::read_setting(host, "core.text-curve", &mut curve))?;
         let contrast = Self::level(host, "core.text-contrast", &CONTRAST)?;
         let sharpness = Self::level(host, "core.text-sharpness", &SHARPNESS)?;
         Ok(Self::from_values(
@@ -114,6 +111,17 @@ impl Look {
             weight,
             tone: curve.alphas(),
             sharp,
+        }
+    }
+
+    /// The curve of one's own a read of `core.text-curve` gives. A value too
+    /// long for the buffer is no curve of one's own (the contrast then): the
+    /// page is drawn, not refused.
+    fn own_curve(read: Result<SettingValue<'_>, Error>) -> Result<Option<ToneCurve>, Error> {
+        match read {
+            Ok(SettingValue::Text(text)) => Ok(ToneCurve::parse_for(text, None)),
+            Ok(_) | Err(Error::NoSpace) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
