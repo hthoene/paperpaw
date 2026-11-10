@@ -141,12 +141,16 @@ def execute(options):
     path = options.journal or ROOT / "target/release" / f"publish-workspace-{commit[:12]}.json"
     data = journal(path, commit, items)
     retries = 0
+    published = None
     while True:
         clean_commit(commit)
         if options.publish and (deadline := data.get("retry_at")):
             wait_until(deadline)
         pending, existing = remaining(items, workspace)
         data.update({"pending": pending, "verified_existing": existing})
+        if published is not None and len(existing) > published:
+            retries = 0  # progress since the last rate limit: the limit counts stalls only
+        published = len(existing)
         if options.publish:
             data["retry_at"] = None
         save(path, data)
@@ -187,7 +191,8 @@ def execute(options):
         data["retry_at"] = time.time() + retry_delay(text, retries)
         save(path, data)
         if retries >= options.max_retries:
-            raise ValueError(f"rate-limit retry limit reached; resume later with the same command ({path})")
+            raise ValueError(f"rate-limit retry limit reached ({retries} in a row without progress); "
+                             f"resume later with the same command ({path})")
         retries += 1
 
 
@@ -198,7 +203,8 @@ def main():
     mode.add_argument("--dry-run", action="store_true", help="also package and build missing crates without uploading")
     mode.add_argument("--publish", action="store_true", help="upload missing crates; resume safely after rate limits")
     parser.add_argument("--journal", type=pathlib.Path, help="journal path; default: target/release/publish-workspace-<commit>.json")
-    parser.add_argument("--max-retries", type=int, default=8, help="automatic 429 retries this invocation (default: 8)")
+    parser.add_argument("--max-retries", type=int, default=8, help="automatic 429 retries in a row without a newly published crate (default: 8); "
+                             "retries that publish something reset the count, so one run finishes the workspace")
     options = parser.parse_args()
     if options.max_retries < 0:
         parser.error("--max-retries must be nonnegative")

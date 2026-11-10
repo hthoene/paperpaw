@@ -142,6 +142,15 @@ class Resume(unittest.TestCase):
             publisher.execute(self.options)
         self.assertGreater(json.loads(self.options.journal.read_text())["retry_at"], 0)
 
+    def test_rate_limits_with_progress_do_not_use_up_the_retry_limit(self):
+        self.options.max_retries = 1
+        # Each 429 run still published one more crate, so the run never stalls.
+        self.remaining.side_effect = [(["a", "b", "c"], []), (["b", "c"], ["a"]),
+                                      (["c"], ["a", "b"]), ([], ["a", "b", "c"])]
+        self.run_cargo.return_value = (101, "got 429\nRetry-After: 60")
+        publisher.execute(self.options)
+        self.assertEqual(self.run_cargo.call_count, 3)
+
     def test_success_is_not_resubmitted_while_index_is_stale(self):
         self.remaining.side_effect = [(["one"], []), (["one"], []), ([], ["one"])]
         self.run_cargo.return_value = (0, "uploaded")
