@@ -35,6 +35,10 @@ use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
+pub(crate) use importer::is_by as importer_is_by;
+#[cfg(test)]
+pub(crate) use importer::set as importer_set;
+pub(crate) use jobs::CatalogJobs;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
@@ -48,6 +52,7 @@ mod book;
 mod delete;
 mod field;
 mod importer;
+mod jobs;
 mod position;
 mod provide;
 mod removal;
@@ -82,6 +87,11 @@ pub trait CatalogEnv {
     fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
         Ok(false)
     }
+    /// The library folder setting (`library.folder`): a root-1 path, empty for
+    /// the card's top. Where the host says nothing the library is the top.
+    fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        visit("");
+    }
 }
 
 /// The catalog reads over `storage`.
@@ -91,6 +101,11 @@ pub(crate) struct CatalogReads {
 }
 
 impl CatalogReads {
+    /// The library folder setting ([`CatalogEnv::library_folder`]).
+    pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        self.env.library_folder(visit);
+    }
+
     pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
         Self { storage, env }
     }

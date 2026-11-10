@@ -249,6 +249,7 @@ pub(crate) mod image_service;
     reason = "wired by HostWiring::library; the write half is todo 307"
 )]
 pub(crate) mod lib_host;
+pub(crate) mod lib_import;
 pub(crate) mod lib_jobs;
 pub(crate) mod lib_jobs_env;
 pub(crate) mod lib_jobs_journal;

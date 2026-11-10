@@ -507,7 +507,7 @@ fn try_edit_list(
 /// or a list cannot be read or written.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn try_removed(storage: &dyn Storage, path: &str) -> Result<(), Error> {
+pub fn try_deleted(storage: &dyn Storage, path: &str) -> Result<(), Error> {
     storage.remove(&try_book_file(path).map_err(|_| Error::OutOfMemory)?)?;
     storage.remove(&try_old_book_file(path).map_err(|_| Error::OutOfMemory)?)?;
     storage.remove(&super::cover_file(path))?;

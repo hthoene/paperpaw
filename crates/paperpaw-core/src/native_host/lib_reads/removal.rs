@@ -26,7 +26,7 @@ pub(crate) fn details(storage: &dyn Storage, path: &str) -> Result<(), i32> {
     // fields), the cover (and the old names of both) and the two lists. A
     // card error is the answer, so that the step is repeated: details left
     // behind would be inherited by a later book at the same path.
-    library::try_removed(storage, path).map_err(fail)
+    library::try_deleted(storage, path).map_err(fail)
 }
 
 /// The position, annotations and importer record of the book at `path`.
