@@ -104,7 +104,8 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let view = TocView::open(host, ui, docs, handover)?;
+        let shared = self.screens.top(SCREEN).and_then(|v| v.doc_id());
+        let view = TocView::open(host, ui, docs, (handover, shared))?;
         self.tocs.open(instance, view)
     }
 
@@ -225,7 +226,13 @@ impl Plugin for NativeReader {
                 instance: Some(instance),
                 ..
             } => match token {
-                SCREEN => self.screens.shown(SCREEN, instance),
+                SCREEN => {
+                    self.screens.shown(SCREEN, instance)?;
+                    if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+                        view.shown(host, docs);
+                    }
+                    Ok(())
+                }
                 TOC => self.tocs.shown(TOC, instance),
                 _ => Ok(()),
             },

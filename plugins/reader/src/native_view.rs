@@ -104,6 +104,8 @@ struct Open {
     unsaved: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
+    /// A jump from another screen is not yet reported to the host.
+    report_due: bool,
     /// The book's title as a report carries it.
     title: String,
     /// The book was reported read to the end.
@@ -382,10 +384,30 @@ impl View {
         open.page = None;
         open.unsaved = true;
         open.turned = true;
-        open.announce(host, docs);
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Full)?;
+        // Told when this screen is shown again: the host drops the report of
+        // a screen that is not on top (`document.md` 2.4).
+        open.report_due = true;
         Ok(())
+    }
+
+    /// This screen is on top again: a jump made from a screen above is told to
+    /// the host now.
+    pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body
+            && core::mem::take(&mut open.report_due)
+        {
+            open.announce(host, docs);
+        }
+    }
+
+    /// The id of the book's document, for a screen of this plugin that reads
+    /// it too.
+    #[must_use]
+    pub const fn doc_id(&self) -> Option<DocId> {
+        match &self.body {
+            Body::Open(open) => Some(open.id),
+            Body::Message(_) => None,
+        }
     }
 
     /// The hand-over params of the table of contents of this book: where the
