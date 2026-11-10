@@ -747,6 +747,16 @@ impl DeclarationStore {
         owner.source.native_lease()
     }
 
+    /// The plugin id of the live owner `key`.
+    pub(crate) fn plugin_id_of_owner(&self, key: u64) -> Option<&str> {
+        self.owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .filter(|owner| owner.source.generation() == owner.generation)
+            .map(PendingDeclarations::plugin_id)
+    }
+
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
         let owner = self
             .owners
