@@ -20,7 +20,7 @@
 //! reported to the callee as dropped; its own negative status is not.
 use super::native_screen::Dispatch;
 use crate::abi7::{context::Frame, core_frame::CoreFrame};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
 /// Runs `token` of `owner` with `input`; the answer is the first bytes of
 /// `reply`, accepted by `accept`.
@@ -51,10 +51,17 @@ pub(crate) fn call(
     }
     // The callee's own negative status passes through: it is not a
     // misbehaviour. Only an answer the host cannot take is dropped.
-    // TODO(#228, Core): charge the callee on the usage meter (the #838 nested
-    // path) once that lands; `Meter::enter` needs the shared meter, which
-    // the frame does not hold.
-    let length = lease.stage(token, input, reply, frame.env)?;
+    // The callee's run is metered to the callee: the caller's time stops
+    // while it runs, and what it uses is its own.
+    let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
+    let running = store
+        .plugin_id_of_owner(owner)
+        .map(|id| frame.meter.enter_scoped(id))
+        .ok_or(ERR_NOT_FOUND)?;
+    drop(store);
+    let length = lease.stage(token, input, reply, frame.env);
+    drop(running);
+    let length = length?;
     let length = usize::try_from(length).map_err(|_| length)?;
     let taken = reply.get(..length).ok_or(ERR_INVALID).and_then(accept);
     match taken {

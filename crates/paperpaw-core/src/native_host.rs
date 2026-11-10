@@ -107,6 +107,9 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
+
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
@@ -186,6 +189,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
@@ -264,6 +268,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+mod stack_events;
 #[allow(
     dead_code,
     reason = "the native stage.run host (#828) frames its replies with it"
@@ -283,8 +288,18 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod widget_inputs;
 mod wifi_events;
 mod work_pump;
+
+/// Bit 0 (`menus`) of `event.registry_changed`: menus and their item state.
+pub(crate) const REGISTRY_MENUS: u32 = 1;
+/// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
+/// change of the plugin set may change anything the registry holds.
+pub(crate) const REGISTRY_ALL: u32 = 0xFF;
+/// Bit 31 (`dropped`) of `event.registry_changed`: a staged REG batch of the
+/// plugin's own was dropped when applied. It goes to that plugin only.
+pub(crate) const REGISTRY_DROPPED: u32 = 1 << 31;
 
 /// The most callback registrations (event subscriptions and draws) one
 /// plugin makes over the whole construction. Records live in a `Vec` grown
