@@ -782,7 +782,7 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     encode(
         &Record::ServiceDevCheck(wire::ServiceDevCheck {
             reason: u32::from(checked.reason),
-            needs_draft: 0,
+            needs_draft: checked.needs_draft(),
             bytes,
             signer: clip(signer, wire::SERVICE_DEV_CHECK_SIGNER_MAX_BYTES),
             key: if keyed { &key } else { &[] },
