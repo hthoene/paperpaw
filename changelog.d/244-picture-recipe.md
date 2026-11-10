@@ -1,0 +1,3 @@
+### Added
+
+- **Pictures: the recipe picture-home needs** (#244, `docs/abi/document.md` section 5). `image_prepare` can turn a JPEG as its EXIF orientation says (`PrepareImage::turn()`, the size reported is the size after the turn) and map every gray through the plugin's own 256-byte table while the picture is decoded (`.tone(&table)`); `event.image_ready` carries the mean brightness of an 8 by 8 grid over the picture (`ImageReady::luma()`), and `draw_image` can stretch to the rectangle (`ImageStyle::stretch()`) or draw black and white dots (`.dots()`) or the panel's grays (`.grays()`). A quarter turn is done in tiles of at most 32 KiB on the X4.

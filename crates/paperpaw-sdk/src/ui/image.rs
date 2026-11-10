@@ -107,6 +107,7 @@ pub fn draw_image_over(
             width,
             height,
             scratch_max: usize::MAX,
+            tones: Tones::Panel,
         },
         area,
         opacity,
@@ -126,6 +127,21 @@ pub enum PictureKind {
     Alpha,
 }
 
+/// How a picture is drawn on a panel with few grays (`canvas.draw_image` flags
+/// bits 3 and 4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Tones {
+    /// The panel's own rule: diffused into the grays it has.
+    #[default]
+    Panel,
+    /// Black and white dots, also where the panel has grays.
+    Dots,
+    /// The grays the panel has (a panel with many grays, or colour, draws as
+    /// it always does).
+    Grays,
+}
+
 /// A decoded picture file the host has checked ([`probe_picture`]).
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
@@ -142,6 +158,8 @@ pub struct Picture<'a> {
     /// device's (32 KiB on the X4, more where there is memory): a draw that
     /// needs more is `OutOfMemory` with nothing drawn.
     pub scratch_max: usize,
+    /// How it is drawn on a panel with few grays.
+    pub tones: Tones,
 }
 
 impl<'a> Picture<'a> {
@@ -162,7 +180,16 @@ impl<'a> Picture<'a> {
             width,
             height,
             scratch_max,
+            tones: Tones::Panel,
         }
+    }
+
+    /// The picture drawn in `tones` (black and white dots, or the panel's
+    /// grays) instead of the panel's own rule.
+    #[must_use]
+    pub const fn with_tones(mut self, tones: Tones) -> Self {
+        self.tones = tones;
+        self
     }
 }
 
@@ -289,7 +316,11 @@ fn draw_picture(
     };
     // On gray frames an opaque colour picture is drawn as colour rows the
     // frame turns to gray.
-    if picture.kind == PictureKind::Color && opacity == 255 && canvas.picture_levels().is_none() {
+    if picture.kind == PictureKind::Color
+        && opacity == 255
+        && canvas.picture_levels().is_none()
+        && picture.tones != Tones::Dots
+    {
         return draw_color_image(canvas, storage, &source, area, picture.scratch_max);
     }
     draw_source(
@@ -299,6 +330,7 @@ fn draw_picture(
         area,
         opacity,
         (retain, picture.scratch_max),
+        picture.tones,
     )
 }
 
@@ -377,6 +409,28 @@ fn between(i: usize, out: usize, source: usize) -> (usize, usize, u32) {
     (first, (first + 1).min(source - 1), (at & 255) as u32)
 }
 
+/// Where the diffusion of a call starts: where the band above left it, from
+/// the first row on, or none where memory for it is short (a frame dithers in
+/// place; a call that keeps nothing says so).
+fn start_diffusion(
+    canvas: &mut Canvas<'_>,
+    levels: Option<u8>,
+    (key, shown, top): (u64, i32, i32),
+    (vw, retain): (usize, bool),
+) -> Result<(i32, Option<(paperpaw_graphics::diffuse::Atkinson, u8)>), crate::image::ImageError> {
+    let Some(levels) = levels else {
+        return Ok((shown, None));
+    };
+    match retain.then(|| canvas.take_diffusion(key, shown)).flatten() {
+        Some(atkinson) if atkinson.width() == vw => Ok((shown, Some((atkinson, levels)))),
+        _ => match paperpaw_graphics::diffuse::Atkinson::new(vw) {
+            Some(atkinson) => Ok((top, Some((atkinson, levels)))),
+            None if retain => Ok((shown, None)),
+            None => Err(crate::image::ImageError::OutOfMemory),
+        },
+    }
+}
+
 /// [`draw_image_over`] for a picture drawn as gray, each axis on its
 /// own: made smaller, each pixel the mean of the columns it covers (one
 /// row read for it), its gray weighted by how opaque each is; made
@@ -390,6 +444,7 @@ fn draw_source(
     area: Rect,
     opacity: u8,
     (retain, budget): (bool, usize),
+    tones: Tones,
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (usize::from(area.width), usize::from(area.height));
@@ -416,34 +471,24 @@ fn draw_source(
     // what it blends with is not its own (see `draw_image`), or from
     // where the band above left it; a frame dithers in place where memory
     // for it is short.
-    let levels = canvas.picture_levels().filter(|_| !blended);
+    let levels = match tones {
+        // Black and white dots where nothing under the picture shows through.
+        Tones::Dots => (!blended).then_some(2),
+        _ => canvas.picture_levels().filter(|_| !blended),
+    };
     let buffers = |vw| scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
     let (mx0, mx1) = made_columns(levels.is_some(), (left, w), (vx0, vx1), (budget, buffers));
     let (skip, vw) = ((mx0 - left) as usize, (mx1 - mx0) as usize);
     let key = levels.map_or(0, |levels| {
         picture_key(source, canvas.origin(), area, (mx0, vw), levels)
     });
-    // Every buffer of this call, summed before any is taken: the call's one
-    // transient block is at most the device's `scratch_max`.
+    // Every buffer of this call, summed before any is taken.
     let wanted = buffers(vw);
-    // The device's limit (the plugins' `draw_image_over` has always taken what
-    // a picture needs, wherever there is memory for it: no limit).
+    // The device's limit (`draw_image_over` has no limit of its own).
     if wanted > budget {
         return Err(crate::image::ImageError::OutOfMemory);
     }
-    let (first, mut diffusion) = match levels {
-        None => (shown, None),
-        Some(levels) => match retain.then(|| canvas.take_diffusion(key, shown)).flatten() {
-            Some(atkinson) if atkinson.width() == vw => (shown, Some((atkinson, levels))),
-            _ => match paperpaw_graphics::diffuse::Atkinson::new(vw) {
-                Some(atkinson) => (top, Some((atkinson, levels))),
-                // A frame dithers in place where memory for it is short;
-                // a call that keeps nothing says so.
-                None if retain => (shown, None),
-                None => return Err(crate::image::ImageError::OutOfMemory),
-            },
-        },
-    };
+    let (first, mut diffusion) = start_diffusion(canvas, levels, (key, shown, top), (vw, retain))?;
     let mut diffused = grab(if diffusion.is_some() { vw } else { 0 })?;
     let mut rows = RowChunk::new(sw * source.bytes())?;
     // The source row a screen row comes from, as gray and opacity; made
