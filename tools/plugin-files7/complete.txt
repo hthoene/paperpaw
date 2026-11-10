@@ -27,3 +27,4 @@ wikipedia
 wallabag
 browser
 format-html
+format-fb2

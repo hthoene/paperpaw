@@ -17,7 +17,7 @@
 //! FictionBooks (`.fb2`, see [`Fb2Document`]) and comic book archives
 //! (`.cbz`, see [`CbzDocument`]): each a plugin of its own, so that it can
 //! be switched off or replaced alone (`format-html`, [`MarkdownFormat`],
-//! [`Fb2Format`], [`CbzFormat`]).
+//! `format-fb2`, [`CbzFormat`]).
 
 #![no_std]
 
@@ -60,9 +60,6 @@ pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, ma
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
 
-/// FictionBook 2.
-pub const FB2_PLUGIN: Id = Id::new_static("format-fb2");
-pub const FB2: Id = Id::new_static("format-fb2.fb2");
 /// Comic book archives.
 pub const CBZ_PLUGIN: Id = Id::new_static("format-cbz");
 pub const CBZ: Id = Id::new_static("format-cbz.cbz");
@@ -94,10 +91,6 @@ static EPUB_HOW: [(&str, &str); 2] = [
         include_str!("../../../plugins/format-epub/how/de.txt"),
     ),
 ];
-static FB2_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../../../plugins/format-fb2/how/en.txt")),
-    ("de", include_str!("../../../plugins/format-fb2/how/de.txt")),
-];
 static MARKDOWN_HOW: [(&str, &str); 2] = [
     (
         "en",
@@ -114,7 +107,7 @@ static CBZ_HOW: [(&str, &str); 2] = [
 ];
 
 /// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
-/// their own (`format-html`, [`Fb2Format`], [`MarkdownFormat`],
+/// their own (`format-html`, `format-fb2`, [`MarkdownFormat`],
 /// [`CbzFormat`]), so each can be switched off or replaced alone; they
 /// share the conversion of this crate.
 #[derive(Debug, Default)]
@@ -157,42 +150,6 @@ impl Plugin for EpubFormat {
         )))?;
         r.add_translations(Cow::Borrowed(include_str!(
             "../../../plugins/format-epub/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// FictionBooks (`.fb2`, `.fb2.zip`, see [`Fb2Document`]).
-#[derive(Debug, Default)]
-pub struct Fb2Format;
-
-impl Plugin for Fb2Format {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            FB2_PLUGIN,
-            "FictionBook",
-            "Opens FictionBook books (.fb2, also zipped).",
-            &FB2_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "fb2-")?;
-        r.add_format(FormatSpec::new(
-            FB2,
-            "format-fb2.title",
-            vec![Cow::Borrowed("fb2"), Cow::Borrowed("fb2.zip")],
-            Box::new(|storage, path, options| {
-                Fb2Document::open_options(storage, path, options)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-fb2/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-fb2/i18n/de.ini"
         )))?;
         Ok(())
     }
@@ -360,10 +317,6 @@ mod tests {
             (
                 include_str!("../../../plugins/format-epub/i18n/en.ini"),
                 include_str!("../../../plugins/format-epub/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-fb2/i18n/en.ini"),
-                include_str!("../../../plugins/format-fb2/i18n/de.ini"),
             ),
             (
                 include_str!("../../../plugins/format-markdown/i18n/en.ini"),
