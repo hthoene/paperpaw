@@ -9,6 +9,7 @@ use crate::{
     native_actions,
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
+    native_index::Counter,
     native_look::Look,
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
@@ -116,6 +117,8 @@ struct Open {
     finished: bool,
     /// A refused write has been said (once for a book).
     said: bool,
+    /// The count of the book's pages in this layout.
+    counter: Option<Counter>,
 }
 
 /// One open reading screen.
@@ -273,7 +276,11 @@ impl View {
             said: false,
             title,
             finished: false,
+            counter: None,
         };
+        if let Ok(setup) = Setup::read(host) {
+            open.ensure_counter(host, &setup);
+        }
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -344,6 +351,9 @@ impl View {
             open.page = None;
             open.laid = None;
             open.trail.clear();
+            if let Ok(setup) = Setup::read(host) {
+                open.ensure_counter(host, &setup);
+            }
             open.announce(host, docs);
         }
         redraw(host, RedrawMode::Full)
@@ -751,6 +761,9 @@ impl Open {
         if at_end && !self.finished {
             report = report.finished();
         }
+        if let Some((page, pages)) = self.page_numbers(host) {
+            report = report.pages(page, pages);
+        }
         let (Ok(mut input), Ok(mut out)) = (buffer(1024), buffer(64)) else {
             return;
         };
@@ -956,5 +969,6 @@ fn say_with(
     paint::replay(frame, font, body.iter())
 }
 
+mod count;
 #[cfg(test)]
 mod tests;

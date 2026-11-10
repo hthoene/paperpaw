@@ -7,7 +7,7 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE},
-    native_pages,
+    native_index, native_pages,
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
@@ -86,7 +86,9 @@ impl NativeReader {
             return Err(Error::State);
         };
         let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
-        self.screens.open(instance, view)
+        self.screens.open(instance, view)?;
+        self.start_count(host);
+        Ok(())
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -160,6 +162,9 @@ impl NativeReader {
                 result = Err(error);
             }
         }
+        if layout {
+            self.start_count(host);
+        }
         result
     }
 
@@ -175,6 +180,30 @@ impl NativeReader {
     /// turn, which replaces the work and starts the time again. Where the host
     /// has no work, the place is written at sleep, stop and close.
     fn start_quiet(&mut self, host: &Host<'_>) {
+        self.declare(host, QUIET_KEY, QUIET_MS);
+    }
+
+    /// The pages of the reading screen on top are counted in the background:
+    /// a step now, then one after the other.
+    fn start_count(&mut self, host: &Host<'_>) {
+        if self.screens.top(SCREEN).is_some_and(|view| view.counting()) {
+            self.declare(host, native_index::WORK_KEY, native_index::DELAY_MS);
+        }
+    }
+
+    /// One step of the count of the pages; the next is declared while pages remain.
+    fn count_step(&mut self, host: &Host<'_>) {
+        let more = match (self.screens.top(SCREEN), &self.docs) {
+            (Some(view), Some(docs)) => view.count_step(host, docs),
+            _ => None,
+        };
+        if let Some(delay) = more {
+            self.declare(host, native_index::WORK_KEY, delay);
+        }
+    }
+
+    /// Work of key `key` after `ms` milliseconds (replacing one of that key).
+    fn declare(&mut self, host: &Host<'_>, key: &str, ms: u32) {
         if self.work.is_none() && !self.no_work {
             self.work = Work::open(host).ok();
             self.no_work = self.work.is_none();
@@ -188,8 +217,8 @@ impl NativeReader {
         ) else {
             return;
         };
-        if let Ok(spec) = WorkSpec::new(QUIET_KEY, WORK_DUE) {
-            work.declare(host, &spec.after_ms(QUIET_MS), &mut input, &mut out)
+        if let Ok(spec) = WorkSpec::new(key, WORK_DUE) {
+            work.declare(host, &spec.after_ms(ms), &mut input, &mut out)
                 .ok();
         }
     }
@@ -234,6 +263,10 @@ impl Plugin for NativeReader {
         };
         match event {
             // The quiet time has come, or the device sleeps or stops.
+            Event::WorkDue(due) if token == WORK_DUE && due.key() == native_index::WORK_KEY => {
+                self.count_step(host);
+                Ok(())
+            }
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
                 if matches!(token, WORK_DUE | SUSPEND | STOPPING) =>
             {

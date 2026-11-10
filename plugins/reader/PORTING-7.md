@@ -381,3 +381,19 @@ relative to the data folder).
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
+
+## The page count (view slice R2b-1, `native_index.rs`, `native_view/count.rs`)
+
+- The pages are laid out in steps by `core.work` (key `count`, the reader's `WorkDue` token): 8 pages a
+  step and 2 ms apart, on a display of 800 x 480 or less (the X4) 1 page and 500 ms (Beta 3's values).
+  Native code cannot tell the memory class, so the small display stands for it: **gap for Kernel**
+  (a memory class in the snapshot). The count starts at open and again after a layout change, and runs
+  while the reading screen is on top.
+- The file is `pages-<hash>.bin` in the data folder, named by the book's path, the edition (the open
+  conversion) and the layout (size, spacing, margins, justify, display), 8 bytes a page and a closing
+  mark, as `PageIndex` keeps it. A changed layout removes the file of the layout left (Beta 3 kept a few:
+  switching back counts again). **Gap:** a file left by a closed book stays (room, not data).
+- Once the count is complete the host's report carries `page` and `pages` where the page starts at one
+  of the book's pages (a page started elsewhere, by a jump, reports none until a turn). Not yet:
+  `chapter` and `chapter_left` (R6 chapter of the page), the status lines (R2b-2).
+- `PageIndex::append` reserves its small batch (at most 64 bytes) with `Vec::with_capacity`: SDK code.
