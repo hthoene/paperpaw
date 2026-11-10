@@ -83,3 +83,43 @@ fn other_refusals_end_the_read_and_name_what_the_layout_is_told() {
     );
     assert_eq!(document_error(Error::Denied), DocumentError::Other(0));
 }
+
+#[test]
+fn a_section_end_is_only_the_answer_to_a_first_ask() {
+    // First ask: the section has no further block.
+    let first = read_block(|_, _| Err(Error::NotFound));
+    assert!(matches!(block_result(first), Ok(None)));
+    // After a fragment, or after a restart, the same answer is an error.
+    let mut asked = 0;
+    let later = read_block(|_, assembler| {
+        asked += 1;
+        if asked == 1 {
+            assembler.push([Piece::Head(head()), Piece::Text("a")], false)?;
+            return Ok(Next::More(BlockCursor::start()));
+        }
+        Err(Error::NotFound)
+    });
+    assert_eq!(later.as_ref().unwrap_err(), &Error::Invalid);
+    assert!(matches!(
+        block_result(later),
+        Err(DocumentError::Malformed(_))
+    ));
+    let mut asked = 0;
+    let restarted = read_block(|_, _| {
+        asked += 1;
+        if asked == 1 {
+            Err(Error::State)
+        } else {
+            Err(Error::NotFound)
+        }
+    });
+    assert_eq!(restarted.unwrap_err(), Error::Invalid);
+    assert!(matches!(
+        block_result(Err(Error::NoSpace)),
+        Err(DocumentError::Malformed(_))
+    ));
+    assert!(matches!(
+        block_result(Err(Error::NoMemory)),
+        Err(DocumentError::OutOfMemory)
+    ));
+}

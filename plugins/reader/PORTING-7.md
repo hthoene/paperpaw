@@ -159,3 +159,8 @@ relative to the data folder).
 - Gaps: `section_len` is 0 (progress needs op 5 of the SDK facade); no table of contents or links
   through it yet (the facade has them: the TOC and links slices); the hosted end-to-end test of
   `block_at` (the host's real `core.document` with a format) comes with the view.
+- Review remarks (PR #972): `NotFound` ends a section only as the answer to the first ask of a block;
+  after a fragment or a restart it is `Invalid` (a malformed block), so a section is never cut short in
+  silence. The document's metadata (title, authors, language, direction) is not read into the adapter
+  yet (the facade has it): the layout does not need it. X4 measurement list: the two read buffers (4.3 KiB),
+  a block of over 100 KB (see the assembler's caps) and the frame of `read_block`.
