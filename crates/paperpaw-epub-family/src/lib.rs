@@ -17,7 +17,7 @@
 //! FictionBooks (`.fb2`, see [`Fb2Document`]) and comic book archives
 //! (`.cbz`, see [`CbzDocument`]): each a plugin of its own, so that it can
 //! be switched off or replaced alone (`format-html`, [`MarkdownFormat`],
-//! `format-fb2`, [`CbzFormat`]).
+//! `format-fb2`, `format-cbz`).
 
 #![no_std]
 
@@ -60,9 +60,6 @@ pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, ma
 pub const PLUGIN: Id = Id::new_static("format-epub");
 pub const FORMAT: Id = Id::new_static("format-epub.epub");
 
-/// Comic book archives.
-pub const CBZ_PLUGIN: Id = Id::new_static("format-cbz");
-pub const CBZ: Id = Id::new_static("format-cbz.cbz");
 /// Markdown.
 pub const MARKDOWN_PLUGIN: Id = Id::new_static("format-markdown");
 pub const MARKDOWN: Id = Id::new_static("format-markdown.markdown");
@@ -101,14 +98,10 @@ static MARKDOWN_HOW: [(&str, &str); 2] = [
         include_str!("../../../plugins/format-markdown/how/de.txt"),
     ),
 ];
-static CBZ_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../../../plugins/format-cbz/how/en.txt")),
-    ("de", include_str!("../../../plugins/format-cbz/how/de.txt")),
-];
 
 /// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
 /// their own (`format-html`, `format-fb2`, [`MarkdownFormat`],
-/// [`CbzFormat`]), so each can be switched off or replaced alone; they
+/// `format-cbz`), so each can be switched off or replaced alone; they
 /// share the conversion of this crate.
 #[derive(Debug, Default)]
 pub struct EpubFormat;
@@ -186,42 +179,6 @@ impl Plugin for MarkdownFormat {
         )))?;
         r.add_translations(Cow::Borrowed(include_str!(
             "../../../plugins/format-markdown/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// Comic book archives (`.cbz`, see [`CbzDocument`]).
-#[derive(Debug, Default)]
-pub struct CbzFormat;
-
-impl Plugin for CbzFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            CBZ_PLUGIN,
-            "Comic books",
-            "Opens comic book archives (.cbz), a picture a page.",
-            &CBZ_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "cbz-")?;
-        r.add_format(FormatSpec::new(
-            CBZ,
-            "format-cbz.title",
-            vec![Cow::Borrowed("cbz")],
-            Box::new(|storage, path, options| {
-                CbzDocument::open_options(storage, path, options)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-cbz/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-cbz/i18n/de.ini"
         )))?;
         Ok(())
     }
@@ -321,10 +278,6 @@ mod tests {
             (
                 include_str!("../../../plugins/format-markdown/i18n/en.ini"),
                 include_str!("../../../plugins/format-markdown/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-cbz/i18n/en.ini"),
-                include_str!("../../../plugins/format-cbz/i18n/de.ini"),
             ),
         ] {
             let (en, de) = (Catalog::parse(en).unwrap(), Catalog::parse(de).unwrap());

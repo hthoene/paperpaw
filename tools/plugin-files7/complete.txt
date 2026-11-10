@@ -28,3 +28,4 @@ wallabag
 browser
 format-html
 format-fb2
+format-cbz
