@@ -200,6 +200,9 @@ pub(crate) struct NativeInstances {
     /// When the library's move job may be pumped again after a step that
     /// failed (`moves_pump`).
     moves_retry: Cell<Option<u64>>,
+    /// When the document preparing loop may step again after a step that
+    /// could not be made (`doc_pump`).
+    doc_retry: Cell<Option<u64>>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
     /// Where the event pump goes on (the running plugin it starts at).
@@ -673,6 +676,14 @@ impl NativeInstances {
 
     pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
         self.moves_retry.set(at);
+    }
+
+    pub(crate) fn doc_retry(&self) -> Option<u64> {
+        self.doc_retry.get()
+    }
+
+    pub(crate) fn set_doc_retry(&self, at: Option<u64>) {
+        self.doc_retry.set(at);
     }
 
     /// Counts one more refused step and returns how many in a row.

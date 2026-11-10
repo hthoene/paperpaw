@@ -64,6 +64,12 @@ impl Limits {
         }
     }
 
+    /// The device prepares one book at a time, in open order (`document.md`
+    /// 2.1: the X4's rule); elsewhere the preparing documents take turns.
+    pub(crate) const fn one_preparation(&self) -> bool {
+        self.device <= self.per_owner
+    }
+
     /// At most 2 per opener and 2 device-wide: the shown book and an index build.
     pub(crate) const X4: Self = Self {
         per_owner: 2,
@@ -117,6 +123,10 @@ pub(crate) struct Document {
     pub(crate) format_gone: bool,
     /// The block whose fragments are being read: what the earlier ones said.
     pub(crate) block: Option<Pending>,
+    /// The state or the progress moved since the opener last heard of it:
+    /// `event.document_changed` (88) waits for it, one per document (the
+    /// latest values are read when it is delivered).
+    changed: bool,
     strikes: u8,
 }
 
@@ -259,6 +269,7 @@ impl DocumentTable {
             reader_held: false,
             format_gone: false,
             block: None,
+            changed: false,
             strikes: 0,
         });
         self.next_id.set(next);
@@ -340,6 +351,77 @@ impl DocumentTable {
         document.image_side = image_side;
         document.cover_side = cover_side;
         Ok(())
+    }
+
+    /// The document whose preparation takes the next step: the oldest
+    /// preparing one where the device prepares one at a time, else the first
+    /// after `after` (the id of the last one served), round the table.
+    pub(crate) fn next_preparing(&self, after: u32) -> Option<Document> {
+        let rows = self.documents.try_borrow().ok()?;
+        let preparing = |d: &&Document| d.state == PREPARING && d.closed_by_host == 0;
+        let oldest = rows.iter().find(preparing);
+        if self.limits.one_preparation() {
+            return oldest.copied();
+        }
+        rows.iter()
+            .find(|d| preparing(d) && d.id > after)
+            .or(oldest)
+            .copied()
+    }
+
+    /// The format's answer to a `prepare`: the document's state, progress,
+    /// status and flags. Whether the state or the progress moved is told to
+    /// the opener (`event.document_changed`); returns whether it did.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
+    pub(crate) fn set_prepared(
+        &self,
+        id: u32,
+        state: u32,
+        progress_ppm: u32,
+        status: i32,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        let moved = document.state != state || document.progress_ppm != progress_ppm;
+        document.state = state;
+        document.progress_ppm = progress_ppm;
+        document.status = status;
+        document.flags = flags;
+        document.changed |= moved;
+        Ok(moved)
+    }
+
+    /// The state or the progress of `owner`'s oldest changed document, given
+    /// to `encode`; the document counts as told when `encode` answers `Ok`
+    /// (later changes raise it again), and as still waiting when it fails.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed; what `encode` answers.
+    pub(crate) fn take_changed(
+        &self,
+        owner: u64,
+        encode: impl FnOnce(&Document) -> Result<usize, i32>,
+    ) -> Result<Option<usize>, i32> {
+        let mut rows = self.rows()?;
+        let Some(document) = rows
+            .iter_mut()
+            .find(|d| d.owner == owner && d.changed && d.closed_by_host == 0)
+        else {
+            return Ok(None);
+        };
+        let written = encode(document)?;
+        document.changed = false;
+        Ok(Some(written))
+    }
+
+    /// Whether an `event.document_changed` waits for any opener.
+    pub(crate) fn changed_waiting(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| rows.iter().any(|d| d.changed))
     }
 
     /// `close`: free the id. A host-closed document may be closed too.

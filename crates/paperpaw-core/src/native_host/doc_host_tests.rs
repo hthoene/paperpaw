@@ -1366,3 +1366,6 @@ fn what_a_format_wrote_after_the_stamp_is_in_the_stamp_when_its_last_document_cl
         assert_eq!(bytes(w), "700");
     });
 }
+
+#[path = "doc_host_prepare_tests.rs"]
+mod prepare_tests;
