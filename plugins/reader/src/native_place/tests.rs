@@ -60,3 +60,17 @@ fn the_book_is_read_to_the_end_from_999_thousandths() {
     assert!(reaches_end(999_000));
     assert!(reaches_end(1_000_000));
 }
+
+#[test]
+fn a_book_without_a_title_is_reported_by_its_path() {
+    assert_eq!(title_of("Dune", "books/dune.epub"), "Dune");
+    assert_eq!(title_of("", "books/dune.epub"), "books/dune.epub");
+    let long: alloc::string::String = core::iter::repeat_n('a', 400).collect();
+    assert_eq!(title_of("", &long).len(), 256);
+}
+
+#[test]
+fn a_finished_book_reports_the_whole_also_when_paged_back() {
+    assert_eq!(report_ppm(true, 987_654), 1_000_000);
+    assert_eq!(report_ppm(false, 987_654), 987_654);
+}

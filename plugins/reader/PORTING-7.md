@@ -290,3 +290,7 @@ relative to the data folder).
   index), a report for a page seen again after a setting changed (no reflow yet), and the end of a
   one-page book is told with its open. The page is laid out in the input callback now (it was at the
   draw): on the X4 timing list with the back-layout.
+- A report carries the path where the format gives no title (as Beta 3), and 1,000,000 once the book was
+  read to the end, also when the reader pages back. **Named:** a book of more than 4,096 sections has no
+  progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
+  the host, so a `finished` set locally may never be raised (a one-page book too).

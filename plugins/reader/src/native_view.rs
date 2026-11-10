@@ -198,7 +198,8 @@ impl View {
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
             Ok(meta) => (
                 meta.sections().max(1),
-                text::copy(native_place::cut_title(meta.title())),
+                // The path stands for a title the format does not give.
+                text::copy(native_place::title_of(meta.title(), &found.path)),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -508,8 +509,11 @@ impl Open {
             && self.progress.as_ref().is_some_and(|p| {
                 native_place::reaches_end(p.ppm(page.end.section, page.end.offset))
             });
-        let mut report =
-            Report::new(DocPosition::new(self.at.0, self.at.1), ppm).title(&self.title);
+        let mut report = Report::new(
+            DocPosition::new(self.at.0, self.at.1),
+            native_place::report_ppm(self.finished || at_end, ppm),
+        )
+        .title(&self.title);
         if at_end && !self.finished {
             report = report.finished();
         }

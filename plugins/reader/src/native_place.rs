@@ -149,6 +149,19 @@ pub fn cut_title(text: &str) -> &str {
     text.get(..end).unwrap_or_default()
 }
 
+/// The title a report carries: the book's, else its path (as Beta 3), cut.
+#[must_use]
+pub fn title_of<'a>(title: &'a str, path: &'a str) -> &'a str {
+    cut_title(if title.is_empty() { path } else { title })
+}
+
+/// The progress a report carries: the whole once the book was read to the end,
+/// also where the reader pages back (Beta 3's `reading()`).
+#[must_use]
+pub const fn report_ppm(finished: bool, ppm: u32) -> u32 {
+    if finished { 1_000_000 } else { ppm }
+}
+
 /// Whether a page ending at progress `end_ppm` ends the book: it is read to the
 /// end (Beta 3's `at_end`, progress of 0.999).
 #[must_use]
