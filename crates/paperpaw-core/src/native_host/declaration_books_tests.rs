@@ -120,7 +120,7 @@ fn badges(store: &DeclarationStore) -> Vec<(u64, String, u32)> {
 }
 
 #[test]
-fn fields_and_badges_are_listed_in_load_order_and_go_with_their_plugin() {
+fn fields_and_badges_are_listed_by_plugin_id_then_name_and_go_with_their_plugin() {
     let (stars, loan, news) = (plugin("stars", 1), plugin("loan", 2), plugin("news", 3));
     let mut store = DeclarationStore::default();
     install(&mut store, &loan, &[batch(&[field("on-loan", 1)])]).unwrap();
@@ -139,13 +139,13 @@ fn fields_and_badges_are_listed_in_load_order_and_go_with_their_plugin() {
         fields(&store),
         [
             (2, "loan.on-loan".into(), true),
-            (1, "stars.rating".into(), false),
             (1, "stars.mood".into(), true),
+            (1, "stars.rating".into(), false),
         ]
     );
     assert_eq!(
         badges(&store),
-        [(1, "stars.new".into(), 7), (3, "news.unread".into(), 9)]
+        [(3, "news.unread".into(), 9), (1, "stars.new".into(), 7)]
     );
     // A plugin that stopped is not listed; one removed leaves nothing.
     loan.live.set(false);
@@ -153,6 +153,59 @@ fn fields_and_badges_are_listed_in_load_order_and_go_with_their_plugin() {
     store.remove_host_owner(1);
     assert!(fields(&store).is_empty());
     assert_eq!(badges(&store), [(3, "news.unread".into(), 9)]);
+}
+
+#[test]
+fn the_order_is_the_plugin_id_then_the_name_whatever_the_load_order() {
+    // Loaded in reverse id order, declared in reverse name order.
+    let (c, b, a) = (plugin("cc", 1), plugin("bb", 2), plugin("aa", 3));
+    let mut store = DeclarationStore::default();
+    install(
+        &mut store,
+        &c,
+        &[batch(&[field("z", 0), field("a", 0), badge("y", 1)])],
+    )
+    .unwrap();
+    install(&mut store, &b, &[batch(&[field("m", 0), badge("x", 2)])]).unwrap();
+    install(&mut store, &a, &[batch(&[field("q", 0), badge("w", 3)])]).unwrap();
+    let names: Vec<String> = fields(&store).into_iter().map(|f| f.1).collect();
+    assert_eq!(names, ["aa.q", "bb.m", "cc.a", "cc.z"]);
+    let names: Vec<String> = badges(&store).into_iter().map(|b| b.1).collect();
+    assert_eq!(names, ["aa.w", "bb.x", "cc.y"]);
+    // Byte order, not length or case: "a" < "a-b" < "ab" < "b".
+    let d = plugin("dd", 4);
+    install(
+        &mut store,
+        &d,
+        &[batch(&[
+            field("b", 0),
+            field("ab", 0),
+            field("a-b", 0),
+            field("a", 0),
+        ])],
+    )
+    .unwrap();
+    let names: Vec<String> = fields(&store).into_iter().map(|f| f.1).collect();
+    assert_eq!(names[4..], ["dd.a", "dd.a-b", "dd.ab", "dd.b"]);
+}
+
+#[test]
+fn a_plugin_that_reloads_keeps_its_place() {
+    let (a, b) = (plugin("aa", 1), plugin("bb", 2));
+    let mut store = DeclarationStore::default();
+    install(&mut store, &a, &[batch(&[badge("one", 1)])]).unwrap();
+    install(&mut store, &b, &[batch(&[badge("two", 2)])]).unwrap();
+    let before = badges(&store);
+    assert_eq!(before[0].1, "aa.one");
+    // `aa` is removed and loaded again, now after `bb` in load order.
+    store.remove_host_owner(1);
+    let again = plugin("aa", 5);
+    install(&mut store, &again, &[batch(&[badge("one", 1)])]).unwrap();
+    let after = badges(&store);
+    assert_eq!(
+        after.iter().map(|b| b.1.as_str()).collect::<Vec<_>>(),
+        ["aa.one", "bb.two"]
+    );
 }
 
 #[test]

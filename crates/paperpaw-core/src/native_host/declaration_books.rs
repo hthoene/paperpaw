@@ -53,12 +53,47 @@ pub(crate) struct BookBadgeDecl<'a, 'b> {
     pub(crate) spec: &'b BookBadgeSpec<'b>,
 }
 
+/// Where a field or badge stands in the order `library.md` section 1 gives:
+/// the owning plugin's id, then the `name`, both in byte order. A plugin id
+/// and a name are at most 127 bytes together (`declarations::relative`).
+struct Place {
+    bytes: [u8; 128],
+    plugin: usize,
+    name: usize,
+}
+
+impl Place {
+    fn of(plugin: &str, name: &str) -> Option<Self> {
+        let mut bytes = [0; 128];
+        let end = plugin.len().checked_add(name.len())?;
+        bytes
+            .get_mut(..plugin.len())?
+            .copy_from_slice(plugin.as_bytes());
+        bytes
+            .get_mut(plugin.len()..end)?
+            .copy_from_slice(name.as_bytes());
+        Some(Self {
+            bytes,
+            plugin: plugin.len(),
+            name: name.len(),
+        })
+    }
+
+    fn key(&self) -> (&[u8], &[u8]) {
+        (
+            &self.bytes[..self.plugin],
+            &self.bytes[self.plugin..self.plugin + self.name],
+        )
+    }
+}
+
 impl DeclarationStore {
-    /// Every book field of every live plugin, the plugin loaded first first, a
-    /// plugin's own in name-hash order (the index's, not declaration order). The visitor must not invoke plugins
-    /// or reenter the store.
+    /// Every book field of every live plugin in the order of `library.md`
+    /// section 1: by plugin id, then `name`, never by load order (a plugin
+    /// that reloads keeps its place). The visitor must not invoke plugins or
+    /// reenter the store.
     pub(crate) fn each_book_field(&self, visit: &mut dyn FnMut(&BookFieldDecl<'_, '_>)) {
-        self.each_in_load_order(Kind::BookField, &mut |owner, plugin, record| {
+        self.each_sorted(Kind::BookField, &mut |owner, plugin, record| {
             if let Record::BookFieldSpec(spec) = record {
                 visit(&BookFieldDecl {
                     owner,
@@ -69,11 +104,10 @@ impl DeclarationStore {
         });
     }
 
-    /// Every book badge of every live plugin, in the same order. The order
-    /// the views show badges in (two at most) is not defined yet
-    /// (`library.md`); a plugin that reloads moves to the end.
+    /// Every book badge of every live plugin, in the same order: the first
+    /// two that answer for a book are the ones its row shows.
     pub(crate) fn each_book_badge(&self, visit: &mut dyn FnMut(&BookBadgeDecl<'_, '_>)) {
-        self.each_in_load_order(Kind::BookBadge, &mut |owner, plugin, record| {
+        self.each_sorted(Kind::BookBadge, &mut |owner, plugin, record| {
             if let Record::BookBadgeSpec(spec) = record {
                 visit(&BookBadgeDecl {
                     owner,
@@ -82,6 +116,66 @@ impl DeclarationStore {
                 });
             }
         });
+    }
+
+    /// The records of `kind` of live plugins by plugin id, then name: no
+    /// allocation, a scan for the next larger place per record (a plugin
+    /// declares few, the device 64 fields or 16 badges at most).
+    fn each_sorted(&self, kind: Kind, visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>)) {
+        let mut last: Option<Place> = None;
+        loop {
+            let mut next: Option<(Place, super::DeclKey, u64)> = None;
+            for (index, owner) in self.owners.iter().enumerate() {
+                let Some(owner) = owner else {
+                    continue;
+                };
+                if owner.source.generation() != owner.generation {
+                    continue;
+                }
+                let Ok(host) = owner.source.owner_id() else {
+                    continue;
+                };
+                for slot in owner.of_kind(kind) {
+                    let key = super::DeclKey {
+                        owner: u16::try_from(index).unwrap_or(u16::MAX),
+                        batch: slot.batch,
+                        record: slot.record,
+                        generation: owner.generation,
+                        incarnation: owner.incarnation,
+                    };
+                    self.with_record(key, &mut |record| {
+                        let name = match record {
+                            Record::BookFieldSpec(spec) => spec.name,
+                            Record::BookBadgeSpec(spec) => spec.name,
+                            _ => return,
+                        };
+                        let Some(place) = Place::of(owner.id.as_str(), name) else {
+                            return;
+                        };
+                        if last.as_ref().is_some_and(|last| place.key() <= last.key())
+                            || next
+                                .as_ref()
+                                .is_some_and(|(best, ..)| place.key() >= best.key())
+                        {
+                            return;
+                        }
+                        next = Some((place, key, host));
+                    });
+                }
+            }
+            let Some((place, key, host)) = next else {
+                return;
+            };
+            let Some(owner) = self
+                .owners
+                .get(usize::from(key.owner))
+                .and_then(Option::as_ref)
+            else {
+                return;
+            };
+            self.with_record(key, &mut |record| visit(host, owner.id.as_str(), record));
+            last = Some(place);
+        }
     }
 
     /// The book field `id` (`<plugin>.<name>`) of a live plugin: `Some(in_catalog)`
