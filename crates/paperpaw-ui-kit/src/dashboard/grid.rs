@@ -1,18 +1,18 @@
-//! The grid of cells the home screen's pages are laid out in, without the
+//! The grid of cells a dashboard's pages (the home screen's, the picture home's) are laid out in, without the
 //! host: items (a widget or a tool) with the cells they take, the text they
 //! are kept as, and putting them in a grid. The same rules as the SDK's
 //! interface-6 grid (`paperpaw_sdk::widgets::grid`), with fallible
 //! allocation and the size of a widget given by the caller ([`Sizes`])
 //! instead of read from an environment.
+use crate::{
+    mem::push,
+    text::{concat, copy},
+};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Id,
     native::Error,
     widgets::grid::{Cells, Geometry, free_place},
-};
-use paperpaw_ui_kit::{
-    mem::push,
-    text::{concat, copy},
 };
 
 /// Tools are written with this before their action's id.
@@ -158,10 +158,7 @@ pub fn write(items: &[Item]) -> Result<String, Error> {
         if let Some(c) = item.at {
             for (sep, value) in [(" ", c.col), ("/", c.row), (" ", c.w), ("x", c.h)] {
                 out.push_str(sep);
-                out.push_str(paperpaw_ui_kit::text::decimal(
-                    usize::from(value),
-                    &mut digits,
-                ));
+                out.push_str(crate::text::decimal(usize::from(value), &mut digits));
             }
         }
     }
