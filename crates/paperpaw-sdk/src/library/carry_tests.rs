@@ -3,7 +3,9 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
 use crate::MemoryStorage;
-use crate::library::{favourites, opened_books, set_favourite, set_field};
+use crate::document::ImageRef;
+use crate::library::{book, favourites, opened_books, save, set_favourite, set_field};
+use alloc::format;
 use core::cell::Cell;
 use paperpaw_platform::DirEntry;
 
@@ -13,6 +15,8 @@ struct Faulty {
     fail_at: Cell<Option<usize>>,
     calls: Cell<usize>,
     writes: Cell<usize>,
+    /// Every read fails while set.
+    fail_reads: Cell<bool>,
 }
 
 impl Faulty {
@@ -22,6 +26,7 @@ impl Faulty {
             fail_at: Cell::new(None),
             calls: Cell::new(0),
             writes: Cell::new(0),
+            fail_reads: Cell::new(false),
         }
     }
     /// Counts a changing call; the chosen one fails.
@@ -37,6 +42,9 @@ impl Faulty {
 
 impl Storage for Faulty {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if self.fail_reads.get() {
+            return Err(StorageError::Io);
+        }
         self.inner.read_at(path, offset, buf)
     }
     fn size(&self, path: &str) -> Result<u64, StorageError> {
@@ -168,4 +176,50 @@ fn a_list_from_a_newer_version_is_left_as_it_is() {
         storage.inner.get(&favourites_file()).unwrap(),
         newer.as_bytes()
     );
+}
+
+#[test]
+fn a_cover_kept_by_the_books_data_is_named_where_the_book_is_now() {
+    let storage = Faulty::new(card());
+    let mut details = book(&storage, "a.epub").unwrap();
+    details.cover = Some(ImageRef {
+        path: format!("format/books/{}/cover.gray", key("a.epub")),
+        width: 3,
+        height: 4,
+    });
+    save(&storage, "a.epub", &details).unwrap();
+    storage.inner.rename("a.epub", "c.epub").unwrap();
+    try_moved(&storage, "a.epub", "c.epub").unwrap();
+    let cover = book(&storage, "c.epub").unwrap().cover.unwrap();
+    assert_eq!(
+        cover.path,
+        format!("format/books/{}/cover.gray", key("c.epub"))
+    );
+}
+
+#[test]
+fn a_failing_read_is_returned_and_a_repeat_finishes_the_move() {
+    let clean = Faulty::new(card());
+    try_moved(&clean, "a.epub", "c.epub").unwrap();
+    let want = moved_state(&clean);
+    let storage = Faulty::new(card());
+    storage.fail_reads.set(true);
+    assert_eq!(
+        try_moved(&storage, "a.epub", "c.epub"),
+        Err(StorageError::Io)
+    );
+    assert_eq!(try_removed(&storage, "b.epub"), Err(StorageError::Io));
+    storage.fail_reads.set(false);
+    try_moved(&storage, "a.epub", "c.epub").unwrap();
+    assert_eq!(moved_state(&storage), want);
+}
+
+#[test]
+fn details_of_a_newer_version_are_left_as_they_are() {
+    let newer = b"# format 9\n[book]\nsize = 1\n".to_vec();
+    let storage = Faulty::new(card().with(&book_file("c.epub"), newer.clone()));
+    storage.inner.remove(&book_file("a.epub")).unwrap();
+    storage.inner.rename("a.epub", "c.epub").unwrap();
+    try_moved(&storage, "a.epub", "c.epub").unwrap();
+    assert_eq!(storage.inner.get(&book_file("c.epub")).unwrap(), newer);
 }

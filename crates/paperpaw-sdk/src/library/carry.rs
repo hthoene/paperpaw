@@ -3,26 +3,34 @@
 //! retry returned instead of dropped, for a host step that must fail and
 //! run again (a power cut, a full card).
 
+use alloc::collections::TryReserveError;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::{
-    MAX_FAVOURITES, MAX_OPENED, book, book_file, cover_file, favourites_file, key, old_book_file,
-    old_cover_variant_file, opened_file, read_list, write_details,
+    MAX_FAVOURITES, MAX_OPENED, book_file, cover_file, favourites_file, key, old_book_file,
+    old_cover_variant_file, opened_file, try_book, write_details,
 };
+use crate::data::{Error, Format};
 use crate::{Storage, StorageError};
 
 /// [`moved`](super::moved) that returns the first card error instead of
 /// going on without it: the details and the cover kept for the book
 /// (also from where an earlier version kept them), the cover path the
 /// details name, and its place among the recently opened and the
-/// favourites.
+/// favourites. Call it once the book itself is at `to`: the cover path is
+/// rewritten in the details of the book found there, and nothing is
+/// rewritten where none is.
 ///
 /// What is not there counts as done ([`StorageError::NotFound`] is never
 /// returned), so a call repeated after an error, or after a power cut,
 /// finishes the move. A list that is there but cannot be read (written by
 /// a newer PaperPaw, or damaged) is not written over and is left out, as
-/// [`moved`](super::moved) does: no retry would change it.
+/// [`moved`](super::moved) does: no retry would change it; so are details
+/// of a newer PaperPaw. The lists and the details are read and written
+/// without an infallible allocation (a list is up to 500 paths), so a
+/// device short of memory gets [`StorageError::OutOfMemory`] to retry;
+/// only paths of a few hundred bytes are allocated as everywhere.
 ///
 /// # Errors
 /// The first rename, remove, read or write error other than
@@ -37,13 +45,22 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
     ] {
         let moved = done(storage.rename(&file(from), &file(to)))?
             || done(storage.rename(&old(from), &file(to)))?;
-        // Not where neither could be moved and nothing is at `to`: the
-        // only copy, read there still.
+        // What is left at the old place goes once the file is at `to`; where
+        // nothing could be moved and nothing is at `to`, it is the only copy
+        // and stays.
         if moved || storage.exists(&file(to)) {
             done(storage.remove(&old(from)))?;
         }
     }
-    if let Some(mut book) = book(storage, to)
+    let book = match try_book(storage, to) {
+        Ok(book) => book,
+        // Details a newer PaperPaw wrote, or damaged ones: not written over.
+        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => None,
+        Err(Error::Storage(StorageError::NotFound)) => None,
+        Err(Error::Storage(e)) => return Err(e),
+        Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
+    };
+    if let Some(mut book) = book
         && let Some(cover) = book.cover.as_mut()
         && cover.path.contains(&key(from))
     {
@@ -111,22 +128,57 @@ fn try_update_list(
     max: usize,
     change: impl FnOnce(&mut Vec<String>) -> bool,
 ) -> Result<(), StorageError> {
-    let mut list = match read_list(storage, path, max) {
-        Ok(list) => list,
-        Err(StorageError::InvalidData | StorageError::NotFound) => return Ok(()),
-        Err(e) => return Err(e),
+    let text = match Format::FIRST.try_load(storage, path, max * 512) {
+        Ok(Some(text)) => text,
+        Ok(None) | Err(Error::Storage(StorageError::NotFound)) => return Ok(()),
+        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => return Ok(()),
+        Err(Error::Storage(e)) => return Err(e),
+        Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
     };
+    let mut list = try_lines(&text).map_err(|_| StorageError::OutOfMemory)?;
+    drop(text);
     if !change(&mut list) {
         return Ok(());
     }
     list.truncate(max);
-    let mut text = list.join("\n");
-    // As update_list: a first path that begins with a byte order mark
-    // keeps it behind a mark of the file's own.
-    if text.starts_with('\u{feff}') {
-        text.insert(0, '\u{feff}');
-    }
+    let text = try_joined(&list).map_err(|_| StorageError::OutOfMemory)?;
     storage.write(path, text.as_bytes())
+}
+
+/// The non-empty lines of `text`, as `read_list` keeps them, without an
+/// infallible allocation.
+fn try_lines(text: &str) -> Result<Vec<String>, TryReserveError> {
+    let mut list = Vec::new();
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let mut path = String::new();
+        path.try_reserve_exact(line.len())?;
+        path.push_str(line);
+        list.try_reserve(1)?;
+        list.push(path);
+    }
+    Ok(list)
+}
+
+/// The list's text as `update_list` writes it (one path a line; a first
+/// path that begins with a byte order mark keeps it behind a mark of the
+/// file's own), without an infallible allocation.
+fn try_joined(list: &[String]) -> Result<String, TryReserveError> {
+    let mark = list
+        .first()
+        .is_some_and(|first| first.starts_with('\u{feff}'));
+    let size = list.iter().map(|p| p.len() + 1).sum::<usize>() + if mark { 3 } else { 0 };
+    let mut text = String::new();
+    text.try_reserve_exact(size)?;
+    if mark {
+        text.push('\u{feff}');
+    }
+    for (n, p) in list.iter().enumerate() {
+        if n > 0 {
+            text.push('\n');
+        }
+        text.push_str(p);
+    }
+    Ok(text)
 }
 
 #[cfg(test)]
