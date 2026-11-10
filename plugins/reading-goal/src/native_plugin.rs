@@ -12,7 +12,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, PluginEnabled},
         events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         image::{ImageId, ImageReady, ImageStyle, PrepareImage, PrepareRoot},
         registrations,
         registry::{PageCursor, Registry, RegistryPluginState},

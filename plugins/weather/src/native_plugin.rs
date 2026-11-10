@@ -35,7 +35,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Paint, Screens,
+    Messages, Screens,
     mem::{SERVICE_BUFFER, buffer},
     paint, read_event, uitext,
     widget::{Cx, settings::base},
