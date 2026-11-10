@@ -194,7 +194,9 @@ pub enum LinkKind {
     External,
     /// A footnote or note: its text is at the target.
     Footnote,
-    /// A kind a later host adds, by its number.
+    /// A kind a later host adds, by its number. Once a later SDK names that
+    /// kind, its `Other(n)` arm stops matching: match the named kinds first and
+    /// treat `Other` as "something else".
     Other(u32),
 }
 

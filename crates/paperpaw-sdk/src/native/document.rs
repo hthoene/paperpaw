@@ -455,8 +455,8 @@ pub use nav::{DocCursor, DocPage, DocPageEnd, DocSpan, Link, LinkKind, TocEntry}
 #[path = "document_blocks.rs"]
 mod blocks;
 pub use blocks::{
-    BlockCell, BlockCursor, BlockFragment, BlockHead, BlockImage, BlockMap, BlockRecord, BlockRuby,
-    BlockRun,
+    BlockCell, BlockColumns, BlockCursor, BlockFragment, BlockHead, BlockImage, BlockMap,
+    BlockRecord, BlockRuby, BlockRun,
 };
 #[path = "document_meta.rs"]
 mod meta;

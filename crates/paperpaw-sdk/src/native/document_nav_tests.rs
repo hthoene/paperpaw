@@ -503,7 +503,11 @@ fn a_whole_block_in_one_fragment_reads_as_typed_records_in_order() {
         (8, 3, 40, 30)
     );
     assert!(image.colour() && image.pending());
-    assert_eq!(records[6], BlockRecord::Columns(&[1, 0, 2, 0]));
+    let BlockRecord::Columns(columns) = records[6] else {
+        panic!("no columns");
+    };
+    assert_eq!(columns.len(), 2);
+    assert_eq!(columns.weights().collect::<Vec<_>>(), [1, 2]);
     let BlockRecord::Cell(cell) = records[7] else {
         panic!()
     };
@@ -534,6 +538,10 @@ fn a_whole_block_in_one_fragment_reads_as_typed_records_in_order() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block walks both fragments and every refusal"
+)]
 fn a_block_in_two_fragments_continues_under_its_identity_and_the_header_comes_once() {
     setup!(table, state, host, docs);
     let (mut input, mut out) = ([0; 256], [0; 4096]);
@@ -572,12 +580,32 @@ fn a_block_in_two_fragments_continues_under_its_identity_and_the_header_comes_on
         Some(Record::ServiceDocAt(a)) if (a.cursor, a.generation) == (2, 77)
     ));
     drop(bytes);
-    // A header in a continuation, none in a first fragment, a changed identity,
-    // a cursor that does not follow, both end flags, an empty "more", an unknown
-    // record and trailing bytes: Invalid, and the host's State is the status.
-    let bad: [Vec<Record<'_>>; 8] = [
-        vec![head(0, 0), end(1, 0, 0, 1)],
+    // A changed identity, on a fragment that goes on or on the last one, is State
+    // like a page's: the reader starts the block again.
+    for rows in [
         vec![text("x"), end(2, 0, 76, 3)],
+        vec![text("x"), end(1, 0, 76, 3)],
+    ] {
+        reply(&state, &rows);
+        assert_eq!(
+            docs.block_at(
+                &host,
+                DOC,
+                DocPosition::new(0, 0),
+                cursor,
+                &mut input,
+                &mut out
+            )
+            .map(|f| f.len())
+            .unwrap_err(),
+            Error::State
+        );
+    }
+    // A header in a continuation, none in a first fragment, a cursor that does not
+    // follow, both end flags, an empty "more", an unknown record and trailing
+    // bytes: Invalid, and the host's State is the status.
+    let bad: [Vec<Record<'_>>; 7] = [
+        vec![head(0, 0), end(1, 0, 0, 1)],
         vec![text("x"), end(2, 0, 77, 4)],
         vec![text("x"), end(3, 0, 77, 3)],
         vec![end(2, 0, 77, 2)],
@@ -703,5 +731,88 @@ fn a_first_fragment_must_open_with_exactly_one_header_and_host_statuses_pass_thr
             .map(|f| f.len()),
             Err(error)
         );
+    }
+}
+
+type Reader = fn(&Documents, &Host<'_>, &mut [u8], &mut [u8]);
+type Case<'a> = (Vec<Record<'a>>, Reader);
+
+/// Reads everything a reply exposes, so a bad byte that got through is a panic here.
+fn read_block(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8]) {
+    let at = DocPosition::new(2, 100);
+    if let Ok(fragment) = docs.block_at(host, DOC, at, BlockCursor::start(), input, out) {
+        for record in fragment.records() {
+            match record {
+                BlockRecord::Head(head) => {
+                    let _ = (head.kind(), head.start(), head.end(), head.text_bytes());
+                }
+                BlockRecord::Columns(columns) => {
+                    assert_eq!(columns.weights().count(), columns.len());
+                }
+                _ => {}
+            }
+        }
+        let _ = (fragment.continuation(), fragment.next_block());
+    }
+}
+fn read_toc(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8]) {
+    if let Ok(page) = docs.toc(host, DOC, DocCursor::start(), input, out) {
+        for row in page.rows() {
+            let _ = (row.index(), row.level(), row.title(), row.position());
+        }
+        let _ = page.end();
+    }
+}
+
+#[test]
+fn every_truncation_and_byte_change_of_a_valid_reply_is_an_error_or_a_valid_view() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 256], [0; 4096]);
+    let sets: [Case<'_>; 2] = [
+        (
+            vec![
+                head(1, 0b10),
+                text("Hello"),
+                Record::ServiceDocRun(wire::ServiceDocRun {
+                    start: 0,
+                    end: 5,
+                    style: 1,
+                }),
+                Record::ServiceDocColumns(wire::ServiceDocColumns {
+                    weights: &[1, 0, 2, 0],
+                }),
+                Record::ServiceDocRuby(wire::ServiceDocRuby {
+                    start: 0,
+                    end: 5,
+                    kind: 7,
+                    size: 50,
+                    text: "ruby",
+                }),
+                Record::ServiceDocInlineLang(wire::ServiceDocInlineLang { lang: "fr" }),
+                end(1, 0, 0, 160),
+            ],
+            read_block,
+        ),
+        (
+            vec![toc(0, 0, 0, "One"), toc(1, 1, 1, "Two"), end(1, 2, 8, 2)],
+            read_toc,
+        ),
+    ];
+    for (rows, read) in sets {
+        reply(&state, &rows);
+        let valid = state.reply.borrow().clone();
+        read(&docs, &host, &mut input, &mut out);
+        for cut in 0..valid.len() {
+            state.reply.replace(valid[..cut].to_vec());
+            read(&docs, &host, &mut input, &mut out);
+        }
+        for at in 0..valid.len() {
+            for change in [0x00, 0x01, 0x7f, 0x80, 0xff] {
+                let mut bytes = valid.clone();
+                bytes[at] ^= change;
+                state.reply.replace(bytes);
+                read(&docs, &host, &mut input, &mut out);
+            }
+        }
     }
 }
