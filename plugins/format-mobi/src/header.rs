@@ -5,11 +5,10 @@
 
 use alloc::borrow::Cow;
 use alloc::string::String;
-use alloc::vec;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{DocumentError, Metadata};
-use paperpaw_sdk::{Storage, read_file};
 
 use crate::mem::{self, Refused};
 use crate::text::{Encoding, decode_into};
@@ -300,16 +299,4 @@ impl Header {
             .filter(|&record| self.first_image > 0 && record < self.records);
         Ok(())
     }
-}
-
-/// What tells the file from another of its name: its size and a hash of
-/// its first and last 4 KB.
-pub(crate) fn fingerprint(storage: &dyn Storage, path: &str) -> Result<String, DocumentError> {
-    let size = storage.size(path)?;
-    let head = read_file(storage, path, 4096).unwrap_or_default();
-    let mut tail = vec![0u8; 4096];
-    let n = storage.read_at(path, size.saturating_sub(4096), &mut tail)?;
-    tail.truncate(n);
-    let hash = paperpaw_sdk::digest::fnv1a64([head.as_slice(), tail.as_slice()].concat());
-    Ok(alloc::format!("{size}:{hash:016x}"))
 }

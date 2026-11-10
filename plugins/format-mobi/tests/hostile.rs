@@ -119,6 +119,7 @@ impl Storage for Discarding {
 }
 
 const PATH: &str = "books/x.mobi";
+const CACHE: &str = ".paperpaw/plugins/format-mobi/book";
 
 fn options() -> OpenOptions {
     OpenOptions::default().image_fit(Fit::screen(480, 800))
@@ -126,7 +127,7 @@ fn options() -> OpenOptions {
 
 /// Opens, and reads every block.
 fn read_all(storage: &dyn Storage) {
-    let Ok(document) = MobiDocument::open(storage, PATH, &options()) else {
+    let Ok(document) = MobiDocument::open_converted(storage, PATH, CACHE, &options()) else {
         return;
     };
     let _ = document.cover(storage);
@@ -224,7 +225,7 @@ fn a_long_book_is_converted_in_little_memory() {
         cache: String::from(".paperpaw/plugins/format-mobi"),
     };
     let base = reset_peak();
-    let document = MobiDocument::open(&storage, PATH, &options()).unwrap();
+    let document = MobiDocument::open_converted(&storage, PATH, CACHE, &options()).unwrap();
     let used = peak_over(base);
     assert!(used < 96 * 1024, "converting took {used} bytes");
     drop(document);

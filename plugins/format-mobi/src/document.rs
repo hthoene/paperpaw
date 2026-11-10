@@ -2,8 +2,6 @@
 //! [`crate::cache`]), read from there.
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -11,18 +9,14 @@ use paperpaw_sdk::document::{
     Block, BlockKind, Document, DocumentError, ImageRef, Link, Locator, Metadata, TocEntry,
 };
 use paperpaw_sdk::image::{Fit, ImageFile};
-use paperpaw_sdk::{Env, OpenOptions, Storage, read_file};
+use paperpaw_sdk::{OpenOptions, Storage};
 
-use crate::PLUGIN;
 use crate::cache::{self, Kind, Output};
-use crate::header::{Header, fingerprint, record_range};
+use crate::header::{Header, record_range};
 use crate::images::{self, Book};
 use crate::mem::Refused;
 use crate::palmdoc;
 use crate::text::Converter;
-
-/// Changes when what is made of a book changes, so books are made anew.
-const VERSION: u32 = 1;
 
 /// An open Mobipocket book.
 #[derive(Debug)]
@@ -188,27 +182,21 @@ impl Conversion {
 }
 
 impl MobiDocument {
-    /// Opens the book at `path` (converting it if it is not yet).
-    pub fn open(
+    /// Opens the book at `path`, converting it whole into the folder `dir`
+    /// first (the host's `prepare` calls make the same cache in steps, a
+    /// record each; the host owns the stamp that says it is whole).
+    ///
+    /// # Errors
+    /// What the book, the card or memory says.
+    pub fn open_converted(
         storage: &dyn Storage,
         path: &str,
+        dir: &str,
         options: &OpenOptions,
     ) -> Result<Self, DocumentError> {
         let header = Header::read(storage, path)?;
         let size = storage.size(path)?;
-        let dir = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-        let stamp = format!(
-            "{VERSION}\n{}\n{}x{}\n{}\n",
-            fingerprint(storage, path)?,
-            options.image_fit.short,
-            options.image_fit.long,
-            options.color
-        );
-        let current = read_file(storage, &format!("{dir}/{}", cache::DONE), 256).ok();
-        if current.as_deref() != Some(stamp.as_bytes()) {
-            Self::convert(storage, path, &header, size, &dir, options)?;
-            storage.write(&format!("{dir}/{}", cache::DONE), stamp.as_bytes())?;
-        }
+        Self::convert(storage, path, &header, size, dir, options)?;
         let mut metadata = header.metadata.clone();
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
@@ -218,7 +206,7 @@ impl MobiDocument {
             path: path.to_string(),
             header,
             size,
-            dir,
+            dir: dir.to_string(),
             metadata,
             fit: options.image_fit,
             cover_fit: options.cover_fit,
@@ -442,13 +430,4 @@ impl Document for MobiDocument {
         let position: u32 = href.strip_prefix('#')?.parse().ok()?;
         (position < self.header.text_length).then(|| Locator::new(0, position))
     }
-}
-
-/// A book opened for the library.
-pub(crate) fn opener(
-    storage: &dyn Storage,
-    path: &str,
-    options: &OpenOptions,
-) -> Result<Box<dyn Document>, DocumentError> {
-    MobiDocument::open(storage, path, options).map(|d| Box::new(d) as Box<dyn Document>)
 }
