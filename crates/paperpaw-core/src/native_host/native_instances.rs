@@ -229,14 +229,12 @@ impl NativeInstances {
         self.pool.as_ref()?.owners().ok()
     }
 
-    /// The plugin id of the enabled owner `key`; `None` for an owner that is
-    /// unknown or stopped, or while the directory is busy.
-    pub(crate) fn id_of(&self, key: u64) -> Option<alloc::string::String> {
-        let mut found = None;
-        self.directory()?
-            .with_id(key, &mut |id| found = Some(alloc::string::String::from(id)))
-            .ok()?;
-        found
+    /// Hands the plugin id of the enabled owner `key` to `visit`; `false`
+    /// for an owner that is unknown or stopped, or while the directory is
+    /// busy. Nothing is copied.
+    pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.with_id(key, visit).is_ok())
     }
 
     /// How many owner-directory updates were skipped since the last call.

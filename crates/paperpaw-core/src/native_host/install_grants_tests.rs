@@ -6,6 +6,7 @@ use crate::native_host::{
     plugin_install::PluginInstall, plugin_job::PluginHost, plugin_jobs::PluginJobs,
     plugin_rules::Evidence,
 };
+use alloc::format;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
     metadata::Host as Offered,
@@ -73,7 +74,7 @@ fn grant(kernel: &mut Kernel, id: &str, on: bool) {
     kernel
         .shared
         .settings
-        .set(&grant_key(id), SettingValue::Bool(on))
+        .set(&format!("core.grant.install.{id}"), SettingValue::Bool(on))
         .unwrap();
 }
 
@@ -119,4 +120,26 @@ fn no_job_means_nothing_to_read() {
     let dials = running(&mut kernel, "dials");
     grant(&mut kernel, "dials", true);
     assert!(!granted(&kernel, dials));
+}
+
+#[test]
+fn the_key_is_built_on_the_stack_and_an_id_that_does_not_fit_has_none() {
+    let mut buffer = [0; KEY_MAX];
+    assert_eq!(
+        grant_key("dials", &mut buffer),
+        Some("core.grant.install.dials")
+    );
+    let long = "a".repeat(KEY_MAX);
+    assert_eq!(grant_key(&long, &mut buffer), None);
+}
+
+#[test]
+fn more_owners_than_the_device_holds_are_not_all_read() {
+    let mut granted = Granted::NONE;
+    for owner in 1..=(REQUESTS_MAX as u64 + 2) {
+        granted.add(owner);
+    }
+    assert!(granted.holds(1) && granted.holds(REQUESTS_MAX as u64));
+    assert!(!granted.holds(REQUESTS_MAX as u64 + 1), "no room: no grant");
+    assert!(!Granted::NONE.holds(0));
 }
