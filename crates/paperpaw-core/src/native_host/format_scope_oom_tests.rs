@@ -16,6 +16,8 @@ fn entering_a_format_call_refuses_cleanly_for_every_allocation() {
         document: 3,
         cache: "",
         css: "",
+        cache_cap: 0,
+        quota: None,
     };
     // The path and the opened name.
     for nth in 1..=2 {

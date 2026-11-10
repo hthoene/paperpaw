@@ -55,6 +55,8 @@ struct Format {
     reference: FormatRef,
     plugin: u64,
     id: Box<str>,
+    /// The bytes of `id` that are the plugin's id (the rest is `.name`).
+    plugin_len: usize,
     title: Box<str>,
     extensions: Box<str>,
     flags: u32,
@@ -149,6 +151,7 @@ impl FormatIndex {
             reference,
             plugin,
             id,
+            plugin_len: plugin_id.len(),
             title: text(spec.title)?,
             extensions: text(spec.extensions)?,
             flags: spec.flags,
@@ -256,6 +259,17 @@ impl FormatIndex {
     }
 
     /// The format's id, for the host's own use.
+    /// The id of the plugin that declared the format.
+    pub(crate) fn plugin_id(
+        &self,
+        reference: FormatRef,
+        visit: &mut dyn FnMut(&str),
+    ) -> Result<(), i32> {
+        let format = self.find(reference).ok_or(ERR_STATE)?;
+        visit(format.id.get(..format.plugin_len).ok_or(ERR_STATE)?);
+        Ok(())
+    }
+
     pub(crate) fn id(&self, reference: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         visit(&self.find(reference).ok_or(ERR_STATE)?.id);
         Ok(())
