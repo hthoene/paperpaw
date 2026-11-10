@@ -701,6 +701,10 @@ impl DeclarationStore {
         if providers + pending.of_kind(Kind::Lookup).len()
             > super::declaration_checks::LOOKUPS_DEVICE
         {
+            allocations.cap = Some(Cap::of(
+                Cap::LOOKUPS,
+                super::declaration_checks::LOOKUPS_DEVICE,
+            ));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;

@@ -269,6 +269,23 @@ fn lookup_providers_are_listed_in_load_order_and_go_with_their_plugin() {
 }
 
 #[test]
+fn a_plugins_providers_are_listed_in_the_order_it_declared_them() {
+    // The index is in hash order: only the declaration order is the plugin's.
+    let names = ["zeta", "alpha", "mid", "beta", "omega", "chi"];
+    let rows: Vec<Record<'_>> = names.iter().map(|n| lookup(n)).collect();
+    let mut store = DeclarationStore::default();
+    install(
+        &mut store,
+        &plugin("dict", 1),
+        &[batch(&rows[..3]), batch(&rows[3..])],
+    )
+    .unwrap();
+    let listed: Vec<String> = providers(&store).into_iter().map(|p| p.1).collect();
+    let wanted: Vec<String> = names.iter().map(|n| format!("dict.{n}")).collect();
+    assert_eq!(listed, wanted);
+}
+
+#[test]
 fn the_same_provider_name_in_two_plugins_is_allowed() {
     let mut store = DeclarationStore::default();
     install(&mut store, &plugin("p0", 1), &[batch(&[lookup("a")])]).unwrap();
@@ -291,9 +308,10 @@ fn thirty_two_providers_fit_the_device_and_the_thirty_third_is_full() {
         install(&mut store, p, &[batch(&rows[..4]), batch(&rows[4..])]).unwrap();
     }
     assert_eq!(providers(&store).len(), 32);
+    // Refused at the device's cap: problem 18, arg 32.
     assert_eq!(
-        install(&mut store, &plugins[4], &[batch(&[lookup("z")])]),
-        Err(ERR_FULL)
+        install_capped(&mut store, &plugins[4], &[batch(&[lookup("z")])]),
+        (Err(ERR_FULL), Some(Cap::of(Cap::LOOKUPS, 32)))
     );
     assert_eq!(providers(&store).len(), 32);
     store.remove_host_owner(2);
