@@ -19,7 +19,7 @@
 //! ([`crate::host::random`]); where that fails the seal fails and nothing is
 //! written (the `Sealer` duties in `docs/abi/secrets.md`).
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -148,7 +148,7 @@ fn read_key(path: &Path) -> io::Result<[u8; KEY_BYTES]> {
         }
     }
     let mut bytes = Vec::new();
-    io::Read::take(file, KEY_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    file.take(KEY_BYTES as u64 + 1).read_to_end(&mut bytes)?;
     <[u8; KEY_BYTES]>::try_from(bytes.as_slice())
         .map_err(|_| io::Error::other(format!("{} is not a 32-byte key", path.display())))
 }

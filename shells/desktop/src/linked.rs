@@ -127,6 +127,15 @@ pub struct Inputs {
     pub simulated: bool,
 }
 
+impl std::fmt::Debug for Inputs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inputs")
+            .field("view", &self.view)
+            .field("simulated", &self.simulated)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The sealer of the secrets, or why there is none (then `core.secrets` is
 /// not wired and a plugin that needs it is refused: nothing is stored in the
 /// clear).
