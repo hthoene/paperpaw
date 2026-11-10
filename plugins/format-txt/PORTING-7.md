@@ -80,3 +80,7 @@ registry cannot read them yet (`plugin-how-text-read`).
 - Title fallback (root 3 has no file name), `doc_meta` series bit and `fmt.option` rows: as above.
 
 X4 `.ppn` size: see the PR notes (built with `tools/plugin-files7/build.sh x4 <out> --only format-txt`).
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-txt/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).

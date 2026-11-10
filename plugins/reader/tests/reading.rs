@@ -182,6 +182,8 @@ impl Reading {
             .setting_default(&settings::KEYMAP_PRESET, preset.into())
             .storage(storage.clone())
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            // Plain text: register the native txt plugin here when native
+            // activation exists (#228, format removal); the .txt tests wait.
             .plugin(paperpaw_plugin_format_epub::EpubFormat)
             .plugin(Reader)
             .plugin(Listener(heard.clone()))
