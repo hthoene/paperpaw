@@ -88,6 +88,8 @@ struct Open {
     saved_at: Option<u64>,
     /// The page on show is not the place saved.
     unsaved: bool,
+    /// The last input turned the page, not yet told to the plugin.
+    turned: bool,
     /// A refused write has been said (once for a book).
     said: bool,
 }
@@ -239,6 +241,7 @@ impl View {
                 progress,
                 saved_at: None,
                 unsaved: false,
+                turned: false,
                 said: false,
             }),
         })
@@ -258,11 +261,13 @@ impl View {
         }
     }
 
-    /// Whether the page on show is not the place saved (the quiet time is
-    /// to be started again).
-    #[must_use]
-    pub const fn unsaved(&self) -> bool {
-        matches!(&self.body, Body::Open(open) if open.unsaved)
+    /// Whether the last input turned the page (the quiet time is to be
+    /// started again, as Beta 3 did on a turn only); asked once.
+    pub fn take_turned(&mut self) -> bool {
+        match &mut self.body {
+            Body::Open(open) => core::mem::take(&mut open.turned),
+            Body::Message(_) => false,
+        }
     }
 
     /// Writes the place now if it is not saved: the quiet time has come, or
@@ -302,6 +307,7 @@ impl View {
         };
         if moved {
             open.unsaved = true;
+            open.turned = true;
             open.save(host, library, When::Turn);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;

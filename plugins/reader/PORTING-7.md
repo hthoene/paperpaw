@@ -116,10 +116,7 @@ relative to the data folder).
   with the six `slot.offer`s, keys, hold keys, events, stages) and `native/metadata*` (regenerate with
   `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
   native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
-- `make` submits six groups. **Not the events** (start, a book moved): the host's event admission
-  (`native_host/events.rs` `is_event_tag`) lacks `event.book_moved`, and the registration is refused
-  as a whole (`Factory(-1)`, found by `tests/hosted_construction.rs`); they are in the image and go
-  in once the host admits it; an opened screen draws nothing
+- `make` submits seven groups, the events too (the start and a moved book have no handler yet; the host admits `event.book_moved` now). At this slice an opened screen draws nothing
   (`Error::State`). **The plugin is not in `paperpaw_app::NATIVE_PLUGINS`**: with no view the
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
@@ -274,3 +271,8 @@ relative to the data folder).
   the start, and the first turn overwrites it (Beta 3 retried the read and set the old file aside); a
   book of more than 4,096 sections writes progress 0; a book outside the catalog gets NOT_FOUND on
   read and write, so it is "not saved" (said once).
+- **Gates before the reader goes into `NATIVE_PLUGINS`** (Port Reviewer 2): retry the read of the stored
+  place once and never write over a place that could not be read (remark 2 above, the data-safety
+  one), and skip the progress field when it is unknown (remark 3). **X4 timing list:** the extra
+  `work.declare` at every page turn. The quiet time is started again on a turn only (as Beta 3), and a
+  host without work is asked once.

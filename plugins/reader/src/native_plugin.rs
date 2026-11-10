@@ -55,6 +55,8 @@ pub struct NativeReader {
     docs: Option<Documents>,
     library: Option<Library>,
     work: Option<Work>,
+    /// The host has no work for the reader: not asked again.
+    no_work: bool,
     screens: Screens<View>,
 }
 
@@ -95,8 +97,9 @@ impl NativeReader {
     /// turn, which replaces the work and starts the time again. Where the host
     /// has no work, the place is written at sleep, stop and close.
     fn start_quiet(&mut self, host: &Host<'_>) {
-        if self.work.is_none() {
+        if self.work.is_none() && !self.no_work {
             self.work = Work::open(host).ok();
+            self.no_work = self.work.is_none();
         }
         let Some(work) = &self.work else {
             return;
@@ -183,14 +186,14 @@ impl Plugin for NativeReader {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        let (handled, unsaved) = match (self.screens.top(token), &self.docs) {
+        let (handled, turned) = match (self.screens.top(token), &self.docs) {
             (Some(view), Some(docs)) => {
                 let handled = view.input(host, (docs, self.library.as_ref()), &input)?;
-                (handled, view.unsaved())
+                (handled, view.take_turned())
             }
             _ => return Ok(Handled::No),
         };
-        if unsaved {
+        if turned {
             self.start_quiet(host);
         }
         Ok(handled)
