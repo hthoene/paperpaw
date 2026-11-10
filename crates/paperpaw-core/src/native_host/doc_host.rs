@@ -140,6 +140,8 @@ pub(crate) struct DocState {
     /// host ended them, or the table was busy): their image ids end with the
     /// next call.
     pending_images: RefCell<Vec<u32>>,
+    /// A document's image ids could not be recorded as ended (logged once).
+    images_lost: Cell<bool>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
@@ -235,6 +237,7 @@ impl DocState {
             cache_cap: limits.cache_bytes(),
             colour: false,
             pending_images: RefCell::new(images_pending),
+            images_lost: Cell::new(false),
             fresh: Cell::new(false),
         })
     }
@@ -262,6 +265,18 @@ impl DocState {
             && pending.try_reserve(1).is_ok()
         {
             pending.push(document);
+        } else {
+            // Not recorded: the ids live until their plugin stops (at most 8
+            // each). The next call with a frame says so, once.
+            self.images_lost.set(true);
+        }
+    }
+
+    /// The image ids of the documents that ended out of reach of the table
+    /// end now (`images` is the device's table).
+    fn end_pending_images(&self, images: &super::image_service::ImageTable) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut() {
+            pending.retain(|document| images.document_closed(*document).is_err());
         }
     }
 
@@ -504,6 +519,9 @@ impl super::doc_service::DocHost for DocState {
     frameless!();
     fn end_images(&self, document: &Document) {
         self.ended_images(document.id);
+    }
+    fn flush_images(&self, images: &super::image_service::ImageTable) {
+        self.end_pending_images(images);
     }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.hold_book(document, root, path, None)
@@ -810,11 +828,12 @@ impl Bound<'_> {
     /// Ends the documents of formats an earlier call could not finish.
     /// The image ids of documents that ended out of reach of the table end.
     fn end_pending_images(&self) {
-        let Ok(mut pending) = self.state.pending_images.try_borrow_mut() else {
-            return;
-        };
-        let table = self.who.hosts.images();
-        pending.retain(|document| table.document_closed(*document).is_err());
+        self.state.end_pending_images(self.who.hosts.images());
+        if self.state.images_lost.replace(false) {
+            self.frame.log(format_args!(
+                "document: image ids of an ended document kept"
+            ));
+        }
     }
 
     fn end_unfinished(&self) {

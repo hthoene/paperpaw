@@ -181,7 +181,8 @@ impl HostWiring {
     }
 
     /// The screen keeps colour: a book's pictures that are in colour say so
-    /// (`doc_image.flags` bit 0). Without it, never.
+    /// (`doc_image.flags` bit 0). Without it, never. It must match the
+    /// shell's real panel: a shell whose screen is grey says `false`.
     #[must_use]
     pub fn document_colour(mut self, colour: bool) -> Self {
         self.document_colour = colour;

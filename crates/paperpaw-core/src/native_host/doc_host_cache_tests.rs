@@ -202,16 +202,31 @@ fn a_picture_the_cache_does_not_hold_or_a_hostile_one_is_left_out() {
 }
 
 #[test]
-fn the_pictures_of_a_document_the_host_ended_end_with_the_next_call() {
+fn the_pictures_of_a_document_the_host_ended_end_at_once() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         let document = w.open(1, "books/a.epub").unwrap();
         gray_picture(w, &std::format!("{}/pic.gray", seen_cache(w, 0)));
         *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
         let image = ask_cover(w, document).unwrap().image;
-        // The format stops: the host ends the document, out of reach of the
-        // table; the opener's next call to the service ends its ids.
-        w.stop("epub");
+        // The host ends the document (the card went): no later call is
+        // needed, a stale id must not draw what a new cache holds.
+        w.hosts.end_document_by_host(document, 2).unwrap();
+        assert_eq!(w.hosts.images().info(OPENER, image), Err(ERR_NOT_FOUND));
+    });
+}
+
+#[test]
+fn the_pictures_of_a_document_ended_out_of_reach_of_the_table_end_with_the_next_call() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        gray_picture(w, &std::format!("{}/pic.gray", seen_cache(w, 0)));
+        *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
+        let image = ask_cover(w, document).unwrap().image;
+        // Out of reach of the table (the lifecycle alone): the next call to
+        // the service ends the ids.
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
         let _ = w.call(
             AdmittedFeatures::NONE,
             19,

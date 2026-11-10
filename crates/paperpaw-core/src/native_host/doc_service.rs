@@ -170,6 +170,10 @@ pub(crate) trait DocHost {
     /// same document (ids are generation-checked); the second call does
     /// nothing.
     fn end_images(&self, document: &Document);
+    /// The image ids of documents the host ended out of reach of the image
+    /// table (`end_images` kept them) end now in `images`. A host that ends
+    /// them at once has none to flush.
+    fn flush_images(&self, _images: &super::image_service::ImageTable) {}
     /// The host closed a document on its own (three malformed answers, the
     /// format plugin stopped): the opener gets `event.document_closed`. Only
     /// the event; the service ends the image ids (`end_images`) first and
