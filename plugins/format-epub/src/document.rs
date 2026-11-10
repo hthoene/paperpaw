@@ -854,7 +854,8 @@ impl Document for EpubDocument {
             return None;
         }
         let (_, source) = crate::pictures::noted(storage, base)?;
-        let file = crate::pictures::file(base, self.color);
+        // No room for a name is no picture now, and no mark: it is tried again.
+        let file = crate::pictures::try_file(base, self.color).ok()?;
         convert::decode_image(
             storage,
             &self.archive,
@@ -881,14 +882,14 @@ impl Document for EpubDocument {
         // Named by its size, beside the one for the page; no larger than
         // pictures are decoded at most.
         let fit = Fit::side(long).min(convert::IMAGE_FIT);
-        let larger = alloc::format!("{base}-{}", fit.long);
+        let larger = fallible::try_format!("{base}-{}", fit.long).ok()?;
         if crate::pictures::failed(storage, &larger) {
             return None;
         }
         if let Some(decoded) = crate::pictures::open(storage, &larger, self.color) {
             return Some(decoded);
         }
-        let file = crate::pictures::file(&larger, self.color);
+        let file = crate::pictures::try_file(&larger, self.color).ok()?;
         convert::decode_image(storage, &self.archive, &source, &file, dir, fit, self.color)
             .inspect_err(|e| crate::pictures::note_failure(storage, &larger, e))
             .ok()?;
@@ -914,14 +915,14 @@ impl Document for EpubDocument {
                 storage,
                 &self.archive,
                 source,
-                &crate::pictures::file(&base, self.color),
+                &crate::pictures::try_file(&base, self.color)?,
                 &self.cache,
                 self.cover_fit,
                 self.color,
             )
             .inspect_err(|e| crate::pictures::note_failure(storage, &base, e))?;
         }
-        Ok(crate::pictures::open(storage, &base, self.color))
+        crate::pictures::try_open(storage, &base, self.color)
     }
 
     fn sections(&self) -> u32 {

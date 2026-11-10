@@ -9,7 +9,6 @@
 //! each with the cache name, the size they are decoded to and their path
 //! in the archive, for pages to be laid out meanwhile.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -17,12 +16,8 @@ use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{DocumentError, ImageRef};
 use paperpaw_sdk::image::ImageFile;
 
-/// The cache file of picture `base` in colour or gray.
-pub(crate) fn file(base: &str, color: bool) -> String {
-    format!("{base}.{}", if color { "rgb" } else { "gray" })
-}
-
-/// [`file`] where a copy that finds no room is `OutOfMemory`.
+/// The cache file of picture `base` in colour or gray, where a copy that
+/// finds no room is `OutOfMemory`.
 pub(crate) fn try_file(base: &str, color: bool) -> Result<String, DocumentError> {
     crate::fallible::try_format!("{base}.{}", if color { "rgb" } else { "gray" })
 }
@@ -81,7 +76,7 @@ fn list(dir: &str) -> Result<String, DocumentError> {
     crate::fallible::try_format!("{dir}/images.txt")
 }
 
-/// A picture to be noted: its cache name (see [`file`]), the size it is
+/// A picture to be noted: its cache name (see [`try_file`]), the size it is
 /// decoded to and its path in the archive.
 #[derive(Debug)]
 pub(crate) struct Note {
