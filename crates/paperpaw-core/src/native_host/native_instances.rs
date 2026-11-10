@@ -655,12 +655,12 @@ impl NativeInstances {
         self.service_more.set(more);
     }
 
-    /// The device's services that raise events (`core.net`, `core.sockets`),
-    /// those wired.
-    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+    /// The device's services that raise events (`core.net`, `core.sockets`,
+    /// `core.document`), those wired.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
         self.pool
             .as_ref()
-            .map_or([None, None], |pool| pool.hosts().event_services())
+            .map_or([None, None, None], |pool| pool.hosts().event_services())
     }
 
     /// The device's network pool and the services' hosts, once a service

@@ -169,6 +169,23 @@ pub(crate) trait DocHost {
     /// the event; the service ends the image ids (`end_images`) first and
     /// never calls the format here.
     fn document_closed(&self, document: &Document, reason: u32);
+    /// The oldest `event.document_closed` of `owner` still to deliver,
+    /// encoded into `out` as a one-record batch: its length, or `None`. A
+    /// failure consumes nothing. A host without events has none.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the host's queue is borrowed; `ERR_NO_SPACE` when `out`
+    /// is too small.
+    fn next_event(&self, _owner: u64, _out: &mut [u8]) -> Result<Option<usize>, i32> {
+        Ok(None)
+    }
+    /// Whether any event waits for delivery (the kernel's pump looks again).
+    fn events_waiting(&self) -> bool {
+        false
+    }
+    /// The kernel's clock, milliseconds, as the pump last read it: the time
+    /// the events it delivers are stamped with.
+    fn set_now(&self, _now_ms: u64) {}
     /// An `open` is about to read the card path `path` of root `root`
     /// (document `document`): the host counts it so the file is not freed under
     /// the reader. `Err` refuses the open: nothing is opened and the error is

@@ -19,8 +19,8 @@
 //!
 //! Not served yet, each answered as the contract's "none" and never
 //! half-done: the images of a document (`map_image` leaves a picture out, so
-//! no image id exists to end), `event.document_closed` and `_changed` (the
-//! document table's `ServiceEvents`), sniffing a file's first 512 bytes,
+//! no image id exists to end), `event.document_changed` (88: nothing raises
+//! it before the preparing loop), sniffing a file's first 512 bytes,
 //! root 5, the preparing loop and the cache (`format.spec.flags` `prepared`
 //! formats open and answer as their op 2 does), the root-6 cache stamps.
 //!
@@ -40,6 +40,7 @@ use super::{
     stages_wire::core_format_v1 as local,
 };
 use crate::abi7::context::{Frame, RowsEnd};
+use crate::native_host::codec;
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
@@ -75,6 +76,9 @@ pub(crate) struct DocState {
     /// table was borrowed: the next call ends the rest (the index has
     /// forgotten them already).
     unfinished: RefCell<Vec<FormatRef>>,
+    /// The kernel's clock as the event pump last gave it: events are stamped
+    /// with it.
+    now: Cell<u64>,
 }
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -120,6 +124,21 @@ impl DocState {
             in_use,
             skipped: Cell::new(0),
             unfinished: RefCell::new(unfinished),
+            now: Cell::new(0),
+        })
+    }
+
+    /// The oldest `event.document_closed` of `owner`, encoded into `out`.
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
+        self.table.take_closed(owner, |event| {
+            codec::encode_one(
+                &Record::EventDocumentClosed(wire::EventDocumentClosed {
+                    now_ms: self.now.get(),
+                    document: event.document,
+                    reason: event.reason,
+                }),
+                out,
+            )
         })
     }
 
@@ -227,6 +246,9 @@ impl DocState {
     }
 
     fn keep_unfinished(&self, format: FormatRef) {
+        // The room is reserved for every format the device can hold, and a
+        // reference is kept once: a full list cannot happen. If it did, the
+        // format's documents would stay until their reader closes them.
         if let Ok(mut pending) = self.unfinished.try_borrow_mut()
             && pending.len() < pending.capacity()
         {
@@ -268,8 +290,17 @@ macro_rules! frameless {
         fn end_images(&self, _document: &Document) {
             // No image id exists until pictures are mapped.
         }
-        fn document_closed(&self, _document: &Document, _reason: u32) {
-            // TODO(#228, Host): the document table's `ServiceEvents`.
+        fn document_closed(&self, document: &Document, reason: u32) {
+            self.state().table.raise_closed(document, reason);
+        }
+        fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
+            self.state().next_event(owner, out)
+        }
+        fn events_waiting(&self) -> bool {
+            self.state().table.has_closed()
+        }
+        fn set_now(&self, now_ms: u64) {
+            self.state().now.set(now_ms);
         }
         fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
             self.state().reader_opened(document, root, path)

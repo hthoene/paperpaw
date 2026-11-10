@@ -509,13 +509,16 @@ impl HostServices {
     }
 
     /// The wired services that raise events to plugins, for the kernel's
-    /// event pump: `core.net` then `core.sockets`.
-    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+    /// event pump: `core.net`, `core.sockets`, then `core.document`.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
         [
             self.net
                 .get()
                 .map(|s| s as &dyn super::service_events::ServiceEvents),
             self.sockets
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.documents
                 .get()
                 .map(|s| s as &dyn super::service_events::ServiceEvents),
         ]
