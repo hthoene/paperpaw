@@ -28,3 +28,10 @@ fn a_refusal_of_the_layout_is_the_hosts_where_it_has_one() {
     );
     assert_eq!(document_error_kind(&DocumentError::UnsupportedFormat), None);
 }
+
+#[test]
+fn the_root_of_a_hand_over_is_written_as_it_is_read() {
+    assert_eq!(root_code(Root::Data), "0");
+    assert_eq!(root_code(Root::Library), "1");
+    assert_eq!(root_code(Root::Handed), "5");
+}

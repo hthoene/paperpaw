@@ -294,3 +294,41 @@ relative to the data folder).
   read to the end, also when the reader pages back. **Named:** a book of more than 4,096 sections has no
   progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
   the host, so a `finished` set locally may never be raised (a one-page book too).
+
+## Table of contents (native model, `native_toc.rs`)
+
+- Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
+  at most 500), the kept copy `headings.txt` (form of interface 6, valid while the book file keeps its
+  size), preferring the headings when the book's own table has at most one entry, the focus on the
+  chapter of a place, the scan's step past a block and the `section`/`offset` parameters. Allocation
+  is fallible and tested refused in turn.
+- **Not yet: the screen.** It needs the block and table-of-contents ops of `core.document` in the SDK
+  (Services, #2223), the storage for the kept copy, and the native reader entry (#954). Choosing an
+  entry goes back and goes to the place through `core.goto`'s successor, which is not declared yet.
+- Review remarks (PR #958), for the screen: the kept copy is read up to `MAX_KEPT` (80 KiB, as
+  500 headings of 120 characters need) and written only after a complete scan; a scan that ran out of
+  memory writes no mark; a refused write of the copy stays best effort. `kept_text` builds the whole
+  text in one `String` (about 70 KB at the limit): its size on the X4 is on the measurement list
+  (pieces through a sink if it does not fit).
+
+## The table-of-contents screen (view slice R6a, `native_toc_view.rs`)
+
+- The action `reader.show-toc` (menu, key) opens the screen `reader.toc` with a hand-over of the book
+  on show (`path`, `root`, `section`, `offset`). The screen opens the book itself (its own document, closed
+  with the screen), lists the book's own table (`core.document` op 7, at most 500 entries, titles cleaned
+  and cut as `native_toc::title_of`, indented by level down to the 4th), puts the focus on the chapter the
+  reader is in (`current_of_table`, exact targets by op 8 where the host's place is approximate) and says
+  `reader.no-toc` / `reader.preparing` / `reader.error` where there is nothing to list.
+- A choice (tap, press) goes to the entry's exact place in the reading screen below (`View::go_to`: the
+  page left is kept to turn back to; the place is written as a turn's and reported to the host when the
+  reading screen is shown again, as the host drops the report of a screen below the top) and closes the
+  screen. Both screens are this plugin's, so no hand-over carries the place back.
+- **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
+  (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
+  chapter of the page for the status line and the report, next/previous chapter actions, and the
+  skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
+  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
+  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
+  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
+  `read_handover` error is "no book".

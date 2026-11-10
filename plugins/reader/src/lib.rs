@@ -60,6 +60,8 @@ pub mod native_plugin;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
+pub mod native_toc;
+pub mod native_toc_view;
 pub mod native_typeset;
 pub mod native_view;
 pub mod native_words;
