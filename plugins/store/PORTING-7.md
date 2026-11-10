@@ -147,6 +147,13 @@ finishes the port; until then nothing is dropped.
   host does not say, so the store keeps its own record of what it installed after an
   `install_done` of reason 0 (the `store-installs` file of `paperpaw_sdk::install`);
   until that is wired a plugin counts as put in place another way.
+  **Activation blocker:** until the record is wired no update is ever offered
+  (every installed plugin counts as put in place another way) and *use the store's
+  version* shows for plugins the store itself installed; the store must not be
+  activated before `Origin`/`release` come from the record.
+- **The screen runs `check_file` first** and passes `flash_hint` from the device
+  layout: `no_room` is only set after a check, so without it *Install* shows and the
+  install ends in reason 13 instead of saying *no room* beforehand.
 - Fallible (`NoMemory`; sweep in `tests/native_page_refusal.rs`); nothing indexes
   text; no host call.
 
