@@ -2414,7 +2414,7 @@ enum paperpaw_sdk::native::events::states::WifiFailure { NotFound, Password, Tim
 enum paperpaw_sdk::native::events::states::WifiLinkState { Off, On, Connecting, Connected, AccessPoint }
 enum paperpaw_sdk::native::events::uix_events::AnswerOutcome { Answered, Cancelled, Typing }
 enum paperpaw_sdk::native::events::uix_events::SpeechStatus { Spoken, Stopped, NoVoice, Unsupported }
-enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, Mono }
+enum paperpaw_sdk::native::fonts::FontRole { Ui, UiBold, Reading, ReadingBold, ReadingItalic, ReadingBoldItalic, Status, Mono }
 enum paperpaw_sdk::native::format::lists::LinkKind #{"repr": {"align": null, "int": "u32", "kind": "rust", "packed": null}} { Internal = 0, External = 1, Footnote = 2 }
 enum paperpaw_sdk::native::format::request::FormatOp { Sniff, Open, Prepare, Close, Meta, MetaText, Sections, Block, Toc, TocTarget, PageLabel, Xpointer, Locate, Links, LinkTarget, Fonts, Cover, Image, Progress }
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
