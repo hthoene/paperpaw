@@ -380,3 +380,106 @@ pub fn try_status(storage: &dyn Storage, path: &str) -> Result<super::catalog::S
     let opened = list_has(storage, &file, super::MAX_OPENED, path)?;
     Ok(super::catalog::Status::new(progress, favourite, opened))
 }
+
+/// Where the list `name` (`favourites.txt`, `opened.txt`) is kept.
+fn try_list_file(name: &str) -> Result<String, Error> {
+    let mut file = String::new();
+    file.try_reserve_exact(DIR.len() + 1 + name.len())
+        .map_err(|_| Error::OutOfMemory)?;
+    file.push_str(DIR);
+    file.push('/');
+    file.push_str(name);
+    Ok(file)
+}
+
+/// Puts `path` first in the list kept in `file` (`front`), or takes it out,
+/// keeping at most `max` paths, written whole in one go. The new text is
+/// reserved before anything is written; a list that cannot be read (not text,
+/// a card error) is left as it is.
+fn try_edit_list(
+    storage: &dyn Storage,
+    file: &str,
+    max: usize,
+    path: &str,
+    front: bool,
+) -> Result<(), Error> {
+    let data = match crate::read_file(storage, file, max * 512) {
+        Ok(data) => data,
+        Err(crate::StorageError::NotFound) => Vec::new(),
+        Err(crate::StorageError::OutOfMemory) => return Err(Error::OutOfMemory),
+        Err(error) => return Err(Error::Storage(error)),
+    };
+    let old =
+        core::str::from_utf8(crate::files::without_bom(&data)).map_err(|_| Error::Unreadable)?;
+    let mut text = String::new();
+    // The new first line, the old ones, and a byte order mark's room.
+    text.try_reserve_exact(old.len() + path.len() + 4)
+        .map_err(|_| Error::OutOfMemory)?;
+    let mut count = 0_usize;
+    if front {
+        text.push_str(path);
+        count = 1;
+    }
+    for line in old.lines().filter(|line| !line.is_empty() && *line != path) {
+        if count >= max {
+            break;
+        }
+        if count > 0 {
+            text.push('\n');
+        }
+        text.push_str(line);
+        count += 1;
+    }
+    // Read without a byte order mark: a first path that begins with one
+    // (U+FEFF) keeps it behind a mark of the file's own.
+    if text.starts_with('\u{feff}') {
+        text.insert(0, '\u{feff}');
+    }
+    Ok(storage.write(file, text.as_bytes())?)
+}
+
+/// `core.library` op 8 `set_status` for the host, with the errors left in:
+/// both masks applied together (bit 0 finished, 1 favourite, 2 opened), the
+/// same changes as [`set_finished`](super::set_finished) and
+/// [`set_favourite`](super::set_favourite) and, for opened, the place among
+/// the books opened last. Clearing *finished* marks the book unread, as
+/// `set_finished(false)` does. Each file is written whole; applying the same
+/// masks again finishes a call that was cut or failed part way, and the
+/// status is noted beside the catalog last.
+///
+/// # Errors
+/// [`Error::OutOfMemory`]; the storage's error where the book is gone or a
+/// file cannot be read or written.
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn try_set_status(
+    storage: &dyn Storage,
+    path: &str,
+    set: u32,
+    clear: u32,
+) -> Result<(), Error> {
+    let wants = |bit: u32| -> Option<bool> {
+        if set & bit != 0 {
+            Some(true)
+        } else if clear & bit != 0 {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    if let Some(finished) = wants(1) {
+        let mut book = super::book_for_update(storage, path)?;
+        book.progress = finished.then_some(100);
+        super::write_details(storage, path, &book)?;
+    }
+    if let Some(favourite) = wants(2) {
+        let file = try_list_file("favourites.txt")?;
+        try_edit_list(storage, &file, super::MAX_FAVOURITES, path, favourite)?;
+    }
+    if let Some(opened) = wants(4) {
+        let file = try_list_file("opened.txt")?;
+        try_edit_list(storage, &file, super::MAX_OPENED, path, opened)?;
+    }
+    let status = try_status(storage, path)?;
+    Ok(super::catalog::noted(storage, path, status)?)
+}

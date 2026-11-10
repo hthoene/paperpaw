@@ -28,10 +28,6 @@ fn it_reads_the_catalog() {
 #[test]
 fn it_has_no_writes_and_says_so() {
     let host = host();
-    assert_eq!(
-        host.set_status(BookRef::Path("books/a.epub"), 1, 0),
-        Err(ERR_UNSUPPORTED)
-    );
     assert_eq!(host.delete(&["books/a.epub"], false), Err(ERR_UNSUPPORTED));
     assert_eq!(
         host.move_book("books/a.epub", "books/z.epub", false),
@@ -195,5 +191,24 @@ fn the_delete_preflight_is_the_cards() {
     assert_eq!(
         host.can_delete("books/d.txt").0,
         paperpaw_native::host_glue::ERR_INVALID
+    );
+}
+
+#[test]
+fn a_status_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
+    let card = card();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
+    assert_eq!(
+        host.set_status(BookRef::Path("books/c.epub"), 0b010, 0),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+    assert!(paperpaw_sdk::library::favourites(&*card.storage).is_empty());
+    host.set_status(BookRef::Path("books/a.epub"), 0b010, 0)
+        .unwrap();
+    assert_eq!(
+        paperpaw_sdk::library::favourites(&*card.storage),
+        ["books/a.epub"]
     );
 }

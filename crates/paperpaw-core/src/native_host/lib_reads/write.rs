@@ -50,6 +50,10 @@ impl LibWrite for CatalogReads {
         self.set_field_unless(book, name, value, &|_| false)
     }
 
+    fn set_status(&self, book: BookRef<'_>, set: u32, clear: u32) -> Result<(), i32> {
+        self.set_status_unless(book, set, clear, &|_| false)
+    }
+
     fn can_delete(&self, path: &str) -> (i32, u32) {
         delete::can_delete(self, path)
     }
