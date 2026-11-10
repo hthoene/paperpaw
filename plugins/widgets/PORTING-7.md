@@ -305,5 +305,7 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   for a plugin, and a widget holds two while the next loads) are chosen again at the next minute. A tap turns the shared
   `picture.txt` and every picture widget is chosen again, as in interface 6. Every request has a cookie of its own (one
   counter), so answers of two widgets cannot be mixed. A widget whose slot cannot be made is not kept.
+- With more than 8 picture widgets, one tap or tick stages more than 8 `image_prepare` commands in one callback; the host caps
+  a callback at 8 (open ruling #422), so the rest are refused and chosen again at the next minute.
 - X4 timing list: a folder of about 1,000 pictures is walked twice for each choice (count, then name).
 - Acceptance on the host (`widgets-picture-shows-and-turns-on-tap`) waits for H1/H3/H4.
