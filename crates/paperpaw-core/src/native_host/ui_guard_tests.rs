@@ -189,12 +189,26 @@ fn close_follows_the_navigation_rules_without_a_guard() {
 fn input_filters_and_key_bindings_stay_inside_the_lock() {
     let rows = locked();
     let v = view(&rows);
-    // The top (a guard dialog) is secret: its plugin's filters and the
-    // guard's run, no others.
+    // The top is the guard dialog (secret or not): its plugin's filter and
+    // the guard's run, no others.
     assert!(filter_runs(v, LOCK));
-    assert!(filter_runs(v, KEYBOARD));
+    assert!(filter_runs(v, KEYBOARD), "non-secret guard question");
     assert!(!filter_runs(v, MAIL));
     assert!(!filter_runs(v, READER));
+    let mut secret = locked();
+    secret[2].secret = true;
+    assert!(
+        filter_runs(view(&secret), KEYBOARD),
+        "secret guard question"
+    );
+    assert!(filter_runs(view(&secret), LOCK));
+    assert!(!filter_runs(view(&secret), MAIL));
+    // A row of the keyboard's plugin above the guard that is not the guard's
+    // dialog gets no filter call.
+    let mut other = locked();
+    other[2].guard_dialog = false;
+    assert!(!filter_runs(view(&other), KEYBOARD));
+    assert!(filter_runs(view(&other), LOCK));
     // No guard and nothing secret: every filter runs.
     assert!(filter_runs(view(&plain()), MAIL));
     // A secret screen without a guard (a password field): own plugin's only.

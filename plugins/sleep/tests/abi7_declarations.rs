@@ -1,25 +1,27 @@
-//! The native declarations name what the interface-6 registration names: the
-//! group, the nine settings (kinds, defaults, choices, titles, help, editors,
-//! units), the screens, the slot, the icon, the needs and the two places of
-//! widgets. The hidden hints of the sleep screen are not declared yet.
+//! What the plugin declares: the group, the nine settings (kinds, defaults,
+//! choices, titles, help, editors, units, steps, sliders), the two screens (the
+//! sleep screen and the picker of the picture and the widget over the page),
+//! the slot offer, the icon, the needs, the two places of widgets and the
+//! events. The batches are checked by the host's rules, read back and compared
+//! with what is written here, and pinned byte for byte by a reviewed golden
+//! (`PAPERPAW_BLESS=1` writes it anew). The hidden hints of the sleep screen are
+//! not declared yet.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
+#![allow(
+    clippy::redundant_closure,
+    reason = "the declaring functions are generic over the sink: a closure fixes it"
+)]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
-use paperpaw_plugin_sleep::Sleep;
-use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, MenuNeed, Plugin, Registrar};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("sleep"));
-    Sleep.register(&mut r).unwrap();
-    r.into_contributions()
-}
+use paperpaw_sdk::native::declare::{Declarations, DeclareError};
 
 fn batches(
-    declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
+    declare: impl FnOnce(
+        &mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>,
+    ) -> Result<(), DeclareError>,
 ) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     {
@@ -28,209 +30,119 @@ fn batches(
             Ok(())
         };
         let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
-        declare(&mut d);
+        declare(&mut d).unwrap();
     }
     out
 }
 
+fn all() -> Vec<Vec<u8>> {
+    let mut all = Vec::new();
+    all.extend(batches(|d| declarations::settings(d)));
+    all.extend(batches(|d| declarations::screens(d)));
+    all.extend(batches(|d| declarations::navigation(d)));
+    all.extend(batches(|d| declarations::events(d)));
+    all
+}
+
 #[test]
-fn the_group_and_the_settings_match() {
-    let mut groups = Vec::new();
-    let mut found = Vec::new();
-    for contribution in legacy() {
-        match contribution {
-            Contribution::SettingGroup(g) => {
-                groups.push((g.id.as_str().to_string(), g.title.to_string(), g.order));
-            }
-            Contribution::FixedSettings(list) => {
-                for s in list.iter() {
-                    let e = s.extra();
-                    found.push(format!(
-                        "{} | {} | {:?} | {} | {:?} {:?} | {:?} unit={:?} step={} slider={}",
-                        s.id.as_str(),
-                        s.title,
-                        s.description,
-                        s.group.as_str(),
-                        s.kind,
-                        s.default,
-                        e.editor,
-                        e.unit,
-                        e.step,
-                        e.slider
-                    ));
-                }
-            }
-            _ => {}
-        }
+fn the_declarations_are_the_reviewed_golden() {
+    let mut framed = Vec::new();
+    for batch in all() {
+        framed.extend_from_slice(&u32::try_from(batch.len()).unwrap().to_le_bytes());
+        framed.extend_from_slice(&batch);
     }
-    assert_eq!(
-        groups,
-        [("sleep.group".to_string(), "sleep.title".to_string(), 62)]
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/declarations.bin.v1");
+    if std::env::var_os("PAPERPAW_BLESS").is_some() {
+        std::fs::write(path, &framed).unwrap();
+    }
+    assert!(
+        framed == std::fs::read(path).unwrap(),
+        "the declarations changed: review, then PAPERPAW_BLESS=1 cargo test"
     );
-    let ids: Vec<&str> = found
+}
+
+#[test]
+fn the_group_and_the_settings_say_what_the_settings_page_shows() {
+    let native = declared::native("sleep", &all());
+    assert_eq!(native.groups, ["group|sleep.title|62||"]);
+    let ids: Vec<&str> = native
+        .specs
         .iter()
-        .map(|f| f.split(" | ").next().unwrap())
+        .map(|spec| spec.split('|').next().unwrap())
         .collect();
     assert_eq!(
         ids,
         [
-            "sleep.show",
-            "sleep.folder",
-            "sleep.widgets",
-            "sleep.overlay-picture",
-            "sleep.overlay-widget",
-            "sleep.overlay-position",
-            "sleep.overlay-size",
-            "sleep.overlay-see-through",
-            "sleep.overlay-when"
+            "show",
+            "folder",
+            "widgets",
+            "overlay-picture",
+            "overlay-widget",
+            "overlay-position",
+            "overlay-size",
+            "overlay-see-through",
+            "overlay-when"
         ]
     );
-    assert!(found[0].contains("Choice") && found[0].contains("Text(\"sleep.show.cat\")"));
-    assert!(
-        found[1].contains("Text(\"sleep\")") && found[1].contains("Slot(Id(core.choose-folder))")
+    let spec = |at: usize| native.specs[at].as_str();
+    assert!(spec(0).starts_with(
+        "show|2|0|sleep.group|sleep.setting.show|sleep.setting.show.help|t:sleep.show.cat|"
+    ));
+    assert!(spec(0).ends_with(
+        "sleep.show.cat\\nsleep.show.cover\\nsleep.show.picture\\nsleep.show.overlay\\nsleep.show.widgets\\nsleep.show.message\\nsleep.show.page\""
+    ));
+    assert!(spec(1).contains("|t:sleep|"));
+    assert!(spec(2).contains("|t:home.date, home.continue, stats.widget.today, home.recent|"));
+    assert!(spec(3).contains("|sleep.setting.overlay-picture.help|t:|"));
+    assert!(spec(4).contains("|sleep.setting.overlay-widget.help|t:|"));
+    assert!(spec(5).contains("|t:sleep.position.bottom-right|"));
+    assert!(spec(6).contains("|i:35|10|100|"));
+    assert!(spec(7).contains("|i:0|0|90|"));
+    assert!(spec(8).contains("|t:sleep.when.always|"));
+    // The editors: the folder and the widgets each on a slot, the picture and
+    // the widget over the page on the screen `pick-overlay`; the units, steps
+    // and sliders of the two percentages.
+    assert_eq!(
+        native.extras,
+        [
+            "folder||||=|2:core.choose-folder|0|0",
+            "widgets||||=|2:core.edit-widgets|0|0",
+            "overlay-picture||||=|1:pick-overlay|0|0",
+            "overlay-widget||||=|1:pick-overlay|0|0",
+            "overlay-size|core.unit.percent|||=|0:|5|1",
+            "overlay-see-through|core.unit.percent|||=|0:|5|1",
+        ]
     );
-    assert!(found[2].contains("home.date, home.continue, stats.widget.today, home.recent"));
-    assert!(found[2].contains("Slot(Id(core.edit-widgets))"));
-    assert!(found[3].contains("Screen(Id(sleep.pick-overlay))"));
-    assert!(found[4].contains("Screen(Id(sleep.pick-overlay))"));
-    assert!(found[5].contains("Text(\"sleep.position.bottom-right\")"));
-    assert!(found[6].contains("Int { min: 10, max: 100 } Int(35)"));
-    assert!(found[6].contains("unit=Some(\"core.unit.percent\") step=5 slider=true"));
-    assert!(found[7].contains("Int { min: 0, max: 90 } Int(0)"));
-    assert!(found[8].contains("Text(\"sleep.when.always\")"));
-    assert!(!batches(|d| declarations::settings(d).unwrap()).is_empty());
 }
 
 #[test]
-fn screens_slot_icon_needs_and_places_match() {
-    let (mut screens, mut slots, mut icons) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut needs, mut places) = (Vec::new(), Vec::new());
-    for contribution in legacy() {
-        match contribution {
-            Contribution::FixedScreens(list) => {
-                for s in list.iter() {
-                    screens.push((
-                        s.id().as_str().to_string(),
-                        s.title().to_string(),
-                        s.how_many() == paperpaw_sdk::Instances::SINGLE,
-                    ));
-                }
-            }
-            Contribution::SlotBinding { slot, screen, .. } => {
-                slots.push((slot.to_string(), screen.to_string()));
-            }
-            Contribution::Icon { item, icon, .. } => {
-                icons.push((item.as_str().to_string(), icon.to_string()));
-            }
-            Contribution::MenuNeed { item, need, .. } => {
-                assert_eq!(need, MenuNeed::Sleep);
-                needs.push(item.as_str().to_string());
-            }
-            Contribution::WidgetPlace(p) => places.push((
-                p.id.as_str().to_string(),
-                p.settings
-                    .iter()
-                    .map(|s| s.as_str().to_string())
-                    .collect::<Vec<_>>(),
-                p.shown_if
-                    .as_ref()
-                    .map(|(k, v)| (k.as_str().to_string(), (*v).to_string())),
-            )),
-            _ => {}
-        }
-    }
+fn the_screens_the_slot_the_places_the_needs_and_the_events_are_declared() {
+    let native = declared::native("sleep", &all());
     assert_eq!(
-        screens,
+        native.screens,
         [
-            (
-                "sleep.pick-overlay".to_string(),
-                "sleep.setting.overlay-picture".to_string(),
-                false
-            ),
-            ("sleep.screen".to_string(), "sleep.title".to_string(), true),
+            "pick-overlay|sleep.setting.overlay-picture",
+            "screen|sleep.title"
         ]
     );
-    assert_eq!(
-        slots,
-        [("core.sleep".to_string(), "sleep.screen".to_string())]
-    );
-    assert_eq!(icons, [("sleep.group".to_string(), "moon".to_string())]);
-    assert_eq!(needs.len(), 10);
-    assert_eq!(needs[0], "sleep.group");
-    assert_eq!(
-        places,
-        [
-            (
-                "sleep.widgets".to_string(),
-                vec!["sleep.widgets".to_string()],
-                Some(("sleep.show".to_string(), "sleep.show.widgets".to_string()))
-            ),
-            (
-                "sleep.overlay".to_string(),
-                vec!["sleep.overlay-widget".to_string()],
-                Some(("sleep.show".to_string(), "sleep.show.overlay".to_string()))
-            ),
-        ]
-    );
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
-    assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
-}
-
-/// What the batches say, decoded and checked by the host's rules, is what the
-/// interface-6 registration says: every field of the group, the nine settings,
-/// their extras (editors, units, steps, sliders) and the screens; the rest is
-/// checked and refused as unsupported until the host takes it.
-#[test]
-fn the_decoded_batches_say_what_the_registration_says() {
-    let mut all = Vec::new();
-    for batch in [
-        batches(|d| declarations::settings(d).unwrap()),
-        batches(|d| declarations::screens(d).unwrap()),
-        batches(|d| declarations::navigation(d).unwrap()),
-    ] {
-        all.extend(batch);
-    }
-    let native = declared::native("sleep", &all);
-    let old = declared::legacy("sleep", "sleep.group", legacy());
-    assert_eq!(native.groups, old.groups);
-    assert_eq!(native.specs.len(), 9);
-    assert_eq!(native.specs, old.specs);
-    // The picker of the picture and of the widget over the page (`pick-overlay`) is
-    // blocked (`PORTING-7.md`): the two settings have no editor, and there is no
-    // screen for one to open.
-    let without_picker = |rows: &[String], key: &str| -> Vec<String> {
-        rows.iter()
-            .filter(|row| !row.contains(key))
-            .cloned()
-            .collect()
-    };
-    let old_extras: Vec<String> = without_picker(&old.extras, "pick-overlay");
-    assert_eq!(native.extras, old_extras);
-    assert_eq!(old.extras.len(), native.extras.len() + 2);
-    let old_screens: Vec<String> = without_picker(&old.screens, "pick-overlay");
-    assert_eq!(native.screens, old_screens);
-    assert_eq!(old.screens.len(), native.screens.len() + 1);
-    // The navigation records, decoded: the offer, the two places of widgets
-    // (their settings, the layout, the condition), the icon and the ten needs.
-    assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots, ["core.sleep|sleep.screen|0"]);
-    assert_eq!(native.widget_places, old.widget_places);
-    assert_eq!(native.widget_places.len(), 2);
-    assert!(
-        native
-            .widget_places
-            .iter()
-            .all(|p| p.contains("|Stack|sleep.show="))
+    assert_eq!(
+        native.widget_places,
+        [
+            "overlay|sleep.title|sleep.overlay-widget|Stack|sleep.show=sleep.show.overlay",
+            "widgets|sleep.title|sleep.widgets|Stack|sleep.show=sleep.show.widgets",
+        ]
     );
-    assert_eq!(native.icons, old.icons);
     assert_eq!(native.icons, ["sleep.group|moon"]);
-    assert_eq!(native.needs, old.needs);
     assert_eq!(native.needs.len(), 10);
     assert!(native.needs.iter().all(|n| n.ends_with("|Sleep")));
-    assert_eq!(native.status_places, old.status_places);
-    assert_eq!(native.keys, old.keys);
-    assert_eq!(native.menu_entries, old.menu_entries);
-    assert_eq!(native.actions, old.actions);
-    assert!(native.events.is_empty());
+    assert!(native.needs.iter().any(|n| n == "sleep.group|Sleep"));
+    // Resume, started, plugins changed (70), a setting changed (64), a picture
+    // ready (90), each with its token.
+    assert_eq!(native.events, ["32:13", "33:12", "64:14", "70:15", "90:16"]);
+    assert!(native.status_places.is_empty());
+    assert!(native.keys.is_empty());
+    assert!(native.menu_entries.is_empty());
+    assert!(native.actions.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

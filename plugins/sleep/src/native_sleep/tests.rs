@@ -461,3 +461,12 @@ fn a_binding_of_a_non_sleep_screen_survives_start_event_70_and_a_reset() {
         assert_eq!(after, Bind::Leave, "{value:?}");
     }
 }
+
+/// What version 1 wrote stays readable (see `docs/data-files.md`).
+#[test]
+fn the_next_picture_of_version_1_is_read() {
+    assert_eq!(
+        shown_before(include_bytes!("../../testdata/next.txt.v1")),
+        7
+    );
+}

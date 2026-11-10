@@ -6,7 +6,8 @@
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 use crate::{
-    declarations::{EVENTS, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    declarations::{EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    native_picker::Picker,
     native_screen::{Sleeping, read_text},
     native_sleep,
 };
@@ -18,6 +19,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         events::{Event, Incoming, kinds},
+        image::ImageReady,
         registrations,
         registry::{PageCursor, Registry},
         reply::Reply,
@@ -45,9 +47,13 @@ mod image {
 pub struct NativeSleep {
     ui: Option<Ui>,
     screens: Screens<Sleeping>,
+    /// The picker of the picture and the widget over the page.
+    pickers: Screens<Picker>,
     /// Opened for the slot offers the first time a foreign mode needs them,
     /// then kept for the plugin's lifetime (as `ui`).
     registry: Option<Registry>,
+    /// The cookie of the last picture asked for (counted on, never 0).
+    cookie: u32,
 }
 
 impl Plugin for NativeSleep {
@@ -78,7 +84,8 @@ impl Plugin for NativeSleep {
             kinds::SettingChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
-            kinds::ScreenClosed
+            kinds::ScreenClosed,
+            kinds::ImageReady
         ) else {
             return Ok(());
         };
@@ -86,14 +93,30 @@ impl Plugin for NativeSleep {
             Event::ScreenOpened {
                 instance, handover, ..
             } if token == SCREEN => self.opened(host, instance, handover),
+            Event::ScreenOpened { instance, .. } if token == PICK => {
+                self.picker_opened(host, instance)
+            }
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
             } if token == SCREEN => self.shown(host, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PICK => self.pickers.shown(PICK, instance),
+            Event::ScreenClosed { instance, .. } if token == PICK => {
+                self.pickers.close(instance);
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } if token == SCREEN => {
+                // The pictures go back to the host with the screen.
+                if let Some(view) = self.screens.get(instance) {
+                    view.release(host);
+                }
                 self.screens.close(instance);
                 Ok(())
             }
+            Event::ImageReady(ready) if token == IMAGE_READY => self.image_ready(host, &ready),
             Event::Resume { .. } if token == EVENTS => self.woke(host),
             // At start and when the plugins changed: a stored foreign mode
             // binds the slot where the reader has not bound it, never unbinds.
@@ -111,6 +134,13 @@ impl Plugin for NativeSleep {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == PICK {
+            return self
+                .pickers
+                .top(token)
+                .ok_or(Error::State)?
+                .draw(host, &mut frame);
+        }
         if token != SCREEN {
             return Err(Error::Invalid);
         }
@@ -125,6 +155,12 @@ impl Plugin for NativeSleep {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == PICK {
+            return match self.pickers.top(token) {
+                Some(picker) => picker.input(host, &input),
+                None => Ok(Handled::No),
+            };
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
@@ -307,11 +343,48 @@ impl NativeSleep {
         // What cannot be read shows the message: a device that cannot show what
         // was asked still shows that it sleeps.
         let view = match Sleeping::open(host, ui, handover) {
-            Ok(view) => view,
+            Ok(mut view) => {
+                // The pictures it shows are asked for now: a draw cannot.
+                view.begin(host, &mut self.cookie)?;
+                view
+            }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => Sleeping::plain(false),
         };
+        // One opened again lets its pictures go first.
+        if let Some(old) = self.screens.get(instance) {
+            old.release(host);
+        }
         self.screens.open(instance, view)
+    }
+
+    /// The picker opens: it reads the folder, the widgets and the presets. A
+    /// registry that cannot be opened leaves it the folder's rows only.
+    fn picker_opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let registry = match self.registry(host) {
+            Ok(registry) => Some(registry),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => None,
+        };
+        let picker = Picker::read(host, registry)?;
+        self.pickers.open(instance, picker)
+    }
+
+    /// A picture the host decoded: the screen it was asked for takes it; one
+    /// nobody waits for (the screen is gone) is given back.
+    fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        for view in self.screens.all() {
+            if view.answer(host, ready, &mut self.cookie)? {
+                return Ok(());
+            }
+        }
+        if let Some(image) = ready.image() {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .image_release(image)
+                .ok();
+        }
+        Ok(())
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {

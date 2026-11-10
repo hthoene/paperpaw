@@ -1,20 +1,19 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! sleep screen is pinned by `sleep_screen.rs` and `over_page.rs` on a kernel
-//! and by the goldens; these cases are the same behaviours through the
-//! production loader with the native plugin. They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host: the behaviours of
+//! the sleep screen (the interface-6 screen and its kernel tests are gone) through
+//! the production loader with the native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 5] = [
+const CASES: [Case; 6] = [
     // The sleeping cat (decoded for the screen's size into the data folder), the
     // cover of the book read last, and a picture of the folder, one after the
     // other, draw as before.
     Case {
         name: "sleep-images",
         golden: None,
-        blocked_by: &["IMG-slots-36-37", "FS"],
+        blocked_by: &["H1"],
     },
     // The message with PaperPaw's logo, the page as it is, and a mode of
     // another plugin shown in place.
@@ -42,6 +41,13 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["H1", "H4"],
     },
+    // The picture and the widget over the page are picked on a screen of their
+    // own: a choice sets the settings and closes it in one callback.
+    Case {
+        name: "sleep-picker",
+        golden: None,
+        blocked_by: &["H1", "H4"],
+    },
 ];
 
 #[test]
@@ -55,7 +61,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED IMG-slots-36-37/FS: image slots (PR 391) and core.files are not on integration"]
+#[ignore = "BLOCKED H1: the native plugin is not constructed by the production loader yet (the images are ported, not accepted)"]
 fn sleep_images() {
     CASES[0].refuse().unwrap();
 }
@@ -82,4 +88,10 @@ fn sleep_buttons_and_hints() {
 #[ignore = "BLOCKED H1/H4: screen commands and input are not qualified"]
 fn sleep_wake() {
     CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: screen commands and input are not qualified for the native plugin"]
+fn sleep_picker() {
+    CASES[5].refuse().unwrap();
 }

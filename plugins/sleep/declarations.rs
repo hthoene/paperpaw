@@ -1,5 +1,6 @@
-//! What the sleep screen declares, compared with the interface-6 registration
-//! by the declaration tests.
+//! What the sleep screen declares: the settings, its two screens, the slot it
+//! is offered for and the places of its widgets (pinned by the declaration
+//! tests and their golden).
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
@@ -17,6 +18,10 @@ pub const PLUGINS_CHANGED: u32 = 15;
 /// A setting changed: a change of `sleep.show` binds or unbinds the slot
 /// (`native_plugin`); a start binds nothing.
 pub const SETTING_CHANGED: u32 = 14;
+/// A picture the host decoded for the screen is ready (`native_screen`).
+pub const IMAGE_READY: u32 = 16;
+/// The screen that picks the picture or the widget over the page.
+pub const PICK: u32 = 17;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -108,9 +113,10 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         let mut spec = SpecDecl::new(name, Kind::Text(""), GROUP, title);
         spec.help = help;
         d.spec(spec)?;
-        // BLOCKED (PORTING-7.md): interface 6 picks these with its own screen
-        // (`pick-overlay`, the widget or the picture); until that is ported they
-        // have no editor, so that no row opens a screen nobody answers.
+        // Both are picked on one screen of their own (`native_picker`).
+        let mut extra = ExtraDecl::new(name);
+        extra.editor = Some(EditorDecl::Screen("pick-overlay"));
+        d.extra(extra)?;
     }
     let mut position = SpecDecl::new(
         "overlay-position",
@@ -163,10 +169,16 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The sleep screen (the screen that picks the picture over the page is blocked).
+/// The sleep screen, and the screen that picks the picture or the widget over
+/// the page.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
+    d.screen(ScreenDecl::new(
+        "pick-overlay",
+        "sleep.setting.overlay-picture",
+        PICK,
+    ))?;
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
     // locked device never shows the page below it (`ui.md` section 1.2).
@@ -189,6 +201,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::PluginsChanged, PLUGINS_CHANGED)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::ImageReady, IMAGE_READY)?;
     d.submit()
 }
 

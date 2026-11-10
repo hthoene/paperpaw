@@ -700,8 +700,6 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
 const CHECK_SIGNED_BY_PAPERPAW: u32 = 1 << 3;
 const CHECK_FOREIGN: u32 = 1 << 4;
 const CHECK_LEAVES_OUT: u32 = 1 << 5;
-/// Bits 0 to 2 of a plugin check's flags.
-const CHECK_PLUGIN_BITS: u32 = 0b111;
 
 /// Op 13: the state of the caller's request, and the outcome kept for one
 /// that ended (until its next request of the same kind or its stop).
@@ -745,7 +743,7 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let mut keyed = false;
     let (mut bytes, mut id, mut version) = (0_u64, "", "");
     let mut digest = [0_u8; 32];
-    if let Some(facts) = checked.facts() {
+    if let Some(facts) = &checked.facts {
         bytes = u64::from(facts.size);
         id = facts.project.as_str();
         version = facts.version.as_str();
@@ -762,19 +760,6 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
         }
         // The digest is told for a signed image only.
         digest = facts.sha256;
-    } else if let Some(facts) = checked.plugin_facts() {
-        (bytes, id, version) = (facts.bytes, facts.id.as_str(), facts.version.as_str());
-        // Bits 0 to 2 are the job's (data plugin, pinned here, pinned to
-        // another key); the key's name is one the device knows, PaperPaw's.
-        flags = facts.flags & CHECK_PLUGIN_BITS;
-        signer = facts.signer.as_str();
-        if !signer.is_empty() {
-            flags |= CHECK_SIGNED_BY_PAPERPAW;
-        }
-        // The key and the code's digest come together, absent when unsigned.
-        if let (Some(found), Some(sum)) = (facts.key, facts.sha256) {
-            (key, digest, keyed) = (found, sum, true);
-        }
     }
     if checked.leaves_out_some() {
         flags |= CHECK_LEAVES_OUT;

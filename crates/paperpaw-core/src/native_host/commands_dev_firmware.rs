@@ -1,6 +1,6 @@
 //! The firmware commands of the DEV stage (`docs/abi/device.md` 3, 5.1, 5.3):
 //! `install_firmware` (1578), `firmware_restart` (1579) and `check_file`
-//! (1592) of kinds 0 (a plugin folder) and 1 (a firmware image).
+//! (1592) of kind 1.
 //!
 //! * **Checked whole, then accepted at submit.** A feature not admitted is
 //!   `ERR_DENIED`; without a firmware host every one is `ERR_UNSUPPORTED`;
@@ -15,10 +15,9 @@
 //! * **Applied after the callback.** An accepted request waits in the
 //!   queue; nothing runs inside a callback. If the batch never reaches the
 //!   drain (a callback error), [`FwRelease`] takes its requests back.
-//! * **Plugin checks** (`check_file` kind 0, feature `uses.install`) are a job
-//!   of the same queue ([`Driver::submit_plugin`]); without a plugin host
-//!   they are `ERR_UNSUPPORTED`. A kind beyond 1 is `ERR_DENIED`. A plugin
-//!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
+//! * **Plugin installs** (`check_file` kind 0) are `ERR_UNSUPPORTED` until the
+//!   plugin check exists (`BLOCKED 5.2-install`); a kind beyond 1 is
+//!   `ERR_DENIED`.
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
     firmware_driver::Driver,
@@ -270,15 +269,7 @@ impl CommandStage<'_> {
             } => {
                 let _ = self.firmware()?;
                 match kind {
-                    KIND_PLUGIN if request == 0 => Err(ERR_INVALID),
-                    KIND_PLUGIN => {
-                        let ctx = self.firmware()?;
-                        let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
-                        if !driver.plugins_accepted() {
-                            return Err(ERR_UNSUPPORTED);
-                        }
-                        self.firmware_path(root, path).map(|joined| joined.len())
-                    }
+                    KIND_PLUGIN => Err(ERR_UNSUPPORTED),
                     KIND_FIRMWARE if request == 0 => Err(ERR_INVALID),
                     KIND_FIRMWARE => self.firmware_path(root, path).map(|joined| joined.len()),
                     _ => Err(ERR_DENIED),

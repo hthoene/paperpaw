@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -144,12 +144,15 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
 /// The network settings of every networked first-party plugin, kept in
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
-/// memory (the tests say so).
+/// memory (the tests say so). Native-only plugins (`wifi`) are not listed: the
+/// host reads their network settings from the native declaration.
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "fonts-browser",
     "mail",
@@ -158,7 +161,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "transfer",
     "update",
     "vocabulary",
-    "wifi",
 );
 
 /// The indexes of the first-party plugins' translation catalogs, made
@@ -217,9 +219,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b
-        .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_transfer::Transfer);
+    b = b.plugin(paperpaw_plugin_transfer::Transfer);
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
@@ -230,7 +230,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_aids::Aids);
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    b = b.plugin(paperpaw_plugin_sleep::Sleep);
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
