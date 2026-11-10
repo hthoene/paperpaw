@@ -90,7 +90,7 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets (Port D). The interface-6 pack stays in `src/` until every widget is ported; then the last
+The words family's picture widget (Port D). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
@@ -308,3 +308,26 @@ minute at most, in memory only); the count now starts at zero with each plugin i
   library without any highlight costs one scan a minute (up to about 200 host calls with the source
   *all*, 12 books with *recent*), not one per draw. That worst case is an X4 timing gate (not measured).
   `shows` (the minute tick) treats a refused library call as the draw does.
+
+## Logo (widget, token 121)
+
+- `native_logo.rs`. The logo is a picture the host decodes and draws (`image_prepare`, `canvas.draw_image`,
+  `docs/abi/document.md` 5): the one the setting `core.logo` names (JPEG, PNG or GIF on the card, library root,
+  `uses.storage` optional), else PaperPaw's own (`pictures/logo.png`, 192 × 192 like the sleep screen's and square like the drawn logo was, in the plugin's install folder, root 2;
+  `card-files` ships it). One request is open at a time and one picture (decoded to 320 px at most) is held,
+  shared by every logo widget; the last widget going gives it back. `Logo` decides what to ask and what an
+  answer means (tested without a host); `native_plugin.rs` sends the commands, reacts to `event.image_ready` and
+  to `core.logo` changing (held picture released, new one asked for), asks again at the next minute after a
+  refusal for memory or the card, and draws the picture over the replayed paint.
+- Differences from interface 6, on purpose: PaperPaw's own logo is no longer drawn as shapes (the native canvas has
+  no mask primitive) but is the installed picture (black sheet, white paw, so the widget's ink setting no longer
+  colours it; a test checks that the file is square); until it is ready, or where the host cannot read it (a plugin
+  built into the image has no install folder), only the name shows, if wanted. A picture set is no longer
+  re-decoded into a file of the plugin's own: the host's picture cache does that. Settings, sizes, name and
+  layout are the same (parity test).
+- A request's cookie carries a generation, counted up when `core.logo` changes, so the answer to a request made
+  before the change is not taken for the new one's. A request the host refuses outright (the card not granted
+  to the plugin, `uses.storage` being optional) moves on to the next file, so PaperPaw's own logo shows then.
+  The host's transient heap for drawing the picture (up to about 30 KiB) belongs on the X4 measurement list
+  with home's peaks.
+- Acceptance on the host (`widgets-logo-asks-for-and-draws-its-picture`) waits for H1/H3.

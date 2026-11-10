@@ -24,6 +24,7 @@ pub mod category {
     pub const WORDS: &str = "core.widgets.words";
     pub const DEVICE: &str = "core.widgets.device";
     pub const BOOKS: &str = "core.widgets.books";
+    pub const OTHER: &str = "core.widgets.other";
 }
 
 /// A widget of the pack.
@@ -570,6 +571,18 @@ const GREETING_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.fit", true),
 ];
 
+const LOGO_OPTIONS: &[Opt] = &[
+    Opt::Part("name", "widgets.logo.setting.name", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.medium", true),
+];
+
 const NOTE_OPTIONS: &[Opt] = &[
     Opt::Text(
         "text",
@@ -848,6 +861,15 @@ pub const WIDGETS: &[Def] = &[
         look_last: false,
         options: READING_OPTIONS,
     },
+    Def {
+        name: "logo",
+        token: 121,
+        category: category::OTHER,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: LOGO_OPTIONS,
+    },
 ];
 
 /// The widgets and their settings groups and settings.
@@ -905,6 +927,9 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     ] {
         d.subscribe_event(kind, READING)?;
     }
+    // The answer to the logo picture asked for, and a change of the picture set.
+    d.subscribe_event(EventKind::ImageReady, TICK)?;
+    d.subscribe_event(EventKind::SettingChanged, TICK)?;
     d.submit()?;
     Ok(())
 }

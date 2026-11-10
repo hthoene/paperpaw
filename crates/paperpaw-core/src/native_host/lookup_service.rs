@@ -66,7 +66,10 @@ pub(crate) trait LookupHost {
         0
     }
 
-    /// One line in the device log.
+    /// One line for the host's own capture, in addition to the device log
+    /// (`KernelBuilder::device_log`), which the service writes itself: a
+    /// shell must not forward it to the device log (every line would print
+    /// twice).
     fn log(&self, _line: &str) {}
 }
 
@@ -74,15 +77,36 @@ pub(crate) trait LookupHost {
 /// the table of pending asks (`pending.rs`).
 pub(crate) struct LookupServices {
     host: Rc<dyn LookupHost>,
+    /// The shell's device log: the lines of [`Self::note`] reach it.
+    log: crate::native_host::device_log::DeviceLog,
     pending: RefCell<PendingAsks>,
 }
 
 impl LookupServices {
-    pub(crate) fn new(host: Rc<dyn LookupHost>) -> Self {
+    pub(crate) fn new(
+        host: Rc<dyn LookupHost>,
+        log: crate::native_host::device_log::DeviceLog,
+    ) -> Self {
         Self {
             host,
+            log,
             pending: RefCell::new(PendingAsks::new()),
         }
+    }
+
+    /// Whether the full-table line is due (once a minute).
+    fn pending_full_log_due(&self) -> bool {
+        let now = self.host.now_ms();
+        self.pending
+            .try_borrow_mut()
+            .is_ok_and(|mut table| table.full_log_due(now))
+    }
+
+    /// One fixed line: to the device log, and to the host's own
+    /// [`LookupHost::log`] (a capture, a second sink; no-op by default).
+    fn note(&self, line: &'static str) {
+        self.log.line(format_args!("{line}"));
+        self.host.log(line);
     }
 
     /// The provider `provider` kept its result for (`language`, `text`)
@@ -109,7 +133,7 @@ impl LookupServices {
             (askers, count, count == 0 && table.log_due(now))
         };
         if log_due {
-            self.host.log("lookup_ready matched no pending ask");
+            self.note("lookup_ready matched no pending ask");
         }
         for asker in askers.iter().take(count) {
             deliver(*asker);
@@ -207,9 +231,10 @@ pub(crate) fn backend(
         let name_bytes = name.get_mut(..provider.len()).ok_or(ERR_INVALID)?;
         name_bytes.copy_from_slice(provider);
         let provider = core::str::from_utf8(name_bytes).map_err(|_| ERR_INVALID)?;
-        service
-            .host
-            .log("lookup: the pending table is full, empty entry");
+        // At most one line a minute: every ask meets the full table.
+        if service.pending_full_log_due() {
+            service.note("lookup: the pending table is full, empty entry");
+        }
         return broker::empty(provider, more, out);
     }
     Ok(length)

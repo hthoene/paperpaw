@@ -709,3 +709,81 @@ fn a_plugin_listed_by_the_host_and_a_declaration_batch_bump_the_generation() {
     kernel.merge(&id("later"), staging).unwrap();
     assert_ne!(generation(&kernel), listed);
 }
+
+#[test]
+fn a_plugin_refused_at_a_declaration_cap_says_which_while_it_is_failed() {
+    use crate::native_host::declaration_checks::Cap;
+    use paperpaw_sdk::PluginState;
+    let mut kernel = kernel(0);
+    for name in ["filer", "reader", "other"] {
+        kernel.add_plugin_info(
+            Manifest::new(Id::new_static(name), name, Version::new(1, 0, 0)),
+            PluginState::Failed,
+            true,
+        );
+    }
+    let directory = crate::native_host::native_declarations::NativeDeclarations::default();
+    // A 33rd format: 14 with the device's 32; a 5th reader: 15 with 4.
+    directory.record_refusal("filer", Cap::of(Cap::FORMATS, 32));
+    directory.record_refusal("reader", Cap::of(Cap::READERS, 4));
+    // A running plugin keeps its own row (a refusal kept for it is not shown).
+    directory.record_refusal("demo", Cap::of(Cap::FORMATS, 8));
+    let reply = call_in(
+        &kernel,
+        Some(&directory),
+        schema::OP_PLUGINS,
+        &query("", 0, 0),
+        4096,
+    )
+    .unwrap();
+    let (rows, _) = read(&reply);
+    let row = |id: &str| {
+        let prefix = format!("plugin {id} ");
+        rows.iter()
+            .find(|row| row.starts_with(&prefix))
+            .unwrap()
+            .clone()
+    };
+    assert!(row("filer").contains("state=2"), "{}", row("filer"));
+    assert!(row("filer").contains("problem=14/32"), "{}", row("filer"));
+    assert!(row("reader").contains("problem=15/4"), "{}", row("reader"));
+    assert!(row("other").contains("problem=0/0"), "{}", row("other"));
+    assert!(row("demo").contains("problem=0/0"), "{}", row("demo"));
+    // Admitted again (or tried again): what was kept goes.
+    directory.clear_refusal("filer");
+    let reply = call_in(
+        &kernel,
+        Some(&directory),
+        schema::OP_PLUGINS,
+        &query("", 0, 0),
+        4096,
+    )
+    .unwrap();
+    assert!(
+        read(&reply)
+            .0
+            .iter()
+            .any(|r| r.starts_with("plugin filer ") && r.contains("problem=0/0"))
+    );
+}
+
+#[test]
+fn a_removed_plugin_leaves_no_refusal_behind() {
+    use crate::native_host::declaration_checks::Cap;
+    let mut kernel = kernel(0);
+    kernel.shared.registry.native_declarations = Some(
+        crate::native_host::shared::Shared::try_new(
+            crate::native_host::native_declarations::NativeDeclarations::default(),
+        )
+        .unwrap(),
+    );
+    fn kept(kernel: &crate::Kernel) -> bool {
+        let declared = kernel.shared.registry.native_declarations.as_ref().unwrap();
+        declared.refusal("demo").is_some()
+    }
+    let declared = kernel.shared.registry.native_declarations.as_ref().unwrap();
+    declared.record_refusal("demo", Cap::of(Cap::FORMATS, 8));
+    assert!(kept(&kernel));
+    kernel.unload_plugin(&Id::new_static("demo"));
+    assert!(!kept(&kernel));
+}

@@ -32,6 +32,7 @@ mod native_entry;
 mod native_favourites;
 mod native_greeting;
 mod native_highlight;
+mod native_logo;
 mod native_moon;
 mod native_next;
 mod native_note;

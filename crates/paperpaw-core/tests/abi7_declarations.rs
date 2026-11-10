@@ -1318,30 +1318,17 @@ fn malformed_widget_and_status_declarations_poison_construction() {
     }
 }
 
-/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: formats,
-/// readers, lookup providers, book badges and library sources) decode but stay
-/// refused until the host admits them, as the UIX ones.
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: lookup
+/// providers, book badges and library sources) decode but stay refused until
+/// the host admits them, as the UIX ones. Formats and readers are admitted
+/// (`format_and_reader_declarations_are_admitted`).
 #[test]
 fn doc_and_lib_declarations_stay_refused_until_admitted() {
     use paperpaw_core::native_host::registrations::{
-        BookBadgeSpec, BookDataSpec, BookFieldSpec, FormatSpec, LookupSpec, ReaderSpec,
+        BookBadgeSpec, BookDataSpec, BookFieldSpec, LookupSpec,
     };
     // Well-formed ones: checked, then refused, never accepted and dropped.
     let valid = [
-        Record::FormatSpec(FormatSpec {
-            name: "epub",
-            title: "format.epub",
-            extensions: "epub",
-            flags: 0,
-            priority: 0,
-            token: 1,
-        }),
-        Record::ReaderSpec(ReaderSpec {
-            name: "main",
-            screen: "main",
-            formats: "",
-            flags: 0,
-        }),
         Record::LookupSpec(LookupSpec {
             name: "dict",
             title: "lookup.dict",
@@ -1392,4 +1379,45 @@ fn doc_and_lib_declarations_stay_refused_until_admitted() {
         );
         assert_eq!(run(&bytes).0, Err(ERR_INVALID), "tag {tag}");
     }
+}
+
+/// A format and a reader are checked and admitted (`document.md` section 1);
+/// the cross-record rules (extensions, screens, limits) are the commit's.
+#[test]
+fn format_and_reader_declarations_are_admitted() {
+    use paperpaw_core::native_host::registrations::{FormatSpec, ReaderSpec};
+    let admitted = [
+        Record::FormatSpec(FormatSpec {
+            name: "epub",
+            title: "format.epub",
+            extensions: "epub",
+            flags: 0,
+            priority: 0,
+            token: 1,
+        }),
+        Record::ReaderSpec(ReaderSpec {
+            name: "main",
+            screen: "weather.main",
+            formats: "",
+            flags: 0,
+        }),
+    ];
+    for record in admitted {
+        let bytes = encode(&[record]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(validate_record(PLUGIN, &first), Ok(()), "{first:?}");
+        assert_eq!(run(&bytes).0, Ok(()), "{first:?}");
+    }
+    // A bad extension and an unknown flag bit are invalid, not unsupported.
+    let bad = Record::FormatSpec(FormatSpec {
+        name: "epub",
+        title: "format.epub",
+        extensions: "EPUB",
+        flags: 0,
+        priority: 0,
+        token: 1,
+    });
+    let bytes = encode(&[bad]);
+    assert_eq!(run(&bytes).0, Err(ERR_INVALID));
 }

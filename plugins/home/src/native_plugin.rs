@@ -33,10 +33,14 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS, TICK};
+use crate::declarations::{
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STATUS_ITEMS, TICK,
+};
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
+use crate::native_reflow::fit;
+use crate::native_source::is_grid_setting;
 use crate::native_widgets::Widgets;
 
 /// The setting the footer's editor changes.
@@ -170,7 +174,14 @@ impl Plugin for NativeHome {
                 self.refresh(host)
             }
             Event::WidgetChanged { .. } => self.refresh(host),
-            // The pages are fitted to a new grid by a later slice (`PORTING-7.md`).
+            // The grid's columns or rows changed: the pages are fitted to it.
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                if is_grid_setting(key) {
+                    fit(host)?;
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -188,7 +199,7 @@ impl Plugin for NativeHome {
         match self.screens.top(token).ok_or(Error::State)? {
             Slot::Items(editor) => editor.view.draw(host, &mut frame),
             Slot::Dashboard(dashboard) => dashboard.draw(host, ui, &mut frame),
-            Slot::Add(add) => add.draw(host, &mut frame),
+            Slot::Add(add) => add.draw(host, ui, &mut frame),
             Slot::Drawer(drawer) => drawer.draw(host, &mut frame),
         }
     }
