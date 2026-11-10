@@ -14,14 +14,14 @@ const CASES: [Case; 5] = [
     Case {
         name: "transfer-serving",
         golden: None,
-        blocked_by: &["#944", "WIFI"],
+        blocked_by: &["#944"],
     },
     // Files are put, fetched, renamed and deleted through the page; a book
-    // goes into the library folder, a plugin is installed.
+    // goes into the library folder; a plugin is installed.
     Case {
         name: "transfer-files",
         golden: None,
-        blocked_by: &["#944", "LIB-move", "INSTALL-design"],
+        blocked_by: &["#944", "LIB-move"],
     },
     // The screen shows the address as text and as a QR code.
     Case {
@@ -33,13 +33,13 @@ const CASES: [Case; 5] = [
     Case {
         name: "transfer-cable",
         golden: None,
-        blocked_by: &["H2", "CABLE-stage", "INSTALL-design"],
+        blocked_by: &["H2", "CABLE-stage"],
     },
     // Typing on a phone for the keyboard.
     Case {
         name: "transfer-phone-keyboard",
         golden: None,
-        blocked_by: &["SOCK", "H1", "H4"],
+        blocked_by: &["#944"],
     },
 ];
 
@@ -54,13 +54,13 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED #944/WIFI: the host does not admit every declaration family; the own network needs the Wi-Fi commands"]
+#[ignore = "BLOCKED #944: the host does not admit every declaration family (install_done, wifi_done, work_due)"]
 fn transfer_serving() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED #944/LIB-move/INSTALL-design: the host does not admit the plugin yet; the library does not follow a move; the install path from the computer is not ported"]
+#[ignore = "BLOCKED #944/LIB-move: the host does not admit the plugin yet; the library does not follow a move"]
 fn transfer_files() {
     CASES[1].refuse().unwrap();
 }
@@ -72,13 +72,13 @@ fn transfer_screen() {
 }
 
 #[test]
-#[ignore = "BLOCKED H2/CABLE-stage/INSTALL-design: dialogs, the cable stage and the install path are not on integration"]
+#[ignore = "BLOCKED H2/CABLE-stage: dialogs and the cable stage are not on integration"]
 fn transfer_cable() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED SOCK/H1/H4: sockets, screen commands and input are not qualified"]
+#[ignore = "BLOCKED #944: the host does not admit the plugin yet (the phone's keyboard is native)"]
 fn transfer_phone_keyboard() {
     CASES[4].refuse().unwrap();
 }

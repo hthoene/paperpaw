@@ -11,7 +11,7 @@ use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK,
 };
 use paperpaw_platform::firmware::Signer;
 
@@ -59,11 +59,10 @@ pub(crate) fn backend(
         None => &*services.0,
     };
     match op.id {
-        // Op 13 `install` reads the request table of the install commands
-        // (`device.md` 3), which another slice builds. Until it exists it
-        // answers ERR_UNSUPPORTED on purpose, not by accident of an unknown
-        // op. Ops 3, 6 and 16 read the firmware install machine.
-        op::INSTALL => Err(ERR_UNSUPPORTED),
+        // Op 13 `install` reads the firmware request table (a firmware
+        // install or check); plugin installs and removals have no table yet.
+        // Ops 3, 6 and 16 read the firmware install machine.
+        op::INSTALL => install(who, input, out),
         op::CHECK => check(who, input, out),
         op::LEAVES_OUT => leaves_out(who, host, op, input, out),
         op::FIRMWARE => {
@@ -701,6 +700,37 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
 const CHECK_SIGNED_BY_PAPERPAW: u32 = 1 << 3;
 const CHECK_FOREIGN: u32 = 1 << 4;
 const CHECK_LEAVES_OUT: u32 = 1 << 5;
+/// Bits 0 to 2 of a plugin check's flags.
+const CHECK_PLUGIN_BITS: u32 = 0b111;
+
+/// Op 13: the state of the caller's request, and the outcome kept for one
+/// that ended (until its next request of the same kind or its stop).
+fn install(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let table = who.hosts.firmware_requests().ok_or(ERR_UNSUPPORTED)?;
+    let asked: wire::ServiceDevRequest = codec::single(input)?;
+    let found = table
+        .try_borrow()
+        .map_err(|_| ERR_BUSY)?
+        .lookup(who.owner, asked.request)
+        .ok_or(ERR_NOT_FOUND)?;
+    let ended = found.outcome;
+    encode(
+        &Record::ServiceDevInstall(wire::ServiceDevInstall {
+            request: asked.request,
+            kind: found.kind,
+            state: found.state,
+            status: ended.map_or(OK, |outcome| {
+                crate::native_host::firmware_events::status_of(outcome)
+            }),
+            reason: ended.map_or(0, |outcome| u32::from(outcome.reason)),
+            flags: 0,
+            done: found.done,
+            total: found.total,
+            id: "",
+        }),
+        out,
+    )
+}
 
 /// Op 6: the caller's last finished firmware check, by its request.
 fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
@@ -715,7 +745,7 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let mut keyed = false;
     let (mut bytes, mut id, mut version) = (0_u64, "", "");
     let mut digest = [0_u8; 32];
-    if let Some(facts) = &checked.facts {
+    if let Some(facts) = checked.facts() {
         bytes = u64::from(facts.size);
         id = facts.project.as_str();
         version = facts.version.as_str();
@@ -732,6 +762,19 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
         }
         // The digest is told for a signed image only.
         digest = facts.sha256;
+    } else if let Some(facts) = checked.plugin_facts() {
+        (bytes, id, version) = (facts.bytes, facts.id.as_str(), facts.version.as_str());
+        // Bits 0 to 2 are the job's (data plugin, pinned here, pinned to
+        // another key); the key's name is one the device knows, PaperPaw's.
+        flags = facts.flags & CHECK_PLUGIN_BITS;
+        signer = facts.signer.as_str();
+        if !signer.is_empty() {
+            flags |= CHECK_SIGNED_BY_PAPERPAW;
+        }
+        // The key and the code's digest come together, absent when unsigned.
+        if let (Some(found), Some(sum)) = (facts.key, facts.sha256) {
+            (key, digest, keyed) = (found, sum, true);
+        }
     }
     if checked.leaves_out_some() {
         flags |= CHECK_LEAVES_OUT;
@@ -739,7 +782,7 @@ fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     encode(
         &Record::ServiceDevCheck(wire::ServiceDevCheck {
             reason: u32::from(checked.reason),
-            needs_draft: 0,
+            needs_draft: checked.needs_draft(),
             bytes,
             signer: clip(signer, wire::SERVICE_DEV_CHECK_SIGNER_MAX_BYTES),
             key: if keyed { &key } else { &[] },

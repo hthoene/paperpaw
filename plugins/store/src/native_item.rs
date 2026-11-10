@@ -29,8 +29,11 @@ pub const MAX_SHOTS: usize = 4;
 pub const MAX_SHOT_SIDE: u32 = 2560;
 /// The longest *How it works* kept, in bytes.
 pub const MAX_DESCRIPTION: usize = 4000;
-/// The most steps of key rotations taken from the library at a time.
-pub const MAX_STEPS: usize = 8;
+/// The most steps of key rotations taken from the library at a time: an
+/// install's batch holds the install, the author's keys and six steps
+/// (`docs/abi/device.md` 5.2); a longer chain is cut, so the host ends the
+/// install with reason 6 (key changed) rather than follow a part of it.
+pub const MAX_STEPS: usize = 6;
 /// The longest address kept of a source or a repository, and of a picture.
 const MAX_ADDRESS: usize = 200;
 const MAX_SHOT_URL: usize = 300;

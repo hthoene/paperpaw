@@ -367,6 +367,7 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let echo_op = services_wire::service_schema("core.test-echo", 1)

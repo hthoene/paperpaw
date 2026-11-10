@@ -443,7 +443,9 @@ fn a_lookup_reaches_the_wired_providers() {
             Err(ERR_UNSUPPORTED),
             "not wired"
         );
-        pool.hosts().wire_lookup(Rc::new(Dictionary)).unwrap();
+        pool.hosts()
+            .wire_lookup(Rc::new(Dictionary), Default::default())
+            .unwrap();
         assert_eq!(
             call(&scope, &owner, handle, lookup, &ask),
             Err(ERR_NOT_FOUND),
