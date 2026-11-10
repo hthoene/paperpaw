@@ -426,6 +426,8 @@ mod widget_drops;
 
 #[path = "native_host/native_install.rs"]
 mod native_install;
+#[path = "native_host/native_enable.rs"]
+mod native_enable;
 mod native_resources;
 
 #[path = "native_host/native_action.rs"]
