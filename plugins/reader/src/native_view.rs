@@ -6,6 +6,7 @@
 //! not ported yet (the place saved last time, progress, menus, selection,
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
+    native_actions,
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
     native_look::Look,
@@ -343,6 +344,28 @@ impl View {
         }
     }
 
+    /// The actions besides the page turns: the font size, the justification
+    /// and the chapters; `None` for any other.
+    fn other_action(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        action: &str,
+    ) -> Result<Option<Handled>, Error> {
+        match action {
+            "reader.font-larger" => native_actions::font_step(host, 1)?,
+            "reader.font-smaller" => native_actions::font_step(host, -1)?,
+            "reader.toggle-justify" => native_actions::toggle_justify(host)?,
+            "reader.next-chapter" | "reader.prev-chapter" => {
+                if let Body::Open(open) = &mut self.body {
+                    open.step_chapter(host, (docs, library), action == "reader.next-chapter")?;
+                }
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(Handled::Yes))
+    }
+
     /// Opens the table of contents of the book on show.
     fn show_toc(&self, host: &Host<'_>, ui: &Ui) -> Result<Handled, Error> {
         let Some(params) = self.toc_params() else {
@@ -450,6 +473,11 @@ impl View {
         ) {
             return self.show_toc(host, ui);
         }
+        if let Input::Action { action, .. } = input
+            && let Some(handled) = self.other_action(host, (docs, library), action)?
+        {
+            return Ok(handled);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
@@ -539,6 +567,44 @@ impl Setup {
 }
 
 impl Open {
+    /// The start of the chapter after (`forward`) or before the page on show,
+    /// gone to as a turn goes; nothing happens where there is none.
+    fn step_chapter(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        forward: bool,
+    ) -> Result<(), Error> {
+        let from = if forward {
+            if self.page.is_none() {
+                let setup = Setup::read(host)?;
+                self.page = Some(self.lay(host, docs, &setup, self.at)?);
+            }
+            let Some(page) = &self.page else {
+                return Ok(());
+            };
+            (page.end.section, page.end.offset)
+        } else {
+            self.at
+        };
+        let Some(to) = native_actions::chapter(host, docs, self.id, from, forward)? else {
+            return Ok(());
+        };
+        if to == self.at || to.0 >= self.sections {
+            return Ok(());
+        }
+        self.trail.push(self.at)?;
+        self.at = to;
+        self.page = None;
+        self.unsaved = true;
+        self.turned = true;
+        self.save(host, library, When::Turn);
+        self.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        Ok(())
+    }
+
     /// Says once that the place could not be saved; after the screen closed
     /// the device's message (`announce`) carries it, as nothing else would.
     fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
