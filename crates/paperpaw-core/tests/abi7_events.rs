@@ -441,3 +441,12 @@ fn a_registration_batch_cannot_carry_an_event_record() {
         );
     }
 }
+
+/// `event.stack_changed` (81, a hint) registers; the stack path raises it
+/// later.
+#[test]
+fn the_stack_changed_hint_registers() {
+    assert!(events::is_event_tag(81));
+    assert_eq!(submit_one(81), (OK, true));
+    assert!(!events::bypasses_queue(81));
+}

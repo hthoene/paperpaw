@@ -22,7 +22,7 @@ use super::registrations::{
     EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     REGISTRATION_MAX_RECORDS, Record,
 };
-use super::registrations::{EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG};
+use super::registrations::{EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG, EVENT_STACK_CHANGED_TAG};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
@@ -34,7 +34,9 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// `event.book_removed` (65-69): registered now,
 /// delivered when the reader port produces them (`core-events.md` 3.3: the
 /// host never fails a registration for an event a device does not raise, and
-/// until the reading session reports, nothing raises these).
+/// until the reading session reports, nothing raises these). The same holds
+/// for `event.stack_changed` (81, a hint, `ui.md` 5.1): a plugin that closes
+/// what a covering screen hides registers for it.
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
@@ -59,6 +61,7 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_BOOK_FINISHED_TAG
             | EVENT_BOOK_MOVED_TAG
             | EVENT_BOOK_REMOVED_TAG
+            | EVENT_STACK_CHANGED_TAG
             | EVENT_SETTING_CHANGED_TAG
             | EVENT_PLUGINS_CHANGED_TAG
             | EVENT_WIFI_CHANGED_TAG
