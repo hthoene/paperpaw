@@ -309,6 +309,10 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// # Errors
 /// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY` (table
 /// borrowed; a retry ends it).
+///
+/// A caller that has the host services ends a document with
+/// `HostServices::end_document_by_host`, which also ends its image ids at
+/// once (this function alone defers them to the next call).
 pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<(), i32> {
     if let Some(document) = host.table().end_by_host(id, reason)? {
         host_closed(host, &document, reason);

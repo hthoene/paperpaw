@@ -825,7 +825,6 @@ impl Bound<'_> {
         Ok(())
     }
 
-    /// Ends the documents of formats an earlier call could not finish.
     /// The image ids of documents that ended out of reach of the table end.
     fn end_pending_images(&self) {
         self.state.end_pending_images(self.who.hosts.images());
@@ -836,6 +835,7 @@ impl Bound<'_> {
         }
     }
 
+    /// Ends the documents of formats an earlier call could not finish.
     fn end_unfinished(&self) {
         let Ok(mut pending) = self.state.unfinished.try_borrow_mut() else {
             return;
