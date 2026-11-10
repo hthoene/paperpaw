@@ -28,8 +28,7 @@ use paperpaw_i18n::Arg;
 use paperpaw_platform::{Instant, firmware::Signer};
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id, Params,
-    Rect, RefreshMode, Screen,
+    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect, Screen,
 };
 
 /// The screen's id: a host screen (`core.*`), opened only by the kernel.
