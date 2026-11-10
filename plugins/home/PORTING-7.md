@@ -154,8 +154,8 @@ those actions; at the first or last page the press is taken, nothing turns), a t
 the footer's action, or is forwarded to the widget (`widget_input`; a press of *Confirm* on a widget's
 target is a tap in its middle). A long press starts editing (see below). A widget the host cannot compose is left out of the draw, the rest
 of the page shows; widgets made when a layout fails are let go. At every show the focus is drawn
-only if `home.focus-at-once` is on. A widget that is gone or not for this screen leaves no cell; an own widget (home's own,
-not ported) is not drawn.
+only if `home.focus-at-once` is on. A widget that is gone or not for this screen leaves no cell; a widget of home's own
+(date, clock, card, shelf, status line) is drawn by home itself (see *Own widgets* below).
 
 ### Editing and *Add* (slice 3c)
 
@@ -210,8 +210,8 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   the widgets (the arrow keys stay on the page where `core.arrows-stay-on-page` is on), the page
   keys go to the first widget of the page before or after, *Confirm* or a tap on a name or widget
   adds it, a tap in the header goes back or turns the page. Fallbacks, never a panic: a widget the
-  host cannot make or compose (full, no memory, a trap, gone) or one of home's own (the host
-  answers `Busy`; the dashboard does not draw them either, see above) is a text row in its cell
+  host cannot make or compose (full, no memory, a trap, gone) (home's own widgets are drawn by
+  home itself, see *Own widgets*) is a text row in its cell
   (icon of its kind, name, cells as `4×2`); where the host composes or places nothing
   (`ERR_UNSUPPORTED`: the X4 until its stack gate, ui.md 5.1/8.2) the whole gallery is the list of
   names, as before. The tests drive the page logic with a scripted stage (compose, refusals, and
@@ -463,3 +463,27 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | options' *Settings* (`HOME-item-settings`) | | (a) done (slice 4e: `native_item_settings`) |
 | grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
 | hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |
+
+## Own widgets (slice 4h, todo 362)
+
+The host never calls a plugin back from that plugin's own draw (`ui.compose` of a widget the caller
+owns is `ERR_BUSY`, `docs/abi/ui.md` 5.1), and answers op 4 for a caller-owned widget with
+`ui_instance{instance: 0, flags: own}` and makes no instance. Home therefore treats its own widgets
+as `native_made::Made::Mine`: for an id of its own (`home.date`, `home.clock`, `home.continue`,
+`home.recent`, `home.status`, placed or not) it makes **no** host call; the screen measures it
+(`Mine::measure`), tells it where it is (`Mine::place`), reads its targets, draws it into its own frame
+(`Mine::draw`: the same drawing as a widget draw, for the screen's frame) and forwards taps to it
+(`Mine::tap`: the card and the shelf open the book, the status line runs an item's action). Another
+plugin's widget is `Made::Host`, an instance the host measures, places, composes and forwards to. The
+dashboard and the *Add* gallery use the same `Made`; the interface-6 behaviour (the date, clock,
+card, shelf and status line visible on the home screen and in the gallery) is back.
+
+- **Contract mismatch found (Kernel told):** Core answers an own widget with instance 0; the SDK's
+  `Ui::widget_make` rejects instance 0 (`Instance` is non-zero) as `Invalid`. Home does not meet it
+  (it never calls op 4 for its own ids) but another plugin that owns widgets would.
+- A cover still being made is drawn at the next minute (the dashboard redraws on the tick); an own
+  widget has no instance to say `command.widget_changed` for, so the "waiting" flag of such a
+  cover is not read.
+- Not covered without a real host: the drawing of own widgets on the dashboard and in the gallery
+  (the scripted host has no screen stack); the status line widget composes its values inside the
+  screen's draw as it does inside a widget's draw.

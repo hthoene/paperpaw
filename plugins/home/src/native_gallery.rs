@@ -88,7 +88,7 @@ pub fn lay_out(
 /// What the host does for a gallery: the instances and their drawing.
 pub trait Stage {
     /// An instance made.
-    type Handle: Copy;
+    type Handle;
     /// Makes the widget `id` and tells it its place.
     ///
     /// # Errors
@@ -101,7 +101,7 @@ pub trait Stage {
     ///
     /// # Errors
     /// What the host refuses.
-    fn compose(&mut self, widget: Self::Handle, area: Rect) -> Result<(), Error>;
+    fn compose(&mut self, widget: &Self::Handle, area: Rect) -> Result<(), Error>;
 }
 
 /// How the cells of a page came out.
@@ -124,7 +124,7 @@ pub struct Gallery<H> {
     page: Option<usize>,
 }
 
-impl<H: Copy> Gallery<H> {
+impl<H> Gallery<H> {
     /// A gallery of `previews`, none made.
     #[must_use]
     pub fn new(previews: Vec<Preview>) -> Self {
@@ -210,10 +210,11 @@ impl<H: Copy> Gallery<H> {
             };
             match stage.make(id, preview.area) {
                 Ok(handle) => {
-                    if let Err(error) = push(&mut self.made, (number, handle)) {
+                    if self.made.try_reserve(1).is_err() {
                         stage.release(handle);
-                        return Err(error);
+                        return Err(Error::NoMemory);
                     }
+                    self.made.push((number, handle));
                 }
                 Err(Error::Unsupported) => return Err(Error::Unsupported),
                 // Full, no memory, a trap, gone: a text row in its place.
@@ -229,7 +230,7 @@ impl<H: Copy> Gallery<H> {
         let mut rows = Vec::new();
         for (number, preview) in self.on_page(page) {
             let composed = match self.made.iter().find(|(made, _)| *made == number) {
-                Some((_, handle)) => stage.compose(*handle, preview.area),
+                Some((_, handle)) => stage.compose(handle, preview.area),
                 None => Err(Error::NotFound),
             };
             match composed {

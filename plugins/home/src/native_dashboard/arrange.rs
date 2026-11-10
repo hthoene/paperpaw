@@ -332,17 +332,10 @@ impl Dashboard {
 
     /// The widget of a cell placed at the rectangle it has now.
     fn place_again(host: &Host<'_>, ui: &Ui, cell: &Cell) -> Result<(), Error> {
-        let Some(widget) = cell.widget.filter(|w: &WidgetHandle| !w.is_own()) else {
-            return Ok(());
-        };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        ui.widget_place(
-            host,
-            widget,
-            paint::frame_rect(cell.rect),
-            &mut input,
-            &mut out,
-        )
+        match cell.widget.as_ref() {
+            Some(made) => made.place(host, ui, cell.rect),
+            None => Ok(()),
+        }
     }
 
     /// Item of `cell` removed: what its placement set goes with it.

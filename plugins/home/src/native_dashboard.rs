@@ -6,8 +6,11 @@
 //! `native_source` (what is read of the device); this file reads, draws and
 //! hands inputs on through the host.
 //!
-//! Not yet (ignored acceptance cases, `PORTING-7.md`): the status line above the
-//! grid, the widgets of the home screen's own, the fitting of the pages to a new
+//! A widget of this plugin's own (the date, the clock, the card, the shelf, the
+//! status line) is drawn by the plugin itself (`native_made`): the host never
+//! calls it back from its own draw.
+//!
+//! Not yet (ignored acceptance cases, `PORTING-7.md`): the status bar above the
 //! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -19,7 +22,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
-        ui::{Compose, Ui, WidgetHandle, WidgetInputKind},
+        ui::{Ui, WidgetInputKind},
     },
     widgets::grid::Geometry,
 };
@@ -34,6 +37,7 @@ use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
 use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
+use crate::native_made::Made;
 use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
 use crate::native_shown::Shown;
@@ -53,7 +57,7 @@ struct Cell {
     /// A tool's icon and state (none for a widget).
     face: Option<Face>,
     /// A widget's instance, where the host made one.
-    widget: Option<WidgetHandle>,
+    widget: Option<Made>,
 }
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -380,48 +384,45 @@ impl Dashboard {
                 face = Some(icons::face(host, src, action)?);
                 (text::copy(src.tool_name(action))?, None)
             }
-            What::Widget(id) => {
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
-                    Ok(handle) => {
-                        let placed = ui.widget_place(
-                            host,
-                            handle,
-                            paint::frame_rect(rect),
-                            &mut input,
-                            &mut out,
-                        );
-                        if let Err(error) = placed {
-                            drop_widget(host, ui, handle);
+            What::Widget(id) => match Made::make(host, ui, id, PLACE) {
+                Ok(made) => {
+                    if let Err(error) = made.place(host, ui, rect) {
+                        made.release(host, ui);
+                        return Err(error);
+                    }
+                    match text::copy(Self::widget_title(src, id)) {
+                        Ok(name) => (name, Some(made)),
+                        Err(error) => {
+                            made.release(host, ui);
                             return Err(error);
                         }
-                        (text::copy(Self::widget_title(src, id))?, Some(handle))
                     }
-                    // A widget that is gone, or not for this screen: no cell.
-                    Err(Error::NotFound | Error::Denied) => return Ok(None),
-                    Err(error) => return Err(error),
                 }
-            }
+                // A widget that is gone, or not for this screen: no cell.
+                Err(Error::NotFound | Error::Denied) => return Ok(None),
+                Err(error) => return Err(error),
+            },
         };
         let what = match item.what.try_clone() {
             Ok(what) => what,
             Err(error) => {
-                if let Some(widget) = widget {
-                    drop_widget(host, ui, widget);
+                if let Some(made) = widget {
+                    made.release(host, ui);
                 }
                 return Err(error);
             }
         };
-        let least = match widget {
-            Some(handle) => match measure::measure_handle(host, ui, handle, geometry) {
-                Ok((_, least)) => least,
-                Err(Error::NoMemory) => {
-                    drop_widget(host, ui, handle);
-                    return Err(Error::NoMemory);
+        let measured = widget.as_ref().map(|made| made.measure(host, ui, geometry));
+        let least = match measured {
+            Some(Ok((_, least))) => least,
+            Some(Err(Error::NoMemory)) => {
+                if let Some(made) = widget {
+                    made.release(host, ui);
                 }
-                // A widget the host cannot measure may not be made lower than one.
-                Err(_) => 1,
-            },
+                return Err(Error::NoMemory);
+            }
+            // A widget the host cannot measure may not be made lower than one.
+            Some(Err(_)) => 1,
             None => 1,
         };
         Ok(Some(Cell {
@@ -455,7 +456,7 @@ impl Dashboard {
     ) -> Result<Vec<Target>, Error> {
         let mut targets = Vec::new();
         for (index, cell) in cells.iter().enumerate() {
-            match cell.widget {
+            match &cell.widget {
                 // Editing: an item is one target, whatever it is.
                 _ if buttons.editing => push(
                     &mut targets,
@@ -471,38 +472,20 @@ impl Dashboard {
                         owner: Owner::Tool(index),
                     },
                 )?,
-                Some(widget) if !widget.is_own() => {
-                    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                    let found = ui.widget_targets(
-                        host,
-                        widget,
-                        paint::frame_rect(cell.rect),
-                        &mut input,
-                        &mut out,
-                    )?;
-                    for target in found {
-                        let target = target?;
-                        let at = target.rect();
+                Some(made) => {
+                    for (target, rect) in made.targets(host, ui, cell.rect)? {
                         push(
                             &mut targets,
                             Target {
-                                rect: Rect::new(
-                                    clamp(at.x),
-                                    clamp(at.y),
-                                    clamp(at.width),
-                                    clamp(at.height),
-                                ),
+                                rect,
                                 owner: Owner::Widget {
                                     item: index,
-                                    target: target.target(),
+                                    target,
                                 },
                             },
                         )?;
                     }
                 }
-                // Drawn by this plugin itself: the widgets of the home screen
-                // are not ported yet.
-                Some(_) => {}
             }
         }
         footer_targets(&mut targets, footer, buttons)?;
@@ -562,7 +545,7 @@ impl Dashboard {
         };
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = self.paint(host, frame, &display, &font, laid);
+        let drawn = self.paint(host, ui, frame, &display, &font, laid);
         let released = font.release();
         drawn?;
         released
@@ -594,6 +577,7 @@ impl Dashboard {
     fn paint(
         &self,
         host: &Host<'_>,
+        ui: &Ui,
         frame: &mut DrawFrame<'_>,
         display: &Snapshot,
         font: &Font<'_>,
@@ -689,8 +673,8 @@ impl Dashboard {
         compose_each(
             laid.cells
                 .iter()
-                .filter_map(|cell| Some((cell.widget.filter(|w| !w.is_own())?, cell.rect))),
-            |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
+                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect))),
+            |made, rect| made.draw(host, ui, frame, rect),
         );
         paint::replay(frame, font, above.iter())?;
         let mut dialog = Vec::new();
@@ -849,12 +833,11 @@ impl Dashboard {
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Widget { item, target: id } => {
-                let Some(widget) = laid.cells.get(item).and_then(|cell| cell.widget) else {
+                let Some(made) = laid.cells.get(item).and_then(|cell| cell.widget.as_ref()) else {
                     return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                ui.widget_input(host, widget, id, point, kind, &mut input, &mut out)?;
+                made.input(host, ui, id, point, kind)?;
             }
             Owner::Button(_) => {}
         }
@@ -978,19 +961,11 @@ fn compose_each<T>(
     composed
 }
 
-/// Lets a widget go; a refusal is of no matter (the host drops them when the
-/// screen closes).
-fn drop_widget(host: &Host<'_>, ui: &Ui, widget: WidgetHandle) {
-    if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
-        let _ = ui.widget_drop(host, widget, &mut input, &mut out);
-    }
-}
-
 /// Lets the widgets of these cells go.
 fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
     for cell in cells {
-        if let Some(widget) = cell.widget {
-            drop_widget(host, ui, widget);
+        if let Some(made) = cell.widget {
+            made.release(host, ui);
         }
     }
 }
@@ -1084,10 +1059,6 @@ fn middle(rect: Rect) -> Point {
         i32::from(rect.x) + i32::from(rect.width) / 2,
         i32::from(rect.y) + i32::from(rect.height) / 2,
     )
-}
-
-fn clamp(value: impl TryInto<u16>) -> u16 {
-    value.try_into().unwrap_or(u16::MAX)
 }
 
 fn clamp_u32(value: u32) -> u16 {

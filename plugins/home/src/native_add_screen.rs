@@ -22,7 +22,7 @@ use paperpaw_sdk::{
         fonts::{Font, FontRole},
         settings::SettingValue,
         snapshot,
-        ui::{Compose, HandoverId, Notify, Open, Param, Ui, WidgetHandle},
+        ui::{HandoverId, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -35,6 +35,7 @@ use paperpaw_ui_kit::{
 use crate::native_add::{self as add, Entry, Layout, Plan, Row, TOOLS_KIND};
 use crate::native_gallery::{self as gallery, Drawn, Gallery, Stage};
 use crate::native_grid::{Sizes, What};
+use crate::native_made::Made;
 use crate::native_measure as measure;
 use crate::native_pages::{self, Write};
 use crate::native_shown::Shown;
@@ -60,7 +61,7 @@ enum Mode {
     /// (it measures them, which needs the screen's own callbacks).
     Pending,
     /// The widgets drawn as they would show.
-    Gallery(Gallery<WidgetHandle>),
+    Gallery(Gallery<Made>),
 }
 
 /// The *Add* screen with what it lists.

@@ -36,13 +36,13 @@ impl Stage for Script {
         self.released.push(widget);
     }
 
-    fn compose(&mut self, widget: u32, area: Rect) -> Result<(), Error> {
+    fn compose(&mut self, widget: &u32, area: Rect) -> Result<(), Error> {
         if let Some((only, error)) = &self.compose_error
-            && only.is_none_or(|only| only == widget)
+            && only.is_none_or(|only| only == *widget)
         {
             return Err(*error);
         }
-        self.composed.push((widget, area));
+        self.composed.push((*widget, area));
         Ok(())
     }
 }
