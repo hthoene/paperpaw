@@ -431,7 +431,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   book's data on the card and read when asked; the in-memory catalog gains nothing per field or
   per book for them. In-catalog values are written into the walk's sorted index file
   (`sorted.idx`, #328), so queries, sorting and filters on them read the card step by step as for
-  titles, never a table in RAM.
+  titles, never a table in RAM. An in-catalog field value reaches queries (filters, sorting)
+  only at the next walk of that book, as in interface 6; a read of the book's own fields (op 22)
+  sees it at once.
 
 ## 5. Provided metadata (calibre)
 
