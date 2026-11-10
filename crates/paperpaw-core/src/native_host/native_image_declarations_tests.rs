@@ -132,18 +132,22 @@ fn construct(image: Option<&'static [u8]>) -> Result<(Counts, usize, usize, bool
             declared_services(),
         )
     }?;
-    let (retained, counts, raw) = Retained::make_native_stored(hosted, |view| {
-        let mut counts = Counts::default();
-        view.visit(&mut |record| {
-            counts.total += 1;
-            match record {
-                Record::SettingSpec(_) => counts.specs += 1,
-                Record::WidgetSpec(_) => counts.widgets += 1,
-                _ => {}
-            }
-        })?;
-        Ok(counts)
-    })?;
+    let (retained, counts, raw) = Retained::make_native_stored(
+        hosted,
+        |view| {
+            let mut counts = Counts::default();
+            view.visit(&mut |record| {
+                counts.total += 1;
+                match record {
+                    Record::SettingSpec(_) => counts.specs += 1,
+                    Record::WidgetSpec(_) => counts.widgets += 1,
+                    _ => {}
+                }
+            })?;
+            Ok(counts)
+        },
+        |_, _| {},
+    )?;
     let backed = !raw.batches.is_empty() && raw.batches.iter().all(|batch| batch.image.is_some());
     let used = (raw.image_entries, raw.index_bytes);
     drop(retained);
@@ -204,11 +208,15 @@ fn construct_kept() -> (
         )
     }
     .unwrap();
-    let (retained, total, raw) = Retained::make_native_stored(hosted, |view| {
-        let mut total = 0;
-        view.visit(&mut |_| total += 1)?;
-        Ok(total)
-    })
+    let (retained, total, raw) = Retained::make_native_stored(
+        hosted,
+        |view| {
+            let mut total = 0;
+            view.visit(&mut |_| total += 1)?;
+            Ok(total)
+        },
+        |_, _| {},
+    )
     .unwrap();
     (retained, raw, total)
 }

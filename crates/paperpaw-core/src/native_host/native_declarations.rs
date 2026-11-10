@@ -74,6 +74,9 @@ pub(crate) struct NativeDeclarations {
     /// The entries callbacks in flight reserved in `items` and have not
     /// applied yet (a nested callback adds to its caller's).
     pub(crate) item_room: core::cell::Cell<usize>,
+    /// The declaration cap each plugin was last refused at (`reg_plugin`
+    /// problem 14 and 15).
+    pub(crate) refusals: core::cell::RefCell<super::declaration_refusals::Refusals>,
 }
 impl core::fmt::Debug for NativeDeclarations {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -105,6 +108,25 @@ impl Drop for Publication<'_> {
     }
 }
 impl NativeDeclarations {
+    /// Keeps the cap `plugin` was refused at, for its `reg_plugin` row.
+    pub(crate) fn record_refusal(&self, plugin: &str, cap: super::declaration_checks::Cap) {
+        if let Ok(mut refusals) = self.refusals.try_borrow_mut() {
+            refusals.record(plugin, cap);
+        }
+    }
+
+    /// `plugin` is admitted again: what was kept of an earlier refusal goes.
+    pub(crate) fn clear_refusal(&self, plugin: &str) {
+        if let Ok(mut refusals) = self.refusals.try_borrow_mut() {
+            refusals.clear(plugin);
+        }
+    }
+
+    /// The cap `plugin` was refused at, while it stays failed.
+    pub(crate) fn refusal(&self, plugin: &str) -> Option<super::declaration_checks::Cap> {
+        self.refusals.try_borrow().ok()?.get(plugin)
+    }
+
     pub(crate) fn stage(
         &self,
         pending: PendingDeclarations,
@@ -122,7 +144,19 @@ impl NativeDeclarations {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         store.prune_stopped_native();
-        store.prepare(pending, allocations)?.commit();
+        // The plugin ids are at most 64 bytes: kept on the stack for the
+        // refusal, which comes after `pending` is gone.
+        let id = super::registry_service::fixed::Fixed::<64>::of(&[pending.plugin_id()]);
+        let prepared = match store.prepare(pending, allocations) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let (Some(cap), Some(id)) = (allocations.cap, id) {
+                    self.record_refusal(id.as_str(), cap);
+                }
+                return Err(error);
+            }
+        };
+        prepared.commit();
         let prepared = store
             .all_keys(allocations)
             .and_then(|keys| self.catalog.prepare_store(&store, &keys, allocations));
