@@ -14,9 +14,13 @@
 //!   empty ask takes all, otherwise a tag equals the ask's language or its
 //!   base (`de-AT` is German too), ASCII case ignored.
 //!
-//! The cursor counts the providers that are left. A provider that is stopped
-//! is not started for a lookup: its page is the empty entry (its call says
-//! `ERR_NOT_FOUND`).
+//! The cursor counts the providers that are left, on every ask: a plugin that
+//! loads or stops, or a network that comes or goes, between two pages can make
+//! the asker skip or see a provider twice (the asker's loop is best effort).
+//! The cable serves a computer, not the internet, so it never counts as a
+//! network here: only Wi-Fi (and the device's ability) say "connected". A provider that is stopped is not
+//! started for a lookup, and one that fails or answers badly has the empty
+//! entry for its page (see [`call`]).
 //!
 //! Memory: the page keeps the chosen provider's owner, token and name (about
 //! 90 bytes); the call has the framed ask (at most 2.2 KiB) and the stage
@@ -66,6 +70,7 @@ impl Chosen {
 /// PaperPaw manages Wi-Fi, it is online. A frame without an environment says
 /// no.
 fn network_up(frame: &dyn Frame) -> bool {
+    // The cable serves a computer, not the internet: it does not count.
     frame.kernel_env().is_some_and(|env| {
         env.caps().network && env.wifi().is_none_or(|wifi| wifi.state.is_online())
     })
@@ -142,7 +147,9 @@ fn scratch(capacity: usize) -> Result<Vec<u8>, i32> {
 }
 
 /// The ask as the one `stage.call` record the provider's `core.lookup` token
-/// takes, framed as a batch.
+/// takes, framed as a batch. The provider's cursor is always 0: the host pages
+/// across providers, one page each, and a provider's paging stays inside its
+/// page (`document.md` 7).
 fn framed(ask: &wire::ServiceLookupAsk<'_>) -> Result<Vec<u8>, i32> {
     // The payload: one `lookup_ask` in the stage's own tag.
     let payload_len = ask
@@ -153,8 +160,8 @@ fn framed(ask: &wire::ServiceLookupAsk<'_>) -> Result<Vec<u8>, i32> {
         .and_then(|n| n.checked_add(32))
         .ok_or(ERR_NO_SPACE)?;
     let mut payload = scratch(payload_len)?;
-    let used = stage::LookupAsk::new(ask.text, ask.language, ask.context, ask.cursor)
-        .encode(&mut payload)?;
+    let used =
+        stage::LookupAsk::new(ask.text, ask.language, ask.context, 0).encode(&mut payload)?;
     let record = wire::Record::StageCall(wire::StageCall {
         stage: stage::KEY,
         schema: u32::from(stage::MAJOR),
@@ -173,6 +180,13 @@ fn framed(ask: &wire::ServiceLookupAsk<'_>) -> Result<Vec<u8>, i32> {
 
 /// Runs the chosen provider and writes its entry, as the service's
 /// `lookup_entry` naming it, at the front of `out`.
+///
+/// The host's own failures (the scratch it cannot get, an ask that does not
+/// fit, an `out` that is too small) are the status. Whatever the provider does
+/// wrong is **its** page only: its own refusal (`ERR_NOT_FOUND`, `ERR_BUSY`,
+/// `ERR_NO_MEMORY`, a trap) and a reply the stage check or the decoder refuses
+/// all answer `ERR_NOT_FOUND`, which the broker turns into the empty entry with
+/// `more`, so one broken provider never hides the ones after it.
 fn call(
     frame: &dyn Frame,
     chosen: &Chosen,
@@ -181,15 +195,19 @@ fn call(
 ) -> Result<usize, i32> {
     let input = framed(ask)?;
     let mut reply = scratch(stage::MAX_REPLY)?;
-    let length = frame.call_native(
+    let Ok(length) = frame.call_native(
         chosen.owner,
         chosen.token,
         &input,
         &mut reply,
         &mut |bytes| stage_wire::validate_reply(bytes, stage::MAX_REPLY, 1),
-    )?;
-    let entry = stage::LookupEntry::decode(reply.get(..length).ok_or(ERR_INVALID)?)
-        .map_err(|_| ERR_INVALID)?;
+    ) else {
+        return Err(ERR_NOT_FOUND);
+    };
+    let entry = reply
+        .get(..length)
+        .and_then(|bytes| stage::LookupEntry::decode(bytes).ok())
+        .ok_or(ERR_NOT_FOUND)?;
     wire::record_encode_one(
         &wire::Record::ServiceLookupEntry(wire::ServiceLookupEntry {
             provider: chosen.name(),
