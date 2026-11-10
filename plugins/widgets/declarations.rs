@@ -583,6 +583,30 @@ const LOGO_OPTIONS: &[Opt] = &[
     Opt::Size("core.size.medium", true),
 ];
 
+const PICTURE_OPTIONS: &[Opt] = &[
+    Opt::Folder(
+        "folder",
+        "widgets.picture.setting.folder",
+        "Pictures",
+        "widgets.picture.setting.folder.help",
+    ),
+    Opt::Choice(
+        "change",
+        "widgets.setting.change",
+        &["widgets.change.daily", "widgets.change.shown"],
+        "widgets.change.daily",
+        "widgets.setting.change.help",
+    ),
+    Opt::Choice(
+        "fit",
+        "widgets.picture.setting.fit",
+        &["widgets.picture.fit.fill", "widgets.picture.fit.whole"],
+        "widgets.picture.fit.fill",
+        "widgets.picture.fit.help",
+    ),
+    Opt::Part("caption", "widgets.picture.setting.caption", false),
+];
+
 const NOTE_OPTIONS: &[Opt] = &[
     Opt::Text(
         "text",
@@ -869,6 +893,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: LOGO_OPTIONS,
+    },
+    Def {
+        name: "picture",
+        token: 122,
+        category: category::PERSONAL,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: PICTURE_OPTIONS,
     },
 ];
 

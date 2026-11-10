@@ -54,6 +54,13 @@ pub(crate) struct Item {
     retry: bool,
 }
 
+impl Item {
+    /// The widget's id as the host names it, with its placement.
+    pub(crate) fn widget(&self) -> &str {
+        &self.widget
+    }
+}
+
 /// What an open question is for.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Asked {
@@ -94,6 +101,10 @@ pub struct NativeWidgets {
     recorder: crate::native_recorder::Recorder,
     /// The logo picture, held and asked for.
     logo: crate::native_logo::Logo,
+    /// The pictures of the picture widgets, held and asked for.
+    pub(crate) pictures: crate::native_picture::Pictures,
+    /// How often a picture was shown.
+    pub(crate) picture_showings: crate::native_quote::Showings,
 }
 
 impl NativeWidgets {
@@ -117,6 +128,13 @@ impl NativeWidgets {
             retry: false,
         });
         self.want_logo(host, widget);
+        if token == crate::native_picture::TOKEN
+            && let Err(error) = self.picture_made(host, instance.get())
+        {
+            // No slot for its picture: the widget is not kept half made.
+            self.items.retain(|item| item.instance != instance);
+            return Err(error);
+        }
         Ok(())
     }
 
@@ -227,6 +245,7 @@ impl NativeWidgets {
     /// A widget that fails (its time or its command) is left for the next
     /// tick and costs the others nothing: the tick itself is not refused.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.tick_pictures(host);
         // A logo that was refused for want of memory is asked for again.
         if self.has_logo() && self.logo.wants() {
             self.ask_logo(host, 0).ok();
@@ -483,6 +502,7 @@ impl Plugin for NativeWidgets {
                 match paperpaw_ui_kit::widget::settings::base(widget) {
                     "widgets.quote" => self.showings.made(now_ms),
                     "widgets.highlight" => self.highlights.made(now_ms),
+                    "widgets.picture" => self.picture_showings.made(now_ms),
                     _ => {}
                 }
                 self.made(host, widget, instance)
@@ -490,7 +510,11 @@ impl Plugin for NativeWidgets {
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
                 self.drop_logo(host);
+                self.picture_dropped(host, instance.get());
                 Ok(())
+            }
+            Event::ImageReady(ready) if crate::native_picture::is_cookie(ready.cookie()) => {
+                self.picture_ready(host, &ready)
             }
             Event::ImageReady(ready) => self.logo_ready(host, &ready),
             Event::SettingChanged {
@@ -550,7 +574,7 @@ impl Plugin for NativeWidgets {
             return Err(Error::Unsupported);
         }
         let mut pictures = paperpaw_ui_kit::covers::Pictures::default();
-        let mut logo = None;
+        let mut image = None;
         {
             let item = self
                 .items
@@ -567,7 +591,12 @@ impl Plugin for NativeWidgets {
             );
             let mut out = Vec::new();
             if item.token == crate::native_logo::TOKEN {
-                logo = crate::native_logo::draw_with(&mut cx, &mut out, area, self.logo.held())?;
+                image = crate::native_logo::draw_with(&mut cx, &mut out, area, self.logo.held())?
+                    .map(|(image, room)| (image, room, false));
+            } else if item.token == crate::native_picture::TOKEN {
+                let state = self.pictures.state(frame.id);
+                image = crate::native_picture::draw_with(&mut cx, &mut out, area, state)?
+                    .map(|placed| (placed.image, placed.rect, placed.fill));
             } else if item.token == crate::native_reading::TOKEN {
                 let kept = (&mut self.current, &mut pictures, &mut self.recorder);
                 crate::native_reading::draw_with(&mut cx, &mut out, area, kept)?;
@@ -625,12 +654,17 @@ impl Plugin for NativeWidgets {
                 item.retry = true;
             }
         }
-        // The logo over what the frame drew. Where the host refuses it, the
-        // widget is the frame and the name.
-        if let Some((image, room)) = logo {
+        // The picture over what the frame drew. Where the host refuses it, the
+        // widget is the frame and its words.
+        if let Some((image, room, fill)) = image {
+            let style = if fill {
+                ImageStyle::new().fill()
+            } else {
+                ImageStyle::new()
+            };
             frame
                 .draw_canvas()?
-                .draw_image(image, paint::frame_rect(room), ImageStyle::new())
+                .draw_image(image, paint::frame_rect(room), style)
                 .ok();
         }
         Ok(())
@@ -720,6 +754,11 @@ impl Plugin for NativeWidgets {
             Some(Tap::Run(action)) => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
+            }
+            Some(Tap::TurnPicture) => {
+                crate::native_picture::turn(host, base)?;
+                // Every picture widget takes the turn, as before.
+                self.tick_pictures(host);
             }
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
