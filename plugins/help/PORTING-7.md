@@ -36,8 +36,8 @@ are shown. A test pins that the host takes both registrations (it refuses 38 and
 Unit: layout of zones and the box (`layout`), `seen.txt` lines, allocator-failure sweeps for
 both and for the kit's dialog. The image holds what the builders make and the host admits the screens
 (`tests/abi7_declarations.rs`), linked entry,
-construction in the kernel's real registered scope (`tests/hosted_construction.rs`: refused
-by the host today, which does not admit event 81, `event.stack_changed`, yet; event 87 is admitted with #925).
+construction in the kernel's real registered scope (`tests/hosted_construction.rs`: made once the host admits event 81, #964; refused
+as unsupported before that; event 87 is admitted with #925).
 
 ## Acceptance pending on the host
 
