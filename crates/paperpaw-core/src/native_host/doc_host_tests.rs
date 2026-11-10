@@ -1337,9 +1337,14 @@ fn a_picture_the_cache_does_not_hold_or_a_hostile_one_is_left_out() {
             }
             writer.finish().unwrap();
             *w.reply.borrow_mut() = Ok(cover_reply(path));
-            // Not a picture at all (the service's rule for a cover that fails
-            // its check).
-            assert_eq!(ask_cover(w, document).err(), Some(ERR_INVALID), "{path}");
+            // No cover at all (`document.md` op 15: `ERR_NOT_FOUND` for none; a
+            // picture that fails its check is a failed read, not a bad request).
+            assert_eq!(ask_cover(w, document).err(), Some(ERR_NOT_FOUND), "{path}");
+            // The document is not struck for it, however often it is asked
+            // (a malformed answer ends it after a few).
+            for _ in 0..16 {
+                assert_eq!(ask_cover(w, document).err(), Some(ERR_NOT_FOUND), "{path}");
+            }
         });
     }
     // An absolute name is a malformed answer: the call fails.

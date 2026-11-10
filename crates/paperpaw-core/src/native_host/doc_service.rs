@@ -969,8 +969,12 @@ fn verify(
         Check::Image => {
             let _: wire::ServiceDocImage = check::only(bytes)?;
             let kept = images(host, document, out, length, false)?;
-            // A picture that fails its check is not a picture at all.
-            require(kept != 0)?;
+            // A picture that fails its check is not a picture at all: none
+            // (`document.md` 1, op 15), and the format's file is at fault, not
+            // the caller's request, so the document is not struck for it.
+            if kept == 0 {
+                return Err(ERR_NOT_FOUND);
+            }
             return Ok(kept);
         }
         Check::Progress => {
