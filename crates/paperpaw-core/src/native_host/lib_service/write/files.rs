@@ -67,33 +67,29 @@ pub(super) fn paths(
     }
     // Check the whole list first: a malformed line refuses all of it.
     each_path(host, list.paths, |_| ())?;
-    let mut used = 0;
-    let mut rows = 0_u32;
-    let mut failure = None;
+    let mut paths = [""; MAX_PATHS];
+    let mut count = 0;
     each_path(host, list.paths, |path| {
-        if failure.is_some() {
-            return;
-        }
-        let (status, flags) = if delete {
-            delete_one(host, path, list.flags & 1 != 0)
-        } else {
-            host.can_delete(path)
-        };
-        match result_row(path, status, flags, &mut out[used..]) {
-            Ok(written) => {
-                used += written;
-                rows += 1;
-            }
-            Err(error) => failure = Some(error),
-        }
+        paths[count] = path;
+        count += 1;
     })?;
-    if let Some(error) = failure {
-        return Err(error);
+    let paths = &paths[..count];
+    let mut verdicts = [(OK, 0_u32); MAX_PATHS];
+    if delete {
+        deleted(host, paths, list.flags & 1 != 0, &mut verdicts[..count]);
+    } else {
+        for (path, verdict) in paths.iter().zip(verdicts.iter_mut()) {
+            *verdict = host.can_delete(path);
+        }
+    }
+    let mut used = 0;
+    for (path, (status, flags)) in paths.iter().zip(verdicts) {
+        used += result_row(path, status, flags, &mut out[used..])?;
     }
     // One row per path, then exactly one `service.end` (not paged).
     let end = super::super::wire::ServiceEnd {
         flags: 0,
-        total: rows,
+        total: u32::try_from(count).unwrap_or(0),
         generation: 0,
         next: 0,
         cursor: None,
@@ -101,20 +97,64 @@ pub(super) fn paths(
     Ok(used + super::super::encode(&Record::ServiceEnd(end), &mut out[used..])?)
 }
 
-/// A book with annotations is `ERR_STATE` unless the caller says `with_notes`
-/// (the view asked the user); nothing is removed then.
-fn delete_one(host: &dyn super::super::LibHost, path: &str, with_notes: bool) -> (i32, u32) {
-    // A book with an annotation transaction open is in use.
-    match super::edit::book_busy(host, path) {
-        Ok(false) => {}
-        Ok(true) => return (ERR_BUSY, 0),
-        Err(error) => return (error, 0),
+/// The verdict of each path of a delete: a book with annotations is
+/// `ERR_STATE` unless the caller says `with_notes` (the view asked the user),
+/// one in use is `ERR_BUSY`, and nothing is removed for those. The others
+/// (`OK`, and `ERR_NOT_FOUND`, which is only forgotten) go to the host
+/// **together**: one journalled job for the whole list. A call the host
+/// refuses as a whole (a job is open: `ERR_BUSY`) is that status for each of
+/// them, and nothing was removed.
+fn deleted(
+    host: &dyn super::super::LibHost,
+    paths: &[&str],
+    with_notes: bool,
+    verdicts: &mut [(i32, u32)],
+) {
+    let mut accepted = [""; MAX_PATHS];
+    let mut ask = [0_usize; MAX_PATHS];
+    let mut count = 0;
+    // A line that names a book again (the same spelling) is the first one's
+    // verdict: the host gets each book once.
+    let mut again = [None; MAX_PATHS];
+    for (index, path) in paths.iter().enumerate() {
+        if let Some(first) = paths[..index].iter().position(|p| p == path) {
+            again[index] = Some(first);
+            continue;
+        }
+        // A book with an annotation transaction open is in use.
+        verdicts[index] = match super::edit::book_busy(host, path) {
+            Ok(true) => (ERR_BUSY, 0),
+            Err(error) => (error, 0),
+            Ok(false) => match host.can_delete(path) {
+                (OK, facts) if facts & 1 != 0 && !with_notes => (ERR_STATE, facts),
+                (status @ (OK | ERR_NOT_FOUND), facts) => {
+                    accepted[count] = path;
+                    ask[count] = index;
+                    count += 1;
+                    (status, facts)
+                }
+                other => other,
+            },
+        };
     }
-    let (status, facts) = host.can_delete(path);
-    match status {
-        OK if facts & 1 != 0 && !with_notes => (ERR_STATE, facts),
-        OK | ERR_NOT_FOUND => host.delete(path),
-        other => (other, facts),
+    if count > 0 {
+        match host.delete(&accepted[..count], with_notes) {
+            Ok(results) => {
+                for (slot, status) in ask.iter().zip(results).take(count) {
+                    verdicts[*slot].0 = status;
+                }
+            }
+            Err(error) => {
+                for slot in &ask[..count] {
+                    verdicts[*slot].0 = error;
+                }
+            }
+        }
+    }
+    for (index, first) in again.iter().enumerate().take(paths.len()) {
+        if let Some(first) = first {
+            verdicts[index] = verdicts[*first];
+        }
     }
 }
 

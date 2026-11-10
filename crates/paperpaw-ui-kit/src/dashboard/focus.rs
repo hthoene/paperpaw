@@ -6,6 +6,7 @@ use paperpaw_sdk::{Rect, ui::step_focus};
 
 /// A button below the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Button {
     /// The pencil (*Done* while editing).
     Pencil,

@@ -95,6 +95,8 @@ struct World<'a> {
     calls: RefCell<Vec<(u64, u32, u32)>>,
     hosts: HostServices,
     state: Rc<DocState>,
+    /// The owner of the screen on top of the stack.
+    top: Cell<u64>,
 }
 
 impl RegistryView for World<'_> {
@@ -154,7 +156,7 @@ impl Frame for World<'_> {
     fn with_stack(&self, visit: &mut dyn FnMut(&dyn UiStackView)) -> Result<(), i32> {
         visit(&Rows(&[Row {
             instance: 1,
-            owner: OPENER,
+            owner: self.top.get(),
             overlay: false,
             guards: false,
             secret: false,
@@ -531,6 +533,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         calls: RefCell::new(Vec::new()),
         hosts,
         state,
+        top: Cell::new(OPENER),
     };
     body(&world)
 }
@@ -1366,3 +1369,6 @@ fn what_a_format_wrote_after_the_stamp_is_in_the_stamp_when_its_last_document_cl
         assert_eq!(bytes(w), "700");
     });
 }
+
+#[path = "doc_host_report_tests.rs"]
+mod report_tests;

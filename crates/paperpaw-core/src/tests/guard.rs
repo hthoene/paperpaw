@@ -170,3 +170,53 @@ fn a_guard_starting_drops_the_private_cached_status_values() {
     assert_eq!(cache.get(1, "p.private", b""), None);
     assert_eq!(cache.get(1, "p.public", b""), Some(&b"open"[..]));
 }
+
+/// Notices given while a screen guards the device wait, at most four (two on
+/// the X4), the oldest dropped, and show one after the other once it lets go.
+#[test]
+fn notices_held_by_a_guard_wait_in_a_queue_and_show_in_turn() {
+    for (memory, kept) in [
+        (
+            paperpaw_platform::MemoryClass::Large,
+            ["n4", "n5", "n6", "n7"].as_slice(),
+        ),
+        (
+            paperpaw_platform::MemoryClass::Small,
+            ["n6", "n7"].as_slice(),
+        ),
+    ] {
+        let locked = Rc::new(Cell::new(true));
+        let mut kernel = Kernel::builder(DEVICE.with_memory(memory))
+            .plugin(GuardPlugin(locked))
+            .plugin(NoticePlugin { log: log() })
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        kernel.open_screen(Instant(1), LOCK, Params::new());
+        for n in 1..=7 {
+            kernel.apply(Command::Notify(alloc::format!("n{n}")));
+        }
+        kernel.finish();
+        assert!(kernel.notice.is_none(), "held");
+        assert_eq!(kernel.waiting_notices.texts(), kept, "{memory:?}");
+
+        // Unlocked: the oldest that is kept shows, the others follow when it
+        // is over, each for its full time.
+        kernel.run_action(Instant(5), actions::CONFIRM);
+        assert!(kernel.notice.is_some());
+        let mut left = kept.len() - 1;
+        assert_eq!(kernel.waiting_notices.texts(), &kept[1..]);
+        let mut now = 5;
+        while left > 0 {
+            now += 4000;
+            kernel.tick(Instant(now));
+            left -= 1;
+            assert!(kernel.notice.is_some());
+            assert_eq!(kernel.waiting_notices.texts(), &kept[kept.len() - left..]);
+        }
+        now += 4000;
+        kernel.tick(Instant(now));
+        assert!(kernel.notice.is_none());
+        assert!(kernel.waiting_notices.is_empty());
+    }
+}

@@ -125,7 +125,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 19 | `formats` | `doc_page` | `doc_format`*, `end` | every format, paged |
 | 20 | `format_for` | `doc_path` | `doc_format` | which format reads a file; `ERR_NOT_FOUND` |
 | 21 | `readers` | `doc_page` (`scope`: a format id or empty) | `doc_reader`*, `end` | reading apps |
-| 22 | `report` | `doc_report` | (none) | where the reader is; section 2.4 (draft 37) |
+| 22 | `report` | `doc_report` | (none) | where the reader is; section 2.4 |
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -179,7 +179,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   before the `uses.storage` check of root 1, so a plugin without the feature gets `ERR_INVALID`
   for such a path too, not `ERR_DENIED`. The host checks the roots, finds the format, gives a new
   document id and calls the format's op 2 `open`; its answer becomes `doc_state`.
-- [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
+- [D] **Root 5, the handed file.** A reader whose instance was made from a hand-over
   (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
   file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
   resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path
@@ -305,9 +305,9 @@ The reader tells the host where the user is reading; the host turns it into the 
 - [D] **Which documents.** Only a book of the library raises book events: a document opened on
   root 1 without `flags` bit 2 `background`. A report on any other document (root 0 or 5, an index
   build) is accepted (`OK`) and raises nothing, so a reader reports every document the same way.
-- [D] **Only the reader on screen.** A report drives the session only when the caller owns the
-  topmost reading-app instance of the screen stack (`reader.spec`; an overlay above it does not
-  change that) and the document is one it opened as a library book. Any other report, from a
+- [D] **Only the reader on screen.** A report drives the session only when the caller declared a
+  `reader.spec` and owns the topmost screen of the stack that is not an overlay, and the document
+  is one it opened as a library book. Any other report, from a
   plugin that opened a book from the card to index or read it in the background, or from a reader
   that is not on top, passes the checks above and is `OK` with nothing raised: it never starts,
   replaces, advances or ends the live session, so it cannot close the user's book or raise
@@ -325,8 +325,9 @@ The reader tells the host where the user is reading; the host turns it into the 
 - [D] **Ending.** The session ends with `book_closed` (66, `reason` 0, the last raised fields)
   when its document is closed (op 18, the opener stopping, or the host closing it with
   `event.document_closed`). Sleep and power-off end it with `reason` 1 before `event.suspend` or
-  `event.stopping`, as `core-events.md` 3.3 orders them. After a wake or a restart, the first
-  report of the same book (same `doc_open.path`) starts a session with `book_opened` `reason` 1.
+  `event.stopping`, as `core-events.md` 3.3 orders them. After a wake within the same run, the
+  first report of the same book (same `doc_open.path`) starts a session with `book_opened`
+  `reason` 1; after a restart the host keeps no session, so it starts with `reason` 0.
 - [D] **The host stamps** `now_ms` (its monotonic clock), `path` (the session's `doc_open.path`,
   at most 512 bytes as root-1 paths are, so never cut) and `reason`; it never takes them from the
   plugin.
@@ -339,7 +340,9 @@ The reader tells the host where the user is reading; the host turns it into the 
   change never grows it (`ERR_NO_MEMORY`: nothing raised for the new book, the next report tries
   again; when the report was another book's, the old session has still been ended with its
   `book_closed` first) and freed when it ends. One call per page turn, at most 1,024 bytes of
-  input; the events go through the event queue as before (`core-events.md` 3.2).
+  input; the events go through the event queue as before (`core-events.md` 3.2). While the event
+  pump is behind, up to 8 book events wait in the queue (`core-events.md` 3.2), about 1.1 KiB
+  each: about 9 KiB at most on the X4, freed as they are delivered.
 - [D] Until the native reader reports, 37 keeps its interface-6 producer (`core-events.md` 3.1).
   A host answers `ERR_UNSUPPORTED` until it is wired.
 
@@ -708,8 +711,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   one plugin is `ERR_INVALID` for the batch; two plugins may use the same name (a `lookup_ready`
   matched to the wrong one of them costs one more ask, nothing worse).
 - [D] **Network providers** (`flags` bit 0) are called only while the host's network is connected
-  at the ask (Wi-Fi connected as `event.wifi_changed` reports it, or the cable link up); else they
-  are skipped without a page. A lookup never starts a join.
+  at the ask (as `event.wifi_changed` reports it; the cable serves a computer, not the internet,
+  and does not count); else they are skipped without a page. A lookup never starts a join.
 - [D] **Languages** (interface 6 `LookupQuery::fits`): an empty ask `language` or an empty spec
   `languages` takes any; else a spec tag fits when it equals the ask's tag or the ask's primary
   subtag (the part before the first `-` or `_`), ASCII case ignored: spec `de` takes `de-AT` and

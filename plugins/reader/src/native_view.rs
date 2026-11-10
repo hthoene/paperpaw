@@ -87,6 +87,9 @@ struct Open {
     at: (u32, u32),
     /// The page on show, laid out at the first draw after it changed.
     page: Option<Page>,
+    /// What the page on show was laid out with: a change of the reading
+    /// settings or of the screen lays it out again.
+    laid: Option<LayoutKey>,
     trail: Trail,
     /// The book's path, for its saved place.
     path: String,
@@ -256,6 +259,7 @@ impl View {
             whole_pages,
             at,
             page: None,
+            laid: None,
             trail: Trail::new(),
             root: root_code(root),
             path: found.path,
@@ -324,6 +328,35 @@ impl View {
     fn forget(host: &Host<'_>, docs: &Documents, id: DocId) {
         if let (Ok(mut input), Ok(mut out)) = (buffer(64), buffer(64)) {
             docs.close(host, id, &mut input, &mut out).ok();
+        }
+    }
+
+    /// A reading setting changed (or the screen turned): the page on show is laid
+    /// out again at the next draw from the place it starts at, the trail of the
+    /// pages before it is forgotten (they are found anew), and the host is told
+    /// where the reader is on the page seen again (`announce`). A screen that
+    /// shows no book has nothing to lay out.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub fn reflow(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
+        if let Body::Open(open) = &mut self.body {
+            open.page = None;
+            open.laid = None;
+            open.trail.clear();
+            open.announce(host, docs);
+        }
+        redraw(host, RedrawMode::Full)
+    }
+
+    /// Only the way the text is inked changed: the page is drawn again.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub fn repaint(&self, host: &Host<'_>) -> Result<(), Error> {
+        match &self.body {
+            Body::Open(_) => redraw(host, RedrawMode::Full),
+            Body::Message(_) => Ok(()),
         }
     }
 
@@ -523,6 +556,14 @@ impl View {
     }
 }
 
+/// What a page is laid out with: the reading settings and the display's size
+/// and density (a turned screen is another size).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LayoutKey {
+    reading: Reading,
+    display: (u16, u16, u16),
+}
+
 /// The text the screen reads its page from: reading settings and the display.
 struct Setup {
     reading: Reading,
@@ -558,6 +599,18 @@ impl Setup {
             ),
             display: snapshot::capture_snapshot(host)?,
         })
+    }
+
+    /// What a page laid out with this setup depends on.
+    fn key(&self) -> LayoutKey {
+        LayoutKey {
+            reading: self.reading,
+            display: (
+                self.display.display_width(),
+                self.display.display_height(),
+                self.display.display_dpi(),
+            ),
+        }
     }
 
     /// The size of body text in pixels.
@@ -672,7 +725,10 @@ impl Open {
         };
         if self.page.is_none() {
             match self.lay(host, docs, &setup, self.at) {
-                Ok(page) => self.page = Some(page),
+                Ok(page) => {
+                    self.page = Some(page);
+                    self.laid = Some(setup.key());
+                }
                 Err(_) => return,
             }
         }
@@ -834,9 +890,18 @@ impl Open {
     ) -> Result<(), Error> {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
+        // A turned screen or a changed reading setting (the host may draw before
+        // the plugin is told): the page is laid out again, and the pages before
+        // it are found anew (their starts were those of another layout).
+        let key = setup.key();
+        if self.page.is_some() && self.laid != Some(key) {
+            self.page = None;
+            self.trail.clear();
+        }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
             self.page = Some(page);
+            self.laid = Some(key);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
@@ -850,6 +915,11 @@ impl Open {
         );
         draw_lines(&mut ink, &faces, page, origin)
     }
+}
+
+fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).queue_redraw(mode)
 }
 
 /// What a layout's refusal is as a host error.

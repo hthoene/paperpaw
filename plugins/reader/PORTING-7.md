@@ -346,3 +346,38 @@ relative to the data folder).
   no chapter. A book with no table has none (the headings scan is not ported: R6).
 - **Not yet:** go to page / percent (need a number dialog and the page index), the quick-settings panel
   screen, book info, the status-line actions, the bookmark (annotations screen, R5).
+
+## Reflow (view slice R8a, Port E)
+
+- The page on show is laid out with a key (the reading settings and the display's width, height and density,
+  `LayoutKey`); each draw compares it with the current one and, when they differ, lays the page out again from
+  the place it starts at and forgets the trail of earlier pages (their starts belong to the old layout). A
+  turned screen is covered by this: it is another size.
+- `event.setting_changed` (token 8 in `declarations::events`; a host that does not admit it answers
+  `Unsupported` and the next draw's key check shows the change): a layout setting calls `View::reflow` (page
+  laid out again, the place reported to the host anew), an ink setting only `View::repaint`.
+- The layout settings are listed by id (`native_pages::affects_layout`: font size, line and word spacing,
+  margins, justify, `core.reading-font`, `core.hyphenate`, `core.hyphen-min-left/right`; an empty key, "read all
+  settings again", too); the ink settings are `core.font-weight`, `core.smooth-text` and the `core.text-*` ones.
+  `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
+  book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
+  out in the event callback.
+- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+
+## Lines under, over and through text, and table rules (view slice R8b, Port E)
+
+- `native_decor.rs`: after each run `draw_lines` draws what the run's `TextStyle` asks for, over the run's
+  whole width (its spaces too; Beta 3 decorated each word and the space between two words, so a run that
+  ends in a space has a line one space longer here), with the geometry of Beta 3's `ReadingFaces::decorate`: underline at `size / 10` (at least 1)
+  below the baseline, overline at 0.78 of the size above it, strike-through at 0.28; the thickness is
+  `size / 16` (at least 1); the line style is one line, two (the second as far below as it is thick), dotted
+  (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
+  line has at most 4,096 pieces. `Ink::fill` (a filled rectangle in the pen's colour, `canvas.fill_rect`) is the
+  one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
+- Differences: a run's colour is the page's (no per-run ink); lines of mixed direction are set in logical order
+  (the existing gap), so a line follows the run's place in that order.
+- X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
+  Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
+- **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
+  both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
+  `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).

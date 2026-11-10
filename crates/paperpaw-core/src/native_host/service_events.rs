@@ -72,6 +72,13 @@ pub(crate) trait ServiceEvents {
     /// taken: what a service stamps its events with where it keeps no clock
     /// of its own.
     fn set_now(&self, _now_ms: u64) {}
+
+    /// The plugin `owner` started (the kernel took it in): what a power cut
+    /// left of it is cleaned up or restored (a `.received/` folder, a staged
+    /// file kept after a failed rename). Never fails: what cannot be done
+    /// now is tried again at the next claim or the plugin's stop. Default:
+    /// nothing to do.
+    fn owner_started(&self, _owner: u64) {}
 }
 
 impl ServiceEvents for net_service::NetServices {
@@ -92,6 +99,9 @@ impl ServiceEvents for net_service::NetServices {
     }
     fn next_deadline(&self) -> Option<u64> {
         net_service::next_deadline(&*self.0)
+    }
+    fn owner_started(&self, owner: u64) {
+        net_service::owner_started(&*self.0, owner);
     }
 }
 
@@ -141,5 +151,8 @@ impl ServiceEvents for sock_service::SockServices {
     }
     fn next_deadline(&self) -> Option<u64> {
         sock_service::next_deadline(&*self.0)
+    }
+    fn owner_started(&self, owner: u64) {
+        sock_service::owner_started(&*self.0, owner);
     }
 }
