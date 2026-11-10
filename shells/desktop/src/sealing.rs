@@ -109,7 +109,8 @@ impl KeySealer {
                     Ok(()) => Ok(Self::from_key(&key)),
                     // Another start made it first: its key is the key.
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                        Ok(Self::from_key(&read_key(&path)?))
+                        let key = read_key(&path)?;
+                        Ok(Self::from_key(&key))
                     }
                     Err(e) => Err(e),
                 }
