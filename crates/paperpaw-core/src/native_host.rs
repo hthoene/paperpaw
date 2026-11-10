@@ -178,6 +178,8 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[path = "native_host/fonts_data.rs"]
+mod fonts_data;
 
 mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]

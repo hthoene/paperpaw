@@ -342,6 +342,9 @@ impl HostResources {
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and
             // the way a move of the user's files goes.
+            // The same card holds the font files of the plugins' data folders
+            // (`font.acquire` `data:<path>`).
+            hosts.wire_font_card(storage.clone())?;
             let moves = hosts.wire_library_moves(storage.clone())?;
             hosts.wire_files(Rc::new(
                 StorageFiles::new(
