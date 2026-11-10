@@ -235,6 +235,35 @@ fn a_delete_goes_to_the_journalled_job_hides_the_book_and_a_busy_path_is_not_pas
     assert!(card.storage.size("books/a.epub").is_ok());
 }
 
+/// A source of paths in use that holds one book (a document open on it).
+struct Holds(&'static str);
+
+impl crate::native_host::storage_files::BusySource for Holds {
+    fn busy(&self, _: &dyn Storage, path: &str, _: Access) -> bool {
+        path == self.0
+    }
+}
+
+#[test]
+fn a_book_another_source_holds_is_busy_for_delete_and_import() {
+    use crate::native_host::storage_files::BusyKind;
+    let card = card();
+    let sources = Rc::new(BusySources::default());
+    sources
+        .register(BusyKind::ReaderBook, Rc::new(Holds("books/a.epub")))
+        .unwrap();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()))
+        .with_busy_sources(sources);
+    let answers = host
+        .delete(&["books/a.epub", "books/c.epub"], false)
+        .unwrap();
+    assert_eq!(answers[..2], [ERR_BUSY, OK]);
+    // The held book is still there, not asked of the job.
+    assert!(card.storage.size("books/a.epub").is_ok());
+    assert!(moves.pending_delete("books/c.epub"));
+}
+
 #[test]
 fn a_delete_without_the_job_is_unsupported_and_a_path_the_move_holds_is_busy() {
     let card = card();

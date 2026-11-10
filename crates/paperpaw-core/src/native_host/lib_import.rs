@@ -24,8 +24,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{Storage, StorageError};
 
-/// Names `name (2)` to `name (999)` are tried; past that nothing is free.
-const FREE_NAMES: u32 = 999;
+/// Names `name (2)` to `name (99)` are tried; past that nothing is free.
+const FREE_NAMES: u32 = 99;
 /// The longest root-1 path (`lib_result.path`).
 const PATH_MAX: usize = 512;
 

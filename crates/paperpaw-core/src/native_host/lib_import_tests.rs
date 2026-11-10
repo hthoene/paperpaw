@@ -157,3 +157,26 @@ fn a_path_that_would_be_too_long_is_refused_before_anything_is_changed() {
         Err(ERR_NO_SPACE)
     );
 }
+
+#[test]
+fn a_free_name_is_looked_for_up_to_99_only() {
+    let storage = card();
+    storage.write("Books/feed/issue.epub", &[9_u8]).unwrap();
+    for n in 2..=98 {
+        storage
+            .write(&alloc::format!("Books/feed/issue ({n}).epub"), &[9_u8])
+            .unwrap();
+    }
+    let free = request("issue.epub", false, true);
+    assert_eq!(
+        plan_to(&storage, "Books", &free),
+        "Books/feed/issue (99).epub"
+    );
+    storage
+        .write("Books/feed/issue (99).epub", &[9_u8])
+        .unwrap();
+    assert_eq!(
+        super::plan(&storage, "news", "Books", &free),
+        Err(ERR_STATE)
+    );
+}

@@ -465,7 +465,10 @@ impl HostResources {
         if let Some((storage, env)) = wiring.library {
             // After `core.files`, whose library move job it shares: a book the
             // job carries is in use for `provide`.
-            hosts.wire_library(Rc::new(LibraryHost::new(storage, env, library_moves)))?;
+            hosts.wire_library(Rc::new(
+                LibraryHost::new(storage, env, library_moves)
+                    .with_busy_sources(hosts.busy_sources().clone()),
+            ))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

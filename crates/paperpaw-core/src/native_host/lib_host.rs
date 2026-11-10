@@ -19,7 +19,7 @@ use super::lib_service::{
     StoredPosition,
 };
 use super::registrations::{self as wire};
-use super::storage_files::excluded_on;
+use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
@@ -32,6 +32,10 @@ pub(crate) struct LibraryHost {
     /// The library's move job, where `core.files` is wired too: a book it
     /// carries is in use.
     moves: Option<Rc<LibraryMoves>>,
+    /// Every source of paths in use (`core.files`' own): a book open in a
+    /// document, the reader's, a transfer's. A delete or an import over it is
+    /// `ERR_BUSY`. Without it only the move job counts.
+    sources: Option<Rc<BusySources>>,
 }
 
 impl LibraryHost {
@@ -44,7 +48,14 @@ impl LibraryHost {
             reads: CatalogReads::new(storage.clone(), env),
             storage,
             moves,
+            sources: None,
         }
+    }
+
+    /// The host's sources of paths in use, asked by `delete` and `import`.
+    pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
+        self.sources = Some(sources);
+        self
     }
 }
 
@@ -52,6 +63,17 @@ impl LibraryHost {
     /// Whether the library's move job holds the book at `path`.
     fn in_use(&self, path: &str) -> bool {
         self.busy(path, Access::Rework)
+    }
+
+    /// Whether anything holds `path` for `access`: the move job, or (where
+    /// wired) a document, the reader or a transfer. For what changes or
+    /// removes the file itself.
+    fn held(&self, path: &str, access: Access) -> bool {
+        self.busy(path, access)
+            || self
+                .sources
+                .as_ref()
+                .is_some_and(|all| all.busy(&*self.storage, path, access))
     }
 
     /// Whether the library's move job holds `path` for `access`.
@@ -183,7 +205,7 @@ impl LibWrite for LibraryHost {
         };
         let (mut answers, mut asked, mut slots, mut count) = ([OK; 7], [""; 7], [0_usize; 7], 0);
         for (index, path) in paths.iter().enumerate().take(7) {
-            if self.busy(path, Access::Remove) {
+            if self.held(path, Access::Remove) {
                 answers[index] = ERR_BUSY;
             } else {
                 asked[count] = path;
@@ -222,7 +244,7 @@ impl LibWrite for LibraryHost {
             planned = plan(&*self.storage, who.plugin, library, request);
         });
         let planned = planned?;
-        if self.busy(&planned.to, Access::Rework) {
+        if self.held(&planned.to, Access::Rework) {
             return Err(ERR_BUSY);
         }
         moves.begin_import(&planned.from, &planned.to, who.plugin, planned.replace)?;
