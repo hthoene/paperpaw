@@ -311,6 +311,25 @@ file's size, 2.1).
   server's sockets and buffers cost up to about 48 KiB): past either, `ERR_BUSY` at once and
   nothing opens. A server counts from `serve` until it is stopped, has failed or has ended.
   Serving again with a token in use stops the old server first (interface 6).
+- [D] **The cable's server** (port 0, ruling of todo 384 on #228) is the kernel's, not the
+  shell's: the shell passes the cable's lines to `Kernel::cable_line` (`docs/usb-transfer.md`) and
+  the host serves them to the one plugin that serves port 0, under the rules of this section
+  (`max_body`, `.received/`, 507, the answer time). It uses no socket and no pool buffer, so it
+  does not count against `SERVERS` (only against the plugin's 2). `started` comes at the host's
+  next pass, address `""`. A request while no cable server has started opens `core.cable`; one
+  without a body waits up to 5 s for the server's `started` (else 503), one with a body is
+  answered 503 at once (its data lines are not kept). After the plugin stopped the server, a
+  request before the protocol's 10 s pause is answered 403. A `respond` with a file is refused on
+  the cable (`ERR_UNSUPPORTED`, the computer gets 500), as in interface 6. The cable has one
+  server: the first plugin that serves port 0 from its showing screen holds it until it stops
+  (normally the screen that fills `core.cable`); another's `serve` port 0 ends `failed`,
+  `refused`. The computer is an outside party: the rest of a refused body is passed over without
+  an answer per line, and at most 8 answers (16 KiB of bodies; one alone at any size) wait to be
+  sent. While they leave no room, a plugin's `respond` is `ERR_BUSY` and its request stays open
+  (answer again later; the 120 s answer time still runs); a host refusal that does not fit is
+  not sent. A request number the computer uses again while its earlier request is open ends
+  that request (its plugin's later `respond` is `ERR_NOT_FOUND`; no answer of its own, since an
+  answer by that number is the new request's).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.

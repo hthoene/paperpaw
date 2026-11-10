@@ -143,6 +143,9 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
+        // The cable's server: its start told, answered requests gone, a
+        // held request delivered (`cable_pump`).
+        self.native_cable_pump();
         // A batch left waiting (a callback outside the pumps staged it) runs
         // first: no event is called while one waits, and none is lost for it.
         // Never inside a callback (as the work and picture pumps): the pump
@@ -203,6 +206,7 @@ impl crate::Kernel {
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
             .chain(self.native_demand_due().map(|at| at.millis()))
+            .chain(self.native_cable_due())
             .min()
             .map(Instant)
     }

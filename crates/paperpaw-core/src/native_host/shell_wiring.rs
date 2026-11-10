@@ -324,6 +324,9 @@ impl HostResources {
                 hosts.policy().clone(),
             ));
             hosts.wire_net(device.clone())?;
+            if device.cable().is_some() {
+                hosts.wire_cable(device.clone())?;
+            }
             wired.net = Some(NetReports(device));
         }
         if let Some(inputs) = wiring.sockets {

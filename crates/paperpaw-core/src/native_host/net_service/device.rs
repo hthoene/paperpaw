@@ -72,6 +72,9 @@ pub(crate) struct NetDevice {
     paths: OwnerPaths,
     /// What the user allows (`net_policy`).
     policy: Rc<NetPolicy>,
+    /// The transport of the cable's server (port 0), where the profile has
+    /// the cable (`cable_link`).
+    cable: Option<Rc<super::cable_link::CableLink>>,
 }
 
 /// The staged name of a saved answer's target (`.pp-staged`, core's one name).
@@ -95,6 +98,7 @@ impl NetDevice {
     ) -> Self {
         Self {
             policy,
+            cable: None,
             table: NetTable::new(pool),
             saves: SaveFiles::new(storage.clone(), in_use),
             storage,
@@ -104,6 +108,28 @@ impl NetDevice {
             staged: RefCell::new(Vec::new()),
             paths: OwnerPaths::new(owners),
         }
+    }
+
+    /// The device with the cable's server served over `link` (`cable_link`).
+    #[must_use]
+    pub(crate) fn with_cable(mut self, link: Rc<super::cable_link::CableLink>) -> Self {
+        self.cable = Some(link);
+        self
+    }
+
+    /// The card the service saves to and receives bodies on.
+    pub(crate) fn storage(&self) -> &dyn Storage {
+        &*self.storage
+    }
+
+    /// The cable's link, where the profile has the cable.
+    pub(crate) fn cable(&self) -> Option<&Rc<super::cable_link::CableLink>> {
+        self.cable.as_ref()
+    }
+
+    /// The cable's request `request`, if the cable carries it.
+    fn on_cable(&self, request: u32) -> Option<&super::cable_link::CableLink> {
+        self.cable.as_deref().filter(|link| link.carries(request))
     }
 
     fn remove_best_effort(&self, joined: &str) {
@@ -465,6 +491,14 @@ impl NetTransport for NetDevice {
     }
 
     fn listen(&self, server: u32, port: u32, address: &mut String) -> Result<(), Refused> {
+        if port == 0 {
+            // The cable is the kernel's: the shell only passes its lines. Its
+            // address is empty and `started` comes from the kernel's pump.
+            return match &self.cable {
+                Some(link) if link.listen(server) => Ok(()),
+                _ => Err(reason::REFUSED),
+            };
+        }
         let mut buf = [0u8; ADDRESS_MAX];
         let length = self.http.listen(server, port, &mut buf).map_err(why)?;
         // The shell is listening now: a refusal from here on stops it.
@@ -487,12 +521,28 @@ impl NetTransport for NetDevice {
     }
 
     fn unlisten(&self, server: u32) {
+        if self
+            .cable
+            .as_ref()
+            .is_some_and(|link| link.unlisten(server))
+        {
+            return;
+        }
         self.http.unlisten(server);
     }
 
     fn reply(&self, request: u32, reply: &Reply<'_>) -> Result<(), i32> {
         let owner = reply.owner;
         let response: &args::Response<'_> = reply.response;
+        if let Some(link) = self.on_cable(request) {
+            return link.answer(
+                request,
+                response.head.status,
+                response.head.content_type,
+                response.body,
+                response.send.is_some(),
+            );
+        }
         let send = response
             .send
             .map(|f| self.paths.join_owned(owner, f.root, f.path))
@@ -511,7 +561,10 @@ impl NetTransport for NetDevice {
     }
 
     fn close_served(&self, request: u32, status: u32) {
-        self.http.close_served(request, status);
+        match self.on_cable(request) {
+            Some(link) => link.close(request, status),
+            None => self.http.close_served(request, status),
+        }
     }
 }
 

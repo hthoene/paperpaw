@@ -51,6 +51,9 @@ pub(crate) struct HostServices {
     /// and the kernel's pump drives. One per device.
     firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
     net: OnceCell<NetServices>,
+    /// `core.net`'s device where it serves the cable (port 0): the kernel
+    /// passes it the cable's lines (`cable_pump`).
+    cable_net: OnceCell<Rc<net_service::NetDevice>>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
@@ -126,6 +129,7 @@ impl HostServices {
             device: OnceCell::new(),
             firmware: OnceCell::new(),
             net: OnceCell::new(),
+            cable_net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
@@ -509,6 +513,16 @@ impl HostServices {
 
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
+    }
+
+    /// Wire the cable's server once (`core.net` with the cable).
+    pub(crate) fn wire_cable(&self, device: Rc<net_service::NetDevice>) -> Result<(), i32> {
+        self.cable_net.set(device).map_err(|_| ERR_STATE)
+    }
+
+    /// `core.net`'s device, where it serves the cable.
+    pub(crate) fn cable_net(&self) -> Option<&Rc<net_service::NetDevice>> {
+        self.cable_net.get()
     }
 
     /// The wired services that raise events to plugins, for the kernel's
