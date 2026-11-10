@@ -114,7 +114,7 @@ fn joined(parts: &[&str]) -> Result<String, i32> {
 /// Whether a card error is for good: the entry is refused (a damaged one, a
 /// tree too deep, a name the card cannot make), and repeating changes
 /// nothing. Others may pass (`Io`, no memory, a full card, an unknown cause).
-const fn permanent(error: StorageError) -> bool {
+pub(crate) const fn permanent(error: StorageError) -> bool {
     matches!(
         error,
         StorageError::InvalidPath
@@ -288,19 +288,124 @@ fn remove_entry(storage: &dyn Storage, entry: &Kept, place: &mut u64) -> Result<
     }
 }
 
+/// The folder of all document caches (`.paperpaw/cache/<book key>/...`).
+const DOC_CACHE_ROOT: &str = ".paperpaw/cache";
+
+/// Most folders of one level of a cache `unstamp` looks into (format plugins of
+/// a book, conversions of a plugin); more than the card keeps (two conversions).
+const STAMPS_LISTED: usize = 16;
+
+/// The names of the folders in `dir`, at most [`STAMPS_LISTED`]; `None` where
+/// `dir` is not there.
+fn subfolders(storage: &dyn Storage, dir: &str) -> Result<Option<Vec<String>>, i32> {
+    let mut names: Vec<String> = Vec::new();
+    let mut failed = None;
+    let listed = storage.list(dir, &mut |entry| {
+        if !entry.is_dir || failed.is_some() || names.len() >= STAMPS_LISTED {
+            return;
+        }
+        match gate()
+            .and_then(|()| names.try_reserve(1).map_err(|_| ERR_NO_MEMORY))
+            .and_then(|()| alloc_string(entry.name))
+        {
+            Ok(name) => names.push(name),
+            Err(error) => failed = Some(error),
+        }
+    });
+    match (failed, listed) {
+        (Some(error), _) => Err(error),
+        (None, Ok(())) => Ok(Some(names)),
+        (None, Err(StorageError::NotFound)) => Ok(None),
+        (None, Err(error)) => Err(status(error)),
+    }
+}
+
+/// Takes the stamps `.complete` away from every conversion of the cache at
+/// `folder` (`<format plugin>/<conversion>/.host/.complete`): a cache without
+/// its stamp is not used, so no cut, no error and no budget that ends a
+/// removal in the middle leaves pages that an open would take for a whole
+/// cache. `false`: there is no cache.
+///
+/// # Errors
+/// `ERR_NO_MEMORY`; the card's status for a transient error.
+fn unstamp(storage: &dyn Storage, folder: &str) -> Result<bool, i32> {
+    let Some(plugins) = subfolders(storage, folder)? else {
+        return Ok(false);
+    };
+    for plugin in &plugins {
+        let plugin_dir = joined(&[folder, plugin])?;
+        for conversion in subfolders(storage, &plugin_dir)?.iter().flatten() {
+            let conversion_dir = joined(&[&plugin_dir, conversion])?;
+            for stamp in [".host/.complete", ".complete"] {
+                match storage.remove(&joined(&[&conversion_dir, stamp])?) {
+                    Ok(()) | Err(StorageError::NotFound) => {}
+                    Err(error) if permanent(error) => {}
+                    Err(error) => return Err(status(error)),
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// Removes what the host keeps to show the document at `path`
+/// (`.paperpaw/cache/<book key>/`, `docs/abi/document.md`): the folder's name
+/// holds the book key, so it is never renamed to a book's new key (the new
+/// key's is made at the next open). **Stamps first** ([`unstamp`]), then the
+/// tree in bounded `remove_tree_step` pieces of the shared `budget`; what an
+/// exhausted budget or a refusing card leaves is a cache nobody uses and is
+/// `Done` or `More` for the caller. A book that is open is busy for a move, so
+/// no document holds the folder here.
+///
+/// # Errors
+/// `ERR_NO_MEMORY`; the card's status for a transient error.
+pub(crate) fn remove_doc_cache(
+    storage: &dyn Storage,
+    path: &str,
+    budget: &mut u32,
+) -> Result<Progress, i32> {
+    let mut digits = [0_u8; KEY_LEN];
+    let key = key_into(path, &mut digits);
+    let folder = joined(&[DOC_CACHE_ROOT, key])?;
+    if !unstamp(storage, &folder)? {
+        return Ok(Progress::Done);
+    }
+    let mut place = 0;
+    loop {
+        if *budget == 0 {
+            return Ok(Progress::More);
+        }
+        *budget -= 1;
+        match storage.remove_tree_step(&folder, false, place) {
+            Ok(step) if step.done => return Ok(Progress::Done),
+            // Took nothing: the card refuses it; the clean-up of books no
+            // longer found is for what stays.
+            Ok(step) if step.removed == 0 => return Ok(Progress::Done),
+            Ok(step) => place = step.next,
+            Err(StorageError::NotFound) => return Ok(Progress::Done),
+            Err(error) if permanent(error) => return Ok(Progress::Done),
+            Err(error) => return Err(status(error)),
+        }
+    }
+}
+
 /// What a `book_moved` event of the `core` plugin does for the data kept for
 /// the book: the library's own steps moved it already, this catches a move that
 /// came another way. A card error leaves the rest under the old key, where the
 /// next move or the clean-up finds it.
 pub(crate) fn follow_move(storage: &dyn Storage, data: &[BookData], from: &str, to: &str) {
     let _ = move_data(storage, data, from, to);
+    let mut budget = REMOVE_PIECES;
+    let _ = remove_doc_cache(storage, from, &mut budget);
 }
 
 /// What a `book_removed` event does: at most [`REMOVE_PIECES`] bounded pieces
-/// for the book; what a larger folder leaves is removed with the books no
-/// longer found.
+/// for the book in all; what a larger folder leaves is a cache nobody uses
+/// (stamps go first) or data for the clean-up of books no longer found.
 pub(crate) fn follow_removal(storage: &dyn Storage, data: &[BookData], path: &str) {
-    let _ = remove_data(storage, data, path, REMOVE_PIECES);
+    let mut budget = REMOVE_PIECES;
+    let _ = remove_data_within(storage, data, path, &mut budget);
+    let _ = remove_doc_cache(storage, path, &mut budget);
 }
 
 /// Removes what the plugins keep for the book at `path` in folders `data`,
@@ -311,15 +416,29 @@ pub(crate) fn follow_removal(storage: &dyn Storage, data: &[BookData], path: &st
 ///
 /// # Errors
 /// `ERR_NO_MEMORY`; the card's status for a transient error (repeat the call).
+#[cfg(test)]
 pub(crate) fn remove_data(
     storage: &dyn Storage,
     data: &[BookData],
     path: &str,
     pieces: u32,
 ) -> Result<Progress, i32> {
+    let mut budget = pieces;
+    remove_data_within(storage, data, path, &mut budget)
+}
+
+/// [`remove_data`] taking its pieces from `budget`, which others share.
+///
+/// # Errors
+/// As [`remove_data`].
+pub(crate) fn remove_data_within(
+    storage: &dyn Storage,
+    data: &[BookData],
+    path: &str,
+    budget: &mut u32,
+) -> Result<Progress, i32> {
     let mut digits = [0_u8; KEY_LEN];
     let key = key_into(path, &mut digits);
-    let mut budget = pieces;
     for folder in data {
         let mut left = 0;
         for _ in 0..BATCHES {
@@ -328,10 +447,10 @@ pub(crate) fn remove_data(
             for entry in &kept {
                 let mut place = 0;
                 loop {
-                    if budget == 0 {
+                    if *budget == 0 {
                         return Ok(Progress::More);
                     }
-                    budget -= 1;
+                    *budget -= 1;
                     match remove_entry(storage, entry, &mut place)? {
                         Removed::More => {}
                         Removed::Gone => break,

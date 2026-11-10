@@ -243,7 +243,7 @@ fn the_discard_of_a_book_with_much_data_is_progress_until_all_is_gone() {
     let f = fixture();
     f.book("Books/b.epub");
     let key = library::key("Books/b.epub");
-    for n in 0..(DISCARD_PIECES as usize * 3) {
+    for n in 0..(STEP_PIECES as usize * 3) {
         f.storage
             .write(&format!(".paperpaw/plugins/x/pos/{key}.p{n}"), b"x")
             .unwrap();
@@ -269,6 +269,188 @@ fn the_discard_of_a_book_with_much_data_is_progress_until_all_is_gone() {
         .storage
         .list(".paperpaw/plugins/x/pos", &mut |_| left += 1);
     assert_eq!(left, 0);
+}
+
+/// A card that reads but refuses every change (`Io`): the power is flaky.
+struct Refusing<'a>(&'a MemoryStorage);
+
+impl Storage for Refusing<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn rename(&self, _: &str, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn create_dir(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn remove_dir_all(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+}
+
+/// A refused write while a book is carried is the step's status, not "done":
+/// the phase does not move on, and the repeat on a card that works finishes
+/// (the favourites and the data are at the new key).
+#[test]
+fn a_card_that_refuses_a_write_fails_the_step_and_the_repeat_finishes_it() {
+    let f = fixture();
+    f.book("Books/new/a.epub");
+    f.place("Books/old/a.epub");
+    library::set_favourite(&f.storage, "Books/old/a.epub", true);
+    let refusing = Refusing(&f.storage);
+    let mut out = |_| ();
+    let carry = EnvCarry::from_parts(
+        &refusing,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
+    assert_eq!(
+        carry.carry("Books/old", "Books/new", Phase::Books(0)),
+        Err(super::super::storage::status(StorageError::Io))
+    );
+    assert!(f.has_place("Books/old/a.epub") && !f.has_place("Books/new/a.epub"));
+    assert_eq!(library::favourites(&f.storage), ["Books/old/a.epub"]);
+    f.run("Books/old", "Books/new");
+    assert!(f.has_place("Books/new/a.epub") && !f.has_place("Books/old/a.epub"));
+    assert_eq!(library::favourites(&f.storage), ["Books/new/a.epub"]);
+}
+
+/// Counts the entries a step removes.
+struct Removals<'a> {
+    card: &'a MemoryStorage,
+    removed: Cell<usize>,
+}
+
+impl Storage for Removals<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.card.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.card.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.removed.set(self.removed.get() + 1);
+        self.card.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.card.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.card.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.removed.set(self.removed.get() + 1);
+        self.card.remove_dir_all(p)
+    }
+}
+
+/// The host's document cache of a moved book goes with its old key, a bounded
+/// piece at a time, one budget for the whole step whatever the number of books:
+/// a folder of books with big caches takes several steps, none of which removes
+/// more than the budget, and nothing of another book's cache is touched.
+#[test]
+fn the_document_caches_of_a_moved_folder_are_removed_over_steps_within_one_budget() {
+    let f = fixture();
+    let books = 20;
+    for n in 0..books {
+        f.book(&std::format!("Books/new/b{n:02}.epub"));
+        f.place(&std::format!("Books/old/b{n:02}.epub"));
+        let old = key(&std::format!("Books/old/b{n:02}.epub"));
+        for page in 0..300 {
+            f.storage
+                .write(
+                    &std::format!(".paperpaw/cache/{old}/epub/c1/pages/p{page}.bin"),
+                    b"x",
+                )
+                .unwrap();
+        }
+        f.storage
+            .write(
+                &std::format!(".paperpaw/cache/{old}/epub/c1/.host/.complete"),
+                b"k",
+            )
+            .unwrap();
+    }
+    let other = key("Books/other.epub");
+    f.storage
+        .write(&std::format!(".paperpaw/cache/{other}/.complete"), b"o")
+        .unwrap();
+    let counted = Removals {
+        card: &f.storage,
+        removed: Cell::new(0),
+    };
+    let mut out = |_| ();
+    let carry = EnvCarry::from_parts(
+        &counted,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
+    let (mut phase, mut steps, mut worst) = (Phase::Books(0), 0, 0);
+    while !matches!(phase, Phase::Assignments) {
+        let before = counted.removed.get();
+        phase = carry.carry("Books/old", "Books/new", phase).unwrap();
+        worst = worst.max(counted.removed.get() - before);
+        steps += 1;
+        assert!(steps < 2000, "the job ends");
+    }
+    // 8 pieces of at most 64 removals, and a stamp or so for each book.
+    assert!(worst <= 8 * 65 + 2 * books, "a step removed {worst}");
+    assert!(steps > 10, "the caches took many steps: {steps}");
+    assert!(
+        f.storage
+            .exists(&std::format!(".paperpaw/cache/{other}/.complete"))
+    );
+    for n in 0..books {
+        let old = key(&std::format!("Books/old/b{n:02}.epub"));
+        assert!(
+            !f.storage
+                .exists(&std::format!(".paperpaw/cache/{old}/epub/c1/pages/p0.bin"))
+        );
+        assert!(f.has_place(&std::format!("Books/new/b{n:02}.epub")));
+    }
+}
+
+/// A card status the card gives for good is left (as for the data), another
+/// one repeats the step.
+#[test]
+fn a_status_for_good_is_left_and_a_transient_one_repeats() {
+    assert_eq!(moved_status(Ok(())), Ok(()));
+    assert_eq!(moved_status(Err(StorageError::InvalidPath)), Ok(()));
+    assert_eq!(
+        moved_status(Err(StorageError::Io)),
+        Err(super::super::storage::status(StorageError::Io))
+    );
 }
 
 #[test]
