@@ -11,8 +11,10 @@ use paperpaw_sdk::native::{
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
     formatting::Arg,
+    net::Net,
     registrations,
     reply::Reply,
+    secrets::Secrets,
     storage::DataStorage,
     ui::{HandoverId, Instance, Notify, Question, RequestId, Ui},
 };
@@ -24,9 +26,9 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN,
-    SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
-    WORK_TOKEN,
+    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, PHONE_TOKEN, RESUME_TOKEN, REVIEW_TOKEN,
+    SD_CARD_TOKEN, SD_MENU_TOKEN, SERVED_TOKEN, SERVER_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN,
+    WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
@@ -68,6 +70,10 @@ pub struct NativeVocabulary {
     pub(crate) sd_runs: Screens<crate::native_sd::Run>,
     /// The word a question about deleting is asked of, and the question.
     asked: Option<(RequestId, Word, Asked)>,
+    /// The phone page's screen, and what serving it needs.
+    pub(crate) phones: Screens<crate::native_phone::PhoneView>,
+    pub(crate) net: Option<Net>,
+    pub(crate) secrets: Option<Secrets>,
 }
 
 impl Plugin for NativeVocabulary {
@@ -78,10 +84,16 @@ impl Plugin for NativeVocabulary {
             .chain(image::STAGES)
             .chain(image::WIDGETS)
             .chain(image::NAVIGATION)
-            .chain(image::HELP)
             .chain(image::UI)
         {
             registrations::submit(host, batch)?;
+        }
+        // The help is not needed to run: a host that does not admit the hints
+        // yet (#892) leaves them out, and Vocabulary starts all the same.
+        for batch in image::HELP {
+            if let Err(Error::NoMemory) = registrations::submit(host, batch) {
+                return Err(Error::NoMemory);
+            }
         }
         // The services are opened by the first callback: opening needs a live frame.
         Ok(Self::default())
@@ -94,7 +106,7 @@ impl Plugin for NativeVocabulary {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::Resume, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::Resume, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall, kinds::Server, kinds::ServedRequest)
         else {
             return Ok(());
         };
@@ -144,6 +156,15 @@ impl Plugin for NativeVocabulary {
             } if token == OPEN_TOKEN => {
                 CommandSender::new(host, &mut [0; 128]).open_screen(native_list::SCREEN)
             }
+            Event::Server(e) if token == SERVER_TOKEN => self.phone_server(host, &e),
+            Event::ServedRequest(r) if token == SERVED_TOKEN => self.phone_request(host, &r),
+            Event::ScreenOpened { instance, .. } if token == PHONE_TOKEN => {
+                self.opened_phone(host, instance)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PHONE_TOKEN => self.shown_phone(host, instance),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. } if token == WORDS_TOKEN => {
                 self.opened_words(host, instance)
@@ -171,6 +192,7 @@ impl Plugin for NativeVocabulary {
                 self.shown(host, token, instance)
             }
             Event::ScreenClosed { instance, .. } => {
+                self.closed_phone(host, instance)?;
                 if let Some(review) = self.reviews.get(instance) {
                     let data = DataStorage::new(host);
                     review.close(&DataFolder(&data));
@@ -203,6 +225,11 @@ impl Plugin for NativeVocabulary {
                 .draw(host, &mut frame),
             REVIEW_TOKEN => self
                 .reviews
+                .top(token)
+                .ok_or(Error::State)?
+                .draw(host, &mut frame),
+            PHONE_TOKEN => self
+                .phones
                 .top(token)
                 .ok_or(Error::State)?
                 .draw(host, &mut frame),
@@ -246,6 +273,10 @@ impl Plugin for NativeVocabulary {
                 let data = DataStorage::new(host);
                 screen.input(host, &DataFolder(&data), &input)
             }
+            PHONE_TOKEN => match self.phones.top(token) {
+                Some(view) => view.input(host, &input),
+                None => Ok(Handled::No),
+            },
             SD_MENU_TOKEN | SD_CARD_TOKEN => self.input_sd(host, token, &input),
             WORDS_TOKEN => {
                 let Some(view) = self.words.top(token) else {
@@ -445,7 +476,8 @@ impl NativeVocabulary {
 
     fn opened_decks(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.ensure(host)?;
-        let numbers = Self::numbers(host)?;
+        let mut numbers = Self::numbers(host)?;
+        numbers.phone = self.phone_offered(host)?;
         let view = DecksView::new(host, &numbers)?;
         self.decks.open(instance, view)?;
         // Opening the flash cards updates the decks from the files that are
@@ -589,7 +621,7 @@ impl NativeVocabulary {
 }
 
 /// The name of the deck the words looked up go into.
-fn lookup_deck(host: &Host<'_>) -> Result<String, Error> {
+pub(crate) fn lookup_deck(host: &Host<'_>) -> Result<String, Error> {
     HostWords::new(host)?.copy("vocabulary.cards.looked-up")
 }
 
