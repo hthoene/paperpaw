@@ -136,6 +136,7 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         "format-docx",
         "format-images",
         "format-mobi",
+        "sleep",
     ] {
         assert!(!ids.contains(&id), "{id}");
     }

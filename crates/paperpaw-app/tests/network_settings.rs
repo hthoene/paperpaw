@@ -42,6 +42,10 @@ fn app(config: &str) -> Kernel {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn fixed_network_settings_cover_the_plugins() {
     let kernel = app("");
     let mut networked: Vec<&str> = kernel
@@ -63,6 +67,10 @@ fn fixed_network_settings_cover_the_plugins() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");
     for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {

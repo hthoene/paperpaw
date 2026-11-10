@@ -143,7 +143,8 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_registers`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: the formats (txt,
-/// xtc, docx, images, mobi), home, reader, dictionary, store, wifi, transfer,
+/// xtc, docx, images, mobi), sleep (vocabulary's interface-6 card choice sets
+/// its setting), home, reader, dictionary, store, wifi, transfer,
 /// fonts-browser, vocabulary, news, picture-home.
 #[cfg(feature = "native-linked")]
 pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
@@ -169,7 +170,6 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
-    ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
@@ -211,7 +211,10 @@ pub fn native_registers(id: &str, store: StorePlugins<'_>, configs: &[&str]) -> 
         StorePlugins::On => !matches!(id, "mail" | "notes-vault" | "picture-home"),
         #[cfg(feature = "store-plugins")]
         StorePlugins::Off(on) => id != "mail" && on(id),
-        #[allow(unreachable_patterns)]
+        #[allow(
+            unreachable_patterns,
+            reason = "`On` and `Off` exist only with the feature `store-plugins`"
+        )]
         _ => false,
     };
     !switched(false) && (shipped_on || switched(true))
@@ -381,10 +384,7 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    }
+    b = b.plugin(paperpaw_plugin_sleep::Sleep);
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_news::News);

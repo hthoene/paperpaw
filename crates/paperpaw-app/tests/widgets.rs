@@ -197,6 +197,10 @@ fn one_week_start_for_all() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
     app.set(
