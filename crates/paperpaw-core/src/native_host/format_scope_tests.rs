@@ -13,6 +13,8 @@ fn book<'a>(path: &'a str, kind: BookKind, opened: &'a str, document: u32) -> Fo
         document,
         cache: "",
         css: "",
+        cache_cap: 0,
+        quota: None,
     }
 }
 

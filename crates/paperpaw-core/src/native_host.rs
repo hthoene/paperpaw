@@ -138,6 +138,7 @@ pub mod device_service;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
+pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;

@@ -14,12 +14,16 @@
 //! stale "inside a call" can never be seen. Entering reserves the copies
 //! fallibly before the format is entered; the drop never allocates. Calls in
 //! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
 pub(crate) const MAX_NESTING: usize = 8;
+
+/// Documents whose cache bytes are counted at once (open documents are at
+/// most 8).
+const MAX_COUNTED: usize = 16;
 
 /// `format.spec.flags` bit 2: a book is a folder.
 const FOLDER: u32 = 1 << 2;
@@ -52,7 +56,7 @@ impl BookKind {
 }
 
 /// What a format call is for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct FormatBook<'a> {
     /// The root-1 path of the opened book (the folder for a `Folder`).
     pub(crate) path: &'a str,
@@ -67,6 +71,12 @@ pub(crate) struct FormatBook<'a> {
     /// The card path of the user's CSS file, root 4, in the calls that may
     /// read it (ops 2 and 3); `""` for none.
     pub(crate) css: &'a str,
+    /// The most bytes the document's cache may hold (`document.md` 3, Cache
+    /// quota).
+    pub(crate) cache_cap: u64,
+    /// Where the cache's bytes are counted: filled in for the visitor of
+    /// [`FormatScope::current`], `None` as given to [`FormatScope::enter`].
+    pub(crate) quota: Option<&'a FormatScope>,
 }
 
 impl FormatBook<'_> {
@@ -94,6 +104,7 @@ struct Entry {
     document: u32,
     cache: String,
     css: String,
+    cache_cap: u64,
 }
 
 /// One place for a call under way. Whether it is in use and whose it is are
@@ -125,6 +136,9 @@ impl Slot {
 /// answers for exactly that call or for none.
 pub(crate) struct FormatScope {
     slots: [Slot; MAX_NESTING],
+    /// The bytes written to the cache of each open document (`document`,
+    /// bytes): counted here because a document lives longer than a call.
+    used: RefCell<Vec<(u32, u64)>>,
 }
 
 impl Default for FormatScope {
@@ -171,6 +185,46 @@ impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
             slots: [const { Slot::new() }; MAX_NESTING],
+            used: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// `add` bytes more and `credit` bytes fewer in the cache of `document`:
+    /// nothing changes and the answer is `ERR_NO_SPACE` where the cache
+    /// would hold more than `cap`.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE`, `ERR_BUSY` (the count is borrowed), `ERR_NO_MEMORY`.
+    pub(crate) fn charge(&self, document: u32, add: u64, credit: u64, cap: u64) -> Result<(), i32> {
+        let mut used = self.used.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let at = match used.iter().position(|(d, _)| *d == document) {
+            Some(at) => at,
+            None => {
+                // Documents never come back under an id, and a call ends
+                // with its document: the oldest count is a dead one's.
+                if let Some(oldest) = (0..used.len())
+                    .min_by_key(|&i| used[i].0)
+                    .filter(|_| used.len() >= MAX_COUNTED)
+                {
+                    used.swap_remove(oldest);
+                }
+                used.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                used.push((document, 0));
+                used.len() - 1
+            }
+        };
+        let next = used[at].1.saturating_sub(credit).saturating_add(add);
+        if next > cap {
+            return Err(ERR_NO_SPACE);
+        }
+        used[at].1 = next;
+        Ok(())
+    }
+
+    /// The document ended: its count goes.
+    pub(crate) fn forget(&self, document: u32) {
+        if let Ok(mut used) = self.used.try_borrow_mut() {
+            used.retain(|(d, _)| *d != document);
         }
     }
 
@@ -196,6 +250,7 @@ impl FormatScope {
             document: book.document,
             cache: text(book.cache)?,
             css: text(book.css)?,
+            cache_cap: book.cache_cap,
         };
         // A place that is not live is not looked at (`current` goes by `live`).
         *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
@@ -228,6 +283,8 @@ impl FormatScope {
             document: entry.document,
             cache: &entry.cache,
             css: &entry.css,
+            cache_cap: entry.cache_cap,
+            quota: Some(self),
         });
         true
     }

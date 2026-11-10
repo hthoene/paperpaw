@@ -159,6 +159,7 @@ impl<'a> StorageAdapter<'a> {
     /// root 3 or 4, the path rules, then what the root names. Root 6 keeps
     /// `.complete` and `.host/` for the host: a change is `ERR_DENIED`, a read
     /// `ERR_NOT_FOUND`.
+    #[inline(never)]
     fn resolve_format<R>(
         &self,
         root: u32,
@@ -193,6 +194,10 @@ impl<'a> StorageAdapter<'a> {
         } else {
             relative_path(path)?
         };
+        // A call without the file it is for (a book with no path) has no root.
+        if single && base.is_empty() {
+            return Err(ERR_UNSUPPORTED);
+        }
         if single {
             // One file: its name is the path "".
             return if relative.is_empty() {
@@ -300,7 +305,7 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status.
     pub fn write(&self, root: u32, path: &[u8], data: &[u8]) -> Result<(), i32> {
-        self.put(root, path, data, |p| self.storage.write(p, data))
+        self.put(root, path, data, true, |p| self.storage.write(p, data))
     }
 
     /// Slot 23: appends `data` (at most 4096 bytes), kept back until
@@ -310,7 +315,7 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status.
     pub fn append(&self, root: u32, path: &[u8], data: &[u8]) -> Result<(), i32> {
-        self.put(root, path, data, |p| self.storage.append(p, data))
+        self.put(root, path, data, false, |p| self.storage.append(p, data))
     }
 
     fn put(
@@ -318,6 +323,7 @@ impl<'a> StorageAdapter<'a> {
         root: u32,
         path: &[u8],
         data: &[u8],
+        replaces: bool,
         act: impl Fn(&str) -> Result<(), StorageError>,
     ) -> Result<(), i32> {
         if data.len() > MAX_DATA {
@@ -326,8 +332,35 @@ impl<'a> StorageAdapter<'a> {
         self.resolve(root, path, true, |p| {
             self.free_of_host_writers(p)?;
             self.check_room(data.len())?;
+            // A write replaces the file: what it held is not counted twice.
+            let credit = if replaces { self.size_of(p) } else { 0 };
+            self.charge(root, data.len() as u64, credit)?;
             self.with_parents(p, &act)
         })
+    }
+
+    /// What was taken from the cache stops counting; a count that cannot be
+    /// had changes nothing (it only overcounts).
+    fn credit(&self, root: u32, bytes: u64) {
+        let _ = self.charge(root, 0, bytes);
+    }
+
+    /// The bytes of the file at `p`, 0 where there is none.
+    fn size_of(&self, p: &str) -> u64 {
+        self.storage.size(p).unwrap_or(0)
+    }
+
+    /// The cache's count (root 6) of the call's document: `add` bytes more,
+    /// `credit` fewer (`ERR_NO_SPACE` over the cap). The other roots are not
+    /// counted here.
+    fn charge(&self, root: u32, add: u64, credit: u64) -> Result<(), i32> {
+        let (6, Some(book)) = (root, self.format) else {
+            return Ok(());
+        };
+        match book.quota {
+            Some(scope) => scope.charge(book.document, add, credit, book.cache_cap),
+            None => Ok(()),
+        }
     }
 
     /// Slot 24: renames `from` to `to`, replacing a file there.
@@ -343,7 +376,9 @@ impl<'a> StorageAdapter<'a> {
                 // Neither end may be a file a host writer holds.
                 self.free_of_host_writers(f)?;
                 self.free_of_host_writers(t)?;
-                match self.storage.rename(f, t) {
+                // What the rename replaces is not in the cache any more.
+                let credit = self.size_of(t);
+                let moved = match self.storage.rename(f, t) {
                     // A missing `from` is NotFound too: folders above `to` are
                     // made only where `from` is there.
                     Err(StorageError::NotFound) if self.storage.exists(f) => {
@@ -351,7 +386,11 @@ impl<'a> StorageAdapter<'a> {
                         self.storage.rename(f, t).map_err(status)
                     }
                     other => other.map_err(status),
+                };
+                if moved.is_ok() {
+                    self.credit(root, credit);
                 }
+                moved
             })
         })
     }
@@ -363,8 +402,13 @@ impl<'a> StorageAdapter<'a> {
     pub fn remove(&self, root: u32, path: &[u8]) -> Result<(), i32> {
         self.resolve(root, path, true, |p| {
             self.free_of_host_writers(p)?;
+            let credit = self.size_of(p);
             match self.storage.remove(p) {
-                Ok(()) | Err(StorageError::NotFound) => Ok(()),
+                Ok(()) => {
+                    self.credit(root, credit);
+                    Ok(())
+                }
+                Err(StorageError::NotFound) => Ok(()),
                 Err(e) => Err(status(e)),
             }
         })

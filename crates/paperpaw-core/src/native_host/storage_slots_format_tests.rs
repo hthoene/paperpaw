@@ -4,7 +4,7 @@ extern crate std;
 use super::tests::{Backend, bytes, output, scoped};
 use super::*;
 use crate::native_host::format_scope::{BookKind, FormatBook, FormatScope};
-use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Storage;
 
 const FORMAT: &str = "epub";
@@ -19,6 +19,8 @@ fn book<'a>(path: &'a str, kind: BookKind, cache: &'a str, css: &'a str) -> Form
         document: 1,
         cache,
         css,
+        cache_cap: 10,
+        quota: None,
     }
 }
 
@@ -316,4 +318,53 @@ fn another_plugin_is_not_in_the_call() {
         assert_eq!(read(env, format, 3, ""), Err(ERR_UNSUPPORTED));
         assert_eq!(put(env, format, 6, "x", b"x"), ERR_UNSUPPORTED);
     });
+}
+
+#[test]
+fn a_cache_holds_no_more_than_its_cap_and_what_is_replaced_or_removed_is_not_counted() {
+    within(
+        Some(book("books/a.epub", BookKind::File, CACHE, "")),
+        |env, format| {
+            assert_eq!(put(env, format, 6, "a", b"123456"), OK);
+            // 6 + 6 is over the cap of 10: nothing is written.
+            assert_eq!(put(env, format, 6, "b", b"123456"), ERR_NO_SPACE);
+            assert_eq!(read(env, format, 6, "b"), Err(ERR_NOT_FOUND));
+            // A write that replaces counts the new bytes only.
+            assert_eq!(put(env, format, 6, "a", b"1234567"), OK);
+            // An append counts what it adds.
+            // SAFETY: live inputs.
+            unsafe {
+                let held = &PathsInUse::default();
+                assert_eq!(
+                    append(env, FORMAT, format, held, 6, bytes(b"a"), bytes(b"89")),
+                    OK
+                );
+                assert_eq!(
+                    append(env, FORMAT, format, held, 6, bytes(b"a"), bytes(b"0")),
+                    OK
+                );
+                assert_eq!(
+                    append(env, FORMAT, format, held, 6, bytes(b"a"), bytes(b"1")),
+                    ERR_NO_SPACE
+                );
+                // A removed file is counted no more.
+                assert_eq!(remove(env, FORMAT, format, held, 6, bytes(b"a")), OK);
+            }
+            assert_eq!(put(env, format, 6, "b", b"1234567890"), OK);
+            // A rename over a file frees what that file held.
+            assert_eq!(put(env, format, 6, "tmp", b"1"), ERR_NO_SPACE);
+            // SAFETY: live inputs.
+            unsafe {
+                let held = &PathsInUse::default();
+                assert_eq!(remove(env, FORMAT, format, held, 6, bytes(b"b")), OK);
+                assert_eq!(put(env, format, 6, "c", b"12345"), OK);
+                assert_eq!(put(env, format, 6, "tmp", b"12345"), OK);
+                assert_eq!(
+                    rename(env, FORMAT, format, held, 6, bytes(b"tmp"), bytes(b"c")),
+                    OK
+                );
+            }
+            assert_eq!(put(env, format, 6, "d", b"12345"), OK);
+        },
+    );
 }
