@@ -37,8 +37,9 @@ pub(crate) trait MoveCarry {
     /// The data kept for the file at `to` (catalog row, position,
     /// annotations, plugins' book data) is dropped, so that the moved book
     /// never inherits it; run once per replacing move, before the first book
-    /// is carried (see [`StepHost`]).
-    fn discard(&self, to: &str) -> Result<(), i32>;
+    /// is carried (see [`StepHost`]). `true` once all of it is gone; `false`:
+    /// a bounded piece was done and the step is to run again.
+    fn discard(&self, to: &str) -> Result<bool, i32>;
     /// One bounded step of `phase` (see [`MoveHost::carry`]).
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32>;
     /// One book now (see [`MoveHost::carry_book`]).
@@ -316,8 +317,9 @@ impl MoveHost for StepHost<'_> {
     }
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
-        if matches!(phase, Phase::Books(_)) {
-            self.ensure_discarded(to)?;
+        if matches!(phase, Phase::Books(_)) && !self.ensure_discarded(to)? {
+            // Progress, not a refusal: the same phase again.
+            return Ok(phase);
         }
         self.serve(from, to);
         self.carry.carry(from, to, phase)
@@ -325,19 +327,24 @@ impl MoveHost for StepHost<'_> {
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
         // Not before the replaced file's data is discarded.
-        self.ensure_discarded(to)?;
+        if !self.ensure_discarded(to)? {
+            return Err(ERR_BUSY);
+        }
         self.carry.carry_book(from, to, book)
     }
 }
 
 impl StepHost<'_> {
     /// A replacing move's discard, once, recorded before anything is carried.
-    fn ensure_discarded(&self, to: &str) -> Result<(), i32> {
+    /// `false`: a piece of it was done, more is left.
+    fn ensure_discarded(&self, to: &str) -> Result<bool, i32> {
         if self.card.needs_discard()? {
-            self.carry.discard(to)?;
+            if !self.carry.discard(to)? {
+                return Ok(false);
+            }
             self.card.mark_discarded()?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// The reader's "carry this book first" request, if there is one: the
@@ -349,9 +356,11 @@ impl StepHost<'_> {
         let Request::Asked(book) = core::mem::replace(&mut *slot, Request::Empty) else {
             return;
         };
-        let answer = self
-            .ensure_discarded(to)
-            .and_then(|()| self.carry.carry_book(from, to, &book));
+        let answer = match self.ensure_discarded(to) {
+            Ok(true) => self.carry.carry_book(from, to, &book),
+            Ok(false) => Err(ERR_BUSY),
+            Err(error) => Err(error),
+        };
         *slot = Request::Served(book, answer);
     }
 }

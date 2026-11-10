@@ -48,6 +48,11 @@ pub(crate) trait GuardState {
     fn guard_plugin(&self) -> Option<u64>;
     /// Whether the screen instance lies below the topmost guard.
     fn below_guard(&self, screen_instance: u32) -> bool;
+    /// Whether the screen instance is still on the stack. A reader that does
+    /// not know says so (`true`): only a delivery between callbacks asks.
+    fn on_stack(&self, _screen_instance: u32) -> bool {
+        true
+    }
 }
 
 /// No guard: for tests and for a stack without one.

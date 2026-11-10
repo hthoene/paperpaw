@@ -460,7 +460,8 @@ fn a_screen_policy_is_the_submitters_own_and_staged_apart() {
             policies,
             [PolicyChange {
                 instance: 3,
-                flags: 0x12
+                flags: 0x12,
+                ready: false,
             }]
         );
     }
@@ -521,6 +522,7 @@ fn the_kernel_applies_a_policy_to_the_real_screen() {
     let change = |flags| PolicyChange {
         instance: key.serial(),
         flags,
+        ready: false,
     };
     kernel.native_screen_policies(&probe, OWN, vec![change(0x10)]);
     assert!(kernel.is_secret() && kernel.guard().is_none());
@@ -562,6 +564,7 @@ fn the_kernel_applies_a_policy_to_the_real_screen() {
         vec![PolicyChange {
             instance: 999,
             flags: 0,
+            ready: false,
         }],
     );
     assert!(kernel.guard().is_some());
@@ -642,6 +645,7 @@ fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
         vec![PolicyChange {
             instance: keyboard,
             flags: 0x02,
+            ready: false,
         }],
     );
     // The lock is still the guard, nothing else guards, one warning.
@@ -652,4 +656,26 @@ fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
     let lock_key = kernel.shared.stack[1].key;
     kernel.drain_native_command(&lock, Command::Close(lock_key));
     assert_eq!(stack_of(&kernel), ["probe.base", "probe.more"]);
+}
+
+/// `command.screen_ready` is the own top instance's, else `ERR_STATE`, and is
+/// staged apart from the commands like a policy.
+#[test]
+fn screen_ready_is_the_own_top_instance_and_staged_apart() {
+    let kernel = kernel(&[BASE, MINE]);
+    let (status, staged, changes) = submit_policy(&kernel, 3, &[WireCommand::ScreenReady {}]);
+    assert_eq!(status, OK);
+    assert!(staged.is_empty());
+    assert_eq!(
+        changes,
+        [PolicyChange {
+            instance: 3,
+            flags: 0,
+            ready: true,
+        }]
+    );
+    // From a callback of a screen that is not the top one.
+    let (status, staged, changes) = submit_policy(&kernel, 1, &[WireCommand::ScreenReady {}]);
+    assert_eq!(status, ERR_STATE);
+    assert!(staged.is_empty() && changes.is_empty());
 }
