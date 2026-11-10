@@ -561,7 +561,7 @@ fn a_changed_preview_reaches_its_subscribers_once_and_in_order_with_the_registry
 
 #[test]
 fn a_registry_event_is_not_queued_for_a_plugin_that_subscribed_to_nothing_of_it() {
-    let mut w = world(false);
+    let w = world(false);
     w.kernel.native_registry_changed(1);
     w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
     assert!(
