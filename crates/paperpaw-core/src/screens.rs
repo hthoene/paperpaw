@@ -1123,6 +1123,25 @@ impl Kernel {
                 self.set_key_layer(key, layer);
             }
         }
+        // The firmware confirmation's answer comes from that screen alone:
+        // taken here, out of its own commands, so no event another sends
+        // (with the nonce guessed or not) is ever taken for it.
+        if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
+            let mut at = given;
+            while at < self.output.commands.len() {
+                let Command::Emit(event, params) = &self.output.commands[at] else {
+                    at += 1;
+                    continue;
+                };
+                if *event != crate::native_host::firmware_confirm::ANSWERED {
+                    at += 1;
+                    continue;
+                }
+                let params = params.clone();
+                self.output.commands.remove(at);
+                self.firmware_answer(&params);
+            }
+        }
         // The commands of a guarding screen, or of one above it, open
         // screens above it.
         if trusted {

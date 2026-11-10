@@ -464,6 +464,11 @@ asker learns its request id at once and long texts move in pages, never cut.
   it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
   filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
   them.
+- [D] **Raise once per press** (Senior R1 on #870): verdicts 2 run and 5 raise act on every input
+  they answer, the rest of a captured one included, so a filter that answers run or raise again
+  on the key's repeat or release, or on the pointer's moves and up, runs its action again. A filter
+  answers run or raise once per press (at the press, or at the up for a recognizer) and pass or
+  take for the rest of it; the host does not deduplicate.
 - [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
   down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
   it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
@@ -500,6 +505,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     exception is the screen the host itself shows for a device state, the sleep screen of slot
     `core.sleep`: it shows above the guard, gets no input while the guard is up, and draws over a
     blank area (bit 2 `overlay`, section 1.2).
+  - **Host confirmations.** A screen of the host's own that guards (the confirmation of
+    `device.md` 5.0, e.g. for a firmware install) is the guard itself: it gets the keys and
+    pointers, no plugin's input filter runs for it, no binding to a plugin's action or input
+    applies, and `raise_input` is `ERR_DENIED` for every plugin. The host opens it only while no
+    plugin's instance guards.
   - **Guard dialogs.** Such a dialog belongs to its plugin (the keyboard) but is authorized by
     the host for the guard's question: it is the top instance, so it gets keys and pointers, and
     its own plugin's filters run beside the guard's (section 1.2); it reads and writes its

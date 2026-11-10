@@ -208,6 +208,8 @@ pub const COMMAND_INSTALL_AUTHOR_TAG: u32 = 1580;
 pub const COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES: usize = 32;
 /// Maximum bytes of `command.install_author.recovery`.
 pub const COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.install_author.sha256`.
+pub const COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES: usize = 32;
 /// Wire tag of the `command.install_rotation` command.
 pub const COMMAND_INSTALL_ROTATION_TAG: u32 = 1581;
 /// Maximum bytes of `command.install_rotation.to`.
@@ -563,6 +565,8 @@ pub enum Command<'a> {
         author: &'a [u8],
         /// At most 32 bytes.
         recovery: &'a [u8],
+        /// At most 32 bytes.
+        sha256: &'a [u8],
     },
     /// The `command.install_rotation` command (`docs/abi/device.md`).
     InstallRotation {
@@ -1255,6 +1259,7 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     request: u32::from_le_bytes(scalar(body.take(4)?)),
                     author: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?,
                     recovery: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?,
+                    sha256: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES)?,
                 }
             }
             COMMAND_INSTALL_ROTATION_TAG => {
@@ -1602,11 +1607,15 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::FirmwareRestart {} => Ok((COMMAND_FIRMWARE_RESTART_TAG, 1)),
         Command::InstallAuthor {
-            author, recovery, ..
+            author,
+            recovery,
+            sha256,
+            ..
         } => {
             let mut len = 1 + 4;
             len += blob_len(author.len(), COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?;
             len += blob_len(recovery.len(), COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?;
+            len += blob_len(sha256.len(), COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES)?;
             Ok((COMMAND_INSTALL_AUTHOR_TAG, len))
         }
         Command::InstallRotation { to, signature, .. } => {
@@ -1952,11 +1961,13 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     request,
                     author,
                     recovery,
+                    sha256,
                 } => {
                     out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
                     offset += 4;
                     write_blob(author, out, &mut offset);
                     write_blob(recovery, out, &mut offset);
+                    write_blob(sha256, out, &mut offset);
                 }
                 Command::InstallRotation {
                     request,

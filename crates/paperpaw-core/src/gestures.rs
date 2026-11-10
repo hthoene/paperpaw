@@ -340,7 +340,7 @@ impl Kernel {
         }
         let thresholds = self.thresholds();
         if let Some(recognized) = self.input.recognizer.pointer(&event, self.now, &thresholds) {
-            self.recognized(recognized);
+            self.recognized_filtered(recognized);
         }
     }
 
@@ -461,7 +461,7 @@ impl Kernel {
         } else {
             return;
         };
-        self.recognized(Recognized::Gesture(Gesture::new(
+        self.recognized_filtered(Recognized::Gesture(Gesture::new(
             kind, start, end, touch.tool,
         )));
     }

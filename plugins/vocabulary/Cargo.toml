@@ -32,6 +32,7 @@ paperpaw-zip.workspace = true
 
 [build-dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 paperpaw-zip = { workspace = true, features = ["testing"] }
@@ -42,6 +43,7 @@ paperpaw-platform.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-sleep.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 proptest.workspace = true
 
 [lints]
