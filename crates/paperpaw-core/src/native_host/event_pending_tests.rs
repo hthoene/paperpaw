@@ -187,10 +187,10 @@ fn the_events_of_subscription_checked_services_can_be_registered() {
 
 #[test]
 fn pending_unsupported_events_do_not_enable_admission() {
-    // 64 and the hints 70-74 have their delivery (`setting_events`); the book
-    // events 65-67 register (nothing queues them: they are no hints); 68 and
-    // 69 have no producer yet.
-    for tag in [64, 65, 66, 67].into_iter().chain(70..=74) {
+    // 64 and the hints 70-74 have their delivery (`setting_events`), 86 its own
+    // (`widget_events`); the book events 65-67 register (nothing queues them:
+    // they are no hints); 68 and 69 have no producer yet.
+    for tag in [64, 65, 66, 67].into_iter().chain(70..=74).chain(86..=86) {
         assert!(super::super::events::is_event_tag(tag));
     }
     for tag in 68..=69 {

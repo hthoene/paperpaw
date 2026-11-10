@@ -8,23 +8,22 @@
 //! with titles, authors and links, the next page and where to search.
 //! Everything kept has a limit, so a feed made to fill the memory cannot.
 //!
-//! The XML tokenizer decodes entities and attributes into owned text where one
-//! occurs (`Cow`): that allocation has no refusal path. It is bounded (a text
-//! token is at most 1,024 bytes, a start tag at most 4 KiB, and decoding never
-//! makes text longer) and is a named gate for the browse slice
-//! (`PORTING-7.md`, GATE-ENTITY).
+//! The XML decoder's owned text for an entity or an escape is made with its
+//! fallible forms (`try_decode`, `Attrs::try_get`): a refusal ends the reading
+//! like any other.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     document::is_external,
     native::Error,
-    xml::{Token, Tokenizer, decode, local_name},
+    xml::{Token, Tokenizer, local_name, try_decode},
 };
 use paperpaw_ui_kit::{
-    mem::push,
+    mem::{buffer, push},
     text::{concat, copy},
 };
 
-/// Entries kept of one page; catalogs page longer lists with *next*.
+/// Entries kept of one page on a device with room; catalogs page longer
+/// lists with *next*.
 pub const MAX_ENTRIES: usize = 100;
 /// Titles and notes are cut at this many characters.
 pub const MAX_TEXT: usize = 300;
@@ -44,8 +43,44 @@ pub const MAX_MIME: usize = 100;
 /// of 16 files each cannot reach megabytes.
 pub const MAX_PAGE: usize = 64 * 1024;
 
+/// What a page of a catalog may hold, by the device's memory class: the
+/// entries and the bytes of their text. A small device (the X4) keeps less.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Limits {
+    /// Entries kept.
+    pub entries: usize,
+    /// Bytes of text the entries hold together.
+    pub page: usize,
+}
+
+impl Limits {
+    /// The limits of a small device (`small`) or of any other.
+    #[must_use]
+    pub const fn of_class(small: bool) -> Self {
+        if small {
+            Self {
+                entries: 40,
+                page: 24 * 1024,
+            }
+        } else {
+            Self {
+                entries: MAX_ENTRIES,
+                page: MAX_PAGE,
+            }
+        }
+    }
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self::of_class(false)
+    }
+}
+
 /// A feed's kept parts.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Feed {
     pub title: String,
     pub entries: Vec<Entry>,
@@ -59,6 +94,7 @@ pub struct Feed {
 
 /// Where a catalog is searched.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Search {
     /// An OpenSearch description, which names the address to use.
     Description(String),
@@ -67,6 +103,7 @@ pub enum Search {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     pub id: String,
     pub title: String,
@@ -82,7 +119,8 @@ pub struct Entry {
 }
 
 /// A file of a book to download.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Book {
     /// Its content type, e.g. `application/epub+zip`.
     pub mime: String,
@@ -145,7 +183,7 @@ fn by_type(mime: &str) -> Option<&'static str> {
 
 impl Entry {
     /// Bytes of text it holds.
-    fn weight(&self) -> usize {
+    pub(crate) fn weight(&self) -> usize {
         let books: usize = self
             .books
             .iter()
@@ -194,6 +232,7 @@ enum Field {
 /// The parser's state between tokens.
 #[derive(Debug, Default)]
 struct Reader {
+    limits: Limits,
     base: String,
     feed: Feed,
     entry: Option<Entry>,
@@ -209,6 +248,14 @@ struct Reader {
     failed: bool,
     /// Bytes of text held by the entries kept so far.
     kept: usize,
+}
+
+/// The decoded value of attribute `name`, as the heap allows.
+fn attr<'a>(
+    attrs: &paperpaw_sdk::xml::Attrs<'a>,
+    name: &str,
+) -> Result<Option<alloc::borrow::Cow<'a, str>>, Error> {
+    attrs.try_get(name).map_err(|_| Error::NoMemory)
 }
 
 /// `text` joined to `out` if the heap allows.
@@ -245,7 +292,7 @@ impl Reader {
                     return Ok(());
                 }
                 match name {
-                    "entry" if self.feed.entries.len() >= MAX_ENTRIES => {
+                    "entry" if self.feed.entries.len() >= self.limits.entries => {
                         self.skipping = !self_closing;
                         return Ok(());
                     }
@@ -255,12 +302,18 @@ impl Reader {
                         self.content.clear();
                     }
                     "author" => self.in_author = true,
-                    "link" => self.link(
-                        attrs.get("rel").as_deref(),
-                        attrs.get("type").as_deref().unwrap_or(""),
-                        attrs.get("href").as_deref().unwrap_or(""),
-                        attrs.get("title").as_deref().unwrap_or(""),
-                    )?,
+                    "link" => {
+                        let rel = attr(&attrs, "rel")?;
+                        let kind = attr(&attrs, "type")?;
+                        let href = attr(&attrs, "href")?;
+                        let title = attr(&attrs, "title")?;
+                        self.link(
+                            rel.as_deref(),
+                            kind.as_deref().unwrap_or(""),
+                            href.as_deref().unwrap_or(""),
+                            title.as_deref().unwrap_or(""),
+                        )?;
+                    }
                     _ => {}
                 }
                 if self_closing {
@@ -275,7 +328,7 @@ impl Reader {
                     "id" if in_entry && !self.in_author => Some(Field::Id),
                     "name" if in_entry && self.in_author => Some(Field::Author),
                     "content" | "summary" if in_entry => {
-                        let kind = attrs.get("type");
+                        let kind = attr(&attrs, "type")?;
                         matches!(kind.as_deref(), None | Some("text")).then_some(Field::Content)
                     }
                     _ => None,
@@ -287,7 +340,10 @@ impl Reader {
             }
             Token::Text(text) => {
                 if self.field.is_some() && self.text.chars().count() < MAX_TEXT {
-                    append(&mut self.text, &decode(&text))?;
+                    append(
+                        &mut self.text,
+                        &try_decode(&text).map_err(|_| Error::NoMemory)?,
+                    )?;
                 }
             }
             Token::CData(text) => {
@@ -333,9 +389,9 @@ impl Reader {
                     entry.authors = join_authors(&self.authors)?;
                     entry.summary = core::mem::take(&mut self.content);
                     let useful = entry.feed.is_some() || !entry.books.is_empty();
-                    if useful && self.feed.entries.len() < MAX_ENTRIES {
+                    if useful && self.feed.entries.len() < self.limits.entries {
                         let kept = self.kept.saturating_add(entry.weight());
-                        if kept > MAX_PAGE {
+                        if kept > self.limits.page {
                             // The page is full: this and the rest are not kept.
                             self.failed = true;
                             self.feed.memory = true;
@@ -534,13 +590,14 @@ fn normalize(target: &str) -> Result<String, Error> {
 /// `NoMemory` when not even the reader can be made; the source's error when
 /// it cannot be read (what was read before is not passed off as the whole
 /// feed).
-pub fn read(source: &mut impl Source, base: &str) -> Result<Feed, Error> {
+pub fn read(source: &mut impl Source, base: &str, limits: Limits) -> Result<Feed, Error> {
     let mut reader = Reader {
+        limits,
         base: copy(base)?,
         ..Reader::default()
     };
     let mut tokenizer = Tokenizer::new();
-    let mut buf = [0u8; CHUNK];
+    let mut buf = buffer(CHUNK)?;
     let mut offset = 0;
     loop {
         let n = source.read_at(offset, &mut buf)?;

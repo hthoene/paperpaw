@@ -59,6 +59,8 @@ mod card;
 mod clock;
 mod crash;
 mod device;
+#[cfg(feature = "ppn5")]
+mod device_host;
 mod dual;
 mod firmware;
 #[cfg(feature = "remote")]
@@ -380,6 +382,8 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(feature = "ppn5")]
+        device: ready.device,
         #[cfg(all(feature = "static-native", feature = "esp32c3"))]
         device_table,
         state: State::default(),
@@ -396,6 +400,13 @@ fn start() -> Firmware {
     // `native::bundle`).
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
+    }
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::present(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device, &firmware.kernel);
     }
     power::mark(power::at::START_KERNEL);
     info!(
@@ -423,6 +434,9 @@ struct Ready {
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
     code: CodePlugins,
+    /// The device behind `core.device`.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     staged: native::bundle::Staged,
     /// The flash, to let the web flasher's bundle go once installed.
     flash: ota::Flash,
@@ -597,6 +611,14 @@ fn prepare() -> Ready {
     let host_net = host_net::Bridge::new();
     #[cfg(feature = "ppn5")]
     network.attach(host_net.clone());
+    // The device behind `core.device`, made before the code plugins are
+    // decided so that the loader can wire it.
+    #[cfg(feature = "ppn5")]
+    let device = device_host::make(
+        ota.as_ref().map(ota::Ota::running).as_ref(),
+        &staged.not_installed,
+        started(),
+    );
     // English hyphenation is a data plugin on the card: the flasher puts it
     // there, but an update of a firmware that had English built in (Beta 3)
     // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
@@ -607,7 +629,16 @@ fn prepare() -> Ready {
         &flash,
         #[cfg(feature = "ppn5")]
         host_net,
+        #[cfg(feature = "ppn5")]
+        device.clone(),
     );
+    #[cfg(feature = "ppn5")]
+    network.attach_device(device.clone());
+    // Safe mode is known only now: no loader is made then, so the device is told.
+    #[cfg(feature = "ppn5")]
+    if let CodePlugins::SafeMode(mode) = &code {
+        device_host::tell_native(&device, Some(mode));
+    }
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
     power::init(LowPower::new(board.low_power));
@@ -632,6 +663,8 @@ fn prepare() -> Ready {
         card_swap,
         card_trouble,
         code,
+        #[cfg(feature = "ppn5")]
+        device,
         staged,
         flash,
     }
@@ -784,6 +817,7 @@ fn code_plugins(
     ota: Option<&ota::Ota>,
     flash: &ota::Flash,
     #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<host_net::Bridge>,
+    #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
 ) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
@@ -811,6 +845,8 @@ fn code_plugins(
         place,
         #[cfg(feature = "ppn5")]
         host_net,
+        #[cfg(feature = "ppn5")]
+        device,
     ))
 }
 

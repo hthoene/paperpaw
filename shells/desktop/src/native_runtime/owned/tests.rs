@@ -435,6 +435,7 @@ fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() 
     assert_eq!(evidence.events.borrow().last(), Some(&"context"));
 }
 
+mod admit;
 mod canvas;
 mod dev;
 mod e2e;

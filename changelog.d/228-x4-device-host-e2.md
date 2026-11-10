@@ -1,0 +1,3 @@
+### Added
+
+- **`core.device` on the X4 follows the kernel** (#228): the networks a scan found (op 9), the USB readings and the front-light percent are told to the device where the firmware already learns of them (a scan, the status, the light), so plugins read them and nothing polls. Wi-Fi, Bluetooth, the bonded devices and the power (ops 8, 10, 11, 12) are answered by the kernel from its own models, so they are never a copy in step; the device is told once at start which radios the kernel has, and the Wi-Fi and Bluetooth `caps` bits are set with that. `Kernel::wifi_model` and `Kernel::bluetooth_model` give a shell what plugins see of both.

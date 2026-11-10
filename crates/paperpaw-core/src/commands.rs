@@ -304,6 +304,11 @@ impl Kernel {
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The makers of widgets dropped meanwhile hear of it; what
+                // they stage is the next round's.
+                if self.deliver_widget_drops() {
+                    continue;
+                }
                 // All done: the screen on top now is told it shows, if it
                 // changed; what that asks for runs too.
                 if !mem::take(&mut self.show_pending) {
@@ -641,6 +646,9 @@ impl Kernel {
                 &mut self.works,
             );
         }
+        // The native plugins that subscribed to a kernel event (tick, the
+        // lifecycle, the page turned), queued in their one order.
+        self.native_core_event(event, params, &hears);
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -713,6 +721,9 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
+        self.native_core_event(event, params, &|plugin| {
+            owners.iter().any(|owner| owner == plugin)
+        });
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.
