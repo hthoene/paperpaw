@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
 use super::{NORMAL, arm_failure, reset};
 use crate::native_host::doc_service::{FormatCall, FormatRef, Options};
-use crate::native_host::fmt_call::{ImageMap, Opener, Stage};
+use crate::native_host::fmt_call::{ImageMap, Opener, Registry, Stage};
 use crate::native_host::format_call::Target;
 use crate::native_host::format_call::tests::{Behavior, Harness};
 use crate::native_host::registrations as wire;
@@ -46,8 +46,10 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     let stage = Stage {
-        registry: &h.registry,
-        env: &env,
+        route: &Registry {
+            registry: &h.registry,
+            env: &env,
+        },
         images: &None_,
     };
     let call = FormatCall {
@@ -65,6 +67,8 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
         conversion: 0,
         text: "",
         options: Options::NONE,
+        css_root: 0,
+        css_path: "",
     };
     let who = Opener {
         owner: 5,

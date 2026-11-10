@@ -3,7 +3,13 @@
 use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Rect,
-    native::{Error, Host, fonts::TextOrigin, library::Library},
+    native::{
+        Error, Host,
+        commands::CommandSender,
+        fonts::TextOrigin,
+        library::{BookRef, Library},
+        ui::{Open, Param, Ui},
+    },
 };
 use paperpaw_ui_kit::widget::{
     Cx, Look,
@@ -89,4 +95,36 @@ pub fn push_text(
             clip: None,
         },
     )
+}
+
+/// Opens the book `key` of catalog `generation` in the reader the user bound to
+/// `core.reader`: a hand-over with its path. A book gone from the catalog is
+/// not opened.
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub fn open_book(host: &Host<'_>, (key, generation): (u32, u32)) -> Result<(), Error> {
+    let path = with_library(host, |library| {
+        let (mut input, mut out) = buffers()?;
+        let reference = BookRef::catalog(key, generation)?;
+        match library.book(host, reference, &mut input, &mut out) {
+            Ok(row) => text::copy(row.path()).map(Some),
+            Err(Error::State | Error::NotFound) => Ok(None),
+            Err(error) => Err(error),
+        }
+    })?;
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let params = [Param::new("path", &path)?];
+    let ui = Ui::open(host)?;
+    let made = (|| {
+        let (mut input, mut out) = buffers()?;
+        ui.handover(host, &params, &mut input, &mut out)
+    })();
+    let released = ui.release(host);
+    let handover = made?;
+    released?;
+    let mut scratch = [0; 256];
+    CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
 }

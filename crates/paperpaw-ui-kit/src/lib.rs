@@ -28,6 +28,7 @@ mod fail_alloc;
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 pub mod chips;
+pub mod covers;
 pub mod dialog;
 pub mod event;
 pub mod files;

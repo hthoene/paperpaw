@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 8] = [
     // The dashboard through the production loader: the pages of widgets and
     // tools on their plates (the model and the screen are ported and tested
     // without the host), the picture behind them (`picture-home-picture`), the
@@ -17,19 +17,23 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
-    // Editing: the finger's drag of an item or its corner, and *Add* (the
-    // buttons' moving, sizing and removing are ported).
+    // Editing: the finger's drag of an item or its corner (the buttons' moving,
+    // sizing and removing are ported).
     Case {
         name: "picture-home-edit",
         golden: None,
         blocked_by: &["H2", "H4"],
     },
-    // Making the screen-sized gray file of the chosen picture (decode and
-    // scale).
+    // The chosen picture behind the page through the production loader: asked
+    // of the host (`image_prepare`), the notice while it is made, drawn first
+    // and not while editing, given back when the screen closes. The decisions
+    // and the drawing's places are ported and tested without the host
+    // (`native_backdrop`); the turn of a phone's picture, brightness and
+    // contrast, dots by force and stretching are not the host's (`PORTING-7.md`).
     Case {
         name: "picture-home-picture",
         golden: None,
-        blocked_by: &["IMG-slots-36-37"],
+        blocked_by: &["H1", "H4"],
     },
     // Choosing the picture from the folder (the screen `pick`: the rows, the
     // empty folder's words, a choice that sets the picture and closes).
@@ -50,6 +54,15 @@ const CASES: [Case; 7] = [
         name: "picture-home-bars",
         golden: None,
         blocked_by: &["H1"],
+    },
+    // The screen `add` through the production loader: the tools and widgets to
+    // put on a page, *Add a page*, *Remove this page*, and the *Add* button of
+    // the editing footer. The rows, the choices' writes and the screen are
+    // ported (unit-tested without the host); the rows have no icons yet (#517).
+    Case {
+        name: "picture-home-add",
+        golden: None,
+        blocked_by: &["H1", "H4", "517"],
     },
     // The grip of a shown item dragged with a finger (down, move, up), as on
     // interface 6: the kit's view takes a hold and a tap instead.
@@ -83,7 +96,7 @@ fn picture_home_edit() {
 }
 
 #[test]
-#[ignore = "BLOCKED IMG-slots-36-37: image decode and scale are not on integration"]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
 fn picture_home_picture() {
     CASES[2].refuse().unwrap();
 }
@@ -109,5 +122,11 @@ fn picture_home_bars() {
 #[test]
 #[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
 fn picture_home_bar_items_editor_grip_drag() {
+    CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified; the rows' icons (#517) are not ported"]
+fn picture_home_add() {
     CASES[6].refuse().unwrap();
 }

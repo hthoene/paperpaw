@@ -47,6 +47,7 @@ packs = ["paperpaw-plugin-fonts-default/packs"]
 # statically (`NATIVE_PLUGINS`, ADR 0034 "One path") instead of their interface-6
 # versions; the first-party list stays what Beta 3 built in.
 native-linked = [
+    "dep:paperpaw-native",
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
@@ -79,6 +80,8 @@ paperpaw-i18n.workspace = true
 
 [dependencies]
 paperpaw-core.workspace = true
+# What a shell offers a linked native plugin at admission (`native-linked`).
+paperpaw-native = { workspace = true, optional = true }
 paperpaw-i18n.workspace = true
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files = { workspace = true, optional = true }
