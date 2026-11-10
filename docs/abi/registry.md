@@ -219,7 +219,9 @@ Field meanings:
   `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
   then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
   6 took the last added; where two plugins preview one group the shown one may differ (accepted
-  for 1.0: no first-party group has two).
+  for 1.0: no first-party group has two). Without bit 0, op 19 leaves out every widget whose
+  `previews` is set (a widget picker never offers one); bit 0 with an empty `scope` is
+  `ERR_INVALID`.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's

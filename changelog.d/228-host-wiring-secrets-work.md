@@ -1,0 +1,3 @@
+### Added
+
+- **A shell can wire `core.secrets` and `core.work`** (#228). `HostWiring::secrets(SecretsInputs)` takes the storage of the secrets file, the shell's `Sealer` (a shell without a key does not wire `core.secrets`: `keep` through a sealer that does not seal answers `ERR_STATE` and writes nothing, decision 140) and an optional random source, and gives back `WiredHosts::secrets()` for the start-up upgrade and for forgetting a deleted plugin's secrets. `HostWiring::work(WorkInputs)` takes the shell's clock and radio (`WorkDevice`); core composes the rest of the scheduler's view of the device from the kernel (power level, stretch, real-time screens), the owner directory and the network policy. Both are fallible and refused twice (`ERR_STATE`).
