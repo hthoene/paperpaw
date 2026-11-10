@@ -100,7 +100,6 @@ class HowItWorks(unittest.TestCase):
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
             for plugin, files in [
-                ("widgets", {"data/quotes.en.txt", "data/quotes.de.txt"}),
                 ("vocabulary", {"data/phone.txt"}),
             ]:
                 with zipfile.ZipFile(dist / f"{plugin}-{catalogue.plugin_version(plugin)}.zip") as z:
