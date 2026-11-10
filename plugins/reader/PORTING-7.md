@@ -326,3 +326,18 @@ relative to the data folder).
   (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
   chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+
+
+## Annotations (native model, `native_annotations.rs`)
+
+- Host-free: the Markdown export (same form as interface 6, plugins read the file), the notes folder
+  beside the library folder, the file name (author and title, fit for a card), the list rows and the
+  export order (the `reader.notes-exported@1` stage runs only after a write that worked). Allocation
+  is fallible; every allocation refused in turn is tested.
+- **Not yet: the screen.** It needs a native `core.reader` entry, the book data of a book
+  (`add_book_data` / `LIB-position` have no native declaration) and the files service for the write.
+  When those exist the screen calls `native_notes::run` after `export` succeeds.
+- Review remarks (PR #950), for the screen: it creates the `Notes` folder first, and writes the file
+  staged and then moved where the files service allows (Beta 3 wrote straight onto an existing file).
+  The whole Markdown is one `String`: its size on the X4 is on the measurement list (pieces through a
+  sink if it does not fit). The screen, the book data and the files write stay on the activation list.
