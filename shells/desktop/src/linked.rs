@@ -21,7 +21,7 @@ use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
-use paperpaw_native::metadata::{self, Service};
+use paperpaw_native::metadata::{self, Feature, Service};
 
 use crate::device_host::DesktopDevice;
 use crate::host_services::DesktopServices;
@@ -49,6 +49,26 @@ fn offered() -> &'static [Service<'static>] {
             }))
             .collect()
     })
+}
+
+/// The consent features this shell backs: the registry (the kernel's own) and
+/// the device's power view (`core.device`). Not offered, because the desktop
+/// does not back them yet: `uses.secrets` (until its sealing is wired),
+/// `uses.network`, `uses.wifi`, `uses.bluetooth`, `uses.install`,
+/// `uses.firmware`, `uses.library`, `uses.storage`. A plugin that needs one is
+/// refused at admission.
+fn features() -> &'static [Feature<'static>] {
+    const BASE: &[Feature<'static>] = &[
+        Feature {
+            key: "uses.registry",
+            revision: 1,
+        },
+        Feature {
+            key: "uses.power",
+            revision: 1,
+        },
+    ];
+    BASE
 }
 
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
@@ -97,7 +117,7 @@ pub fn register(kernel: &mut Kernel, profile: &'static Profile) -> Result<usize,
         minor: paperpaw_native::host_glue::MINOR,
         profile: crate::native_runtime::host_profile(),
         services: offered(),
-        features: paperpaw_app::NATIVE_FEATURES,
+        features: features(),
     };
     // SAFETY: the offered services are the ones wired above (`offered`), and
     // the plugins are the app's linked ones, as the helper's contract says.
