@@ -74,6 +74,10 @@ struct World<'a> {
     walks: Cell<u32>,
     /// The allocation of the next backend call to refuse (0: none).
     fail: Cell<u32>,
+    /// The length of the bytes each sniff was given.
+    sniffed: RefCell<Vec<usize>>,
+    /// The format plugins (by host owner) that answer a sniff with yes.
+    sniffs: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
     reply: RefCell<Result<Vec<u8>, i32>>,
     /// (owner, token, the call's fmt op) of each call made to a format.
@@ -149,16 +153,32 @@ impl Frame for World<'_> {
         let Record::StageCall(call) = wire::records_decode_single(input).unwrap() else {
             panic!("not a stage.call")
         };
-        let op = match local::input_decode(call.payload)
+        let (op, arg) = match local::input_decode(call.payload)
             .unwrap()
             .next()
             .unwrap()
             .unwrap()
         {
-            local::Record::FmtCall(c) => c.op,
+            local::Record::FmtCall(c) => (c.op, c.arg.len()),
             other => panic!("{other:?}"),
         };
         self.calls.borrow_mut().push((owner, token, op));
+        if op == 1 {
+            self.sniffed.borrow_mut().push(arg);
+        }
+        if op == 1 {
+            // A sniff: `fmt.yes`, or no record (not mine).
+            let mut bytes = vec![0_u8; 64];
+            let records: &[local::Record<'_>] = if self.sniffs.borrow().contains(&owner) {
+                &[local::Record::FmtYes(local::FmtYes::new(0))]
+            } else {
+                &[]
+            };
+            let n = local::reply_encode(records, &mut bytes).unwrap();
+            reply[..n].copy_from_slice(&bytes[..n]);
+            accept(&reply[..n])?;
+            return Ok(n);
+        }
         let answer = self.reply.borrow().clone()?;
         reply[..answer.len()].copy_from_slice(&answer);
         accept(&reply[..answer.len()])?;
@@ -351,7 +371,15 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let hosts = HostServices::new();
-    let state = Rc::new(DocState::try_new(Limits::LARGE, 1_000, hosts.in_use().clone()).unwrap());
+    let card = paperpaw_sdk::MemoryStorage::new()
+        .with("mystery", b"PK\x03\x04 epub?".to_vec())
+        .with("odd.zzz", b"%PDF-1.7".to_vec())
+        .with("big", vec![7_u8; 2_000]);
+    let state = Rc::new(
+        DocState::try_new(Limits::LARGE, 1_000, hosts.in_use().clone())
+            .unwrap()
+            .with_storage(Some(Rc::new(card))),
+    );
     hosts.wire_documents(state.clone()).unwrap();
     let world = World {
         env: &env,
@@ -360,6 +388,8 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         plugins: RefCell::new(Vec::new()),
         generation: Cell::new(1),
         walks: Cell::new(0),
+        sniffs: RefCell::new(Vec::new()),
+        sniffed: RefCell::new(Vec::new()),
         fail: Cell::new(0),
         reply: RefCell::new(Ok(state_reply())),
         calls: RefCell::new(Vec::new()),
@@ -730,4 +760,111 @@ fn an_event_asks_for_one_pass_and_one_for_an_owner_that_does_not_run_stays_quiet
         // The owner's callback runs on a later pass and still hears it.
         assert_eq!(closed_event(w, OPENER), Ok(Some((document, 2))));
     });
+}
+
+/// Two formats that sniff: `fb2` (owner 12, priority 5) asked first, `epub`
+/// (owner 11).
+fn sniffers(w: &World<'_>) {
+    const SNIFFS: u32 = 1 << 1;
+    w.install("epub", EPUB, &[format("epub", "epub", SNIFFS, 0)]);
+    w.install("fb2", 12, &[format("fb2", "fb2", SNIFFS, 5)]);
+}
+
+fn ops(w: &World<'_>) -> Vec<(u64, u32)> {
+    w.calls.borrow().iter().map(|c| (c.0, c.2)).collect()
+}
+
+#[test]
+fn a_file_no_format_claims_is_read_by_the_first_sniffer_to_say_yes() {
+    world(|w| {
+        sniffers(w);
+        w.sniffs.borrow_mut().push(EPUB);
+        // No extension, then an extension no format has.
+        assert!(w.open(1, "mystery").is_ok());
+        assert_eq!(ops(w), [(12, 1), (EPUB, 1), (EPUB, 2)]);
+        w.calls.borrow_mut().clear();
+        assert!(w.open(1, "odd.zzz").is_ok());
+        assert_eq!(ops(w), [(12, 1), (EPUB, 1), (EPUB, 2)]);
+    });
+}
+
+#[test]
+fn nothing_is_asked_of_a_sniffer_for_a_file_a_format_claims() {
+    world(|w| {
+        sniffers(w);
+        w.open(1, "a.fb2").unwrap();
+        assert_eq!(ops(w), [(12, 2)]);
+    });
+}
+
+#[test]
+fn a_file_no_sniffer_knows_is_not_found_and_a_missing_file_asks_none() {
+    world(|w| {
+        sniffers(w);
+        assert_eq!(w.open(1, "mystery"), Err(ERR_NOT_FOUND));
+        assert_eq!(ops(w), [(12, 1), (EPUB, 1)]);
+        w.calls.borrow_mut().clear();
+        // No such file: the card says so, no format is asked.
+        assert_eq!(w.open(1, "absent"), Err(ERR_NOT_FOUND));
+        assert!(w.calls.borrow().is_empty());
+        // Without the sniffs formats nothing reads a stranger.
+        let none = world_without_sniffers();
+        assert_eq!(none, Err(ERR_NOT_FOUND));
+    });
+}
+
+fn world_without_sniffers() -> Result<u32, i32> {
+    let mut result = Ok(0);
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        result = w.open(1, "mystery");
+        assert!(w.calls.borrow().is_empty());
+    });
+    result
+}
+
+#[test]
+fn op_20_sniffs_only_when_asked_and_a_sniffer_never_gets_more_than_512_bytes() {
+    world(|w| {
+        sniffers(w);
+        w.sniffs.borrow_mut().push(12);
+        let ask = |flags: u32| {
+            w.call(
+                AdmittedFeatures::test(1, FEATURES),
+                20,
+                &[Record::ServiceDocPath(wire::ServiceDocPath {
+                    root: 1,
+                    path: "big",
+                    flags,
+                })],
+            )
+        };
+        assert_eq!(ask(0).err(), Some(ERR_NOT_FOUND));
+        assert!(w.calls.borrow().is_empty(), "no sniff unless asked");
+        let reply = ask(1).unwrap();
+        match wire::record_decode_one(&reply).unwrap() {
+            Record::ServiceDocFormat(format) => assert_eq!(format.id, "fb2.fb2"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(*w.sniffed.borrow(), [512]);
+    });
+}
+
+#[test]
+fn a_refused_allocation_while_sniffing_is_no_memory_and_nothing_else() {
+    for nth in 1..=12 {
+        world(|w| {
+            sniffers(w);
+            w.sniffs.borrow_mut().push(EPUB);
+            w.fail.set(nth);
+            let result = w.open(1, "mystery");
+            w.fail.set(0);
+            assert!(
+                matches!(result, Ok(_) | Err(ERR_NO_MEMORY)),
+                "allocation {nth}: {result:?}"
+            );
+            // Nothing is left half-made: the next call reads the file.
+            assert!(w.open(1, "mystery").is_ok(), "allocation {nth}");
+        });
+    }
 }
