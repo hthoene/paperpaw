@@ -396,3 +396,23 @@ fn an_index_kept_by_interface_6_is_read_natively() {
         .unwrap();
     assert_eq!(seen.len(), 3);
 }
+
+proptest! {
+    /// Whether a version is an update, and what a pre-release is, are the old
+    /// code's for any two texts.
+    #[test]
+    fn offers_is_the_old_one(
+        offered in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        here in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        betas in any::<bool>(),
+    ) {
+        prop_assert_eq!(
+            crate::native_page::offers(&offered, &here, betas),
+            crate::origin::offers(&offered, &here, betas)
+        );
+        prop_assert_eq!(
+            crate::native_page::is_pre_release(&offered),
+            crate::origin::is_pre_release(&offered)
+        );
+    }
+}

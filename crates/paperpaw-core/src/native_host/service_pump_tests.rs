@@ -63,6 +63,7 @@ struct Service {
     busy_next: Cell<bool>,
     ticks: Cell<u32>,
     deadline: Cell<Option<u64>>,
+    started: RefCell<Vec<u64>>,
 }
 impl ServiceEvents for Service {
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
@@ -101,6 +102,9 @@ impl ServiceEvents for Service {
     }
     fn next_deadline(&self) -> Option<u64> {
         self.deadline.get()
+    }
+    fn owner_started(&self, owner: u64) {
+        self.started.borrow_mut().push(owner);
     }
 }
 
@@ -313,4 +317,13 @@ fn a_refused_buffer_waits_for_its_retry_time_and_never_asks_for_an_immediate_pas
     assert!(!run_at(&f, &service, 10_000));
     crate::native_host::net_service::fail_nth(0);
     assert_eq!(f.seen[0].borrow().len(), 2);
+}
+
+#[test]
+fn every_wired_service_is_told_an_owner_started() {
+    let (first, second) = (Service::default(), Service::default());
+    tell_owner_started(&[Some(&first), None, Some(&second)], 7);
+    tell_owner_started(&[None, None, None], 8);
+    assert_eq!(first.started.borrow().as_slice(), [7]);
+    assert_eq!(second.started.borrow().as_slice(), [7]);
 }

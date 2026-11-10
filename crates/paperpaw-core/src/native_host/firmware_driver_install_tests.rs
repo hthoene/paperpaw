@@ -209,3 +209,65 @@ fn only_the_hosts_grant_skips_the_question_and_never_for_a_sideload() {
     until_asked(&mut d, &card);
     assert!(d.plugin_question().is_some());
 }
+
+/// An installed update of the plugin, the card the job reads.
+fn update_source() -> MemoryStorage {
+    let card = source();
+    card.write(
+        "plugins/dials/plugin.ini",
+        b"[plugin]\nid = dials\nversion = 0.9.0\n",
+    )
+    .unwrap();
+    card
+}
+
+fn grants(owners: &[u64]) -> crate::native_host::install_grants::Granted {
+    let mut granted = crate::native_host::install_grants::Granted::NONE;
+    for owner in owners {
+        granted.add(*owner);
+    }
+    granted
+}
+
+#[test]
+fn a_revoke_after_the_decision_does_not_end_the_job_and_the_next_job_asks() {
+    // Revoke the grant after `steps` pump steps, for every point of the job:
+    // either it had not decided yet (it asks) or it runs on and finishes.
+    let mut finished_after_revoke = 0;
+    for steps in 1..40 {
+        let card = update_source();
+        let mut d = driver();
+        d.feed_install_grants(grants(&[OWNER]));
+        let job = PluginInstall::new(OWNER, 3, SOURCE, 1, Evidence::NONE).unwrap();
+        d.submit_plugin(PluginJobs::Install(job)).unwrap();
+        let mut now = 100;
+        for _ in 0..steps {
+            d.pump(&card, &Names, now);
+            now += 100;
+        }
+        if d.peek_ready().is_some() || d.plugin_question().is_some() {
+            continue;
+        }
+        d.feed_install_grants(grants(&[]));
+        until_asked(&mut d, &card);
+        if d.plugin_question().is_some() {
+            // It had not decided yet: the revoke came first, so it asks.
+            continue;
+        }
+        let done = d.take_ready().expect("an outcome");
+        assert_eq!(
+            done.reason, 0,
+            "a revoke ends nothing (after {steps} steps)"
+        );
+        finished_after_revoke += 1;
+    }
+    assert!(finished_after_revoke > 0);
+    // The next job, after the revoke, asks.
+    let card = update_source();
+    let mut d = driver();
+    d.feed_install_grants(grants(&[]));
+    let job = PluginInstall::new(OWNER, 4, SOURCE, 1, Evidence::NONE).unwrap();
+    d.submit_plugin(PluginJobs::Install(job)).unwrap();
+    until_asked(&mut d, &card);
+    assert!(d.plugin_question().is_some());
+}

@@ -62,6 +62,9 @@ fn decimal(value: u32) -> Option<alloc::string::String> {
 impl crate::Kernel {
     /// One pass of the dialog pump; `true` when it wants another at once
     /// (answers remain, or a batch waits).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_dialog_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() != 0 {
             return true;
@@ -78,6 +81,12 @@ impl crate::Kernel {
         for _ in 0..store.take_refused() {
             self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
         }
+        // The kernel's clipboard is the store's (once); a text op 18 committed
+        // goes out to the system (`Io::Copy`); a text left begun by a callback
+        // that returned is dropped.
+        store.bind_clipboard(&self.shared.clipboard);
+        self.clipboard_copy_out();
+        store.clipboard_callbacks_over();
         if store.callbacks_over().is_err() {
             return true;
         }
@@ -139,6 +148,18 @@ impl crate::Kernel {
             more |= store.has_delivery(owner);
         }
         more
+    }
+
+    /// A text op 18 committed goes out to the system (`Io::Copy`); with no
+    /// memory for the copy it is skipped and the log says so.
+    fn clipboard_copy_out(&mut self) {
+        if !self.shared.clipboard.take_copy() {
+            return;
+        }
+        match self.shared.clipboard.text_for_copy() {
+            Some(text) => self.io.clipboard.copy(text),
+            None => self.warn_runtime("the clipboard could not be copied out: no memory"),
+        }
     }
 
     /// Opens the dialog of one starting request and tells the store how it

@@ -23,7 +23,7 @@ struct Host {
     ready: Cell<bool>,
 }
 impl LookupHost for Host {
-    fn ask(&self, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(&self, _frame: &dyn Frame, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let (provider, pending) = match ask.cursor {
             0 => ("wiki", !self.ready.get()),
             1 => ("translate", !self.ready.get()),

@@ -4,6 +4,7 @@
 extern crate std;
 use super::super::tests::card;
 use super::*;
+use crate::native_host::lib_service::LibWrite;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::library;

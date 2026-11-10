@@ -1977,9 +1977,8 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
 built for an earlier interface is to be built again for it. Interface 7, the
-plugin boundary of 1.0 (ADR 0034), is a draft until it is frozen: a plugin
-built for one draft is refused by a build of the next one (`native::DRAFT`
-is part of the fingerprint) and is built again for it.
+plugin boundary of 1.0 (ADR 0034), may still change until it is frozen at
+1.0: a plugin built from an earlier tree is built again.
 
 ### The file in the emulator
 

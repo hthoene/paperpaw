@@ -172,5 +172,11 @@ class BodyHashes(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "format.*generated or native source"):
             shared.reach({}, caller, '{ i18n.format("k", &[]) }', {"format": [wire]})
 
+    def test_the_text_inks_tone_is_that_method_beside_the_facades_ink(self):
+        caller = pathlib.Path("crate/src/fonts.rs")
+        native = pathlib.Path("crate/src/native/fonts.rs")
+        self.assertEqual(shared.reach({}, caller, "{ let t = self.ink.tone(); }",
+                                      {"tone": [native]}), set())
+
 if __name__ == "__main__":
     unittest.main()

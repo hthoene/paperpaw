@@ -163,6 +163,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let store = Shared::try_new(UiStore::new(limits)).unwrap();
+    store.bind_clipboard(&Rc::default());
     let stack = Rc::new(Stack {
         epoch: Cell::new(1),
         instance: Cell::new(None),
@@ -665,5 +666,212 @@ fn ask_is_refused_in_a_work_runs_callback() {
             let _run = sched.enter_run_callback(2, 7);
             assert!(ask_id(v, 1, ask_record(0, 0b10, "", "")).is_ok());
         }
+    });
+}
+
+impl View<'_> {
+    fn clip_write(&self, owner: u64, offset: u32, data: &str, last: bool) -> Result<(), i32> {
+        self.call(
+            owner,
+            18,
+            &[Record::ServiceUiText(wire::ServiceUiText {
+                text: 0,
+                offset,
+                total: 0,
+                flags: u32::from(last),
+                data,
+            })],
+        )
+        .map(|_| ())
+    }
+    fn clip_read(&self, offset: u32) -> Result<(String, u32, bool), i32> {
+        let reply = self.call(
+            1,
+            19,
+            &[Record::ServiceUiTextAt(wire::ServiceUiTextAt {
+                text: 0,
+                offset,
+            })],
+        )?;
+        match wire::record_decode_one(&reply).unwrap() {
+            Record::ServiceUiText(t) => Ok((t.data.into(), t.total, t.flags & 1 == 1)),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_clipboard_is_written_in_parts_and_read_by_anyone() {
+    view(|v| {
+        // Empty to begin with.
+        assert_eq!(v.clip_read(0).unwrap(), (String::new(), 0, true));
+        v.clip_write(1, 0, "hello ", false).unwrap();
+        // Reads see the old (empty) clipboard until `last` commits.
+        assert_eq!(v.clip_read(0).unwrap().1, 0);
+        v.clip_write(1, 6, "wörld", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap(), ("hello wörld".into(), 12, true));
+        // Another plugin reads it, from the middle.
+        assert_eq!(v.clip_read(6).unwrap(), ("wörld".into(), 12, true));
+    });
+}
+
+#[test]
+fn a_new_clipboard_text_replaces_the_old_only_when_committed() {
+    view(|v| {
+        v.clip_write(1, 0, "old", true).unwrap();
+        v.clip_write(1, 0, "new, begun", false).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "old");
+        // A part at a wrong offset is refused and changes nothing.
+        assert_eq!(v.clip_write(1, 3, "x", false), Err(ERR_INVALID));
+        v.clip_write(1, 10, "!", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "new, begun!");
+        // An empty committed text clears it.
+        v.clip_write(1, 0, "", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap(), (String::new(), 0, true));
+    });
+}
+
+#[test]
+fn a_clipboard_text_left_begun_is_dropped_with_its_callback() {
+    view(|v| {
+        v.clip_write(1, 0, "kept", true).unwrap();
+        v.clip_write(1, 0, "begun", false).unwrap();
+        // The callback returned; the next one cannot continue it.
+        v.stack.epoch.set(2);
+        assert_eq!(v.clip_write(1, 5, "more", true), Err(ERR_INVALID));
+        assert_eq!(v.clip_read(0).unwrap().0, "kept");
+        // The pump between callbacks frees a begun text too.
+        v.clip_write(1, 0, "again", false).unwrap();
+        v.store.clipboard_callbacks_over();
+        v.stack.epoch.set(3);
+        assert_eq!(v.clip_write(1, 5, "x", true), Err(ERR_INVALID));
+    });
+}
+
+#[test]
+fn the_clipboard_holds_4096_bytes_and_never_cuts() {
+    view(|v| {
+        let part = "a".repeat(2_048);
+        v.clip_write(1, 0, &part, false).unwrap();
+        v.clip_write(1, 2_048, &part, true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().1, 4_096);
+        // One byte over: refused, the old clipboard stays.
+        v.clip_write(1, 0, &part, false).unwrap();
+        v.clip_write(1, 2_048, &part, false).unwrap();
+        assert_eq!(v.clip_write(1, 4_096, "b", true), Err(ERR_NO_SPACE));
+        assert_eq!(v.clip_read(0).unwrap().1, 4_096);
+        // A part over the part size does not frame (the record's own bound).
+        assert_eq!(
+            v.clip_write(1, 0, &"c".repeat(PART_MAX + 1), false),
+            Err(ERR_NO_SPACE)
+        );
+    });
+}
+
+#[test]
+fn clipboard_ops_refuse_another_text_id_and_a_missing_callback() {
+    view(|v| {
+        let write = |text| {
+            v.call(
+                1,
+                18,
+                &[Record::ServiceUiText(wire::ServiceUiText {
+                    text,
+                    offset: 0,
+                    total: 0,
+                    flags: 1,
+                    data: "x",
+                })],
+            )
+            .err()
+        };
+        assert_eq!(write(7), Some(ERR_INVALID));
+        // Flags other than `last`.
+        assert_eq!(
+            v.call(
+                1,
+                18,
+                &[Record::ServiceUiText(wire::ServiceUiText {
+                    text: 0,
+                    offset: 0,
+                    total: 0,
+                    flags: 2,
+                    data: "x",
+                })]
+            )
+            .err(),
+            Some(ERR_INVALID)
+        );
+        // No callback running.
+        v.stack.epoch.set(0);
+        assert_eq!(v.clip_write(1, 0, "x", true), Err(ERR_STATE));
+        assert_eq!(v.clip_read(0), Err(ERR_STATE));
+        // The small-heap device has the same clipboard.
+        v.stack.epoch.set(1);
+        v.stack.x4.set(true);
+        v.clip_write(1, 0, "x", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "x");
+    });
+}
+
+/// A committed write is the kernel's text (interface 6 reads the same cell) and
+/// asks once for the copy out; a store the kernel has not bound is `ERR_STATE`.
+#[test]
+fn a_committed_write_replaces_the_kernels_text_and_asks_for_a_copy() {
+    use crate::native_host::ui_clipboard::ClipboardCell;
+    let store = UiStore::new(Limits::ELSEWHERE);
+    let who = Stamp::new(1, 1).unwrap();
+    assert_eq!(store.clipboard_write(who, 0, "x", true), Err(ERR_STATE));
+    let cell = Rc::new(ClipboardCell::default());
+    cell.set(String::from("six"));
+    store.bind_clipboard(&cell);
+    store.clipboard_write(who, 0, "new", false).unwrap();
+    assert_eq!(cell.get(), "six");
+    assert!(!cell.take_copy());
+    store.clipboard_write(who, 3, "!", true).unwrap();
+    assert_eq!(cell.get(), "new!");
+    assert!(cell.take_copy());
+    assert!(!cell.take_copy());
+    assert_eq!(cell.text_for_copy().as_deref(), Some("new!"));
+}
+
+/// Whichever allocation of a write fails, the clipboard is the old text or the
+/// new one, never a mix, and the next write works.
+#[test]
+fn a_clipboard_write_that_finds_no_memory_leaves_the_old_text() {
+    for nth in 1..=10 {
+        view(|v| {
+            v.clip_write(1, 0, "old", true).unwrap();
+            v.fail.set(nth);
+            let written = v.clip_write(1, 0, "new text", true);
+            v.fail.set(0);
+            let read = v.clip_read(0).unwrap().0;
+            match written {
+                Ok(()) => assert_eq!(read, "new text", "allocation {nth}"),
+                Err(_) => assert_eq!(read, "old", "allocation {nth}"),
+            }
+            v.clip_write(1, 0, "next", true).unwrap();
+            assert_eq!(v.clip_read(0).unwrap().0, "next");
+        });
+    }
+}
+
+/// A text written in many small parts reserves room a few times, not once a
+/// part: the capacity doubles up to the cap.
+#[test]
+fn a_clipboard_written_in_many_parts_is_assembled_and_read_whole() {
+    view(|v| {
+        let mut expected = String::new();
+        for n in 0..400_u32 {
+            let part = std::format!("{n:02}-");
+            v.clip_write(1, expected.len() as u32, &part, false)
+                .unwrap();
+            expected.push_str(&part);
+        }
+        v.clip_write(1, expected.len() as u32, "", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().1 as usize, expected.len());
+        let (part, total, _) = v.clip_read(0).unwrap();
+        assert_eq!(total as usize, expected.len());
+        assert!(expected.starts_with(&part));
     });
 }
