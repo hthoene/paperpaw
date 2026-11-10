@@ -97,7 +97,10 @@ impl PluginJob for Script {
             };
         }
         if self.seen.steps.get() >= self.steps {
-            JobStep::Done(Finished::checked(self.done.reason, self.done.facts))
+            JobStep::Done(Finished {
+                needs_draft: self.done.needs_draft,
+                ..Finished::checked(self.done.reason, self.done.facts)
+            })
         } else {
             JobStep::More
         }
@@ -557,4 +560,34 @@ fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
     );
     assert_eq!(seen.steps.get(), 2, "asked, then ended with the answer");
     assert!(seen.dropped.get());
+}
+
+#[test]
+fn a_plugin_checks_needs_draft_waits_in_the_result_slot_for_op_6() {
+    let mut d = driver(true);
+    d.submit_plugin(PluginJobs::Script(Script {
+        owner: 1,
+        request: 1,
+        kind: KIND_CHECK,
+        steps: 1,
+        done: Finished::needs_newer(7),
+        seen: Rc::default(),
+        must_finish: false,
+        keep: false,
+        asks: false,
+        answered: None,
+    }))
+    .unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::NEEDS_NEWER));
+    let machine = d.machine();
+    let checked = machine.borrow().checked(1).unwrap();
+    assert_eq!(
+        (checked.reason, checked.needs_draft()),
+        (job_reason::NEEDS_NEWER, 7)
+    );
+    // The next check that fits says 0 again.
+    let (job, _) = check_job(1, 2, 1);
+    d.submit_plugin(job).unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(_)));
+    assert_eq!(machine.borrow().checked(1).unwrap().needs_draft(), 0);
 }
