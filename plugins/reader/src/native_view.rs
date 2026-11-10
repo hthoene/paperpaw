@@ -264,6 +264,7 @@ impl View {
             saved_at: None,
             unsaved: false,
             turned: false,
+            report_due: false,
             said: false,
             title,
             finished: false,
@@ -367,12 +368,7 @@ impl View {
     ///
     /// # Errors
     /// `NoMemory`, and the host's refusal to redraw.
-    pub fn go_to(
-        &mut self,
-        host: &Host<'_>,
-        docs: &Documents,
-        place: (u32, u32),
-    ) -> Result<(), Error> {
+    pub fn go_to(&mut self, place: (u32, u32)) -> Result<(), Error> {
         let Body::Open(open) = &mut self.body else {
             return Ok(());
         };
