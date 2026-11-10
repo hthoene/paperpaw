@@ -807,7 +807,7 @@ fn a_group_asks_for_the_widgets_that_preview_it_with_bit_zero_and_reads_what_the
         "none for a widget that previews nothing"
     );
     assert_eq!(&*fixture.queries.borrow(), &[(schema::OP_WIDGETS, 0, 0, 1)]);
-    assert_eq!(&*fixture.scopes.borrow(), &["widgets.look".to_string()]);
+    assert_eq!(&*fixture.scopes.borrow(), &[String::from("widgets.look")]);
     // An empty group is refused before the host is called; an empty page is no preview.
     let calls = fixture.calls.get();
     assert_eq!(
