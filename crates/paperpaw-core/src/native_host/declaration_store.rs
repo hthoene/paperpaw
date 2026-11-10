@@ -694,12 +694,17 @@ impl DeclarationStore {
             allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
-        // And 64 book fields and 16 book badges on the device (`library.md`
-        // section 1), counted the same way; the plugin's own caps are checked
-        // with its batch.
+        // And 64 book fields, 16 book badges and 32 lookup providers on the
+        // device (`library.md` section 1, `document.md` section 7), counted
+        // the same way; the plugin's own caps are checked with its batch.
         for (kind, device, problem) in [
             (Kind::BookField, books::FIELDS_DEVICE, Cap::BOOK_FIELDS),
             (Kind::BookBadge, books::BADGES_DEVICE, Cap::BOOK_BADGES),
+            (
+                Kind::Lookup,
+                super::declaration_checks::LOOKUPS_DEVICE,
+                Cap::LOOKUPS,
+            ),
         ] {
             let others: usize = self
                 .owners
@@ -718,29 +723,6 @@ impl DeclarationStore {
                 allocations.cap = Some(Cap::of(problem, device));
                 return Err(paperpaw_native::host_glue::ERR_FULL);
             }
-        }
-        // And 32 lookup providers on the device (`document.md` section 7).
-        let providers: usize = self
-            .owners
-            .iter()
-            .enumerate()
-            .filter(|(index, owner)| {
-                *index != at
-                    && owner
-                        .as_ref()
-                        .is_some_and(|owner| owner.source.generation() == owner.generation)
-            })
-            .filter_map(|(_, owner)| owner.as_ref())
-            .map(|owner| owner.of_kind(Kind::Lookup).len())
-            .sum();
-        if providers + pending.of_kind(Kind::Lookup).len()
-            > super::declaration_checks::LOOKUPS_DEVICE
-        {
-            allocations.cap = Some(Cap::of(
-                Cap::LOOKUPS,
-                super::declaration_checks::LOOKUPS_DEVICE,
-            ));
-            return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {

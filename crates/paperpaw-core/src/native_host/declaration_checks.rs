@@ -235,9 +235,9 @@ impl<'a> View<'a> {
             )));
             return Err(ERR_INVALID);
         }
-        // At most 8 book fields and 4 book badges per plugin (`library.md`
-        // section 1): the ninth field or the fifth badge refuses the batch
-        // (`ERR_INVALID`); the device's 64 and 16 are the store's.
+        // At most 8 book fields, 4 book badges and 8 lookup providers per
+        // plugin (`library.md` section 1, `document.md` section 7): the one over
+        // refuses the batch (`ERR_INVALID`); the device's caps are the store's.
         for (kind, cap, problem) in [
             (
                 KIND_BOOK_FIELD,
@@ -249,6 +249,7 @@ impl<'a> View<'a> {
                 super::declaration_store::BADGES_PER_PLUGIN,
                 Cap::BOOK_BADGES,
             ),
+            (KIND_LOOKUP, LOOKUPS_PER_PLUGIN, Cap::LOOKUPS),
         ] {
             let count = self
                 .raw
@@ -260,19 +261,6 @@ impl<'a> View<'a> {
                 self.refused.set(Some(Cap::of(problem, cap)));
                 return Err(ERR_INVALID);
             }
-        }
-        // At most 8 lookup providers per plugin: the ninth refuses the batch
-        // (`ERR_INVALID`); the 32 of the device are the store's.
-        let providers = self
-            .raw
-            .index
-            .iter()
-            .filter(|entry| entry.kind() == KIND_LOOKUP)
-            .count();
-        if providers > LOOKUPS_PER_PLUGIN {
-            self.refused
-                .set(Some(Cap::of(Cap::LOOKUPS, LOOKUPS_PER_PLUGIN)));
-            return Err(ERR_INVALID);
         }
         let mut result = Ok(());
         self.visit(&mut |record| {
