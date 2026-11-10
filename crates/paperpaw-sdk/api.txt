@@ -4765,6 +4765,10 @@ pub mod paperpaw_sdk::native::fonts
 #[non_exhaustive] pub enum paperpaw_sdk::native::fonts::FontRole
 pub paperpaw_sdk::native::fonts::FontRole::Mono
 pub paperpaw_sdk::native::fonts::FontRole::Reading
+pub paperpaw_sdk::native::fonts::FontRole::ReadingBold
+pub paperpaw_sdk::native::fonts::FontRole::ReadingBoldItalic
+pub paperpaw_sdk::native::fonts::FontRole::ReadingItalic
+pub paperpaw_sdk::native::fonts::FontRole::Status
 pub paperpaw_sdk::native::fonts::FontRole::Ui
 pub paperpaw_sdk::native::fonts::FontRole::UiBold
 pub struct paperpaw_sdk::native::fonts::Font<'cb>
