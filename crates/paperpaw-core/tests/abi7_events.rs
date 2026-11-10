@@ -409,6 +409,17 @@ fn the_book_events_register_and_each_is_admitted() {
     }
 }
 
+/// The answers of a plugin's own requests register: `event.wifi_done` (93) and the work
+/// events `work_due`, `work_refused` and `work_allowed` (103-105).
+#[test]
+fn the_wifi_done_and_work_events_register_and_each_is_admitted() {
+    for tag in [93, 103, 104, 105] {
+        assert!(events::is_event_tag(tag), "tag {tag}");
+        assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
+        assert!(!events::bypasses_queue(tag), "tag {tag}");
+    }
+}
+
 #[test]
 fn a_registration_batch_cannot_carry_an_event_record() {
     let events = [

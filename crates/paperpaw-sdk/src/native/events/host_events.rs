@@ -80,9 +80,16 @@ event_fn!(screen_shown, wire::EventScreenShown<'_>, |r| {
         },
     }
 });
-event_fn!(action_run, wire::EventActionRun<'_>, |r| Event::ActionRun {
-    now_ms: r.now_ms,
-    action: r.action,
+event_fn!(action_run, wire::EventActionRun<'_>, |r| {
+    // Only bit 0 (`background`) is defined; a decoder refuses the others.
+    if r.flags & !1 != 0 {
+        return Err(Error::Invalid);
+    }
+    Event::ActionRun {
+        now_ms: r.now_ms,
+        action: r.action,
+        background: r.flags & 1 != 0,
+    }
 });
 event_fn!(text_typed, wire::EventTextTyped<'_>, |r| {
     // Only bit 0 (`done`) is defined; a decoder refuses the others.

@@ -33,10 +33,14 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS, TICK};
+use crate::declarations::{
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STATUS_ITEMS, TICK,
+};
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
+use crate::native_reflow::fit;
+use crate::native_source::is_grid_setting;
 use crate::native_widgets::Widgets;
 
 /// The setting the footer's editor changes.
@@ -163,20 +167,30 @@ impl Plugin for NativeHome {
                 stage: "core.widget",
                 payload,
                 ..
-            } => self.widgets.stage(host, payload, reply),
+            } => self.widgets.stage(host, self.ui()?, payload, reply),
             Event::Tick { .. } if token == TICK => {
-                self.widgets.tick(host);
+                self.widgets
+                    .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
             Event::WidgetChanged { .. } => self.refresh(host),
-            // The pages are fitted to a new grid by a later slice (`PORTING-7.md`).
+            // The grid's columns or rows changed: the pages are fitted to it.
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                if is_grid_setting(key) {
+                    fit(host)?;
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if frame.purpose == DrawPurpose::Widget {
-            return self.widgets.draw(host, frame);
+            return self
+                .widgets
+                .draw(host, self.ui.as_ref().ok_or(Error::State)?, frame);
         }
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
@@ -193,6 +207,17 @@ impl Plugin for NativeHome {
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
+        // A tap on a book of the card or the shelf.
+        if let Input::Widget {
+            instance,
+            target,
+            kind,
+            ..
+        } = input
+        {
+            let opened = self.widgets.input(host, ui, instance, target, kind)?;
+            return Ok(if opened { Handled::Yes } else { Handled::No });
+        }
         match self.screens.top(token) {
             Some(Slot::Items(editor)) => editor.view.input(host, &editor.setting, &input),
             Some(Slot::Dashboard(dashboard)) => dashboard.input(host, ui, &input),

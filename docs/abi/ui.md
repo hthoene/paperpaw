@@ -464,6 +464,11 @@ asker learns its request id at once and long texts move in pages, never cut.
   it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
   filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
   them.
+- [D] **Raise once per press** (Senior R1 on #870): verdicts 2 run and 5 raise act on every input
+  they answer, the rest of a captured one included, so a filter that answers run or raise again
+  on the key's repeat or release, or on the pointer's moves and up, runs its action again. A filter
+  answers run or raise once per press (at the press, or at the up for a recognizer) and pass or
+  take for the rest of it; the host does not deduplicate.
 - [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
   down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
   it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
@@ -500,6 +505,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     exception is the screen the host itself shows for a device state, the sleep screen of slot
     `core.sleep`: it shows above the guard, gets no input while the guard is up, and draws over a
     blank area (bit 2 `overlay`, section 1.2).
+  - **Host confirmations.** A screen of the host's own that guards (the confirmation of
+    `device.md` 5.0, e.g. for a firmware install) is the guard itself: it gets the keys and
+    pointers, no plugin's input filter runs for it, no binding to a plugin's action or input
+    applies, and `raise_input` is `ERR_DENIED` for every plugin. The host opens it only while no
+    plugin's instance guards.
   - **Guard dialogs.** Such a dialog belongs to its plugin (the keyboard) but is authorized by
     the host for the guard's question: it is the top instance, so it gets keys and pointers, and
     its own plugin's filters run beside the guard's (section 1.2); it reads and writes its
@@ -802,7 +812,9 @@ or guard rule: only the maker drops its instances.
   over 1,000), else `ERR_INVALID` at admission; the same hint (`screen`, `input`, `text`) twice in a
   plugin's declarations is `ERR_INVALID` for the batch (#818), and a reader treats a `ui_hint` row
   that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner`
-  in op 3 says whose catalog). The help plugin reads them with op 3, subscribes to
+  in op 3 says whose catalog). Op 3's rows come in plugin slot order (admission order), then each
+  plugin's declaration order (batch, then record); a slot freed by a removal and reused by a later
+  plugin can move that plugin earlier. The help plugin reads them with op 3, subscribes to
   `event.screen_ready` (an edge, registrable) and to 81. A screen declared `waits_ready` sends
   `command.screen_ready` once its first page is drawn (own top instance, else `ERR_STATE`); for
   other screens the host raises 87 itself after the first `draw` of each instance. The help plugin
@@ -820,10 +832,12 @@ or guard rule: only the maker drops its instances.
   new text is committed (until then reads see the old one; an uncommitted new text is dropped when
   the writer's callback returns); op 19 `clipboard_read` (`ui_text_at`, `text` 0) reads it in parts
   (`total` 0: empty), any plugin, at once. Keeping a `secret` answer (section 3.1) off it is the
-  dialog plugin's duty; the host cannot enforce it (decision 44). On the X4 it lives in a host file
-  on the card (none in memory but the part being moved), deleted at start as host texts are; with no
-  card, op 18 is `ERR_IO` and op 19 reads it empty; a pulled card makes op 19 `ERR_IO`. Android may
-  back it with the system clipboard.
+  dialog plugin's duty; the host cannot enforce it (decision 44). It is the kernel's one clipboard
+  on every device, in host memory as in interface 6 (the X4 included; no card file, so no
+  `ERR_IO`): interface-6 and native plugins see the same text. A new text past 4,096 bytes is
+  `ERR_NO_SPACE` (never cut); one that cannot be kept is `ERR_NO_MEMORY`, the old text stays. A
+  commit is copied out to the system clipboard where the shell has one (Android); reading the
+  system clipboard into op 19 is a shell follow-up (Firmware todo 392).
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
   `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
@@ -890,12 +904,15 @@ and every device of that profile (the X3 too), not the model.
 - **X4 worst case: activation-gate item.** Until the card file is wired the code has no card
   path, so the line is the one without a card: instances 0.25 + params 1.5 + texts 11 (2 KiB
   ordinary pool + 8,960-byte secret pool, 8.75 of it only while an 8 KiB password is typed) +
-  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 0 +
-  messages 0.5 = **about 19 KiB**. A restarted text (offset 0) never adds a peak above its
+  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 4 +
+  messages 0.5 = **about 23 KiB**. The clipboard's 4 KiB are resident while it holds text; for
+  moments it takes more, all fallibly: up to 8 KiB while a replacement is written (old and new
+  text), up to 4 KiB more for the copy out at a commit until the shell takes it, and a read part
+  of up to 3 KiB during op 19. A restarted text (offset 0) never adds a peak above its
   pool: when old and new chunk do not both fit the pool, the old text is freed (wiped) first,
   so the peak is the larger of the two and inside the pool (after that, a refused allocation
   leaves the text started over and empty). With a card, the questions and texts move to the
-  card file and the line falls to about 13.6 KiB (not before that path exists). Op 7 keeps no
+  card file and the line falls to about 17.6 KiB (not before that path exists). Op 7 keeps no
   target cache: it is not paged, section 5.2. Every part is allocated fallibly (a refusal is
   `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances with small params, one short question, a status line)
   about 2.4 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
@@ -919,7 +936,8 @@ and every device of that profile (the X3 too), not the model.
   or the start went without code plugins (safe mode). A dead owner never pins the cap.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
-- Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4
+- Clipboard: at most 4 KiB, host heap on every device (the X4 included), fallible; X4
+  activation-gate item with the worst case above. Messages: at most 4
   waiting, 1 KiB (2 waiting, 512 bytes on the X4).
 - New slot 35 and the stage/command arms are flash cost on the X4 ppn5 delta; measured with the
   records.
