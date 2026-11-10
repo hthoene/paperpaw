@@ -2129,6 +2129,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
