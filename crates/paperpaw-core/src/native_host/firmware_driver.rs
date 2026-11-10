@@ -30,8 +30,7 @@
 //!   and the other way round: never two at once. Without a plugin host
 //!   ([`Driver::set_plugin_host`]) none is accepted.
 //! * **Not here.** Nothing of this runs inside a plugin's callback; the pump
-//!   is called from the main loop. Plugin installs (kind 0) are a seam: they
-//!   share the queue and its limit but have no job type yet.
+//!   is called from the main loop.
 use super::firmware_install::{
     Answer, Ask, BuiltIns, Event, FirmwareInstall, Job, KIND_CHECK, KIND_FIRMWARE, Outcome,
     Question,
@@ -305,8 +304,8 @@ impl Driver {
         });
     }
 
-    fn accept(&mut self, job: Job, kind: u32) {
-        let (owner, request) = (job.owner, job.request);
+    fn accept(&mut self, job: Queued, kind: u32) {
+        let (owner, request) = (job.owner(), job.request());
         self.take_slot(owner, kind, request);
         self.entries.push(Entry {
             owner,
@@ -457,7 +456,7 @@ impl Driver {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .reserve_check(owner)?;
-        self.accept(job, KIND_CHECK);
+        self.accept(Queued::Firmware(job), KIND_CHECK);
         Ok(())
     }
 
@@ -470,7 +469,7 @@ impl Driver {
         let queued = self
             .queue
             .iter()
-            .position(|job| (job.owner, job.request) == (owner, request));
+            .position(|job| (job.owner(), job.request()) == (owner, request));
         if let Some(at) = queued {
             let job = self.queue.remove(at);
             let kind = self.kind_of(&job);
@@ -651,8 +650,9 @@ impl Driver {
         self.note(event)
     }
 
-    /// One bounded step: the queue's head starts when the machine is idle,
-    /// else the open job takes one device step. Never called from a callback.
+    /// One bounded step: a plugin job that runs takes its step; else the
+    /// queue's head starts when the machine is idle, else the open job takes
+    /// one device step. Never called from a callback.
     pub(crate) fn pump(
         &mut self,
         storage: &dyn Storage,
@@ -680,12 +680,13 @@ impl Driver {
         }
         let event = if machine.busy() || self.queue.is_empty() {
             machine.step(&mut *self.host, storage, built_ins, now_ms)
-        } else {
-            let job = self.queue.remove(0);
+        } else if let Queued::Firmware(job) = self.queue.remove(0) {
             match machine.start(job, &mut *self.host) {
                 Some(outcome) => Event::Ended(outcome),
                 None => Event::Quiet,
             }
+        } else {
+            Event::Quiet
         };
         drop(machine);
         self.note(event)
@@ -1019,11 +1020,11 @@ impl Driver {
             {
                 // The check never ran: its result slot says why, so ops 6 and
                 // 16 do not answer `ERR_BUSY` until its plugin's next check.
-                machine.stopped_check(job.owner, job.request, STOPPED);
+                machine.stopped_check(job.owner(), job.request(), STOPPED);
             }
             self.end(Outcome {
-                owner: job.owner,
-                request: job.request,
+                owner: job.owner(),
+                request: job.request(),
                 kind,
                 reason: STOPPED,
                 flags: 0,
@@ -1076,7 +1077,7 @@ impl Driver {
     fn kind_of(&self, job: &Queued) -> u32 {
         self.entries
             .iter()
-            .find(|entry| (entry.owner, entry.request) == (job.owner, job.request))
+            .find(|entry| (entry.owner, entry.request) == (job.owner(), job.request()))
             .map_or(KIND_FIRMWARE, |entry| entry.kind)
     }
 
@@ -1151,7 +1152,7 @@ impl Driver {
     fn queue_has(&self, entry: &Entry) -> bool {
         self.queue
             .iter()
-            .any(|job| (job.owner, job.request) == (entry.owner, entry.request))
+            .any(|job| (job.owner(), job.request()) == (entry.owner, entry.request))
     }
 }
 

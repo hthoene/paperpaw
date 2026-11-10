@@ -29,6 +29,8 @@ struct BuilderParts {
     firmware: Option<Firmware>,
     /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
     firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
+    /// What plugin checks, installs and removals compare a plugin with.
+    plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
@@ -826,14 +828,16 @@ impl BuilderParts {
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
             firmware: self.firmware_host.take().map(|host| {
-                alloc::rc::Rc::new(core::cell::RefCell::new(
-                    crate::native_host::firmware_driver::Driver::new(
-                        host,
-                        alloc::rc::Rc::new(core::cell::RefCell::new(
-                            crate::native_host::firmware_install::FirmwareInstall::new(),
-                        )),
-                    ),
-                ))
+                let mut driver = crate::native_host::firmware_driver::Driver::new(
+                    host,
+                    alloc::rc::Rc::new(core::cell::RefCell::new(
+                        crate::native_host::firmware_install::FirmwareInstall::new(),
+                    )),
+                );
+                if let Some(plugins) = self.plugin_host.take() {
+                    driver.set_plugin_host(plugins);
+                }
+                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
             }),
             shown_since: Instant(0),
             scope: None,
@@ -1134,6 +1138,7 @@ impl Kernel {
             caps: Capabilities::default(),
             firmware: None,
             firmware_host: None,
+            plugin_host: None,
             code: None,
             after_trial: None,
             safe_mode: None,
