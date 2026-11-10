@@ -348,5 +348,19 @@ relative to the data folder).
   `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
   book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
   out in the event callback.
-- **Not yet:** the pictures, tables, underline and strike-through of the page drawing (R1c/R1d), hands-free and
-  auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+
+## Lines under, over and through text, and table rules (view slice R8b, Port E)
+
+- `native_decor.rs`: after each run `draw_lines` draws what the run's `TextStyle` asks for, over the run's
+  whole width (its spaces too), as Beta 3's `ReadingFaces::decorate` did: underline at `size / 10` (at least 1)
+  below the baseline, overline at 0.78 of the size above it, strike-through at 0.28; the thickness is
+  `size / 16` (at least 1); the line style is one line, two (the second as far below as it is thick), dotted
+  (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
+  line has at most 4,096 pieces. `Ink::fill` (a filled rectangle in the pen's colour, `canvas.fill_rect`) is the
+  one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
+- Differences: lines of a run are drawn after its words, so a line may cover a descender by a pixel (as before).
+  A run's colour is the page's (no per-run ink). Mixed-direction runs: the line follows the run's visual span.
+- **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
+  both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
+  `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
