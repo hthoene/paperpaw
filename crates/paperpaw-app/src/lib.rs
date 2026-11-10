@@ -175,32 +175,37 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
 
-/// Whether the linked native plugin `id` is on where nothing switched it
-/// (the default `Kernel::native_enabled` takes): the rule [`install_with`]
-/// applies to the plugin's interface-6 form, so that a plugin the store
-/// offers keeps the state it ships in. A plugin of [`STORE_PLUGINS`] is on
-/// only where `store` offers it (`Left`: the store installs it, as a file)
-/// and it is not shipped off. Shipped off (Beta 3's default, owner's ruling
-/// for the flip): Mail always (whatever `store` says is built in), and where
-/// `store` is `On` also Notes vault and Picture home (it takes the place of
-/// the home screen). Every other plugin is on. The configuration (`[plugins]
-/// id = on|off`) is the kernel's to read.
+/// Whether the linked native plugin `id` is linked here and, if it is, on where
+/// nothing switched it (the default `Kernel::native_enabled` takes): the rule
+/// [`install_with`] applies to the plugin's interface-6 form, so that a plugin
+/// the store offers keeps the state it ships in.
+///
+/// `None`: not linked here. A plugin of [`STORE_PLUGINS`] where `store` leaves
+/// it out (`Left`: the store installs it, as a file) is neither hosted nor
+/// listed, whatever the configuration says: its card form is the plugin, and a
+/// second copy of the same id must not run beside it.
+///
+/// `Some(on)`: hosted and listed; `on` is its shipped state. Shipped off
+/// (Beta 3's default, owner's ruling for the flip): Mail always (whatever
+/// `store` says is built in), and where `store` is `On` also Notes vault and
+/// Picture home (it takes the place of the home screen). Every other plugin
+/// is on. The configuration (`[plugins] id = on|off`) is the kernel's to read.
 #[cfg(feature = "native-linked")]
-pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> bool {
+pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> Option<bool> {
     if !STORE_PLUGINS.contains(&id) {
-        return true;
+        return Some(true);
     }
     match store {
-        StorePlugins::Left => false,
+        StorePlugins::Left => None,
         #[cfg(feature = "store-plugins")]
-        StorePlugins::On => !matches!(id, "mail" | "notes-vault" | "picture-home"),
+        StorePlugins::On => Some(!matches!(id, "mail" | "notes-vault" | "picture-home")),
         #[cfg(feature = "store-plugins")]
-        StorePlugins::Off(on) => id != "mail" && on(id),
+        StorePlugins::Off(on) => Some(id != "mail" && on(id)),
         #[allow(
             unreachable_patterns,
             reason = "`On` and `Off` exist only with the feature `store-plugins`"
         )]
-        _ => false,
+        _ => None,
     }
 }
 
@@ -246,7 +251,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
-    default_on: impl Fn(&str) -> bool,
+    default_on: impl Fn(&str) -> Option<bool>,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -258,7 +263,12 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         return outcome;
     }
     for (id, linked) in NATIVE_PLUGINS {
-        if !kernel.native_enabled(id, default_on(id)) {
+        // Not linked here (a store plugin the store installs as a file): not
+        // hosted, not listed, whatever the configuration says.
+        let Some(default) = default_on(id) else {
+            continue;
+        };
+        if !kernel.native_enabled(id, default) {
             list(kernel, id, PluginState::Off, false);
             continue;
         }

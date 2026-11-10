@@ -82,10 +82,20 @@ impl BuildNative for KernelBuilder {
 /// test cannot go on then). A plugin the host refuses is named on stderr and
 /// its screens are missing, which the test that needs them reports.
 pub fn build(builder: KernelBuilder) -> Kernel {
+    build_with(builder, paperpaw_app::default_store())
+}
+
+/// [`build`] where the plugins the store offers are as `store` says.
+///
+/// # Panics
+/// As [`build`].
+pub fn build_with(builder: KernelBuilder, store: paperpaw_app::StorePlugins<'static>) -> Kernel {
     #[allow(unused_mut, reason = "only the native-linked build registers plugins")]
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
-    linked::register(&mut kernel);
+    linked::register(&mut kernel, store);
+    #[cfg(not(feature = "native-linked"))]
+    let _ = store;
     kernel
 }
 
@@ -152,7 +162,7 @@ mod linked {
         Box::leak(all.into_boxed_slice())
     }
 
-    pub fn register(kernel: &mut Kernel) {
+    pub fn register(kernel: &mut Kernel, store: paperpaw_app::StorePlugins<'static>) {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
@@ -185,7 +195,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
-                |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
+                |id| paperpaw_app::native_default_on(id, store),
             )
         };
         for (id, status) in outcome {

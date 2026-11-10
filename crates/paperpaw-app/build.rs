@@ -79,6 +79,10 @@ fn plugin_versions(crates: &[String]) {
         let file = root.join("plugins").join(id).join("Cargo.toml");
         println!("cargo::rerun-if-changed={}", file.display());
         let Ok(source) = std::fs::read_to_string(&file) else {
+            println!(
+                "cargo::warning=no {}: `{id}` has no version to list",
+                file.display()
+            );
             continue;
         };
         let source = format!("\n{}", source.replace("\r\n", "\n"));
@@ -91,8 +95,11 @@ fn plugin_versions(crates: &[String]) {
             let value = line.strip_prefix("version = \"")?;
             Some(value.strip_suffix('"')?.to_string())
         });
-        if let Some(version) = version {
-            let _ = writeln!(out, "    ({id:?}, {version:?}),");
+        match version {
+            Some(version) => {
+                let _ = writeln!(out, "    ({id:?}, {version:?}),");
+            }
+            None => println!("cargo::warning=`{id}` has no version of its own to list"),
         }
     }
     out.push(']');
