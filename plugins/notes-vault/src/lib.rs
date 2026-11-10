@@ -56,7 +56,11 @@ pub use markdown::MarkdownDocument;
 pub use native_entry::NATIVE_ENTRY;
 
 #[cfg(test)]
+mod native_golden_tests;
+#[cfg(test)]
 mod native_parity_tests;
+#[cfg(test)]
+mod old_dump_tests;
 
 #[cfg(test)]
 extern crate std;

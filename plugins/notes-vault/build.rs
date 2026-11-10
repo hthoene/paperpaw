@@ -39,6 +39,8 @@ fn main() -> Result<(), String> {
     emit!(source, "SETTINGS", declarations::settings);
     emit!(source, "UI", declarations::ui);
     emit!(source, "FORMATS", declarations::formats);
+    emit!(source, "WIDGETS", declarations::widgets);
+    emit!(source, "EVENTS", declarations::events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("notes_vault_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))
