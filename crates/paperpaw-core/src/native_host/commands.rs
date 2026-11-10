@@ -518,7 +518,7 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             if dev::is_dev(&command) {
-                self.dev_push(command)?;
+                self.dev_push(&command)?;
                 continue;
             }
             // A close of the root and a `back_to` with nothing above change
@@ -526,19 +526,37 @@ impl<'a> CommandStage<'a> {
             if self.nav_no_effect(&command) {
                 continue;
             }
-            if images && let Some(image) = image_service::commands::owned(&command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                self.staged_images.push(image?);
+            if images && self.stage_image(&command)? {
                 continue;
             }
-            let owned = self.owned(command)?;
-            if let WireCommand::Open { mode, handover, .. } = command {
-                self.record_open(self.staged.len(), mode, handover)?;
-            }
-            // Capacity is reserved, so this push cannot reallocate.
-            self.staged.push(owned);
+            self.stage_owned(&command)?;
         }
         self.dev_commit(dev_start)
+    }
+
+    /// Keeps an image command in its own list; `false` for another command.
+    /// Its own frame: the copy of an image command is big, and is not held
+    /// beside the others on the frame of `push_batch` (the S3 limit).
+    #[inline(never)]
+    fn stage_image(&mut self, command: &WireCommand<'_>) -> Result<bool, i32> {
+        let Some(image) = image_service::commands::owned(command) else {
+            return Ok(false);
+        };
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged_images.push(image?);
+        Ok(true)
+    }
+
+    /// Converts and keeps one ordinary command (and records an open).
+    #[inline(never)]
+    fn stage_owned(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let owned = self.owned(*command)?;
+        if let WireCommand::Open { mode, handover, .. } = *command {
+            self.record_open(self.staged.len(), mode, handover)?;
+        }
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged.push(owned);
+        Ok(())
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.
