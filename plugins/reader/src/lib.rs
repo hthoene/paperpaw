@@ -46,6 +46,8 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 pub mod declarations;
 pub mod native_actions;
 pub mod native_aloud;
+pub mod native_annotations;
+pub mod native_annotations_view;
 pub mod native_block;
 pub mod native_bookmark;
 pub mod native_decor;
