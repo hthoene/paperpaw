@@ -422,8 +422,11 @@ mod x4 {
     /// plugin that still runs).
     pub(super) struct FlashModule;
 
-    fn call_begin(id: &str) {
+    fn call_begin(id: &str) -> bool {
         crate::safe_mode::calling(id);
+        // The refusal at an interrupt level (todo 185) comes with the stack
+        // band: until then every call runs.
+        true
     }
 
     fn call_end(_id: &str) {
