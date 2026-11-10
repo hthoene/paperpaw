@@ -188,7 +188,7 @@ fn home_add() {
 }
 
 #[test]
-#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs pointer input to native screens (H4a, no PR yet); HOME-item-settings: the options' Settings entry (the widget's settings with a placement of its own) is not ported (plugin work)"]
+#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs pointer input to native screens (H4a, no PR yet)"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }
