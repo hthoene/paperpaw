@@ -21,6 +21,8 @@ pub const TICK: u32 = 4;
 /// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
 pub const DATE: u32 = 20;
 pub const CLOCK: u32 = 21;
+pub const CARD: u32 = 22;
+pub const SHELF: u32 = 23;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 8;
@@ -236,6 +238,11 @@ pub struct Def {
     /// padding, paper, ink, corners, line, shadow) are the shared ones and
     /// come first, then its own.
     pub align: &'static str,
+    /// The frame it has at first.
+    pub frame: &'static str,
+    /// Whether it shows something new each minute (the time); the books are
+    /// asked about at the tick too, but a change of them is not a minute's.
+    pub live: bool,
     /// The widget's own settings.
     pub options: &'static [Opt],
 }
@@ -250,14 +257,20 @@ impl Def {
     pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
         shared_look(self.align)
             .into_iter()
+            .map(|option| match option {
+                Opt::Frame(_) => Opt::Frame(self.frame),
+                other => other,
+            })
             .chain(self.options.iter().copied())
     }
 }
 
 /// The widget categories of the host's catalogue.
 const TIME: &str = "core.widgets.time";
+const BOOKS: &str = "core.widgets.books";
 
-/// The date in words, and the clock with its date.
+/// The date in words, the clock with its date, the book being read and the
+/// recent ones.
 pub const WIDGETS: &[Def] = &[
     Def {
         name: "date",
@@ -265,6 +278,8 @@ pub const WIDGETS: &[Def] = &[
         category: TIME,
         title: "home.widget.date",
         align: "core.align.center",
+        frame: "core.frame.none",
+        live: true,
         options: &[Opt::Size("core.size.medium", false)],
     },
     Def {
@@ -273,23 +288,61 @@ pub const WIDGETS: &[Def] = &[
         category: TIME,
         title: "home.widget.clock",
         align: "core.align.center",
+        frame: "core.frame.none",
+        live: true,
         options: &[
             Opt::Size("core.size.medium", true),
             Opt::Part("date", "home.setting.clock-date", true),
         ],
     },
+    Def {
+        name: "continue",
+        token: CARD,
+        category: BOOKS,
+        title: "home.widget.continue",
+        align: "core.align.left",
+        frame: "core.frame.line",
+        live: false,
+        options: &[
+            Opt::Part("cover", "home.setting.card-cover", true),
+            Opt::Part("progress", "home.setting.card-progress", true),
+        ],
+    },
+    Def {
+        name: "recent",
+        token: SHELF,
+        category: BOOKS,
+        title: "home.widget.recent",
+        align: "core.align.center",
+        frame: "core.frame.none",
+        live: false,
+        options: &[
+            Opt::Part("heading", "home.setting.recent-heading", true),
+            Opt::Part("titles", "home.setting.recent-titles", true),
+            Opt::Number(
+                "count",
+                "home.setting.recent-count",
+                1,
+                8,
+                6,
+                "home.setting.recent-count.help",
+            ),
+        ],
+    },
 ];
 
-/// The built-in widgets: each is read each minute, and has a group of settings
+/// The built-in widgets: each has a group of settings
 /// of its own, named as it is.
 pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     for widget in WIDGETS {
         d.group(GroupDecl::new(widget.name, widget.title))?;
-        let spec = WidgetDecl::new(widget.name, widget.title, widget.category, widget.token)
-            .map_err(|_| DeclareError::TooLong("widget"))?
-            .live();
+        let mut spec = WidgetDecl::new(widget.name, widget.title, widget.category, widget.token)
+            .map_err(|_| DeclareError::TooLong("widget"))?;
+        if widget.live {
+            spec = spec.live();
+        }
         d.widget(spec)?;
         let group = ["home.", widget.name].concat();
         declare_all(d, widget.name, &group, widget.all())?;
