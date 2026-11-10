@@ -583,6 +583,11 @@ fn each_native_factory_allocation_failure_preserves_current_screen_and_layout() 
         let warnings = kernel.take_warnings();
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].message, "Could not open native screen");
+        // The user is told too (a notice, where the kernel has a screen for
+        // it; none here), in words that name neither the screen nor its
+        // params.
+        let words = kernel.shared.translator.tr("core.screen.open-failed");
+        assert_eq!(words, "This screen could not be opened.");
     }
     open(&mut kernel, Params::new());
     assert_eq!(kernel.stack.len(), 2);

@@ -134,6 +134,20 @@ impl Kernel {
         });
     }
 
+    /// Tells the user that a screen could not be opened (the diagnostic above
+    /// is for the log). The words are copied with a fallible reservation, so
+    /// persistent memory trouble says nothing rather than allocating
+    /// infallibly; they never name the screen or its params.
+    fn notify_native_open_failed(&mut self) {
+        let words = self.shared.translator.tr("core.screen.open-failed");
+        let mut text = String::new();
+        if text.try_reserve_exact(words.len()).is_err() {
+            return;
+        }
+        text.push_str(words);
+        self.notify(text);
+    }
+
     fn screen_stack_has_room(&mut self) -> bool {
         if self.shared.stack_rows.cleanup_pending() {
             self.warn_runtime("UI instance cleanup is still pending");
@@ -158,6 +172,7 @@ impl Kernel {
         // Native allocation finishes before changing the serial, layout or screen.
         let Ok(native_screen) = spec.prepare_native(params) else {
             self.warn_native_open_failed();
+            self.notify_native_open_failed();
             return;
         };
         let on_open = spec.refresh_on_open();
