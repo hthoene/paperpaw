@@ -21,7 +21,6 @@ use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat, Point,
     PointerEvent, PointerPhase, PointerTool, Rotation,
 };
-use paperpaw_plugin_keyboard::Keyboard;
 use paperpaw_plugin_wifi::Wifi;
 use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::semantics::{self, Part, Role};
@@ -30,6 +29,10 @@ use paperpaw_sdk::{
     MemoryStorage, Params, Plugin, Priority, RegisterError, Registrar, Screen, ScreenSpec, Storage,
     StorageError, Version,
 };
+
+#[path = "../../test-support/keyboard_dialog.rs"]
+mod keyboard_dialog;
+use keyboard_dialog::KeyboardDialog;
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 const BUTTONS: DeviceInfo = DeviceInfo::new(
@@ -201,7 +204,7 @@ impl Device {
             .user_config("[core]\nlanguage = en\n")
             .wifi(true)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(Keyboard)
+            .plugin(KeyboardDialog)
             .plugin(Wifi)
             .plugin(NoticeKeeper(notices.clone()))
             .build()

@@ -9,9 +9,7 @@ keys and where they lie, focus moves, variants), drawing as owned `Paint` operat
 metadata in `native/` (regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def
 --input native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
 likewise `metadata.host.*`; services `core.device`, `core.registry`, `core.ui`). Drawing uses
-`paperpaw-ui-kit`. The interface-6 `Keyboard` plugin, `draw.rs`, `choose.rs` and the suites in
-`tests/` stay: `paperpaw-app` and other plugins' tests still link them until the host activates
-native plugins; then they go together (no shim).
+`paperpaw-ui-kit`. The interface-6 plugin is removed (see below); no shim stays.
 
 ## Ported
 
@@ -36,14 +34,24 @@ native plugins; then they go together (no shim).
   held-Back action `keyboard.done` bound to `long.back` on `keyboard.screen`, and the need of
   *Key shape* for a touch screen.
 - Text, titles and en/de catalogs are unchanged.
+- The interface-6 plugin is removed: `Keyboard`, `KeyboardScreen`, `rows_for` (the interface-6 form;
+  `try_rows_for` stays), `draw.rs`, `choose.rs`, the interface-6 point reading of added layouts
+  (`parse`, `added`) and the suites `typing.rs`, `presses.rs`, `multiline.rs`, `long_text.rs` and
+  `size.rs`, with the app's `.plugin(Keyboard)` wiring (the keyboard does not show in the app until
+  the host activates native plugins) and the desktop golden `boox-keyboard`. The wifi and store tests
+  open a test-only stand-in for the dialog (`plugins/test-support/keyboard_dialog.rs`). Parity tests
+  against the interface-6 registration became image-versus-builder and host-admission tests
+  (`tests/abi7_declarations.rs`); the reading of added layouts is tested against stated results, not
+  against the old `parse`. The test that held the script packs' `keyboard.layouts` lines
+  (`tools/plugin-files/keyboards`) to the old reading went with it: those packs still bring
+  interface-6 lines, and a pack that adds layouts through the stage is a later step.
 
 ## Tests
 
 `native_model`: layout of the keyboard inside the screen (touch and buttons), shift and its lock,
 automatic capitals, cut text, paste filters, layers and layouts, focus moves, variants, German
-holds, and allocation-refusal sweeps. Declaration parity with the interface-6 registration,
-linked entry, construction in the kernel's registered scope (refused as `Unsupported` until the
-host admits every declaration family, #944). `tests/acceptance_pending.rs`: ignored cases that
+holds, and allocation-refusal sweeps. The image is what the declaration builders make, the host admits
+the screens, linked entry, construction in the kernel's registered scope. `tests/acceptance_pending.rs`: ignored cases that
 name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H4).
 
 - Layouts other plugins add (interface 6 point `keyboard.layouts`, now the stage
@@ -88,12 +96,3 @@ name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H
   bytes per character. Bounded by `MAX_CHARS` / `MAX_CHARS_MULTILINE`, fallible, freed after each
   repaint; a reused, line-by-line wrap buffer needs a streaming wrap in the kit and is left for
   the X4 memory measurement.
-
-## Activation items (todo 90, with the host's switch to native plugins)
-
-- Remove the app wiring of the interface-6 keyboard: `.plugin(paperpaw_plugin_keyboard::Keyboard)`
-  in `crates/paperpaw-app/src/lib.rs`, the `paperpaw-plugin-keyboard` dependency of
-  `crates/paperpaw-app`, and the `Keyboard` registrations in the test harnesses of the wifi, keys,
-  profiles, lock and store plugins (they use `DONE`, which moves to the native plugin's constants).
-- Then delete the interface-6 `Keyboard`, `draw.rs`, `choose.rs`, `rows_for`/`KeyboardScreen` and
-  the legacy suites in `tests/`; no shim stays.

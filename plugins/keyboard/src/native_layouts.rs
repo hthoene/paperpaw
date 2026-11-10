@@ -2,8 +2,7 @@
 //! `keyboard.layouts@1` (`stages/keyboard.layouts@1.def`, codec `src/stages.rs`)
 //! and answers each run with up to [`MOST_PER_PLUGIN`] `layouts.layout`
 //! records. The keyboard runs the stage when it needs the layouts (the dialog,
-//! the chooser) and takes the rules of interface 6's point `keyboard.layouts`
-//! for a layout: the id is also the translation key of its name, the code has
+//! the chooser) and takes these rules for a layout: the id is also the translation key of its name, the code has
 //! at most [`MAX_CODE`] visible characters, the letter rows are separated by
 //! spaces (at most [`MAX_ROWS`] of at most [`MAX_KEYS`] letters), and the
 //! variants are pairs `e=éèë` (at most [`MAX_VARIANTS`] a letter). Every
@@ -210,38 +209,46 @@ pub fn collect(host: &Host<'_>, language: &str) -> Result<Vec<Added>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layouts::parse;
-
-    /// The fields as the line of the point says them.
-    fn line(id: &str, code: &str, rows: &str, variants: &str) -> String {
-        alloc::format!("{id}; {code}; {rows}; {variants}")
-    }
 
     #[test]
-    fn the_rules_are_those_of_the_point_in_interface_6() {
+    fn a_layout_is_read_by_the_rules_of_the_stage() {
         let long_rows = ["abcdefghijklmnopqrstuvwxyz"; 30].join(" ");
         let long_variants = alloc::format!("A=\u{202E}áà{} e=éèë ij=x i=ïí o=", "x".repeat(40));
+        let owned = |pairs: &[(char, &str)]| -> Vec<(char, String)> {
+            pairs.iter().map(|(c, v)| (*c, String::from(*v))).collect()
+        };
+        let many_x = alloc::format!("áà{}", "x".repeat(14));
+        let sixteen = ["abcdefghijklmnop"; MAX_ROWS].join(" ");
+        // Too much is cut, what shows nothing goes, two letters before `=` are
+        // no letter, capitals are looked up in lower case.
         let samples = [
             (
-                "dutch.layout",
-                "NL",
-                "qwertyuiop asdfghjkl zxcvbnm",
+                ("dutch.layout", "NL", "qwertyuiop asdfghjkl zxcvbnm"),
                 "e=éèë ij=x i=ïí",
+                ("NL", "qwertyuiop asdfghjkl zxcvbnm"),
+                owned(&[('e', "éèë"), ('i', "ïí")]),
             ),
-            ("plain.layout", "PL", "abc", ""),
+            (("plain.layout", "PL", "abc"), "", ("PL", "abc"), Vec::new()),
             (
-                "big.layout",
-                "LONGCODE",
-                long_rows.as_str(),
+                ("big.layout", "LONGCODE", long_rows.as_str()),
                 long_variants.as_str(),
+                ("LONG", sixteen.as_str()),
+                owned(&[('a', many_x.as_str()), ('e', "éèë"), ('i', "ïí")]),
             ),
-            ("odd.layout", "X\u{200B}Y", "ab \u{202E} cd   ef", "é=e"),
-            ("a", "A", "z", "z=z"),
+            (
+                ("odd.layout", "X\u{200B}Y", "ab \u{202E} cd   ef"),
+                "é=e",
+                ("XY", "ab cd ef"),
+                owned(&[('é', "e")]),
+            ),
+            (("a", "A", "z"), "z=z", ("A", "z"), owned(&[('z', "z")])),
         ];
-        for (id, code, rows, variants) in samples {
-            let old = parse(&line(id, code, rows, variants));
-            let new = from_fields(id, code, rows, variants).unwrap();
-            assert_eq!(new, old, "{id}");
+        for ((id, code, rows), variants, (want_code, want_rows), want_variants) in samples {
+            let layout = from_fields(id, code, rows, variants).unwrap().unwrap();
+            assert_eq!(layout.id, id);
+            assert_eq!(layout.code, want_code, "{id}");
+            assert_eq!(layout.letters, want_rows, "{id}");
+            assert_eq!(layout.variants, want_variants, "{id}");
         }
         for (id, code, rows) in [
             ("", "X", "abc"),

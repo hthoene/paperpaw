@@ -55,6 +55,7 @@ native-linked = [
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
     "dep:paperpaw-plugin-help",
+    "dep:paperpaw-plugin-keyboard",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
@@ -89,7 +90,7 @@ paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
-paperpaw-plugin-keyboard.workspace = true
+paperpaw-plugin-keyboard = { workspace = true, optional = true }
 paperpaw-plugin-menu.workspace = true
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }

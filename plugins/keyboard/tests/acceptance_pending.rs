@@ -1,7 +1,7 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! keyboard is pinned by `typing.rs`, `presses.rs` and the other suites on a
-//! kernel; these cases are the same behaviours through the production loader
-//! with the native plugin. They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host: the keyboard's
+//! behaviours through the production loader with the native plugin (the
+//! interface-6 suites that pinned them on a kernel are gone with that plugin).
+//! They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -38,8 +38,8 @@ const CASES: [Case; 5] = [
         blocked_by: &["H1", "H4"],
     },
     // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema,
-    // codec and the reading in `native_layouts`, compared with interface 6's
-    // rules); the host does not run stages yet (slot 32), so a subscriber's
+    // codec and the reading in `native_layouts`, tested against the rules of the
+    // old line format); the host does not run stages yet (slot 32), so a subscriber's
     // layout cannot be shown on the keyboard. Hiding layouts and variants the
     // fonts cannot draw (`text.covers`, slot 39) is done and tested on what
     // the query answers; the host's own answer needs a font to ask.

@@ -323,21 +323,6 @@ fn power_sleeps_and_only_power_wakes() {
     assert_eq!(woken.screen(), "home.dashboard");
 }
 
-/// `type:` types into the keyboard shown as if on its keys, umlauts and
-/// all; `type-enter:` confirms what was typed, and the keyboard closes.
-#[test]
-fn text_is_typed_into_the_keyboard_shown() {
-    let typed = run(
-        "type",
-        "xteink-x4",
-        "open:keyboard.screen:title=Name,type:Grüße Zoë,describe,type-enter:!",
-        &[],
-    );
-    assert!(typed.ok, "{}", typed.stderr);
-    assert!(typed.stdout.contains("Grüße Zoë"), "{}", typed.stdout);
-    assert_ne!(typed.screen(), "keyboard.screen", "{}", typed.stdout);
-}
-
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]

@@ -8,9 +8,13 @@
     reason = "shared by the tests; not every test file uses every helper"
 )]
 
+#[path = "../../../test-support/keyboard_dialog.rs"]
+mod keyboard_dialog;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use keyboard_dialog::KeyboardDialog;
 use paperpaw_core::{CodeLoader, HttpCall, HttpResponse, Io, Kernel};
 use paperpaw_platform::Rotation;
 use paperpaw_plugin_store::{OPEN, Store};
@@ -295,7 +299,7 @@ impl Shopping {
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
             .plugin(paperpaw_plugin_menu::Menu)
-            .plugin(paperpaw_plugin_keyboard::Keyboard)
+            .plugin(KeyboardDialog)
             .plugin(Store)
             .catalog_device("x4")
             .build()
@@ -347,7 +351,7 @@ impl Shopping {
             // Shows the notices.
             .plugin(paperpaw_plugin_menu::Menu)
             // Asks for text and numbers.
-            .plugin(paperpaw_plugin_keyboard::Keyboard)
+            .plugin(KeyboardDialog)
             .plugin(Store);
         if let Some(hear) = hear {
             builder = builder.plugin(hear);

@@ -1,5 +1,5 @@
 //! What the keyboard plugin declares, built into its image by `build.rs` and
-//! compared with the interface-6 registration by the declaration tests.
+//! held to it by the declaration tests.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, ExtraDecl, GroupDecl, Instances,
