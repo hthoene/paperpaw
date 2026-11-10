@@ -333,6 +333,20 @@ relative to the data folder).
   fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
   `read_handover` error is "no book".
 
+## The font, justify and chapter actions (view slice R3a, `native_actions.rs`)
+
+- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-40 (the
+  setting's range; a font pack may allow less: the host fits it back; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
+  a native plugin cannot read: named). `reader.toggle-justify`. Both change the setting by command; the
+  page is laid out again by the setting-changed reflow (Port E, #1064), until it lands the change shows at
+  the next layout.
+- `reader.next-chapter` / `reader.prev-chapter`: the first chapter start at or after the page's end / the
+  last before its start, from the book's table (`core.document` op 7; starts in the page's section made
+  exact by op 8, as Beta 3). Goes as a turn (trail, place saved, reported); nothing happens where there is
+  no chapter. A book with no table has none (the headings scan is not ported: R6).
+- **Not yet:** go to page / percent (need a number dialog and the page index), the quick-settings panel
+  screen, book info, the status-line actions, the bookmark (annotations screen, R5).
+
 ## Reflow (view slice R8a, Port E)
 
 - The page on show is laid out with a key (the reading settings and the display's width, height and density,
