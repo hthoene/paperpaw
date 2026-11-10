@@ -7,9 +7,15 @@ the comparisons with it are pinned values or acceptance cases (`tests/acceptance
 and `CATALOGS` (en/de) are the statics the host publishes at admission. Not linked into the app (it is no longer
 in `paperpaw_app::STORE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`. Lost with the interface-6
 tests, until the host draws native widgets: the drawing sweep (every widget at every cell size, every setting
-value, hostile files), the golden of the settings batches (`testdata/declarations.bin.v1`, which pinned the
-interface-6 registration) and the settings-parity comparison; each setting is declared once in
-`declarations.rs` and checked by `tests/abi7_declarations.rs`.
+value, hostile files), the settings-parity comparison. The settings are pinned instead by Beta 3's batches
+(`testdata/declarations.bin.v1`, kept): `tests/abi7_declarations.rs` requires every setting of it to be declared as it
+was (group, kind, default, range, choices, title, help), new ones allowed.
+
+**Held until native activation.** With the interface-6 pack gone the app registers no widgets, and `widgets` is not
+yet in `paperpaw_app::NATIVE_PLUGINS`: kernels without native activation (Android, emulator, web, test kernels)
+show none of the pack's widgets until it is. Activation adds `widgets` to `NATIVE_PLUGINS` (with its optional
+dependency and `paperpaw-plugin-widgets/linked` in the `native-linked` feature) together with the shells' size and
+memory measurement of the linked plugin (the plugin file packs to about 480 KB, so this is not done blind here).
 
 Native plugin: `src/native_plugin.rs` (`NativeWidgets`): the host makes an
 instance when a screen shows a widget (`event.widget_made`), asks for its

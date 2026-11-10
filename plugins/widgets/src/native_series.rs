@@ -422,3 +422,34 @@ pub fn book_at(
     let found = found(host, &settings, cache)?;
     Ok(shown(&settings, found)?.books.get(index).map(|b| b.book))
 }
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    fn member(number: &str, title: &str) -> Member {
+        Member {
+            key: 1,
+            generation: 1,
+            title: String::from(title),
+            number: String::from(number),
+            finished: false,
+        }
+    }
+
+    #[test]
+    fn a_label_is_the_number_and_the_title_as_wanted() {
+        let book = member("3", "The Third");
+        assert_eq!(label(&book, true, true).unwrap(), "3 · The Third");
+        assert_eq!(label(&book, true, false).unwrap(), "3");
+        assert_eq!(label(&book, false, true).unwrap(), "The Third");
+        assert_eq!(label(&book, false, false).unwrap(), "");
+    }
+
+    #[test]
+    fn a_book_without_a_number_is_labelled_by_its_title_alone() {
+        let book = member("", "Standalone");
+        assert_eq!(label(&book, true, true).unwrap(), "Standalone");
+        assert_eq!(label(&book, true, false).unwrap(), "");
+    }
+}
