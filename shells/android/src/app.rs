@@ -20,12 +20,17 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::settings;
 use paperpaw_sdk::library;
+use paperpaw_sdk::setting::{Setting, Text};
 
 use crate::epd::Epd;
 use crate::lights::Lights;
 use crate::plugin::{AndroidPlugin, Frontlight};
 use crate::private::Private;
 use crate::{access, keys, pixels, status};
+
+/// The dictionaries' folder setting (the native dictionary declares it), whose default is the
+/// shared dictionaries folder.
+const DICTIONARY_FOLDER: Setting<Text> = Setting::new("dictionary.folder");
 
 /// Where the device's shared storage appears in PaperPaw's storage.
 const SHARED: &str = "storage";
@@ -512,7 +517,7 @@ fn start_kernel(
             .font_dir(format!("{SHARED}/{SYSTEM_FONTS}"))
             .setting_default(&library::FOLDER, format!("{SHARED}/Books").into())
             .setting_default(
-                &paperpaw_plugin_dictionary::FOLDER,
+                &DICTIONARY_FOLDER,
                 format!("{SHARED}/{dictionaries}").into(),
             ),
         None => builder.storage(storage),

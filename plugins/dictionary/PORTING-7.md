@@ -1,7 +1,9 @@
-# Dictionary on interface 7 (slices 1 to 3, partly ported)
+# Dictionary on interface 7 (native only, with named gaps)
 
-Status: **not complete.** The interface-6 plugin (registration, panel, background indexing, providers
-list) is still in place beside the native one. It is removed in the PR that finishes the port.
+Status: **native only.** The interface-6 plugin (registration, panel, background indexing, providers
+list), its kernel tests (`lookup*.rs`, `providers.rs`) and its registration in the app are removed; the
+Android shell names the folder setting (`dictionary.folder`) itself. Version stays 1.0.3 (Beta 3 is 1.0.2:
+no further bump).
 
 ## Ported in slice 1 (`declarations.rs`, `src/native_model.rs`, `src/native_plugin.rs`, `src/native_entry.rs`)
 
@@ -77,14 +79,26 @@ list) is still in place beside the native one. It is removed in the PR that fini
   the panel (slice 2) and the reader's selection menu skip pages for which
   `native_model::is_no_entry` is true.
 
-## What the slice loses (each returns in a later slice or with its host piece)
+## Gaps against Beta 3 (each is an ignored case in `tests/acceptance_pending.rs` or named here)
 
-- **Every lookup** (done in slice 2 for the provider).
-- The panel (definitions, scrolling, the *Online* line, *Open more*), and the slot `core.lookup` it
-  fills: a screen that cannot draw is not declared.
-- Background indexing of a dictionary's blocks on the first lookup (done in slice 2, as the provider's work).
-- Other plugins' providers in the panel, and providers answering later (todo 98).
-- The setting's section heading (`dictionary.section`).
-- Entries are cut at 2,048 bytes (interface 6 scrolled the whole definition).
+- Providers that fetch (*Online ›* in the header, *Open Wikipedia ›* on an entry, providers answering
+  later): the host answers them as unsupported (todo 98, on the activation blocker list).
+- The line that says the indexes are being prepared: the panel shows *No entry* meanwhile.
+- Several definitions of one word in one dictionary or of several: the service gives one entry per provider
+  page, cut at 2,048 bytes (interface 6 scrolled every definition).
+- `dictionary.none` (the *No dictionaries* message) is not shown; the setting's section heading
+  (`dictionary.section`); the hint of the confirm button; the clean-up of the caches of removed
+  dictionaries (`forget_others`) and the `failed` marker of an index that could not be made (a restart
+  tries again).
+- Goldens: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
+- Not in the app's `NATIVE_PLUGINS`: like the other native-only plugins it joins the program at activation
+  (Core #944); until then no dictionary runs in the desktop or Android program.
+- **Activation checklist (`NATIVE_PLUGINS`; this PR is HELD until native activation).** In the step that
+  activates native plugins: (1) list `NativeDictionary` in `paperpaw_app::NATIVE_PLUGINS` (keep the array length
+  and the counts in `crates/paperpaw-app/tests/sets.rs` equal) and in `tools/plugin-files7/complete.txt`;
+  (2) check that the shells' dictionary folder setting still uses the plugin's id `dictionary.folder` (Android's
+  `DICTIONARY_FOLDER` repeats the literal; a shared constant is not exported yet); (3) bless the dictionary
+  goldens once H1/H3/H4 draw the screens.
+- A dictionary that cannot be read is skipped at every lookup, and an index that cannot be made is tried
+  again at every start (interface 6 kept a `failed` marker with the files' sizes).
 
-Each loss is an ignored case in `tests/acceptance_pending.rs`.

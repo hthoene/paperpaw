@@ -1632,7 +1632,6 @@ dependencies = [
  "paperpaw-http",
  "paperpaw-i18n",
  "paperpaw-platform",
- "paperpaw-plugin-dictionary",
  "paperpaw-sdk",
  "paperpaw-serve",
 ]
@@ -1648,7 +1647,6 @@ dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
@@ -2040,12 +2038,9 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
  "paperpaw-stardict",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]

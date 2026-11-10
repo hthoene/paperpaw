@@ -83,7 +83,6 @@ paperpaw-core.workspace = true
 # What a shell offers a linked native plugin at admission (`native-linked`).
 paperpaw-native = { workspace = true, optional = true }
 paperpaw-i18n.workspace = true
-paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
