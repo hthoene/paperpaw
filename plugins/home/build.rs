@@ -37,6 +37,7 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
+    emit!(source, "WIDGETS", declarations::widgets);
     emit!(source, "SCREENS", declarations::screens);
     emit!(source, "NAVIGATION", declarations::navigation);
     emit!(source, "EVENTS", declarations::events);

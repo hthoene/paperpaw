@@ -109,6 +109,7 @@ fn device_commands() -> [WireCommand<'static>; 29] {
             request: 6,
             author: &KEY,
             recovery: &KEY,
+            sha256: &KEY,
         },
         WireCommand::InstallRotation {
             request: 7,

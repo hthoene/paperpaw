@@ -50,10 +50,16 @@ pub(crate) struct HostServices {
     /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
     /// and the kernel's pump drives. One per device.
     firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
+    /// The firmware request table (op 13 reads the state of a request and the
+    /// outcome kept for it). One per device.
+    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The library's move job and its card side, made when `core.files` is
+    /// wired (`lib_moves_service`).
+    pub(super) library_moves: OnceCell<Rc<super::lib_moves_service::LibraryMoves>>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
     /// The ids of the plugins linked into the firmware (root 2 of the file
@@ -122,10 +128,12 @@ impl HostServices {
             ui: OnceCell::new(),
             device: OnceCell::new(),
             firmware: OnceCell::new(),
+            firmware_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -251,9 +259,13 @@ impl HostServices {
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
-    pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
+    pub(crate) fn wire_lookup(
+        &self,
+        host: Rc<dyn LookupHost>,
+        log: super::device_log::DeviceLog,
+    ) -> Result<(), i32> {
         self.lookup
-            .set(LookupServices::new(host))
+            .set(LookupServices::new(host, log))
             .map_err(|_| ERR_STATE)
     }
 
@@ -288,6 +300,25 @@ impl HostServices {
         self.ui.get()
     }
 
+    /// The file the hand-over of reader `instance` names, for `doc_open`
+    /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
+    /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
+    /// `core.ui` store is wired.
+    #[allow(
+        dead_code,
+        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
+    )]
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(super::ui_store::Handed<'_>),
+    ) -> Result<(), i32> {
+        self.ui()
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?
+            .store
+            .handed_file(instance, visit)
+    }
+
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
@@ -296,6 +327,19 @@ impl HostServices {
         self.device
             .set(super::device_service::DeviceServices(host))
             .map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the firmware request table once (op 13).
+    pub(crate) fn wire_firmware_requests(
+        &self,
+        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+    ) -> Result<(), i32> {
+        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
+    }
+
+    /// The firmware request table, where wired.
+    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
+        self.firmware_requests.get()
     }
 
     /// Wire the firmware install machine once.
@@ -432,7 +476,6 @@ impl HostServices {
     ///
     /// # Errors
     /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the library host registers its job (todo)")]
     pub(crate) fn register_library_moves(
         &self,
         moves: Rc<super::lib_service::moves::Moves>,
@@ -534,7 +577,6 @@ impl HostServices {
         self.sockets.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
         let owners = self.owners()?;
@@ -548,7 +590,6 @@ impl HostServices {
         self.work.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
     /// Wire `core.secrets` once.
     pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
         self.secrets.set(secrets).map_err(|_| ERR_STATE)

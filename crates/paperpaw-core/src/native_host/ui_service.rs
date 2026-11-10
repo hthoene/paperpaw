@@ -1,7 +1,8 @@
 //! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the questions and
 //! answers (ops 8 `ask`, 2 `question`, 11 `answer`), the hand-over ops 16
 //! `handover` and 17 `params` and the text ops 9 `text_write` and 10
-//! `text_read`, over the one [`UiStore`]; ops 4, 5, 14 and 15 (widgets and
+//! `text_read`, over the one [`UiStore`]; op 3 `hints` (`ui_hints`) over the
+//! registry's directory; ops 4, 5, 14 and 15 (widgets and
 //! status, `ui_widget_ops`) over the handle table. The other ops answer
 //! `ERR_UNSUPPORTED` until their handlers land.
 //!
@@ -15,9 +16,10 @@ use super::{
     registrations::{self as wire, Record},
     shared::Shared,
     ui_guard::{self, Ask, OpenRequests},
+    ui_hints,
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
-    ui_widget_ops,
+    ui_widget_layout, ui_widget_ops,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
@@ -80,13 +82,19 @@ pub(crate) fn backend(
 ) -> Result<usize, i32> {
     let ui = who.hosts.ui().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
+        1 => super::ui_stack_op::stack(frame, who, input, out),
         8 => ask(frame, ui, who, input, out),
         2 => question(frame, ui, input, out),
+        3 => ui_hints::hints(frame, who, op, input, out),
         11 => answer(frame, ui, input).map(|()| 0),
         16 => handover(frame, ui, who, input, out),
         17 => params(frame, ui, input, out),
         4 => ui_widget_ops::widget_make(frame, ui, who, input, out),
         5 => ui_widget_ops::widget_drop(ui, who, input).map(|()| 0),
+        6 => ui_widget_layout::widget_input(frame, ui, who, input).map(|()| 0),
+        7 => ui_widget_layout::widget_targets(frame, ui, who, input, out),
+        12 => ui_widget_layout::widget_measure(frame, ui, who, input, out),
+        13 => ui_widget_layout::widget_place(frame, ui, who, input).map(|()| 0),
         14 => ui_widget_ops::status_values(frame, ui, who, input, out),
         15 => ui_widget_ops::status_line(frame, ui, who, input, out),
         9 => text_write(frame, ui, who, input).map(|()| 0),

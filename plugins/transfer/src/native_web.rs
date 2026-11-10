@@ -9,8 +9,9 @@
 //! answer is *403*, and after a few wrong keys *429* for a while (the SDK's
 //! `served::Guard`). Paths are plain names ([`files::is_plain_name`]: nothing
 //! hidden, no `..`); the settings file can be fetched but not changed
-//! ([`read_only`]). Moving, renaming and installing plugins are *501* until the
-//! library follows moves and the install design is there (`PORTING-7.md`).
+//! ([`read_only`]). Installing plugins from the computer is `native_install`;
+//! moving and renaming are *501* until the library follows moves
+//! (`PORTING-7.md`).
 use alloc::string::String;
 use paperpaw_sdk::Instant;
 use paperpaw_sdk::files;
@@ -18,6 +19,7 @@ use paperpaw_sdk::native::Error;
 use paperpaw_sdk::served::{Access, Guard};
 use paperpaw_ui_kit::text::{concat, copy, decimal_u64, write_to};
 
+use crate::native_install::{Installs, Plugins};
 use crate::native_transfer::read_only;
 
 /// The page, as the plugin writes it into its data folder.
@@ -77,8 +79,9 @@ pub enum Body {
     Text(&'static str),
     /// Words made for this request.
     Owned(String),
-    /// The page, from the plugin's data folder ([`PAGE_FILE`]).
-    Page,
+    /// A file of the plugin's data folder (the page, [`PAGE_FILE`]; the list of
+    /// the plugins; the phone's page), sent whole.
+    Data(&'static str),
     /// A file of the card, sent whole.
     File(String),
 }
@@ -162,8 +165,16 @@ fn ok(done: Option<(Done, String)>) -> Outcome {
     (answer, done)
 }
 
+/// The host's parts of answering: the card, and the plugins sent from the
+/// computer with what is known of them.
+pub struct Parts<'a> {
+    pub card: &'a mut dyn Card,
+    pub plugins: &'a mut dyn Plugins,
+    pub installs: &'a mut Installs,
+}
+
 /// Answers `request`, if `guard` lets it in, and says what it changed.
-pub fn answer(card: &mut dyn Card, guard: &mut Guard, request: &Request<'_>) -> Outcome {
+pub fn answer(parts: &mut Parts<'_>, guard: &mut Guard, request: &Request<'_>) -> Outcome {
     let (path, query) = request
         .target
         .split_once('?')
@@ -171,25 +182,10 @@ pub fn answer(card: &mut dyn Card, guard: &mut Guard, request: &Request<'_>) -> 
     if path == "/favicon.ico" {
         return (text(404, "not found"), None);
     }
-    let given = match param(query, "k") {
-        Ok(given) => given,
-        Err(error) => return (fail_answer(Fail::from(error)), None),
-    };
-    match guard.check(given.as_deref(), request.at) {
-        Access::Granted => {}
-        Access::Locked => {
-            return (
-                text(429, "Too many wrong keys: try again in a minute."),
-                None,
-            );
-        }
-        // Denied, and a state to come: refused as a wrong key is.
-        _ => {
-            let words = "The key is missing or wrong: open the address shown on the device.";
-            return (text(403, words), None);
-        }
+    if let Err(refused) = gate(guard, query, request.at) {
+        return (refused, None);
     }
-    match route(card, request, path, query) {
+    match route(parts, request, path, query) {
         Ok(done) => done,
         Err(refused) => {
             // An upload that failed is said on the device too, so the last
@@ -198,6 +194,24 @@ pub fn answer(card: &mut dyn Card, guard: &mut Guard, request: &Request<'_>) -> 
             let done = upload.then(|| not_received(query)).flatten();
             (fail_answer(refused), done)
         }
+    }
+}
+
+/// Lets a request in if it carries the key shown on the device: *403* for a
+/// missing or wrong one, *429* while the guard is locked.
+pub(crate) fn gate(guard: &mut Guard, query: &str, at: Instant) -> Result<(), Answer> {
+    let given = match param(query, "k") {
+        Ok(given) => given,
+        Err(error) => return Err(fail_answer(Fail::from(error))),
+    };
+    match guard.check(given.as_deref(), at) {
+        Access::Granted => Ok(()),
+        Access::Locked => Err(text(429, "Too many wrong keys: try again in a minute.")),
+        // Denied, and a state to come: refused as a wrong key is.
+        _ => Err(text(
+            403,
+            "The key is missing or wrong: open the address shown on the device.",
+        )),
     }
 }
 
@@ -212,18 +226,25 @@ fn not_received(query: &str) -> Option<(Done, String)> {
 }
 
 fn route(
-    card: &mut dyn Card,
+    parts: &mut Parts<'_>,
     request: &Request<'_>,
     path: &str,
     query: &str,
 ) -> Result<Outcome, Fail> {
+    if Installs::is_install_request(path) {
+        let answer = parts
+            .installs
+            .answer(&mut *parts.plugins, request, path, query)?;
+        return Ok((answer, None));
+    }
+    let card = &mut *parts.card;
     let wanted = param(query, "path")?.unwrap_or_default();
     match (request.method, path) {
         ("GET", "/") => Ok((
             Answer {
                 status: 200,
                 kind: "text/html; charset=utf-8",
-                body: Body::Page,
+                body: Body::Data(PAGE_FILE),
             },
             None,
         )),
@@ -266,11 +287,9 @@ fn route(
             card.remove(&found.path)?;
             Ok(ok(Some((Done::Deleted, name))))
         }
-        // The library does not follow a move yet, and the install of a plugin
-        // from here waits for its design (`PORTING-7.md`): said, not left unanswered.
+        // The library does not follow a move yet (`PORTING-7.md`): said, not
+        // left unanswered.
         ("POST", "/api/move") => Err(NOT_YET),
-        (_, "/api/plugins") => Err(NOT_YET),
-        (_, path) if path.starts_with("/api/plugin/") => Err(NOT_YET),
         _ => Err(NOT_FOUND),
     }
 }
@@ -471,7 +490,7 @@ pub fn push_json(out: &mut String, text: &str) -> Result<(), Error> {
 ///
 /// # Errors
 /// `NoMemory`.
-fn param(query: &str, name: &str) -> Result<Option<String>, Error> {
+pub(crate) fn param(query: &str, name: &str) -> Result<Option<String>, Error> {
     let Some(value) = query
         .split('&')
         .filter_map(|pair| pair.split_once('=').or(Some((pair, ""))))

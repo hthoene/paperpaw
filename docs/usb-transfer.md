@@ -73,7 +73,9 @@ runs no plugins with code.
 ```
 
 `origin` is `store` for a plugin the store installed (and updates),
-`local` for one that came any other way, `built-in` for PaperPaw's own.
+`local` for one that came any other way, `built-in` for PaperPaw's own. (The
+interface-7 Wi-Fi transfer reads the registry, which has no origin: it says
+`built-in` or `installed`.)
 
 ### Asking first
 

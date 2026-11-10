@@ -37,6 +37,8 @@ impl Kernel {
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,
             work: &self.shared.work_states,
+            log: self.shared.device_log,
+            ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
             let _running = self.shared.meter.enter(&context.id);
@@ -79,6 +81,8 @@ impl Kernel {
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,
             work: &self.shared.work_states,
+            log: self.shared.device_log,
+            ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
             let _running = self.shared.meter.enter(&context.id);

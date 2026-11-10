@@ -71,6 +71,7 @@ impl crate::Kernel {
             return true;
         }
         let env = &*env;
+        self.tell_work_env(env);
         let now_ms = env.now_ms();
         let charging = self
             .shared
@@ -239,7 +240,28 @@ impl crate::Kernel {
     /// shell's clock, which is the kernel's tick clock).
     pub(crate) fn work_pump_due(&self) -> Option<Instant> {
         let work = self.shared.native_instances.work_services()?;
+        self.tell_work_env(&*work.env);
         work.sched.next_wake(&*work.env).map(Instant)
+    }
+
+    /// Tells the device's view what the kernel holds: the power level and
+    /// stretch of the user's mode, and whether a real-time screen (one that
+    /// takes raw keys or runs at a pace) is on top.
+    fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
+        use paperpaw_sdk::power::PowerLevel;
+        let power = &self.shared.power;
+        let level = match power.level {
+            PowerLevel::Saving => 1,
+            PowerLevel::Offline => 2,
+            // Normal, and any level to come: counts as normal.
+            _ => 0,
+        };
+        let mode = self.top_mode();
+        env.kernel_state(
+            level,
+            power.stretch,
+            mode.takes_raw_keys() || mode.is_paced(),
+        );
     }
 }
 

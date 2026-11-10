@@ -386,8 +386,7 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     // Buttons in slots of a touch row: the footnote's side by side, the
-    // skim screen's four, the transfer's and the update page's one below
-    // the other.
+    // skim screen's four and the transfer's one below the other.
     Case {
         name: "x4-footnote",
         profile: "xteink-x4",
@@ -464,7 +463,7 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // Part 2: the way into the files (update, a save for each deck, the
+    // Part 2: the way into the files (a save for each deck, the
     // switch of each linked deck), and a deck saved to its file. The decks
     // are made from the files first (German is deck 1).
     Case {
@@ -520,15 +519,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &["vocabulary.sd-auto=false", "core.language=de"],
         script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=2,wait:900",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-update",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:update.open,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -676,15 +666,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-read-later-cloud",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on"],
-        script: "run:read-later-cloud.open,wait:500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-mobi-picture",
         profile: "xteink-x4",
         book: Some("books/lighthouse.mobi"),
@@ -694,29 +675,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-read-later-cloud-de",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on", "core.language=de"],
-        script: "run:read-later-cloud.open,wait:500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-mobi-locked",
         profile: "xteink-x4",
         book: Some("books/locked.azw"),
         sets: &[],
         script: "wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-read-later-cloud-no-token",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on"],
-        script: "run:read-later-cloud.open,wait:500,run:read-later-cloud.fetch,wait:500",
         colour: 0,
         fixtures: false,
     },

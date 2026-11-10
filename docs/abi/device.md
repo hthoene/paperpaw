@@ -87,7 +87,7 @@ agree (a host test).
 | 8 | `wifi` | (none) | `dev_wifi` | radio state |
 | 9 | `networks` | `reg_query` | `dev_network`*, `end` | found networks, strongest first, at most 32 |
 | 10 | `bluetooth` | (none) | `dev_bluetooth` | radio state |
-| 11 | `bonded` | `reg_query` | `dev_bonded`*, `end` | bonded devices, at most 16 |
+| 11 | `bonded` | `reg_query` | `dev_bonded`*, `end` | bonded devices (the caller's), at most 16 |
 | 12 | `power` | `dev_interval` | `dev_power` | power level and mode; `every(base)` |
 | 13 | `install` | `dev_request` | `dev_install` | state of an install, removal, firmware or check request |
 | 14 | `not_installed` | `reg_query` | `dev_not_installed`*, `end` | plugins this start could not install, at most 32 |
@@ -159,7 +159,11 @@ agree (a host test).
   wanted, 2 busy), `dev_network` (`flags` bit 0 secured, 1 known: a password is stored, SEC),
   `dev_bluetooth`, `dev_bonded` (`flags` bit 0 connected, 1 remote keys on; `given` the plugin a
   sensor is handed to, shown only to the plugin bound to the host slot `core.bluetooth`, else
-  empty).
+  empty). Op 11 lists to each plugin only the devices given to it, and all of them to the plugin
+  bound to `core.bluetooth`, as interface 6's Bluetooth view did (#833); the caller is the one the
+  host resolved, at any depth. Wi-Fi, Bluetooth, bonded devices and the power mode (ops 8, 10, 11,
+  12) are read from the kernel's own state at each call, for every shell; the shell's host answers
+  the rest (the scan list, the power level, readings).
 - [D] `dev_power` (interface 6 `env.power()`): `level` 0 normal, 1 saving, 2 offline; `mode` the
   worn power mode (a REG preset id of kind `core.power-mode`, `registry.md` op 16); `flags` bit 0
   automatic, bit 1 online: plugins may use the network for their own work now (interface 6
@@ -207,12 +211,16 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **Requests:** `request` is the sender's own non-zero number; a request number the plugin
   already has waiting is `ERR_INVALID` at submit. The host reserves the request's table entry and
   its kept outcome **at submit** (fallibly; device-wide at most 4 install, removal, firmware or
-  check requests and 4 radio requests waiting, else `ERR_FULL` for the batch), so an accepted
+  check requests and 4 radio requests waiting, and at most 2 open install, removal, firmware or
+  check requests per plugin, waiting or not yet told, a restart included, so one plugin never
+  takes every place; else `ERR_FULL` for the batch), so an accepted
   request always has room for its outcome and is never dropped later. Outcomes are kept until
   delivered; an install, removal, firmware or check outcome is then readable with op 13 until the
   plugin's next request of the same kind or its stop. A radio outcome (`wifi_done`, 93) is not kept
-  after delivery: its room is released when it is delivered or its sender stops, and the current
-  radio state is op 8.
+  after delivery: the callback is called **at most once** per request, and the entry is released
+  after it was called, whatever it answered (only `ERR_BUSY` is retried; a failing callback does not
+  get the event again). A sender that stopped or did not subscribe is not called and its entry is
+  released. The current radio state is op 8.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
@@ -264,9 +272,11 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   or a card move the journals finish or roll back at the next start (5.4). [Q] Firmware: confirm the
   X4's hold timer is not main-loop polled today, else this is a Firmware fix with DEV.
 - [D] Batch limits: at most one power command (1572-1575) and one firmware command per batch, at
-  most two Wi-Fi commands, at most one `install_author` and 8 `install_rotation` per request (the
-  store's `MAX_STEPS`), both after their `install_plugin` in the same batch, at most 16
-  `trust_revoked` per batch (`ERR_INVALID` beyond or out of place).
+  most two Wi-Fi commands, at most one `install_author` and 6 `install_rotation` per request (so
+  `install_plugin`, its author and its rotations fill one 8-record batch; Beta 3's store
+  `MAX_STEPS` was 8, and a longer chain ends with reason 6), both after their `install_plugin` in
+  the same batch, at most 8 `trust_revoked` per batch (the batch cap; more go in later batches)
+  (`ERR_INVALID` beyond or out of place).
 - [D] **Network manager** (Firmware's Q7): `event.network_wanted`/`idle` go only to the plugin the
   user chose as network manager, the host setting `core.network-manager` (a plugin id; the Wi-Fi
   plugin by default; REG-visible and resettable). Without one they go nowhere and network work waits
@@ -289,6 +299,11 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 
 - [D] 92, 94-96 are hints (coalesced per kind; read again with section 2). 93 and 97 are **edges
   kept like answers** (`ui.md` 3.2) in the room reserved at submit (section 3).
+- [D] 96 goes only to the plugin whose request it is, at most once every 250 ms while the image is
+  written and at each change of its state; any other plugin reads the state with op 3. 97 is never
+  dropped: it waits in the reserved room until its plugin can be called (not inside one of its
+  batches, not while it is busy), and counts as delivered once that callback was called, whatever
+  it answered, or at once for a plugin that stopped or did not subscribe; op 13 then reads it.
 - [D] 93 ends every `join` and `host` exactly once, success or failure, and goes to the plugin whose
   request it answers (`request`), like 97 for installs. `status` `OK` with `reason` 0 and `state`
   the `dev_wifi` state reached (3 online, 4 hosting) when the network is up; else the error with
@@ -373,23 +388,29 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 ### 5.2 Plugins
 
 - [D] `install_plugin` (interface 6 `InstallPlugin`, `LoadPlugin`, `install::adopt`): the plugin
-  downloaded a `.ppn` or a folder into `path` (its root 0, or root 1 with `uses.storage`); `flags`
-  bit 0 replace an installed plugin of the same id (an update), bit 1 allow an older version.
+  downloaded a plugin folder into `path` (its root 0, or root 1 with `uses.storage`), as
+  interface 6 installs it: the id is the `plugin.ini` id, else the folder's name (`core` is
+  refused), name and version come from `plugin.ini`, the code is the folder's `code.ppn`, and the
+  `uses.*` shown come from that code's native metadata. A bare `.ppn` path is reason 4
+  (`ERR_INVALID`). `flags` bit 0 replace an installed plugin of the same id (an update), bit 1
+  allow an older version.
 - [D] **Trust evidence** (store `trust.rs` `Named`, `expected`, `follow`, `revoked.rs`): the
   catalog's word for a code plugin travels in the same batch as `install_author` (the author key the
   catalog names, the recovery key it names for a first install, empty for none, and the code's
-  expected `sha256`, empty for none) and up to 8 `install_rotation` (the catalog's rotation
-  statements, in the author's order). The host applies the store's rules itself: an id pinned to the
-  signing key installs; an id pinned to another key installs only if the rotations lead from the
-  pinned key to the signing key, each checked against the pinned recovery key (steps before the
-  pinned key are skipped, as `follow`), else reason 6 key changed; a new id installs only if
-  `install_author.author` is the signing key (reason 5 not the author), pinning it and `recovery`; a
-  signing key revoked for that id never installs (reason 7). A code digest other than `sha256` is
-  reason 18. Without evidence (a plugin the user sideloads through plugin manager) a new id is
-  pinned to its signing key once the user confirms the key's fingerprint, shown by the host as "not
-  from a catalog"; a pinned id still needs its rotations. Pins and rotations change **only when the
-  install commits** (the journal of 5.4), never at a check, a declined prompt or a failure, so a
-  declined update leaves the installed plugin loading as before.
+  expected `sha256`, empty for none) and up to 6 `install_rotation` (the catalog's rotation
+  statements, in the author's order). `author` is exactly 32 bytes; `recovery` and `sha256` are 0 or
+  exactly 32 (the decoder takes 0-32, so the host refuses 1-31 bytes with `ERR_INVALID`). The host
+  applies the store's rules itself: an id pinned to the signing key installs; an id pinned to
+  another key installs only if the rotations lead from the pinned key to the signing key, each
+  checked against the pinned recovery key (steps before the pinned key are skipped, as `follow`),
+  else reason 6 key changed; a new id installs only if `install_author.author` is the signing key
+  (reason 5 not the author), pinning it and `recovery`; a signing key revoked for that id never
+  installs (reason 7). A code digest other than `sha256` is reason 18. Without evidence (a plugin
+  the user sideloads through plugin manager) a new id is pinned to its signing key once the user
+  confirms the key's fingerprint, shown by the host as "not from a catalog"; a pinned id still needs
+  its rotations. Pins and rotations change **only when the install commits** (the journal of 5.4),
+  never at a check, a declined prompt or a failure, so a declined update leaves the installed plugin
+  loading as before.
 - [D] `trust_revoked` (store `revoked.rs`, `keys::keep_revoked`): a revocation the store's library
   lists, checked by the host against the revoked key itself or the plugin's pinned recovery key, and
   kept only if it holds (never taken off); one that does not hold is dropped with a log line, the
@@ -425,7 +446,8 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **One job at a time:** the host runs install, removal and firmware jobs one after another in
   submit order (one I/O buffer, 6.2). Firmware installs and code-plugin installs both write the code
   flash, so neither starts while the other runs; a request waits its turn (`dev_install.state` 0
-  waiting), it is not refused.
+  waiting), it is not refused. `dev_install.state` (op 13): 0 waiting in the queue, 1 running
+  (checking, asking, writing or reading back), 2 ended, with `status` and `reason` the outcome.
 
 ### 5.3 Firmware
 
@@ -467,8 +489,9 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   nothing is queued (Senior R1). No flag skips or shortens a confirmation: every grant still asks.
 - [D] **Busy and pending:** a second firmware request while one runs waits its turn (5.2); one sent
   while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
-  ends with reason 21
-  restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`.
+  ends with reason 21 restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`. The
+  waiting image is kept with the plugin and request that installed it, so only that plugin may ask
+  for the restart; a check may still run while it waits.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
 
@@ -557,10 +580,10 @@ unknown values read as 1.
 | `dev_network` × 32 + `end` | 32 × (1 + 34 + 8 + 5) + 30 = 1,566 | 4,096 |
 | `dev_bonded` × 16 + `end` | 16 × (1 + 4 + 66 + 8 + 66 + 5) + 30 = 2,430 | 4,096 |
 | `command.install_plugin` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
-| install with full evidence | 532 + `install_author` (1 + 4 + 34×3 + 5 = 112) + 8 × `install_rotation` (1 + 4 + 34 + 66 + 5 = 110) = 1,524 | the 4,096-byte batch |
+| install with full evidence | 532 + `install_author` (1 + 4 + 34×3 + 5 = 112) + 6 × `install_rotation` (1 + 4 + 34 + 66 + 5 = 110) = 1,304 | the 4,096-byte batch |
 | `command.install_firmware` | 1 + 4 + 4 + 514 + 34 + 4 + 5 = 566 | 4,096 |
 | `command.check_file` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
-| `trust_revoked` × 16 | 16 × (1 + 66 + 34 + 66 + 5) = 2,752 | the 4,096-byte batch |
+| `trust_revoked` × 8 | 8 × (1 + 66 + 34 + 66 + 5) = 1,376 | the 4,096-byte batch |
 | `event.install_done` | 1 + 8 + 4×5 + 66 + 5 = 100 | the 1.1 KB event buffer |
 | `event.bluetooth` | 1 + 8 + 4×2 + 66 + 4×3 + 4 = 99 | the 1.1 KB event buffer |
 
