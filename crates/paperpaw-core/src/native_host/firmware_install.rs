@@ -347,15 +347,6 @@ pub(crate) enum Facts {
     Plugin(PluginFacts),
 }
 
-/// What a finished check found: a firmware image's facts or a plugin's. One
-/// slot holds either, so a result is no bigger than the larger of the two.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Facts {
-    None,
-    Firmware(CheckFacts),
-    Plugin(PluginFacts),
-}
-
 /// A finished firmware check, for op 6 and op 16.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Checked {
