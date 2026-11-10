@@ -131,7 +131,7 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page), the help hints, the widget and the events for the words looked up and the wake (the
+- Not declared yet: `uses.network` (the phone page) and the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
@@ -223,14 +223,24 @@ native screens replace these callers.
   `store::range` (`WindowList`, #663), the page count follows from the word count and the fixed row height.
   Counted when the screen opens and when it is shown again (words looked up meanwhile; a dialog closed).
   No word: the empty state (*No words yet*) as interface 6.
-- Holding a word (or *Menu*) asks whether to delete it (a yes-or-no with *Delete* / *Keep*, the texts of
-  interface 6), one question at a time; yes removes it (`store::remove`, "could not be deleted" told on a
-  failure), then the list is counted again. Interface 6 first offered a choice (look up / go to / delete);
-  only delete can work now, so it is asked directly.
-- Not offered, each an ignored case: tapping a word to look it up again (the dictionary's panel on
-  `core.lookup`, #352/dictionary port), *Go to* in its book (the reader's open-at, #224), *Export*
-  (`core.files` adapter, #339/#384; `store::export` is ported and tested). A tap on a word takes the input and does
-  nothing. No row ends in a refusal.
+- Holding a word (or *Menu*) asks what to do with it where its book is on the card (`core.files` `stat`): a
+  choice *Go to the book* / *Delete* (the texts of interface 6; *Look up* waits for the dictionary's panel on
+  `core.lookup`, #352/dictionary port, and is not offered); *Delete* asks the yes-or-no with *Delete* / *Keep*.
+  Without the book (no path, or taken off) the yes-or-no is asked directly, as before. One question at a time. Yes
+  removes the word (`store::remove`, "could not be deleted" told on a failure), then the list is counted again.
+- *Go to the book* (`native_goto.rs`): `command.open` into `core.reader` (the reader the user bound there) with
+  the book's path and the word's section and offset (`docs/abi/document.md`, *Opening at a place*), as Notes
+  overview opens a note.
+- *Export* (`native_export.rs`) is the row after the last word, as in interface 6 (title and help
+  `vocabulary.export`, `.export.help`). Choosing it writes all words to `Notes/Vocabulary.tsv` beside the
+  library folder (the folder of `core.library-folder`, default `books`): staged in the data folder
+  (`export.part`, `store::export`), then moved onto the card with `core.files` `move` (replacing the old file)
+  once whole, so a refusal (memory, a full card) leaves the old file and removes the staged one. The reader is
+  told "Saved as {path}." or "The words could not be saved." (en and de, interface 6's texts). The notice is best
+  effort: a refusal of it is not an error of the export. The whole export runs in one callback (as in interface 6);
+  it moves to the work service (`core.work`) when long exports matter.
+- *Go to the book* is offered when the book's file is on the card; every refusal of the check other than memory
+  counts as "no book" and the hold asks about deleting directly.
 - A tap or *Select* on a word says "Hold a word to delete it." (`vocabulary.hold-to-delete`, en and de) until looking
   it up works.
 - Tested: the rows (pages, order, notes), the word a row names, the delete and the count after it
@@ -324,4 +334,10 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   dark theme the card is light on dark, like the other screens.
 - A refused read of the card leaves the sleep screen saying that none is due; a refused read of `sleep.show` or
   of `vocabulary.review-on-wake` counts as "not chosen"/"off", never ends the wake.
+
+## Ported: the help hints (`declarations.rs` `help`)
+
+- The review's four hints of interface 6 (`vocabulary.help.answers`, `.tap`, `.select`, `.back`; any input,
+  touch, buttons, any input) are declared as `help.hint` for the screen `vocabulary.review`; the host answers
+  them from `core.ui` op 3 `hints` (#892). Tested as declarations (`tests/declarations.rs`).
 

@@ -67,11 +67,10 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   op 1). The host never guesses from the path beyond that.
 - [D] `reader.spec` (interface 6 `ReaderSpec`): a reading app `<plugin>.<name>` whose `screen` (one
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
-  at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin
-  (`ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL`), as formats (Host #867). Op 21
-  lists them; which one opens a book is
-  the opener's choice (the files plugin remembers it in its Data, as interface 6
-  `readers::remember`).
+  at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
+  `ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it;
+  #867). Op 21 lists them; which one opens a book is the opener's choice (the files plugin
+  remembers it in its Data, as interface 6 `readers::remember`).
 - [D] **Opening a book** (interface 6 `readers::open`, `open_page`, `Command::OpenBook`) is
   `command.open` (`ui.md` section 1) with a hand-over of the params `path` (the book's root-1 path)
   and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the

@@ -45,6 +45,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::Version;
 
+use super::plugin_job::PluginFacts;
+
 /// Most plugins that keep a firmware check result.
 pub(crate) const RESULTS_MAX: usize = 4;
 /// Most built-in plugins one bit is kept for.
@@ -196,6 +198,12 @@ pub(crate) struct Outcome {
     pub(crate) kind: u32,
     /// The reason of 5.5; 0 done (a check: fits).
     pub(crate) reason: u8,
+    /// `install_done.flags` (a plugin job's: bit 1 the change reaches code
+    /// at the next start).
+    pub(crate) flags: u32,
+    /// The plugin the job installed or removed, for `install_done.id`; `None`:
+    /// the plugin that asked.
+    pub(crate) id: Option<Text<{ super::plugin_job::ID_MAX }>>,
 }
 
 /// What the confirmation shows and asks (device.md 5.0, 5.3).
@@ -220,6 +228,8 @@ pub(crate) struct Ask {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Answer {
     Yes,
+    /// A plugin removal's second yes: with the plugin's data.
+    YesAndData,
     No,
     Dismissed,
 }
@@ -322,8 +332,19 @@ type Slot = Option<CheckResult>;
 struct CheckResult {
     request: u32,
     reason: u8,
-    facts: Option<CheckFacts>,
+    facts: Facts,
     bits: Bits,
+    /// `dev_check.needs_draft` (a plugin check that ended with reason 10).
+    needs_draft: u32,
+}
+
+/// What a finished check found: a firmware image's facts or a plugin's. One
+/// slot holds either, so a result is no bigger than the larger of the two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Facts {
+    None,
+    Firmware(CheckFacts),
+    Plugin(PluginFacts),
 }
 
 /// A finished firmware check, for op 6 and op 16.
@@ -331,11 +352,40 @@ struct CheckResult {
 pub(crate) struct Checked {
     pub(crate) request: u32,
     pub(crate) reason: u8,
-    pub(crate) facts: Option<CheckFacts>,
+    facts: Facts,
     bits: Bits,
+    needs_draft: u32,
 }
 
 impl Checked {
+    /// `dev_check.needs_draft`: the interface revision a plugin file needs,
+    /// 0 for any other result.
+    pub(crate) fn needs_draft(&self) -> u32 {
+        self.needs_draft
+    }
+
+    /// The firmware image's facts, `None` for a plugin's check or one that
+    /// found none.
+    pub(crate) fn facts(&self) -> Option<&CheckFacts> {
+        match &self.facts {
+            Facts::Firmware(facts) => Some(facts),
+            _ => None,
+        }
+    }
+
+    /// The plugin's facts, `None` for a firmware check or one that found none.
+    pub(crate) fn plugin_facts(&self) -> Option<&PluginFacts> {
+        match &self.facts {
+            Facts::Plugin(facts) => Some(facts),
+            _ => None,
+        }
+    }
+
+    /// Whether this is the result of a plugin check (`check_file` kind 0).
+    pub(crate) fn is_plugin(&self) -> bool {
+        matches!(self.facts, Facts::Plugin(_))
+    }
+
     /// `dev_check.flags` bit 5: the image leaves out plugins built in now.
     pub(crate) fn leaves_out_some(&self) -> bool {
         (0..usize::from(self.bits.count)).any(|index| self.bits.leaves_out(index))
@@ -375,6 +425,8 @@ fn outcome(job: &Job, reason: u8) -> Outcome {
             KIND_CHECK
         },
         reason,
+        flags: 0,
+        id: None,
     }
 }
 
@@ -530,6 +582,7 @@ impl FirmwareInstall {
                 reason: result.reason,
                 facts: result.facts,
                 bits: result.bits,
+                needs_draft: result.needs_draft,
             }),
         }
     }
@@ -541,7 +594,10 @@ impl FirmwareInstall {
     pub(crate) fn leaves_out_of(&self, owner: u64) -> Result<Checked, i32> {
         let checked = self.checked(owner)?;
         match checked.facts {
-            Some(facts) if !facts.foreign => Ok(checked),
+            Facts::Firmware(facts) if !facts.foreign => Ok(checked),
+            // The rows of op 16 are a firmware check's: the caller's last
+            // check was a plugin's, so it has no finished firmware check.
+            Facts::Plugin(_) => Err(ERR_NOT_FOUND),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -737,10 +793,10 @@ impl FirmwareInstall {
         // gives the update plugin the key to ask for, the version and the size.
         let (facts, bits) = match facts {
             Some(_) if matches!(reason, r if r == Reason::OTHER_CHIP.0 || r == Reason::DAMAGED.0) => {
-                (None, Bits::NONE)
+                (Facts::None, Bits::NONE)
             }
-            Some(facts) => (Some(facts), bits),
-            None => (None, Bits::NONE),
+            Some(facts) => (Facts::Firmware(facts), bits),
+            None => (Facts::None, Bits::NONE),
         };
         if job.install.is_none() {
             self.keep(
@@ -750,6 +806,7 @@ impl FirmwareInstall {
                     reason,
                     facts,
                     bits,
+                    needs_draft: 0,
                 },
             );
         } else if reason != 0 {
@@ -847,8 +904,31 @@ impl FirmwareInstall {
             CheckResult {
                 request,
                 reason,
-                facts: None,
+                facts: Facts::None,
                 bits: Bits::NONE,
+                needs_draft: 0,
+            },
+        );
+    }
+
+    /// `owner`'s plugin check was stopped before it ran or ended: its result
+    /// slot says what it found (`facts`, none for a refusal).
+    pub(crate) fn keep_plugin(
+        &mut self,
+        owner: u64,
+        request: u32,
+        reason: u8,
+        facts: Option<PluginFacts>,
+        needs_draft: u32,
+    ) {
+        self.keep(
+            owner,
+            CheckResult {
+                request,
+                reason,
+                facts: facts.map_or(Facts::None, Facts::Plugin),
+                bits: Bits::NONE,
+                needs_draft,
             },
         );
     }
@@ -896,6 +976,8 @@ impl FirmwareInstall {
             request,
             kind: KIND_FIRMWARE,
             reason: declined(answer),
+            flags: 0,
+            id: None,
         })
     }
 
@@ -916,6 +998,8 @@ impl FirmwareInstall {
             request,
             kind: KIND_FIRMWARE,
             reason: reason.0,
+            flags: 0,
+            id: None,
         })
     }
 
@@ -932,6 +1016,8 @@ impl FirmwareInstall {
                     request,
                     kind: KIND_FIRMWARE,
                     reason: Reason::STOPPED.0,
+                    flags: 0,
+                    id: None,
                 });
             }
             Phase::Idle => return None,

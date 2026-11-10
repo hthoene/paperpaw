@@ -110,7 +110,7 @@ impl Online {
         self.net.as_ref().ok_or(Error::State)
     }
 
-    fn work(&mut self, host: &Host<'_>) -> Result<&Work, Error> {
+    pub(super) fn work(&mut self, host: &Host<'_>) -> Result<&Work, Error> {
         if self.work.is_none() {
             self.work = Some(Work::open(host)?);
         }
@@ -223,7 +223,8 @@ impl NativeUpdate {
             .net(host)?
             .request(host, &request, &mut input, &mut out)?;
         self.online.asking = Some((id, quiet));
-        Ok(())
+        // An update that waits is asked for again not before a day.
+        tolerate(self.waiting_tried(host))
     }
 
     /// The question: what runs, what is built in, the code plugins installed, the
@@ -330,6 +331,7 @@ impl NativeUpdate {
             } else {
                 Trouble::of(done.reason(), done.status())
             };
+            tolerate(self.waiting_failed(host))?;
             return self.show_if(host, View::Unreachable(trouble));
         }
         let mut reader = Reader::default();
@@ -340,9 +342,12 @@ impl NativeUpdate {
             Some(offer) => {
                 let text = offer.to_text()?;
                 replace(host, Root::Data, OFFER, text.as_bytes())?;
+                // Where it waits for plugins: kept, and asked for again in a day.
+                tolerate(self.waiting_answered(host, offer))?;
             }
             None => {
                 storage::remove(host, Root::Data, OFFER).ok();
+                self.waiting_none(host);
             }
         }
         // Where nobody reads (a question asked in the background), the offer
@@ -494,6 +499,7 @@ impl NativeUpdate {
             return self.download_failed(host);
         }
         storage::remove(host, Root::Data, OFFER).ok();
+        tolerate(self.waiting_done(host))?;
         let builds = loading.builds;
         if !builds.is_empty() {
             return self.fetch_begin(host, &loading.version, builds);

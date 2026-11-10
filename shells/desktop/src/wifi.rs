@@ -66,6 +66,12 @@ pub struct Wifi {
 }
 
 impl Wifi {
+    /// The radio is on and joined to a network.
+    #[must_use]
+    pub fn is_online(&self) -> bool {
+        matches!(self.state, WifiState::Online { .. })
+    }
+
     fn networks(&self) -> Vec<WifiNetwork> {
         pretend_networks(self.workshop)
     }
