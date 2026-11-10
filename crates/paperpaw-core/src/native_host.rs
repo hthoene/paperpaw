@@ -247,6 +247,11 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[allow(
+    dead_code,
+    reason = "wired by HostWiring::library; the write half is todo 307"
+)]
+pub(crate) mod lib_host;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;

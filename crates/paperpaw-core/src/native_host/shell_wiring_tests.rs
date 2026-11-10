@@ -231,3 +231,18 @@ fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     assert_eq!(again.err(), Some(ERR_STATE));
     assert!(resources.hosts().device().is_none());
 }
+
+#[test]
+fn the_library_is_wired_over_the_catalog_reads_and_once() {
+    let card = crate::native_host::lib_reads::tests::card();
+    let storage: Rc<dyn Storage> = card.storage.clone();
+    let resources = HostResources::try_new().unwrap();
+    assert!(resources.hosts().library().is_none());
+    resources
+        .wire(HostWiring::new().library(storage.clone(), card.env.clone()))
+        .unwrap();
+    assert!(resources.hosts().library().is_some());
+    // Wired once: a second naming is refused whole.
+    let again = resources.wire(HostWiring::new().library(storage, card.env.clone()));
+    assert_eq!(again.err(), Some(ERR_STATE));
+}
