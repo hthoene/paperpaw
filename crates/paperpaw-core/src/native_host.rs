@@ -1081,6 +1081,13 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         self.records.len()
     }
 
+    /// The record published at `index`, read in place (no dispatch, no
+    /// copy); `None` past the last one.
+    #[must_use]
+    pub fn record(&self, index: usize) -> Option<&T> {
+        self.records.get(..self.len)?.get(index)?.as_ref()
+    }
+
     /// Whether this batch contains no records.
     #[must_use]
     pub fn is_empty(&self) -> bool {

@@ -86,8 +86,6 @@ impl Drop for Call<'_> {
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Instance<S: Services + 'static, M: 'static> {
     id: Box<str>,
-    /// What it registered, in batch order.
-    records: Vec<Registration>,
     /// Staged by `make`, kept and never applied here (never dropped silently).
     declarations: Declarations,
     batch: Option<Batch<'static, S, M, Registration>>,
@@ -152,14 +150,6 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         transaction.set_image(image)?;
         let mut batch = hosted.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
-        let depth = DispatchDepth::new();
-        let mut records = Vec::new();
-        records
-            .try_reserve_exact(batch.len())
-            .map_err(|_| Error::Allocation)?;
-        for index in 0..batch.len() {
-            records.push(batch.dispatch(index, &depth, |_, record| *record)?);
-        }
         let mut owned_id = alloc::string::String::new();
         owned_id
             .try_reserve_exact(id.len())
@@ -173,7 +163,6 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         let batch = unsafe { batch.into_retained() };
         Ok(Self {
             id: owned_id.into_boxed_str(),
-            records,
             declarations,
             batch: Some(batch),
             hosted: ManuallyDrop::new(hosted),
@@ -251,14 +240,18 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
             return Vec::new();
         };
         let depth = DispatchDepth::new();
-        self.records
-            .iter()
-            .enumerate()
-            .filter(|(_, record)| {
-                matches!(record, Registration::Event { event_tag, .. } if *event_tag == EVENT_TICK_TAG)
+        let Some(batch) = &self.batch else {
+            return Vec::new();
+        };
+        (0..batch.len())
+            .filter(|&index| {
+                matches!(
+                    batch.record(index),
+                    Some(Registration::Event { event_tag, .. }) if *event_tag == EVENT_TICK_TAG
+                )
             })
             .map(
-                |(index, _)| match self.dispatch(index, &depth, Invocation::Tick(&bytes[..len])) {
+                |index| match self.dispatch(index, &depth, Invocation::Tick(&bytes[..len])) {
                     Ok(status) | Err(Error::Status(status)) => status,
                     Err(_) => host_glue::ERR_STATE,
                 },
@@ -343,7 +336,14 @@ impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
 
 impl<S: Services + 'static, M: 'static> FlatInstance for Instance<S, M> {
     fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
-        for (index, record) in self.records.iter().enumerate() {
+        // Read through the batch: no second copy of the records is kept.
+        let Some(batch) = &self.batch else {
+            return;
+        };
+        for index in 0..batch.len() {
+            let Some(record) = batch.record(index) else {
+                continue;
+            };
             visit(match *record {
                 Registration::Event { event_tag, .. } => {
                     FlatRegistration::Event { event_tag, index }
