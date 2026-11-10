@@ -12,7 +12,7 @@ use paperpaw_plugin_store::native_request::{
 };
 use paperpaw_sdk::{MemoryStorage, Storage};
 
-fn ids<'a>(queue: &'a Queue) -> Vec<(&'a str, Mark, bool)> {
+fn ids(queue: &Queue) -> Vec<(&str, Mark, bool)> {
     queue
         .lines()
         .iter()
