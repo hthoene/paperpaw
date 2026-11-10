@@ -226,7 +226,7 @@ fn a_widget_placed_twice_has_two_looks() {
     )
     .unwrap();
     let config = String::from_utf8(config).unwrap();
-    assert!(config.contains("analogue-clock@2.frame"), "{config}");
+    assert!(config.contains("headlines@2.frame"), "{config}");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(X4).storage(storage).user_config(config);
     let kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
