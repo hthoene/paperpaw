@@ -713,7 +713,13 @@ impl Driver {
         if kind == KIND_CHECK {
             match self.machine.try_borrow_mut() {
                 Ok(mut machine) => {
-                    machine.keep_plugin(owner, request, finished.reason, finished.facts);
+                    machine.keep_plugin(
+                        owner,
+                        request,
+                        finished.reason,
+                        finished.facts,
+                        finished.needs_draft,
+                    );
                 }
                 Err(_) => self.skip(),
             }

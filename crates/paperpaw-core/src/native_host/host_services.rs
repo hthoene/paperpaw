@@ -259,9 +259,13 @@ impl HostServices {
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
-    pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
+    pub(crate) fn wire_lookup(
+        &self,
+        host: Rc<dyn LookupHost>,
+        log: super::device_log::DeviceLog,
+    ) -> Result<(), i32> {
         self.lookup
-            .set(LookupServices::new(host))
+            .set(LookupServices::new(host, log))
             .map_err(|_| ERR_STATE)
     }
 
@@ -551,7 +555,6 @@ impl HostServices {
         self.sockets.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
         let owners = self.owners()?;
@@ -565,7 +568,6 @@ impl HostServices {
         self.work.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
     /// Wire `core.secrets` once.
     pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
         self.secrets.set(secrets).map_err(|_| ERR_STATE)

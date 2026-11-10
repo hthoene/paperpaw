@@ -464,9 +464,10 @@ pub fn widgets(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declare
         d.group(GroupDecl::new(widget.name, &group))?;
         let spec = WidgetDecl::new(widget.name, &group, "core.widgets.reading", widget.token)
             .map_err(|_| DeclareError::TooLong("widget"))?
-            .live()
-            .previews(&group)
-            .map_err(|_| DeclareError::TooLong("widget preview"))?;
+            .live();
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
         d.widget(spec)?;
         declare_all(&mut d, widget.name, &group, widget.all())?;
         d.submit()?;

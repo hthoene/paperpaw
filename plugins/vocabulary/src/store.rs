@@ -220,6 +220,12 @@ pub(crate) fn recover(storage: &dyn Storage) {
     }
 }
 
+/// The size of the file of words (0 where there is none), which tells that the
+/// words changed.
+pub(crate) fn size(storage: &dyn Storage) -> u64 {
+    storage.size(FILE).unwrap_or(0)
+}
+
 /// How many words there are.
 pub(crate) fn count(storage: &dyn Storage) -> Result<usize, StorageError> {
     let mut n = 0;

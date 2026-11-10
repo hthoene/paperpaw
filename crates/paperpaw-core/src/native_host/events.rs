@@ -19,8 +19,9 @@ use super::registrations::{
     EVENT_POWER_CHANGED_TAG, EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_SERVED_REQUEST_TAG,
     EVENT_SERVER_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG, EVENT_STARTED_TAG,
     EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
-    EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG, EventBatteryMeasured, EventPageTurned,
-    EventResume, EventStarted, EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
+    EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG, EVENT_WIFI_DONE_TAG, EVENT_WORK_ALLOWED_TAG,
+    EVENT_WORK_DUE_TAG, EVENT_WORK_REFUSED_TAG, EventBatteryMeasured, EventPageTurned, EventResume,
+    EventStarted, EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
@@ -34,6 +35,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// delivered when the reader port produces them (`core-events.md` 3.1: the
 /// host never fails a registration for an event a device does not raise, and
 /// until the reading session reports, nothing raises these).
+///
+/// The answers of a plugin's own requests register as well: `event.wifi_done` (93,
+/// ended `join` and `host`; `wifi_events`) and the work events 103-105
+/// (`work_pump`).
+///
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
@@ -65,6 +71,10 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_STATUS_CHANGED_TAG
             | EVENT_CHARGE_CHANGED_TAG
             | EVENT_WIDGET_CHANGED_TAG
+            | EVENT_WIFI_DONE_TAG
+            | EVENT_WORK_DUE_TAG
+            | EVENT_WORK_REFUSED_TAG
+            | EVENT_WORK_ALLOWED_TAG
     )
 }
 

@@ -43,9 +43,8 @@ fn batches(
 fn the_decoded_batches_say_what_the_registration_says() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::screens(d).unwrap()));
-    all.extend(batches(|d| declarations::screens_later(d).unwrap()));
+    all.extend(batches(|d| declarations::cable_later(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
-    all.extend(batches(|d| declarations::offers(d).unwrap()));
     let native = declared::native("transfer", &all);
     let old = declared::legacy("transfer", "", legacy());
     // The three screens, whichever batch they came in.
@@ -100,7 +99,7 @@ fn the_instances_are_those_of_the_registration() {
     old.sort();
     let mut new = Vec::new();
     let mut screens = batches(|d| declarations::screens(d).unwrap());
-    screens.extend(batches(|d| declarations::screens_later(d).unwrap()));
+    screens.extend(batches(|d| declarations::cable_later(d).unwrap()));
     for batch in screens {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::ScreenSpec(s) = record {
@@ -120,17 +119,17 @@ fn the_instances_are_those_of_the_registration() {
     );
 }
 
-/// What `make` submits (the transfer screen, the navigation and the events) holds
-/// no slot offer: the phone's and the cable's screens have no native view yet, and
-/// the host must not open one the plugin cannot show.
+/// What `make` submits (the transfer and phone screens, the phone's slot, the
+/// navigation and the events) holds no offer for the cable: its screen has no
+/// native view yet, and the host must not open one the plugin cannot show.
 #[test]
-fn what_is_submitted_offers_no_slot_and_hears_the_server_and_its_requests() {
+fn what_is_submitted_offers_the_phone_not_the_cable_and_hears_the_events() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::screens(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
     let native = declared::native("transfer", &all);
-    assert!(native.slots.is_empty(), "{:?}", native.slots);
-    assert_eq!(native.screens.len(), 1);
+    assert_eq!(native.slots, ["core.remote-keyboard|transfer.phone|0"]);
+    assert_eq!(native.screens.len(), 2);
     let events = batches(|d| declarations::events(d).unwrap());
     assert_eq!(events.len(), 1);
     let native = declared::native("transfer", &events);
@@ -140,9 +139,15 @@ fn what_is_submitted_offers_no_slot_and_hears_the_server_and_its_requests() {
         .map(|event| event.rsplit(':').next().unwrap())
         .collect();
     tokens.sort_unstable();
-    assert_eq!(
-        tokens,
-        [declarations::SERVER_EVENT, declarations::SERVED_REQUEST].map(|t| t.to_string())
-    );
+    let mut want = [
+        declarations::SERVER_EVENT,
+        declarations::SERVED_REQUEST,
+        declarations::INSTALL_DONE,
+        declarations::WIFI_DONE,
+        declarations::WORK,
+    ]
+    .map(|t| t.to_string());
+    want.sort_unstable();
+    assert_eq!(tokens, want);
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

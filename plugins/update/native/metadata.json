@@ -150,13 +150,18 @@
   "services": [
     "core.device",
     "core.files",
-    "core.ui"
+    "core.net",
+    "core.registry",
+    "core.ui",
+    "core.work"
   ],
   "features": [
     {
       "key": "uses.firmware",
       "required": true
     },
+    "uses.install",
+    "uses.network",
     {
       "key": "uses.storage",
       "required": true

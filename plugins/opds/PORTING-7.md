@@ -66,16 +66,14 @@ Version 1.0.4: Beta 3 was 1.0.3 and the first slice bumped it; no further bump b
   512 bytes by its digest, read line by line, never taken for empty when unreadable: the catalog is then
   skipped); a catalog that cannot be reached, a list of lists only and a skipped one are counted and reported;
   a refused allocation ends the run. The list's *Sync catalogs* row and a catalog's *Sync now* run it at once
-  (the row stops one going); the action `opds.sync` declares work (`when_cheap`, within the hour) and
-  `work_due` runs it, as interface 6's rule action did.
+  (the row stops one going); the action `opds.sync` syncs at once when the reader runs it and, run in the background (a rule, another
+  plugin; `event.action_run` flag `background`, #885), declares work (`when_cheap`, within the hour) that
+  `work_due` runs, as interface 6 did.
 
 ## Differences from interface 6
 
 - No offer to go online first (Offline mode): a request ended for the power mode or the network says
   `opds.no-network`.
-- The action `opds.sync` always declares the work (the native action event says nothing of who ran it, where
-  interface 6's `env.reader()` told a reader's own run from a rule's): run from a menu by hand it starts at a
-  good moment within the hour, not at once. A device with no work service runs it at once.
 - The folder is below the library folder (`Library::import` takes no other place). One written from the
   card's root as interface 6 had it (`Books/Calibre`) is read as below the library, leaving out a leading
   library folder name. The folder chooser is not used: a text question.
@@ -99,8 +97,8 @@ Version 1.0.4: Beta 3 was 1.0.3 and the first slice bumped it; no further bump b
   `core.library` services (`tests/native_browse_flow.rs`, `tests/native_sync_flow.rs`), the readers, the list,
   the passwords and the covers' state without a host; `tests/acceptance_pending.rs` keeps ignored cases that
   name the missing piece.
-- **A picture place in the kit's rows** (the covers' column is a stand-in), and **who ran an action** in
-  `Event::ActionRun` (for `opds.sync`): both would let the plugin do what interface 6 did.
+- **A picture place in the kit's rows** (the covers' column is a stand-in): it would let the plugin do what
+  interface 6 did.
 - **Not measured:** the X4 file size (`tools/plugin-files7`) and the peak memory of a browse page, a cover
   page and a sync on the X4 heap. On the checklist: a page of at most 40 entries and 24 KiB, the sync queue
   of 24 KiB, 6 images, one 4 KiB frame buffer for each request, the cover cache of 48 files.

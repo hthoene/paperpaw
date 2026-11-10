@@ -1,9 +1,11 @@
-# Interface-7 port (slices 1 to 3: the decisions and declarations, the native entry and the card page, the file check)
+# Interface-7 port (slices 1 to 5: the decisions and declarations, the native entry and the card page, the file check, the online flow, the update that waits for plugins)
 
 Version 1.0.7 (already above its Beta 3 version; no further bump). Status: **not complete**: the native entry
 (`NativeUpdate`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `update`) has the whole card flow
-(checks, states, install, offer at start), but the plugins an update leaves out, the online flow and the
-dual-boot notice are named blocked steps below, so the plugin is **gated**: it is not in `NATIVE_PLUGINS` and not in
+(checks, states, install, offer at start) and, since slice 4, the online flow (search, offer, download, the fetch of
+code plugin builds, the weekly look and the check a rule asks for) and, since slice 5, the update that waits for
+plugins. What is still named below (the plugins an update leaves out, the dual-boot notice, the badge, a built-in
+plugin that comes back as a file) keeps the plugin **gated**: it is not in `NATIVE_PLUGINS` and not in
 `tools/plugin-files7/complete.txt` (its native file is not the whole plugin). The interface-6 `Update` and
 everything of it stays until the host activates native plugins (then it goes together, no shim; see the removal
 step).
@@ -85,19 +87,117 @@ step).
   `update.card.*`, `update.installing.percent`, `update.installed.restart-help`, `update.restart`,
   `update.reason.unsupported`; the interface-6 texts of the states above are used as they are.
 - The `uses.firmware` and `uses.storage` features are declared in `native/metadata*.json` (required): without a
-  card (`uses.storage`) there is no install from `updates`. The plugin does not use the network yet, so it does
-  not declare `uses.network`.
+  card (`uses.storage`) there is no install from `updates`. `uses.network` and `uses.install` (the online flow) are
+  declared optional.
 - **Left out of the card flow, not blocked:** interface 6 also looked for another firmware's image at the
   card's top level (where CrossPoint's installer looks); the native page looks in `updates` only (one more
   listing of root 1 and the same check). **To confirm with Firmware:** the check of a foreign image answers
   with reason 0, 8, 9 or 14 (the page reads these as "another firmware"); a check that names another reason
   is shown as *This update cannot be installed* with it.
 
+## The online flow (slice 4)
+
+Files: `src/native_online.rs` (no host, tested: the question, the streamed answer, the kept offer, the counting,
+the dates, the server's address), `src/native_plugin/online.rs` (the page's search and download, declared work),
+`src/native_plugin/fetch.rs` (the code plugin builds). Services: `core.net`, `core.work`, `core.registry`
+(`native/metadata*.json`), features `uses.network` and `uses.install` (optional: the card flow works without them).
+
+- **Search** (*Search online*, shown where the device has a network): a `POST` to `<server>/api/v1/updates` (setting
+  `update.server`, trailing slash dropped, `https://paperpaw.org` where empty) with the interface-6 members
+  `project`, `chip`, `version`, `plugins` (a crate and its version each, named `paperpaw-plugin-<id>` from
+  `core.device` op 4's ids), `code` (`id version` of the code plugins installed, from `core.registry`), `betas`,
+  `trigger`, `first` and `age` (the counting, `last-check.txt` and `first-check.txt` as before, same rules as
+  `native_update`). **Changed from interface 6:** `abi` and `compiler` are gone (`dev_native` has no fingerprint
+  or toolchain, `device.md` section 7); the question says `abi_major` and `abi_draft` of `dev_native` instead.
+  **To confirm with Web:** the server's reading of those two members (it selects builds by them, `device.md`
+  section 7) and that `dev_builtin.id`, a plugin id, becomes the crate `paperpaw-plugin-<id>` (a crate with
+  another name, such as a third party's, is not named right). The question goes in a file (`question.json`, root
+  0, sent with `send_file`: it is over the 2,048 bytes a request carries inline). The answer is read in pieces of
+  3,840 bytes as the streaming parser takes them (at most 40 KiB, below what a memory body is on the X4); a
+  version that is no version, not newer, a pre-release where the reader did not ask for betas and the device does
+  not run one, or no address is no offer (the interface-6 rules, `native_online::Reader::finish`). The offer is
+  kept in `offer.txt` (the interface-6 file; its `native` line is read and dropped).
+- **Offer and download**: the page offers it with its size (`update.size.kb`, `.mb`) and *Download*, which saves
+  the file into `updates/<project>-<version>.bin` with `core.net` `save_to` (root 1), `progress` (the percent on the
+  page) and `max_file` the size the server named. The host writes `<path>.pp-staged` and renames it when whole,
+  so a cut download never shows as an update file (interface 6's `updates/.download` is not used). The plugin
+  also checks the size (`core.files` `stat`). The update's own signature is checked by the device at the card flow.
+  Closing the page does not stop the download (as before); a restart cuts it off and the offer is shown again.
+  There is no cancel button, as in interface 6. A failed one says so (`update.download-failed.title`) and keeps the
+  offer. When it is whole the card flow takes over: the files of `updates` are checked again and the page offers
+  the update.
+- **Code plugins for the update** (`fetch.rs`): of the builds the answer names, those of **code plugins installed
+  here** are downloaded one after another into `staging/<id>/` (root 0, `save_to`), checked against their size and
+  SHA-1 or SHA-256 (read in 4 KiB pieces), and the host is asked to install each folder
+  (`command.install_plugin`, replace, request 100 and up): **the host checks it and asks the reader** (decision 132;
+  a trusted-installer grant skips the question). One plugin at a time; one that fails is counted and said
+  (`update.missing`: get it from the store after the update), never stops the update. Interface 6's queue in `fetch.txt` and its retries at later
+  checks are **not** carried: a restart loses what was left, which the store gets later. `fetch::comes_back`
+  has nothing to filter until `leaves_out` is native (below).
+- **Weekly look and the check a rule asks for** (declared work, `core.work`): at each start, and when the setting
+  `update.look` changes, `update.look-due` is declared (optional network work, after what is left of the week since
+  `looked.txt`, every 7 days, at the moments online and charging) or cancelled where the setting is off; the work
+  writes `looked.txt` and asks quietly (`trigger` `auto`). The action `update.check` declares `update.check-due`
+  (network work within an hour, at the moment online). **Changed from interface 6:** an action cannot tell the
+  reader from a rule (`ActionRun` has no such flag), so the action always waits for a cheap moment and
+  nothing opens the page when it finds an update (interface 6 searched at once and opened the page where the reader
+  ran it). A quiet check keeps the offer; the page shows it next time. In a run of declared work nothing is said
+  (`work.md` 2.3: no notice).
+- **Not needed natively:** interface 6's offer to go online before the network is used in the offline mode: a
+  request started within 2,000 ms of the reader's input goes out in the offline mode (`network.md` 3.2), and the
+  page's buttons are such input. Held requests end with a reason the page says (`update.net.held`).
+- Page: *Search online* in the card-less state, below an older or the same PaperPaw image (as before) and after
+  *Install anyway*; *Wi-Fi transfer* where transfer's action `transfer.open` exists (`core.registry` `actions`, run
+  with `run_action`; back on the page after it the card is looked at again); the states *Searching*, *Up to
+  date*, *No answer* (the reason, or the server's HTTP status, with *Try again*), the offer, *Downloading* (the
+  percent) and the same layout as the card flow (the rows on top, the large line and the words under them).
+- New texts (en and de): `update.downloading.percent`, `update.size.kb`, `update.size.mb`, `update.net.*`; the
+  interface-6 texts of the states are used as they are.
+
+## Update that waits for plugins (slice 5)
+
+Files: `src/native_waiting.rs` (no host, tested: the record `waiting.txt`, what an answer says the update waits
+for, when to ask again and when the page opens), `src/native_plugin/waiting.rs` (the host's part: the registry,
+the work, the page's two states). Services: `core.registry`, `core.device`, `core.work` (already declared; no
+change to `native/metadata*.json`). The file `waiting.txt` is interface 6's, unchanged (`docs/data-files.md`,
+version 1; `testdata/waiting.txt.v1` is read and written back byte for byte).
+
+- **What waits.** An answer naming a newer PaperPaw whose `waiting` lines name code plugins of the question it has
+  no build for, or whose `missing` lines say `not-ready` for crates built in now, **waits**; each of them is kept
+  only while it still holds: a code plugin installed, switched on (`core.registry` `plugins` flag bit 0) and at
+  the version asked about, a crate still built in (`core.device` `builtins`, the crate `paperpaw-plugin-<id>`
+  against the plugin's id). The offer stays in `offer.txt` as before (its `waiting` and `missing` lines are what
+  is read); `waiting.txt` keeps the version, `since`, `checked`, the flags `asked`, `seen`, `told`, and the
+  `plugin`/`crate` lines.
+- **Asking again.** A start and each answer that waits declare the question as declared work (key
+  `update.check-due`, network work at a cheap moment: at a start within a day, after an answer not before a day,
+  within two days); a question that could not be asked or answered (a refused request, an HTTP error) is
+  declared again in a day. A question asked is counted in `checked` (without a clock: `asked`, once). The
+  answer is read as any answer: still waiting is kept, ready is offered as any update, none removes the record.
+  Interface 6 declared the same work; it is the quiet check of the page (`quiet`), so nothing is said.
+- **The page.** *PaperPaw 0.5.0 waits for plugins* names the plugins (their names from `core.registry`, a
+  first-party crate by the name of its plugin) and the crates that never come (the server says they are not in
+  its library and the update does not name them); rows: *Keep waiting* (leaves; the way on), *Update anyway*,
+  *Check again*. *Update anyway* shows the offer with *Update later* first and *Download anyway* second, and
+  words what stops working (`update.stopping`, the code plugins) and what is gone after the update
+  (`update.leaves.anyway`, the crates it is not ready for and those that never come); **as the server's answer
+  names them** (the device's own list of what an update leaves out is still blocked, below). *Download anyway*
+  downloads as any download. Where nothing holds any more the offer is shown as any offer.
+- **Seen, and a week unseen.** Showing the waiting state records `seen` (nothing opens it by itself after).
+  At a start, an update that waits and has not been seen or told for a week (`since`, counted from the first
+  answer; the clock set back counts from now) opens the page once and records `told`; never again for that
+  version. A start that finds an offer with no `waiting.txt` (kept before the file was written) records it. A
+  start that finds the update installed or no longer newer removes `offer.txt` and `waiting.txt`; one that finds
+  nothing that holds any more removes `waiting.txt`.
+- **Changed from interface 6:** a finished download (the update is in `updates`) removes `waiting.txt` and
+  cancels the declared question, so that an update the reader chose to take anyway is not asked about again (in
+  interface 6 the record stayed until the next start). The check the action `update.check` asks for never opens
+  the page (no flag tells a rule from the reader, above), so an update that waits shows only on the page, as one
+  that does not.
+
 ## Before activation
 
-- `update.check` is declared (the action, its icon and its place) and answers `Unsupported` until the online flow
-  is native: it must be **implemented or dropped before the plugin is listed in `NATIVE_PLUGINS`** (the plugin is
-  gated while it stays).
+- `update.check` is implemented (declared work, above).
 - A refused `firmware_restart` (after an install, or the *Restart now* row) shows `update.restart-failed` and keeps
   the *Restart now* row. *Installed* ("Restarting …") has an *OK* row to leave the page where the restart does not
   come.
@@ -106,35 +206,44 @@ step).
 
 1. ~~`CommandSender::check_file`~~ **Done in slice 3** (SDK #738): the card flow's found, newer, older, same,
    own-key and foreign states, the offer at start (`offered.txt`) and the version line of `installing.txt`.
-   Not yet: the update *file list* ordering by version (the page offers the newest only, as interface 6
-   did) and everything that needs **the plugins an update leaves out** (2).
-2. **Plugins an update leaves out** (`update.leaves*`, `update.install-without`): the contract is
+   ~~The online flow, the weekly look, the Wi-Fi transfer button~~ **Done in slice 4** (above). Not yet: the update
+   *file list* ordering by version (the page offers the newest only, as interface 6 did) and everything that needs
+   **the plugins an update leaves out** (2).
+2. **Plugins an update leaves out** (`update.leaves*`, `update.install-without`, `update.missing.*`): the contract is
    `docs/abi/device.md` 5.1 (Kernel, ships with #732): `check_file` (kind 1) on the downloaded image,
    `dev_check.flags` bit 5 says the update leaves out plugins built in now, `core.device` op 16 `leaves_out`
    pages them (`dev_builtin` rows: id and the running version); a foreign image answers `Unsupported`. The plugin
    keeps what is its own: it filters out what comes back as fetched files (`fetch::comes_back`) and words the
-   choice from the server's `missing` reasons. **Blocked until** Kernel adds op 16 to the schema and Services
-   writes the SDK wrapper; then the *Update without them* choice. Until then an update is offered without saying
-   which plugins it leaves out (acceptance case `LEAVES-OUT`, ignored, note: op 16).
+   choice from the server's `missing` reasons (the `missing` lines kept in `offer.txt`). **Blocked on the SDK
+   wrapper:** `crates/paperpaw-sdk/src/native` has only the wire constant `OP_LEAVES_OUT` (no `Device::leaves_out`
+   and no `FileCheck` flag for bit 5; checked on integration 804d7415f). Then the *Update without them* choice
+   on the card page and the offer. Until then an update is offered without saying which plugins it leaves out
+   (acceptance case `LEAVES-OUT`, ignored, note: op 16).
 3. **The dual-boot notice and its button** (`dual.rs`, `not_dual.rs`): the firmware's note is
    `.paperpaw/boot.txt`, which root 1 refuses; `paperpaw.ini` is a card file the button rewrites before a
    restart. Needs a flag for it in `dev_firmware` or `dev_device` (Kernel/Firmware). Until then the device's own
    answer applies: no firmware updates here (`dev_firmware` not found, or an install ended with reason 19) is said
-   as *This device does not install updates from here*. **Firmware to confirm** that a dual-boot setup answers so;
-   if it does not, a dual-boot device would be offered an install the host must refuse.
-4. **The online flow**: *Search online* (`update.check`; the action answers `Unsupported`), the offer, the
-   download into `updates`, the plugin fetch (`fetch.rs`), waiting for plugins (`waiting.rs`), the periods
-   count (`count.rs`, rules in `native_update.rs`) and the answers while the page is closed. Needs `core.net`
-   (SDK has `Net::request`), `core.files`, work declarations and `uses.network`; blocked on the check for the
-   plugins an update leaves out (2).
-5. **The weekly look** as declared work (`Work::network(..).optional()..at_moments(..)`, `update.look-due`,
-   `update.check-due`, `setting.changed`): no native work declaration yet.
-6. **The badge** on the page's entry (`set_item_state`) and the offline-mode offer before the network.
-7. **The *Wi-Fi transfer* button** (running another plugin's action) and the *Not now / OK* focus rules of
-   interface 6 (touch focus shown only after a button was used).
+   as *This device does not install updates from here*, and the online flow does not ask where there is none.
+   **Firmware to confirm** that a dual-boot setup answers so; if it does not, a dual-boot device would be offered
+   an install the host must refuse.
+4. ~~**An update that waits for plugins**~~ **Done in slice 5** (above): the offer's `waiting` lines and
+   `missing ... not-ready`, *Keep waiting*, *Update anyway*, *Check again*, the daily question at a cheap moment,
+   the page that opens once after a week unseen, `waiting.txt`.
+5. **A built-in plugin an update leaves out that comes back as a file** (the builds of plugins built in now, with
+   the author key the server names for a plugin new here): the running firmware has the id built in, so
+   `install_plugin` of its file is not the way, and the host has no way to put a plugin in place for the *next*
+   firmware's first start (interface 6's `fetched_folder`). `install_author` (command 1580) has no SDK sender
+   either. **Needs Kernel/Firmware** (a staging for the next start, or the guarantee that the next firmware
+   takes plugin files installed now). Until then only builds of installed code plugins are fetched.
+6. **The badge** on the page's entry (`set_item_state`) when an update waits: `docs/abi/screens-input.md` 3.1
+   names `CommandSender::set_item_state` but the SDK has none (checked on integration 804d7415f), and a plugin
+   cannot submit the command itself. **Blocked on the SDK wrapper (Services).** Then the badge `update.badge`
+   when `offer.txt` exists, kept by the host across restarts (`ITEM_KEEP`), set when the answer is kept and cleared
+   when the offer goes. Without it a quiet check's result is seen only on the page.
+7. The *Not now / OK* focus rules of interface 6 (touch focus shown only after a button was used).
 8. The page's **layout** as interface 6 (buttons at the bottom, the text above, a bar, a help scrolled where
    it does not fit): the list's empty footer cuts the help at six lines (the card flow's longest text is
-   three). A page of this kind belongs in `paperpaw-ui-kit`.
+   three; the offer's is four). A page of this kind belongs in `paperpaw-ui-kit`.
 
 Ignored acceptance cases for these are in `tests/acceptance_pending.rs` (they name what they wait for).
 
@@ -145,6 +254,22 @@ Ignored acceptance cases for these are in `tests/acceptance_pending.rs` (they na
    `tests/not_dual/`), the `HOW` table kept for the manifest; `dual_boot_declared`, which
    `crates/paperpaw-x4/tests/dual_boot.rs` uses, moves to the firmware's side or stays as a function;
 2. the app's registration of `Update` (`crates/paperpaw-app/src/lib.rs`);
-3. list `NativeUpdate` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when blocked steps 1 to 7
+3. list `NativeUpdate` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when blocked steps 2 to 6
    are native (every user-visible function works natively).
+
+**Part B (the removal) was not done in slice 4**, because the gaps left are not all named host pieces: an update
+that waits for plugins (step 4) is not ported. If the interface-6 `Update` were removed with the gaps as they are,
+these user-visible functions would **disappear** (the owner decides):
+
+- the *Update without them* choice and the naming of the plugins an update leaves out (step 2);
+- the dual-boot notice with its *This is not a dual-boot setup* and *Detect dual boot again* buttons (step 3);
+- the states of an update that waits for plugins, its daily question and the page that opens once after a week
+  unseen (step 4);
+- plugins built in now that come back as files, the retry at later checks of a plugin that failed, the counting of
+  room for code plugins (`update.no-room`) and the plugin fetch that goes on after a restart (steps 5 and the
+  `fetch.txt` queue);
+- the badge on the update entry (step 6);
+- a check the reader runs from an action opening the page at once, and the offer to go online before searching in
+  the offline mode (see the online flow);
+- the other firmware's image looked for at the card's top level (left out of the card flow already).
 

@@ -108,6 +108,13 @@ pub(crate) trait WorkEnv {
     /// Whether the plugin subscribed to the event `tag` (the owner registry's
     /// answer; `false` for an owner that is unknown or stopped).
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
+    /// What the kernel holds and the shell does not: the user's power level
+    /// (0 normal, 1 saving, 2 offline), its deadline `stretch` and whether a
+    /// real-time screen holds the device. Told before every look at the
+    /// scheduler; an env that is told nothing keeps its own answers (tests).
+    fn kernel_state(&self, level: u32, stretch: u32, screen_hold: bool) {
+        let _ = (level, stretch, screen_hold);
+    }
 }
 
 /// The device's table sizes.

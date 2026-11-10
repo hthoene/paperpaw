@@ -36,14 +36,13 @@ pub(super) fn book_ref<'a>(
     }
 }
 
-/// A first path segment root 1 never reaches: `plugins` (the install folders)
-/// and `.paperpaw` (the kernel's data and every plugin's), by identity: the
+/// A first path segment root 1 never reaches: `plugins` (the install folders),
+/// `.paperpaw` (the kernel's data and every plugin's) and `paperpaw.ini` (the
+/// kernel's settings: a plugin must not turn off the second firmware), by identity: the
 /// service compares the spelling (FAT ignores case), the host resolves what
 /// else names them (an 8.3 alias such as `PAPERP~1`).
 pub(super) fn excluded(host: &dyn super::LibHost, first: &str) -> bool {
-    first.eq_ignore_ascii_case("plugins")
-        || first.eq_ignore_ascii_case(".paperpaw")
-        || host.excluded(first)
+    super::super::owner_paths::protected_first(first) || host.excluded(first)
 }
 
 /// A path of the library: root 1's grammar, and not below an excluded folder

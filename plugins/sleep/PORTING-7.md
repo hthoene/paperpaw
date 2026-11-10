@@ -1,9 +1,9 @@
-# Interface-7 port (slices 1 and 2: the decisions, the declarations, the native entry and screen)
+# Interface-7 port (slices 1 to 3: the decisions, the declarations, the native entry and screen, the pictures)
 
 Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
-entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen, but the cat, the
-cover and the pictures need the host's image drawing (named blocked steps below), so it is not in
-`tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
+entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen and, since
+slice 3, its pictures (`src/native_screen/images.rs`); the picker (item 4) and the steps named below are open, so it
+is not in `tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
 plugins (then it goes together, no shim; see the removal step).
 
 ## Native entry and screen (slice 2)
@@ -35,14 +35,6 @@ time it shows (not for `page`).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- **Decoding and drawing the cat, the cover and the folder's pictures** (the image slots 36/37 of PR 391 and
-  `core.files` are not on integration); the cat is embedded (`pictures/sleeping-cat.png`) and decoded once per screen
-  size. Until then the screen shows the message where they would show.
-- **The logo above the message:** interface 6 draws the PaperPaw logo (`paperpaw_sdk::logo`, a third of the screen
-  across) above the message; the native screen draws the message alone (`native_screen.rs` leaves the logo's place
-  empty): it needs an image the plugin can draw (the same host call as the cat).
-- **The picture over the page** (the overlay's `Picture` mode, `sleep.overlay-picture`): its picture needs the image
-  drawing too; the widget over the page is native.
 - **The picker (`pick-overlay`):** interface 6 picks the picture and the widget over the page on a screen of its own.
   It is not ported (over ~150 lines: a list of the picture folder's files and of the widgets): the two settings have
   **no editor** until then (a text row), and the screen is not declared, so that no row opens a screen nobody answers.
@@ -63,20 +55,44 @@ JPEG, PNG (not interlaced) or the first GIF frame of one of the plugin's **files
 ImageStyle::new().fill().small().transparency(n))` draws it in bands inside a draw callback; `image_release` gives it
 back; at most 8 prepared and 4 waiting per plugin. With it the items below become native:
 
-1. **The cat and the logo.** Both are embedded (`pictures/sleeping-cat.png`, the SDK's logo): write each once into the
-   data folder (`DataStorage`, as `format-images` and `translate` write their files), `image_prepare` it at the first
-   draw's size (side of a third of the screen for the logo), keep the `ImageId` in `Laid`, draw it with `draw_image`
-   (centred, `small()` for the logo), release it when the screen closes. The first draw has no picture yet: the
-   screen draws the message and asks for a redraw on `image_ready` (a `Partial` refresh, then it shows).
-2. **The picture of the folder** (`picture`) and the picture over the page: the next file of
-   the folder setting (the plugin's `Pictures`, `shown_before` kept in `next.txt`) is a file of the user's
-   card, not of the plugin's data folder: listing it needs `core.files` and `PrepareRoot::Library` needs
-   `uses.storage`, which the plugin's metadata does not declare yet (interface 6 read the card without a consent:
-   a new consent for the user to give), with the path inside the library; the answer's size gives the scale; `draw_image(..).fill()` is
-   what interface 6's `fit` did for `cover`/`picture`.
-3. **The cover** (`cover`): the cover of the book last read is a file the host's library keeps: it needs the library
-   facade's cover path (`services/abi7-sdk-cover-228`) to name it for `image_prepare`; until that lands the cover
-   mode falls back to the message as the decision table already says (`facts.cover` false).
+1. **The cat and the logo: done (slice 3).** The cat (`pictures/sleeping-cat.png`) and the logo (`pictures/logo.png`: the
+   glyph of the About plugin's logo, cropped square, since the SDK's logo is drawn from shapes and not a file) are written
+   once into the data folder (`cat.png`, `logo.png`, as `DataStorage` does, rewritten only when the size differs) and
+   asked for with `image_prepare` (`PrepareRoot::Data`; the cat at the screen's shorter side less the interface's two
+   margins, the logo at a third of it). A draw can send no command (`commands.md`), so the request goes out when the
+   screen opens (`ScreenOpened`, `Sleeping::begin`); the `ImageId` is kept in `Pics`, drawn with `draw_image` (the cat
+   fitted in the middle inside the margins on white, the logo `small()` above the message, both as interface 6 placed
+   them) and released at `ScreenClosed`. Until the answer (`event.image_ready`, token `IMAGE_READY`) the screen draws
+   the message; the answer asks for a **full** refresh (the pictures are final, in grays) when what shows changed.
+2. **The picture of the folder and the picture over the page: done as far as the contracts allow (slice 3).** The next
+   file of `sleep.folder` (`core.files` listing with `Root::Files`, the plugin's `Pictures`, `shown_before` kept in
+   `next.txt`) goes to `image_prepare` with `PrepareRoot::Library`; the plugin declares the optional `uses.storage`
+   (and `uses.library`, `core.files`, `core.library`); without the reader's consent the listing and the prepare are
+   refused and the cat shows (interface 6 read the card unasked: this is a consent to give). The picture over the page
+   is the file `sleep.overlay-picture` names or the folder's next one, fitted and placed as `native_sleep::placed`
+   says, drawn with `draw_image` and the see-through setting as `transparency`. Both are drawn **fitted and centred**
+   (not `fill`): that is what interface 6's `fit_image` did. A file the host cannot decode, or none, clears the fact
+   and `native_sleep::decide` falls back (the picture to the cat, the picture over the page to the cover, as before).
+   **Named blocked steps of this item:**
+   - *the clear parts of a PNG or GIF showing the page* (interface 6 decoded with alpha, `AlphaFile`): `image_prepare`
+     decodes to the opaque gray/colour cache format and has no alpha flag; needs a prepare flag for alpha (Services);
+     until then the picture over the page is opaque where it is not see-through;
+   - *a picture a preset names under another plugin's folder* (`plugins/<id>/owl.png`): the card root (1) excludes
+     `plugins/` and `.paperpaw/` and root 2 is the plugin's own install folder only; needs a root for another plugin's
+     files (Host); a path there fails and the fallback shows;
+   - *why the picture over the page failed, for the picker* (`overlay-failed.txt`): with the picker (item 4).
+3. **The cover: done (slice 3).** `Library::cover` (op 7) for the first book of `Query::new().sort(RecentlyOpened)
+   .descending(true)` that is `opened`, at the screen's longer side, held as the cover's `ImageId` (no prepare), released
+   at close; also looked for as the spare of a picture over the page. No book read, a book without a cover, or a cover
+   **still being made (`Busy`)** counts as no cover: the cat shows at that sleep (interface 6 made it in place; the
+   device cannot wait for `library_changed` bit 6 while it falls asleep).
+   **Other decisions that fall back at draw time:** a widget (or the list of widgets) that cannot be made is known only
+   when the first draw lays it out, and a draw can ask for nothing, so the fallback picture of that case is the cover
+   where one was held (looked for beforehand for the page mode) and else the message without a logo (interface 6: the
+   cat or the logo); named step: a pre-asked cat and logo, or a command allowed in a draw (Host).
+   **Not ported with the images:** the custom logo picture of `core.logo` (a card file named in `settings.ini`; the
+   contracts allow it through `PrepareRoot::Library`, a small slice of its own), the image description for
+   accessibility (`Canvas::describe`: the native canvas has none) and the gray-levels hint of `Screen::grays`.
 4. **The picker (`pick-overlay`):** not an image matter: a list screen of the picture folder (`core.files` listing,
    as `picture-home`'s chooser) and of the widgets (`core.registry`): a slice of its own; the two settings have no
    editor until then.
@@ -126,8 +142,8 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    positive case with #944; the ignored positive test stays as it is.
 6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
 
-The order that makes the plugin native-only: #692 → 1 and 2 (one stacked PR on #692's branch; one decode at a time,
-four waiting at most) → 3 with the cover facade → 4 (5 is done).
+The order that makes the plugin native-only: #692 → 1 and 2 (one decode at a time, four waiting at most) → 3 with the
+cover facade → 4 (5 is done); 1 to 3 are in slice 3.
 
 ## Removal step (one sweep, with the reader port and Core #944)
 

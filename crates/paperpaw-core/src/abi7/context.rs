@@ -123,6 +123,12 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
+    /// One line of the host's own diagnostics (`KernelBuilder::device_log`):
+    /// at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets; one per call site per sync or job. A frame without a
+    /// sink drops it and formats nothing.
+    fn log(&self, _line: core::fmt::Arguments<'_>) {}
+
     /// The tables `core.registry` reads (`registry.md` section 2). A frame
     /// that has none refuses with `ERR_UNSUPPORTED`.
     fn registry(&self) -> Result<&dyn registry_views::RegistryView, i32> {
