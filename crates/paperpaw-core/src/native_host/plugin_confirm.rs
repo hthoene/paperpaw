@@ -6,6 +6,7 @@
 //! nonce, `No` is reason 2, dismissal (Back, sleep, ten minutes, a screen that
 //! cannot be shown) is reason 3, and neither is ever a yes.
 use super::firmware_confirm::{Texts, clean, fingerprint, open_params};
+use super::firmware_install::KIND_FIRMWARE;
 use super::plugin_job::{KIND_REMOVAL, PluginQuestion, Relation};
 use crate::Kernel;
 use alloc::{rc::Rc, string::String};
@@ -49,6 +50,27 @@ fn uses_list(question: &PluginQuestion) -> Option<String> {
     Some(list)
 }
 
+/// The words of `firmware_dual_boot` mode 1: who asked, and that the next
+/// update erases the other firmware. Yes or No only; the focus starts on No.
+fn dual_boot_texts(i18n: &paperpaw_i18n::Translator, asker: &str) -> Option<Texts> {
+    let mut body = String::new();
+    add(
+        &mut body,
+        &i18n.format(
+            "core.firmware.asked-by",
+            &[("name", Arg::Str(&clean(asker)))],
+        ),
+    )?;
+    add(&mut body, i18n.tr("core.firmware.dual.what"))?;
+    Some(Texts {
+        title: own(i18n.tr("core.firmware.dual.title"))?,
+        body,
+        yes: own(i18n.tr("core.firmware.dual.yes"))?,
+        no: own(i18n.tr("core.firmware.no"))?,
+        data: None,
+    })
+}
+
 /// The confirmation's words for `question`, asked by the plugin `asker`; the
 /// text is built with fallible allocation (at most a few hundred bytes), and
 /// `None` where the heap cannot take it: the question is then not asked, which
@@ -59,6 +81,10 @@ pub(crate) fn texts(
     question: &PluginQuestion,
 ) -> Option<Texts> {
     let removal = question.kind == KIND_REMOVAL;
+    if question.kind == KIND_FIRMWARE {
+        // The one question of kind 1 is `firmware_dual_boot`'s (mode 1).
+        return dual_boot_texts(i18n, asker);
+    }
     let mut body = String::new();
     add(
         &mut body,

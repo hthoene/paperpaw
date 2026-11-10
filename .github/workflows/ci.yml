@@ -279,9 +279,9 @@ jobs:
           git show "${ABI_BASE_REV}:abi/abi.lock" > "$ABI_BASELINE"
           test -s "$ABI_BASELINE"
           sha256sum "$ABI_BASELINE"
-      - name: Raise, re-bless or freeze the plugin interface only by name, against the trusted base
+      - name: The plugin interface is raised or frozen only by name, against the trusted base
         run: python3 tools/abi-reference-check.py --base "$ABI_BASE_REV"
-      - name: Check generated ABI and append-only compatibility
+      - name: Generated ABI matches the code (append-only once a minor is released)
         env:
           ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock
         run: bash tools/abi-check.sh --ci

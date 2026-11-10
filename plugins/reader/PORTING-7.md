@@ -84,11 +84,10 @@ relative to the data folder).
   right payload: word, sentence, path, section, offset, language, title; a path over 512 bytes is refused and
   nothing runs; `tests/native_words_alloc.rs` refuses every allocation of the input); `run` does it with the
   host's stage and gives every refusal back for the caller to ignore.
-- Not wired yet: the native reader has no selection flow, and the interface-6 reader screen
-  (`screen/selecting.rs`) cannot run a stage, so it still emits `core.word-looked-up`. That emitter stays
-  until vocabulary (Port D) and readwise/joplin (Port E) subscribe to the stage; the native selection flow
-  calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
-  `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
+- Wired in R4: the native selection flow (`native_marking/act.rs`) runs the stage when words are looked
+  up. The interface-6 reader screen (`screen/selecting.rs`) cannot run a stage, so it still emits
+  `core.word-looked-up`; that emitter stays until vocabulary (Port D) and readwise/joplin (Port E)
+  subscribe to the stage and the native reader is default-on.
 
 ## The stage `reader.filter@1`
 
@@ -223,7 +222,7 @@ relative to the data folder).
   calls `services.query` added.
 - **Not yet (named gaps):** the place saved last time and `page` numbers (`LIB-position`, R2); progress,
   the page index and status lines (R2, op 5 sections in #973); the menus and the font/layout panel (R3);
-  selection, words, links, footnotes (R4); annotations (R5); TOC and skim (R6); search (R7); reflow on
+  annotations (R5); TOC and skim (R6); search (R7); reflow on
   a turned screen and on a changed setting (the page is laid out again only after a turn); a document
   that is still preparing is not read again when the host says it is ready (`document_changed`); the
   paragraph indent and spacing, widows and orphans, hyphenation and the book-style switches of the
@@ -295,6 +294,34 @@ relative to the data folder).
   progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
   the host, so a `finished` set locally may never be raised (a one-page book too).
 
+## Selection, words, links and footnotes (R4, #243)
+
+- `native_wordbox.rs` measures the words of a laid-out page the way `draw_lines` sets them (same spaces,
+  same runs); `native_selection/` is the host-free movement of the chosen words; `native_marking.rs` (with
+  `bar.rs`, `act.rs`, `linking.rs`) is the controller: touch (long press chooses, tap extends or
+  presses a bar button) and keys (`reader.select-text`, `reader.links`), the bar (look up, copy,
+  *Extend* on buttons, *Cancel* on touch), the frames, the clipboard and the lookup (slot `core.lookup`,
+  then the stage). `native_links.rs` reads the links of a page, finds a target, keeps the trail for *Back*
+  and the text of a note; `native_footnote.rs` is the note over the page (an overlay screen, `core.footnote`);
+  *Go to the note* is carried by the plugin, which follows it in the reading screen when that is shown again.
+  `native_view.rs` asks the marking first about every input and draws its overlay last.
+- **Differences from Beta 3, named:** the bar has fixed items (look up, copy, extend/cancel): *Highlight*,
+  *Note*, *Read aloud* and *Translate* and the plugins' items need the annotations (R5), the aloud and the
+  selection-bar contract, which the stage does not replace. The book's language is not read (native metadata
+  has none), so the lookup is asked with an empty language. Words on a line set for mixed directions
+  (`LineBidi::REORDER`) are read in logical order, not where drawn. At most 2,048 words of a page are
+  chosen or hit. Taking the lookup of a word to a plugin other than `core.lookup` is not changed.
+- Footnote popup: share of the display and buttons as Beta 3; *Close* by tap anywhere outside the buttons.
+  The setting `core.footnotes` decides popup or jump as before. Width, text size and button rows follow the
+  ui-kit `Style`, so pixels differ from Beta 3 (measure on the X4 at activation).
+- Tests: movement and bar (`native_selection/moves_tests.rs`), word boxes with the allocation sweep,
+  links (`native_links/tests.rs`), the marking (`native_marking/tests.rs`). Not tested without the host: a
+  hosted touch flow over a real book (waits for the hosted harness, as the reading screen).
+- The marking never opens a `core.ui` handle: the plugin's held one is in `Ctx` (copy, lookup, links and
+  the note use it). Out-of-memory in the frames of a selection leaves the rest of the frames out. **X4 list:**
+  up to 2,048 words per page (~100 KB worst case), 16 KiB of copied text, two service buffers per open, and
+  `line_boxes` is quadratic in the words (measure at activation).
+
 ## Table of contents (native model, `native_toc.rs`)
 
 - Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
@@ -332,6 +359,55 @@ relative to the data folder).
   (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
   fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
   `read_handover` error is "no book".
+
+## The font, justify and chapter actions (view slice R3a, `native_actions.rs`)
+
+- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-40 (the
+  setting's range; a font pack may allow less: the host fits it back; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
+  a native plugin cannot read: named). `reader.toggle-justify`. Both change the setting by command; the
+  page is laid out again by the setting-changed reflow (Port E, #1064), until it lands the change shows at
+  the next layout.
+- `reader.next-chapter` / `reader.prev-chapter`: the first chapter start at or after the page's end / the
+  last before its start, from the book's table (`core.document` op 7; starts in the page's section made
+  exact by op 8, as Beta 3). Goes as a turn (trail, place saved, reported); nothing happens where there is
+  no chapter. A book with no table has none (the headings scan is not ported: R6).
+- **Not yet:** go to page / percent (need a number dialog and the page index), the quick-settings panel
+  screen, book info, the status-line actions, the bookmark (annotations screen, R5).
+
+## Reflow (view slice R8a, Port E)
+
+- The page on show is laid out with a key (the reading settings and the display's width, height and density,
+  `LayoutKey`); each draw compares it with the current one and, when they differ, lays the page out again from
+  the place it starts at and forgets the trail of earlier pages (their starts belong to the old layout). A
+  turned screen is covered by this: it is another size.
+- `event.setting_changed` (token 8 in `declarations::events`; a host that does not admit it answers
+  `Unsupported` and the next draw's key check shows the change): a layout setting calls `View::reflow` (page
+  laid out again, the place reported to the host anew), an ink setting only `View::repaint`.
+- The layout settings are listed by id (`native_pages::affects_layout`: font size, line and word spacing,
+  margins, justify, `core.reading-font`, `core.hyphenate`, `core.hyphen-min-left/right`; an empty key, "read all
+  settings again", too); the ink settings are `core.font-weight`, `core.smooth-text` and the `core.text-*` ones.
+  `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
+  book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
+  out in the event callback.
+- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+
+## Lines under, over and through text, and table rules (view slice R8b, Port E)
+
+- `native_decor.rs`: after each run `draw_lines` draws what the run's `TextStyle` asks for, over the run's
+  whole width (its spaces too; Beta 3 decorated each word and the space between two words, so a run that
+  ends in a space has a line one space longer here), with the geometry of Beta 3's `ReadingFaces::decorate`: underline at `size / 10` (at least 1)
+  below the baseline, overline at 0.78 of the size above it, strike-through at 0.28; the thickness is
+  `size / 16` (at least 1); the line style is one line, two (the second as far below as it is thick), dotted
+  (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
+  line has at most 4,096 pieces. `Ink::fill` (a filled rectangle in the pen's colour, `canvas.fill_rect`) is the
+  one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
+- Differences: a run's colour is the page's (no per-run ink); lines of mixed direction are set in logical order
+  (the existing gap), so a line follows the run's place in that order.
+- X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
+  Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
+- **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
+  both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
+  `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
 
 
 ## Annotations (native model, `native_annotations.rs`)

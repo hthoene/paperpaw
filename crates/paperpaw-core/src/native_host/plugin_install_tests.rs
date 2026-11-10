@@ -277,6 +277,27 @@ fn declined_and_dismissed_leave_the_card_as_it_was() {
     }
 }
 
+/// A removed plugin whose secrets stayed (`plugin_unforgotten`): a plugin of
+/// its id is not installed until the host has forgotten them.
+#[test]
+fn an_id_whose_secrets_stayed_after_a_removal_is_not_installed() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    assert!(crate::native_host::plugin_unforgotten::add(&card, "dials"));
+    let before = snapshot(&card);
+    assert_eq!(
+        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
+        reason::ID_TAKEN
+    );
+    assert_eq!(snapshot(&card), before);
+    // The host forgot: the id is free again.
+    crate::native_host::plugin_unforgotten::retry(&card, &mut |_| true);
+    assert_eq!(
+        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
+        reason::OK
+    );
+}
+
 #[test]
 fn the_source_is_refused_before_anything_is_copied() {
     let card = MemoryStorage::new();
