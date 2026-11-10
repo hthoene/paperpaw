@@ -147,6 +147,30 @@ impl Frame for CoreFrame<'_> {
         .ask(owner, token, items, context, out)
     }
 
+    fn call_native(
+        &self,
+        owner: u64,
+        token: u32,
+        input: &[u8],
+        reply: &mut [u8],
+        accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        crate::native_host::native_call::call(self, owner, token, input, reply, accept)
+    }
+
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        let store = directory
+            .store
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        visit(&*store);
+        Ok(())
+    }
+
     fn widget_call(
         &self,
         owner: u64,
