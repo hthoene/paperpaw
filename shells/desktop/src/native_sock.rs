@@ -28,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use paperpaw_core::native_host::shell_wiring::{Connect, SockFailure, SockReports, SockTransport};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND};
 
 /// The bytes a connection's writer holds at most (the queue core keeps is
 /// smaller: this only bounds what the transport takes at once).
@@ -39,6 +39,45 @@ const READ_PIECE: usize = 16 << 10;
 
 /// How long a thread waits before it looks whether it was closed.
 const LOOK: Duration = Duration::from_millis(100);
+
+/// What core is told (`SockReports`, or a stand-in in tests).
+trait Sink {
+    fn connected(&self, id: u32) -> Result<(), i32>;
+    fn failed(&self, id: u32, why: SockFailure) -> Result<(), i32>;
+    fn received(&self, id: u32, bytes: &[u8]) -> Result<usize, i32>;
+    fn peer_closed(&self, id: u32) -> Result<(), i32>;
+    fn writable(&self, id: u32) -> Result<(), i32>;
+    fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32>;
+    fn network_lost(&self) -> Result<(), i32>;
+    fn tick(&self) -> Result<(), i32>;
+}
+
+impl Sink for SockReports {
+    fn connected(&self, id: u32) -> Result<(), i32> {
+        SockReports::connected(self, id)
+    }
+    fn failed(&self, id: u32, why: SockFailure) -> Result<(), i32> {
+        SockReports::failed(self, id, why)
+    }
+    fn received(&self, id: u32, bytes: &[u8]) -> Result<usize, i32> {
+        SockReports::received(self, id, bytes)
+    }
+    fn peer_closed(&self, id: u32) -> Result<(), i32> {
+        SockReports::peer_closed(self, id)
+    }
+    fn writable(&self, id: u32) -> Result<(), i32> {
+        SockReports::writable(self, id)
+    }
+    fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32> {
+        SockReports::answered(self, id, from, data)
+    }
+    fn network_lost(&self) -> Result<(), i32> {
+        SockReports::network_lost(self)
+    }
+    fn tick(&self) -> Result<(), i32> {
+        SockReports::tick(self)
+    }
+}
 
 /// What a thread of a connection or broadcast reports.
 #[derive(Debug)]
@@ -163,6 +202,10 @@ impl NativeSock {
     /// (`tick`); a network gone since the last pump (`up`: whether one is up
     /// now) ends every socket (`network_lost`).
     pub fn pump(&self, reports: &SockReports, up: bool) {
+        self.pump_with(reports, up);
+    }
+
+    fn pump_with(&self, reports: &dyn Sink, up: bool) {
         if self.was_up.replace(up) && !up {
             for (_, entry) in self.entries.borrow_mut().drain() {
                 entry.link.close();
@@ -188,7 +231,7 @@ impl NativeSock {
     }
 
     /// Tells core of one thing that happened.
-    fn report(&self, event: Event, reports: &SockReports) {
+    fn report(&self, event: Event, reports: &dyn Sink) {
         // What came from a socket that was closed since has no one to tell.
         if !self.entries.borrow().contains_key(&event.id()) {
             return;
@@ -201,22 +244,27 @@ impl NativeSock {
                 return;
             }
             Event::Connected(id) => reports.connected(*id),
+            // The socket is forgotten once core has taken the report (or
+            // will never take it): a busy core hears it again.
             Event::Failed(id, why) => {
-                self.forget(*id);
-                reports.failed(*id, *why)
+                let done = reports.failed(*id, *why);
+                if done != Err(ERR_BUSY) {
+                    self.forget(*id);
+                }
+                done
             }
             Event::PeerClosed(id) => reports.peer_closed(*id),
             Event::Writable(id) => reports.writable(*id),
             Event::Answer(id, from, data) => reports.answered(*id, from.as_bytes(), data),
         };
-        if done == Err(ERR_BUSY) && !matches!(event, Event::Failed(..)) {
+        if done == Err(ERR_BUSY) {
             self.again.borrow_mut().push(event);
         }
     }
 
     /// Offers core `bytes` (after what it did not take before): what it takes
     /// is gone, the rest waits for the next read.
-    fn offer(&self, id: u32, bytes: &[u8], reports: &SockReports) {
+    fn offer(&self, id: u32, bytes: &[u8], reports: &dyn Sink) {
         let mut held = self.unread.borrow_mut().remove(&id).unwrap_or_default();
         held.extend_from_slice(bytes);
         if held.is_empty() {
@@ -388,13 +436,26 @@ fn write_connection(
     }
 }
 
-/// A broadcast's thread: the answers that come until it is closed.
+/// The most answers, and bytes of them, one broadcast passes on: a host that
+/// floods the reply port gets no more memory than this between two pumps
+/// (core keeps 8 answers of its own).
+const ANSWERS_MAX: usize = 64;
+const ANSWER_BYTES_MAX: usize = 64 << 10;
+
+/// A broadcast's thread: the answers that come until it is closed. An answer
+/// is read into 2,048 bytes: a longer one is cut here and is over core's
+/// 1,024-byte limit anyway (core drops it).
 fn run_broadcast(id: u32, socket: &UdpSocket, link: &Link, events: &Sender<Event>) {
     let mut buf = [0u8; 2048];
+    let (mut answers, mut bytes) = (0usize, 0usize);
     while !link.is_closed() {
         match socket.recv_from(&mut buf) {
             Ok((n, from)) => {
-                let _ = events.send(Event::Answer(id, from.to_string(), buf[..n].to_vec()));
+                if answers < ANSWERS_MAX && bytes + n <= ANSWER_BYTES_MAX {
+                    answers += 1;
+                    bytes += n;
+                    let _ = events.send(Event::Answer(id, from.to_string(), buf[..n].to_vec()));
+                }
             }
             Err(error)
                 if matches!(
@@ -408,7 +469,7 @@ fn run_broadcast(id: u32, socket: &UdpSocket, link: &Link, events: &Sender<Event
 
 impl SockTransport for NativeSock {
     fn connect(&self, id: u32, to: &Connect<'_>) -> Result<(), i32> {
-        let port = u16::try_from(to.port).map_err(|_| ERR_IO)?;
+        let port = u16::try_from(to.port).map_err(|_| ERR_INVALID)?;
         self.connect_to(
             id,
             to.host,
@@ -615,5 +676,104 @@ mod tests {
             }
         }
         drain.join().unwrap();
+    }
+    /// A core that is busy `busy` times, then takes what it is told.
+    struct Core {
+        busy: Cell<u32>,
+        told: RefCell<Vec<String>>,
+    }
+
+    impl Core {
+        fn new(busy: u32) -> Self {
+            Self {
+                busy: Cell::new(busy),
+                told: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn take(&self, what: String) -> Result<(), i32> {
+            if self.busy.get() > 0 {
+                self.busy.set(self.busy.get() - 1);
+                return Err(ERR_BUSY);
+            }
+            self.told.borrow_mut().push(what);
+            Ok(())
+        }
+    }
+
+    impl Sink for Core {
+        fn connected(&self, id: u32) -> Result<(), i32> {
+            self.take(format!("connected {id}"))
+        }
+        fn failed(&self, id: u32, why: SockFailure) -> Result<(), i32> {
+            self.take(format!("failed {id} {why:?}"))
+        }
+        fn received(&self, id: u32, bytes: &[u8]) -> Result<usize, i32> {
+            self.take(format!("received {id} {}", bytes.len()))?;
+            Ok(bytes.len())
+        }
+        fn peer_closed(&self, id: u32) -> Result<(), i32> {
+            self.take(format!("peer_closed {id}"))
+        }
+        fn writable(&self, id: u32) -> Result<(), i32> {
+            self.take(format!("writable {id}"))
+        }
+        fn answered(&self, id: u32, _: &[u8], _: &[u8]) -> Result<(), i32> {
+            self.take(format!("answered {id}"))
+        }
+        fn network_lost(&self) -> Result<(), i32> {
+            self.take(String::from("network_lost"))
+        }
+        fn tick(&self) -> Result<(), i32> {
+            Ok(())
+        }
+    }
+
+    /// A failure core answers `ERR_BUSY` is heard again at the next pump: the
+    /// socket is forgotten only once core has taken it.
+    #[test]
+    fn a_failure_core_was_too_busy_to_take_is_told_again() {
+        let sock = NativeSock::new();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        connect(&sock, 5, port);
+        // The thread's report is moved to the pump by hand: core is busy.
+        let core = Core::new(2);
+        let failed = next(&sock);
+        assert!(matches!(failed, Event::Failed(5, SockFailure::Refused)));
+        sock.report(failed, &core);
+        assert_eq!(sock.open(), 1, "busy: the socket is still there");
+        sock.pump_with(&core, true);
+        assert_eq!(sock.open(), 1, "busy again");
+        sock.pump_with(&core, true);
+        assert_eq!(*core.told.borrow(), ["failed 5 Refused"]);
+        assert_eq!(sock.open(), 0, "taken: forgotten");
+        sock.pump_with(&core, true);
+        assert_eq!(core.told.borrow().len(), 1, "told once");
+    }
+
+    #[test]
+    fn a_flood_of_broadcast_answers_is_capped() {
+        let sock = NativeSock::new();
+        // The broadcast thread passes on at most ANSWERS_MAX answers.
+        let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
+        udp.set_read_timeout(Some(LOOK)).unwrap();
+        let target = udp.local_addr().unwrap();
+        let link = Link::new();
+        let (events, arrived) = channel();
+        let closer = link.clone();
+        let reader = thread::spawn(move || run_broadcast(9, &udp, &closer, &events));
+        let flooder = UdpSocket::bind("127.0.0.1:0").unwrap();
+        for _ in 0..(ANSWERS_MAX * 3) {
+            flooder.send_to(b"x", target).unwrap();
+        }
+        thread::sleep(Duration::from_millis(500));
+        link.close();
+        reader.join().unwrap();
+        assert_eq!(arrived.try_iter().count(), ANSWERS_MAX);
+        assert_eq!(sock.open(), 0);
     }
 }
