@@ -104,7 +104,9 @@ impl KernelBuilder {
     /// What the device tells plugin jobs about itself (`device.md` 5.1, 5.2):
     /// what its loader reads (`loader`), what it offers a plugin's metadata
     /// (`offered`) and the signing keys it knows by name (`signers`; every
-    /// other key is shown by its fingerprint). Without it (and without
+    /// other key is shown by its fingerprint). `signers` lists PaperPaw's own
+    /// keys only: a plugin check reports "signed by PaperPaw" (`dev_check`
+    /// flag bit 3) for any key that has a name here. Without it (and without
     /// [`Self::firmware_host`], whose queue plugin jobs share) `check_file` of
     /// kind 0 is `ERR_UNSUPPORTED`.
     #[must_use]

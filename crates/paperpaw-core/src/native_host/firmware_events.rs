@@ -105,6 +105,23 @@ impl Kernel {
                 .map_or(true, |driver| driver.has_work(now))
     }
 
+    /// After a stop or a sender's stop: a plugin job that must finish (or runs
+    /// on without its sender) is stepped on, bounded
+    /// ([`super::firmware_driver::Driver::finish_stopped`]).
+    pub(crate) fn firmware_finish_stopped(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Ok(mut driver) = driver.try_borrow_mut() else {
+            return;
+        };
+        let hosts = self.shared.native_instances.hosts();
+        match hosts.and_then(|hosts| hosts.device()) {
+            Some(device) => driver.finish_stopped(self.storage(), &DeviceBuiltIns(&*device.0)),
+            None => driver.finish_stopped(self.storage(), &NoBuiltIns),
+        }
+    }
+
     /// Lets the device ops read the machine, once the host views exist.
     fn firmware_wire(
         &self,

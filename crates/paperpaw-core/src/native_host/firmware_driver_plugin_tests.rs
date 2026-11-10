@@ -6,6 +6,7 @@ use crate::native_host::firmware_install::KIND_CHECK;
 use crate::native_host::plugin_job::{
     Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, reason as job_reason,
 };
+use crate::native_host::plugin_jobs::PluginJobs;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
     host_glue::{ERR_FULL, ERR_UNSUPPORTED},
@@ -61,13 +62,15 @@ struct Seen {
     dropped: Cell<bool>,
 }
 
-struct Script {
+pub(crate) struct Script {
     owner: u64,
     request: u32,
     kind: u32,
     steps: u32,
     done: Finished,
     seen: Rc<Seen>,
+    must_finish: bool,
+    keep: bool,
 }
 
 impl PluginJob for Script {
@@ -94,6 +97,12 @@ impl PluginJob for Script {
     fn abort(&mut self, reason: u8) {
         self.seen.aborted.set(Some(reason));
     }
+    fn must_finish(&self) -> bool {
+        self.must_finish
+    }
+    fn keep_without_sender(&self) -> bool {
+        self.keep
+    }
 }
 
 impl Drop for Script {
@@ -102,7 +111,7 @@ impl Drop for Script {
     }
 }
 
-fn check_job(owner: u64, request: u32, steps: u32) -> (Box<dyn PluginJob>, Rc<Seen>) {
+fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
     let seen = Rc::new(Seen::default());
     let job = Script {
         owner,
@@ -114,19 +123,45 @@ fn check_job(owner: u64, request: u32, steps: u32) -> (Box<dyn PluginJob>, Rc<Se
             facts: Some(facts("dials")),
         },
         seen: Rc::clone(&seen),
+        must_finish: false,
+        keep: false,
     };
-    (Box::new(job), seen)
+    (PluginJobs::Script(job), seen)
 }
 
-fn job_of_kind(owner: u64, request: u32, kind: u32) -> Box<dyn PluginJob> {
-    Box::new(Script {
+fn job_of_kind(owner: u64, request: u32, kind: u32) -> PluginJobs {
+    PluginJobs::Script(Script {
         owner,
         request,
         kind,
         steps: 1,
         done: Finished::refused(job_reason::OK),
         seen: Rc::default(),
+        must_finish: false,
+        keep: false,
     })
+}
+
+/// An install-like job of `steps` steps, with what it says of stopping.
+fn install_job(
+    owner: u64,
+    request: u32,
+    steps: u32,
+    must_finish: bool,
+    keep: bool,
+) -> (PluginJobs, Rc<Seen>) {
+    let seen = Rc::new(Seen::default());
+    let job = Script {
+        owner,
+        request,
+        kind: KIND_INSTALL,
+        steps,
+        done: Finished::refused(job_reason::OK),
+        seen: Rc::clone(&seen),
+        must_finish,
+        keep,
+    };
+    (PluginJobs::Script(job), seen)
 }
 
 fn driver(with_host: bool) -> Driver {
@@ -251,13 +286,15 @@ fn a_plugin_checks_facts_wait_in_its_owners_result_slot_for_op_6() {
 #[test]
 fn a_refused_plugin_check_leaves_its_reason_and_no_facts() {
     let mut d = driver(true);
-    d.submit_plugin(Box::new(Script {
+    d.submit_plugin(PluginJobs::Script(Script {
         owner: 1,
         request: 1,
         kind: KIND_CHECK,
         steps: 1,
         done: Finished::refused(job_reason::UNSIGNED),
         seen: Rc::default(),
+        must_finish: false,
+        keep: false,
     }))
     .unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::UNSIGNED));
@@ -339,4 +376,75 @@ fn a_cancelled_plugin_job_leaves_the_queue_and_gives_its_places_back() {
     assert_eq!(d.waiting(), 0);
     // Four cancelled checks keep no result place.
     d.submit_check(5, 1, "a.ppu").unwrap();
+}
+
+#[test]
+fn a_job_that_must_finish_is_stepped_on_after_a_stop_and_ends_with_its_own_reason() {
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 5, true, false);
+    d.submit_plugin(job).unwrap();
+    d.submit_check(2, 1, "a.ppu").unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.abort_all();
+    // Aborted, not abandoned: still running, its entry kept, the waiting
+    // check ended with reason 20.
+    assert_eq!(seen.aborted.get(), Some(20));
+    assert!(!seen.dropped.get());
+    assert!(d.holds(1, 1) && !d.holds(2, 1));
+    let waiting = d.take_ready().unwrap();
+    assert_eq!((waiting.owner, waiting.reason), (2, 20));
+    // The bounded finish takes it to its end: its own reason (0), told.
+    d.finish_stopped(&NoStorage, &Names);
+    assert!(seen.dropped.get());
+    assert_eq!(seen.steps.get(), 5);
+    let done = d.take_ready().unwrap();
+    assert_eq!((done.owner, done.kind, done.reason), (1, KIND_INSTALL, 0));
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn a_job_that_must_finish_but_cannot_in_one_go_is_left_to_the_pump() {
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, FINISH_STEPS + 10, true, false);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.abort_all();
+    d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), FINISH_STEPS);
+    assert!(d.has_work(0), "the pump goes on");
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 1 && o.reason == 0));
+}
+
+#[test]
+fn a_sender_that_stops_leaves_a_confirmed_install_running_untold() {
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 3, false, true);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.sender_stopped(1);
+    // Not aborted, no entry for its sender, still running.
+    assert_eq!(seen.aborted.get(), None);
+    assert!(!d.holds(1, 1));
+    d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), 3);
+    assert!(seen.dropped.get());
+    // Nobody is told, nothing is kept for it, and the queue is free.
+    assert!(d.take_ready().is_none());
+    assert_eq!(d.kept(1, KIND_INSTALL), None);
+    assert!(!d.has_work(0));
+    d.submit_plugin(job_of_kind(2, 1, KIND_INSTALL)).unwrap();
+}
+
+#[test]
+fn a_sender_that_stops_takes_an_install_that_may_be_abandoned() {
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 3, false, false);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.sender_stopped(1);
+    assert_eq!(seen.aborted.get(), Some(20));
+    assert!(seen.dropped.get());
+    assert!(!d.has_work(0));
 }

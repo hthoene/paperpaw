@@ -20,8 +20,10 @@
 //!   they are `ERR_UNSUPPORTED`. A kind beyond 1 is `ERR_DENIED`. A plugin
 //!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
 use super::{CommandStage, DevOp, WireCommand};
-use crate::native_host::{firmware_driver::Driver, owner_paths, plugin_check::PluginCheck};
-use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+use crate::native_host::{
+    firmware_driver::Driver, owner_paths, plugin_check::PluginCheck, plugin_jobs::PluginJobs,
+};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     fmt,
@@ -306,7 +308,7 @@ impl CommandStage<'_> {
                 DevOp::Firmware(FirmwareOp::PluginCheck { request, path }) => {
                     PluginCheck::new(ctx.owner, *request, path)
                         .ok_or(ERR_NO_MEMORY)
-                        .and_then(|job| driver.submit_plugin(Box::new(job)))
+                        .and_then(|job| driver.submit_plugin(PluginJobs::Check(job)))
                         .map(|()| *request)
                 }
                 _ => continue,

@@ -72,6 +72,8 @@ pub(crate) mod plugin_folder;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[path = "native_host/plugin_jobs.rs"]
+pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_trust.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_trust;

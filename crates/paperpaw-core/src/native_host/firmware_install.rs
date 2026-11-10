@@ -909,11 +909,6 @@ impl FirmwareInstall {
         );
     }
 
-    /// `owner`'s plugin check starts: its result slot waits (op 6 `ERR_BUSY`).
-    pub(crate) fn plugin_check_started(&mut self, owner: u64) {
-        self.mark_running(owner);
-    }
-
     /// `firmware_restart` at submit: only the plugin whose install waits may
     /// ask, and the host asks again.
     ///
