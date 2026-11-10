@@ -207,8 +207,10 @@ impl MoveCarry for EnvCarry<'_> {
         // One bounded piece budget a call: while the book still has data the
         // step answers `false` and runs again (nothing is recorded as
         // discarded until it is all gone, and the repeat finds what is left).
-        let data = book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)?;
-        let cache = book_data_steps::remove_doc_cache(self.storage, to, DISCARD_PIECES)?;
+        let mut budget = STEP_PIECES;
+        let data =
+            book_data_steps::remove_data_within(self.storage, self.book_data, to, &mut budget)?;
+        let cache = book_data_steps::remove_doc_cache(self.storage, to, &mut budget)?;
         Ok(data == Progress::Done && cache == Progress::Done)
     }
 
