@@ -64,6 +64,13 @@ const fn offset(align: usize) -> usize {
 
 /// What a block of `size` bytes aligned to `align` costs its owner: its
 /// header, the padding the alignment needs, and the block.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "read by the budget tests; the teardown sweep (PR 3) reads it"
+    )
+)]
 #[must_use]
 pub(crate) const fn block_cost(size: usize, align: usize) -> usize {
     offset(align) + size
@@ -137,6 +144,13 @@ impl HeapState {
     }
 
     /// The bytes charged to owner `index` now.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "read by the budget tests; the teardown sweep (PR 3) reads it"
+        )
+    )]
     pub(crate) fn used(&self, index: u32) -> usize {
         self.owners
             .try_borrow()
