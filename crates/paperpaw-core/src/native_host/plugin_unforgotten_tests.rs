@@ -1,0 +1,45 @@
+#![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
+extern crate std;
+use super::*;
+use paperpaw_sdk::MemoryStorage;
+
+#[test]
+fn an_id_is_listed_once_and_taken_off_when_the_host_forgets_it() {
+    let card = MemoryStorage::new();
+    assert!(!has(&card, "dials"));
+    assert!(add(&card, "dials") && add(&card, "dials") && add(&card, "clock"));
+    assert!(has(&card, "dials") && has(&card, "clock") && !has(&card, "dial"));
+    assert_eq!(read(&card), ["dials", "clock"]);
+    // A host that cannot: the list stays. One that can: it goes.
+    assert_eq!(retry(&card, &mut |_| false), 2);
+    assert_eq!(retry(&card, &mut |id| id == "dials"), 1);
+    assert!(!has(&card, "dials") && has(&card, "clock"));
+    assert_eq!(retry(&card, &mut |_| true), 0);
+    assert!(!card.exists(FILE), "an empty list is no file");
+}
+
+#[test]
+fn the_list_is_bounded_and_a_ninth_id_is_not_recorded() {
+    let card = MemoryStorage::new();
+    for n in 0..MAX {
+        assert!(add(&card, &std::format!("p{n}")));
+    }
+    assert!(!add(&card, "one-too-many"));
+    assert!(!has(&card, "one-too-many"));
+    assert_eq!(read(&card).len(), MAX);
+}
+
+#[test]
+fn a_damaged_list_is_read_defensively() {
+    let card = MemoryStorage::new();
+    let long = "x".repeat(ID_MAX + 1);
+    card.write(
+        FILE,
+        std::format!("dials\n\n{long}\n  clock  \n\u{0}\n").as_bytes(),
+    )
+    .unwrap();
+    assert!(has(&card, "dials") && has(&card, "clock"));
+    assert!(!has(&card, &long));
+    card.write(FILE, &[0xff, 0xfe, b'\n']).unwrap();
+    assert!(!has(&card, "dials"));
+}

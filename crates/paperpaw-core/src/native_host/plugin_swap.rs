@@ -52,6 +52,8 @@ pub(crate) const TMP: &str = "plugins/.journal.tmp";
 pub(crate) const BAD: &str = "plugins/.journal.bad";
 /// One byte for each start at which the host could not forget a removed
 /// plugin's secrets: [`FORGET_TRIES`] of them end the waiting.
+/// The count is appended, so a card without room for one byte (full) never gives
+/// up: the removal waits on until there is room, as every install does.
 pub(crate) const TRIES: &str = "plugins/.journal.tries";
 /// Starts a removal waits for the host to forget what it holds of the plugin
 /// before it is finished without (the secrets stay, the user is told).
@@ -759,7 +761,12 @@ fn replay_removal(
                     let ok = forget(removal.id.as_str());
                     // A host that fails start after start must not keep every
                     // later install waiting behind this journal.
-                    unforgotten = !ok && tired_of_waiting(storage);
+                    // ...but not before the secrets that stay are on the list
+                    // (`plugin_unforgotten`): they are retried at every start,
+                    // and the id is refused for an install until they are gone.
+                    unforgotten = !ok
+                        && tired_of_waiting(storage)
+                        && super::plugin_unforgotten::add(storage, removal.id.as_str());
                     removing.forgotten(ok || unforgotten);
                 }
             },

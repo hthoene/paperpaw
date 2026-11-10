@@ -47,7 +47,8 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
             ));
         }
     }
-    false
+    // Secrets that stayed after a removal: the first pass tries again.
+    storage.size(super::plugin_unforgotten::FILE).is_ok()
 }
 
 /// Sweeps the leftovers no journal owns. Nothing is swept while a journal is

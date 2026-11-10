@@ -7,6 +7,7 @@ use super::*;
 use crate::native_host::firmware_install::BuiltIns;
 use crate::native_host::plugin_job::PluginHost;
 use crate::native_host::plugin_swap::{self, BAD, Replayed, replay, tests::Cut};
+use crate::native_host::plugin_unforgotten;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
     metadata::Host as Offered,
@@ -147,6 +148,7 @@ fn nothing_left_over(card: &dyn Storage) {
         "plugins/.journal",
         "plugins/.journal.tmp",
         plugin_swap::TRIES,
+        plugin_unforgotten::FILE,
     ] {
         assert!(
             !is_there(card, path) && card.size(path).is_err(),
@@ -633,6 +635,18 @@ fn a_host_that_cannot_forget_does_not_hold_the_journal_for_ever() {
     assert!(matches!(done, Replayed::Unforgotten { .. }), "{done:?}");
     assert!(!card.exists(plugin_swap::JOURNAL));
     assert!(!card.exists(plugin_swap::TRIES));
+    // The secrets that stay are on the list: tried again at every start, the
+    // id is not free for an install until they are gone.
+    assert!(plugin_unforgotten::has(&card, "dials"));
+    assert!(crate::native_host::plugin_start::replay_at_start(
+        &card,
+        &mut |_| ()
+    ));
+    assert_eq!(plugin_unforgotten::retry(&card, &mut |_| false), 1);
+    assert!(plugin_unforgotten::has(&card, "dials"));
+    assert_eq!(plugin_unforgotten::retry(&card, &mut |id| id == "dials"), 0);
+    assert!(!plugin_unforgotten::has(&card, "dials"));
+    assert!(!card.exists(plugin_unforgotten::FILE));
     crate::native_host::plugin_start::sweep(&card);
     nothing_left_over(&card);
     neighbours_intact(&card);

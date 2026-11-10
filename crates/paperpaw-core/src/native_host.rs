@@ -101,6 +101,8 @@ pub(crate) mod plugin_swap;
 #[path = "native_host/plugin_trust.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_trust;
+#[path = "native_host/plugin_unforgotten.rs"]
+pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;

@@ -203,3 +203,27 @@ fn a_plugin_with_many_grants_loses_every_one() {
     kernel.forget_grants("dials");
     assert!(ids.iter().all(|&id| !is_set(&kernel, id)));
 }
+
+#[test]
+fn the_grants_go_even_when_the_secrets_could_not_be_forgotten() {
+    use paperpaw_sdk::{SettingSpec, SettingValue, builtin};
+    let mut kernel = kernel();
+    let id = "core.grant.install.dials";
+    kernel
+        .shared
+        .settings
+        .define(SettingSpec::switch(
+            id,
+            "grant",
+            false,
+            builtin::groups::OTHER,
+        ))
+        .unwrap();
+    kernel
+        .shared
+        .settings
+        .set(id, SettingValue::Bool(true))
+        .unwrap();
+    assert!(!kernel.forget_removed_by("dials", || false));
+    assert!(!is_set(&kernel, id), "no grant stays for a later plugin");
+}

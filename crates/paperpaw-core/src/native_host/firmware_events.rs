@@ -114,7 +114,8 @@ impl Kernel {
     /// secrets (`core.secrets`, where wired) and its grants
     /// (`core.grant.<kind>.<id>`, decisions 124, 126 and 131), so a reinstall of
     /// the id does not regain what the user granted the old one. Safe to repeat.
-    /// `false`: the secrets could not be forgotten (the journal stays).
+    /// `false`: the secrets could not be forgotten (the journal stays, or the id
+    /// goes on the list of `plugin_unforgotten`); the grants are gone either way.
     pub(crate) fn forget_removed(&mut self, plugin: &str) -> bool {
         let secrets = self
             .shared
@@ -122,11 +123,21 @@ impl Kernel {
             .hosts()
             .and_then(|hosts| hosts.secrets())
             .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
-        let forgot =
-            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok());
-        if forgot {
-            self.forget_grants(plugin);
-        }
+        self.forget_removed_by(plugin, || {
+            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
+    /// [`Self::forget_removed`] with the secrets' part given: the grants go
+    /// whatever `forget_secrets` says (a grant left would let a later plugin of
+    /// the id skip the install question).
+    pub(crate) fn forget_removed_by(
+        &mut self,
+        plugin: &str,
+        forget_secrets: impl FnOnce() -> bool,
+    ) -> bool {
+        let forgot = forget_secrets();
+        self.forget_grants(plugin);
         forgot
     }
 
@@ -185,16 +196,25 @@ impl Kernel {
             }
             super::plugin_swap::Replayed::Unforgotten { id } => {
                 self.warn_runtime(alloc::format!(
-                    "removal of {} finished without forgetting its secrets and grants: the host failed {} starts",
+                    "removal of {} finished without forgetting its secrets: the host failed {} starts; the id is kept in plugins/.unforgotten",
                     id.as_str(),
                     super::plugin_swap::FORGET_TRIES
                 ));
-                let text = alloc::string::String::from(
-                    self.shared.translator.tr("core.plugin.unforgotten"),
+                let text = self.shared.translator.format(
+                    "core.plugin.unforgotten",
+                    &[(
+                        "id",
+                        paperpaw_i18n::Arg::Str(&super::firmware_confirm::clean(id.as_str())),
+                    )],
                 );
                 self.notify(text);
             }
-            _ => {}
+            // Earlier removals whose secrets stayed: one try each at a start.
+            _ => {
+                super::plugin_unforgotten::retry(storage.as_ref(), &mut |id| {
+                    self.forget_removed(id)
+                });
+            }
         }
     }
 
