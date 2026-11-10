@@ -78,8 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
-    "aids",
+pub const STORE_PLUGINS: [&str; 10] = [
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -292,7 +291,6 @@ pub fn install_with(
     b = b.plugin(paperpaw_plugin_store::Store);
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_aids::Aids);
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
     b = b.plugin(paperpaw_plugin_sleep::Sleep);

@@ -25,11 +25,11 @@ fn preserves_existing_order_styles_unicode_and_offsets() {
             }
             let mut actual = expected.clone();
             if bold {
-                crate::bold_beginnings(&mut expected);
+                crate::oracle::bold_beginnings(&mut expected);
             }
-            crate::replace(
+            crate::oracle::replace(
                 &mut expected,
-                &crate::pairs("alpha = one; one = longer; βήτα = b"),
+                &crate::oracle::pairs("alpha = one; one = longer; βήτα = b"),
             );
             let bytes = encoded(
                 bold,
@@ -65,7 +65,7 @@ fn image_parity_in_both_languages_and_image_only_books() {
             for path in ["book.epub", "book.CBZ", "book.cbr", "book.xtc", "book.xtch"] {
                 let mut expected = Block::new(BlockKind::Image, 4, 90, " A ship ".to_string());
                 let mut actual = expected.clone();
-                let verdict = crate::pictures::apply(policy, path, &translator, &mut expected);
+                let verdict = crate::oracle::apply(policy, path, &translator, &mut expected);
                 let bytes = encoded(false, "", policy, word);
                 assert_eq!(apply(&bytes, path, &mut actual).unwrap().1, verdict);
                 if policy == crate::pictures::CAPTION && path == "book.epub" {
@@ -182,7 +182,7 @@ fn expansion_refuses_without_changing_original() {
 fn punctuation_matches_use_boundaries_before_the_rule() {
     let mut actual = Block::new(BlockKind::Paragraph, 0, 3, "...".to_string());
     let mut expected = actual.clone();
-    crate::replace(&mut expected, &crate::pairs(".=x"));
+    crate::oracle::replace(&mut expected, &crate::oracle::pairs(".=x"));
     let bytes = encoded(false, ".=x", crate::pictures::SHOW, "Picture");
     apply(&bytes, "book.epub", &mut actual).unwrap();
     assert_eq!(actual, expected);

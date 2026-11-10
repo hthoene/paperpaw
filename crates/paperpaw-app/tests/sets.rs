@@ -192,7 +192,6 @@ fn a_store_plugin_switched_off_before_stays_off() {
     .build_native();
     let plugins = plugins(&kernel);
     let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
-    assert_eq!(state("aids"), Some(PluginState::Running));
     assert_eq!(
         state(paperpaw_app::STORE_PLUGINS[0]),
         Some(PluginState::Running)

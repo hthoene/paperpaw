@@ -11,12 +11,6 @@ publish = false
 [workspace]
 
 [[bin]]
-name = "aids"
-path = "src/bin/aids.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "fonts-browser"
 path = "src/bin/fonts-browser.rs"
 test = false
@@ -78,7 +72,6 @@ bench = false
 
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
-paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
