@@ -228,6 +228,8 @@ pub(crate) struct Ask {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Answer {
     Yes,
+    /// A plugin removal's second yes: with the plugin's data.
+    YesAndData,
     No,
     Dismissed,
 }

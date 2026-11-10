@@ -127,6 +127,9 @@ pub(crate) enum JobStep {
     Wait,
     /// The host asks the user; the job waits for [`PluginJob::answer`].
     Ask(PluginQuestion),
+    /// The host closes the instances of this plugin (a removal's first step
+    /// after its journal); the job waits for [`PluginJob::unloaded`].
+    Unload(Text<ID_MAX>),
     /// Done: `reason` as in `device.md` 5.5, and for a check its facts (kept
     /// in the plugin's result slot).
     Done(Finished),
@@ -166,6 +169,8 @@ impl Finished {
     }
 }
 
+/// `install_done.flags` bit 0: the data of a removed plugin was kept.
+pub(crate) const DONE_DATA_KEPT: u32 = 1;
 /// `install_done.flags` bit 1: the code changes at the next start.
 pub(crate) const DONE_AT_NEXT_START: u32 = 2;
 
@@ -238,6 +243,8 @@ pub(crate) trait PluginJob {
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep;
     /// The user's answer to the question the job asked.
     fn answer(&mut self, answer: Answer);
+    /// The host closed the instances the job asked for ([`JobStep::Unload`]).
+    fn unloaded(&mut self) {}
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);

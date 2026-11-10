@@ -94,6 +94,7 @@ impl Kernel {
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
             };
         }
+        self.firmware_unload_pump(&driver);
         // Progress only marked the request (see `firmware_changes`).
         self.firmware_changes(&driver);
         self.firmware_told(&driver);
@@ -103,6 +104,26 @@ impl Kernel {
             || driver
                 .try_borrow()
                 .map_or(true, |driver| driver.has_work(now))
+    }
+
+    /// A removal's first step: the instances of the plugin it removes are
+    /// closed and the plugin leaves the list (REG op 6; event 70 is raised),
+    /// then the job goes on. Never from a callback.
+    fn firmware_unload_pump(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_unload()) else {
+            return;
+        };
+        // An id that does not parse is none to close: the job goes on.
+        if let Ok(id) = paperpaw_sdk::Id::parse(id.as_str()) {
+            let _ = self.unload_plugin(&id);
+            self.plugins_changed();
+        }
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.plugin_unloaded();
+        }
     }
 
     /// After a stop or a sender's stop: a plugin job that must finish (or runs

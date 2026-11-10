@@ -1077,7 +1077,7 @@ impl Kernel {
     /// After a plugin was loaded or removed while running: the choices of
     /// fonts and key map presets (a font chosen that is no longer offered
     /// giving way), menu labels, fonts and keys anew.
-    fn plugins_changed(&mut self) {
+    pub(crate) fn plugins_changed(&mut self) {
         self.offer_choices();
         self.keep_offered_choices();
         self.apply_reading_font();

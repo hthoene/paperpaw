@@ -36,8 +36,8 @@ use super::firmware_install::{
     Question,
 };
 use super::plugin_job::{
-    Finished, InstallGrants, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost, PluginJob,
-    PluginQuestion,
+    Finished, ID_MAX, InstallGrants, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost,
+    PluginJob, PluginQuestion,
 };
 use super::plugin_jobs::PluginJobs;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
@@ -45,7 +45,10 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_platform::{Storage, firmware::FirmwareHost};
+use paperpaw_platform::{
+    Storage,
+    firmware::{FirmwareHost, Text},
+};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
 pub(crate) const REQUESTS_MAX: usize = 4;
@@ -143,6 +146,9 @@ pub(crate) struct Driver {
     /// The nonce of the confirmation that shows `plugin_question`: only an
     /// answer that carries it is taken, once.
     plugin_shown: Option<u128>,
+    /// The running plugin job asks the host to close this plugin's instances
+    /// and waits for [`Self::plugin_unloaded`] (a removal).
+    plugin_unload: Option<Text<ID_MAX>>,
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
@@ -181,6 +187,7 @@ impl Driver {
             grants: None,
             plugin_question: None,
             plugin_shown: None,
+            plugin_unload: None,
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
@@ -351,6 +358,21 @@ impl Driver {
     /// The open question the host has not shown yet.
     pub(crate) fn peek_plugin_question(&self) -> Option<PluginQuestion> {
         self.plugin_question.filter(|_| self.plugin_shown.is_none())
+    }
+
+    /// The plugin whose instances the running job waits for the host to close.
+    pub(crate) fn peek_unload(&self) -> Option<Text<ID_MAX>> {
+        self.plugin_unload
+    }
+
+    /// The host closed the instances asked for: the job goes on.
+    pub(crate) fn plugin_unloaded(&mut self) {
+        self.plugin_unload = None;
+        if let Some((owner, request)) = self.running
+            && let Some(at) = self.plugin_at(owner, request)
+        {
+            self.plugin_jobs[at].unloaded();
+        }
     }
 
     /// The host opened the confirmation of `question` with `nonce`.
@@ -639,7 +661,7 @@ impl Driver {
     ) -> Event {
         if self.running.is_some() {
             // A job that asked the user waits for the answer; nothing to step.
-            if self.plugin_question.is_some() {
+            if self.plugin_question.is_some() || self.plugin_unload.is_some() {
                 return Event::Quiet;
             }
             return self.plugin_step(storage, built_ins);
@@ -698,12 +720,17 @@ impl Driver {
                     self.plugin_question = Some(question);
                     return Event::Quiet;
                 }
+                JobStep::Unload(id) => {
+                    self.plugin_unload = Some(id);
+                    return Event::Quiet;
+                }
                 JobStep::Done(finished) => finished,
             },
             // Not reachable (no job is accepted without a host): ends, told.
             None => Finished::refused(1),
         };
         // The job goes (its `Drop` releases what it holds).
+        self.plugin_unload = None;
         self.plugin_jobs.remove(at);
         self.running = None;
         if self.finishing.take() == Some(false) {
@@ -961,6 +988,8 @@ impl Driver {
         // Nobody is left to answer.
         self.plugin_question = None;
         self.plugin_shown = None;
+        // The device is going down: its instances are not waited for.
+        self.plugin_unload = None;
         let mut running = None;
         if let Some((owner, request)) = self.running.take()
             && let Some(at) = self.plugin_at(owner, request)
@@ -1086,6 +1115,9 @@ impl Driver {
                 self.plugin_jobs.remove(at);
                 self.running = None;
             }
+        }
+        if self.running.is_none() {
+            self.plugin_unload = None;
         }
         // Its other jobs go; the one that runs on stays.
         let kept = self.running;

@@ -86,9 +86,9 @@ struct Copying {
 
 /// What stands installed under the id.
 #[derive(Clone, Copy)]
-struct Installed {
-    version: Option<Version>,
-    code: bool,
+pub(super) struct Installed {
+    pub(super) version: Option<Version>,
+    pub(super) code: bool,
 }
 
 /// An install in the queue.
@@ -587,6 +587,7 @@ impl PluginInstall {
             }
             SwapStep::Done { rolled_back: true } => self.end(storage, reason::OTHER),
             SwapStep::Failed(why) => self.end(storage, why),
+            SwapStep::Stuck => self.end(storage, reason::OTHER),
         }
     }
 }
@@ -600,7 +601,12 @@ fn no_uses() -> Uses {
     }
 }
 
-fn installed_of(storage: &dyn Storage, target: &str, id: &str, buf: &mut [u8]) -> Installed {
+pub(super) fn installed_of(
+    storage: &dyn Storage,
+    target: &str,
+    id: &str,
+    buf: &mut [u8],
+) -> Installed {
     let version = plugin_folder::read_manifest(storage, target, id, buf)
         .ok()
         .map(|manifest| manifest.parsed);
@@ -732,7 +738,11 @@ impl PluginJob for PluginInstall {
                     JobStep::More
                 }
                 Some(Answer::No) => self.end(storage, reason::DECLINED),
-                Some(Answer::Dismissed) => self.end(storage, reason::DISMISSED),
+                // An install offers two answers; the removal's second one
+                // is never a yes to it.
+                Some(Answer::Dismissed | Answer::YesAndData) => {
+                    self.end(storage, reason::DISMISSED)
+                }
             },
             Phase::Marks => self.marks(storage),
             Phase::Journal => self.journal(storage),

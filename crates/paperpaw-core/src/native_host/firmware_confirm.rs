@@ -192,6 +192,7 @@ impl HostConfirm {
         let code = match answer {
             Answer::Yes => "yes",
             Answer::No => "no",
+            Answer::YesAndData => "yes-data",
             Answer::Dismissed => "dismissed",
         };
         cx.command(Command::Emit(
@@ -352,6 +353,7 @@ pub(crate) fn read_answer(event: &Id, params: &Params) -> Option<(u128, Answer)>
     let answer = match params.get(ANSWER)? {
         "yes" => Answer::Yes,
         "no" => Answer::No,
+        "yes-data" => Answer::YesAndData,
         "dismissed" => Answer::Dismissed,
         _ => return None,
     };

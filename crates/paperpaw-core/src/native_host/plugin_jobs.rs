@@ -5,6 +5,7 @@
 use super::plugin_check::PluginCheck;
 use super::plugin_install::PluginInstall;
 use super::plugin_job::{Answer, JobEnv, JobStep, PluginJob};
+use super::plugin_remove::PluginRemove;
 
 /// One plugin job.
 #[allow(
@@ -16,6 +17,8 @@ pub(crate) enum PluginJobs {
     Check(PluginCheck),
     /// `install_plugin` of a plugin folder.
     Install(PluginInstall),
+    /// `remove_plugin` of an installed plugin.
+    Remove(PluginRemove),
     /// A scripted job of the driver's tests.
     #[cfg(test)]
     Script(super::firmware_driver::plugin_tests::Script),
@@ -26,6 +29,7 @@ macro_rules! each {
         match $self {
             Self::Check($job) => $body,
             Self::Install($job) => $body,
+            Self::Remove($job) => $body,
             #[cfg(test)]
             Self::Script($job) => $body,
         }
@@ -47,6 +51,9 @@ impl PluginJob for PluginJobs {
     }
     fn answer(&mut self, answer: Answer) {
         each!(self, job => job.answer(answer));
+    }
+    fn unloaded(&mut self) {
+        each!(self, job => job.unloaded());
     }
     fn abort(&mut self, reason: u8) {
         each!(self, job => job.abort(reason));
