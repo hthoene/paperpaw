@@ -36,13 +36,22 @@ fn card() -> Backend {
 
 /// `call` runs with the format scope of a call for `book` (none for `None`).
 fn within(book: Option<FormatBook<'_>>, call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>)) {
+    within_on(&card(), book, call);
+}
+
+/// [`within`] on the card `backend`.
+fn within_on(
+    backend: &Backend,
+    book: Option<FormatBook<'_>>,
+    call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
+) {
     let scope = FormatScope::new();
     let _guard = book.map(|book| scope.enter(OWNER, &book).unwrap());
     let format = Some(Format {
         scope: &scope,
         owner: OWNER,
     });
-    scoped(&card(), |env, kernel| {
+    scoped(backend, |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);
         call(env, format);
     });
@@ -365,6 +374,24 @@ fn a_cache_holds_no_more_than_its_cap_and_what_is_replaced_or_removed_is_not_cou
                 );
             }
             assert_eq!(put(env, format, 6, "d", b"12345"), OK);
+        },
+    );
+}
+
+#[test]
+fn a_write_that_fails_gives_back_what_it_was_charged() {
+    let backend = card();
+    within_on(
+        &backend,
+        Some(book("books/a.epub", BookKind::File, CACHE, "")),
+        |env, format| {
+            assert_eq!(put(env, format, 6, "a", b"1234"), OK);
+            // The card fails the write after it was counted.
+            backend.fail.set(Some(paperpaw_platform::StorageError::Io));
+            assert_ne!(put(env, format, 6, "b", b"123456"), OK);
+            backend.fail.set(None);
+            // The failed write left no charge: 4 + 6 fits in the cap of 10.
+            assert_eq!(put(env, format, 6, "b", b"123456"), OK);
         },
     );
 }

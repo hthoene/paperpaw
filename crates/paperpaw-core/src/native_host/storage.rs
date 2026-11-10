@@ -333,9 +333,19 @@ impl<'a> StorageAdapter<'a> {
             self.free_of_host_writers(p)?;
             self.check_room(data.len())?;
             // A write replaces the file: what it held is not counted twice.
-            let credit = if replaces { self.size_of(p) } else { 0 };
+            let credit = if replaces && root == 6 {
+                self.size_of(p)
+            } else {
+                0
+            };
             self.charge(root, data.len() as u64, credit)?;
-            self.with_parents(p, &act)
+            let done = self.with_parents(p, &act);
+            if done.is_err() {
+                // The write failed: the cache holds what it held (a write is
+                // whole or not at all), so the charge goes back.
+                let _ = self.charge(root, credit, data.len() as u64);
+            }
+            done
         })
     }
 
@@ -358,7 +368,7 @@ impl<'a> StorageAdapter<'a> {
             return Ok(());
         };
         match book.quota {
-            Some(scope) => scope.charge(book.document, add, credit, book.cache_cap),
+            Some(scope) => scope.charge(book.cache, add, credit, book.cache_cap),
             None => Ok(()),
         }
     }
@@ -377,7 +387,7 @@ impl<'a> StorageAdapter<'a> {
                 self.free_of_host_writers(f)?;
                 self.free_of_host_writers(t)?;
                 // What the rename replaces is not in the cache any more.
-                let credit = self.size_of(t);
+                let credit = if root == 6 { self.size_of(t) } else { 0 };
                 let moved = match self.storage.rename(f, t) {
                     // A missing `from` is NotFound too: folders above `to` are
                     // made only where `from` is there.
@@ -402,7 +412,7 @@ impl<'a> StorageAdapter<'a> {
     pub fn remove(&self, root: u32, path: &[u8]) -> Result<(), i32> {
         self.resolve(root, path, true, |p| {
             self.free_of_host_writers(p)?;
-            let credit = self.size_of(p);
+            let credit = if root == 6 { self.size_of(p) } else { 0 };
             match self.storage.remove(p) {
                 Ok(()) => {
                     self.credit(root, credit);

@@ -21,9 +21,19 @@ use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE
 /// Calls inside calls at most (the nesting budget of the instance registry).
 pub(crate) const MAX_NESTING: usize = 8;
 
-/// Documents whose cache bytes are counted at once (open documents are at
-/// most 8).
+/// Cache folders whose bytes are counted at once (open documents are at most
+/// 8, and one holds one folder).
 const MAX_COUNTED: usize = 16;
+
+/// A cache folder's key in the count (FNV-1a 64 of its path).
+fn folder_key(folder: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in folder.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
 
 /// `format.spec.flags` bit 2: a book is a folder.
 const FOLDER: u32 = 1 << 2;
@@ -136,9 +146,10 @@ impl Slot {
 /// answers for exactly that call or for none.
 pub(crate) struct FormatScope {
     slots: [Slot; MAX_NESTING],
-    /// The bytes written to the cache of each open document (`document`,
-    /// bytes): counted here because a document lives longer than a call.
-    used: RefCell<Vec<(u32, u64)>>,
+    /// The bytes in each cache folder (the folder's key, bytes), least
+    /// recently used first: counted here because a cache lives longer than a
+    /// call and is shared by the documents of one conversion.
+    used: RefCell<Vec<(u64, u64)>>,
 }
 
 impl Default for FormatScope {
@@ -189,42 +200,60 @@ impl FormatScope {
         }
     }
 
-    /// `add` bytes more and `credit` bytes fewer in the cache of `document`:
-    /// nothing changes and the answer is `ERR_NO_SPACE` where the cache
-    /// would hold more than `cap`.
+    /// `add` bytes more and `credit` bytes fewer in the cache folder `folder`
+    /// (whoever's document writes to it): nothing changes and the answer is
+    /// `ERR_NO_SPACE` where the cache would hold more than `cap`.
     ///
     /// # Errors
     /// `ERR_NO_SPACE`, `ERR_BUSY` (the count is borrowed), `ERR_NO_MEMORY`.
-    pub(crate) fn charge(&self, document: u32, add: u64, credit: u64, cap: u64) -> Result<(), i32> {
+    pub(crate) fn charge(&self, folder: &str, add: u64, credit: u64, cap: u64) -> Result<(), i32> {
         let mut used = self.used.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        let at = match used.iter().position(|(d, _)| *d == document) {
-            Some(at) => at,
-            None => {
-                // Documents never come back under an id, and a call ends
-                // with its document: the oldest count is a dead one's.
-                if let Some(oldest) = (0..used.len())
-                    .min_by_key(|&i| used[i].0)
-                    .filter(|_| used.len() >= MAX_COUNTED)
-                {
-                    used.swap_remove(oldest);
-                }
-                used.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-                used.push((document, 0));
-                used.len() - 1
-            }
+        let key = folder_key(folder);
+        // The count touched last is the one kept longest: a full table drops
+        // the one least used, which is a closed document's.
+        let count = match used.iter().position(|(k, _)| *k == key) {
+            Some(at) => used.remove(at).1,
+            None => 0,
         };
-        let next = used[at].1.saturating_sub(credit).saturating_add(add);
+        let next = count.saturating_sub(credit).saturating_add(add);
         if next > cap {
+            // Put back, at the end: the room is certain (it was just taken).
+            used.push((key, count));
             return Err(ERR_NO_SPACE);
         }
-        used[at].1 = next;
+        if used.len() >= MAX_COUNTED {
+            used.remove(0);
+        }
+        if used.try_reserve(1).is_err() {
+            return Err(ERR_NO_MEMORY);
+        }
+        used.push((key, next));
         Ok(())
     }
 
-    /// The document ended: its count goes.
-    pub(crate) fn forget(&self, document: u32) {
+    /// The bytes counted in `folder`: 0 where nothing is.
+    pub(crate) fn total(&self, folder: &str) -> u64 {
+        let key = folder_key(folder);
+        self.used
+            .try_borrow()
+            .ok()
+            .and_then(|used| used.iter().find(|(k, _)| *k == key).map(|(_, n)| *n))
+            .unwrap_or(0)
+    }
+
+    /// `folder` holds `bytes` (a finished cache found on the card), unless it
+    /// is counted already. Best effort: a count that cannot be made is 0.
+    pub(crate) fn seed(&self, folder: &str, bytes: u64) {
+        if self.total(folder) == 0 {
+            let _ = self.charge(folder, bytes, 0, u64::MAX);
+        }
+    }
+
+    /// `folder` is made new or was removed: its count starts at 0.
+    pub(crate) fn reset(&self, folder: &str) {
         if let Ok(mut used) = self.used.try_borrow_mut() {
-            used.retain(|(d, _)| *d != document);
+            let key = folder_key(folder);
+            used.retain(|(k, _)| *k != key);
         }
     }
 

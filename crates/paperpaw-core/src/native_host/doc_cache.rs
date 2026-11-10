@@ -8,8 +8,11 @@
 //! format's root 6. The host writes the stamp `.complete` there once the
 //! format answered done and the card was synced; a folder without a stamp
 //! that says exactly this conversion is removed before a document uses it, so
-//! no format sees a half-made or stale cache as finished. A book keeps at
-//! most [`MAX_CONVERSIONS`]; the older goes, never one an open document uses.
+//! no format sees a half-made or stale cache as finished. What a conversion
+//! is made of includes the book's content (its fingerprint) and the CSS file's
+//! ([`content`]), so another file at the same path is another cache. A book
+//! keeps at most [`MAX_CONVERSIONS`]; the older goes, never one an open
+//! document uses.
 //!
 //! Everything here is a function of a [`Storage`]: nothing is kept in memory
 //! between calls, and every step that can fail says so (`ERR_*`, never a
@@ -31,7 +34,10 @@ pub(crate) const MAX_CONVERSIONS: usize = 2;
 /// entries); a bigger tree is `ERR_BUSY` and goes on with the next call.
 const CLEAR_STEPS: u32 = 64;
 /// The stamp's first line.
-const STAMP_HEAD: &str = "paperpaw-cache 1";
+const STAMP_HEAD: &str = "paperpaw-cache 2";
+/// The most of a CSS file whose bytes are hashed (its size and time are
+/// always part of the key).
+const CSS_HASHED: u64 = 64 * 1024;
 
 /// What one cache is for.
 #[derive(Clone, Copy, Debug)]
@@ -41,6 +47,8 @@ pub(crate) struct Identity<'a> {
     pub(crate) plugin: &'a str,
     pub(crate) version: &'a str,
     pub(crate) conversion: u64,
+    /// What the book and the CSS file are ([`content`]).
+    pub(crate) content: &'a str,
 }
 
 fn hex(value: u64, out: &mut [u8; 16]) -> &str {
@@ -76,17 +84,51 @@ impl Identity<'_> {
         Ok(path)
     }
 
-    /// What the stamp says: the conversion, and nothing else.
+    /// What the stamp says of the conversion: the first lines of the stamp
+    /// (the last line is what the cache holds, [`current`]).
     fn stamp(&self) -> Result<String, i32> {
         let mut digits = [0_u8; 16];
         let conversion = hex(self.conversion, &mut digits);
-        let mut text =
-            made(STAMP_HEAD.len() + self.plugin.len() + self.version.len() + conversion.len() + 4)?;
-        for part in [STAMP_HEAD, self.plugin, self.version, conversion] {
+        let mut text = made(
+            STAMP_HEAD.len()
+                + self.plugin.len()
+                + self.version.len()
+                + conversion.len()
+                + self.content.len()
+                + 5
+                + BYTES_ROOM,
+        )?;
+        for part in [
+            STAMP_HEAD,
+            self.plugin,
+            self.version,
+            conversion,
+            self.content,
+        ] {
             text.push_str(part);
             text.push('\n');
         }
         Ok(text)
+    }
+}
+
+/// Room for the stamp's last line (a `u64` in decimal and its end).
+const BYTES_ROOM: usize = 21;
+
+fn decimal(value: u64, text: &mut String) {
+    let mut digits = [0_u8; 20];
+    let mut at = digits.len();
+    let mut rest = value;
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    for digit in &digits[at..] {
+        text.push(char::from(*digit));
     }
 }
 
@@ -103,25 +145,106 @@ fn status(error: StorageError) -> i32 {
     }
 }
 
-/// Whether `folder` holds the stamp of exactly `id`.
-pub(crate) fn is_complete(storage: &dyn Storage, id: &Identity<'_>) -> Result<bool, i32> {
+/// The bytes a finished cache holds, if `id`'s folder holds the stamp of
+/// exactly `id`; `None` where it does not (no stamp, another conversion,
+/// another book, CSS or version, a damaged stamp).
+pub(crate) fn current(storage: &dyn Storage, id: &Identity<'_>) -> Result<Option<u64>, i32> {
     let folder = id.folder()?;
     let want = id.stamp()?;
     let mut path = made(folder.len() + 1 + STAMP.len())?;
     path.push_str(&folder);
     path.push('/');
     path.push_str(STAMP);
-    // One byte more than the stamp is read: a longer file is another stamp.
+    // The stamp's lines of the conversion, then the bytes and a line end: a
+    // longer file is another stamp.
     let mut buffer = Vec::new();
     buffer
-        .try_reserve_exact(want.len() + 1)
+        .try_reserve_exact(want.len() + BYTES_ROOM + 1)
         .map_err(|_| ERR_NO_MEMORY)?;
-    buffer.resize(want.len() + 1, 0);
-    match storage.read_at(&path, 0, &mut buffer) {
-        Ok(count) => Ok(buffer[..count] == *want.as_bytes()),
-        Err(StorageError::NotFound) => Ok(false),
-        Err(error) => Err(status(error)),
+    buffer.resize(want.len() + BYTES_ROOM + 1, 0);
+    let count = match storage.read_at(&path, 0, &mut buffer) {
+        Ok(count) => count,
+        Err(StorageError::NotFound) => return Ok(None),
+        Err(error) => return Err(status(error)),
+    };
+    let Some(rest) = buffer[..count].strip_prefix(want.as_bytes()) else {
+        return Ok(None);
+    };
+    let Some(digits) = rest.strip_suffix(b"\n") else {
+        return Ok(None);
+    };
+    Ok(core::str::from_utf8(digits)
+        .ok()
+        .filter(|d| !d.is_empty() && d.len() <= 20 && d.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|d| d.parse().ok()))
+}
+
+/// Whether the cache of `id` is finished: [`current`].
+#[cfg(test)]
+pub(crate) fn is_complete(storage: &dyn Storage, id: &Identity<'_>) -> Result<bool, i32> {
+    current(storage, id).map(|bytes| bytes.is_some())
+}
+
+/// What the book at `path` and the CSS file at `css` (card paths; `""` for
+/// none) are, as one stamp line: the book's size and partial MD5 (a folder's
+/// time, where it has no size), and the CSS file's size, time and the first
+/// bytes' hash. A file that changed is another line.
+///
+/// # Errors
+/// `ERR_NO_MEMORY`.
+pub(crate) fn content(storage: &dyn Storage, path: &str, css: &str) -> Result<String, i32> {
+    let mut text = made(128)?;
+    match paperpaw_sdk::library::Fingerprint::of(storage, path) {
+        Some(found) => {
+            decimal(found.size, &mut text);
+            text.push(' ');
+            text.push_str(&found.md5);
+        }
+        None => match storage.modified(path) {
+            Some(time) => {
+                text.push('m');
+                decimal(time.unsigned_abs(), &mut text);
+            }
+            None => text.push('-'),
+        },
     }
+    text.push(';');
+    match storage.size(css) {
+        Ok(size) if !css.is_empty() => {
+            decimal(size, &mut text);
+            text.push(' ');
+            decimal(
+                storage.modified(css).map_or(0, i64::unsigned_abs),
+                &mut text,
+            );
+            text.push(' ');
+            decimal(hash_of(storage, css, size.min(CSS_HASHED)), &mut text);
+        }
+        _ => text.push('-'),
+    }
+    Ok(text)
+}
+
+/// FNV-1a 64 of the first `len` bytes of the file (a short read ends it).
+fn hash_of(storage: &dyn Storage, path: &str, len: u64) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let mut chunk = [0_u8; 512];
+    let mut at = 0;
+    while at < len {
+        let want = usize::try_from((len - at).min(512)).unwrap_or(512);
+        let Ok(got) = storage.read_at(path, at, &mut chunk[..want]) else {
+            break;
+        };
+        if got == 0 {
+            break;
+        }
+        for byte in &chunk[..got] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        at += got as u64;
+    }
+    hash
 }
 
 /// Removes the tree at `folder`: `ERR_BUSY` where more than [`CLEAR_STEPS`]
@@ -139,10 +262,21 @@ pub(crate) fn clear(storage: &dyn Storage, folder: &str) -> Result<(), i32> {
     Err(ERR_BUSY)
 }
 
+/// A cache made ready for a document: its folder, and what is known of it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Prepared {
+    pub(crate) folder: String,
+    /// The bytes it holds if it is finished (the stamp is current).
+    pub(crate) bytes: Option<u64>,
+    /// The folder was made new (a removed one, or none before): what is
+    /// counted for it starts at 0.
+    pub(crate) fresh: bool,
+}
+
 /// Makes the cache of `id` ready to be used by a new document: a folder that
 /// is not finished is removed (unless `pinned`: an open document uses it, and
 /// then it is shared as it is), and the book's older conversions go until
-/// there is room for this one. Returns the folder.
+/// there is room for this one.
 ///
 /// # Errors
 /// `ERR_BUSY` when a removal is not done yet, or no conversion can go (all
@@ -151,16 +285,27 @@ pub(crate) fn prepare(
     storage: &dyn Storage,
     id: &Identity<'_>,
     pinned: &dyn Fn(&str) -> bool,
-) -> Result<String, i32> {
+) -> Result<Prepared, i32> {
     let folder = id.folder()?;
+    let bytes = current(storage, id)?;
     if pinned(&folder) {
-        return Ok(folder);
+        return Ok(Prepared {
+            folder,
+            bytes,
+            fresh: false,
+        });
     }
-    if folder_exists(storage, &folder) && !is_complete(storage, id)? {
+    let mut fresh = bytes.is_none();
+    if bytes.is_none() && folder_exists(storage, &folder) {
         clear(storage, &folder)?;
+        fresh = true;
     }
     make_room(storage, id, &folder, pinned)?;
-    Ok(folder)
+    Ok(Prepared {
+        folder,
+        bytes,
+        fresh,
+    })
 }
 
 /// A conversion of the book on the card: its folder and when it was changed.
@@ -219,6 +364,8 @@ fn others(storage: &dyn Storage, id: &Identity<'_>, own: &str) -> Result<Vec<Fou
             }
         }
     }
+    // Oldest first by the folder's own time: on a FAT card that is when it
+    // was made, which is when its conversion began.
     found.sort_by_key(|f| f.changed);
     Ok(found)
 }
@@ -264,23 +411,27 @@ fn make_room(
     Ok(())
 }
 
-/// The format answered done: syncs the card and makes the stamp of `id`
-/// (temp file, sync, rename, sync: a cut leaves the old stamp or none). Nothing
-/// is stamped for a conversion that made no cache folder.
+/// The format answered done: syncs the card and makes the stamp of `id`,
+/// which says the cache holds `bytes` (temp file, sync, rename, sync: a cut
+/// leaves the old stamp or none). Nothing is stamped for a conversion that
+/// made no cache folder.
 ///
 /// # Errors
 /// `ERR_NO_SPACE` (card full), `ERR_IO`, `ERR_NO_MEMORY`.
-pub(crate) fn complete(storage: &dyn Storage, id: &Identity<'_>) -> Result<(), i32> {
+pub(crate) fn complete(storage: &dyn Storage, id: &Identity<'_>, bytes: u64) -> Result<(), i32> {
     let folder = id.folder()?;
     if !folder_exists(storage, &folder) {
         return Ok(());
     }
-    let stamp = id.stamp()?;
-    let mut temp = made(folder.len() + 2 + HOST.len() + STAMP.len())?;
-    temp.push_str(&folder);
-    temp.push('/');
-    temp.push_str(HOST);
-    let host = temp.clone();
+    let mut stamp = id.stamp()?;
+    decimal(bytes, &mut stamp);
+    stamp.push('\n');
+    let mut host = made(folder.len() + 1 + HOST.len())?;
+    host.push_str(&folder);
+    host.push('/');
+    host.push_str(HOST);
+    let mut temp = made(host.len() + 1 + STAMP.len())?;
+    temp.push_str(&host);
     temp.push('/');
     temp.push_str(STAMP);
     let mut done = made(folder.len() + 1 + STAMP.len())?;
