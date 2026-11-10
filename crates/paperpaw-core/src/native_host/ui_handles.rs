@@ -48,6 +48,11 @@ pub(crate) trait GuardState {
     fn guard_plugin(&self) -> Option<u64>;
     /// Whether the screen instance lies below the topmost guard.
     fn below_guard(&self, screen_instance: u32) -> bool;
+    /// Whether the screen instance is still on the stack. A reader that does
+    /// not know says so (`true`): only a delivery between callbacks asks.
+    fn on_stack(&self, _screen_instance: u32) -> bool {
+        true
+    }
 }
 
 /// No guard: for tests and for a stack without one.
@@ -119,6 +124,16 @@ pub(crate) struct Caller {
     pub(crate) depth: u8,
 }
 
+/// A widget instance as its maker's layout ops see it (`widget_of`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WidgetRef {
+    pub(crate) owner: u64,
+    pub(crate) token: u32,
+    /// The maker's screen instance that made it.
+    pub(crate) screen: u32,
+    pub(crate) private: bool,
+}
+
 /// What a handle resolved to: the owner's plugin and its callback token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
@@ -134,6 +149,12 @@ pub(crate) struct UiHandles {
     /// instances and these fill the cap new instances are refused (`ERR_FULL`)
     /// until Core delivers some.
     dropped: Vec<Dropped>,
+    /// Instances their owners said show something new
+    /// (`command.widget_changed`), told to the makers by `event.widget_changed`
+    /// (86): a hint, one entry per instance. Room for every live instance is
+    /// taken with the instance ([`Self::make_widget`]), so marking never
+    /// allocates.
+    changed: Vec<u32>,
     status: Vec<Status>,
     next_widget: u32,
     next_status: u32,
@@ -147,6 +168,7 @@ impl UiHandles {
         Self {
             widgets: Vec::new(),
             dropped: Vec::new(),
+            changed: Vec::new(),
             status: Vec::new(),
             next_widget: 1,
             next_status: 1,
@@ -182,6 +204,7 @@ impl UiHandles {
         // (op 5, a screen close, a stopped maker) never allocate, so a drop
         // cannot fail for the heap and no notice is lost.
         reserve(&mut self.dropped, self.widget_cap)?;
+        reserve(&mut self.changed, self.widget_cap)?;
         self.widgets.push(Widget {
             id,
             screen,
@@ -204,6 +227,51 @@ impl UiHandles {
         self.widgets.iter().find(|w| w.id == id)
     }
 
+    /// Whether `owner` may say instance `id` changed: `ERR_NOT_FOUND` for an
+    /// unknown or dropped instance, `ERR_DENIED` for another plugin's widget.
+    pub(crate) fn check_changed(&self, owner: u64, id: u32) -> Result<(), i32> {
+        match self.widget(id) {
+            None => Err(ERR_NOT_FOUND),
+            Some(w) if w.owner != owner => Err(ERR_DENIED),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// `owner` says instance `id` shows something new: marked once however
+    /// often it is said before the maker is told. An instance that is gone or
+    /// not `owner`'s is ignored (it was checked at submit; a drop may have
+    /// come since). Allocation-free.
+    pub(crate) fn mark_changed(&mut self, owner: u64, id: u32) {
+        if self.check_changed(owner, id).is_err() || self.changed.contains(&id) {
+            return;
+        }
+        if self.changed.len() >= self.changed.capacity() {
+            // Marks of instances dropped since: nobody is told of those.
+            let live = &self.widgets;
+            self.changed.retain(|id| live.iter().any(|w| w.id == *id));
+        }
+        if self.changed.len() < self.changed.capacity() {
+            self.changed.push(id);
+        }
+    }
+
+    /// The oldest change of a live instance not yet told, as (the maker, the
+    /// instance), taken off the list: told once, never retried (a hint).
+    pub(crate) fn take_changed(&mut self) -> Option<(u64, u32)> {
+        while !self.changed.is_empty() {
+            let id = self.changed.remove(0);
+            if let Some(w) = self.widget(id) {
+                return Some((w.maker, id));
+            }
+        }
+        None
+    }
+
+    /// Whether a change waits.
+    pub(crate) fn has_changed(&self) -> bool {
+        !self.changed.is_empty()
+    }
+
     /// Op 5: the instance's maker drops it. Another plugin's is `ERR_DENIED`,
     /// an unknown or already dropped one `ERR_NOT_FOUND`.
     pub(crate) fn drop_widget(&mut self, maker: u64, id: u32) -> Result<(), i32> {
@@ -219,6 +287,31 @@ impl UiHandles {
         let gone = self.widgets.swap_remove(at);
         self.dropped.push(gone.notice());
         Ok(())
+    }
+
+    /// Whether instance `id` is still made (not dropped).
+    pub(crate) fn has_widget(&self, id: u32) -> bool {
+        self.widget(id).is_some()
+    }
+
+    /// An instance for ops 6, 7, 12 and 13, for its maker only: instance 0 (an
+    /// own widget, op 4's `flags` bit 0) `ERR_BUSY` (the plugin lays out and
+    /// draws its own), an unknown or dropped one `ERR_NOT_FOUND`, another
+    /// plugin's `ERR_DENIED` (as op 5).
+    pub(crate) fn widget_of(&self, maker: u64, id: u32) -> Result<WidgetRef, i32> {
+        if id == 0 {
+            return Err(ERR_BUSY);
+        }
+        let widget = self.widget(id).ok_or(ERR_NOT_FOUND)?;
+        if widget.maker != maker {
+            return Err(ERR_DENIED);
+        }
+        Ok(WidgetRef {
+            owner: widget.owner,
+            token: widget.token,
+            screen: widget.screen,
+            private: widget.private,
+        })
     }
 
     /// The screen instance closed: its widgets go and their owners are to be
@@ -243,6 +336,11 @@ impl UiHandles {
     /// A dead owner never holds a place of the cap.
     pub(crate) fn next_dropped(&self, owner: u64) -> Option<Dropped> {
         self.dropped.iter().find(|d| d.owner == owner).copied()
+    }
+
+    /// The owner of the oldest drop not yet told: the next to hear of one.
+    pub(crate) fn next_dropped_owner(&self) -> Option<u64> {
+        self.dropped.first().map(|d| d.owner)
     }
 
     /// `notice` was attempted (not "succeeded"): it leaves the list.
@@ -427,6 +525,18 @@ pub(crate) fn compose(
     canvas: &mut Canvas<'_>,
 ) -> Result<(), i32> {
     let target = handles.resolve(caller, request.kind, request.handle, guard)?;
+    draw_target(host, target, request, canvas)
+}
+
+/// The second half of [`compose`]: draw the resolved `target` if anything is
+/// visible, and log a child's failure. Callers that must not hold the table
+/// across the child's `draw` resolve first and call this after releasing it.
+pub(crate) fn draw_target(
+    host: &dyn ChildDraw,
+    target: Target,
+    request: &ComposeRequest,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), i32> {
     let Some(frame) = request.draw_frame() else {
         return Ok(());
     };

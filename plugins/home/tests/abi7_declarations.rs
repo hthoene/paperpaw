@@ -2,7 +2,8 @@
 //! what is ported: the group and its 24 settings (kinds, defaults, levels,
 //! the editor of a page), the screens, the slot, the actions with their
 //! icons and menu places, the swipe up, the pages as a place of widgets and
-//! the need. The built-in widgets and the help hints are not declared yet.
+//! the need. The built-in widgets are declared by `widgets_declarations.rs`; the help
+//! hints are not declared yet.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -274,8 +275,19 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 2);
-    assert_eq!(native.events.len(), 1);
-    assert!(native.events[0].ends_with(&format!(":{}", declarations::SETTING_CHANGED)));
+    // The setting changes (the grid) and the minute tick (the time shown), in
+    // either order.
+    assert_eq!(native.events.len(), 2, "{:?}", native.events);
+    for token in [declarations::SETTING_CHANGED, declarations::TICK] {
+        assert!(
+            native
+                .events
+                .iter()
+                .any(|e| e.ends_with(&format!(":{token}"))),
+            "{token} in {:?}",
+            native.events
+        );
+    }
     // Nothing else was declared.
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

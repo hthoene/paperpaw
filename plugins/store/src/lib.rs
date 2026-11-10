@@ -40,7 +40,11 @@ pub mod native_page;
 /// The interface-7 plugin store (slice 1; see `PORTING-7.md`).
 pub mod native_plugin;
 #[doc(hidden)]
+pub mod native_queue;
+#[doc(hidden)]
 pub mod native_refusal;
+#[doc(hidden)]
+pub mod native_request;
 #[doc(hidden)]
 pub mod native_sort;
 mod needs;

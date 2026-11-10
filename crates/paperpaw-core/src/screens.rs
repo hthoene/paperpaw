@@ -39,9 +39,52 @@ pub(crate) struct ActiveScreen {
     /// it opened): its keyboard. Others above it (a sleep screen) get no
     /// input and are closed as the device wakes.
     pub(crate) by_guard: bool,
+    /// The policy bits a native plugin set at run time
+    /// (`command.screen_policy`, `docs/abi/ui.md` 1.2): bit 1 guards, bit 4
+    /// secret, bit 5 holds edges. It replaces the screen's own answers for
+    /// those three and stays when the screen is made anew.
+    pub(crate) policy: Option<u32>,
     /// How it shows where the screen is wide ([`Screen::pane`]), as it
     /// said when it was made.
     pub(crate) pane: paperpaw_sdk::Pane,
+    /// `event.screen_ready` (87) was raised for this instance, or it will not
+    /// be (`screen_ready`): at most once an instance.
+    pub(crate) ready: bool,
+    /// A draw of this instance happened since it was opened and 87 is yet to
+    /// be raised for it (the pass after the draw raises it).
+    pub(crate) drawn: bool,
+}
+
+/// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
+/// `holds_edges` (5).
+pub(crate) const POLICY_GUARDS: u32 = 1 << 1;
+pub(crate) const POLICY_SECRET: u32 = 1 << 4;
+pub(crate) const POLICY_EDGES: u32 = 1 << 5;
+pub(crate) const POLICY_BITS: u32 = POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES;
+
+impl ActiveScreen {
+    /// Whether it guards the device: what a native plugin set at run time,
+    /// else the screen's own answer.
+    pub(crate) fn guards(&self) -> bool {
+        self.policy
+            .map_or_else(|| self.screen.guards(), |bits| bits & POLICY_GUARDS != 0)
+    }
+
+    /// Whether what it shows is secret (a guard always is).
+    pub(crate) fn secret(&self) -> bool {
+        self.policy.map_or_else(
+            || self.screen.secret(),
+            |bits| bits & (POLICY_GUARDS | POLICY_SECRET) != 0,
+        )
+    }
+
+    /// Whether it holds the edge swipes.
+    pub(crate) fn holds_edges(&self) -> bool {
+        self.policy.map_or_else(
+            || self.screen.holds_edges(),
+            |bits| bits & POLICY_EDGES != 0,
+        )
+    }
 }
 
 /// The revision of `Screen` that brought `Screen::times_under_overlays`
@@ -196,8 +239,23 @@ impl Kernel {
             timer: None,
             key_layer: None,
             by_guard: self.guard().is_some() && self.from_guard_own,
+            policy: None,
             pane,
+            ready: false,
+            drawn: false,
         };
+        self.push_opened(active, params, beside.is_some(), on_open);
+    }
+
+    /// Puts the screen just made on the stack (below a guard, or on top) and
+    /// tells it and the display; `beside` when it is shown beside the list.
+    fn push_opened(
+        &mut self,
+        active: ActiveScreen,
+        params: &Params,
+        beside: bool,
+        on_open: Option<paperpaw_sdk::RefreshMode>,
+    ) {
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
@@ -207,7 +265,7 @@ impl Kernel {
             return;
         }
         // The list a detail shows beside stays shown.
-        if active.screen.region(&self.shared.env(self.now)).is_none() && beside.is_none() {
+        if active.screen.region(&self.shared.env(self.now)).is_none() && !beside {
             self.hide_from(self.shown_base());
         }
         self.screens_changed = true;
@@ -370,7 +428,7 @@ impl Kernel {
 
     /// The topmost screen that guards the device ([`Screen::guards`]).
     pub(crate) fn guard(&self) -> Option<usize> {
-        self.stack.iter().rposition(|active| active.screen.guards())
+        self.stack.iter().rposition(ActiveScreen::guards)
     }
 
     /// Whether a screen guards the device and the command being carried
@@ -509,7 +567,7 @@ impl Kernel {
                 let overlay = active.screen.region(&env).is_some();
                 let key = paperpaw_sdk::ScreenKey::new(active.serial);
                 paperpaw_sdk::StackEntry::new(active.id.clone(), active.slot.clone(), overlay, key)
-                    .guarding(active.screen.guards())
+                    .guarding(active.guards())
             })
             .collect();
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
@@ -534,7 +592,7 @@ impl Kernel {
                     owner,
                     flags: (u8::from(entry.overlay) * OVERLAY)
                         | (u8::from(entry.guards) * GUARDS)
-                        | (u8::from(active.screen.secret()) * SECRET)
+                        | (u8::from(active.secret()) * SECRET)
                         | (u8::from(host) * HOST)
                         | (u8::from(active.guard_dialog) * GUARD_DIALOG),
                 }
@@ -1073,6 +1131,25 @@ impl Kernel {
                 self.set_key_layer(key, layer);
             }
         }
+        // The firmware confirmation's answer comes from that screen alone:
+        // taken here, out of its own commands, so no event another sends
+        // (with the nonce guessed or not) is ever taken for it.
+        if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
+            let mut at = given;
+            while at < self.output.commands.len() {
+                let Command::Emit(event, params) = &self.output.commands[at] else {
+                    at += 1;
+                    continue;
+                };
+                if *event != crate::native_host::firmware_confirm::ANSWERED {
+                    at += 1;
+                    continue;
+                }
+                let params = params.clone();
+                self.output.commands.remove(at);
+                self.firmware_answer(&params);
+            }
+        }
         // The commands of a guarding screen, or of one above it, open
         // screens above it.
         if trusted {
@@ -1272,7 +1349,7 @@ pub(crate) fn uncovered(area: Rect, cover: Rect) -> Option<Rect> {
 
 /// What a screen's place holds between the old screen dropped and the new
 /// one made ([`Kernel::remake_screen`]): never drawn nor asked anything.
-struct Gone;
+pub(crate) struct Gone;
 
 impl Screen for Gone {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}

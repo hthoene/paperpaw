@@ -38,6 +38,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .find(|p| p.id == ID)
         .ok_or("the English package is not one of the hyphenation packages")?;
     let dir = paperpaw_hyphenation_packs::build(&root, &packs, package)?;
+    // The same check the store and the flasher's packages go through: a
+    // package with a problem is not embedded (it would be put on every
+    // device's card).
+    let problems = paperpaw_hyphenation_packs::check(&dir);
+    if !problems.is_empty() {
+        let told: Vec<String> = problems.iter().map(ToString::to_string).collect();
+        return Err(format!("the English package has problems: {}", told.join("; ")).into());
+    }
     let mut found = Vec::new();
     files(&dir, "", &mut found)?;
     let mut source = String::from("&[\n");
