@@ -162,10 +162,6 @@ pub struct Inputs {
     pub storage: Option<Rc<dyn Storage>>,
     /// The clock and network `core.work` asks for.
     pub view: Rc<DeviceView>,
-    /// The texts of the configuration (the card's `paperpaw.ini` and the one
-    /// the run was given): which of the plugins the store offers are
-    /// switched on or off ([`paperpaw_app::native_registers`]).
-    pub configs: Vec<String>,
     /// A run on simulated time (tests, scripts): its secrets key is kept in
     /// memory and nothing is written outside the run's own folders.
     pub simulated: bool,
@@ -329,10 +325,7 @@ pub fn register(
             DesktopServices::new,
             teardown_report,
             linked_report,
-            |id| {
-                let configs: Vec<&str> = inputs.configs.iter().map(String::as_str).collect();
-                paperpaw_app::native_registers(id, paperpaw_app::default_store(), &configs)
-            },
+            |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
         )
     };
     let mut registered = 0;

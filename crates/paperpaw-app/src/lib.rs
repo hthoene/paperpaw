@@ -175,38 +175,23 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
 
-/// Whether the linked native plugin `id` registers: the rule
-/// [`install_with`] applies to the plugin's interface-6 form, so that a plugin
-/// the store offers keeps the state it shipped in. A plugin of
-/// [`STORE_PLUGINS`] registers only where `store` offers it (`Left`: the store
-/// installs it, as a file), is not shipped off and is not switched off, or is
-/// switched on in the configuration. Shipped off (Beta 3's default, owner's
-/// ruling for the flip): Mail always (whatever `store` says is built in), and
-/// where `store` is `On` also Notes vault and Picture home (it takes the place
-/// of the home screen). Every other plugin registers. `configs` are the
-/// configuration files' texts (`[plugins]`: `id = on` or `id = off`, in any of
-/// them, an off wins over the shipped state as in [`install_with`]).
-///
-/// A plugin that does not register is not hosted at all: it is off. The
-/// reader switches it on with `id = on` in `[plugins]` for the next start.
+/// Whether the linked native plugin `id` is on where nothing switched it
+/// (the default `Kernel::native_enabled` takes): the rule [`install_with`]
+/// applies to the plugin's interface-6 form, so that a plugin the store
+/// offers keeps the state it ships in. A plugin of [`STORE_PLUGINS`] is on
+/// only where `store` offers it (`Left`: the store installs it, as a file)
+/// and it is not shipped off. Shipped off (Beta 3's default, owner's ruling
+/// for the flip): Mail always (whatever `store` says is built in), and where
+/// `store` is `On` also Notes vault and Picture home (it takes the place of
+/// the home screen). Every other plugin is on. The configuration (`[plugins]
+/// id = on|off`) is the kernel's to read.
 #[cfg(feature = "native-linked")]
-pub fn native_registers(id: &str, store: StorePlugins<'_>, configs: &[&str]) -> bool {
+pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> bool {
     if !STORE_PLUGINS.contains(&id) {
         return true;
     }
-    let switched = |on: bool| {
-        configs.iter().any(|config| {
-            paperpaw_core::sdk::config::parse(config)
-                .filter_map(Result::ok)
-                .any(|entry| {
-                    entry.section == "plugins"
-                        && entry.key == id
-                        && entry.value.as_bool() == Some(on)
-                })
-        })
-    };
-    let shipped_on = match store {
-        StorePlugins::Left => return false,
+    match store {
+        StorePlugins::Left => false,
         #[cfg(feature = "store-plugins")]
         StorePlugins::On => !matches!(id, "mail" | "notes-vault" | "picture-home"),
         #[cfg(feature = "store-plugins")]
@@ -216,8 +201,17 @@ pub fn native_registers(id: &str, store: StorePlugins<'_>, configs: &[&str]) -> 
             reason = "`On` and `Off` exist only with the feature `store-plugins`"
         )]
         _ => false,
-    };
-    !switched(false) && (shipped_on || switched(true))
+    }
+}
+
+/// The version of the plugin crate `id` (its own `Cargo.toml`, what its plugin
+/// file is named by), for every plugin crate this build has.
+#[must_use]
+pub fn native_version(id: &str) -> Option<&'static str> {
+    const VERSIONS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/plugin_versions.rs"));
+    VERSIONS
+        .iter()
+        .find_map(|(plugin, version)| (*plugin == id).then_some(*version))
 }
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
@@ -252,22 +246,25 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
-    registers: impl Fn(&str) -> bool,
+    default_on: impl Fn(&str) -> bool,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
 )> {
     use paperpaw_core::native_host::shell::Error;
+    use paperpaw_core::sdk::PluginState;
     let mut outcome = alloc::vec::Vec::new();
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
     for (id, linked) in NATIVE_PLUGINS {
-        if !registers(id) {
+        if !kernel.native_enabled(id, default_on(id)) {
+            list(kernel, id, PluginState::Off, false);
             continue;
         }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
+            list(kernel, id, PluginState::Failed, true);
             continue;
         };
         // SAFETY: as this function's contract says.
@@ -284,9 +281,51 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 report,
             )
         };
+        let state = if status.is_ok() {
+            PluginState::Running
+        } else {
+            PluginState::Failed
+        };
+        list(kernel, id, state, true);
         outcome.push((*id, status));
     }
     outcome
+}
+
+/// Lists the linked native plugin `id` for the plugin manager: its name and
+/// description from the plugin's own catalog (the id where it has none), its
+/// version from its crate. A listing that fails (the id is listed already)
+/// is left alone: the plugin runs or not without it.
+#[cfg(feature = "native-linked")]
+fn list(
+    kernel: &mut paperpaw_core::Kernel,
+    id: &'static str,
+    state: paperpaw_core::sdk::PluginState,
+    enabled: bool,
+) {
+    use paperpaw_core::sdk::{Id, Manifest, PluginInfo, PluginKind, RequiredFor, Version};
+    let Some(version) = native_version(id).and_then(Version::parse) else {
+        return;
+    };
+    let text = |suffix: &str| {
+        let mut key = alloc::string::String::from(id);
+        key.push_str(suffix);
+        let said = kernel.translator().tr(&key);
+        (said != key).then(|| alloc::string::String::from(said))
+    };
+    let name = text(".plugin.name").unwrap_or_else(|| alloc::string::String::from(id));
+    let description = text(".plugin.description").unwrap_or_default();
+    let manifest = Manifest::new(Id::new_static(id), name, version).description(description);
+    let info = PluginInfo::new(
+        manifest,
+        state,
+        enabled,
+        RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    );
+    let _ = kernel.list_native(info);
 }
 
 /// The network settings of every networked first-party plugin, kept in

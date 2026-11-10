@@ -185,7 +185,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
-                |_| true,
+                |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
             )
         };
         for (id, status) in outcome {

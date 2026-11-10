@@ -1,43 +1,42 @@
-//! Which linked native plugins register (`paperpaw_app::native_registers`):
-//! the plugins the store offers as files keep the state they ship in, as their
-//! interface-6 forms had it in `install_with`.
+//! Which linked native plugins are on (`paperpaw_app::native_default_on`) and
+//! how the plugin manager sees them: the plugins the store offers as files keep
+//! the state they ship in, as their interface-6 forms had it in
+//! `install_with`; an off plugin is listed and not hosted.
 #![cfg(feature = "native-linked")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests panic on purpose when something is wrong"
+)]
 
-use paperpaw_app::{NATIVE_PLUGINS, STORE_PLUGINS, StorePlugins, native_registers};
+mod native_activation;
+
+use paperpaw_app::{NATIVE_PLUGINS, STORE_PLUGINS, StorePlugins, native_default_on};
+use paperpaw_core::{Kernel, KernelBuilder};
+use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
+use paperpaw_sdk::{MemoryStorage, PluginState};
 
 #[test]
-fn a_plugin_the_store_does_not_offer_always_registers() {
+fn a_plugin_the_store_does_not_offer_is_always_on() {
     for id in ["menu", "settings", "files", "about"] {
-        assert!(native_registers(id, StorePlugins::Left, &[]), "{id}");
-        assert!(
-            native_registers(id, StorePlugins::Left, &["[plugins]\nmenu = off\n"]),
-            "{id}: the configuration names store plugins only"
-        );
+        assert!(native_default_on(id, StorePlugins::Left), "{id}");
+        assert!(native_default_on(id, StorePlugins::On), "{id}");
     }
 }
 
 #[test]
-fn where_the_store_installs_them_none_is_linked() {
+fn where_the_store_installs_them_none_is_on() {
     for id in STORE_PLUGINS {
-        assert!(!native_registers(id, StorePlugins::Left, &[]), "{id}");
-        // Not even switched on: there is no linked plugin to switch on.
-        assert!(
-            !native_registers(
-                id,
-                StorePlugins::Left,
-                &[&format!("[plugins]\n{id} = on\n")]
-            ),
-            "{id}"
-        );
+        assert!(!native_default_on(id, StorePlugins::Left), "{id}");
     }
 }
 
 #[test]
-fn built_in_and_on_the_store_plugins_register_except_the_ones_shipped_off() {
+fn built_in_and_on_the_store_plugins_are_on_except_the_ones_shipped_off() {
     for id in STORE_PLUGINS {
         let shipped_off = matches!(id, "mail" | "notes-vault" | "picture-home");
         assert_eq!(
-            native_registers(id, StorePlugins::On, &[]),
+            native_default_on(id, StorePlugins::On),
             !shipped_off,
             "{id}"
         );
@@ -45,67 +44,29 @@ fn built_in_and_on_the_store_plugins_register_except_the_ones_shipped_off() {
 }
 
 #[test]
-fn mail_is_off_until_the_reader_switches_it_on() {
+fn mail_is_always_shipped_off() {
     for store in [StorePlugins::On, StorePlugins::Off(&|_| true)] {
-        assert!(!native_registers("mail", store, &[]));
-        assert!(!native_registers(
-            "mail",
-            store,
-            &["[plugins]\nnotes-vault = on\n"]
-        ));
-        assert!(native_registers("mail", store, &["[plugins]\nmail = on\n"]));
-        // An off wins, as in `install_with`.
-        assert!(!native_registers(
-            "mail",
-            store,
-            &["[plugins]\nmail = on\n", "[plugins]\nmail = off\n"]
-        ));
+        assert!(!native_default_on("mail", store));
     }
-}
-
-#[test]
-fn notes_vault_is_off_by_default_and_on_when_switched_on() {
-    assert!(!native_registers("notes-vault", StorePlugins::On, &[]));
-    assert!(native_registers(
-        "notes-vault",
-        StorePlugins::On,
-        &["[plugins]\nnotes-vault = on\n"]
-    ));
-    assert!(!native_registers(
-        "notes-vault",
-        StorePlugins::On,
-        &[
-            "[plugins]\nnotes-vault = on\n",
-            "[plugins]\nnotes-vault = off\n"
-        ]
-    ));
 }
 
 #[test]
 fn off_unless_used_before_follows_the_function() {
     let used = |id: &str| id == "aids";
-    assert!(native_registers("aids", StorePlugins::Off(&used), &[]));
-    assert!(!native_registers(
-        "notes-vault",
-        StorePlugins::Off(&used),
-        &[]
-    ));
-    assert!(native_registers(
-        "notes-vault",
-        StorePlugins::Off(&used),
-        &["[plugins]\nnotes-vault = on\n"]
-    ));
-    assert!(!native_registers(
-        "aids",
-        StorePlugins::Off(&used),
-        &["[plugins]\naids = off\n"]
-    ));
+    assert!(native_default_on("aids", StorePlugins::Off(&used)));
+    assert!(!native_default_on("notes-vault", StorePlugins::Off(&used)));
 }
 
 #[test]
-fn a_switch_in_another_section_or_for_another_plugin_does_nothing() {
-    let config = "[reader]\nmail = on\n[plugins]\nnews = on\n";
-    assert!(!native_registers("mail", StorePlugins::On, &[config]));
+fn every_linked_plugin_has_a_version_of_its_crate() {
+    for (id, _) in NATIVE_PLUGINS {
+        let version = paperpaw_app::native_version(id).unwrap_or_else(|| panic!("{id}"));
+        assert!(
+            paperpaw_core::sdk::Version::parse(version).is_some(),
+            "{id}: {version}"
+        );
+    }
+    assert_eq!(paperpaw_app::native_version("no-such-plugin"), None);
 }
 
 #[cfg(feature = "native-linked-store")]
@@ -122,8 +83,8 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         assert!(ids.contains(&id), "{id}");
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }
-    // The ones that are not finished, or that the interface-6 reader still
-    // needs (the formats), are not.
+    // The ones that are not finished, or that the interface-6 reader or
+    // vocabulary still needs, are not.
     for id in [
         "home",
         "reader",
@@ -140,4 +101,80 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
     ] {
         assert!(!ids.contains(&id), "{id}");
     }
+}
+
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
+
+fn kernel(config: &str) -> Kernel {
+    let builder: KernelBuilder = Kernel::builder(DEVICE)
+        .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
+        .user_config(format!("[core]\nlanguage = en\n{config}"));
+    native_activation::build(paperpaw_app::install(
+        builder,
+        #[cfg(any(feature = "packs", not(feature = "outline")))]
+        paperpaw_app::Fonts::Packs,
+        #[cfg(all(feature = "outline", not(feature = "packs")))]
+        paperpaw_app::Fonts::Outline,
+    ))
+}
+
+fn state(kernel: &Kernel, id: &str) -> Option<(PluginState, bool)> {
+    kernel
+        .plugins()
+        .iter()
+        .find(|plugin| plugin.manifest.id.as_str() == id)
+        .map(|plugin| (plugin.state, plugin.enabled))
+}
+
+#[test]
+fn the_plugin_manager_lists_the_linked_plugins_and_a_shipped_off_one_is_off() {
+    let kernel = kernel("");
+    // Listed with a name of its own, whether hosted or not.
+    let menu = kernel
+        .plugins()
+        .iter()
+        .find(|plugin| plugin.manifest.id.as_str() == "menu")
+        .expect("menu is listed");
+    assert_eq!(menu.manifest.name.as_str(), "Menu");
+    assert_eq!(
+        Some(menu.manifest.version.to_string()),
+        paperpaw_app::native_version("menu").map(String::from)
+    );
+    #[cfg(feature = "native-linked-store")]
+    {
+        // Mail ships off: listed, not hosted, switched off.
+        assert_eq!(state(&kernel, "mail"), Some((PluginState::Off, false)));
+        assert_eq!(
+            state(&kernel, "notes-vault"),
+            Some((PluginState::Off, false))
+        );
+    }
+}
+
+#[cfg(feature = "native-linked-store")]
+#[test]
+fn a_shipped_off_plugin_switched_on_in_the_configuration_is_hosted() {
+    let kernel = kernel("[plugins]\nmail = on\n");
+    let (state, enabled) = state(&kernel, "mail").expect("mail is listed");
+    assert!(enabled);
+    // Hosted, or failed to be: the test host backs few services.
+    assert!(matches!(state, PluginState::Running | PluginState::Failed));
+}
+
+#[cfg(feature = "native-linked-store")]
+#[test]
+fn a_plugin_switched_off_in_the_configuration_is_not_hosted() {
+    let kernel = kernel("[plugins]\nwidgets = off\n");
+    assert_eq!(state(&kernel, "widgets"), Some((PluginState::Off, false)));
 }
