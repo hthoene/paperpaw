@@ -222,10 +222,11 @@ Blocked, each named (nothing invented):
   reads the registry's status items and their values on each draw (heap peak and time unmeasured).
 - Icons: tools show their name only, the pencil, *Done* and the dots' pill no icon until icons are
   admitted (#517).
-- The widgets' updates (the minute tick, `widget_changed`) and a change of settings while the
-  dashboard is open are not subscribed to: the page is laid out when it shows again (after the
-  settings screen closes) and when the page turns (`picture-home-dashboard`). The grid's columns or
-  rows changed while open: the same.
+- The widgets' updates: the minute tick is subscribed to (the bar, a cover being made); `event.widget_changed`
+  (86, delivered by the host to the maker that subscribes) is not: the declare SDK's `EventKind` has no
+  variant for it (asked of Services). A change of settings while the dashboard is open is met when it
+  shows again (after the settings screen closes) and when the page turns (`picture-home-dashboard`). The
+  grid's columns or rows changed while open: the same.
 - A widget's least width and square hint (`KERNEL-cell-hints`, draft 29): as home's, a widget may be
   made narrower than it wants (`native_measure.rs`).
 - `H1/H4`: the dashboard, the chooser and the editor through the production loader
