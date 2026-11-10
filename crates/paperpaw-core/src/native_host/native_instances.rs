@@ -251,6 +251,14 @@ impl NativeInstances {
         self.pool.as_ref()?.owners().ok()
     }
 
+    /// Hands the plugin id of the enabled owner `key` to `visit`; `false`
+    /// for an owner that is unknown or stopped, or while the directory is
+    /// busy. Nothing is copied.
+    pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
     /// How many owner-directory updates were skipped since the last call.
     pub(crate) fn take_directory_missed(&self) -> u32 {
         self.directory()

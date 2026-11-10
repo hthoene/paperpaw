@@ -58,6 +58,8 @@ mod firmware_events;
 )]
 pub(crate) mod firmware_install;
 
+#[path = "native_host/install_grants.rs"]
+pub(crate) mod install_grants;
 #[path = "native_host/plugin_check.rs"]
 #[allow(
     dead_code,

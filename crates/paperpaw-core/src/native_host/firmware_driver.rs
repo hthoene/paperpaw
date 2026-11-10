@@ -144,6 +144,8 @@ pub(crate) struct Driver {
     plugin_host: Option<PluginHost>,
     /// Which plugins hold the trusted-installer grant (`None`: none does).
     grants: Option<Box<dyn InstallGrants>>,
+    /// The host's reading of the grants, before each step (no allocation).
+    fed: super::install_grants::Granted,
     /// The running plugin job asked the user and waits for the answer.
     plugin_question: Option<PluginQuestion>,
     /// The nonce of the confirmation that shows `plugin_question`: only an
@@ -197,6 +199,7 @@ impl Driver {
             finishing: None,
             plugin_host: None,
             grants: None,
+            fed: super::install_grants::Granted::NONE,
             plugin_question: None,
             plugin_shown: None,
             plugin_unload: None,
@@ -383,6 +386,41 @@ impl Driver {
     /// `device.md` 5.2): without them no install skips its question.
     pub(crate) fn set_install_grants(&mut self, grants: Box<dyn InstallGrants>) {
         self.grants = Some(grants);
+    }
+
+    /// The plugins that have a plugin job here, each once, into `owners`
+    /// (the first [`REQUESTS_MAX`] of them: it is all the device holds);
+    /// how many.
+    pub(crate) fn plugin_owners(&self, owners: &mut [u64; REQUESTS_MAX]) -> usize {
+        let mut count = 0;
+        for job in &self.plugin_jobs {
+            if count < owners.len() && !owners[..count].contains(&job.owner()) {
+                owners[count] = job.owner();
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Replaces the trusted-installer grants by the host's present reading
+    /// (see [`super::install_grants`]).
+    pub(crate) fn feed_install_grants(&mut self, granted: super::install_grants::Granted) {
+        self.fed = granted;
+    }
+
+    /// Whether `owner` may install without a question: the host's reading,
+    /// or (tests) a hook set by [`Self::set_install_grants`].
+    fn granted(&self, owner: u64) -> bool {
+        self.fed.holds(owner)
+            || self
+                .grants
+                .as_ref()
+                .is_some_and(|grants| grants.granted(owner))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_granted(&self, owner: u64) -> bool {
+        self.granted(owner)
     }
 
     /// The question the running plugin job waits on, for the host to show
@@ -773,15 +811,13 @@ impl Driver {
             return Event::Quiet;
         };
         let kind = self.plugin_jobs[at].kind();
+        let granted = self.granted(owner);
         let finished = match self.plugin_host.as_ref() {
             Some(host) => match self.plugin_jobs[at].step(&JobEnv {
                 storage,
                 host,
                 built_ins,
-                granted: self
-                    .grants
-                    .as_ref()
-                    .is_some_and(|grants| grants.granted(owner)),
+                granted,
             }) {
                 JobStep::More | JobStep::Wait => return Event::Quiet,
                 JobStep::Ask(question) => {
