@@ -314,3 +314,33 @@ fn invalid_inked_inputs_do_not_reach_the_host() {
     );
     assert!(ctx.inked.borrow().is_none());
 }
+#[test]
+fn inked_text_on_another_hosts_canvas_is_invalid_and_never_reaches_the_host() {
+    let table = drawing_table();
+    let mut ctx = Context::default();
+    let mut other = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let foreign = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut other).cast(),
+    };
+    let font = Font::acquire_role(&host, FontRole::Ui).unwrap();
+    let mut bytes = [0; 256];
+    let mut frame = bound_frame(&foreign, &mut bytes);
+    let canvas = frame.draw_canvas().unwrap();
+    assert_eq!(
+        font.draw_inked(
+            &canvas,
+            12.0,
+            TextOrigin::new(0.0, 0),
+            Color::BLACK,
+            "x",
+            Ink::new()
+        ),
+        Err(Error::Invalid)
+    );
+    assert!(ctx.inked.borrow().is_none() && other.inked.borrow().is_none());
+}

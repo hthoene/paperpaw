@@ -2475,6 +2475,15 @@
           "ordinal": 2,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 37,
@@ -3952,6 +3961,15 @@
           "ordinal": 2,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 65,
@@ -4058,6 +4076,15 @@
           "ordinal": 2,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 66,
@@ -4162,6 +4189,15 @@
           "name": "insert",
           "optional": true,
           "ordinal": 2,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
           "since": 1,
           "type": "u32"
         }
@@ -11677,6 +11713,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 1127,
@@ -15320,6 +15365,180 @@
       ],
       "id": 1594,
       "name": "command.set_hint",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "document",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "progress_ppm",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 88,
+      "name": "event.document_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1595,
+      "name": "command.firmware_dual_boot",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "document",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "section",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "insert",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "progress_ppm",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "chapter",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "page",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "pages",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 2,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1183,
+      "name": "service.doc_report",
       "since": 1
     }
   ],

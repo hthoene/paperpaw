@@ -392,14 +392,17 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 
   Order: outside `draw` (no canvas) is `ERR_STATE` first; then a stale handle `ERR_STATE`; then
   the arguments (`size`, `text`, `tone`, `flags`) `ERR_INVALID` or `ERR_UTF8`. Every check
-  happens before anything is drawn, and a refused call draws nothing. X4: the curve is read from
-  the call's arguments (16 bytes), so the slot allocates nothing beyond what `text.draw` does
-  (its glyph cache and shaping paths, as in interface 6), and the drawing is the same code as
-  interface 6's `draw_toned`, so the flash cost is the slot and its checks alone. Hosts answer
-  `ERR_UNSUPPORTED` until wired.
+  happens before anything is drawn, so a refused call draws nothing. The host shapes the text
+  once, as `text.draw` does, so an advance error (`ERR_INVALID` for an advance that is not a
+  finite number ≥ 0) is reported after the text is drawn: like `text.draw`, slot 41 is not atomic
+  on an advance error. X4: the curve is read from the call's arguments (16 bytes), so the slot
+  allocates nothing beyond what `text.draw` does (its glyph cache and shaping paths, as in
+  interface 6), and the drawing is the same code as interface 6's `draw_toned`, so the flash cost
+  is the slot and its checks alone.
+  Hosts answer `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
-  bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
-  atomic on an advance error (documented).
+  bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` (and
+  slot 41) is not atomic on an advance error (documented).
 
 ## 5. i18n formatting, plurals and digits
 
@@ -553,6 +556,13 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   two pages never share a position. `event.page_turned` carries `insert` as an optional field
   (absent = 0). Consumers that only follow text, such as sync and statistics, ignore it, which is
   correct because progress is text-based.
+- [D] **`chapter_left`** (draft 37, an optional appended field of 37 and 65-67): the laid-out pages
+  after this one up to the end of the chapter the page is in (the table-of-contents entry `chapter`
+  names), 0 on its last page. It is present only with `page` and `pages` and is at most
+  `pages - page`; it is absent where the reader has no chapter end (no table of contents, a page
+  before its first entry, pages not counted yet). The reader fills it from its page index
+  (`document.md` 2.4); consumers show "pages left in the chapter" from it (interface 6
+  `Reading::chapter_left`).
 
 ## 10. Input limits in SDK glue (N7)
 

@@ -461,6 +461,9 @@ pub use blocks::{
 #[path = "document_meta.rs"]
 mod meta;
 pub use meta::{DocTextPart, DocTextQuery, Metadata};
+#[path = "document_report.rs"]
+mod report;
+pub use report::Report;
 #[path = "document_formats.rs"]
 mod formats;
 pub use formats::{Format, FormatCursor, FormatPage, FormatPageEnd};

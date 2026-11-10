@@ -141,8 +141,8 @@ pub fn bold_extra(size: f32) -> u32 {
         clippy::cast_sign_loss,
         reason = "a saturating float-to-integer cast is wanted; the host clamps the widening to 16"
     )]
-    let tenths = (size / 20.0) as u32;
-    tenths.max(1)
+    let twentieth = (size / 20.0) as u32;
+    twentieth.max(1)
 }
 
 /// Draws the QR code `code`, black on white with the four modules of quiet

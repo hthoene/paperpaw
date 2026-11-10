@@ -191,6 +191,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBroadcast(_)
         | Record::EventDocumentClosed(_)
         | Record::EventTextTyped(_)
+        | Record::EventDocumentChanged(_)
         | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
@@ -267,6 +268,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDocPath(_)
         | Record::ServiceDocReader(_)
         | Record::ServiceDocProgress(_)
+        | Record::ServiceDocReport(_)
         | Record::ServiceDocBlock(_)
         | Record::ServiceDocTextPart(_)
         | Record::ServiceDocColumns(_)
