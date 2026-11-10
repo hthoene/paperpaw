@@ -129,3 +129,25 @@ relative to the data folder).
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
+
+## Footnote overlay (native model, `native_footnote.rs`)
+
+- Host-free: whether a link opens as a note (the setting says so, the link is to the book, its text looks
+  like a mark: short, or a number in brackets, or a symbol), how many lines of the note fit in the lower
+  half of the page (at least one) and the last line where the text was cut (the screen's `fit` makes it), the
+  overlay's region and its two buttons (*Close*, *Go to the note*; side by side where both words fit a
+  row, else one below the other) from the sizes the screen measured, what a key does (previous goes to
+  *Close*, next to *Go to the note*, confirm presses the focused one, *Close* where none is, back and menu
+  close), what a tap does (the button it is on, else close) and which two buttons are drawn again after a
+  move of the focus. Allocation is fallible and tested refused in turn; the layout keeps inside `u16` where
+  the sizes are absurd.
+- Differences from interface 6, on purpose: none in what is decided; the sums are made in `u32` and cut at
+  `u16::MAX` where interface 6 added `u16`s.
+- Limits the screen keeps: `lines` hands the whole rest of the note to `fit` where the text is cut, so the
+  screen caps the note text it reads (a note is a few paragraphs, not a chapter) and with it the wrap
+  ranges it passes in. `Metrics` is `#[non_exhaustive]`: only this crate builds it, which suits the screen
+  that measures the sizes; a test or another crate goes through the model's functions.
+- **Not yet: the screen.** It needs the overlay slot's host side (`core.footnote`, the successor of the
+  `OpenSlot` with `text`, `path` and `url`), the font's wrap and line metrics and the button measures of
+  `core.ui` for the model's inputs, and the follow-link event that *Go to the note* sends back to the reader
+  (`Press::Follow`).
