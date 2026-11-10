@@ -67,8 +67,8 @@ fn the_settings_and_the_start_are_declared() {
         count += records_decode(&batch).unwrap().len();
     }
     assert_eq!(
-        count, 4,
-        "the start, the minute tick, the work of the card files and the waking"
+        count, 6,
+        "the start, the minute tick, the work of the card files, the waking, and the server and the requests of the phone page"
     );
 }
 
@@ -82,6 +82,8 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
         "vocabulary.review.title",
         "\"flash-cards\"",
         "\"list\"",
+        "\"phone\"",
+        "vocabulary.phone.title",
         "\"sd-menu\"",
         "\"sd-card\"",
         "vocabulary.sd.title",
@@ -94,9 +96,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
-    // Nothing is offered that ends in a refusal: the phone and the scan
-    // action are declared with their ports.
-    for absent in ["phone", "widget", "scan-card"] {
+    // Nothing is offered that ends in a refusal: the scan action is declared
+    // with its port.
+    for absent in ["widget", "scan-card"] {
         assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
     }
 }

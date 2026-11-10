@@ -67,6 +67,7 @@ mod native_decks;
 mod native_entry;
 mod native_export;
 mod native_goto;
+mod native_key;
 mod native_list;
 #[allow(
     dead_code,
@@ -92,6 +93,10 @@ mod native_widgets;
 mod native_words;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+mod native_phone;
+mod native_phone_page;
+mod native_phone_shell;
+mod native_phone_web;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod phone;

@@ -131,7 +131,7 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page) and the events for the words looked up and the wake (the
+- Not declared yet: the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
@@ -144,7 +144,7 @@ native screens replace these callers.
 - The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
-- Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
+- Phone page: done, see *Ported: Edit with your phone* below.
 - Card-folder files: done, see *Ported: the card files* below.
 
 ## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
@@ -340,4 +340,43 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
 - The review's four hints of interface 6 (`vocabulary.help.answers`, `.tap`, `.select`, `.back`; any input,
   touch, buttons, any input) are declared as `help.hint` for the screen `vocabulary.review`; the host answers
   them from `core.ui` op 3 `hints` (#892). Tested as declarations (`tests/declarations.rs`).
+
+## Ported: Edit with your phone (`native_phone*.rs`, `native_key.rs`)
+
+- The screen `vocabulary.phone` (`native_phone.rs`, `native_phone_shell.rs`): while it is open and shown, the
+  reader serves the page on port 8080 (`core.net` `serve`, `max_body` the import cap of 4 MiB; the host takes
+  the next free port, 1 server on the X4), shows the address as a QR code with the hint and what the phone did
+  last. Closing the screen stops the server and removes the page. `uses.network` (optional), `core.net` and
+  `core.secrets` join the metadata. The *Edit with your phone* row of the decks' screen is offered where
+  `core.net` opens.
+- The key (`k=`) is drawn anew each time from `core.secrets` `random` (`native_key.rs`, the SDK's `served::key`
+  rule, the same code as the transfer plugin's): none from a source that is not fully random (the X4 before the
+  radio is on: the key is drawn when the server has started, as transfer does), and then the screen says "This
+  device cannot make a safe key" and nothing is served. Five wrong keys lock the page for a minute
+  (`served::Guard`, fallible parameters).
+- Requests (`native_phone_web.rs`, host-free over `Storage`, the rules of interface 6's `phone::answer`):
+  the page, the decks, a page of cards (50 or about 12 KiB), decks and cards made, renamed, changed and
+  deleted (a card changed since the phone saw it is left as it is: 409), and many cards at once (a card a line;
+  import over 4 MiB: 413). A request body is the host's `.received/<server>/<request>` file in the data
+  folder, read through the data layer and removed once answered. Every allocation is fallible; a refusal is a
+  503 and the callback ends well, whatever a phone sends.
+- The page (`native_phone_page.rs`) is `data/phone.txt` with its three marks filled (texts in the reader's
+  language, the limits) and written to `phone-page.html` in the data folder for `respond` to send (an inline
+  answer holds 2,048 bytes); answers over that (a page of cards) are written to one of four files
+  `phone-answer-0..3.json` in turn (the host reads a file in parts after the callback and up to two requests
+  of the server are open at once, so a second long answer never overwrites the first while it is sent; all
+  are removed with the page when the screen closes). `network.md` 5.3 names root 2 (the installed folder) for a
+  shipped page, but the page needs its texts and limits filled in for the reader's language, which a file
+  read whole from the installation cannot have, so the page is made and written to the data folder (as
+  transfer does).
+- Differences from interface 6, on purpose: a form that is not UTF-8 counts as none (interface 6 replaced the
+  bad bytes); the server ended by the network while the screen shows the address says so (interface 6 left the
+  dead address); `core.device` is not used, so the address is the numeric one (transfer shows the host name
+  too).
+- Not proved here: drawing and the server on a scripted host (the scripted host has no network); the
+  requests, the page's marks and the key are tested host-free.
+- The address carries the key: the screen's state does not print it in `Debug` and wipes it (and its code) when
+  the screen closes; the `Guard` of the SDK keeps the key as a plain `String` (as transfer does: one shared fix
+  in the SDK would cover both). To measure on the X4: the form peak (a 16 KiB buffer while a card is saved) and
+  an import's read buffers while the QR screen is up.
 

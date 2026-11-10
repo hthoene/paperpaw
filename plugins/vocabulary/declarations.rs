@@ -29,6 +29,10 @@ pub const WORDS_TOKEN: u32 = 12;
 /// The card files' menu, and the screen that updates from them or saves a deck.
 pub const SD_MENU_TOKEN: u32 = 13;
 pub const SD_CARD_TOKEN: u32 = 14;
+/// The phone page's screen, and the events of the server it runs.
+pub const PHONE_TOKEN: u32 = 16;
+pub const SERVER_TOKEN: u32 = 8;
+pub const SERVED_TOKEN: u32 = 9;
 /// The work that does the next step of an update or a save.
 pub const WORK_TOKEN: u32 = 5;
 /// The stage of the words looked up, and its token.
@@ -155,6 +159,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     // Waking: the review opens with the card shown asleep, or where wanted.
     declarations.subscribe_event(EventKind::Resume, RESUME_TOKEN)?;
+    // The page of *Edit with your phone*: its server, and the requests it gets.
+    declarations.subscribe_event(EventKind::Server, SERVER_TOKEN)?;
+    declarations.subscribe_event(EventKind::ServedRequest, SERVED_TOKEN)?;
     declarations.submit()
 }
 
@@ -186,6 +193,11 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     declarations.screen(
         ScreenDecl::new("sleep-card", SLEEP_CARD, SLEEP_TOKEN).instances(Instances::Single),
     )?;
+    declarations.screen(ScreenDecl::new(
+        "phone",
+        "vocabulary.phone.title",
+        PHONE_TOKEN,
+    ))?;
     declarations.screen(ScreenDecl::new(
         "sd-menu",
         "vocabulary.sd.title",
