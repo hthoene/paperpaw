@@ -24,7 +24,7 @@ use paperpaw_sdk::{
         snapshot::{self, Snapshot},
         ui::{Ui, WidgetInputKind},
     },
-    widgets::grid::Geometry,
+    widgets::{CellSpan, grid::Geometry},
 };
 use paperpaw_ui_kit::{
     Messages, Paint, Style,
@@ -58,6 +58,9 @@ struct Cell {
     face: Option<Face>,
     /// A widget's instance, where the host made one.
     widget: Option<Made>,
+    /// The cells a widget declared (its least size, square), kept when it is
+    /// sized with a finger.
+    span: Option<CellSpan>,
 }
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -89,6 +92,8 @@ struct Laid {
     /// screen is on its side.
     slot: usize,
     wide: bool,
+    /// How wide and high the corner of an item is that a finger sizes it by.
+    handle: u16,
 }
 
 /// Which of the footer's buttons are there.
@@ -133,6 +138,8 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// An item a finger has taken along.
+    drag: Option<arrange::Drag>,
 }
 
 impl Dashboard {
@@ -212,6 +219,7 @@ impl Dashboard {
             self.reshow = false;
         }
         self.laid = Some(laid);
+        self.drag = None;
         self.stale = false;
         Ok(())
     }
@@ -310,6 +318,7 @@ impl Dashboard {
             items,
             slot,
             wide,
+            handle: (metrics.row / 2).max(16),
         })
     }
 
@@ -433,6 +442,10 @@ impl Dashboard {
             name,
             face,
             widget,
+            span: match &item.what {
+                What::Widget(id) => src.span(id),
+                What::Tool(_) => None,
+            },
         }))
     }
 
@@ -614,6 +627,7 @@ impl Dashboard {
                         style.ink,
                     ),
                 )?;
+                self.corner_mark(&mut below, &style, cell.rect, laid.handle)?;
             }
             if let Some(face) = cell.face {
                 let shown = Tool {
@@ -664,6 +678,7 @@ impl Dashboard {
                 }
             }
         }
+        self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {

@@ -348,6 +348,16 @@ fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
 }
 
 impl HostSource {
+    /// The cells widget `id` (or its base) declared, with its least size.
+    #[must_use]
+    pub fn span(&self, id: &str) -> Option<CellSpan> {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span)
+    }
+
     /// Whether widget `id` (or its base) declared how many cells it takes.
     #[must_use]
     pub fn declares(&self, id: &str) -> bool {
