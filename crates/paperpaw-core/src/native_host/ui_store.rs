@@ -280,6 +280,8 @@ pub(super) struct Inner {
     pub(super) question_memory: usize,
     /// Answers of a host dialog the store did not take, not yet logged.
     pub(super) refused: u32,
+    /// The clipboard (`core.ui` ops 18 and 19).
+    pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
 
 /// The store.
@@ -436,6 +438,7 @@ impl UiStore {
                 secret_memory: 0,
                 question_memory: 0,
                 refused: 0,
+                clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }
     }

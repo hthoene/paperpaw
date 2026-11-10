@@ -165,6 +165,7 @@ pub(crate) enum Decision {
 }
 
 /// Applies the rules of 5.2.
+#[inline(never)]
 pub(crate) fn decide(staged: &Staged<'_>, evidence: &Evidence) -> Decision {
     let expected = evidence.author.and_then(|author| author.sha256);
     let Some((key, digest)) = staged.code else {
@@ -205,6 +206,7 @@ pub(crate) fn decide(staged: &Staged<'_>, evidence: &Evidence) -> Decision {
     }
 }
 
+#[inline(never)]
 fn install(
     sideload: bool,
     first: Option<([u8; 32], Option<[u8; 32]>)>,
@@ -233,6 +235,7 @@ impl Steps {
 /// the steps up to the one that names `key`, those before the pinned key
 /// skipped, none refused after the first taken. `None` where it does not
 /// lead there (or no recovery key is pinned).
+#[inline(never)]
 fn follow(
     staged: &Staged<'_>,
     evidence: &Evidence,

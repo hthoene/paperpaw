@@ -6,11 +6,16 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{ANNOTATIONS, SCREEN, STOPPING, SUSPEND, TOC, WORK_DUE},
+    declarations::{
+        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+    },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
+    native_footnote::{Footnote, Pressed},
+    native_pages,
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
+use alloc::string::String;
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -62,7 +67,13 @@ pub struct NativeReader {
     no_work: bool,
     screens: Screens<View>,
     tocs: Screens<TocView>,
-    notes: Screens<AnnotationsView>,
+    /// The annotations screens.
+    annotations: Screens<AnnotationsView>,
+    /// The notes over the pages.
+    notes: Screens<Footnote>,
+    /// *Go to the note* pressed: the book and the link, followed when its
+    /// reading screen is shown again.
+    follow: Option<(String, String)>,
 }
 
 impl NativeReader {
@@ -88,6 +99,37 @@ impl NativeReader {
         };
         let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
         self.screens.open(instance, view)
+    }
+
+    /// A note opened over the page.
+    fn open_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let note = Footnote::open(host, ui, handover)?;
+        self.notes.open(instance, note)
+    }
+
+    /// The reading screen is on show again: a note's *Go to the note* is followed
+    /// in it.
+    fn follow_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let Some((path, href)) = self.follow.take() else {
+            return Ok(());
+        };
+        let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) else {
+            return Ok(());
+        };
+        view.follow(host, docs, (&path, &href))
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -157,13 +199,13 @@ impl NativeReader {
             return Err(Error::State);
         };
         let view = AnnotationsView::open(host, ui, self.library.as_ref(), handover)?;
-        self.notes.open(instance, view)
+        self.annotations.open(instance, view)
     }
 
     /// An input of the annotations; a choice goes to the reading screen below
     /// and closes this one.
     fn notes_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
-        let Some(view) = self.notes.top(ANNOTATIONS) else {
+        let Some(view) = self.annotations.top(ANNOTATIONS) else {
             return Ok(Handled::No);
         };
         let (handled, outcome) = view.input(host, self.library.as_ref(), input)?;
@@ -191,6 +233,31 @@ impl NativeReader {
         };
         crate::native_annotations_view::show(host, ui, &params)?;
         Ok(Handled::Yes)
+    }
+
+    /// A setting changed: every reading screen lays its page out again (a
+    /// setting of the layout) or draws it again (a setting of the ink). A refusal
+    /// of one screen costs the others nothing.
+    fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let layout = native_pages::affects_layout(key);
+        if !layout && !native_pages::affects_ink(key) {
+            return Ok(());
+        }
+        let Some(docs) = &self.docs else {
+            return Ok(());
+        };
+        let mut result = Ok(());
+        for view in self.screens.all() {
+            let done = if layout {
+                view.reflow(host, docs)
+            } else {
+                view.repaint(host)
+            };
+            if let Err(error) = done {
+                result = Err(error);
+            }
+        }
+        result
     }
 
     /// Writes the place of every reading screen not saved.
@@ -257,7 +324,8 @@ impl Plugin for NativeReader {
             kinds::ScreenClosed,
             kinds::Suspend,
             kinds::Stopping,
-            kinds::WorkDue
+            kinds::WorkDue,
+            kinds::SettingChanged
         ) else {
             return Ok(());
         };
@@ -269,6 +337,11 @@ impl Plugin for NativeReader {
                 self.save_now(host);
                 Ok(())
             }
+            // A reading setting changed: the pages on show are laid out again (or
+            // drawn again where only the ink changed).
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.setting_changed(host, key)
+            }
             // The reading screen and the table of contents have views; the
             // other screens come with their slices (`PORTING-7.md`).
             Event::ScreenOpened {
@@ -277,6 +350,7 @@ impl Plugin for NativeReader {
                 SCREEN => self.open(host, instance, handover),
                 TOC => self.open_toc(host, instance, handover),
                 ANNOTATIONS => self.open_notes(host, instance, handover),
+                FOOTNOTE => self.open_note(host, instance, handover),
                 _ => Ok(()),
             },
             Event::ScreenShown {
@@ -288,17 +362,19 @@ impl Plugin for NativeReader {
                     if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
                         view.shown(host, docs);
                     }
-                    Ok(())
+                    self.follow_note(host, instance)
                 }
                 TOC => self.tocs.shown(TOC, instance),
-                ANNOTATIONS => self.notes.shown(ANNOTATIONS, instance),
+                ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
+                FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
                 _ => Ok(()),
             },
             Event::ScreenClosed { instance, .. } => {
                 match token {
                     SCREEN => self.close(host, instance),
                     TOC => self.close_toc(host, instance),
-                    ANNOTATIONS => self.notes.close(instance),
+                    ANNOTATIONS => self.annotations.close(instance),
+                    FOOTNOTE => self.notes.close(instance),
                     _ => {}
                 }
                 Ok(())
@@ -313,8 +389,12 @@ impl Plugin for NativeReader {
             return view.draw(host, &mut frame);
         }
         if token == ANNOTATIONS {
-            let view = self.notes.top(token).ok_or(Error::State)?;
+            let view = self.annotations.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
+        }
+        if token == FOOTNOTE {
+            let note = self.notes.top(token).ok_or(Error::State)?;
+            return note.draw(host, &mut frame);
         }
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
@@ -340,6 +420,16 @@ impl Plugin for NativeReader {
         {
             return self.show_notes(host);
         }
+        if token == FOOTNOTE {
+            let Some(note) = self.notes.top(token) else {
+                return Ok(Handled::No);
+            };
+            let (handled, pressed) = note.input(host, &input)?;
+            if let Pressed::Go { path, href } = pressed {
+                self.follow = Some((path, href));
+            }
+            return Ok(handled);
+        }
         let (handled, turned) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
                 let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
@@ -363,7 +453,7 @@ mod tests {
     fn the_quiet_time_is_beta_3s_and_the_tokens_differ() {
         assert_eq!(QUIET_MS, 2_000);
         assert!(WorkSpec::new(QUIET_KEY, WORK_DUE).is_ok());
-        let tokens = [SCREEN, SUSPEND, STOPPING, WORK_DUE];
+        let tokens = [SCREEN, SUSPEND, STOPPING, WORK_DUE, SETTING_CHANGED];
         for (i, a) in tokens.iter().enumerate() {
             assert!(tokens[i + 1..].iter().all(|b| a != b));
         }

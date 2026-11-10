@@ -50,6 +50,7 @@ impl Document for Book {
 #[derive(Default)]
 struct Recorder {
     calls: Vec<(Role, i32, i32, String)>,
+    fills: Vec<(i32, i32, u32, u32)>,
     fail_at: Cell<Option<usize>>,
 }
 
@@ -67,6 +68,11 @@ impl Ink for Recorder {
         }
         self.calls.push((role, x as i32, baseline, text.into()));
         Fixed.width(role, size, text)
+    }
+
+    fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
+        self.fills.push((x, y, width, height));
+        Ok(())
     }
 }
 
@@ -142,4 +148,77 @@ fn characters_that_are_not_drawn_are_left_out_of_a_word() {
     draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
     let words: Vec<&str> = ink.calls.iter().map(|c| c.3.as_str()).collect();
     assert_eq!(words, ["zerowidth", "soft"]);
+}
+
+#[test]
+fn an_underlined_run_has_a_line_below_the_whole_run() {
+    let (page, faces) = page("one two", TextStyle::UNDERLINE);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    let base = ink.calls[0].2;
+    // Size 20: a pixel thick, two below the baseline, the run's 70 pixels wide.
+    assert_eq!(ink.fills, [(30, base + 2, 70, 1)]);
+}
+
+#[test]
+fn a_strike_through_and_an_overline_are_drawn_where_beta_3_drew_them() {
+    let style = TextStyle::STRIKE.union(TextStyle::OVERLINE);
+    let (page, faces) = page("abc", style);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    let base = ink.calls[0].2;
+    assert_eq!(ink.fills, [(0, base - 15, 30, 1), (0, base - 5, 30, 1)]);
+}
+
+#[test]
+fn a_double_line_has_a_second_line_and_a_dotted_one_has_pieces() {
+    let double = TextStyle::UNDERLINE.with_line_style(paperpaw_sdk::document::LineStyle::Double);
+    let (double_page, faces) = page("abc", double);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &double_page, (0.0, 0.0)).unwrap();
+    let base = ink.calls[0].2;
+    assert_eq!(ink.fills, [(0, base + 2, 30, 1), (0, base + 4, 30, 1)]);
+    let dotted = TextStyle::UNDERLINE.with_line_style(paperpaw_sdk::document::LineStyle::Dotted);
+    let (dotted_page, faces) = page("abc", dotted);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &dotted_page, (0.0, 0.0)).unwrap();
+    // One pixel dots with one pixel gaps over 30 pixels.
+    assert_eq!(ink.fills.len(), 15);
+    assert!(ink.fills.iter().all(|f| f.2 == 1 && f.3 == 1));
+}
+
+#[test]
+fn a_text_without_lines_and_a_page_without_rules_fill_nothing() {
+    let (page, faces) = page("plain", TextStyle::REGULAR);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.fills.is_empty());
+}
+
+#[test]
+fn a_tables_rules_are_filled_at_the_content_box() {
+    let (mut page, faces) = page("x", TextStyle::REGULAR);
+    page.rules
+        .push(paperpaw_sdk::layout::PageRule::new(5.0, 6.0, 100.0, 1.0));
+    page.rules
+        .push(paperpaw_sdk::layout::PageRule::new(5.0, 6.0, 0.2, 40.0));
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    // A rule is a pixel thick at least.
+    assert_eq!(ink.fills, [(35, 56, 100, 1), (35, 56, 1, 40)]);
+}
+
+#[test]
+fn a_refused_fill_ends_the_drawing() {
+    struct Refuses;
+    impl Ink for Refuses {
+        fn run(&mut self, _: Role, _: f32, _: f32, _: i32, text: &str) -> Result<f32, Error> {
+            Ok(text.len() as f32 * 10.0)
+        }
+        fn fill(&mut self, _: i32, _: i32, _: u32, _: u32) -> Result<(), Error> {
+            Err(Error::State)
+        }
+    }
+    let (page, faces) = page("abc", TextStyle::UNDERLINE);
+    assert!(draw_lines(&mut Refuses, &faces, &page, (0.0, 0.0)).is_err());
 }

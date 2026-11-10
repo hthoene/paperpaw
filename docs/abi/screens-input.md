@@ -120,7 +120,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 38 | `event.screen_shown` | `now_ms: u64`, `screen: str 128` (full id), `width: u32`, `height: u32` |
-| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` (draft 34) |
+| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` |
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
 | 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
@@ -135,7 +135,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
   with `done`, confirms it. Text longer than 1,024 bytes comes in several events, cut between
   characters, `done` only on the last. It needs no subscription: `registration.event` naming 109
   refuses the batch (`ERR_UNSUPPORTED`), as for 82 (`ui.md` section 3.2). Other `flags` bits are 0 (decoders refuse them).
-  `text` carries `"secret": true` (draft 30): it may be a password, so the generated record's
+  `text` carries `"secret": true`: it may be a password, so the generated record's
   `Debug` shows neither the text nor its length, and the SDK's `TypedText` shows only its length.
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
 - [D] `event.action_run.flags` bit 0 `background` (draft 34, interface 6 `!Env::reader`): the
@@ -301,6 +301,22 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   `role:icons` acquires even while no icon font is bound; a text call through it answers
   `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
   again at each call.
+- [D] **A font file of the plugin's own** (fonts-browser samples): key `data:<path>`, a font file in
+  the caller's own Data (root 0). `<path>` is relative, `/`-separated, without `.`/`..` or empty
+  segments, no leading `/`, `:` or `\` (`ERR_INVALID`), checked before the card is asked; the
+  key is at most 128 bytes like every key (`ERR_INVALID` beyond), so the path at most 123.
+  A missing file is `ERR_NOT_FOUND`; a damaged or unsupported file `ERR_INVALID` at the acquire; no
+  room for it `ERR_NO_MEMORY`; a host with no card wired `ERR_UNSUPPORTED`. No `uses.*`: the file is
+  the plugin's own. The host reads it from the card through its font engine as it reads document
+  fonts: a font pack (`.ppfp`) where it is, a glyph at a time (its index and a glyph cache of at most
+  4 KiB on the X4, 16 KiB elsewhere, are kept, no copy of the file on the heap); a TrueType or
+  OpenType file is read whole into memory, so only where the build has outlines (else `ERR_INVALID`,
+  before any of it is read) and the heap has room. It counts towards the 8
+  handles. Once the file is changed or removed after the acquire (its size, time or identity on the
+  card), `text.*` through the handle answers `ERR_STATE` (acquire again), as for a replaced pack;
+  the card is asked once for each callback, not at every text call, so a file rewritten within the
+  callback that draws from it is noticed at the next callback (what a pack cannot read draws
+  nothing).
 - [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
   out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
   icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
@@ -318,8 +334,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
-  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, so up to about
-  1 KiB per plugin for 8; `handle.release` frees; teardown frees
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, a `data:` handle its path (<= 640 B joined), the pack's index (within the
+  device's pack limits) and a glyph cache that grows as glyphs are drawn, of at most 4 KiB on the X4
+  (16 KiB elsewhere; a refused allocation keeps a glyph less, never fails a draw), so up to about
+  1 KiB per plugin for 8 handles by id and 32 KiB for 8 `data:` handles on the X4; a TrueType or
+  OpenType file is held whole where the build has outlines (the X4's has none: packs only); `handle.release` frees; teardown frees
   all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
   pack that provides it was removed or replaced (updated) after the acquire, even if the same
   id is registered again, or the id no longer resolves. The plugin acquires again (on
