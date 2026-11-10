@@ -30,7 +30,8 @@
 #   --jobs N          cargo -j (default 4)
 #
 # Run the tools/check-local.sh of the worktree to check, from inside it, with
-# CARGO_TARGET_DIR of that worktree. A copy elsewhere is refused (exit 2).
+# CARGO_TARGET_DIR of that worktree (inside it: a build folder shared with another
+# worktree is refused too, exit 2). A copy elsewhere is refused (exit 2).
 set -uo pipefail
 
 # Only the script of the tree it checks counts: a copy elsewhere (or an empty
@@ -78,6 +79,26 @@ while (($#)); do
 done
 
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+
+# One build folder per worktree. Cargo gives a path package the same artifact
+# name in every checkout (the path counts from the workspace root), so two
+# worktrees on one target folder share their fingerprints: a clippy run that
+# passed in one makes the other "Finished" in 0 s when its sources are not newer
+# than the other's build, defects and all (#2163). Exit 2, as for a copy of this
+# script elsewhere.
+target_dir="$(cargo metadata --no-deps --format-version 1 --offline 2> /dev/null \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])' 2> /dev/null)"
+if [[ -z "$target_dir" ]]; then
+    echo "check-local: cannot find the build folder (cargo metadata failed); run it inside a worktree with a working cargo" >&2
+    exit 2
+fi
+target_dir="$(readlink -m "$target_dir")"
+if [[ "$target_dir" != "$root" && "$target_dir" != "$root"/* ]]; then
+    echo "check-local: the build folder '$target_dir' is outside this worktree '$root'." >&2
+    echo "check-local: worktrees sharing one folder make clippy and test pass without checking (stale fingerprints)." >&2
+    echo "check-local: unset CARGO_TARGET_DIR or point it inside this worktree (CARGO_TARGET_DIR=\$PWD/target)." >&2
+    exit 2
+fi
 if [[ -z "${RUSTC_WRAPPER:-}" && -x tools/sccache-wrap.sh ]] && command -v sccache > /dev/null; then
     export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
 fi
