@@ -51,6 +51,7 @@ native-linked = [
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
+    "dep:paperpaw-plugin-format-txt",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-opds",
@@ -64,6 +65,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-format-txt/linked",
     "paperpaw-plugin-keyboard/linked",
     "paperpaw-plugin-lock/linked",
     "paperpaw-plugin-menu/linked",
@@ -84,7 +86,7 @@ paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
 paperpaw-plugin-format-epub.workspace = true
-paperpaw-plugin-format-txt.workspace = true
+paperpaw-plugin-format-txt = { workspace = true, optional = true }
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
