@@ -1236,3 +1236,163 @@ fn a_half_made_cache_is_removed_at_the_next_open_and_a_ready_open_that_made_none
         assert!(w.card.get(&std::format!("{folder}/pages/9")).is_none());
     });
 }
+
+/// A reply of one `fmt.image`: the cover, a gray picture of 8 x 4 at `path`
+/// of the document's cache.
+fn cover_reply(path: &str) -> Vec<u8> {
+    let mut bytes = vec![0_u8; 3840];
+    let n = local::reply_encode(
+        &[local::Record::FmtImage(local::FmtImage::new(
+            path,
+            u32::MAX,
+            8,
+            4,
+            0,
+        ))],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(n);
+    bytes
+}
+
+fn gray_picture(w: &World<'_>, path: &str) {
+    use paperpaw_sdk::image::{GrayWriter, ImageSink};
+    let mut writer = GrayWriter::new(&*w.card, path);
+    writer.start(8, 4).unwrap();
+    for _ in 0..4 {
+        writer.row(&[9_u8; 8]).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+fn ask_cover(w: &World<'_>, document: u32) -> Result<wire::ServiceDocImage, i32> {
+    let reply = w.call(
+        AdmittedFeatures::NONE,
+        15,
+        &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+    )?;
+    match wire::record_decode_one(&reply).unwrap() {
+        Record::ServiceDocImage(image) => Ok(image),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_format_picture_is_the_openers_image_id_until_its_document_ends() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        let cache = seen_cache(w, 0);
+        gray_picture(w, &std::format!("{cache}/pic.gray"));
+        *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
+        let image = ask_cover(w, document).unwrap();
+        assert_ne!(image.image, 0);
+        assert_eq!((image.width, image.height, image.index), (8, 4, u32::MAX));
+        assert_eq!(w.hosts.images().info(OPENER, image.image).unwrap().width, 8);
+        // Another plugin's id space does not have it.
+        assert_eq!(
+            w.hosts.images().info(OPENER + 1, image.image),
+            Err(ERR_NOT_FOUND)
+        );
+        // The document closes: its picture's id ends with it.
+        w.call(
+            AdmittedFeatures::NONE,
+            18,
+            &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+        )
+        .unwrap();
+        assert_eq!(
+            w.hosts.images().info(OPENER, image.image),
+            Err(ERR_NOT_FOUND)
+        );
+    });
+}
+
+#[test]
+fn a_picture_the_cache_does_not_hold_or_a_hostile_one_is_left_out() {
+    use paperpaw_sdk::image::{GrayWriter, ImageSink};
+    // One case a world: three failed answers in a row close a document.
+    let cases = [
+        "missing.gray",
+        "../x.gray",
+        ".host/x.gray",
+        "junk.gray",
+        "big.gray",
+    ];
+    for path in cases {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            let document = w.open(1, "books/a.epub").unwrap();
+            let cache = seen_cache(w, 0);
+            w.card
+                .write(&std::format!("{cache}/junk.gray"), b"not a picture")
+                .unwrap();
+            // The header says another size than the format does.
+            let big = std::format!("{cache}/big.gray");
+            let mut writer = GrayWriter::new(&*w.card, &big);
+            writer.start(9, 4).unwrap();
+            for _ in 0..4 {
+                writer.row(&[1_u8; 9]).unwrap();
+            }
+            writer.finish().unwrap();
+            *w.reply.borrow_mut() = Ok(cover_reply(path));
+            // Not a picture at all (the service's rule for a cover that fails
+            // its check).
+            assert_eq!(ask_cover(w, document).err(), Some(ERR_INVALID), "{path}");
+        });
+    }
+    // An absolute name is a malformed answer: the call fails.
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        *w.reply.borrow_mut() = Ok(cover_reply("/abs.gray"));
+        assert!(ask_cover(w, document).is_err());
+    });
+}
+
+#[test]
+fn the_pictures_of_a_document_the_host_ended_end_with_the_next_call() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        gray_picture(w, &std::format!("{}/pic.gray", seen_cache(w, 0)));
+        *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
+        let image = ask_cover(w, document).unwrap().image;
+        // The format stops: the host ends the document, out of reach of the
+        // table; the opener's next call to the service ends its ids.
+        w.stop("epub");
+        let _ = w.call(
+            AdmittedFeatures::NONE,
+            19,
+            &[Record::ServiceDocPage(wire::ServiceDocPage {
+                document: 0,
+                scope: "",
+                cursor: 0,
+                generation: 0,
+            })],
+        );
+        assert_eq!(w.hosts.images().info(OPENER, image), Err(ERR_NOT_FOUND));
+    });
+}
+
+#[test]
+fn a_refused_allocation_while_mapping_a_picture_is_no_memory_and_the_next_ask_works() {
+    for nth in 1..=40 {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            let document = w.open(1, "books/a.epub").unwrap();
+            gray_picture(w, &std::format!("{}/pic.gray", seen_cache(w, 0)));
+            *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
+            w.fail.set(nth);
+            let first = ask_cover(w, document);
+            w.fail.set(0);
+            assert!(
+                matches!(first, Ok(_) | Err(ERR_NO_MEMORY)),
+                "allocation {nth}: {first:?}"
+            );
+            // Nothing is half-made: the same picture is asked for again.
+            assert!(ask_cover(w, document).is_ok(), "allocation {nth}");
+        });
+    }
+}
