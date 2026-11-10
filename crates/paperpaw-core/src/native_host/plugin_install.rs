@@ -107,7 +107,7 @@ pub(crate) struct PluginInstall {
     next: usize,
     file: Option<Copying>,
     buf: Vec<u8>,
-    check: Option<PluginCheck>,
+    check: Option<Box<PluginCheck>>,
     facts: Option<super::plugin_job::PluginFacts>,
     installed: Option<Installed>,
     manifest: Option<Manifest>,
@@ -348,6 +348,7 @@ impl PluginInstall {
             self.buf = Vec::new();
             let Some(check) =
                 PluginCheck::staged(self.owner, self.request, &self.stage, self.id.as_str())
+                    .and_then(try_box)
             else {
                 return self.end(env.storage, reason::OTHER);
             };
