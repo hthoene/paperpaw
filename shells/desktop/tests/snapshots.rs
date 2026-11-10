@@ -853,6 +853,7 @@ const NEEDS_SETTINGS: &[&str] = &[
     "x4-settings-display",
     "x4-settings-controls",
     "boox-settings-display",
+    "boox-developer-settings",
     "boox-keyboard",
     "x4-pro-wifi",
     "x4-pro-wifi-networks",
