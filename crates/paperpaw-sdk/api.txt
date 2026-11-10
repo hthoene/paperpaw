@@ -4751,10 +4751,8 @@ pub const paperpaw_sdk::native::files::OUTPUT_BYTES: usize
 pub const paperpaw_sdk::native::files::PAGE_MAX_ROWS: usize
 pub mod paperpaw_sdk::native::fonts
 #[non_exhaustive] pub enum paperpaw_sdk::native::fonts::FontRole
-pub paperpaw_sdk::native::fonts::FontRole::Mono
 pub paperpaw_sdk::native::fonts::FontRole::Reading
 pub paperpaw_sdk::native::fonts::FontRole::Ui
-pub paperpaw_sdk::native::fonts::FontRole::UiBold
 pub struct paperpaw_sdk::native::fonts::Font<'cb>
 impl paperpaw_sdk::native::fonts::Font<'_>
 pub fn paperpaw_sdk::native::fonts::Font<'_>::covers(&self, impl core::convert::AsRef<str>) -> core::result::Result<usize, paperpaw_sdk::native::Error>
@@ -4764,6 +4762,7 @@ pub fn paperpaw_sdk::native::fonts::Font<'_>::read_line_metrics(&self, f32) -> c
 impl<'cb> paperpaw_sdk::native::fonts::Font<'cb>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire(&'cb paperpaw_sdk::native::Host<'cb>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire_role(&'cb paperpaw_sdk::native::Host<'cb>, paperpaw_sdk::native::fonts::FontRole) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::fonts::Font<'cb>::draw_inked(&self, &paperpaw_sdk::native::canvas::Canvas<'_>, f32, paperpaw_sdk::native::fonts::TextOrigin, paperpaw_platform::pixel::Color, impl core::convert::AsRef<str>, paperpaw_sdk::native::fonts::Ink) -> core::result::Result<f32, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::measure_text(&self, f32, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::release(self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::render_text(&self, &paperpaw_sdk::native::canvas::Canvas<'_>, f32, paperpaw_sdk::native::fonts::TextOrigin, paperpaw_platform::pixel::Color, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>
@@ -4775,6 +4774,12 @@ pub fn paperpaw_sdk::native::fonts::IconGlyph::as_str(&self) -> &str
 pub fn paperpaw_sdk::native::fonts::IconGlyph::named(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 impl core::fmt::Debug for paperpaw_sdk::native::fonts::IconGlyph
 pub fn paperpaw_sdk::native::fonts::IconGlyph::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_sdk::native::fonts::Ink
+impl paperpaw_sdk::native::fonts::Ink
+pub const fn paperpaw_sdk::native::fonts::Ink::extra(self, u32) -> Self
+pub const fn paperpaw_sdk::native::fonts::Ink::new() -> Self
+pub const fn paperpaw_sdk::native::fonts::Ink::sharp(self) -> Self
+pub const fn paperpaw_sdk::native::fonts::Ink::tone(self, [u8; 16]) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::fonts::InkBounds
 pub paperpaw_sdk::native::fonts::InkBounds::bottom: i32
 pub paperpaw_sdk::native::fonts::InkBounds::left: i32

@@ -31,27 +31,64 @@ impl TextOrigin {
 }
 use paperpaw_native::host_glue::PpBytes;
 
+/// How `Font::draw_inked` inks text beyond `render_text`: glyphs widened to
+/// the right, a tone curve of its own, and grays left out. The default is
+/// what `render_text` draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Ink {
+    extra: u32,
+    tone: Option<[u8; 16]>,
+    sharp: bool,
+}
+impl Ink {
+    /// Draw as `render_text` does.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            extra: 0,
+            tone: None,
+            sharp: false,
+        }
+    }
+    /// Widen every glyph by this many pixels to the right; the host clamps
+    /// more than 16 to 16. Advances do not change, so measuring still lays the
+    /// text out.
+    #[must_use]
+    pub const fn extra(mut self, pixels: u32) -> Self {
+        self.extra = pixels;
+        self
+    }
+    /// The opacities 0 to 255 of the coverage levels 0 to 15, in place of the
+    /// font's own tone curve; level 0 is drawn as 0 whatever it says.
+    #[must_use]
+    pub const fn tone(mut self, alphas: [u8; 16]) -> Self {
+        self.tone = Some(alphas);
+        self
+    }
+    /// Draw the chosen curve without grays, at the screen's own black threshold.
+    #[must_use]
+    pub const fn sharp(mut self) -> Self {
+        self.sharp = true;
+        self
+    }
+}
+
 /// A reader-selected font role, resolved by the host for each text call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FontRole {
     /// The user interface font.
     Ui,
-    /// The bold user interface font.
-    UiBold,
     /// The reader's text font.
     Reading,
-    /// The monospace font.
-    Mono,
 }
 
 impl FontRole {
     const fn font_role_key(self) -> &'static str {
         match self {
             Self::Ui => "role:ui",
-            Self::UiBold => "role:ui-bold",
             Self::Reading => "role:reading",
-            Self::Mono => "role:mono",
         }
     }
 }
@@ -165,6 +202,58 @@ impl<'cb> Font<'cb> {
         Ok(advance)
     }
 
+    /// Draw text as [`render_text`](Self::render_text) does, inked as `ink` says
+    /// (`docs/abi/screens-input.md` section 4, slot 41), and return its advance.
+    /// A refused call draws nothing; an old host answers Unsupported.
+    ///
+    /// # Errors
+    /// Returns Invalid for an invalid size/position, a foreign canvas or
+    /// overlong text, State outside `draw` or for a stale handle, or the host's
+    /// refusal.
+    pub fn draw_inked(
+        &self,
+        canvas: &Canvas<'_>,
+        size: f32,
+        origin: TextOrigin,
+        color: Color,
+        text: impl AsRef<str>,
+        ink: Ink,
+    ) -> Result<f32, Error> {
+        let text = text.as_ref();
+        validate_text(size, text, TEXT_DRAW_MAX_BYTES)?;
+        if !origin.x.is_finite() {
+            return Err(Error::Invalid);
+        }
+        let target = canvas.host();
+        if self.host.ctx != target.ctx || !core::ptr::eq(self.host.table, target.table) {
+            return Err(Error::Invalid);
+        }
+        let handle = self.handle.ok_or(Error::State)?;
+        let tone: &[u8] = match &ink.tone {
+            Some(alphas) => alphas,
+            None => &[],
+        };
+        let mut advance = 0.0;
+        // SAFETY: the font and canvas retain the same admitted callback host.
+        // Text, tone and the disjoint advance output remain live through this call.
+        status(unsafe {
+            (target.table.text_draw_inked)(
+                target.ctx,
+                handle,
+                size,
+                origin.x,
+                origin.baseline,
+                color_encode(color.r, color.g, color.b),
+                bytes(text),
+                ink.extra,
+                bytes_of(tone),
+                u32::from(ink.sharp),
+                &mut advance,
+            )
+        })?;
+        Ok(advance)
+    }
+
     /// Release this handle and report the host status.
     /// A failed release is not retried by Drop; host teardown reclaims handles
     /// still owned by the plugin.
@@ -206,6 +295,12 @@ fn validate_font_size(size: f32) -> Result<(), Error> {
     Ok(())
 }
 
+fn bytes_of(input: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: input.as_ptr(),
+        len: input.len(),
+    }
+}
 fn bytes(text: &str) -> PpBytes {
     PpBytes {
         ptr: text.as_ptr(),
