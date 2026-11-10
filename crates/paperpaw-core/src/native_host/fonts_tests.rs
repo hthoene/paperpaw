@@ -54,6 +54,8 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let scope = pin!(EnvironmentScope::new());
     scope.as_ref().scope_core(&frame, || call(&scope)).unwrap();

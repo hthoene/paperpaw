@@ -207,7 +207,10 @@ impl Bundle {
         for (entry, _) in &entries {
             let id = layout.text(le32(entry, 0), le16(entry, 8))?;
             let version = layout.text(le32(entry, 4), le16(entry, 10))?;
+            // `core` is the host's own id (`paperpaw-core`'s
+            // `RESERVED_PLUGIN_ID`): no bundle installs a plugin by it.
             if !is_plugin_id(&id)
+                || id == "core"
                 || !is_version(&version)
                 || read.iter().any(|p: &BundlePlugin| p.id == id)
             {
@@ -586,6 +589,10 @@ mod tests {
             ],
         );
         assert_eq!(read(&twice), Err(BundleProblem::Name));
+        let host = build(&image(), &[("core", "1", &[("plugin.ini", b"x")])]);
+        assert_eq!(read(&host), Err(BundleProblem::Name), "the host's own id");
+        let like = build(&image(), &[("core-tools", "1", &[("plugin.ini", b"x")])]);
+        assert!(read(&like).is_ok());
         let same_path = build(
             &image(),
             &[("a", "1", &[("plugin.ini", b"x"), ("PLUGIN.ini", b"y")])],

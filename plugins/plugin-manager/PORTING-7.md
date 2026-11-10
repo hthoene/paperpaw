@@ -76,3 +76,15 @@ interface-6 plugin had no pictures of its own).
 - The *Restart now* button of the bar (row and footer, see above).
 - The plugin manager's texts are still used by the interface-6 store
   (`plugin-manager.code.*`); the store carries its own when it is ported.
+
+## Format and reader caps (todo 377, #867 R2)
+
+The host refuses a plugin's whole declaration batch with `ERR_FULL` when it would pass the caps of
+`document.md` section 1 (8 formats a plugin, 32 on the device; 4 readers a plugin, 16 on the device). The
+registry says so as `reg_plugin.problem` 14 (too many formats) or 15 (too many readers), state failed, with
+`problem_arg` the cap the batch ran into (`registry.md`, Kernel's `kernel/docs-problem-caps-228`; Host fills
+the values). The list's note says it, en/de, with the number: *plugin-manager.formats.too-many*,
+*plugin-manager.readers.too-many*; a value without a limit (0) says "Could not be loaded" (the text would have a hole),
+as does a value this plugin does not know. The limit is whichever the batch ran into (8 formats or 4
+readers a plugin, 32 or 16 on the device), so the words say "limit", not "the device". **Host side pending:** until Host fills 14 and 15 a refused
+batch shows as before (`plugin-manager.failed`). Version unchanged (1.0.6, above Beta 3's 1.0.5).

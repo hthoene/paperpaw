@@ -64,7 +64,15 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     );
     assert_eq!(a.room, 8, "a refused command took no room");
     let mut with_card = admit(true, 4);
-    for bad in ["plugins/x/a.png", "Plugins/a.png", ".paperpaw/cache/a.png"] {
+    for bad in [
+        "plugins/x/a.png",
+        "Plugins/a.png",
+        ".paperpaw/cache/a.png",
+        // The kernel's settings file, in any case and as the driver folds.
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "paperpaw.ını",
+    ] {
         assert_eq!(
             with_card.admit(&prepare_cmd(1, bad, 0)),
             Some(Err(ERR_INVALID)),
@@ -74,6 +82,11 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     assert_eq!(
         with_card.admit(&prepare_cmd(1, "Pics/a.png", 0)),
         Some(Ok(()))
+    );
+    assert_eq!(
+        with_card.admit(&prepare_cmd(1, "Pics/paperpaw.ini", 0)),
+        Some(Ok(())),
+        "below a folder it is an ordinary name"
     );
     assert_eq!(
         admit(true, 1).admit(&prepare_cmd(1, "a.png", 0)),
