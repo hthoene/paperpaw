@@ -7,8 +7,9 @@ use super::{
     book_data_steps::{self, Progress},
     lib_jobs::{ImportCarry, JobHost, RemovalCarry, RemovalPhase},
     lib_moves_carry::{EnvCarry, STEP_PIECES},
+    lib_service::moves::own,
 };
-use alloc::format;
+use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::builtin::events;
 
@@ -59,7 +60,11 @@ impl JobHost for EnvJobs<'_> {
         // One budget for the book and its `.bak` sibling: a step stays bounded.
         let mut budget = STEP_PIECES;
         let (storage, data) = (self.carry.storage(), self.carry.book_data());
-        let bak = format!("{path}.bak");
+        let mut bak = alloc::string::String::new();
+        bak.try_reserve_exact(path.len() + 4)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        bak.push_str(path);
+        bak.push_str(".bak");
         let mut progress = Progress::Done;
         for name in [path, bak.as_str()] {
             if book_data_steps::remove_data_within(storage, data, name, &mut budget)?
@@ -78,8 +83,9 @@ impl JobHost for EnvJobs<'_> {
     }
 
     fn removed(&self, path: &str) -> Result<(), i32> {
+        let path = own(path)?;
         self.carry
-            .send(events::BOOK_REMOVED.emit(events::BookRemoved::new(path.into())))
+            .send(events::BOOK_REMOVED.emit(events::BookRemoved::new(path)))
     }
 
     fn changed(&self) -> Result<(), i32> {

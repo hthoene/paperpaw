@@ -6,10 +6,18 @@ use crate::native_host::lib_service::moves::Entry;
 use paperpaw_sdk::{MemoryStorage, Storage};
 use std::{string::ToString, vec};
 
+fn book(path: &str, id: u64, bak: u64) -> Book {
+    Book {
+        path: path.to_string(),
+        id,
+        bak,
+    }
+}
+
 fn delete() -> JobRecord {
     JobRecord::Delete {
         with_notes: true,
-        paths: vec!["books/a.epub".to_string(), "books/sub/b.txt".to_string()],
+        books: vec![book("books/a.epub", 5, 6), book("books/sub/b.txt", 0, 0)],
     }
 }
 
@@ -44,23 +52,27 @@ fn records_round_trip() {
 fn limits_are_refused() {
     let many = JobRecord::Delete {
         with_notes: false,
-        paths: (0..=DELETE_MAX).map(|n| std::format!("b{n}.txt")).collect(),
+        books: (0..=DELETE_MAX)
+            .map(|n| book(&std::format!("b{n}.txt"), 1, 0))
+            .collect(),
     };
     assert_eq!(encode(&many), Err(ERR_INVALID));
     let none = JobRecord::Delete {
         with_notes: false,
-        paths: vec![],
+        books: vec![],
     };
     assert_eq!(encode(&none), Err(ERR_INVALID));
     let long = JobRecord::Delete {
         with_notes: false,
-        paths: vec!["x".repeat(MAX_PATH + 1)],
+        books: vec![book(&"x".repeat(MAX_PATH + 1), 1, 1)],
     };
     assert_eq!(encode(&long), Err(ERR_INVALID));
     // Seven paths of the longest size fit the reader's bound.
     let widest = JobRecord::Delete {
         with_notes: false,
-        paths: (0..DELETE_MAX).map(|_| "x".repeat(MAX_PATH)).collect(),
+        books: (0..DELETE_MAX)
+            .map(|_| book(&"x".repeat(MAX_PATH), u64::MAX, u64::MAX))
+            .collect(),
     };
     assert!(encode(&widest).unwrap().len() <= crate::native_host::lib_moves_journal::MAX_RECORD);
 }

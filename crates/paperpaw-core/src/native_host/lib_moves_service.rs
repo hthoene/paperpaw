@@ -135,7 +135,9 @@ impl LibraryMoves {
     /// Whether `path` is a book of a delete whose catalog part is not done:
     /// lists and stats hide it.
     pub(crate) fn pending_delete(&self, path: &str) -> bool {
-        self.jobs.pending_delete(path.trim_matches('/'))
+        let path = path.trim_matches('/');
+        self.jobs
+            .pending_delete(&|book| self.card.same_path(book, path))
     }
 
     /// A reader opens `book`: it is carried first when the job has not

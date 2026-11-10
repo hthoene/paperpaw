@@ -4,11 +4,16 @@
 //!
 //! ```text
 //! delete (kind 1)  flags bit 0: with_notes
-//!   count u8 (1..=7)  { len u16 LE  path }*count
+//!   count u8 (1..=7)  { len u16 LE  path  identity u64 LE  bak_identity u64 LE }*count
 //! import (kind 2)  flags bit 0: replace, bit 2: the file has arrived
 //!   identity u64 LE  from_len u16  to_len u16  importer_len u8
 //!   from  to  importer
 //! ```
+//!
+//! The identities are those of the file and of its `.bak` sibling **before the
+//! entry is written** (0: none there): the job removes a file only while it is
+//! still that entry (`Storage::entry_identity`), so a file put at the same
+//! path since (a copy back, a download) is never deleted by a replay.
 //!
 //! Written the way the move's record is: temp, sync, rename over the journal,
 //! sync, **before any card change**, and never over another entry (`ERR_BUSY`).
@@ -30,14 +35,22 @@ const WITH_NOTES: u8 = 1;
 const REPLACE: u8 = 1;
 const ARRIVED: u8 = 4;
 
+/// One book of a delete.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Book {
+    pub(crate) path: String,
+    /// The storage's identity of the file when the entry was written (0: no
+    /// file).
+    pub(crate) id: u64,
+    /// The same for the `.bak` sibling.
+    pub(crate) bak: u64,
+}
+
 /// One journalled job, owned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum JobRecord {
     /// Books deleted with everything kept for them.
-    Delete {
-        with_notes: bool,
-        paths: Vec<String>,
-    },
+    Delete { with_notes: bool, books: Vec<Book> },
     /// A file brought into the library.
     Import {
         from: String,
@@ -69,16 +82,16 @@ fn le16(bytes: &[u8], at: usize) -> Result<usize, i32> {
 /// The record of `job`.
 pub(crate) fn encode(job: &JobRecord) -> Result<Vec<u8>, i32> {
     let (kind, flags, payload) = match job {
-        JobRecord::Delete { with_notes, paths } => {
-            if paths.is_empty() || paths.len() > DELETE_MAX {
+        JobRecord::Delete { with_notes, books } => {
+            if books.is_empty() || books.len() > DELETE_MAX {
                 return Err(ERR_INVALID);
             }
             let mut size = 1;
-            for path in paths {
-                if path.is_empty() || path.len() > MAX_PATH {
+            for book in books {
+                if book.path.is_empty() || book.path.len() > MAX_PATH {
                     return Err(ERR_INVALID);
                 }
-                size += 2 + path.len();
+                size += 2 + book.path.len() + 16;
             }
             (KIND_DELETE, u8::from(*with_notes) * WITH_NOTES, size)
         }
@@ -110,12 +123,14 @@ pub(crate) fn encode(job: &JobRecord) -> Result<Vec<u8>, i32> {
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&[VERSION, kind, flags]);
     match job {
-        JobRecord::Delete { paths, .. } => {
+        JobRecord::Delete { books, .. } => {
             // At most `DELETE_MAX`.
-            out.push(paths.len() as u8);
-            for path in paths {
-                out.extend_from_slice(&(path.len() as u16).to_le_bytes());
-                out.extend_from_slice(path.as_bytes());
+            out.push(books.len() as u8);
+            for book in books {
+                out.extend_from_slice(&(book.path.len() as u16).to_le_bytes());
+                out.extend_from_slice(book.path.as_bytes());
+                out.extend_from_slice(&book.id.to_le_bytes());
+                out.extend_from_slice(&book.bak.to_le_bytes());
             }
         }
         JobRecord::Import {
@@ -153,24 +168,33 @@ pub(crate) fn decode(record: &[u8]) -> Result<Option<JobRecord>, i32> {
             if count == 0 || count > DELETE_MAX {
                 return Err(ERR_IO);
             }
-            let mut paths: Vec<String> = Vec::new();
-            paths.try_reserve_exact(count).map_err(|_| ERR_NO_MEMORY)?;
+            let mut books: Vec<Book> = Vec::new();
+            books.try_reserve_exact(count).map_err(|_| ERR_NO_MEMORY)?;
             let mut at = 1;
             for _ in 0..count {
                 let len = le16(payload, at)?;
-                let bytes = payload.get(at + 2..at + 2 + len).ok_or(ERR_IO)?;
                 if len == 0 || len > MAX_PATH {
                     return Err(ERR_IO);
                 }
-                paths.push(own(bytes)?);
-                at += 2 + len;
+                let bytes = payload.get(at + 2..at + 2 + len).ok_or(ERR_IO)?;
+                let ids = payload.get(at + 2 + len..at + 18 + len).ok_or(ERR_IO)?;
+                let word = |from: usize| -> Result<u64, i32> {
+                    let eight = ids.get(from..from + 8).ok_or(ERR_IO)?;
+                    Ok(u64::from_le_bytes(eight.try_into().map_err(|_| ERR_IO)?))
+                };
+                books.push(Book {
+                    path: own(bytes)?,
+                    id: word(0)?,
+                    bak: word(8)?,
+                });
+                at += 18 + len;
             }
             if at != payload.len() {
                 return Err(ERR_IO);
             }
             Ok(Some(JobRecord::Delete {
                 with_notes: flags & WITH_NOTES != 0,
-                paths,
+                books,
             }))
         }
         KIND_IMPORT => {
@@ -229,8 +253,9 @@ impl Journal<'_> {
     /// changed.
     ///
     /// # Errors
-    /// `ERR_BUSY` while the journal holds any entry (a move's, a job's, one
-    /// that cannot be read: it is not written over); `ERR_INVALID` for a
+    /// `ERR_BUSY` while the journal holds an entry (a move's or a job's);
+    /// `ERR_IO` for a record that cannot be read (never written over, the
+    /// move machine sets it aside); `ERR_INVALID` for a
     /// record past the limits; the card's status; `ERR_NO_MEMORY`.
     pub(crate) fn write_job(&self, job: &JobRecord) -> Result<(), i32> {
         if self.kind()?.is_some() {
