@@ -1,0 +1,3 @@
+### Changed
+
+- **XTC and XTCH books run on interface 7 only** (#228). The interface-6 `format-xtc` is gone: the plugin that opened the Xteink readers' pre-rendered books in the app, and its page cache in the plugin's folder. XTC and XTCH books are opened by the native format plugin, whose pages are decoded into the cache the host keeps; the pages, chapters, cover and metadata are the same, the texts are unchanged in English and German. A book without a title in its metadata is named by its file, as the library names every book. The format is no longer built into the app: it comes with the native plugins when they are switched on.
