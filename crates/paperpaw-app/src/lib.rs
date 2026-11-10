@@ -146,57 +146,12 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
 ];
 
-/// The consent features the shells admit linked plugins to use (a plugin's
-/// metadata may require any: an `uses.…` it needs that is not here refuses it
-/// at admission). The shell's `Host` offers these and the services it wires.
-#[cfg(feature = "native-linked")]
-pub static NATIVE_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[
-    paperpaw_native::metadata::Feature {
-        key: "uses.registry",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.library",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.network",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.wifi",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.power",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.install",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.firmware",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.bluetooth",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.storage",
-        revision: 1,
-    },
-    paperpaw_native::metadata::Feature {
-        key: "uses.secrets",
-        revision: 1,
-    },
-];
-
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
 /// the emulator and the tests share). `host` is what the shell offers
-/// (its profile, the services it wires, [`NATIVE_FEATURES`]); `resources` is
+/// (its profile, the services it wires, and the consent features it backs: a
+/// plugin whose metadata needs a `uses.…` that is not in the host's list is
+/// refused at admission); `resources` is
 /// the shell's table of handles (each plugin gets a share) with its services
 /// wired; `depth` the shell's one dispatch budget; `services` makes one
 /// [`Services`](paperpaw_native::host_glue::Services) (heap and clock) per
@@ -208,7 +163,8 @@ pub static NATIVE_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[
 /// NAME)` of a crate linked into this program, so its factory obeys the SDK's
 /// native factory contract and its code and static data stay for the whole
 /// run; the caller must not call this with a `host` that offers more than it
-/// wires (a service offered and not wired is a plugin that fails later).
+/// backs: a service or a consent feature offered and not wired is a plugin
+/// that fails later.
 #[cfg(feature = "native-linked")]
 #[allow(
     clippy::too_many_arguments,

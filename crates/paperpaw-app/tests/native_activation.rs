@@ -16,6 +16,53 @@
 
 use paperpaw_core::{Kernel, KernelBuilder};
 
+/// Every consent feature, offered to plugins in these test kernels (they back
+/// none: the tests only need the plugins' screens; a shell offers only what it
+/// backs).
+#[cfg(feature = "native-linked")]
+const FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[
+    paperpaw_native::metadata::Feature {
+        key: "uses.registry",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.library",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.network",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.wifi",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.power",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.install",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.firmware",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.bluetooth",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.storage",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.secrets",
+        revision: 1,
+    },
+];
+
 /// `build` for a test: the kernel built, with the linked plugins registered where the feature says.
 pub trait BuildNative {
     /// See [`build`].
@@ -125,7 +172,7 @@ mod linked {
                 entry_bytes: 32,
             },
             services: offered(),
-            features: paperpaw_app::NATIVE_FEATURES,
+            features: FEATURES,
         };
         // SAFETY: the offered services are the ones wired above, and the plugins are the app's
         // linked ones, as the helper's contract says.
