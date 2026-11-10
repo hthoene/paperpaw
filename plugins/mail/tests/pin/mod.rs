@@ -64,7 +64,11 @@ impl Pin {
     fn text(value: &impl Debug) -> String {
         let text = format!("{value:?}");
         if text.len() > LONG {
-            format!("#{}:{:016x}", text.len(), fnv(0xcbf2_9ce4_8422_2325, text.as_bytes()))
+            format!(
+                "#{}:{:016x}",
+                text.len(),
+                fnv(0xcbf2_9ce4_8422_2325, text.as_bytes())
+            )
         } else {
             text
         }

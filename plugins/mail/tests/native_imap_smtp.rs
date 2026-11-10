@@ -77,9 +77,12 @@ fn fixed_lines_are_read_the_same() {
     let mut pin = pin::Pin::new("fixed_lines_are_read_the_same");
     for line in LINES {
         let bytes = line.as_bytes();
-        pin.check(format!("{line:?}"), &(new_response(bytes)));
-        pin.check(format!("{line:?}"), &(format!("{:?}", new_imap::tokens(bytes).unwrap())));
-        pin.check(format!("{line:?}"), &(new_imap::literal_at_end(bytes)));
+        pin.check(format!("{line:?}"), new_response(bytes));
+        pin.check(
+            format!("{line:?}"),
+            format!("{:?}", new_imap::tokens(bytes).unwrap()),
+        );
+        pin.check(format!("{line:?}"), new_imap::literal_at_end(bytes));
     }
     pin.finish();
 }
@@ -155,9 +158,12 @@ fn random_lines_are_read_the_same() {
     let mut rng = Rng(3);
     for _ in 0..6000 {
         let line = random_line(&mut rng);
-        pin.fold(format!("{line:?}"), &(new_response(&line)));
-        pin.fold(format!("{line:?}"), &(format!("{:?}", new_imap::tokens(&line).unwrap())));
-        pin.fold("", &(new_imap::literal_at_end(&line)));
+        pin.fold(format!("{line:?}"), new_response(&line));
+        pin.fold(
+            format!("{line:?}"),
+            format!("{:?}", new_imap::tokens(&line).unwrap()),
+        );
+        pin.fold("", new_imap::literal_at_end(&line));
     }
     pin.finish();
 }
@@ -180,12 +186,12 @@ fn the_fetch_helpers_read_the_same() {
         "nothing",
         "INTERNALDATE",
     ] {
-        pin.check("", &(new_imap::fetch_number(&new, key)));
-        pin.check("", &(new_imap::fetch_text(&new, key)));
+        pin.check("", new_imap::fetch_number(&new, key));
+        pin.check("", new_imap::fetch_text(&new, key));
     }
     let flags = new_imap::fetch_flags(&new).unwrap();
     pin.check("", &(flags));
-    pin.check("", &(new_imap::flag_letters(&flags).unwrap()));
+    pin.check("", new_imap::flag_letters(&flags).unwrap());
     assert_eq!(new_imap::fetch_flags(&[]).unwrap(), Vec::<String>::new());
     pin.finish();
 }
@@ -200,8 +206,8 @@ fn quoting_and_mailbox_names_are_the_same() {
         "tab\tand\nnewline\u{7f}",
         "caf\u{e9} \u{4e16}\u{754c}",
     ] {
-        pin.fold("", &(new_imap::quoted(text).unwrap()));
-        pin.fold("", &(new_imap::quoted_secret(text).unwrap().as_str()));
+        pin.fold("", new_imap::quoted(text).unwrap());
+        pin.fold("", new_imap::quoted_secret(text).unwrap().as_str());
     }
     for name in [
         "INBOX",
@@ -220,7 +226,10 @@ fn quoting_and_mailbox_names_are_the_same() {
         "&AOQ,",
         "",
     ] {
-        pin.fold(format!("{name:?}"), &(new_imap::mailbox_display(name).unwrap()));
+        pin.fold(
+            format!("{name:?}"),
+            new_imap::mailbox_display(name).unwrap(),
+        );
     }
     let mut rng = Rng(8);
     let alphabet: Vec<char> = "&-,AOQPYw/+9z\u{e9}x ".chars().collect();
@@ -228,7 +237,10 @@ fn quoting_and_mailbox_names_are_the_same() {
         let name: String = (0..rng.below(14))
             .map(|_| alphabet[rng.below(alphabet.len())])
             .collect();
-        pin.fold(format!("{name:?}"), &(new_imap::mailbox_display(&name).unwrap()));
+        pin.fold(
+            format!("{name:?}"),
+            new_imap::mailbox_display(&name).unwrap(),
+        );
     }
     pin.finish();
 }
@@ -258,8 +270,8 @@ fn the_line_buffer_cuts_lines_and_literals_the_same() {
                 }
             }
             let n = rng.below(6);
-            pin.fold("", &(new.take(n).unwrap()));
-            pin.fold("", &((new.len(), new.is_empty())));
+            pin.fold("", new.take(n).unwrap());
+            pin.fold("", (new.len(), new.is_empty()));
         }
     }
     pin.finish();
@@ -365,7 +377,7 @@ fn a_password_is_quoted_into_a_buffer_that_hides_it() {
     assert_eq!(secret.as_str(), "\"pa\\\"ss\\\\word\"");
     assert!(!format!("{secret:?}").contains("pa"));
     let line = new_smtp::auth_plain("ada", "hunter2").unwrap();
-    pin.check("", &(line.as_str()));
+    pin.check("", line.as_str());
     assert!(!format!("{line:?}").contains("hunter2"));
     pin.finish();
 }
@@ -413,21 +425,21 @@ fn replies_are_put_together_the_same() {
         let mut new = new_smtp::ReplyParser::default();
         for line in *script {
             let b = new.line(line.as_bytes()).unwrap();
-            pin.check(format!("{line:?}"), &(new_reply(&b)));
+            pin.check(format!("{line:?}"), new_reply(&b));
             if let Some(b) = &b {
-                pin.check("", &(format!("{:?}", new_smtp::Extensions::of(b))));
-                pin.check("", &((b.is_ok(), b.is_temporary(), b.text())));
+                pin.check("", format!("{:?}", new_smtp::Extensions::of(b)));
+                pin.check("", (b.is_ok(), b.is_temporary(), b.text()));
             }
         }
     }
     // Too long a line, too long a reply, too many lines.
     let long = "x".repeat(1001);
     let mut new = new_smtp::ReplyParser::default();
-    pin.check("", &(new_reply(&new.line(long.as_bytes()).unwrap())));
+    pin.check("", new_reply(&new.line(long.as_bytes()).unwrap()));
     let mut new = new_smtp::ReplyParser::default();
     for _ in 0..200 {
         let line = "250-0123456789012345678901234567890123456789";
-        pin.check("", &(new_reply(&new.line(line.as_bytes()).unwrap())));
+        pin.check("", new_reply(&new.line(line.as_bytes()).unwrap()));
     }
     pin.finish();
 }
@@ -465,9 +477,9 @@ fn random_replies_are_put_together_the_same() {
                 line.push_str(PIECES[rng.below(PIECES.len())]);
             }
             let b = new.line(line.as_bytes()).unwrap();
-            pin.fold(format!("{line:?}"), &(new_reply(&b)));
+            pin.fold(format!("{line:?}"), new_reply(&b));
             if let Some(b) = &b {
-                pin.fold("", &(format!("{:?}", new_smtp::Extensions::of(b))));
+                pin.fold("", format!("{:?}", new_smtp::Extensions::of(b)));
             }
         }
     }
@@ -478,9 +490,9 @@ fn random_replies_are_put_together_the_same() {
 fn smtp_commands_and_data_are_the_same() {
     let mut pin = pin::Pin::new("smtp_commands_and_data_are_the_same");
     for address in ["a@b.c", "a@b.c>\r\nDATA", "<x y@z>", "caf\u{e9}@x.org", ""] {
-        pin.fold("", &(new_smtp::mail_from(address).unwrap()));
-        pin.fold("", &(new_smtp::rcpt_to(address).unwrap()));
-        pin.fold("", &(new_smtp::valid_address(address)));
+        pin.fold("", new_smtp::mail_from(address).unwrap());
+        pin.fold("", new_smtp::rcpt_to(address).unwrap());
+        pin.fold("", new_smtp::valid_address(address));
     }
     for message in [
         "a\n.b\n..c\n",
@@ -493,7 +505,7 @@ fn smtp_commands_and_data_are_the_same() {
         "\r",
         "\n\n.\n",
     ] {
-        pin.fold(format!("{message:?}"), &(new_smtp::data(message).unwrap()));
+        pin.fold(format!("{message:?}"), new_smtp::data(message).unwrap());
     }
     let mut rng = Rng(5);
     let alphabet: Vec<char> = ".\r\nab \u{e9}".chars().collect();
@@ -501,7 +513,7 @@ fn smtp_commands_and_data_are_the_same() {
         let message: String = (0..rng.below(20))
             .map(|_| alphabet[rng.below(alphabet.len())])
             .collect();
-        pin.fold(format!("{message:?}"), &(new_smtp::data(&message).unwrap()));
+        pin.fold(format!("{message:?}"), new_smtp::data(&message).unwrap());
     }
     pin.finish();
 }

@@ -42,18 +42,24 @@ fn same(pin: &mut pin::Pin, mail: &[u8], limit: usize) {
     let new_storage = MemoryStorage::new().with("raw.eml", mail);
     let new = new_render::render(&new_storage, "raw.eml", "out.txt", limit).unwrap();
     let shown = String::from_utf8_lossy(mail);
-    pin.fold(format!("text of {shown:?} (limit {limit})"), &(new_storage.get("out.txt")));
-    pin.fold(format!("{shown:?}"), &(pairs_new(new.from.as_slice())));
-    pin.fold(format!("{shown:?}"), &(pairs_new(new.to.as_slice())));
-    pin.fold(format!("{shown:?}"), &(pairs_new(new.cc.as_slice())));
-    pin.fold(format!("{shown:?}"), &(pairs_new(new.reply_to.as_slice())));
+    pin.fold(
+        format!("text of {shown:?} (limit {limit})"),
+        new_storage.get("out.txt"),
+    );
+    pin.fold(format!("{shown:?}"), pairs_new(new.from.as_slice()));
+    pin.fold(format!("{shown:?}"), pairs_new(new.to.as_slice()));
+    pin.fold(format!("{shown:?}"), pairs_new(new.cc.as_slice()));
+    pin.fold(format!("{shown:?}"), pairs_new(new.reply_to.as_slice()));
     pin.fold(format!("{shown:?}"), &(new.subject));
-    pin.fold(format!("{shown:?}"), &(new.date));
+    pin.fold(format!("{shown:?}"), new.date);
     pin.fold(format!("{shown:?}"), &(new.message_id));
     pin.fold(format!("{shown:?}"), &(new.references));
     pin.fold(format!("{shown:?}"), &(new.attachments));
-    pin.fold(format!("truncated {shown:?} (limit {limit})"), &(new.truncated));
-    pin.fold(format!("{shown:?} (limit {limit})"), &(new.text_len));
+    pin.fold(
+        format!("truncated {shown:?} (limit {limit})"),
+        new.truncated,
+    );
+    pin.fold(format!("{shown:?} (limit {limit})"), new.text_len);
 }
 
 const FIXED: &[&str] = &[
@@ -298,10 +304,10 @@ fn rows_are_written_and_read_the_same() {
     ];
     let raw = b"From: \"Ada, L\" <ada@x.org>\r\nSubject: Tab\there \xe4\r\nDate: Tue, 3 Nov 2026 10:00:00 +0100\r\nMessage-ID: <a@x>\r\n\r\n";
     let new = new_store::Row::from_headers(7, &flags, 55, 1234, raw).unwrap();
-    pin.check("", &(new.line().unwrap()));
-    pin.check("", &((new.seen(), new.flagged(), new.date, new.size)));
+    pin.check("", new.line().unwrap());
+    pin.check("", (new.seen(), new.flagged(), new.date, new.size));
     let none_new = new_store::Row::from_headers(1, &[], 9, 10, b"no headers").unwrap();
-    pin.check("none", &(none_new.line().unwrap()));
+    pin.check("none", none_new.line().unwrap());
     for line in [
         "7\tSF\t55\t1234\tAda\tada@x.org\tSubject\t<a@x>",
         "7\tS\t55\t1234\tAda\tada@x.org\tSubject",
@@ -311,7 +317,7 @@ fn rows_are_written_and_read_the_same() {
         "",
     ] {
         let new = new_store::Row::parse(line).unwrap();
-        pin.check(format!("{line:?}"), &(new.map(|r| r.line().unwrap())));
+        pin.check(format!("{line:?}"), new.map(|r| r.line().unwrap()));
     }
     pin.finish();
 }
@@ -332,10 +338,10 @@ fn the_index_is_written_and_read_the_same() {
         })
         .collect();
     new_store::write_index(&new_storage, "i.txt", &new_rows).unwrap();
-    pin.check("", &(new_storage.get("i.txt")));
+    pin.check("", new_storage.get("i.txt"));
     new_store::write_index(&new_storage, "i.txt", &new_rows[..3]).unwrap();
-    pin.check("", &(new_storage.get("i.txt")));
-    pin.check("", &(new_store::index_serial(&new_storage, "i.txt")));
+    pin.check("", new_storage.get("i.txt"));
+    pin.check("", new_store::index_serial(&new_storage, "i.txt"));
     assert_eq!(new_store::index_serial(&new_storage, "i.txt"), 2);
     let read_new: Vec<String> = new_store::read_index(&new_storage, "i.txt")
         .unwrap()
@@ -359,7 +365,7 @@ fn counts_and_folders_are_kept_the_same() {
     let mut pin = pin::Pin::new("counts_and_folders_are_kept_the_same");
     let storage = MemoryStorage::new().with("c.txt", "12\t3\t987654321012\t1700000000\n");
     let new = new_store::Counts::read(&storage, "c.txt").unwrap();
-    pin.check("", &(new.line().unwrap()));
+    pin.check("", new.line().unwrap());
     assert_eq!(new_store::Counts::read(&storage, "none.txt"), None);
     let broken = MemoryStorage::new().with("c.txt", "1\t2\n");
     assert_eq!(new_store::Counts::read(&broken, "c.txt"), None);
@@ -380,7 +386,7 @@ fn counts_and_folders_are_kept_the_same() {
     }
     let new_storage = MemoryStorage::new().with("f.txt", text);
     let mut new_folders = new_store::read_folders(&new_storage, "f.txt").unwrap();
-    pin.check("", &(new_folders.len()));
+    pin.check("", new_folders.len());
     new_store::sort_folders(&mut new_folders);
     let new_names: Vec<_> = new_folders
         .iter()
@@ -388,7 +394,7 @@ fn counts_and_folders_are_kept_the_same() {
         .collect();
     pin.check("", &(new_names));
     new_store::write_folders(&new_storage, "g.txt", &new_folders).unwrap();
-    pin.check("", &(new_storage.get("g.txt")));
+    pin.check("", new_storage.get("g.txt"));
     pin.finish();
 }
 
@@ -413,8 +419,8 @@ fn keys_and_fields_are_the_same() {
         assert!(new_store::folder_dir(2, name).unwrap().contains(&key));
     }
     assert_eq!(new_store::account_dir(2).unwrap(), "a2");
-    pin.check("", &(new_store::text_file(1, "INBOX", 42).unwrap()));
-    pin.check("", &(new_store::raw_file(1, "INBOX", 42).unwrap()));
+    pin.check("", new_store::text_file(1, "INBOX", 42).unwrap());
+    pin.check("", new_store::raw_file(1, "INBOX", 42).unwrap());
     assert_eq!(new_store::draft_file(3).unwrap(), "a3/draft.txt");
     assert_eq!(new_store::outbox_file(3).unwrap(), "a3/outbox.eml");
     // Unsent mail stays where interface 6 left it: the data folder (storage
@@ -442,7 +448,7 @@ fn keys_and_fields_are_the_same() {
         "caf\u{e9}\u{3000}",
         "",
     ] {
-        pin.check(format!("{text:?}"), &(new_store::field(text).unwrap()));
+        pin.check(format!("{text:?}"), new_store::field(text).unwrap());
     }
     pin.finish();
 }
@@ -456,19 +462,19 @@ fn a_letter_is_made_kept_and_read_the_same() {
     {
         let new_storage = MemoryStorage::new().with("raw.eml", mail.as_bytes());
         let new = new_store::make_letter(&new_storage, "raw.eml", "m1.txt").unwrap();
-        pin.check(format!("{mail:?}"), &(new_storage.get("m1.txt")));
-        pin.check(format!("{mail:?}"), &(new.header_text().unwrap()));
+        pin.check(format!("{mail:?}"), new_storage.get("m1.txt"));
+        pin.check(format!("{mail:?}"), new.header_text().unwrap());
         pin.check("", &(new.text));
-        pin.check("", &(new.truncated));
+        pin.check("", new.truncated);
         // The raw message and the scratch file are removed.
         assert!(new_storage.get("raw.eml").is_none());
         assert!(new_storage.get("m1.txt.tmp").is_none());
         let read_new = new_store::read_letter(&new_storage, "m1.txt")
             .unwrap()
             .unwrap();
-        pin.check(format!("read {mail:?}"), &(read_new.header_text().unwrap()));
-        pin.check("", &(&read_new.text));
-        pin.check("", &(&read_new.attachments));
+        pin.check(format!("read {mail:?}"), read_new.header_text().unwrap());
+        pin.check("", &read_new.text);
+        pin.check("", &read_new.attachments);
     }
     let storage = MemoryStorage::new();
     assert!(

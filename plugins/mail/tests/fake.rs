@@ -415,7 +415,10 @@ impl Fake {
             }
             Auth::LoginPass => {
                 self.auth = Auth::None;
-                let pw = paperpaw_plugin_mail::native_model::codec::base64_line(self.script.password.as_bytes()).unwrap();
+                let pw = paperpaw_plugin_mail::native_model::codec::base64_line(
+                    self.script.password.as_bytes(),
+                )
+                .unwrap();
                 self.say(if line == pw {
                     "235 ok\r\n"
                 } else {

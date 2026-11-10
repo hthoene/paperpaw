@@ -132,8 +132,9 @@ fn the_groups_are_the_page_of_each_account_inside_the_group() {
 
 #[test]
 fn the_screens_actions_menu_entry_and_icons_are_as_interface_6_registered_them() {
-    let mut pin =
-        pin::Pin::new("the_screens_actions_menu_entry_and_icons_are_as_interface_6_registered_them");
+    let mut pin = pin::Pin::new(
+        "the_screens_actions_menu_entry_and_icons_are_as_interface_6_registered_them",
+    );
     let (mut dscreens, mut dactions, mut dmenus, mut dicons) = (vec![], vec![], vec![], vec![]);
     let mut build = |batch: &[u8]| {
         for record in records_decode(batch).unwrap().iter() {

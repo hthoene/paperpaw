@@ -108,7 +108,7 @@ fn a_kept_draft_is_what_interface_6_kept_and_is_read_again() {
 fn the_lists_split_the_same() {
     let mut pin = pin::Pin::new("the_lists_split_the_same");
     for list in LISTS {
-        pin.check(format!("{list:?}"), &(new::split_list(list).unwrap()));
+        pin.check(format!("{list:?}"), new::split_list(list).unwrap());
     }
     pin.finish();
 }
@@ -121,7 +121,7 @@ fn drafts_are_sent_or_refused_for_the_reason_interface_6_gave() {
         let n = draft(&mut rng);
         pin.fold(
             format!("{:?} {:?} {:?}", n.from, n.to, n.cc),
-            &(refusal(n.check())),
+            refusal(n.check()),
         );
     }
     pin.finish();
@@ -134,7 +134,7 @@ fn the_message_made_is_the_one_interface_6_made() {
     for _ in 0..800 {
         let n = draft(&mut rng);
         let date = "Tue, 3 Nov 2026 09:15:00 +0000";
-        pin.fold(format!("{n:?}"), &(n.message(date, "42").unwrap()));
+        pin.fold(format!("{n:?}"), n.message(date, "42").unwrap());
     }
     pin.finish();
 }
@@ -196,8 +196,8 @@ fn a_reply_is_the_one_interface_6_made() {
         let new_letter = new_store::read_letter(&new_storage, "l").unwrap().unwrap();
         for all in [false, true] {
             let n = new::reply_to(&new_letter, "ada@example.org", all, "Jane wrote:").unwrap();
-            pin.check(format!("{text:?} all={all}"), &(n.to_text().unwrap()));
-            pin.check("from", &(&n.from));
+            pin.check(format!("{text:?} all={all}"), n.to_text().unwrap());
+            pin.check("from", &n.from);
         }
     }
     pin.finish();
@@ -230,7 +230,7 @@ fn dates_and_quotes_are_the_same() {
         i64::MAX / 4,
         i64::MIN / 4,
     ] {
-        pin.check(format!("{seconds}"), &(new::date_header(seconds).unwrap()));
+        pin.check(format!("{seconds}"), new::date_header(seconds).unwrap());
     }
     assert_eq!(
         new::date_header(1_793_693_700).unwrap(),
@@ -241,7 +241,7 @@ fn dates_and_quotes_are_the_same() {
         ("a\nb\nc", "", 2),
         ("", "x", 3),
     ] {
-        pin.check("", &(new::quote(text, intro, max).unwrap()));
+        pin.check("", new::quote(text, intro, max).unwrap());
     }
     pin.finish();
 }

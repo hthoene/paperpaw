@@ -371,7 +371,14 @@ fn a_hung_up_connection_and_the_stages_are_what_interface_6_did() {
         messages: vec![message(1, "")],
         ..Script::default()
     };
-    let run = pinned_imap(&mut pin, script.clone(), new::Security::Implicit, 1, true, "stages");
+    let run = pinned_imap(
+        &mut pin,
+        script.clone(),
+        new::Security::Implicit,
+        1,
+        true,
+        "stages",
+    );
     let stages: Vec<&str> = run
         .events
         .iter()
@@ -436,7 +443,9 @@ fn outgoing_parts() -> (String, Vec<String>, Vec<u8>) {
     draft.body = "Line\n.dot first\n".into();
     let to = draft.check().unwrap();
     let data = paperpaw_plugin_mail::native_model::smtp::data(
-        &draft.message("Tue, 3 Nov 2026 09:15:00 +0000", "1").unwrap(),
+        &draft
+            .message("Tue, 3 Nov 2026 09:15:00 +0000", "1")
+            .unwrap(),
     )
     .unwrap();
     (draft.from.clone(), to, data)
@@ -506,7 +515,12 @@ fn a_message_is_sent_as_interface_6_sent_it_in_pieces_of_any_size() {
                 chunk,
                 ..Script::default()
             };
-            let new = pinned_smtp(&mut pin, script, security, &format!("chunk {chunk} {security:?}"));
+            let new = pinned_smtp(
+                &mut pin,
+                script,
+                security,
+                &format!("chunk {chunk} {security:?}"),
+            );
             assert_eq!(new.events.last().map(String::as_str), Some("Done"));
             assert!(new.fake.smtp_got.is_some());
             assert!(!new.fake.sent_plain_password);
