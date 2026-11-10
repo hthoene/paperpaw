@@ -212,20 +212,24 @@ the interface-6 ones are used as they are (`update.leaves`, `update.leaves.downl
   without them, or wait until they are ready* (`update.leaves`, after the state's words) and the button reads *Update
   without them* (`update.install-without`; going back, the same again and an own build keep their words, and the
   sentence names the plugins); *Not now* is the wait. A foreign image is not asked (`Unsupported`). Errors of the
-  op-16 read, as Kernel ruled on `device.md` 5.1 (`native_leaves::read_all`, tested without the host):
-  `ERR_BUSY` (a check is still running) is waited for, not an answer: the file stays in the scan (the page shows
-  *Checking*) and is read again, op 6 then op 16, when the next check ends; it is not marked unfit and not given
-  up. `ERR_STATE` (a cursor of an earlier check) starts the read again at page 0 with `generation` 0, at most
-  twice, then the file is unfit. `ERR_NOT_FOUND`, `ERR_UNSUPPORTED` (a PaperPaw image should not get it) and any
+  op-16 read, as Kernel ruled on `device.md` 5.1 (`native_leaves::read_all`, tested without the host): op 6 (`check_file` result) and op 16 answer ONLY for the plugin's most recent firmware check, a newer
+  check replaces both results, and while a check runs op 16 answers `ERR_BUSY`. So one file at a time: `check_file`,
+  wait for its `install_done` (kind 3), read op 6, then op 16. If op 16 answers `ERR_BUSY`, or `ERR_NOT_FOUND` because a
+  newer check replaced the result, the file stays in the scan (the page shows *Checking*), the plugin waits for the
+  running check to end and then SUBMITS `check_file` AGAIN for that file and reads again; the old request is never
+  read again. The file is "cannot be installed" only when the re-submitted check itself refuses the image, or after
+  3 re-submits (then unfit; `native_leaves::Recheck`, tested without the host). `ERR_STATE` (a cursor of an earlier
+  check) starts the read again at page 0 with `generation` 0, at most twice, then the file is unfit.
+  `ERR_UNSUPPORTED` (a PaperPaw image should not get it) and any
   other error: the file is *not offered* (*This update cannot be installed*) rather than offered with plugins
   dropped without a word. `ERR_NO_MEMORY` keeps its retry path.
   **To confirm with Kernel:** the plugin calls op
   16 for every PaperPaw image, not only where `dev_check.flags` bit 5 is set, because the SDK's `FileCheck` has no
   accessor for bit 5 (an image that leaves nothing out answers no rows); one more service call per file.
   TODO: call op 16 only when `FileCheck::leaves_out()` (dev_check.flags bit 5, draft-36 carrier) says so, once it is on integration
-  Open (Port Reviewer 2, to settle with Kernel in device.md 5.1): after a `Busy` wait the plugin re-reads op 6 by the file's
-  old request; device.md keeps an op 6 result only until the plugin's next check, so it may answer NOT_FOUND and the
-  file then ends as unfit (safe, no recovery).
+  Settled (was Open, Port Reviewer 2): the rule above, that op 6 and op 16 answer only for the plugin's most recent
+  check and a stale read is answered by a re-submit, is Kernel's ruling; Kernel will add it to `device.md` 5.1
+  (todo 444).
 - **An update the server named, not yet downloaded.** The answer lists the crates it has built in (`plugins`); what
   is built in now (`core.device` `builtins`) and not among them is left out. The page names them, each with the
   server's reason where it says one (*not in the plugin library*, *not ready yet*; the `missing` lines),

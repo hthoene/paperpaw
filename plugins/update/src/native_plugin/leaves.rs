@@ -34,8 +34,9 @@ impl NativeUpdate {
     /// earlier check starts the read again (a few times, `native_leaves::read_all`).
     ///
     /// # Errors
-    /// [`Error::Busy`] while a check is still running (the caller asks again
-    /// when it has ended); else the host's refusal (no finished check, a foreign
+    /// [`Error::Busy`] while a check is still running or a newer check replaced
+    /// the result (`ERR_NOT_FOUND`; the caller waits for the running check and
+    /// submits the file's check again, never reads the old request again); else the host's refusal (no finished check, a foreign
     /// image, a cursor that stays stale), or [`Error::NoMemory`].
     pub(super) fn left_by_check(&mut self, host: &Host<'_>) -> Result<String, Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);

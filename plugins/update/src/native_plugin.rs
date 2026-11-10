@@ -17,6 +17,7 @@ use crate::{
         read_pair, reason,
     },
     native_check::{self, Evidence, Found, Image, Other, Signer},
+    native_leaves::{self, Recheck, Turn},
     native_online::{Offer, Trouble},
 };
 use alloc::{string::String, vec::Vec};
@@ -158,10 +159,13 @@ struct Scan {
     next: usize,
     /// Whether a newer update is offered when this ends (at start).
     offer: bool,
-    /// The device was still running a check when the list of what the image of
-    /// `next` leaves out was asked (op 16, `ERR_BUSY`): the file is read again
-    /// when a check ends, not offered and not given up before.
-    waiting: bool,
+    /// The re-submits of the check of `next`: when the list of what its image
+    /// leaves out was asked while a check was running (op 16, `ERR_BUSY`) or
+    /// after a newer check replaced the result (`ERR_NOT_FOUND`), the file waits
+    /// for the running check to end and its check is submitted again (op 6 and
+    /// op 16 answer only for the most recent check, so the old request is never
+    /// read again), not offered and not given up before.
+    recheck: Recheck,
 }
 
 /// How far the checks are.
@@ -451,7 +455,7 @@ impl NativeUpdate {
             found: Vec::new(),
             next: 0,
             offer,
-            waiting: false,
+            recheck: Recheck::default(),
         });
         self.advance(host)
     }
@@ -513,52 +517,65 @@ impl NativeUpdate {
         let wanted = u32::try_from(scan.next)
             .ok()
             .and_then(|next| CHECK_REQUEST.checked_add(next));
-        let Some(name) = scan.names.get(scan.next) else {
+        if scan.next >= scan.names.len() {
             return Ok(());
-        };
+        }
         let Some(request) = wanted.and_then(DeviceRequest::new) else {
             return Ok(());
         };
-        // A file that waits for a check still running is read again when any
-        // check ends; else only the end of its own check counts.
         let ours = done.request().map(DeviceRequest::get) == Some(request.get());
-        if !ours && !scan.waiting {
-            return Ok(());
-        }
-        let path = native_card::path(name)?;
-        let found = if scan.waiting || done.status().is_ok() {
-            self.read_check(host, request, &path)
-        } else {
-            Ok(Found::Unfit(match done.outcome() {
-                DeviceOutcome::Ok => DeviceOutcome::Other,
-                other => other,
-            }))
+        let turn = match self.scan.as_mut() {
+            Some(scan) => scan
+                .recheck
+                .ended(ours, done.status().is_ok(), done.outcome()),
+            None => return Ok(()),
         };
-        let step = match found {
-            // A check is still running: wait for the next one to end.
-            Err(Error::Busy) => {
-                if let Some(scan) = self.scan.as_mut() {
-                    scan.waiting = true;
+        let step = match turn {
+            Turn::Skip => return Ok(()),
+            // The running check that was waited for ended: the file's check
+            // goes out again, a new one.
+            Turn::Submit => self.advance(host),
+            Turn::Unfit(outcome) => self.found(host, Found::Unfit(outcome)),
+            Turn::Read => {
+                let Some(name) = self.scan.as_ref().and_then(|s| s.names.get(s.next)) else {
+                    return Ok(());
+                };
+                let path = native_card::path(name)?;
+                match self.read_check(host, request, &path) {
+                    Err(Error::Busy) => self.stale(host),
+                    Ok(found) => self.found(host, found),
+                    Err(error) => {
+                        self.scan = None;
+                        Err(error)
+                    }
                 }
-                return Ok(());
-            }
-            Ok(found) => {
-                if let Some(scan) = self.scan.as_mut() {
-                    scan.waiting = false;
-                    push(&mut scan.found, found)?;
-                    scan.next = scan.next.saturating_add(1);
-                }
-                self.advance(host)
-            }
-            Err(error) => {
-                self.scan = None;
-                Err(error)
             }
         };
         match step? {
             Step::Running => Ok(()),
             Step::Done(found, offer) => self.settle(host, found, offer),
         }
+    }
+
+    /// The file's result is not there for its request (`Busy`: op 16 answered `ERR_BUSY` or `ERR_NOT_FOUND`, a
+    /// check is running or replaced it): wait for the running check to end and
+    /// submit the file's check again; after a few times the file is unfit.
+    fn stale(&mut self, host: &Host<'_>) -> Result<Step, Error> {
+        let waits = self.scan.as_mut().is_some_and(|scan| scan.recheck.stale());
+        if waits {
+            return Ok(Step::Running);
+        }
+        self.found(host, Found::Unfit(DeviceOutcome::Other))
+    }
+
+    /// The file is settled: on to the next check, or the end of them all.
+    fn found(&mut self, host: &Host<'_>, found: Found) -> Result<Step, Error> {
+        if let Some(scan) = self.scan.as_mut() {
+            scan.recheck = Recheck::default();
+            push(&mut scan.found, found)?;
+            scan.next = scan.next.saturating_add(1);
+        }
+        self.advance(host)
     }
 
     /// Reads what the device found of the file `path` it has checked.
@@ -595,7 +612,7 @@ impl NativeUpdate {
     /// An image the device says leaves plugins out names them (its list is the
     /// last check's only, so it is read now). Where the list cannot be read the
     /// file is not offered: its plugins would go without a word. A check still
-    /// running (`Busy`) is waited for, not an answer.
+    /// running or one that replaced the result (`Busy`, `NotFound`) is `Busy`: not an answer.
     fn with_leaves(&mut self, host: &Host<'_>, found: Found) -> Result<Found, Error> {
         let Found::Image(mut image) = found else {
             return Ok(found);
@@ -606,7 +623,8 @@ impl NativeUpdate {
                 Ok(Found::Image(image))
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            Err(Error::Busy) => Err(Error::Busy),
+            // A check is running or a newer one replaced the result: stale.
+            Err(error) if native_leaves::is_stale(error) => Err(Error::Busy),
             Err(_) => Ok(Found::Unfit(DeviceOutcome::Other)),
         }
     }

@@ -7,5 +7,5 @@
   plugin is dropped without being named; an update that waits for plugins and is chosen anyway names
   everything that is gone after it. The *New* mark is back on Update in the settings while an update the
   server named is kept, and goes when it is downloaded or no longer newer. An update whose list of left-out plugins the
-  device cannot give yet (a check still running) waits for it, and one it cannot give at all is shown as one that cannot
+  device cannot give yet (a check still running, or replaced by a newer one) waits for the running check to end and is checked again, and one it cannot give at all is shown as one that cannot
   be installed, never offered without its plugins named.

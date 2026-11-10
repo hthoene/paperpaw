@@ -162,9 +162,91 @@ fn a_cursor_that_stays_stale_is_given_up_after_a_few_restarts() {
 
 #[test]
 fn the_other_refusals_are_returned_for_the_file_to_be_unfit() {
-    for error in [Error::NotFound, Error::Unsupported, Error::NoMemory] {
+    for error in [Error::Unsupported, Error::NoMemory] {
         let (ids, asked) = read(&[Err(error)]);
         assert_eq!(ids, Err(error));
         assert_eq!(asked, [0]);
     }
+}
+
+#[test]
+fn a_check_still_running_or_a_replaced_result_is_stale_and_nothing_else() {
+    assert!(is_stale(Error::Busy));
+    assert!(is_stale(Error::NotFound));
+    for error in [
+        Error::State,
+        Error::Unsupported,
+        Error::NoMemory,
+        Error::Invalid,
+    ] {
+        assert!(!is_stale(error));
+    }
+    // The read hands both on as they are, for the file's check to be submitted again.
+    for error in [Error::Busy, Error::NotFound] {
+        let (ids, asked) = read(&[Err(error)]);
+        assert_eq!(ids, Err(error));
+        assert_eq!(asked, [0]);
+    }
+}
+
+const OWN: bool = true;
+const OTHER: bool = false;
+
+#[test]
+fn busy_waits_for_the_running_check_then_the_same_file_is_checked_again() {
+    let mut file = Recheck::default();
+    // Op 16 answered Busy: wait; the end of a check that is not the file's own
+    // is the one waited for, and the answer is to submit, never to read the old request.
+    assert!(file.stale());
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
+    // The re-submitted check ends and is read.
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+    // Before a check ends there is nothing to do for a check of another request.
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Skip);
+}
+
+#[test]
+fn a_replaced_result_is_waited_for_and_submitted_again_like_a_busy_one() {
+    let mut file = Recheck::default();
+    // Op 16 answered NotFound after a newer check replaced the result.
+    assert!(is_stale(Error::NotFound));
+    assert!(file.stale());
+    // Even the end of the file's own request does not read the old result.
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Submit);
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+}
+
+#[test]
+fn a_file_that_stays_stale_is_unfit_after_a_few_submits() {
+    let mut file = Recheck::default();
+    for _ in 0..MOST_RESUBMITS {
+        assert!(file.stale());
+        assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Submit);
+        assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+    }
+    // The last re-submit was read and is stale again: no more waiting, the
+    // caller marks the file unfit.
+    assert!(!file.stale());
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Skip);
+}
+
+#[test]
+fn a_refusal_of_the_submitted_check_makes_the_file_unfit() {
+    let mut file = Recheck::default();
+    assert!(file.stale());
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
+    assert_eq!(
+        file.ended(OWN, false, DeviceOutcome::OtherChip),
+        Turn::Unfit(DeviceOutcome::OtherChip)
+    );
+    // A refusal that names no reason is `Other`, as for the first check.
+    assert_eq!(
+        Recheck::default().ended(OWN, false, DeviceOutcome::Ok),
+        Turn::Unfit(DeviceOutcome::Other)
+    );
+    // A refusal of a check that is not the file's own is not the file's.
+    assert_eq!(
+        Recheck::default().ended(OTHER, false, DeviceOutcome::Damaged),
+        Turn::Skip
+    );
 }

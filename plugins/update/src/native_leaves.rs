@@ -14,7 +14,7 @@
 //! `native_plugin/leaves.rs`).
 use crate::{native_online::Offer, native_waiting::CRATE_PREFIX};
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::Error;
+use paperpaw_sdk::native::{Error, device::DeviceOutcome};
 use paperpaw_ui_kit::{
     mem::push,
     text::{concat, copy},
@@ -30,6 +30,75 @@ pub const MOST_PAGES: usize = 16;
 /// (`ERR_STATE`, `docs/abi/device.md` 5.1) before the file counts as unfit.
 pub const MOST_RESTARTS: u8 = 2;
 
+/// Times the check of one file is submitted again after its result was gone or
+/// not there yet (`Busy`, `NotFound` of op 16) before the file counts as unfit.
+pub const MOST_RESUBMITS: u8 = 3;
+
+/// Whether the error of an op-16 read says that the result of the check is not
+/// there for this plugin's request: a check is running (`ERR_BUSY`) or a newer
+/// check replaced it (`ERR_NOT_FOUND`). Op 6 and op 16 answer only for the
+/// plugin's most recent firmware check (`docs/abi/device.md` 5.1), so the old
+/// request is never read again: the file's check is submitted again.
+#[must_use]
+pub const fn is_stale(error: Error) -> bool {
+    matches!(error, Error::Busy | Error::NotFound)
+}
+
+/// What the scan does when a check ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Turn {
+    /// Not the file's check and nothing is waited for.
+    Skip,
+    /// The file's check ended and the device accepted it: read op 6, then op 16.
+    Read,
+    /// The running check that was waited for ended: submit the file's check
+    /// again (`check_file` for the same file, a new check).
+    Submit,
+    /// The file's check was refused: the file cannot be installed.
+    Unfit(DeviceOutcome),
+}
+
+/// The re-submits of the check of one file (a new one for each file).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Recheck {
+    waiting: bool,
+    submits: u8,
+}
+
+impl Recheck {
+    /// The read of the file's result was stale ([`is_stale`]): `true` to wait
+    /// for the running check to end and then submit the check again, `false`
+    /// once that has been done [`MOST_RESUBMITS`] times (the file is unfit).
+    pub const fn stale(&mut self) -> bool {
+        if self.submits >= MOST_RESUBMITS {
+            return false;
+        }
+        self.waiting = true;
+        true
+    }
+
+    /// A check ended: `ours` when it is the file's own, `accepted` when the
+    /// device did not refuse it, `outcome` its verdict. A refusal of the
+    /// re-submitted check is the same as of the first: the file is unfit.
+    pub const fn ended(&mut self, ours: bool, accepted: bool, outcome: DeviceOutcome) -> Turn {
+        if self.waiting {
+            self.waiting = false;
+            self.submits = self.submits.saturating_add(1);
+            return Turn::Submit;
+        }
+        if !ours {
+            return Turn::Skip;
+        }
+        if accepted {
+            return Turn::Read;
+        }
+        Turn::Unfit(match outcome {
+            DeviceOutcome::Ok => DeviceOutcome::Other,
+            other => other,
+        })
+    }
+}
+
 /// Reads the device's list of what the checked image leaves out, page by page,
 /// into the ids it returns. `read` gets the cursor of the page (`start` for
 /// the first), appends the page's ids to the list it is given and answers the
@@ -37,11 +106,13 @@ pub const MOST_RESTARTS: u8 = 2;
 ///
 /// A cursor of an earlier check (`Error::State`) starts the read again at
 /// `start` with the list empty, at most [`MOST_RESTARTS`] times. A check still
-/// running (`Error::Busy`) is not an answer: it is returned for the caller to
-/// ask again once the check has ended, never as a list (the image must not be
-/// offered without knowing what it drops). Any other error is returned as it
-/// is: no finished check, a foreign image and the rest make the file unfit,
-/// where `Error::NoMemory` is retried as before.
+/// running (`Error::Busy`) or a result a newer check replaced
+/// (`Error::NotFound`, [`is_stale`]) is not an answer: it is returned for the
+/// caller to wait for the running check and submit the file's check again
+/// ([`Recheck`]), never as a list (the image must not be offered without
+/// knowing what it drops). Any other error is returned as it is: a foreign
+/// image and the rest make the file unfit, where `Error::NoMemory` is retried
+/// as before.
 ///
 /// # Errors
 /// What `read` answers, as above; [`Error::State`] once the restarts are spent.
