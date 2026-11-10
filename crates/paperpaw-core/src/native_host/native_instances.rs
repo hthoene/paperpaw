@@ -684,15 +684,16 @@ impl NativeInstances {
         failures
     }
 
-    /// A move was begun, if the count differs from the last one seen: the
-    /// back-off of the earlier steps does not hold it back.
-    pub(crate) fn moves_begun_seen(&self, begun: u32) -> bool {
-        if self.moves_begun.replace(begun) == begun {
-            return false;
+    /// The pump saw the count of begun moves: when it differs from the last
+    /// one, the back-off of earlier steps is dropped. It matters when no job
+    /// is open (a move is refused as busy while one is, and a refused step
+    /// keeps its job open): a journal that could not be read at the start, a
+    /// job ended by the failure.
+    pub(crate) fn moves_begun_seen(&self, begun: u32) {
+        if self.moves_begun.replace(begun) != begun {
+            self.moves_failures.set(0);
+            self.moves_retry.set(None);
         }
-        self.moves_failures.set(0);
-        self.moves_retry.set(None);
-        true
     }
 
     /// A step was not refused: the back-off starts again.
