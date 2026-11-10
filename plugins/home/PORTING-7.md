@@ -223,8 +223,12 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   composition, the text rows, a page turn) is a case of the activation list (`home-add`, ignored
   until H1 gives the screen a stack and slot 35 is wired). One cell is silently left without its
   text row where the bookkeeping of the cells that failed cannot grow (`Gallery::compose`): the
-  rest of the page still shows, nothing panics. The draw path's stack frames are checked against
-  the X4 budget with the plugin build (`tools/plugin-files/build.sh x4`, see the PR).
+  rest of the page still shows, nothing panics. The 2,048 B frame limit of the draw path
+  (`paint_with`, `paint_rows`, `gallery_input` hold a style, a header page and a few small
+  arrays) is **not measured**: home is not in `tools/plugin-files/plugins.txt` yet (no X4 file until
+  the store build moves to interface 7), so no CI step scans its frames and there is no local ELF.
+  It is a gate of the activation list; the stage's `Made`, `Gallery` and `Scene` are small, the
+  buffers are heap (`buffer`), and the largest local arrays are 20 to 128 bytes.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
   the key.
 - At a show the focus is drawn only if `home.focus-at-once` is on **and** the last input was by buttons
