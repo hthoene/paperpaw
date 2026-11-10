@@ -7,6 +7,7 @@ extern crate std;
 use super::tests::{HEAP_LIVE, Heap, NORMAL, fake, finish, frame, reset};
 use super::*;
 use crate::native_host::frame_owner;
+use core::any::TypeId;
 use paperpaw_native::host_glue::{
     ERR_INVALID, OK, read_heap_abort, read_heap_alloc, read_heap_dealloc, read_heap_realloc,
 };
@@ -71,7 +72,7 @@ fn every_entry_of_a_registered_plugin_runs_it_as_the_frame_owner() {
     );
     assert_eq!(frame_owner::owner(), None, "back after an error return");
     // Nested: another plugin's frame is the previous owner, and is back.
-    frame_owner::within(99, ptr::null(), ptr::null(), || {
+    frame_owner::within(99, ptr::null(), TypeId::of::<()>(), || {
         assert_eq!(
             dispatch_registration(&batch, 0, &depth, Invocation::Event(&[1, 2, 3])),
             Ok(OK)
@@ -207,7 +208,7 @@ fn a_table_reads_only_the_context_of_a_frame_pushed_for_it() {
         }
     });
     // A frame of no table (a bug) gives the entries nothing either.
-    frame_owner::within(1, ptr::null(), ptr::null(), || {
+    frame_owner::within(1, ptr::null(), TypeId::of::<()>(), || {
         // SAFETY: as above.
         assert!(unsafe { (heap.alloc.unwrap())(16, 8) }.is_null());
     });

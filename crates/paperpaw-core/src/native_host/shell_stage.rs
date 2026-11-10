@@ -17,7 +17,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
     dead_code,
     reason = "stage registry and frozen-membership broker follow this hook"
 )]
-pub(crate) fn dispatch_stage<S, M>(
+pub(crate) fn dispatch_stage<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
