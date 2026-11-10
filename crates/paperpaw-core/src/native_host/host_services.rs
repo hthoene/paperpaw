@@ -555,7 +555,6 @@ impl HostServices {
         self.sockets.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
         let owners = self.owners()?;
@@ -569,7 +568,6 @@ impl HostServices {
         self.work.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
     /// Wire `core.secrets` once.
     pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
         self.secrets.set(secrets).map_err(|_| ERR_STATE)
