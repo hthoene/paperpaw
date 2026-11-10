@@ -327,3 +327,36 @@ fn every_wired_service_is_told_an_owner_started() {
     assert_eq!(first.started.borrow().as_slice(), [7]);
     assert_eq!(second.started.borrow().as_slice(), [7]);
 }
+
+#[test]
+fn the_buffer_kept_is_small_and_a_larger_event_has_it_made_for_the_pass() {
+    let f = fixture(1);
+    let service = Service::default();
+    queue(&service, f.keys[0], &[1]);
+    assert!(!run(&f, &service));
+    // Idle: 256 bytes, not the 1,280 of the largest event.
+    assert_eq!(f.instances.service_buffer().borrow().len(), EVENT_SMALL);
+    // An event of 1,000 bytes: the buffer is made larger for the pass, the
+    // event is delivered whole, and the room is given back with the pass.
+    service.queue.borrow_mut().push((f.keys[0], vec![7; 1_000]));
+    assert!(!run(&f, &service));
+    assert_eq!(f.seen[0].borrow().last().unwrap().len(), 1_000);
+    assert_eq!(f.instances.service_buffer().borrow().len(), EVENT_SMALL);
+    assert!(f.instances.service_buffer().borrow().capacity() < EVENT_BUFFER);
+}
+
+#[test]
+fn a_refused_larger_buffer_leaves_the_event_waiting_for_the_retry_time() {
+    let f = fixture(1);
+    let service = Service::default();
+    queue(&service, f.keys[0], &[1]);
+    assert!(!run(&f, &service));
+    service.queue.borrow_mut().push((f.keys[0], vec![7; 1_000]));
+    crate::native_host::net_service::fail_nth(1);
+    assert!(!run_at(&f, &service, 5_000), "no pass is asked for at once");
+    crate::native_host::net_service::fail_nth(0);
+    assert_eq!(f.instances.service_retry(), Some(5_000 + RETRY_MS));
+    assert_eq!(service.queue.borrow().len(), 1, "the event is not lost");
+    assert!(!run_at(&f, &service, 5_000 + RETRY_MS));
+    assert_eq!(f.seen[0].borrow().last().unwrap().len(), 1_000);
+}

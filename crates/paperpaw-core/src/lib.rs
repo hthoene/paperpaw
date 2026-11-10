@@ -434,6 +434,9 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
+        // The shell hosted its native plugins before this call: what their
+        // admission kept in reserve is given back.
+        self.native_hosted();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
