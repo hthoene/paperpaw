@@ -108,8 +108,9 @@ impl ImageRoots for Roots<'_> {
         let excluded = match root {
             // The host's own folder of received files.
             0 => first.eq_ignore_ascii_case(".received"),
-            // The card's `plugins` and `.paperpaw` (the files service's rule).
-            1 => first.eq_ignore_ascii_case("plugins") || first.eq_ignore_ascii_case(".paperpaw"),
+            // The card's `plugins`, `.paperpaw` and `paperpaw.ini` (the files
+            // service's rule).
+            1 => super::owner_paths::protected_first(first),
             _ => return Err(ERR_UNSUPPORTED),
         } || self
             .hosts
@@ -270,6 +271,9 @@ impl crate::Kernel {
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_image_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();

@@ -38,6 +38,9 @@ pub(crate) struct PolicyChange {
     pub(crate) instance: u32,
     /// The bits it ends with (`guards`, `secret`, `holds_edges`).
     pub(crate) flags: u32,
+    /// Not a policy: `command.screen_ready` (1557) for the instance, which
+    /// `flags` then does not read.
+    pub(crate) ready: bool,
 }
 
 /// The most bytes of an input name (`command.raise_input.input`).
@@ -60,6 +63,7 @@ pub(super) fn is_nav(command: &WireCommand<'_>) -> bool {
             | WireCommand::ShowHints {}
             | WireCommand::RaiseInput { .. }
             | WireCommand::ScreenPolicy { .. }
+            | WireCommand::ScreenReady {}
     )
 }
 
@@ -146,6 +150,8 @@ impl CommandStage<'_> {
             WireCommand::ScreenPolicy { instance, flags } => {
                 self.policy_change(&nav, instance, flags).map(|_| 0)
             }
+            // The submitter's own top instance, else `ERR_STATE`.
+            WireCommand::ScreenReady {} => self.own_top().map(|_| 0),
             _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
         }
     }
@@ -168,14 +174,24 @@ impl CommandStage<'_> {
             instance
         };
         ui_guard::policy_allowed(nav.rows, nav.owner, instance, flags & POLICY_GUARDS != 0)?;
-        Ok(PolicyChange { instance, flags })
+        Ok(PolicyChange {
+            instance,
+            flags,
+            ready: false,
+        })
     }
 
     /// Makes room for the policy changes of `batch`.
+    #[inline(never)]
     pub(super) fn reserve_policies(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch
             .iter()
-            .filter(|command| matches!(command, WireCommand::ScreenPolicy { .. }))
+            .filter(|command| {
+                matches!(
+                    command,
+                    WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+                )
+            })
             .count();
         self.staged_policies
             .try_reserve(count)
@@ -183,12 +199,20 @@ impl CommandStage<'_> {
     }
 
     /// Stages the checked changes of a batch (room was reserved).
+    #[inline(never)]
     pub(super) fn stage_policy(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
-        let WireCommand::ScreenPolicy { instance, flags } = *command else {
-            return Ok(());
-        };
         let nav = self.nav()?;
-        let change = self.policy_change(&nav, instance, flags)?;
+        let change = match *command {
+            WireCommand::ScreenPolicy { instance, flags } => {
+                self.policy_change(&nav, instance, flags)?
+            }
+            WireCommand::ScreenReady {} => PolicyChange {
+                instance: self.own_top()?.serial(),
+                flags: 0,
+                ready: true,
+            },
+            _ => return Ok(()),
+        };
         self.staged_policies.push(change);
         Ok(())
     }

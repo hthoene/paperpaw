@@ -73,6 +73,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
+            log: self.host.log,
             ui: self.identity.ui_services(),
         }
     }
@@ -120,6 +121,56 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         }
         result
     }
+    /// A screen's input or event callback with its command stage: what it
+    /// staged waits in the screen queue for the kernel when it returned `0`
+    /// (`1` too for input), and is dropped with the stage for any other result.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one callback's whole description"
+    )]
+    fn invoke_staged(
+        &self,
+        queue: &super::screen_stage::ScreenStage,
+        inputs: super::screen_stage::StageInputs,
+        token: u32,
+        env: &Env<'_>,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        invocation: shell::TokenInvocation<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        // Nothing is called while the queue is full: the callback would stage
+        // what could not wait.
+        if !queue.has_room() {
+            return Err(host_glue::ERR_BUSY);
+        }
+        let owner = paperpaw_sdk::Id::try_parse(self.instance.host().owner().context().plugin_id())
+            .map_err(|error| match error {
+                paperpaw_sdk::IdError::NoMemory => host_glue::ERR_NO_MEMORY,
+                _ => host_glue::ERR_INVALID,
+            })?;
+        let directory = self.host.upgrade_directory()?;
+        let owner_key = self.identity.owner();
+        let mut stage = super::screen_stage::build_stage(super::screen_stage::StageParts {
+            owner: &owner,
+            owner_key,
+            env,
+            screen: instance,
+            hop: 0,
+            inputs,
+            stack_rows: &self.host.stack_rows,
+            ui: self.identity.ui_services(),
+            directory: directory.as_ref(),
+        });
+        let result = self.invoke(token, env, instance, invocation, Some(&mut stage));
+        if matches!(result, Ok(0)) || (input && matches!(result, Ok(1))) {
+            let staged = super::screen_stage::staged_of(stage, owner_key);
+            if !staged.is_empty() {
+                queue.put(staged)?;
+            }
+        }
+        result
+    }
+
     /// A host service's event for the callback registered for its tag, with
     /// the command stage of that callback where the caller has one.
     fn service_call(
@@ -173,7 +224,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
-        shell::dispatch_token_draw(
+        let result = shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
@@ -181,7 +232,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             frame,
             canvas,
         )
-        .map_err(status)
+        .map_err(status);
+        if matches!(result, Ok(0)) {
+            self.identity.mark_drew();
+        }
+        result
     }
 }
 
@@ -220,7 +275,19 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         } else {
             shell::TokenInvocation::Event(bytes)
         };
-        self.invoke(token, env, instance, invocation, None)
+        // Inside a screen call of the kernel the callback gets its command
+        // stage; anywhere else (a fixture without a kernel) there is none to
+        // apply what it would stage.
+        match self
+            .identity
+            .screen_stage()
+            .and_then(|queue| queue.inputs().map(|inputs| (queue, inputs)))
+        {
+            Some((queue, inputs)) => {
+                self.invoke_staged(queue, inputs, token, env, instance, invocation, input)
+            }
+            None => self.invoke(token, env, instance, invocation, None),
+        }
     }
     fn screen_draw(
         &self,
@@ -283,7 +350,9 @@ fn status(error: shell::Error) -> i32 {
         shell::Error::Allocation | shell::Error::Lifecycle(Error::Memory) => {
             host_glue::ERR_NO_MEMORY
         }
-        shell::Error::Lifecycle(Error::Busy | Error::Depth) => host_glue::ERR_BUSY,
+        shell::Error::Lifecycle(Error::Busy | Error::Depth) | shell::Error::Refused => {
+            host_glue::ERR_BUSY
+        }
         shell::Error::Lifecycle(Error::Capacity) => host_glue::ERR_NO_SPACE,
         shell::Error::Lifecycle(Error::State) | shell::Error::Attempt => host_glue::ERR_STATE,
         _ => host_glue::ERR_INVALID,
@@ -318,6 +387,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
+    }
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Input(bytes),
+            Some(stage),
+        )
     }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();

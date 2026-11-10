@@ -102,7 +102,7 @@ fn ask(fake: &Rc<Fake>, record: Ask<'_>) -> Result<Vec<u8>, i32> {
     let env = kernel.shared.env(Instant(0));
     let host: Rc<dyn LookupHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
-    hosts.wire_lookup(host).unwrap();
+    hosts.wire_lookup(host, Default::default()).unwrap();
     let view = View { env: &env, hosts };
     let mut out = std::vec![0; op.max_reply];
     let length = view.run(op, &input[..used], &mut out)?;
