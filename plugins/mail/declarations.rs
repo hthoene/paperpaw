@@ -387,11 +387,10 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.group(GroupDecl::new(widget.name, widget.title))?;
         let declared = WidgetDecl::new(widget.name, widget.title, "core.widgets.personal", token)
             .map_err(|_| DeclareError::TooLong("widget"))?;
-        d.widget(
-            declared
-                .previews(&group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
+        d.widget(declared)?;
         let look = shared_look(widget.align);
         declare_all(
             d,
