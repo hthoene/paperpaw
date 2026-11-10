@@ -421,7 +421,7 @@ impl NativeMail {
             .open(Open::screen("mail.compose")?.handover(handover))
     }
 
-    fn open_folder(&self, host: &Host<'_>, account: u8, raw: &str) -> Result<(), Error> {
+    pub(crate) fn open_folder(&self, host: &Host<'_>, account: u8, raw: &str) -> Result<(), Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let number = text::format(format_args!("{account}"))?;
         let params = [Param::new(ACCOUNT, &number)?, Param::new(FOLDER, raw)?];

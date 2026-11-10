@@ -95,6 +95,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "mail"
+path = "src/bin/mail.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "menu"
 path = "src/bin/menu.rs"
 test = false
@@ -283,6 +289,7 @@ paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["nativ
 paperpaw-plugin-joplin = { path = "../../plugins/joplin", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
+paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
 paperpaw-plugin-menu-editor = { path = "../../plugins/menu-editor", features = ["native-entry"] }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }

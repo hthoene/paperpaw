@@ -206,6 +206,7 @@ dependencies = [
  "paperpaw-plugin-koreader",
  "paperpaw-plugin-kosync",
  "paperpaw-plugin-lock",
+ "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-menu-editor",
  "paperpaw-plugin-notes-overview",
@@ -317,6 +318,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-mail"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
