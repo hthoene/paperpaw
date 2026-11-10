@@ -470,10 +470,8 @@ fn walks() -> Vec<(String, Vec<Step>)> {
             vec![reader(), Run(Id::new_static("reader.quick-settings"))],
         ),
         ("a text book", vec![Book(TXT)]),
-        (
-            "a book with the words looked up marked",
-            vec![Set("vocabulary.mark", "on"), reader()],
-        ),
+        // The marked-words scenario returns with `reader.decorations@1`
+        // (vocabulary PORTING-7, BLOCKED).
         (
             "the next chapter, its page in the status line",
             vec![

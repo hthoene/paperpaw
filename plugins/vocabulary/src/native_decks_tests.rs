@@ -127,12 +127,13 @@ fn a_row_opens_its_screen_and_a_deck_is_named() {
 }
 
 #[test]
-fn the_screen_ids_are_those_of_the_interface_6_screens() {
-    assert_eq!(SCREEN, crate::decks::SCREEN.as_str());
-    assert_eq!(REVIEW, crate::review::SCREEN.as_str());
-    assert_eq!(DECK, crate::review::DECK);
-    assert_eq!(PHONE, crate::phone::SCREEN.as_str());
-    assert_eq!(SD_MENU, crate::sdmenu::SCREEN.as_str());
+fn the_screen_ids_are_those_of_interface_6() {
+    // The ids Beta 3 had (and other plugins and stored layouts name).
+    assert_eq!(SCREEN, "vocabulary.cards");
+    assert_eq!(REVIEW, "vocabulary.review");
+    assert_eq!(DECK, "deck");
+    assert_eq!(PHONE, "vocabulary.phone");
+    assert_eq!(SD_MENU, "vocabulary.sd-menu");
 }
 
 #[test]

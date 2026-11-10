@@ -148,7 +148,6 @@ dependencies = [
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-read-later-cloud",
- "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
 ]
@@ -231,16 +230,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-vocabulary"
-version = "1.1.5"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-sqlite",
- "paperpaw-ui-kit",
- "paperpaw-zip",
-]
-
-[[package]]
 name = "paperpaw-plugin-widgets"
 version = "1.0.9"
 dependencies = [
@@ -280,13 +269,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-sort"
 version = "0.6.0-beta.3"
-
-[[package]]
-name = "paperpaw-sqlite"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-platform",
-]
 
 [[package]]
 name = "paperpaw-table"

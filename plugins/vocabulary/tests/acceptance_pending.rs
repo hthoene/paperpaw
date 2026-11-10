@@ -1,5 +1,5 @@
-//! What the interface-6 integration tests (`collecting.rs`, `cards.rs`, `widgets.rs`) prove
-//! with a whole kernel and the plugin in it. The words' and the cards' data layers are
+//! What the interface-6 integration tests (`collecting.rs`, `cards.rs`, `widgets.rs`, removed with the
+//! interface-6 plugin) proved with a whole kernel and the plugin in it. The words' and the cards' data layers are
 //! tested in `src/store.rs`, `src/store/format_tests.rs`, `src/lines.rs`, `src/files.rs` and
 //! `src/alloc_refusal_tests.rs`; these need host services or ported parts that are not there
 //! yet and stay ignored. Each names the missing piece; none passes by itself.

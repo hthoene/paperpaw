@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 14] = [
+pub const STORE_PLUGINS: [&str; 13] = [
     "aids",
     "browser",
     "calibre",
@@ -91,7 +91,6 @@ pub const STORE_PLUGINS: [&str; 14] = [
     "notes-vault",
     "picture-home",
     "read-later-cloud",
-    "vocabulary",
     "widgets",
 ];
 
@@ -164,7 +163,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "store",
     "transfer",
     "update",
-    "vocabulary",
     "wifi",
 );
 
@@ -244,7 +242,6 @@ pub fn install_with(
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
-        b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
     #[cfg(feature = "store-plugins")]
