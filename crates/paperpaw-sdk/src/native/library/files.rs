@@ -294,6 +294,54 @@ impl Library {
         }
         Ok(DeleteReport(page))
     }
+    /// Move a book to another path in the library (op 11; the plugin needs
+    /// `uses.storage` besides `uses.library`). The file and everything kept for
+    /// it (position, annotations, fields, plugins' book data) follow, each through
+    /// the card's journalled move; the book's key changes. With `replace` an
+    /// existing `to` is replaced. `from` and `to` are complete card paths of the
+    /// library root. `input` is 2,048 bytes and `out` 4,096.
+    ///
+    /// # Errors
+    /// Invalid for an empty path or one with a control character, or a malformed
+    /// reply; NoSpace for a path over 512 bytes (nothing is sent in both cases);
+    /// `State` for a `to` that exists without `replace`; `Denied` for a path in
+    /// `plugins/` or `.paperpaw/`; `Busy` while the host uses a path or a move job
+    /// runs; otherwise the host's refusals. A refusal changes nothing.
+    pub fn move_to(
+        &self,
+        host: &Host<'_>,
+        from: &str,
+        to: &str,
+        replace: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        if from.len() > wire::SERVICE_LIB_MOVE_FROM_MAX_BYTES
+            || to.len() > wire::SERVICE_LIB_MOVE_TO_MAX_BYTES
+        {
+            return Err(Error::NoSpace);
+        }
+        if [from, to]
+            .iter()
+            .any(|p| p.is_empty() || p.chars().any(char::is_control))
+        {
+            return Err(Error::Invalid);
+        }
+        let record = wire::ServiceLibMove {
+            from,
+            to,
+            flags: u32::from(replace),
+        };
+        let n = self.call(host, schema::OP_MOVE, &[&record], input, out)?;
+        let result = one(out.get(..n).ok_or(Error::Invalid)?)?
+            .decode::<wire::ServiceLibResult<'_>>()
+            .map_err(|_| Error::Invalid)?;
+        if result.status == 0 {
+            Ok(())
+        } else {
+            Err(Error::from_status(result.status))
+        }
+    }
     /// Put a downloaded file into the library (op 12) and catalogue it. The file
     /// moves where root 0 and the library share a card, else it is copied and the
     /// source removed. Returns the book's path in the library (the path taken

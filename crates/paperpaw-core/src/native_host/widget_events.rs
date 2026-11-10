@@ -31,7 +31,17 @@ const RECORD_BYTES: usize = 64;
 impl crate::Kernel {
     /// Tells the makers of the widget instances said to have changed, a few a
     /// pass, outside any callback. `true` when marks wait (another pass).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_widget_pump(&mut self) -> bool {
+        // The taps first (`widget_inputs`), then the changes.
+        let inputs = self.deliver_widget_inputs();
+        self.widget_changed_pump() || inputs
+    }
+
+    /// The marks of changed instances, told to their makers.
+    fn widget_changed_pump(&mut self) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ui) = instances.ui_services() else {
             return false;

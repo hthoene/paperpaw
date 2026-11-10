@@ -802,6 +802,13 @@ impl<'a> RegistryWidget<'a> {
         let [_, _, columns, rows] = self.row.cells.to_le_bytes();
         (columns.max(1), rows.max(1))
     }
+    /// The settings group it previews (`widget.spec.previews`), empty for none.
+    /// What the registry reports: a settings page lists the widgets whose
+    /// `previews` is its group (see `Registry::widgets_previewing`).
+    #[must_use]
+    pub fn previews(&self) -> &'a str {
+        self.row.previews
+    }
     /// It stays as wide as it is high (`flags` bit 2).
     #[must_use]
     pub fn square(&self) -> bool {

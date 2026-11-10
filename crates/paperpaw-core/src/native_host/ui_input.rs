@@ -383,6 +383,7 @@ impl InputFilters {
     /// Sends `input` through the filters (`filters` in registration order).
     /// `Err` only when the input is not a key, pointer or gesture record
     /// (`ERR_INVALID`): the router passes it on unfiltered.
+    #[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
     pub(crate) fn dispatch(
         &mut self,
         runner: &mut dyn FilterRunner,
@@ -482,6 +483,7 @@ impl InputFilters {
     /// ignored, the others end it. The input is taken either way. A failed call,
     /// or a subscription no longer there, releases the capture to the up or
     /// release; a released capture is swallowed without a call.
+    #[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
     fn captured_rest(
         &mut self,
         at: usize,
@@ -599,6 +601,7 @@ enum Verdict {
 }
 
 /// One filter call and the verdict it answers; `None` for a failed callback or
+#[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
 /// a reply that is not exactly one `filter.verdict`.
 fn ask(
     runner: &mut dyn FilterRunner,

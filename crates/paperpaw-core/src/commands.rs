@@ -451,6 +451,9 @@ impl Kernel {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
                 if self.usb_drive {
                     self.free_count.pause_for_usb();
+                    // The card goes to the computer: nothing reads it for a
+                    // check or a write any more.
+                    self.firmware_suspend();
                 }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
@@ -593,6 +596,8 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
+        // (The firmware confirmation's answer is not an event anyone can
+        // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;

@@ -116,6 +116,7 @@ impl<'a> CommandStage<'a> {
     /// The hand-overs the batch's opens name: each made by this callback,
     /// committed, and named once (`ERR_INVALID`; a begun text not committed is
     /// `ERR_STATE`). The store changes nothing here.
+    #[inline(never)]
     pub(super) fn validate_handovers(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let (ids, count) = named(batch);
         let ids = &ids[..count];
@@ -145,6 +146,7 @@ impl<'a> CommandStage<'a> {
 
     /// After every reservation: the batch's hand-overs are claimed, all or
     /// none. The claims wait in the stage until the drain.
+    #[inline(never)]
     pub(super) fn claim_handovers(
         &mut self,
         batch: &CommandBatch<'_>,
@@ -157,6 +159,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Reserve what recording the batch's opens takes, so recording cannot fail.
+    #[inline(never)]
     pub(super) fn reserve_opens(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let opens = batch
             .iter()
@@ -191,6 +194,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Records an open staged at `index`.
+    #[inline(never)]
     pub(super) fn record_open(
         &mut self,
         index: usize,

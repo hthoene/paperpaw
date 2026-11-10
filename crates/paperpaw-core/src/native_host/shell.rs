@@ -1,19 +1,17 @@
-//! The shell's side of one interface-7 plugin, shared by the desktop emulator
-//! and the X4 firmware: the owner with its host table, the transactional
-//! `make`, the plugin's output, and the scoped dispatch of its callbacks.
+//! The shell's side of one interface-7 plugin, shared by the desktop emulator and the X4 firmware:
+//! the owner with its host table, the transactional `make`, the plugin's output, and the scoped
+//! dispatch of its callbacks.
 //!
 //! What differs between shells is only small and stays in the shell: the
-//! [`Services`](paperpaw_native::host_glue::Services) (heap, clock), the *module* `M` the owner keeps alive (a
-//! loaded library on the desktop, the placed image on the X4), the `make`
-//! function, and the read-only range of the image. Everything that touches
-//! the plugin's table and the lifetime rules is here once, so it is reviewed
-//! and tested once.
+//! [`Services`](paperpaw_native::host_glue::Services) (heap, clock), the *module* `M` the owner
+//! keeps alive (a loaded library on the desktop, the placed image on the X4), the `make` function,
+//! and the read-only range of the image. Everything that touches the plugin's table and the
+//! lifetime rules is here once, so it is reviewed and tested once.
 //!
-//! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives
-//! every batch and lease; `make` runs inside the registration scope and its
-//! records stay non-dispatchable until the output validates and commits; the
-//! plugin's destructor runs exactly once, while the context, services and
-//! module are alive; Env and Canvas are lent for one synchronous callback.
+//! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives every batch and lease;
+//! `make` runs inside the registration scope and its records stay non-dispatchable until the output
+//! validates and commits; the plugin's destructor runs exactly once, while the context, services
+//! and module are alive; Env and Canvas are lent for one synchronous callback.
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -53,6 +51,8 @@ pub enum Error {
     Factory(i32),
     /// The plugin's output table is not one this host accepts.
     Plugin,
+    /// The shell refused the call (`Hooks::call_begin`): the plugin was not run.
+    Refused,
 }
 
 impl From<super::Error> for Error {
@@ -237,13 +237,13 @@ pub const fn host_table<S: Services>() -> PpHost {
     table.canvas_fill_round = canvas_fill_round::<S>;
     table.canvas_stroke_round = canvas_stroke_round::<S>;
     table.canvas_clip = canvas_clip::<S>;
-    table.storage_size = storage_size::<S>;
-    table.storage_read_at = storage_read_at::<S>;
-    table.storage_write = storage_write::<S>;
-    table.storage_append = storage_append::<S>;
-    table.storage_rename = storage_rename::<S>;
-    table.storage_remove = storage_remove::<S>;
-    table.storage_sync = storage_sync::<S>;
+    table.storage_size = storage_externs::storage_size::<S>;
+    table.storage_read_at = storage_externs::storage_read_at::<S>;
+    table.storage_write = storage_externs::storage_write::<S>;
+    table.storage_append = storage_externs::storage_append::<S>;
+    table.storage_rename = storage_externs::storage_rename::<S>;
+    table.storage_remove = storage_externs::storage_remove::<S>;
+    table.storage_sync = storage_externs::storage_sync::<S>;
     table.service_open = service_open::<S>;
     table.service_call = service_call::<S>;
     table.services_query = services_query::<S>;
@@ -878,6 +878,8 @@ fn invoke_registration<S>(
 
 #[path = "shell_doc_slots.rs"]
 mod doc_slots;
+#[path = "shell_storage.rs"]
+mod storage_externs;
 #[path = "shell_tokens.rs"]
 mod tokens;
 pub(crate) use tokens::dispatch_token_staged;
@@ -1024,118 +1026,6 @@ unsafe extern "C" fn i18n_digits<S>(ctx: *mut c_void, text: PpBytes, out: PpBuff
     let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::formatting::digits(&context.environment, text, out) }
-}
-
-unsafe extern "C" fn storage_size<S>(
-    ctx: *mut c_void,
-    root: u32,
-    path: PpBytes,
-    out: *mut u64,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::storage_slots::size(&context.environment, &context.id, root, path, out) }
-}
-
-unsafe extern "C" fn storage_read_at<S>(
-    ctx: *mut c_void,
-    root: u32,
-    path: PpBytes,
-    offset: u64,
-    out: PpBuffer,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe {
-        super::storage_slots::read_at(&context.environment, &context.id, root, path, offset, out)
-    }
-}
-
-unsafe extern "C" fn storage_write<S>(
-    ctx: *mut c_void,
-    root: u32,
-    path: PpBytes,
-    data: PpBytes,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    let held = context.resources.hosts().in_use();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe {
-        super::storage_slots::write(&context.environment, &context.id, held, root, path, data)
-    }
-}
-
-unsafe extern "C" fn storage_append<S>(
-    ctx: *mut c_void,
-    root: u32,
-    path: PpBytes,
-    data: PpBytes,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    let held = context.resources.hosts().in_use();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe {
-        super::storage_slots::append(&context.environment, &context.id, held, root, path, data)
-    }
-}
-
-unsafe extern "C" fn storage_rename<S>(
-    ctx: *mut c_void,
-    root: u32,
-    from: PpBytes,
-    to: PpBytes,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    let held = context.resources.hosts().in_use();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::storage_slots::rename(&context.environment, &context.id, held, root, from, to) }
-}
-
-unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    let held = context.resources.hosts().in_use();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::storage_slots::remove(&context.environment, &context.id, held, root, path) }
-}
-
-unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    super::storage_slots::sync(&context.environment, &context.id)
 }
 
 unsafe extern "C" fn canvas_draw_line<S>(

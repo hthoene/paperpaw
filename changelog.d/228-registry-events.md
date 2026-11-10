@@ -1,0 +1,3 @@
+### Added
+
+- **A native plugin can register for `event.registry_changed` (75) and `event.preview_changed` (76)** (#228). Both are told as hints, once however often they were raised before the plugin could be called. `registry_changed` carries the `what` bits raised since the last one, OR-ed together; a change of the plugin set raises all of them, and a menu's item state raises bit 0. `preview_changed` is raised when a settings preview starts or ends. Until now a plugin that named either was refused at `make` with `Unsupported`. Bit 31 (`dropped`) goes to the plugin whose own preset was dropped when applied, and to no other.
