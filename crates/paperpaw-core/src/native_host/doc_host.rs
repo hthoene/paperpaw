@@ -828,6 +828,17 @@ impl Bound<'_> {
         Err(ERR_NOT_FOUND)
     }
 
+    /// Whether the caller's plugin declares a reading app.
+    fn declares_reader(&self) -> bool {
+        let mut declares = false;
+        let _ = self.frame.with_declarations(&mut |any| {
+            if let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>() {
+                store.each_reader(&mut |reader| declares |= reader.plugin == self.who.plugin);
+            }
+        });
+        declares
+    }
+
     fn translate_format<'r>(&'r self, row: Record<'r>) -> Record<'r> {
         match row {
             Record::ServiceDocFormat(format) => Record::ServiceDocFormat(wire::ServiceDocFormat {
@@ -856,14 +867,16 @@ impl super::doc_service::DocHost for Bound<'_> {
         document: &Document,
         report: &wire::ServiceDocReport<'_>,
     ) -> Result<(), i32> {
-        // Only a book of the library that its opener, on top of the screen
-        // stack, reports drives the session (`document.md` 2.4).
+        // Only a book of the library that its opener, a reading app (it
+        // declares a `reader.spec`) on top of the screen stack, reports drives
+        // the session (`document.md` 2.4). Which of its screens is on top is
+        // not told by the stack rows.
         let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
         let book = books.iter().find(|book| book.document == document.id);
         let library = book.is_some_and(|book| book.root == 1) && !document.background;
         let facts = super::doc_reading::Facts {
             document: document.id,
-            counts: library && self.shows_screen(document.owner),
+            counts: library && self.declares_reader() && self.shows_screen(document.owner),
             path: book.map_or("", |book| book.path.as_str()),
         };
         self.state.reading.report(self.clock(), &facts, report)

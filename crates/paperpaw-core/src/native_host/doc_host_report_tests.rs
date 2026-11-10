@@ -53,11 +53,37 @@ impl World<'_> {
         .map(|reply| assert!(reply.is_empty()))
     }
 
-    /// A book of the card, opened and ready, its format counting `sections`.
-    fn book(&self, path: &str, sections: u32) -> u32 {
-        if self.plugins.borrow().is_empty() {
+    /// The format plugin, and the caller (`opener`) as a reading app.
+    fn readers(&self) {
+        let has = |id: &str| self.plugins.borrow().iter().any(|p| p.id == id);
+        if !has("epub") {
             self.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         }
+        if !has("opener") {
+            self.install(
+                "opener",
+                OPENER,
+                &[
+                    Record::ScreenSpec(wire::ScreenSpec {
+                        name: "main",
+                        title: "t",
+                        token: 1,
+                        flags: 0,
+                    }),
+                    Record::ReaderSpec(wire::ReaderSpec {
+                        name: "app",
+                        screen: "opener.main",
+                        formats: "",
+                        flags: 0,
+                    }),
+                ],
+            );
+        }
+    }
+
+    /// A book of the card, opened and ready, its format counting `sections`.
+    fn book(&self, path: &str, sections: u32) -> u32 {
+        self.readers();
         *self.reply.borrow_mut() = Ok(state_reply());
         let document = self.open(1, path).unwrap();
         *self.reply.borrow_mut() = Ok(meta(sections));
@@ -193,7 +219,7 @@ fn a_report_of_another_plugins_or_an_unknown_document_is_refused() {
 #[test]
 fn only_a_book_of_the_library_raises_events() {
     world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.readers();
         // The opener's own data and an index build (background) are accepted
         // and raise nothing, so a reader reports every document the same way.
         let data = w.open(0, "a.epub").unwrap();
@@ -232,6 +258,25 @@ fn only_a_book_of_the_library_raises_events() {
         }
         let book = w.book("books/a.epub", 3);
         w.report(report(book, 0)).unwrap();
+        assert_eq!(w.seen(), [(OPENED, 0)]);
+    });
+}
+
+#[test]
+fn a_plugin_that_is_no_reading_app_raises_no_events() {
+    world(|w| {
+        // A plugin with a screen on top that opens a library book is no
+        // reader: its report is accepted and raises nothing.
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        *w.reply.borrow_mut() = Ok(state_reply());
+        let book = w.open(1, "books/a.epub").unwrap();
+        *w.reply.borrow_mut() = Ok(meta(3));
+        w.report(report(book, 0)).unwrap();
+        w.report(report(book, 1)).unwrap();
+        assert!(drain(&w.state.reading).is_empty());
+        // Once it declares a reading app, the same book drives the session.
+        w.readers();
+        w.report(report(book, 2)).unwrap();
         assert_eq!(w.seen(), [(OPENED, 0)]);
     });
 }

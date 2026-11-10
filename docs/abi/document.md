@@ -305,9 +305,9 @@ The reader tells the host where the user is reading; the host turns it into the 
 - [D] **Which documents.** Only a book of the library raises book events: a document opened on
   root 1 without `flags` bit 2 `background`. A report on any other document (root 0 or 5, an index
   build) is accepted (`OK`) and raises nothing, so a reader reports every document the same way.
-- [D] **Only the reader on screen.** A report drives the session only when the caller owns the
-  topmost reading-app instance of the screen stack (`reader.spec`; an overlay above it does not
-  change that) and the document is one it opened as a library book. Any other report, from a
+- [D] **Only the reader on screen.** A report drives the session only when the caller declared a
+  `reader.spec` and owns the topmost screen of the stack that is not an overlay, and the document
+  is one it opened as a library book. Any other report, from a
   plugin that opened a book from the card to index or read it in the background, or from a reader
   that is not on top, passes the checks above and is `OK` with nothing raised: it never starts,
   replaces, advances or ends the live session, so it cannot close the user's book or raise
@@ -325,8 +325,9 @@ The reader tells the host where the user is reading; the host turns it into the 
 - [D] **Ending.** The session ends with `book_closed` (66, `reason` 0, the last raised fields)
   when its document is closed (op 18, the opener stopping, or the host closing it with
   `event.document_closed`). Sleep and power-off end it with `reason` 1 before `event.suspend` or
-  `event.stopping`, as `core-events.md` 3.3 orders them. After a wake or a restart, the first
-  report of the same book (same `doc_open.path`) starts a session with `book_opened` `reason` 1.
+  `event.stopping`, as `core-events.md` 3.3 orders them. After a wake within the same run, the
+  first report of the same book (same `doc_open.path`) starts a session with `book_opened`
+  `reason` 1; after a restart the host keeps no session, so it starts with `reason` 0.
 - [D] **The host stamps** `now_ms` (its monotonic clock), `path` (the session's `doc_open.path`,
   at most 512 bytes as root-1 paths are, so never cut) and `reason`; it never takes them from the
   plugin.
@@ -339,7 +340,9 @@ The reader tells the host where the user is reading; the host turns it into the 
   change never grows it (`ERR_NO_MEMORY`: nothing raised for the new book, the next report tries
   again; when the report was another book's, the old session has still been ended with its
   `book_closed` first) and freed when it ends. One call per page turn, at most 1,024 bytes of
-  input; the events go through the event queue as before (`core-events.md` 3.2).
+  input; the events go through the event queue as before (`core-events.md` 3.2). While the event
+  pump is behind, up to 8 book events wait in the queue (`core-events.md` 3.2), about 1.1 KiB
+  each: about 9 KiB at most on the X4, freed as they are delivered.
 - [D] Until the native reader reports, 37 keeps its interface-6 producer (`core-events.md` 3.1).
   A host answers `ERR_UNSUPPORTED` until it is wired.
 
