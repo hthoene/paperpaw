@@ -38,6 +38,7 @@ fn recipe(fitting: Fitting, zoom: u32, across: u8, down: u8, size: (u16, u16)) -
         brightness: -1,
         contrast: 1,
         dotted: true,
+        grays: false,
         width: size.0,
         height: size.1,
     }

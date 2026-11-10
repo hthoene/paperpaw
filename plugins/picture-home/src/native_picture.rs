@@ -131,6 +131,8 @@ pub struct Recipe {
     pub contrast: i8,
     /// Made in black and white dots, for a panel with grays too.
     pub dotted: bool,
+    /// Made in every gray the panel shows, always.
+    pub grays: bool,
     pub width: u16,
     pub height: u16,
 }
@@ -169,6 +171,7 @@ impl Recipe {
             brightness: step(asked.brightness, &settings::BRIGHTNESSES, 2),
             contrast: step(asked.contrast, &settings::CONTRASTS, 1),
             dotted: Render::of(asked.render) == Render::Dithered,
+            grays: Render::of(asked.render) == Render::Grays,
             width,
             height,
         }))
@@ -184,7 +187,7 @@ impl Recipe {
         let mut out = Out(String::new());
         write!(
             out,
-            "{:016x}|{}|{}|{:?}|{}{}|{}|{}|{}{}|{}|{}x{}",
+            "{:016x}|{}|{}|{:?}|{}{}|{}|{}|{}{}|{}{}|{}x{}",
             hash(&self.path),
             self.bytes,
             self.modified,
@@ -196,6 +199,7 @@ impl Recipe {
             self.brightness,
             self.contrast,
             self.dotted,
+            if self.grays { "g" } else { "" },
             self.width,
             self.height
         )

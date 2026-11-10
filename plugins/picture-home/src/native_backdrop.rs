@@ -12,12 +12,13 @@
 //! (brightness and contrast), picture in dots by force, stretching, and tiles
 //! past [`TILES_MAX`].
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::Rect;
 use paperpaw_sdk::native::{
     Error,
-    image::{ImageId, ImageStatus, SIDE_MAX},
+    image::{ImageId, ImageStatus, LUMA_BYTES, SIDE_MAX, TONE_BYTES},
 };
 
-use crate::native_picture::{Fitting, Plan, Recipe, plan};
+use crate::native_picture::{Fitting, Plan, Recipe, lighten, plan, tone};
 
 /// The first cookie of the requests of this screen (the rest count up from it).
 const COOKIE: u32 = 0x5048_0000;
@@ -25,13 +26,20 @@ const COOKIE: u32 = 0x5048_0000;
 /// again. A picture that would repeat more often is not drawn.
 pub const TILES_MAX: i64 = 64;
 
+/// The side of the host's grid of brightness (8 by 8 cells).
+const GRID: i64 = 8;
+/// The points of the plate read for its backdrop's brightness.
+const SAMPLE_COLUMNS: u16 = 16;
+const SAMPLE_ROWS: u16 = 3;
+
 /// What became of the picture asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Slot {
     /// Asked; the answer has this cookie.
     Asked(u32),
-    /// Made; its id and the size actually made.
-    Held(ImageId, (u32, u32)),
+    /// Made; its id, the size actually made and the host's grid of the
+    /// brightness behind it (none where the host made none).
+    Held(ImageId, (u32, u32), Option<[u8; LUMA_BYTES]>),
     /// Not made, or not asked: the page has a plain background.
     Plain,
 }
@@ -110,11 +118,21 @@ pub struct Drawing {
     /// picture does not cover it or is paler than itself.
     pub screen: (u16, u16),
     pub paper: bool,
-    /// Fill the place and crop (stretching is drawn so).
-    pub fill: bool,
+    /// Scale to the place and drop the picture's shape.
+    pub stretch: bool,
+    /// Dots or grays by force; the panel's own rule where neither.
+    pub render: Rendering,
     /// 255 minus the opacity: 0 opaque.
     pub transparency: u8,
     pub places: Vec<Place>,
+}
+
+/// How the picture is drawn: by the panel's rule, or in dots or in grays by force.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rendering {
+    Panel,
+    Dots,
+    Grays,
 }
 
 /// The picture behind the page.
@@ -156,7 +174,7 @@ impl Backdrop {
     /// No picture wanted: what is held goes.
     pub fn clear(&mut self) -> Change {
         let release = match self.entry.take().map(|entry| entry.slot) {
-            Some(Slot::Held(image, _)) => Some(image),
+            Some(Slot::Held(image, ..)) => Some(image),
             _ => None,
         };
         Change { release, ask: None }
@@ -168,6 +186,74 @@ impl Backdrop {
         self.entry
             .as_ref()
             .map_or("", |entry| entry.recipe.path.as_str())
+    }
+
+    /// The tone curve the request carries: `None` where the recipe leaves every
+    /// gray as it is (no brightness and no contrast change).
+    #[must_use]
+    pub fn tone(&self) -> Option<[u8; TONE_BYTES]> {
+        let recipe = &self.entry.as_ref()?.recipe;
+        (recipe.brightness != 0 || recipe.contrast != 0)
+            .then(|| tone(recipe.brightness, recipe.contrast))
+    }
+
+    /// How bright the held picture is behind `plate` (0 black to 255 white), from
+    /// the host's grid of the prepared picture: points across the plate are
+    /// read from the grid cell of the picture they fall on (what the picture
+    /// does not cover is the paper, white), paler by the recipe's lightening.
+    /// `None` where no picture is held or the host made no grid.
+    #[must_use]
+    pub fn brightness_behind(&self, plate: Rect) -> Option<u8> {
+        let Some(Entry {
+            recipe,
+            slot: Slot::Held(_, size, Some(grid)),
+            ..
+        }) = self.entry.as_ref()
+        else {
+            return None;
+        };
+        let place = if recipe.fitting == Fitting::Stretch {
+            Plan {
+                width: u32::from(recipe.width),
+                height: u32::from(recipe.height),
+                left: 0,
+                top: 0,
+            }
+        } else {
+            plan(recipe, *size)
+        };
+        let tiled = recipe.fitting == Fitting::Tile;
+        let (width, height) = (
+            i64::from(place.width.max(1)),
+            i64::from(place.height.max(1)),
+        );
+        let (mut sum, mut count) = (0u32, 0u32);
+        for row in 0..SAMPLE_ROWS {
+            for column in 0..SAMPLE_COLUMNS {
+                let x = i64::from(plate.x)
+                    + (2 * i64::from(column) + 1) * i64::from(plate.width)
+                        / (2 * i64::from(SAMPLE_COLUMNS));
+                let y = i64::from(plate.y)
+                    + (2 * i64::from(row) + 1) * i64::from(plate.height)
+                        / (2 * i64::from(SAMPLE_ROWS));
+                let (mut u, mut v) = (x - i64::from(place.left), y - i64::from(place.top));
+                if tiled {
+                    u = u.rem_euclid(width);
+                    v = v.rem_euclid(height);
+                }
+                let value = if (0..width).contains(&u) && (0..height).contains(&v) {
+                    let cell = (v * GRID / height) * GRID + u * GRID / width;
+                    grid.get(usize::try_from(cell).unwrap_or(0))
+                        .copied()
+                        .unwrap_or(255)
+                } else {
+                    255
+                };
+                sum += u32::from(lighten(value, recipe.lighten));
+                count += 1;
+            }
+        }
+        u8::try_from(sum / count.max(1)).ok()
     }
 
     /// The request could not be sent: the page stays plain.
@@ -184,6 +270,7 @@ impl Backdrop {
         status: ImageStatus,
         image: Option<ImageId>,
         size: (u32, u32),
+        luma: Option<&[u8; LUMA_BYTES]>,
     ) -> Landed {
         let Some(entry) = self
             .entry
@@ -194,7 +281,7 @@ impl Backdrop {
         };
         match (status, image) {
             (ImageStatus::Ready, Some(image)) if size.0 > 0 && size.1 > 0 => {
-                entry.slot = Slot::Held(image, size);
+                entry.slot = Slot::Held(image, size, luma.copied());
                 Landed::Ready
             }
             (status, image) => {
@@ -247,7 +334,7 @@ impl Backdrop {
     pub fn drawing(&self) -> Result<Option<Drawing>, Error> {
         let Some(Entry {
             recipe,
-            slot: Slot::Held(image, size),
+            slot: Slot::Held(image, size, _),
             ..
         }) = self.entry.as_ref()
         else {
@@ -271,11 +358,17 @@ impl Backdrop {
             return Ok(None);
         }
         let covers = matches!(recipe.fitting, Fitting::Fill | Fitting::Stretch);
+        let render = match (recipe.dotted, recipe.grays) {
+            (true, _) => Rendering::Dots,
+            (_, true) => Rendering::Grays,
+            _ => Rendering::Panel,
+        };
         Ok(Some(Drawing {
             image: *image,
             screen,
             paper: !covers || recipe.lighten > 0,
-            fill: stretch,
+            stretch,
+            render,
             transparency: transparency(recipe.lighten),
             places,
         }))

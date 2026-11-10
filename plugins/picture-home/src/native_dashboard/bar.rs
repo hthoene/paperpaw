@@ -6,7 +6,7 @@ use paperpaw_ui_kit::status_line::{self, Face, Lists, Placed};
 
 use super::*;
 use crate::native_bar::{self as bar, Look};
-use crate::native_picture::Visible;
+use crate::native_picture::{Visible, ink_over};
 use alloc::string::String;
 
 /// How long a bar that shows after a press stays (until the next minute tick
@@ -94,8 +94,9 @@ impl Dashboard {
                 paint::push(below, Paint::Focus(plan.plate, corner, None, paper))?;
                 ink
             }
-            // Where the picture is, the ink that reads on it is not known.
-            None => Color::BLACK,
+            // On the picture: the ink that reads on how bright it is behind the
+            // plate (black where no picture or no brightness is known).
+            None => Color::gray(ink_over(self.backdrop.brightness_behind(plan.plate))),
         };
         match status_line::draw(
             (face, &plan.items),

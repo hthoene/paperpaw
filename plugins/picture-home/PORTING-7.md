@@ -81,7 +81,7 @@ upright, as interface 6 did. A dashboard opened again keeps its page and its wid
 
 Differences from interface 6, each a named step below: words instead of the
 pencil, plus and tick icons, a bar that goes within a minute, and
-the parts of the picture's recipe the host cannot do (*Slice 6*).
+two parts of the picture's recipe (*Slice 6*: many tiles, a replaced file of the same name).
 
 ## Slice 5: Add
 
@@ -142,8 +142,8 @@ included) decides, `native_backdrop_host.rs` reads, asks, draws and says, `nativ
 - Which picture: `picture-home.picture` (the name) in `picture-home.folder`, as interface 6 (the
   chosen file only: interface 6 never took "the next picture of the folder"). Read with the fit, the
   place, the zoom and the paleness into the recipe (`Recipe::new`, whose `key` says whether a request is
-  the same as the one before). Brightness, contrast and the render are not read for it: the host's
-  drawing cannot do them, so a change of them must not ask again. The path goes to root 1 (the library,
+  the same as the one before). Brightness, contrast and the render are read too (the request and the
+  draw carry them), so a change of them asks again. The path goes to root 1 (the library,
   `uses.storage`); one that is over 512 bytes is no picture.
 - When: at every `ScreenShown` of the dashboard (the first show, and after a settings screen or *Add*
   closes over it), so a changed setting is met there. A recipe that is the same as the held, asked or
@@ -181,19 +181,23 @@ included) decides, `native_backdrop_host.rs` reads, asks, draws and says, `nativ
 
 Blocked, each named (nothing invented):
 
-- `IMG-turn`: the turn of a phone's JPEG (the EXIF orientation; `native_picture::jpeg_orientation` and
-  `Turn` are ported, the host's decoder does not turn the picture and `draw_image` has no turn).
-- `IMG-tone`: *Brightness* and *Contrast* (`native_picture::tone`): the facade has no tone curve.
-- `IMG-dots`: *Render* as *dots* by force (`native_picture::dotted`) and the shell's grays flag of
-  interface 6 (`grays`, `pictures_in_grays`): no contract lets a screen ask for either; the host draws
-  with the panel's own rule.
-- `IMG-stretch`: *Stretch to the screen* is drawn cropped to fill it (`draw_image` keeps the picture's shape).
+- Done on #1076's fields (the recipe of interface 6): `IMG-turn` (every request carries `turn()`: a
+  phone's JPEG comes upright and the size in `ImageReady` is the size after the turn; the crop is worked
+  out on that), `IMG-tone` (*Brightness* and *Contrast* as the 256-byte curve `native_picture::tone`, sent
+  with the request only when either differs from the middle), `IMG-dots` (*Render* as dots: `dots()`; as
+  every gray: `grays()`; automatic: the panel's own rule, which is what interface 6's shell flag decided),
+  `IMG-stretch` (*Stretch to the screen* is `stretch()` into the whole screen, no longer cropped). A change
+  of brightness, contrast or render asks for the picture again (they are in the recipe's key).
 - `IMG-tile-many`: a tile that would repeat more than 64 times is not drawn (each tile is one host call
   that reads the picture again).
 - `IMG-replaced`: a picture replaced by another file of the same name is not noticed (the key has no file
   size or time, `Asked::bytes` and `modified` are 0; interface 6 read them from the card).
-- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar (drawn, slice 7) has no plate under `Look::Clear` and
-  its ink is black: no contract reads the brightness of a prepared picture behind a rectangle.
+- `IMG-ink` (done): the ink of a bar without a plate (`Look::Clear`) is read from the 8 by 8 grid of
+  the prepared picture (`ImageReady::luma()`): 48 points across the plate are each read from the grid cell
+  they fall on (the paper, white, where the picture does not reach; tiles repeat; the lightening is
+  applied) and `native_picture::ink_over` gives white ink below 128, black above. No grid (a host that
+  made none, or no picture) leaves the ink black. The paper is taken as white (the plugin does not read
+  the style's paper there).
 - A picture over 1,600 pixels on its long side is made smaller than interface 6's 2,400 (the host's limit).
 - A change of the screen's turn while the dashboard is open is met at the next show, as the page itself.
 
@@ -205,9 +209,10 @@ Blocked, each named (nothing invented):
 - Moving and sizing with a finger: ported (the drag of an item or its corner, as home's; the cells
   it makes are unit-tested in `paperpaw_ui_kit::dashboard::arrange`). Seen only on a host with a
   screen stack that delivers pointers: `picture-home-edit` (H1).
-- The picture's parts the host cannot do are named under *Slice 6* (`IMG-turn`, `IMG-tone`,
-  `IMG-dots`, `IMG-stretch`, `IMG-tile-many`, `IMG-replaced`, `IMG-ink`); the rest is ported and
-  waits for the production loader (`picture-home-picture`).
+- The picture's parts the host cannot do are named under *Slice 6* (`IMG-tile-many`, `IMG-replaced`);
+  the rest is ported and waits for the production loader (`picture-home-picture`). The recipe's
+  turn, tone, render, stretch and the bar's ink are written against the host's fields (#1076) and
+  unseen on a device (`picture-home-picture`, H1/H7).
 - The bar: ported (`native_bar.rs`: the five looks, full or compact, where its plate sits;
   `paperpaw_ui_kit::status_line`: the items of the three lists with their values, laid out as interface 6,
   drawn here and by their owners; `native_dashboard/bar.rs`: drawing, a tap on an item that does
@@ -215,8 +220,7 @@ Blocked, each named (nothing invented):
   it, and the row of hints with it through `command.show_hints`). Differences: a bar shown after a
   press goes at the first minute tick after its four seconds (`event.tick` is the only clock a screen
   has, so up to a minute, not four seconds); the row of hints shows after a press or by the kernel's
-  own setting, no contract lets a screen ask for it always or never; the ink of a bar without a plate
-  is black (`IMG-ink`); the bar is on the dashboard only (not while the picture is made, as the page).
+  own setting, no contract lets a screen ask for it always or never; the bar is on the dashboard only (not while the picture is made, as the page).
   The bar's drawing and taps need a host with a screen stack (`picture-home-bars`, H1).
   X4 measurement list: a shown bar holds two `SERVICE_BUFFER` buffers while the dashboard draws, and
   reads the registry's status items and their values on each draw (heap peak and time unmeasured).
@@ -239,20 +243,19 @@ device.
 
 ### Still missing for native-only
 
-With *Add*, the picture, the bar and the finger's drag open, the picture's parts the host cannot do
+With *Add*, the picture, the bar and the finger's drag open, the picture's last two parts
 stand between this plugin and the interface-6 one:
 
-1. The picture's remaining parts (*Slice 6*): the turn of a phone's picture, brightness and contrast,
-   dots by force, stretching, many tiles, a replaced file of the same name, and the bar's ink over it
-   (Kernel writes the fields on #244: `PrepareImage`/`ImageStyle`).
+1. The picture's two remaining parts (*Slice 6*): many tiles and a replaced file of the same name
+   (accepted as named, or asked of Kernel as a contract field).
 
 The icons (#517) and the widgets' updates are smaller steps named above.
 
 ### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 
 `make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and
-the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture lacks the
-parts named under *Slice 6*. `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
+the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture lacks only
+the two parts named under *Slice 6* (`IMG-tile-many`, `IMG-replaced`). `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
 `tools/plugin-files7/complete.txt` with the activation (together with the removal step below), once
 the picture's parts are in or accepted as named.
 
