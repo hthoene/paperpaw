@@ -1,12 +1,13 @@
-# Interface-7 port (complete: interface 6 is removed; the functions that disappeared are named below)
+# Interface-7 port (interface 6 is removed, not yet complete; the functions that disappeared are named below)
 
-Version 1.0.7 (already above its Beta 3 version; no further bump). Status: **complete**, with the functions
+Version 1.0.7 (already above its Beta 3 version; no further bump). Status: **native, not yet complete (the choice to update without the plugins the new firmware leaves out, the New mark and the dual-boot notice are missing)**; with the functions
 named under *What disappeared with interface 6* that wait for the host or are owner decisions. The plugin is
 native only: the native entry (`NativeUpdate`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin
 `update`) is the whole plugin. It has the card flow (checks, states, install, offer at start), the online flow
 (search, offer, download, the fetch of code plugin builds, the weekly look and the check a rule asks for) and the
-update that waits for plugins. It is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`, and the app
-links it and no interface-6 form.
+update that waits for plugins. It is in `NATIVE_PLUGINS`, not yet in `tools/plugin-files7/complete.txt` (Manager: not before the choice to
+update without the plugins the new firmware leaves out, the New mark and the dual-boot notice are native), and
+the app links it and no interface-6 form.
 
 ## Ported
 
