@@ -29,7 +29,7 @@ use paperpaw_sdk::{
         library::Library,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{HandoverId, Ui},
+        ui::{HandoverId, Notify, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -77,6 +77,8 @@ struct Open {
     saved_at: Option<u64>,
     /// The page on show is not the place saved.
     unsaved: bool,
+    /// A refused write has been said (once for a book).
+    said: bool,
 }
 
 /// One open reading screen.
@@ -222,6 +224,7 @@ impl View {
                 progress,
                 saved_at: None,
                 unsaved: false,
+                said: false,
             }),
         })
     }
@@ -346,6 +349,20 @@ impl Setup {
 }
 
 impl Open {
+    /// Says once that the place could not be saved; after the screen closed
+    /// the device's message (`announce`) carries it, as nothing else would.
+    fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
+        let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.not-saved")) else {
+            return;
+        };
+        let Ok(note) = Notify::new(&text) else {
+            return;
+        };
+        let note = if closing { note.announce() } else { note };
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(note).ok();
+    }
+
     /// Writes the place of the page on show if it is not saved: now where
     /// `closing`, else once Beta 3's interval has gone since the last write. A
     /// refused write leaves it to the next (a notice needs a command the host
@@ -375,12 +392,15 @@ impl Open {
             library,
             &self.path,
             self.at,
-            (ppm, self.conversion),
+            (ppm, self.conversion, native_place::wall_seconds(host)),
             (&mut input, &mut out),
         );
         if kept {
             self.unsaved = false;
             self.saved_at = now;
+        } else if !self.said {
+            self.said = true;
+            self.say_not_saved(host, closing);
         }
     }
 

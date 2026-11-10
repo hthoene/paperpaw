@@ -9,6 +9,7 @@ use paperpaw_sdk::native::{
     Error, Host,
     document::{DocCursor, DocId, Documents},
     library::{BookRef, Library, PositionWrite},
+    snapshot,
 };
 
 /// Most sections whose lengths are kept (a book of more has no progress). Each
@@ -112,13 +113,24 @@ pub fn saved(
     fits.then_some((position.section, position.offset))
 }
 
+/// The wall time of the write in seconds since 1970, from the snapshot; 0 where
+/// the device has no valid clock (`library.md` section 2.2: never made up).
+#[must_use]
+pub fn wall_seconds(host: &Host<'_>) -> u64 {
+    snapshot::capture_snapshot(host)
+        .ok()
+        .and_then(|s| s.unix_seconds())
+        .and_then(|t| u64::try_from(t).ok())
+        .unwrap_or(0)
+}
+
 /// Writes the place of the page that starts at `at`; whether it was kept.
 pub fn save(
     host: &Host<'_>,
     library: &Library,
     path: &str,
     at: (u32, u32),
-    (ppm, conversion): (u32, u64),
+    (ppm, conversion, updated): (u32, u64, u64),
     (input, out): (&mut [u8], &mut [u8]),
 ) -> bool {
     let Ok(book) = BookRef::path(path) else {
@@ -126,7 +138,8 @@ pub fn save(
     };
     let write = PositionWrite::new(at.0, at.1)
         .progress_ppm(ppm.min(1_000_000))
-        .conversion(conversion);
+        .conversion(conversion)
+        .updated(updated);
     library.set_position(host, book, &write, input, out).is_ok()
 }
 

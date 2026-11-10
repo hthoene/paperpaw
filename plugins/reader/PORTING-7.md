@@ -255,9 +255,12 @@ relative to the data folder).
   while pages are turned, at most once in 5 seconds (Beta 3's `SAVE_EVERY_MS`), by the host's monotonic
   clock; a refused write is tried again at the next turn or the close.
 - Metadata asks `core.library` now (both `.bin` pairs regenerated).
-- **Not yet:** the quiet-time write (Beta 3 also saved 2 s after the last turn: a callback timer, no
-  wake-up in the native SDK yet); the notice "not saved" (no notify command in `CommandSender`);
-  the time of the write (`updated` is 0, unknown: the native SDK has no wall clock); the KOReader
+- A refused write says `reader.not-saved` once for a book (`command.notify`, `announce` when it was the
+  close that failed); `updated` is the snapshot's wall time, 0 only where the device has none.
+- **Not yet:** the quiet-time write (Beta 3 also saved 2 s after the last turn): `core.work` `declare`
+  with the key `place` and `after_ms(2000)`, re-declared at every turn (Kernel), plus the write at
+  `event.suspend` / `event.stopping` (needs the work-due and suspend/stopping subscriptions in the
+  declarations, a follow-up); the KOReader
   pointer written with the place; a saved place of another conversion is not mapped (the start is
   used); a `page` number of the hand-over (needs the page index); a hand-over `root` other than the
   library's for the saved place's path; the status lines and the page index; the hosted end-to-end test
