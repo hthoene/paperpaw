@@ -1,9 +1,9 @@
 //! The writes of `core.library` the catalog on the card backs: op 24
-//! `provide` and the positions (ops 14). The contract's rules (flags, texts,
+//! `provide`, the positions (op 14) and `set_field` (op 23). The contract's rules (flags, texts,
 //! the position policy) are the service's; this maps what it has checked to
 //! the card.
-use super::{CatalogReads, position, provide};
-use crate::native_host::lib_service::{BookRef, LibWrite, StoredPosition};
+use super::{CatalogReads, field, position, provide};
+use crate::native_host::lib_service::{BookRef, FieldKind, LibWrite, StoredPosition};
 use crate::native_host::registrations as wire;
 
 impl LibWrite for CatalogReads {
@@ -26,5 +26,13 @@ impl LibWrite for CatalogReads {
         provided: &wire::ServiceLibProvided<'_>,
     ) -> Result<(), i32> {
         provide::provide(self, book, provided)
+    }
+
+    fn field_kind(&self, name: &str) -> Result<FieldKind, i32> {
+        field::kind(self, name)
+    }
+
+    fn set_field(&self, book: BookRef<'_>, name: &str, value: &str) -> Result<(), i32> {
+        field::set(self, book, name, value)
     }
 }

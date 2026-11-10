@@ -156,7 +156,11 @@ pub(super) fn try_merge_metadata(
 /// of the book at `path`, an empty `value` removing it. The id and the value
 /// are copied with `try_reserve`, and the details are written as `save`
 /// writes them.
-pub(super) fn try_set_field(
+///
+/// # Errors
+/// [`Error::OutOfMemory`] for memory; the storage's errors where the book's
+/// file is gone (`NotFound`) or its details could not be read or written.
+pub fn try_set_field(
     storage: &dyn Storage,
     path: &str,
     id: &str,
