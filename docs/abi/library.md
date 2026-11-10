@@ -62,6 +62,10 @@ Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
   batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not
   load, `reg_plugin.problem` 17 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for
   the batch; two plugins may use the same name.
+- [D] **Order of fields and badges** (stable across loads and updates): by owning plugin id, then
+  by `name`, both in byte order; never by load order, so a plugin that reloads or updates keeps
+  its place. Op 22 lists fields in this order. A row's `badges` (`lib_entry`, at most two) are the
+  first two in this order whose owner answered a non-empty `text` or `icon` for that book.
 - [D] `book_data.spec` (interface 6 `add_book_data`, `add_book_cache`): the plugin keeps a folder
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also
@@ -208,8 +212,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] `lib_entry` (one row, short enough that 10 fit a page): `key`, `title: str 128`, `author: str
   96`, `series: str 64`, `number: str 16`, `progress` (0-100, 255 never opened), `flags` (bit 0
   favourite, 1 opened, 2 finished, 3 new, 4 indexed, 5-7: title, author, series cut for the row),
-  `added`, `badges: str 64` (the first two badges, `\n` between, section 1). A row's texts are cut
-  only for the row; op 3 and op 4 have them whole.
+  `added`, `badges: str 64` (the first two badges in section 1's order, `\n` between). A row's
+  texts are cut only for the row; op 3 and op 4 have them whole.
 - [D] `lib_book` (op 3): `key`, `generation`, `path: str 512`, `title: str 512`, `author: str 512`,
   `series: str 256`, `number: str 32`, `progress`, `flags` (as `lib_entry`, bits 5-7 the long form
   was cut too; bit 8 `missing`: the book's file is not on the card now, looked up by the host when

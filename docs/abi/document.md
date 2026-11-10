@@ -304,6 +304,14 @@ The reader tells the host where the user is reading; the host turns it into the 
 - [D] **Which documents.** Only a book of the library raises book events: a document opened on
   root 1 without `flags` bit 2 `background`. A report on any other document (root 0 or 5, an index
   build) is accepted (`OK`) and raises nothing, so a reader reports every document the same way.
+- [D] **Only the reader on screen.** A report drives the session only when the caller owns the
+  topmost reading-app instance of the screen stack (`reader.spec`; an overlay above it does not
+  change that) and the document is one it opened as a library book. Any other report, from a
+  plugin that opened a book from the card to index or read it in the background, or from a reader
+  that is not on top, passes the checks above and is `OK` with nothing raised: it never starts,
+  replaces, advances or ends the live session, so it cannot close the user's book or raise
+  `book_finished` (Senior's S1). The host tests that another plugin's report leaves the live
+  session as it was.
 - [D] **The session.** The host keeps one reading session device-wide: the reported document, its
   `doc_open.path`, the last raised report and whether `finished` was raised. The first accepted
   report of a document starts a session and raises `book_opened` (65) with its fields; a session
@@ -326,9 +334,11 @@ The reader tells the host where the user is reading; the host turns it into the 
   (`finished`). Not on every redraw.
 - [D] **Memory and cost:** the session is one host record of the last raised fields (the path
   and the two texts at most 1,024 bytes together, about 1.1 KiB on the X4 while a book is open),
-  allocated fallibly when the session starts (`ERR_NO_MEMORY`: nothing raised, the next report
-  tries again) and freed when it ends. One call per page turn, at most 1,024 bytes of input; the
-  events go through the event queue as before (`core-events.md` 3.2).
+  allocated fallibly once at its full size when the session starts, so a later chapter or title
+  change never grows it (`ERR_NO_MEMORY`: nothing raised for the new book, the next report tries
+  again; when the report was another book's, the old session has still been ended with its
+  `book_closed` first) and freed when it ends. One call per page turn, at most 1,024 bytes of
+  input; the events go through the event queue as before (`core-events.md` 3.2).
 - [D] Until the native reader reports, 37 keeps its interface-6 producer (`core-events.md` 3.1).
   A host answers `ERR_UNSUPPORTED` until it is wired.
 
@@ -794,14 +804,13 @@ reply 4,096 bytes, stage payload 3,840.
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
   interface 6's card tables, which the reader held; the same bytes, now counted to the host.
 - Lookup: one stage call on the scratch; the pending table (section 7) of 16 × 32 bytes = **512
-  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept. The registered
-  `lookup.spec` rows stay on the heap while their plugins are loaded: at most about 700 bytes each
-  (`name` 64, `title` 96, `languages` 512, `token`, `flags`), so about 5.6 KiB per plugin at its cap
-  of 8 and about 23 KiB device-wide at the cap of 32; allocated fallibly at registration (a refused
-  batch is `ERR_NO_MEMORY`), freed when the plugin unloads.
+  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept. Registered
+  `lookup.spec` rows are not copied: the host reads them from the plugin's declarations where they
+  are, as it reads formats, readers and book fields (the declaration store keeps about 8 bytes per
+  record, so 256 bytes at the device cap of 32); a host that copied the rows would hold up to about
+  23 KiB at that cap, more than DOC's whole budget at rest, and must not.
 - **X4 worst case for DOC's host side: about 6.5 KiB at rest** (documents 0.13, images 1.5, band 4,
-  pending lookups 0.5, queue) **plus the registered lookup providers (at most about 23 KiB at the
-  device cap)**, **plus the decoder's transient peak while an image decodes (PNG at
+  pending lookups 0.5, queue), **plus the decoder's transient peak while an image decodes (PNG at
   most 48 KiB on the X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB,
   `de` about 20 KB; interface 6's reader held the same)**, all fallible; an activation-gate item
   beside UIX's, measured with the reader port. The format plugins' own heaps are gated by their
