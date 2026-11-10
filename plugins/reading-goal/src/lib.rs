@@ -30,6 +30,8 @@
 //!
 //! This is the interface-7 plugin only (`PORTING-7.md`).
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

@@ -28,6 +28,8 @@
 //! The home screen is bound to `core.home`; replace it with any other
 //! screen by configuration or with a plugin of higher priority.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

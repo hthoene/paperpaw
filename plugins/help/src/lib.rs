@@ -8,6 +8,8 @@
 //! The screens shown are kept in `seen.txt`, a screen's id a line
 //! (version 1).
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

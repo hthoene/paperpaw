@@ -18,6 +18,8 @@
 //! `native_fetch`, so this works on small devices too. Shipped switched off:
 //! switch it on in the plugins. `PORTING-7.md` names what waits for the host.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

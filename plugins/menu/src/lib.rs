@@ -13,6 +13,8 @@
 //! (radial, side bar, …) for every menu at once. The same plugin shows
 //! menus as panels of controls (`core.panel`, see `panel`).
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

@@ -12,6 +12,8 @@
 //! ADR 0024). Built-in plugins are not listed, nor a plugin that would
 //! take the place of one: those come with the firmware.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

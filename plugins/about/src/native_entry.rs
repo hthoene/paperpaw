@@ -14,9 +14,16 @@ const ABOUT_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.host.bin");
 const ABOUT_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.bin");
 #[cfg(all(
     any(feature = "linked", feature = "native-entry"),
+    target_arch = "xtensa",
+    target_os = "none"
+))]
+const ABOUT_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.s3.bin");
+#[cfg(all(
+    any(feature = "linked", feature = "native-entry"),
     not(any(
         all(target_arch = "x86_64", target_os = "linux"),
-        all(target_arch = "riscv32", target_os = "none")
+        all(target_arch = "riscv32", target_os = "none"),
+        all(target_arch = "xtensa", target_os = "none")
     ))
 ))]
 compile_error!("About needs a generated ABI metadata profile for this target");

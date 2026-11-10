@@ -10,6 +10,8 @@
 //! and goes off again a minute after nothing uses it, or
 //! at once when home or a book shows: it costs battery and memory.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;

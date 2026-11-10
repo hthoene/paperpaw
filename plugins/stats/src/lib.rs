@@ -17,6 +17,8 @@
 //! on the same device (see `sync`); its database format is in
 //! `koreader`, the merge in `merge`.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![deny(clippy::let_underscore_must_use)]
 #![no_std]
 

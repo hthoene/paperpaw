@@ -30,6 +30,8 @@
 //! screen, the sync (`native_sync`, carried out through the network, secrets
 //! and work services) and the offer. Needs a device with network.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 // What goes wrong with the user's data is told, never dropped unseen:
 // a result left unread says why (see CONTRIBUTING.md).
 #![deny(clippy::let_underscore_must_use)]

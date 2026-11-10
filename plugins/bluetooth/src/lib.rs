@@ -12,6 +12,8 @@
 //! the interface-6 plugin is gone. What waits on the host and the SDK is in
 //! `PORTING-7.md` and in `tests/acceptance_pending.rs`.
 
+// The heap word is assembly (`native_plugin!`); Xtensa still gates it.
+#![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![no_std]
 
 extern crate alloc;
