@@ -90,3 +90,19 @@ fn a_field_of_one_plugin_never_touches_another_plugins() {
     );
     assert!(book.fields.iter().all(|(key, _)| key != "stars.tag"));
 }
+
+#[test]
+fn a_book_in_use_is_busy_and_nothing_is_kept() {
+    let card = card();
+    let reads = card.reads();
+    assert_eq!(
+        reads.set_field_unless(B, "stars.rating", "4", &|path| path == "books/c.epub"),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+    let book = library::book(&*card.storage, "books/c.epub");
+    assert!(book.is_none_or(|b| b.fields.iter().all(|(k, _)| k != "stars.rating")));
+    // Another book is not held by the same job.
+    reads
+        .set_field_unless(B, "stars.rating", "4", &|path| path == "books/a.epub")
+        .unwrap();
+}

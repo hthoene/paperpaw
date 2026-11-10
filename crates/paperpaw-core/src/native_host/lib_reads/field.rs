@@ -6,7 +6,7 @@
 //! An error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
 use crate::native_host::lib_service::{BookRef, FieldKind};
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
 use paperpaw_sdk::library;
 
 /// Op 23's declared-field lookup: `ERR_NOT_FOUND` for a field no plugin
@@ -19,16 +19,24 @@ pub(super) fn kind(reads: &CatalogReads, field: &str) -> Result<FieldKind, i32> 
         .ok_or(ERR_NOT_FOUND)
 }
 
-/// Op 23 `set_field`: an empty `value` removes the field.
-pub(super) fn set(
-    reads: &CatalogReads,
-    book: BookRef<'_>,
-    field: &str,
-    value: &str,
-) -> Result<(), i32> {
-    reads.with_path(book, |path| {
-        library::try_set_field(&*reads.storage, path, field, value).map_err(fail)
-    })
+impl CatalogReads {
+    /// Op 23 `set_field` (an empty `value` removes the field), where `busy`
+    /// says a book is in use (a library move carries it): `ERR_BUSY`, nothing
+    /// kept, because the carry would put the old details over the field.
+    pub(crate) fn set_field_unless(
+        &self,
+        book: BookRef<'_>,
+        field: &str,
+        value: &str,
+        busy: &dyn Fn(&str) -> bool,
+    ) -> Result<(), i32> {
+        self.with_path(book, |path| {
+            if busy(path) {
+                return Err(ERR_BUSY);
+            }
+            library::try_set_field(&*self.storage, path, field, value).map_err(fail)
+        })
+    }
 }
 
 #[cfg(test)]
