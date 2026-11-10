@@ -9,14 +9,15 @@ use crate::native_host::lib_service::LibWrite;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_sdk::library;
 
-const B: BookRef<'static> = BookRef::Path("books/b.epub");
+// Book C has its file on the card; B has none.
+const B: BookRef<'static> = BookRef::Path("books/c.epub");
 
 #[test]
 fn a_field_is_kept_with_the_book_replaced_and_removed_by_an_empty_value() {
     let card = card();
     let reads = card.reads();
     reads.set_field(B, "stars.rating", "4").unwrap();
-    let book = library::book(&*card.storage, "books/b.epub").unwrap();
+    let book = library::book(&*card.storage, "books/c.epub").unwrap();
     let field = |book: &library::Book, id: &str| {
         book.fields
             .iter()
@@ -24,10 +25,9 @@ fn a_field_is_kept_with_the_book_replaced_and_removed_by_an_empty_value() {
             .map(|(_, value)| value.clone())
     };
     assert_eq!(field(&book, "stars.rating").as_deref(), Some("4"));
-    // The fields the book has kept before stay (b.epub has `k` and `m`).
-    assert_eq!(field(&book, "k").as_deref(), Some("v"));
+    reads.set_field(B, "other.note", "n").unwrap();
     reads.set_field(B, "stars.rating", "5").unwrap();
-    let book = library::book(&*card.storage, "books/b.epub").unwrap();
+    let book = library::book(&*card.storage, "books/c.epub").unwrap();
     assert_eq!(field(&book, "stars.rating").as_deref(), Some("5"));
     assert_eq!(
         book.fields
@@ -38,9 +38,9 @@ fn a_field_is_kept_with_the_book_replaced_and_removed_by_an_empty_value() {
         "replaced, not added to"
     );
     reads.set_field(B, "stars.rating", "").unwrap();
-    let book = library::book(&*card.storage, "books/b.epub").unwrap();
+    let book = library::book(&*card.storage, "books/c.epub").unwrap();
     assert_eq!(field(&book, "stars.rating"), None);
-    assert_eq!(field(&book, "k").as_deref(), Some("v"));
+    assert_eq!(field(&book, "other.note").as_deref(), Some("n"));
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn a_field_of_one_plugin_never_touches_another_plugins() {
     reads.set_field(B, "stars.rating", "4").unwrap();
     reads.set_field(B, "stars.tag", "x").unwrap();
     reads.set_field(B, "stars.tag", "").unwrap();
-    let book = library::book(&*card.storage, "books/b.epub").unwrap();
+    let book = library::book(&*card.storage, "books/c.epub").unwrap();
     assert!(
         book.fields
             .iter()
