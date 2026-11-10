@@ -8,7 +8,10 @@ fn entry(title: &str, level: u8) -> Entry {
 fn a_title_is_indented_two_spaces_a_level_down_to_the_deepest_shown() {
     assert_eq!(row_title(&entry("One", 0)).unwrap(), "One");
     assert_eq!(row_title(&entry("Two", 1)).unwrap(), "  Two");
-    assert_eq!(row_title(&entry("Deep", MAX_LEVEL)).unwrap(), "        Deep");
+    assert_eq!(
+        row_title(&entry("Deep", MAX_LEVEL)).unwrap(),
+        "        Deep"
+    );
     // Deeper than shown is as deep as shown.
     assert_eq!(row_title(&entry("Deeper", 15)).unwrap(), "        Deeper");
 }
