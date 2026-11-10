@@ -197,8 +197,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] **Preparing** (interface 6 `prepared`): while `state` is 1, the host calls the format's op 3
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
   by the format's own clock (the format stops at a safe point and answers its progress), until it
-  answers done or fails. The opener gets `event.document_changed` (88, a hint per document,
-  coalesced) when the state or the progress moves; other ops on a preparing document are
+  answers done or fails. The opener gets `event.document_changed` (88: `document`, `state` and
+  `progress_ppm` as `doc_state` has them at delivery; one per document, coalesced, the latest
+  wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
 - [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
@@ -445,6 +446,7 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
 | 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
+| 88 | `event.document_changed` | `now_ms: u64`, `document: u32`, `state: u32`, `progress_ppm: u32` |
 
 - [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
   is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
