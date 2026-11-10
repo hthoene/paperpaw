@@ -19,7 +19,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
-        ui::{Compose, Ui, WidgetHandle, WidgetInputKind},
+        ui::{Compose, MadeWidget, Ui, WidgetHandle, WidgetInputKind},
     },
     widgets::grid::Geometry,
 };
@@ -53,7 +53,7 @@ struct Cell {
     /// A tool's icon and state (none for a widget).
     face: Option<Face>,
     /// A widget's instance, where the host made one.
-    widget: Option<WidgetHandle>,
+    widget: Option<MadeWidget>,
 }
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -383,19 +383,21 @@ impl Dashboard {
             What::Widget(id) => {
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                 match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
-                    Ok(handle) => {
-                        let placed = ui.widget_place(
-                            host,
-                            handle,
-                            paint::frame_rect(rect),
-                            &mut input,
-                            &mut out,
-                        );
-                        if let Err(error) = placed {
-                            drop_widget(host, ui, handle);
-                            return Err(error);
+                    Ok(made) => {
+                        if let MadeWidget::Widget(handle) = made {
+                            let placed = ui.widget_place(
+                                host,
+                                handle,
+                                paint::frame_rect(rect),
+                                &mut input,
+                                &mut out,
+                            );
+                            if let Err(error) = placed {
+                                drop_widget(host, ui, handle);
+                                return Err(error);
+                            }
                         }
-                        (text::copy(Self::widget_title(src, id))?, Some(handle))
+                        (text::copy(Self::widget_title(src, id))?, Some(made))
                     }
                     // A widget that is gone, or not for this screen: no cell.
                     Err(Error::NotFound | Error::Denied) => return Ok(None),
@@ -406,17 +408,19 @@ impl Dashboard {
         let what = match item.what.try_clone() {
             Ok(what) => what,
             Err(error) => {
-                if let Some(widget) = widget {
+                if let Some(MadeWidget::Widget(widget)) = widget {
                     drop_widget(host, ui, widget);
                 }
                 return Err(error);
             }
         };
         let least = match widget {
-            Some(handle) => match measure::measure_handle(host, ui, handle, geometry) {
+            Some(made) => match measure::measure_handle(host, ui, made, geometry) {
                 Ok((_, least)) => least,
                 Err(Error::NoMemory) => {
-                    drop_widget(host, ui, handle);
+                    if let MadeWidget::Widget(handle) = made {
+                        drop_widget(host, ui, handle);
+                    }
                     return Err(Error::NoMemory);
                 }
                 // A widget the host cannot measure may not be made lower than one.
@@ -471,7 +475,7 @@ impl Dashboard {
                         owner: Owner::Tool(index),
                     },
                 )?,
-                Some(widget) if !widget.is_own() => {
+                Some(MadeWidget::Widget(widget)) => {
                     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                     let found = ui.widget_targets(
                         host,
@@ -687,9 +691,10 @@ impl Dashboard {
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
         compose_each(
-            laid.cells
-                .iter()
-                .filter_map(|cell| Some((cell.widget.filter(|w| !w.is_own())?, cell.rect))),
+            laid.cells.iter().filter_map(|cell| match cell.widget {
+                Some(MadeWidget::Widget(widget)) => Some((widget, cell.rect)),
+                _ => None,
+            }),
             |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
         );
         paint::replay(frame, font, above.iter())?;
@@ -849,7 +854,9 @@ impl Dashboard {
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Widget { item, target: id } => {
-                let Some(widget) = laid.cells.get(item).and_then(|cell| cell.widget) else {
+                let Some(MadeWidget::Widget(widget)) =
+                    laid.cells.get(item).and_then(|cell| cell.widget)
+                else {
                     return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
@@ -989,7 +996,7 @@ fn drop_widget(host: &Host<'_>, ui: &Ui, widget: WidgetHandle) {
 /// Lets the widgets of these cells go.
 fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
     for cell in cells {
-        if let Some(widget) = cell.widget {
+        if let Some(MadeWidget::Widget(widget)) = cell.widget {
             drop_widget(host, ui, widget);
         }
     }
