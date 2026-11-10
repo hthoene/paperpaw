@@ -85,9 +85,11 @@ not before the dual-boot notice is native), and the app links it and no interfac
   interface 6; the beta version reads *0.5.0 Beta 1* as before. New texts (en and de):
   `update.card.*`, `update.installing.percent`, `update.installed.restart-help`, `update.restart`,
   `update.reason.unsupported`; the interface-6 texts of the states above are used as they are.
-- The `uses.firmware` and `uses.storage` features are declared in `native/metadata*.json` (required): without a
-  card (`uses.storage`) there is no install from `updates`. `uses.network` and `uses.install` (the online flow) are
-  declared optional.
+- The `uses.storage` feature is declared in `native/metadata*.json` as required: without a card there is no
+  install from `updates`. `uses.firmware`, `uses.network` and `uses.install` are declared optional: Beta 3 loaded
+  this plugin on a desktop too, where it stayed silent (the `Firmware` need hides its menu items and setup step, and
+  `started` does nothing without a firmware), so a host that has no firmware (the desktop) must still start it; the
+  page, if reached, answers *This device does not install updates from here* (`update.reason.unsupported`).
 - **Left out of the card flow, not blocked:** interface 6 also looked for another firmware's image at the
   card's top level (where CrossPoint's installer looks); the native page looks in `updates` only (one more
   listing of root 1 and the same check). **To confirm with Firmware:** the check of a foreign image answers
