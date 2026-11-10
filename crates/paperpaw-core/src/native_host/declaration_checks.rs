@@ -20,6 +20,10 @@ const KIND_MENU_SECTION: u8 = 26;
 const KIND_FORMAT: u8 = 31;
 /// Index category of `reader.spec`.
 const KIND_READER: u8 = 32;
+/// Index category of `book_field.spec`.
+const KIND_BOOK_FIELD: u8 = 34;
+/// Index category of `book_badge.spec`.
+const KIND_BOOK_BADGE: u8 = 35;
 
 /// The declaration cap a refused plugin ran into, as `reg_plugin` row says it
 /// (`docs/abi/registry.md`): `problem` 14 too many formats or 15 too many
@@ -34,6 +38,10 @@ impl Cap {
     pub(crate) const FORMATS: u32 = 14;
     /// `reg_plugin.problem`: too many readers.
     pub(crate) const READERS: u32 = 15;
+    /// `reg_plugin.problem`: too many book fields (8 per plugin, 64 device-wide).
+    pub(crate) const BOOK_FIELDS: u32 = 16;
+    /// `reg_plugin.problem`: too many book badges (4 per plugin, 16 device-wide).
+    pub(crate) const BOOK_BADGES: u32 = 17;
 
     /// The cap of `problem`; 0 where it does not fit a `u32` (no cap does
     /// today: the row's 0 for "the host cannot say" has no producer yet).
@@ -215,6 +223,32 @@ impl<'a> View<'a> {
                 super::format_index::READERS_PER_PLUGIN,
             )));
             return Err(ERR_INVALID);
+        }
+        // At most 8 book fields and 4 book badges per plugin (`library.md`
+        // section 1): the ninth field or the fifth badge refuses the batch
+        // (`ERR_INVALID`); the device's 64 and 16 are the store's.
+        for (kind, cap, problem) in [
+            (
+                KIND_BOOK_FIELD,
+                super::declaration_store::FIELDS_PER_PLUGIN,
+                Cap::BOOK_FIELDS,
+            ),
+            (
+                KIND_BOOK_BADGE,
+                super::declaration_store::BADGES_PER_PLUGIN,
+                Cap::BOOK_BADGES,
+            ),
+        ] {
+            let count = self
+                .raw
+                .index
+                .iter()
+                .filter(|entry| entry.kind() == kind)
+                .count();
+            if count > cap {
+                self.refused.set(Some(Cap::of(problem, cap)));
+                return Err(ERR_INVALID);
+            }
         }
         let mut result = Ok(());
         self.visit(&mut |record| {

@@ -57,7 +57,11 @@ impl DeclarationStore {
 
     /// The records of `kind` of live plugins, by ascending incarnation: no
     /// allocation, a scan for the next larger incarnation per plugin.
-    fn each_in_load_order(&self, kind: Kind, visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>)) {
+    pub(super) fn each_in_load_order(
+        &self,
+        kind: Kind,
+        visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>),
+    ) {
         let mut last = 0;
         loop {
             let mut next: Option<(u32, usize)> = None;

@@ -40,6 +40,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::HelpHint,
     Kind::Format,
     Kind::Reader,
+    Kind::BookField,
+    Kind::BookBadge,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
