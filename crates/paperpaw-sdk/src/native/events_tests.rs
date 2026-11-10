@@ -41,6 +41,7 @@ fn page() -> EventPageTurned<'static> {
         chapter: "One",
         page: Some(12),
         pages: Some(300),
+        chapter_left: None,
     }
 }
 #[test]

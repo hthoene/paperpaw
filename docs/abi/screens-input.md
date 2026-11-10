@@ -556,6 +556,13 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   two pages never share a position. `event.page_turned` carries `insert` as an optional field
   (absent = 0). Consumers that only follow text, such as sync and statistics, ignore it, which is
   correct because progress is text-based.
+- [D] **`chapter_left`** (draft 37, an optional appended field of 37 and 65-67): the laid-out pages
+  after this one up to the end of the chapter the page is in (the table-of-contents entry `chapter`
+  names), 0 on its last page. It is present only with `page` and `pages` and is at most
+  `pages - page`; it is absent where the reader has no chapter end (no table of contents, a page
+  before its first entry, pages not counted yet). The reader fills it from its page index
+  (`document.md` 2.4); consumers show "pages left in the chapter" from it (interface 6
+  `Reading::chapter_left`).
 
 ## 10. Input limits in SDK glue (N7)
 
