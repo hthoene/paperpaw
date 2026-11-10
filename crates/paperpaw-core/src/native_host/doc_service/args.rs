@@ -85,7 +85,11 @@ pub(super) fn path_valid(path: &str) -> bool {
 /// Whether a path of `root` may be named: root 1 never reaches the kernel's
 /// and the plugins' folders and `paperpaw.ini` (the first path segment, as the
 /// FAT driver compares names, `owner_paths::protected_first`); a book or a CSS
-/// file there is `ERR_INVALID`, as for the file service (`files.md` 3).
+/// file there is `ERR_INVALID`, as for the file service (`files.md` 3). The
+/// refusal comes before the access check, so a plugin without `uses.storage`
+/// gets `ERR_INVALID` here too. A `~` short-name alias is not checked: the
+/// card's driver (`paperpaw-fat`) names an entry by its long name only, so no
+/// path reaches a protected folder by another name.
 pub(super) fn reachable(root: u32, path: &str) -> bool {
     root != 1 || !super::super::owner_paths::protected_first(path.split('/').next().unwrap_or(""))
 }
