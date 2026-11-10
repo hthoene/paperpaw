@@ -376,21 +376,25 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 
   draws as `text.draw` does (same `size`, `text`, canvas, stale-handle and advance rules, `out`
   the advance), with two changes:
-  - `extra`: every glyph widened by this many pixels to the right, 0 to 16 (`ERR_INVALID`
-    above). Advances do not change, so `text.measure` still lays the text out. The plugin works
-    out the pixels itself; Beta 3's reader used `weight × size / 48`, rounded, at least 1 for a
-    weight above 0.
+  - `extra`: every glyph widened by this many pixels to the right; above 16 it is clamped to 16,
+    not refused (as an image's `side` is clamped to 1,600), so large text never vanishes (Beta 3's
+    reader used `weight × size / 48`, rounded, at least 1 for a weight above 0, which passes 16
+    from about 192 px). Advances do not change, so `text.measure` still lays the text out.
   - `tone`: empty for the handle's own tone (what `text.draw` uses), or exactly 16 bytes, the
     opacities 0 to 255 of coverage levels 0 to 15 (`paperpaw_text::ToneCurve::from_alphas`;
     level 0 is drawn as 0 whatever it says). Any other length is `ERR_INVALID`. A reader picks
     the curve per run itself (its `core.text-contrast` level or per-script curve); the host
     keeps no curve per plugin.
-  - `flags` bit 0 `sharp`: the curve without grays at this screen's black threshold
-    (`ToneCurve::sharp` with the canvas's `mono_coverage`, which only the host knows; the
-    reader sets it when `core.smooth-text` is off). Other bits are `ERR_INVALID`.
+  - `flags` bit 0 `sharp`: the chosen curve (`tone` where given, else the handle's own) without
+    grays at this screen's black threshold (`ToneCurve::sharp` with the canvas's
+    `mono_coverage`, which only the host knows; the reader sets it when `core.smooth-text` is
+    off), as Beta 3's reader did. Other bits are `ERR_INVALID`.
 
-  Checks happen before anything is drawn, and a refused call draws nothing. X4: the curve is
-  read from the call's arguments (16 bytes, no allocation), and the drawing is the same code as
+  Order: outside `draw` (no canvas) is `ERR_STATE` first; then a stale handle `ERR_STATE`; then
+  the arguments (`size`, `text`, `tone`, `flags`) `ERR_INVALID` or `ERR_UTF8`. Every check
+  happens before anything is drawn, and a refused call draws nothing. X4: the curve is read from
+  the call's arguments (16 bytes), so the slot allocates nothing beyond what `text.draw` does
+  (its glyph cache and shaping paths, as in interface 6), and the drawing is the same code as
   interface 6's `draw_toned`, so the flash cost is the slot and its checks alone. Hosts answer
   `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
