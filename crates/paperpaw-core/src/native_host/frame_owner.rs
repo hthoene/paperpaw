@@ -16,6 +16,7 @@
 //! stack), and one static on bare metal (`target_os = "none"`: one core runs
 //! plugin code there, as for [`host_slot`](super::host_slot)).
 
+use core::any::TypeId;
 use core::ffi::c_void;
 use core::ptr;
 
@@ -29,9 +30,9 @@ struct Frame {
     owner: u64,
     /// Its `Context<S>`, for the typed table entries of that shell.
     context: *const c_void,
-    /// The `PpHeap` table of its services type `S`: an entry reads the
-    /// context only if the frame was pushed for its own table.
-    table: *const c_void,
+    /// The services type `S` of the shell it runs in (its `TypeId`): a table
+    /// entry reads the context only if the frame was pushed for its own `S`.
+    kind: TypeId,
     /// The frame this one was pushed over, or null.
     previous: *const Frame,
 }
@@ -84,19 +85,19 @@ impl Drop for Restore {
 }
 
 /// Runs `call`, which enters the code of the plugin with host owner key
-/// `owner`, context `context` (a pinned `Context<S>`) and the `PpHeap` table
-/// `table` of its services type, with that plugin as the frame owner; the
+/// `owner`, context `context` (a pinned `Context<S>`) and the `TypeId` `kind` of its
+/// services type `S`, with that plugin as the frame owner; the
 /// previous owner is back when it returns.
 pub(crate) fn within<R>(
     owner: u64,
     context: *const c_void,
-    table: *const c_void,
+    kind: TypeId,
     call: impl FnOnce() -> R,
 ) -> R {
     let frame = Frame {
         owner,
         context,
-        table,
+        kind,
         previous: current::get(),
     };
     let _restore = Restore(frame.previous);
@@ -105,14 +106,14 @@ pub(crate) fn within<R>(
 }
 
 /// The context of the plugin whose code runs now, if the frame was pushed
-/// for `table` (the `PpHeap` table of the caller's services type); `None`
-/// outside any frame and for a frame of another services type or table.
-pub(crate) fn context_of(table: *const c_void) -> Option<*const c_void> {
+/// for the services type `kind`; `None` outside any frame and for a frame of
+/// another services type.
+pub(crate) fn context_of(kind: TypeId) -> Option<*const c_void> {
     let frame = current::get();
     // SAFETY: a non-null current frame is on the stack of a `within` that has
     // not returned (its guard clears it on the way out).
     unsafe { frame.as_ref() }
-        .filter(|frame| ptr::eq(frame.table, table))
+        .filter(|frame| frame.kind == kind)
         .map(|frame| frame.context)
 }
 

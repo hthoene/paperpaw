@@ -22,7 +22,7 @@ pub(crate) enum TokenInvocation<'a> {
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token<S, M>(
+pub(crate) fn dispatch_token<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -38,7 +38,7 @@ pub(crate) fn dispatch_token<S, M>(
 /// the plugin's `commands.submit` for its duration (every callback but
 /// `draw` gets one). The stage is the caller's: it reads what was accepted
 /// after the callback returned.
-pub(crate) fn dispatch_token_staged<S, M>(
+pub(crate) fn dispatch_token_staged<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -54,7 +54,7 @@ pub(crate) fn dispatch_token_staged<S, M>(
     })?
 }
 
-pub(super) fn invoke_token<S>(
+pub(super) fn invoke_token<S: 'static>(
     context: core::pin::Pin<&super::Context<S>>,
     token: u32,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -98,7 +98,7 @@ pub(super) fn invoke_token<S>(
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token_draw<S, M>(
+pub(crate) fn dispatch_token_draw<S: 'static, M>(
     batch: &Batch<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
@@ -137,7 +137,7 @@ pub(crate) fn dispatch_token_draw<S, M>(
 }
 
 // The accessors the command stage reads (`shell.rs` is at its line limit).
-impl<S> super::Context<S> {
+impl<S: 'static> super::Context<S> {
     /// The host owner key of the plugin (the key of its native instance).
     #[allow(
         dead_code,

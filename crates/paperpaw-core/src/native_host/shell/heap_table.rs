@@ -10,12 +10,13 @@
 use super::{Context, Services};
 use crate::native_host::frame_owner;
 use crate::native_host::plugin_heap::Charged;
+use core::any::TypeId;
 use core::ffi::c_void;
 use core::ptr;
 use paperpaw_native::host_glue::{self, MAJOR, MINOR, OK, PpHeap};
 use paperpaw_native::host_glue::{ERR_INVALID, ShellCtx};
 
-impl<S> Context<S> {
+impl<S: 'static> Context<S> {
     /// Runs `call`, which enters the code of this plugin (`make`, its
     /// destructor, a callback), with the plugin as the frame owner. Every
     /// entry of host code into plugin code goes through here.
@@ -23,7 +24,7 @@ impl<S> Context<S> {
         frame_owner::within(
             self.resources.owner_id(),
             ptr::from_ref(self).cast(),
-            ptr::from_ref(self.heap).cast(),
+            TypeId::of::<S>(),
             call,
         )
     }
@@ -33,7 +34,7 @@ impl<S> Context<S> {
 /// no `abort` yet, so the SDK's panic handler executes the profile's trap
 /// instruction (section 6, "no usable heap word").
 #[must_use]
-pub const fn heap_table<S: Services>() -> PpHeap {
+pub const fn heap_table<S: Services + 'static>() -> PpHeap {
     PpHeap {
         size: core::mem::offset_of!(PpHeap, abort) as u32,
         major: MAJOR,
@@ -49,7 +50,7 @@ pub const fn heap_table<S: Services>() -> PpHeap {
 /// is for the host table.
 pub(super) struct SharedHeap<S>(core::marker::PhantomData<S>);
 
-impl<S: Services> SharedHeap<S> {
+impl<S: Services + 'static> SharedHeap<S> {
     /// Evaluated at compile time and promoted to a `'static` in read-only data.
     pub(super) const TABLE: &'static PpHeap = &heap_table::<S>();
 }
@@ -57,21 +58,18 @@ impl<S: Services> SharedHeap<S> {
 /// The `PpHeap` table every plugin hosted with `S` is handed, for the loader
 /// to write the address of into the plugin's heap word.
 ///
-/// Never inlined: the address of the table is the identity of `S` for the
-/// frame owner (`frame_owner::context_of`), and a constant reference copied
-/// into each use would have as many addresses as uses. Every user of the
-/// table (the loader, a context's frames, the entries) asks this one function.
+/// The identity of `S` for the frame owner is its `TypeId`, not the address of
+/// this table: Rust does not promise one address per promoted constant (each
+/// codegen unit may carry its own copy, identical constants may be merged).
 #[must_use]
-#[inline(never)]
-pub fn handed_heap<S: Services>() -> &'static PpHeap {
+pub fn handed_heap<S: Services + 'static>() -> &'static PpHeap {
     SharedHeap::<S>::TABLE
 }
 
 /// The context of the frame owner, if the frame was pushed for the table of
 /// this `S`: only then is it a `Context<S>`.
-fn frame_context<S: Services>() -> Option<*mut c_void> {
-    frame_owner::context_of(ptr::from_ref(handed_heap::<S>()).cast())
-        .map(|context| context.cast_mut())
+fn frame_context<S: Services + 'static>() -> Option<*mut c_void> {
+    frame_owner::context_of(TypeId::of::<S>()).map(|context| context.cast_mut())
 }
 
 /// Runs `call` with a [`ShellCtx`] over the shell's allocator as the plugin
@@ -81,7 +79,7 @@ fn frame_context<S: Services>() -> Option<*mut c_void> {
 /// # Safety
 ///
 /// `ctx` is null or a live, pinned `Context<S>`.
-pub(super) unsafe fn with_heap<S: Services>(
+pub(super) unsafe fn with_heap<S: Services + 'static>(
     ctx: *mut c_void,
     call: impl FnOnce(*mut c_void) -> i32,
 ) -> i32 {
@@ -101,7 +99,7 @@ pub(super) unsafe fn with_heap<S: Services>(
 
 /// `alloc`: null outside a frame, and for every refusal of the shared heap
 /// (a zero size, a bad alignment, no room).
-unsafe extern "C" fn alloc<S: Services>(size: usize, align: usize) -> *mut c_void {
+unsafe extern "C" fn alloc<S: Services + 'static>(size: usize, align: usize) -> *mut c_void {
     let Some(ctx) = frame_context::<S>() else {
         return ptr::null_mut();
     };
@@ -119,7 +117,7 @@ unsafe extern "C" fn alloc<S: Services>(size: usize, align: usize) -> *mut c_voi
 /// `dealloc`: a null `ptr` is ignored. Outside a frame there is no heap to
 /// give the block to, so it stays where it is (a leak, not a fault): the
 /// block's own owner replaces the frame once blocks carry one.
-unsafe extern "C" fn dealloc<S: Services>(block: *mut c_void, size: usize, align: usize) {
+unsafe extern "C" fn dealloc<S: Services + 'static>(block: *mut c_void, size: usize, align: usize) {
     if block.is_null() {
         return;
     }
@@ -136,7 +134,7 @@ unsafe extern "C" fn dealloc<S: Services>(block: *mut c_void, size: usize, align
 }
 
 /// `realloc`: null outside a frame; the old block is untouched on null.
-unsafe extern "C" fn realloc<S: Services>(
+unsafe extern "C" fn realloc<S: Services + 'static>(
     block: *mut c_void,
     old_size: usize,
     align: usize,

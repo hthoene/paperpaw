@@ -4,6 +4,7 @@
 extern crate std;
 use super::*;
 use crate::abi7::core_frame::CoreFrame;
+use core::any::TypeId;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{Instant, PixelFormat};
 
@@ -894,7 +895,7 @@ fn every_token_entry_runs_as_the_frame_owner_and_gives_it_back() {
             assert_eq!(frame_owner::owner(), None, "status {status}");
         }
         // Nested in another plugin's frame.
-        frame_owner::within(99, ptr::null(), ptr::null(), || {
+        frame_owner::within(99, ptr::null(), TypeId::of::<()>(), || {
             run(frame, &mut canvas);
             assert_eq!(frame_owner::owner(), Some(99));
         });
