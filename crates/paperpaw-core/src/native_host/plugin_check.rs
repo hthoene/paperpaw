@@ -182,11 +182,15 @@ impl PluginCheck {
         let (Some(walk), Some(found)) = (self.walk.as_ref(), self.found) else {
             return self.end(reason::OTHER);
         };
-        let manifest =
-            match plugin_folder::read_manifest(env.storage, walk.root(), walk.folder_name()) {
-                Ok(manifest) => manifest,
-                Err(why) => return self.end(why),
-            };
+        let manifest = match plugin_folder::read_manifest(
+            env.storage,
+            walk.root(),
+            walk.folder_name(),
+            &mut self.buf,
+        ) {
+            Ok(manifest) => manifest,
+            Err(why) => return self.end(why),
+        };
         let id = manifest.id.as_str();
         if id == "core" || env.built_ins.index_of(id).is_some() {
             return self.end(reason::ID_TAKEN);
