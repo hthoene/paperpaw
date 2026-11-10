@@ -382,3 +382,4 @@ relative to the data folder).
   that ended is not renewed by its `index`: both leave the place empty until the next layout; the view does not
   release pictures (they end with the document). Unmeasured on the X4: the drawing time of a full-page picture
   and the heap of a 16-cell row (a `Vec` of cells and one of weights per row being assembled).
+- The metadata asks for the host call `canvas.draw_image` (slot 37) for the pictures.
