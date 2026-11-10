@@ -283,6 +283,7 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
         storage,
         view: Rc::default(),
         simulated,
+        net: Rc::default(),
     }
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
@@ -504,6 +505,7 @@ impl Device {
     /// ends, as a reader would wait.
     pub fn network_settling(&self) -> bool {
         self.http.in_flight > 0
+            || self.native_in_flight() > 0
             || self.kernel.holds_sleep()
             || self.wifi.next_due().is_some()
             || self.bluetooth.settling()
@@ -673,6 +675,7 @@ impl Device {
     /// Delivers HTTP answers that have arrived; with `wait`, waits that
     /// long for the requests still in flight.
     pub fn poll_http(&mut self, wait: Option<std::time::Duration>) {
+        self.poll_native_net(wait);
         while let Some((id, received, total)) = self.http.next_progress() {
             let now = self.now();
             let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
@@ -686,6 +689,34 @@ impl Device {
             let effects = budget::track(|| self.kernel.http_response(now, response));
             self.execute(effects);
         }
+    }
+
+    /// Hands the native plugins' HTTP answers to core (`core.net`), and lets
+    /// it take its turn.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    fn poll_native_net(&mut self, wait: Option<std::time::Duration>) {
+        let net = self.linked.net.borrow();
+        if let Some(net) = net.as_ref() {
+            net.transport.pump(&net.reports, wait);
+        }
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
+
+    /// The native plugins' requests started and not answered yet.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    fn native_in_flight(&self) -> usize {
+        self.linked
+            .net
+            .borrow()
+            .as_ref()
+            .map_or(0, |net| net.transport.in_flight())
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    fn native_in_flight(&self) -> usize {
+        0
     }
 
     /// Passes requests to plugins' servers on, and what their sockets
@@ -768,6 +799,10 @@ impl Device {
             self.execute(effects);
         }
         let end = StdInstant::now() + SHUT_DOWN_WAIT;
+        // The native plugins' answers, for as long as they come.
+        while self.native_in_flight() > 0 && StdInstant::now() < end {
+            self.poll_native_net(Some(end.saturating_duration_since(StdInstant::now())));
+        }
         while self.http.in_flight > 0 {
             let left = end.saturating_duration_since(StdInstant::now());
             let Some(response) = self.http.next(Some(left)).filter(|_| !left.is_zero()) else {

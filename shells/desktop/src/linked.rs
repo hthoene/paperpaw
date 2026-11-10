@@ -14,14 +14,16 @@
 //! dispatch budget are shared by every linked plugin, as the loader's are for
 //! the plugins of the card (`native::HostLoader`).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use paperpaw_core::Kernel;
 use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
-use paperpaw_core::native_host::shell_wiring::{SecretsInputs, WorkDevice, WorkInputs};
+use paperpaw_core::native_host::shell_wiring::{
+    NetInputs, NetLimits, NetReports, SecretsInputs, WorkDevice, WorkInputs,
+};
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
 use paperpaw_platform::Storage;
@@ -35,16 +37,25 @@ use crate::profiles::Profile;
 /// the table serves from the kernel's own views (`core.ui`, `core.registry`).
 /// A service not named here is not offered: a plugin that needs it is refused
 /// at admission.
-fn offered() -> &'static [Service<'static>] {
+fn offered(wired: Wired) -> &'static [Service<'static>] {
     use std::sync::OnceLock;
     const OWN: &[&str] = &["core.ui", "core.registry"];
-    static OFFERED: OnceLock<Vec<Service<'static>>> = OnceLock::new();
-    OFFERED.get_or_init(|| {
+    static OFFERED: [OnceLock<Vec<Service<'static>>>; 8] = [const { OnceLock::new() }; 8];
+    let index =
+        usize::from(wired.secrets) | usize::from(wired.work) << 1 | usize::from(wired.net) << 2;
+    OFFERED[index].get_or_init(|| {
+        let wired_keys = [
+            (wired.secrets, "core.secrets"),
+            (wired.work, "core.work"),
+            (wired.net, "core.net"),
+        ]
+        .into_iter()
+        .filter_map(|(on, key)| on.then_some(key));
         DATA_SERVICES
             .iter()
             .chain(DEVICE_SERVICES)
             .copied()
-            .chain(OWN.iter().map(|key| Service {
+            .chain(OWN.iter().copied().chain(wired_keys).map(|key| Service {
                 key,
                 major: 1,
                 semantic_revision: 0,
@@ -54,13 +65,22 @@ fn offered() -> &'static [Service<'static>] {
     })
 }
 
+/// Which of the services that are wired only when the shell can are wired.
+#[derive(Clone, Copy, Debug, Default)]
+struct Wired {
+    secrets: bool,
+    work: bool,
+    net: bool,
+}
+
 /// The consent features this shell backs: the registry (the kernel's own),
-/// the device's power view (`core.device`) and, where `core.secrets` is wired
-/// (it has a sealing key), `uses.secrets`. Not offered, because the desktop
-/// does not back them yet: `uses.network`, `uses.wifi`, `uses.bluetooth`,
+/// the device's power view (`core.device`) and, where they are wired,
+/// `uses.secrets` (it has a sealing key) and `uses.network` (HTTP requests,
+/// `core.net`). Not offered, because the desktop does not back them yet:
+/// `uses.wifi`, `uses.bluetooth`,
 /// `uses.install`, `uses.firmware`, `uses.library`, `uses.storage`. A plugin
 /// that needs one is refused at admission.
-fn features(secrets: bool) -> &'static [Feature<'static>] {
+fn features(wired: Wired) -> &'static [Feature<'static>] {
     const REGISTRY: Feature<'static> = Feature {
         key: "uses.registry",
         revision: 1,
@@ -73,9 +93,20 @@ fn features(secrets: bool) -> &'static [Feature<'static>] {
         key: "uses.secrets",
         revision: 1,
     };
+    const NETWORK: Feature<'static> = Feature {
+        key: "uses.network",
+        revision: 1,
+    };
     const BASE: &[Feature<'static>] = &[REGISTRY, POWER];
-    const WITH_SECRETS: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS];
-    if secrets { WITH_SECRETS } else { BASE }
+    const SECRETS_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS];
+    const NET_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, NETWORK];
+    const BOTH: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS, NETWORK];
+    match (wired.secrets, wired.net) {
+        (false, false) => BASE,
+        (true, false) => SECRETS_ONLY,
+        (false, true) => NET_ONLY,
+        (true, true) => BOTH,
+    }
 }
 
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
@@ -128,6 +159,18 @@ pub struct Inputs {
     /// A run on simulated time (tests, scripts): its secrets key is kept in
     /// memory and nothing is written outside the run's own folders.
     pub simulated: bool,
+    /// Where registration leaves the transport of `core.net` and core's
+    /// reports to it, for the device's loop ([`Net`]); `None` inside where
+    /// there is no card.
+    pub net: Rc<RefCell<Option<Net>>>,
+}
+
+/// The transport of `core.net` on the device and the handle core gave for
+/// its reports.
+#[derive(Debug)]
+pub struct Net {
+    pub transport: Rc<crate::native_net::NativeNet>,
+    pub reports: NetReports,
 }
 
 impl std::fmt::Debug for Inputs {
@@ -189,7 +232,21 @@ pub fn register(
     let mut wiring = HostWiring::new()
         .ui(profile.device.memory)
         .device(device)
-        .work(WorkInputs::new(inputs.view, profile.device.memory));
+        .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
+    // HTTP over the card (saved and sent files); no card, no `core.net`.
+    let transport = inputs.storage.clone().map(|storage| {
+        let transport = Rc::new(crate::native_net::NativeNet::new(
+            storage.clone(),
+            inputs.view.clone(),
+        ));
+        wiring = std::mem::take(&mut wiring).net(NetInputs::new(
+            storage,
+            transport.clone(),
+            transport.clone(),
+            NetLimits::new(0, 8),
+        ));
+        transport
+    });
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -211,13 +268,21 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
+    let on = Wired {
+        secrets: wired.secrets().is_some(),
+        work: true,
+        net: wired.net().is_some(),
+    };
+    *inputs.net.borrow_mut() = transport
+        .zip(wired.net().cloned())
+        .map(|(transport, reports)| Net { transport, reports });
     let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
     let host = metadata::Host {
         abi_major: 7,
         minor: paperpaw_native::host_glue::MINOR,
         profile: crate::native_runtime::host_profile(),
-        services: offered(),
-        features: features(wired.secrets().is_some()),
+        services: offered(on),
+        features: features(on),
     };
     // SAFETY: the offered services are the ones wired above (`offered`), and
     // the plugins are the app's linked ones, as the helper's contract says.
