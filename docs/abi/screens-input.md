@@ -301,7 +301,9 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   wired.
 
   A role is resolved again at each text call, so it follows the user's choice and never goes
-  stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.
+  stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), or text
+  drawn bolder with slot 41, not a role: there is no `role:ui-bold` or `role:mono`
+  (`ERR_NOT_FOUND`, as every unknown role).
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
@@ -351,6 +353,35 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   and anything less points at the first that is not. Case is not folded: a plugin that needs
   both cases asks for both. A stale handle is `ERR_STATE`; an icon role with no icon font bound
   answers 0. Works outside `draw`. Hosts answer `ERR_UNSUPPORTED` until wired.
+- [D] **Inked text** (draft 36, #228 todo 430; interface 6 `FontHandle::draw_bolder` and
+  `draw_toned`, which the Beta 3 reader used for the per-book settings `core.font-weight`,
+  `core.smooth-text` and `core.text-contrast`, and widgets for bold runs such as the word
+  clock's lit words): host slot 41
+
+  ```text
+  text.draw_inked(ctx, font: handle, size: f32, x: f32, baseline: i32, color: u32,
+                  text: bytes, extra: u32, tone: bytes, flags: u32, out: out_f32) -> status
+  ```
+
+  draws as `text.draw` does (same `size`, `text`, canvas, stale-handle and advance rules, `out`
+  the advance), with two changes:
+  - `extra`: every glyph widened by this many pixels to the right, 0 to 16 (`ERR_INVALID`
+    above). Advances do not change, so `text.measure` still lays the text out. The plugin works
+    out the pixels itself; Beta 3's reader used `weight × size / 48`, rounded, at least 1 for a
+    weight above 0.
+  - `tone`: empty for the handle's own tone (what `text.draw` uses), or exactly 16 bytes, the
+    opacities 0 to 255 of coverage levels 0 to 15 (`paperpaw_text::ToneCurve::from_alphas`;
+    level 0 is drawn as 0 whatever it says). Any other length is `ERR_INVALID`. A reader picks
+    the curve per run itself (its `core.text-contrast` level or per-script curve); the host
+    keeps no curve per plugin.
+  - `flags` bit 0 `sharp`: the curve without grays at this screen's black threshold
+    (`ToneCurve::sharp` with the canvas's `mono_coverage`, which only the host knows; the
+    reader sets it when `core.smooth-text` is off). Other bits are `ERR_INVALID`.
+
+  Checks happen before anything is drawn, and a refused call draws nothing. X4: the curve is
+  read from the call's arguments (16 bytes, no allocation), and the drawing is the same code as
+  interface 6's `draw_toned`, so the flash cost is the slot and its checks alone. Hosts answer
+  `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).

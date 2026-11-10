@@ -1214,6 +1214,62 @@
       "ownership": "call",
       "reentry": "deny",
       "max_bytes": 64
+    },
+    {
+      "id": 41,
+      "name": "text.draw_inked",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "x",
+          "type": "f32"
+        },
+        {
+          "name": "baseline",
+          "type": "i32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "extra",
+          "type": "u32"
+        },
+        {
+          "name": "tone",
+          "type": "bytes"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "result": "status",
+      "effect": "mutate",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 4096
     }
   ],
   "records": [
