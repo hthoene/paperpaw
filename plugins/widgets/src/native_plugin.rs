@@ -47,6 +47,9 @@ pub(crate) struct Item {
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
+    /// A cover was still being made when it was drawn: the tick asks for a new
+    /// draw until that is queued.
+    retry: bool,
 }
 
 /// What an open question is for.
@@ -102,6 +105,7 @@ impl NativeWidgets {
             token,
             widget: paperpaw_ui_kit::text::copy(widget)?,
             shown: None,
+            retry: false,
         });
         Ok(())
     }
@@ -229,6 +233,7 @@ impl NativeWidgets {
                 (behaviour.shows)(host, &item.widget)
             };
             settle(&mut item.shown, shown, || commands.widget_changed(instance));
+            retry(&mut item.retry, || commands.widget_changed(instance));
         }
         Ok(())
     }
@@ -250,6 +255,14 @@ fn settle(
         return;
     }
     *shown = Some(now);
+}
+
+/// Asks for a new draw while `wanted` (a cover was still being made), and
+/// stops asking once that is queued; a refusal leaves it for the next tick.
+fn retry(wanted: &mut bool, queue: impl FnOnce() -> Result<(), Error>) {
+    if *wanted && queue().is_ok() {
+        *wanted = false;
+    }
 }
 
 impl Plugin for NativeWidgets {
@@ -391,7 +404,7 @@ impl Plugin for NativeWidgets {
                 .iter_mut()
                 .find(|item| item.instance.get() == instance)
             {
-                item.shown = None;
+                item.retry = true;
             }
         }
         Ok(())
@@ -594,6 +607,22 @@ mod tests {
             Ok(())
         });
         assert_eq!((shown, told), (Some(8), 1));
+    }
+
+    #[test]
+    fn a_cover_still_being_made_asks_for_a_new_draw_until_it_is_queued() {
+        let mut wanted = false;
+        retry(&mut wanted, || panic!("nothing was busy"));
+        wanted = true;
+        retry(&mut wanted, || Err(Error::NoSpace));
+        assert!(wanted, "a refused command is tried again");
+        let mut told = 0;
+        retry(&mut wanted, || {
+            told += 1;
+            Ok(())
+        });
+        assert_eq!((wanted, told), (false, 1));
+        retry(&mut wanted, || panic!("asked once"));
     }
 
     #[test]

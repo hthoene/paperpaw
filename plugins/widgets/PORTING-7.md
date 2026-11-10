@@ -47,7 +47,8 @@ interface-7 port uses it, none builds its own.
   numbers), kept for the catalog's generation; a book whose file is gone from the card is left out.
   The host draws the covers (`core.library` op `cover`, `draw_image` after the paint is replayed:
   `paperpaw_ui_kit::covers`); a book without one, or whose cover is refused, is a frame with its
-  title, and one still being made is drawn again at the next minute tick.
+  title, and one still being made is drawn again at the next minute tick (the item keeps a `retry` flag that the
+  tick turns into `widget_changed`, cleared once queued).
   Differences from interface 6, none with a visible effect on a card of up to 8 books:
   - The host keeps 8 picture ids for a plugin, so a shelf asks for the covers of its first 8 books
     only (`MOST_COVERS`); the books after them show as frames with their titles.
@@ -58,6 +59,9 @@ interface-7 port uses it, none builds its own.
   - The targets are the places as laid out, not the packed ones (a cover of another shape than 2:3
     is narrower than its place); a tap beside it, within the place, still opens the book.
   Host acceptance (H1/H3: widgets composed, covers drawn) is pending; no pixels were checked.
+  X4 list (unmeasured): the favourites read each of up to 24 books with `library.book` when the
+  catalog's generation changes (once per generation, not per draw); two Series widgets with
+  different names share one cache, so each draw of one re-reads the library for its own series.
 
 ## Not ported yet (explicit)
 
