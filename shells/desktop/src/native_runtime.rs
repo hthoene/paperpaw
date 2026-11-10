@@ -27,6 +27,7 @@ mod wire {
 
 /// The profile this shell hosts (the reviewed Linux x86-64 one), as the
 /// kernel's admission of a linked plugin names it (`crate::linked`).
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
     paperpaw_native::metadata::Profile {
         target: core::str::from_utf8(wire::PROFILE).unwrap_or(""),
