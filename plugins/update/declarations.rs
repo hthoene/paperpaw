@@ -1,7 +1,7 @@
-//! What the update declares, compared with the interface-6 registration by
-//! the declaration tests: its group of settings (Settings, Device, Updates)
-//! with the three settings, the page, the two actions with their places and
-//! icons, the device needs and the first-run step.
+//! What the update declares (pinned by the declaration tests): its group of
+//! settings (Settings, Device, Updates) with the three settings, the page, the
+//! two actions with their places and icons, the device needs and the first-run
+//! step.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, Kind, MenuEntryDecl,

@@ -58,6 +58,7 @@ fn construct(
 fn first_and_later_plugin_refuse_each_post_make_allocation_and_destroy_once() {
     reset(NORMAL);
     let host = FlatHost {
+        log: Default::default(),
         meter: crate::meter::Meter::new(None),
         directory: None,
         stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -215,6 +216,7 @@ fn registration_rollback(registry_oom: bool) {
     use paperpaw_sdk::{Params, Plugin, PluginState, builtin::events};
     reset(NORMAL);
     let host = FlatHost {
+        log: Default::default(),
         meter: crate::meter::Meter::new(None),
         directory: None,
         stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -350,6 +352,7 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let query = |text: &str, out: &mut u32| {
@@ -438,6 +441,7 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let query = |scope: &EnvironmentScope,

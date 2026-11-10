@@ -52,6 +52,7 @@ fn the_fetch_action_declares_the_fetch_as_work() {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: "fetch",
+            flags: 0,
         }),
     );
     assert_eq!(run.status, 0);
