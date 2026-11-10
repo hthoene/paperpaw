@@ -241,3 +241,24 @@ relative to the data folder).
 - Settings and fonts are read on every draw band (cost not measured on X4).
 - `uses.storage` is declared but no call uses it in this slice (R2 saves the place).
 - Whole-page books (xtc, images) use margins of 0, as Beta 3; a margin setting of 0 is 0 mm.
+
+## The saved place and progress (view slice R2a, `native_place.rs`)
+
+- The sections' lengths are read at open through `core.document` op 5 (`Progress::read`, pages of the
+  facade; at most 4,096 sections, 16 KiB; more, or a refusal, is no progress); progress before a
+  page's start is the source text before it over all of it (N5 rule 1, as Beta 3's `Document::progress`),
+  in millionths, integer arithmetic (no float on the X4).
+- The place saved last time is read through `core.library` (`position`, op 13) when the hand-over names
+  no place; it is used if its section exists and its conversion is the open document's (or none was
+  stored). Else the start of the book.
+- It is written (`set_position`, op 14, with progress and the conversion) when the screen closes and,
+  while pages are turned, at most once in 5 seconds (Beta 3's `SAVE_EVERY_MS`), by the host's monotonic
+  clock; a refused write is tried again at the next turn or the close.
+- Metadata asks `core.library` now (both `.bin` pairs regenerated).
+- **Not yet:** the quiet-time write (Beta 3 also saved 2 s after the last turn: a callback timer, no
+  wake-up in the native SDK yet); the notice "not saved" (no notify command in `CommandSender`);
+  the time of the write (`updated` is 0, unknown: the native SDK has no wall clock); the KOReader
+  pointer written with the place; a saved place of another conversion is not mapped (the start is
+  used); a `page` number of the hand-over (needs the page index); a hand-over `root` other than the
+  library's for the saved place's path; the status lines and the page index; the hosted end-to-end test
+  of save and restore (needs a library host in the harness). Progress is not shown yet.

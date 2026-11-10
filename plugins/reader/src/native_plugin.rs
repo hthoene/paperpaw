@@ -13,6 +13,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         document::Documents,
         events::{Event, Incoming, kinds},
+        library::Library,
         registrations,
         reply::Reply,
         ui::Ui,
@@ -46,6 +47,7 @@ const BATCHES: [&[&[u8]]; 6] = [
 pub struct NativeReader {
     ui: Option<Ui>,
     docs: Option<Documents>,
+    library: Option<Library>,
     screens: Screens<View>,
 }
 
@@ -63,17 +65,21 @@ impl NativeReader {
         if self.docs.is_none() {
             self.docs = Some(Documents::open(host)?);
         }
+        // Without the library there is no saved place, and none is written.
+        if self.library.is_none() {
+            self.library = Library::open(host).ok();
+        }
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let view = View::open(host, ui, docs, handover)?;
+        let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
         self.screens.open(instance, view)
     }
 
     /// The screen closed: its document is given back.
     fn close(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
-            view.close(host, docs);
+            view.close(host, (docs, self.library.as_ref()));
         }
         self.screens.close(instance);
     }
@@ -133,7 +139,7 @@ impl Plugin for NativeReader {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         match (self.screens.top(token), &self.docs) {
-            (Some(view), Some(docs)) => view.input(host, docs, &input),
+            (Some(view), Some(docs)) => view.input(host, (docs, self.library.as_ref()), &input),
             _ => Ok(Handled::No),
         }
     }

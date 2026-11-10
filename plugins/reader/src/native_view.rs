@@ -11,6 +11,7 @@ use crate::{
     native_look::Look,
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
+    native_place::{self, Progress},
     native_typeset::{Faces, HostFonts},
 };
 use alloc::string::String;
@@ -21,9 +22,11 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
+        clock,
         commands::{CommandSender, RedrawMode},
         document::{DocId, Documents, OpenBook, Preparation, Root},
         fonts::{Font, FontRole},
+        library::Library,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
         ui::{HandoverId, Ui},
@@ -60,6 +63,16 @@ struct Open {
     /// The page on show, laid out at the first draw after it changed.
     page: Option<Page>,
     trail: Trail,
+    /// The book's path, for its saved place.
+    path: String,
+    /// The conversion the open document's places belong to.
+    conversion: u64,
+    /// The sections' lengths, for progress; none where the book has too many.
+    progress: Option<Progress>,
+    /// When the place was written last (the host's clock, microseconds).
+    saved_at: Option<u64>,
+    /// The page on show is not the place saved.
+    unsaved: bool,
 }
 
 /// One open reading screen.
@@ -116,7 +129,7 @@ impl View {
     pub fn open(
         host: &Host<'_>,
         ui: &Ui,
-        docs: &Documents,
+        (docs, library): (&Documents, Option<&Library>),
         handover: Option<HandoverId>,
     ) -> Result<Self, Error> {
         let found = match handover {
@@ -134,12 +147,17 @@ impl View {
         };
         let book = OpenBook::new(&found.path).root(root).publisher_styles();
         let state = match docs.open_book(host, &book, &mut input, &mut out) {
-            Ok(state) => (state.id(), state.preparation(), state.whole_pages()),
+            Ok(state) => (
+                state.id(),
+                state.preparation(),
+                state.whole_pages(),
+                state.conversion(),
+            ),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
             Err(_) => return Ok(Self::message("reader.error")),
         };
-        let (id, preparation, whole_pages) = state;
+        let (id, preparation, whole_pages, conversion) = state;
         match preparation {
             Preparation::Ready => {}
             Preparation::Preparing => {
@@ -162,10 +180,29 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        // The place the hand-over names, if the book has it; else the start
-        // (the saved place and a page number come with the progress slice).
+        // The place the hand-over names, if the book has it; else the place
+        // saved last time; else the start (a page number needs the page index:
+        // `PORTING-7.md`).
+        let progress = match Progress::read(host, docs, id, sections, (&mut input, &mut out)) {
+            Ok(progress) => progress,
+            Err(error) => {
+                Self::forget(host, docs, id);
+                return Err(error);
+            }
+        };
         let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
             Start::At(place) => (place.section, place.offset),
+            Start::Saved => library
+                .and_then(|library| {
+                    native_place::saved(
+                        host,
+                        library,
+                        &found.path,
+                        (sections, conversion),
+                        (&mut input, &mut out),
+                    )
+                })
+                .unwrap_or((0, 0)),
             _ => (0, 0),
         };
         Ok(Self {
@@ -176,6 +213,11 @@ impl View {
                 at,
                 page: None,
                 trail: Trail::new(),
+                path: found.path,
+                conversion,
+                progress,
+                saved_at: None,
+                unsaved: false,
             }),
         })
     }
@@ -195,8 +237,9 @@ impl View {
     }
 
     /// Closes the document of the screen.
-    pub fn close(&mut self, host: &Host<'_>, docs: &Documents) {
-        if let Body::Open(open) = &self.body {
+    pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
+        if let Body::Open(open) = &mut self.body {
+            open.save(host, library, true);
             Self::forget(host, docs, open.id);
         }
         self.body = Body::Message("reader.no-book");
@@ -209,7 +252,7 @@ impl View {
     pub fn input(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, library): (&Documents, Option<&Library>),
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
         let Body::Open(open) = &mut self.body else {
@@ -221,6 +264,8 @@ impl View {
             Turn::Previous => open.previous(host, docs)?,
         };
         if moved {
+            open.unsaved = true;
+            open.save(host, library, false);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         }
@@ -297,6 +342,44 @@ impl Setup {
 }
 
 impl Open {
+    /// Writes the place of the page on show if it is not saved: now where
+    /// `closing`, else once Beta 3's interval has gone since the last write. A
+    /// refused write leaves it to the next (a notice needs a command the host
+    /// has not given the reader yet: `PORTING-7.md`).
+    fn save(&mut self, host: &Host<'_>, library: Option<&Library>, closing: bool) {
+        let (true, Some(library)) = (self.unsaved, library) else {
+            return;
+        };
+        let now = clock::micros(host).ok();
+        let due = closing
+            || match (self.saved_at, now) {
+                (Some(then), Some(now)) => now.saturating_sub(then) >= native_place::SAVE_EVERY_US,
+                _ => true,
+            };
+        if !due {
+            return;
+        }
+        let ppm = self
+            .progress
+            .as_ref()
+            .map_or(0, |p| p.ppm(self.at.0, self.at.1));
+        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(256)) else {
+            return;
+        };
+        let kept = native_place::save(
+            host,
+            library,
+            &self.path,
+            self.at,
+            (ppm, self.conversion),
+            (&mut input, &mut out),
+        );
+        if kept {
+            self.unsaved = false;
+            self.saved_at = now;
+        }
+    }
+
     /// The content box: the whole display for whole-page books (as Beta 3's
     /// margins of none), else inside the reading margins.
     fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
