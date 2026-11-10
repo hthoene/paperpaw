@@ -57,6 +57,7 @@ native-linked = [
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
     "dep:paperpaw-plugin-setup",
+    "dep:paperpaw-plugin-sleep",
     "paperpaw-plugin-about/linked",
     "paperpaw-plugin-bluetooth/linked",
     "paperpaw-plugin-help/linked",
@@ -70,6 +71,7 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-sleep/linked",
 ]
 
 [build-dependencies]
@@ -102,7 +104,7 @@ paperpaw-plugin-opds = { workspace = true, optional = true }
 paperpaw-plugin-lock = { workspace = true, optional = true }
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
-paperpaw-plugin-sleep.workspace = true
+paperpaw-plugin-sleep = { workspace = true, optional = true }
 paperpaw-plugin-about = { workspace = true, optional = true }
 paperpaw-plugin-bluetooth = { workspace = true, optional = true }
 paperpaw-plugin-setup = { workspace = true, optional = true }
