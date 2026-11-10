@@ -34,6 +34,7 @@ use super::{
     fmt_call::{FrameRoute, ImageMap, Opener, Stage},
     format_index::FormatIndex,
     host_services::Caller,
+    owner_paths::OwnerPaths,
     paths_in_use::PathsInUse,
     registrations::{self as wire, Record},
     registry_service::fixed::{Fixed, caps, clip, translated},
@@ -47,6 +48,10 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
     ERR_UNSUPPORTED,
 };
+use paperpaw_platform::Storage;
+
+/// The most of a file a format is told by (`document.md` 3, op 1).
+const SNIFF_BYTES: usize = 512;
 
 /// `format.spec.flags` bit 4: root 3 is the book's folder and below.
 const SIBLINGS: u32 = 1 << 4;
@@ -79,6 +84,8 @@ pub(crate) struct DocState {
     /// The kernel's clock as the event pump last gave it: events are stamped
     /// with it.
     now: Cell<u64>,
+    /// The card, for the first bytes a file is told by (`with_storage`).
+    storage: Option<Rc<dyn Storage>>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
@@ -129,8 +136,17 @@ impl DocState {
             skipped: Cell::new(0),
             unfinished: RefCell::new(unfinished),
             now: Cell::new(0),
+            storage: None,
             fresh: Cell::new(false),
         })
+    }
+
+    /// The state reading files' first bytes from `storage` (the formats that
+    /// sniff are asked about a file whose extension no format has).
+    #[must_use]
+    pub(crate) fn with_storage(mut self, storage: Option<Rc<dyn Storage>>) -> Self {
+        self.storage = storage;
+        self
     }
 
     /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
@@ -469,6 +485,53 @@ impl Bound<'_> {
         }
     }
 
+    /// The format that reads the file `path` of `root` by its first bytes:
+    /// the `sniffs` formats in priority order, each asked (op 1) with at most
+    /// 512 bytes, the first to say yes. A format that fails is not asked
+    /// again for this file: it is not the one that reads it.
+    fn sniff_format(&self, root: u32, path: &str) -> Result<FormatRef, i32> {
+        let storage = self.state.storage.as_ref().ok_or(ERR_NOT_FOUND)?;
+        let joined = OwnerPaths::join_for(self.who, root, path)?;
+        // The bytes are made once, off the stack, and only when a format
+        // sniffs.
+        let mut candidates = [FormatRef(0); super::format_index::DEVICE];
+        let mut count = 0;
+        self.state.index()?.sniffers(|format| {
+            if let Some(slot) = candidates.get_mut(count) {
+                *slot = format;
+                count += 1;
+            }
+            ControlFlow::Continue(())
+        });
+        if count == 0 {
+            return Err(ERR_NOT_FOUND);
+        }
+        let mut first = Vec::new();
+        first
+            .try_reserve_exact(SNIFF_BYTES)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        first.resize(SNIFF_BYTES, 0);
+        let read = storage
+            .read_at(&joined, 0, &mut first)
+            .map_err(super::storage::status)?;
+        first.truncate(read);
+        let route = FrameRoute(self.frame);
+        let stage = Stage {
+            route: &route,
+            images: &NoImages,
+        };
+        for format in candidates.iter().take(count) {
+            let Some(target) = self.state.index()?.target(*format) else {
+                continue;
+            };
+            let mut reply = [0_u8; 64];
+            if stage.sniff(target, &first, &mut reply) == Ok(true) {
+                return Ok(*format);
+            }
+        }
+        Err(ERR_NOT_FOUND)
+    }
+
     fn translate_format<'r>(&'r self, row: Record<'r>) -> Record<'r> {
         match row {
             Record::ServiceDocFormat(format) => Record::ServiceDocFormat(wire::ServiceDocFormat {
@@ -497,15 +560,18 @@ impl super::doc_service::DocHost for Bound<'_> {
         }
     }
 
-    fn select_format(&self, _root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
+    fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
         self.sync()?;
         let chosen = self
             .state
             .index()?
             .select(path, requested, &|ext, visit| self.choice(ext, visit))?;
-        // No extension matches: the formats that sniff are asked (op 1) once
-        // the host reads a file's first bytes; until then none reads it.
-        chosen.ok_or(ERR_NOT_FOUND)
+        // No extension matches: the formats that sniff are asked (op 1) about
+        // the file's first bytes.
+        match chosen {
+            Some(format) => Ok(format),
+            None => self.sniff_format(root, path),
+        }
     }
 
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
@@ -618,17 +684,24 @@ impl super::doc_service::DocHost for Bound<'_> {
 
     fn format_for(
         &self,
-        _root: u32,
+        root: u32,
         path: &str,
-        _sniff: bool,
+        sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32> {
         self.sync()?;
-        let index = self.state.index()?;
-        let format = index
-            .select(path, "", &|ext, visit| self.choice(ext, visit))?
-            .ok_or(ERR_NOT_FOUND)?;
-        index.row(format, &mut |row| visit(self.translate_format(row)))
+        let chosen = self
+            .state
+            .index()?
+            .select(path, "", &|ext, visit| self.choice(ext, visit))?;
+        let format = match chosen {
+            Some(format) => format,
+            None if sniff => self.sniff_format(root, path)?,
+            None => return Err(ERR_NOT_FOUND),
+        };
+        self.state
+            .index()?
+            .row(format, &mut |row| visit(self.translate_format(row)))
     }
 }
 
