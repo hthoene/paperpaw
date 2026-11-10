@@ -41,9 +41,15 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) work: &'a WorkStates,
     /// The device's `core.ui` service: the widget handles slot 35 resolves.
     pub(crate) ui: Option<&'a crate::native_host::ui_service::UiServices>,
+    /// The shell's device log, if it gave one (`Frame::log`).
+    pub(crate) log: crate::native_host::device_log::DeviceLog,
 }
 
 impl Frame for CoreFrame<'_> {
+    fn log(&self, line: &str) {
+        self.log.line(format_args!("{line}"));
+    }
+
     fn stage_run(
         &self,
         _caller_id: &str,

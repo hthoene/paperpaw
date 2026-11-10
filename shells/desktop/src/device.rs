@@ -1015,6 +1015,7 @@ fn build_kernel(
             .storage(crate::trace::Traced(storage))
             .clock(crate::host::micros)
             .random(crate::host::random)
+            .device_log(crate::host::device_log)
             .memory(budget::memory_use)
             .glyph_cache(profile.glyph_cache)
             .busy_mark(profile.busy_mark)

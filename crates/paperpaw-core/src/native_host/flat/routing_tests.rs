@@ -201,6 +201,7 @@ impl Plugin for ReentryDriver {
                     calls: Rc::clone(&calls),
                     drops: Rc::clone(&drops),
                     host: FlatHost {
+                        log: Default::default(),
                         meter: Rc::clone(&meter),
                         directory: None,
                         stack_rows: alloc::rc::Rc::new(Default::default()),
@@ -235,6 +236,7 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
                 calls: Rc::clone(&observed_calls),
                 drops: Rc::clone(&observed_drops),
                 host: FlatHost {
+                    log: Default::default(),
                     meter: Rc::clone(&code.host.meter),
                     directory: None,
                     stack_rows: Rc::clone(&code.host.stack_rows),
