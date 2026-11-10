@@ -16,6 +16,7 @@ fn prepare_cmd(root: u32, path: &str, flags: u32) -> WireCommand<'_> {
         side: 16,
         cookie: 5,
         flags,
+        tone: &[],
     }
 }
 
@@ -39,7 +40,7 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     );
     assert_eq!(a.room, 8, "root 2 took one room");
     assert_eq!(
-        a.admit(&prepare_cmd(0, "a.png", 2)),
+        a.admit(&prepare_cmd(0, "a.png", 4)),
         Some(Err(ERR_UNSUPPORTED))
     );
     for bad in ["", "/a", "../a", "a/../b", "a//b", "a\\b", "a\0b"] {
@@ -156,6 +157,8 @@ fn an_admitted_prepare_is_queued_decoded_and_answered_and_a_release_ends_it() {
                 colour: false,
                 max_side: 4096,
                 png_row_max: usize::MAX,
+                turn_band: 1 << 20,
+                turn_reads: usize::MAX,
             },
         )
         .unwrap()
@@ -385,6 +388,7 @@ fn root_2_reads_the_plugins_install_folder_and_a_missing_file_is_status_6_on_eve
             side: 8,
             cookie,
             flags: 0,
+            tone: &[],
         })
         .unwrap()
         .unwrap();
@@ -441,4 +445,93 @@ fn the_bundle_path_is_the_one_core_files_resolves() {
         Err(ERR_NOT_FOUND)
     );
     assert_eq!(bundle_source("demo", true, "../x"), Err(ERR_INVALID));
+}
+
+#[test]
+fn the_turn_flag_and_a_tone_table_are_admitted_and_kept_for_the_decode() {
+    let mut admit = ImageAdmit {
+        storage_root: false,
+        room: 8,
+    };
+    static TABLE: [u8; 256] = [7; 256];
+    let with = |flags: u32, tone: &'static [u8]| WireCommand::ImagePrepare {
+        root: 0,
+        path: "a.jpg",
+        side: 16,
+        cookie: 1,
+        flags,
+        tone,
+    };
+    // Bit 1 turn (with colour or alone), a whole table or none.
+    for (flags, tone) in [(2, &[][..]), (3, &[][..]), (0, &TABLE[..]), (2, &TABLE[..])] {
+        assert_eq!(admit.admit(&with(flags, tone)), Some(Ok(())), "{flags}");
+    }
+    // Other bits are unsupported as before; a table of another length is
+    // invalid.
+    for flags in [4, 8, 0x100, 0x1_0002] {
+        assert_eq!(
+            admit.admit(&with(flags, &[])),
+            Some(Err(ERR_UNSUPPORTED)),
+            "{flags:#x}"
+        );
+    }
+    for len in [1, 255, 257] {
+        let table: &'static [u8] = std::boxed::Box::leak(std::vec![7_u8; len].into_boxed_slice());
+        assert_eq!(
+            admit.admit(&with(0, table)),
+            Some(Err(ERR_INVALID)),
+            "{len}"
+        );
+    }
+    // The table is copied with the command, empty as none.
+    let owned_of = |flags, tone| owned(&with(flags, tone)).unwrap().unwrap();
+    assert_eq!(
+        owned_of(0, &[]),
+        ImageCommand::Prepare {
+            root: 0,
+            path: "a.jpg".into(),
+            side: 16,
+            cookie: 1,
+            colour: false,
+            recipe: crate::native_host::image_service::recipe::Recipe::default(),
+        }
+    );
+    let ImageCommand::Prepare { recipe, colour, .. } = owned_of(3, &TABLE) else {
+        panic!("not a prepare");
+    };
+    assert!(colour);
+    assert_eq!(
+        recipe,
+        crate::native_host::image_service::recipe::Recipe {
+            turn: true,
+            tone: Some(TABLE.to_vec()),
+        }
+    );
+}
+
+#[test]
+fn a_tone_table_counts_against_the_callbacks_byte_budget() {
+    let mut admit = ImageAdmit {
+        storage_root: false,
+        room: 8,
+    };
+    let table = [7_u8; 256];
+    let command = WireCommand::ImagePrepare {
+        root: 0,
+        path: "a.jpg",
+        side: 16,
+        cookie: 1,
+        flags: 0,
+        tone: &table,
+    };
+    let mut bytes = 0;
+    assert_eq!(
+        admit.admit_counted(&command, &mut bytes, 5 + 256),
+        Some(Ok(()))
+    );
+    assert_eq!(bytes, 5 + 256);
+    assert_eq!(
+        admit.admit_counted(&command, &mut bytes, 5 + 256 + 5 + 255),
+        Some(Err(paperpaw_native::host_glue::ERR_NO_SPACE))
+    );
 }

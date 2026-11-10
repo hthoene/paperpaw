@@ -9008,6 +9008,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "tone",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
         }
       ]
     },
@@ -9085,6 +9094,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "luma",
+          "type": "bytes",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": "",
+          "max_bytes": 64
         }
       ]
     },
