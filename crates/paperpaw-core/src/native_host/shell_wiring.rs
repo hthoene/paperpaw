@@ -192,8 +192,10 @@ impl HostWiring {
     /// production write half is todo 307), and a name below the card's top
     /// is one of the host's folders by spelling or, for an 8.3 alias (a name
     /// with a `~` where one of those names also exists), as `core.files`
-    /// decides it. Where `core.files` is wired too, a book its library move
-    /// job carries is in use: `provide` answers `ERR_BUSY` for it.
+    /// decides it. Where `core.files` is wired too (in the same wiring or an
+    /// earlier one: name `files` first, or together), a book its library move
+    /// job carries is in use: `provide` answers `ERR_BUSY` for it. Wired
+    /// before `files`, the library has no such check.
     #[must_use]
     pub fn library(mut self, storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
         self.library = Some((storage, env));
@@ -465,7 +467,9 @@ impl HostResources {
         if let Some((storage, env)) = wiring.library {
             // After `core.files`, whose library move job it shares: a book the
             // job carries is in use for `provide`.
-            hosts.wire_library(Rc::new(LibraryHost::new(storage, env, library_moves)))?;
+            // (Also the job an earlier wiring's `files` made.)
+            let moves = library_moves.or_else(|| hosts.library_moves().cloned());
+            hosts.wire_library(Rc::new(LibraryHost::new(storage, env, moves)))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

@@ -22,8 +22,8 @@ use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
-    NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits, SockReports,
-    WorkDevice, WorkInputs,
+    CatalogEnv, NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits,
+    SockReports, WorkDevice, WorkInputs,
 };
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
@@ -39,34 +39,32 @@ use crate::profiles::Profile;
 /// A service not named here is not offered: a plugin that needs it is refused
 /// at admission.
 fn offered(wired: Wired) -> &'static [Service<'static>] {
-    use std::sync::OnceLock;
     const OWN: &[&str] = &["core.ui", "core.registry"];
-    static OFFERED: [OnceLock<Vec<Service<'static>>>; 16] = [const { OnceLock::new() }; 16];
-    let index = usize::from(wired.secrets)
-        | usize::from(wired.work) << 1
-        | usize::from(wired.net) << 2
-        | usize::from(wired.sockets) << 3;
-    OFFERED[index].get_or_init(|| {
-        let wired_keys = [
-            (wired.secrets, "core.secrets"),
-            (wired.work, "core.work"),
-            (wired.net, "core.net"),
-            (wired.sockets, "core.sockets"),
-        ]
-        .into_iter()
-        .filter_map(|(on, key)| on.then_some(key));
-        DATA_SERVICES
-            .iter()
-            .chain(DEVICE_SERVICES)
-            .copied()
-            .chain(OWN.iter().copied().chain(wired_keys).map(|key| Service {
-                key,
-                major: 1,
-                semantic_revision: 0,
-                min_table_bytes: 0,
-            }))
-            .collect()
-    })
+    let wired_keys = [
+        (wired.secrets, "core.secrets"),
+        (wired.work, "core.work"),
+        (wired.net, "core.net"),
+        (wired.sockets, "core.sockets"),
+        (wired.documents, "core.document"),
+        (wired.library, "core.library"),
+        (wired.files, "core.files"),
+    ]
+    .into_iter()
+    .filter_map(|(on, key)| on.then_some(key));
+    let services: Vec<Service<'static>> = DATA_SERVICES
+        .iter()
+        .chain(DEVICE_SERVICES)
+        .copied()
+        .chain(OWN.iter().copied().chain(wired_keys).map(|key| Service {
+            key,
+            major: 1,
+            semantic_revision: 0,
+            min_table_bytes: 0,
+        }))
+        .collect();
+    // Kept for the process: the kernel's admission holds the list for as
+    // long as the plugins run, and a device registers its plugins once.
+    Box::leak(services.into_boxed_slice())
 }
 
 /// Which of the services that are wired only when the shell can are wired.
@@ -76,43 +74,39 @@ struct Wired {
     work: bool,
     net: bool,
     sockets: bool,
+    documents: bool,
+    library: bool,
+    files: bool,
 }
 
 /// The consent features this shell backs: the registry (the kernel's own),
 /// the device's power view (`core.device`) and, where they are wired,
-/// `uses.secrets` (it has a sealing key) and `uses.network` (HTTP requests,
-/// `core.net`). Not offered, because the desktop does not back them yet:
-/// `uses.wifi`, `uses.bluetooth`,
-/// `uses.install`, `uses.firmware`, `uses.library`, `uses.storage`. A plugin
-/// that needs one is refused at admission.
+/// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
+/// `core.net`), `uses.storage` (the card's files, `core.files`) and
+/// `uses.library` (`core.library`). Not offered, because the desktop does not
+/// back them yet: `uses.wifi`, `uses.bluetooth`, `uses.install`,
+/// `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
-    const REGISTRY: Feature<'static> = Feature {
-        key: "uses.registry",
-        revision: 1,
-    };
-    const POWER: Feature<'static> = Feature {
-        key: "uses.power",
-        revision: 1,
-    };
-    const SECRETS: Feature<'static> = Feature {
-        key: "uses.secrets",
-        revision: 1,
-    };
-    const NETWORK: Feature<'static> = Feature {
-        key: "uses.network",
-        revision: 1,
-    };
-    const BASE: &[Feature<'static>] = &[REGISTRY, POWER];
-    const SECRETS_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS];
-    const NET_ONLY: &[Feature<'static>] = &[REGISTRY, POWER, NETWORK];
-    const BOTH: &[Feature<'static>] = &[REGISTRY, POWER, SECRETS, NETWORK];
-    // `uses.network` is the one feature of HTTP and sockets (`network.md` 1).
-    match (wired.secrets, wired.net || wired.sockets) {
-        (false, false) => BASE,
-        (true, false) => SECRETS_ONLY,
-        (false, true) => NET_ONLY,
-        (true, true) => BOTH,
+    const fn feature(key: &'static str) -> Feature<'static> {
+        Feature { key, revision: 1 }
     }
+    let mut features = vec![feature("uses.registry"), feature("uses.power")];
+    if wired.secrets {
+        features.push(feature("uses.secrets"));
+    }
+    // `uses.network` is the one feature of HTTP and sockets (`network.md` 1).
+    if wired.net || wired.sockets {
+        features.push(feature("uses.network"));
+    }
+    // Root 1 (the card's files) and the library are signed features of their
+    // own services (`files.md`, `library.md`).
+    if wired.files {
+        features.push(feature("uses.storage"));
+    }
+    if wired.library {
+        features.push(feature("uses.library"));
+    }
+    Box::leak(features.into_boxed_slice())
 }
 
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
@@ -169,6 +163,11 @@ pub struct Inputs {
     /// reports to it, for the device's loop ([`Net`]); `None` inside where
     /// there is no card.
     pub net: Rc<RefCell<Option<Net>>>,
+    /// The card itself (a second handle on what the kernel reads), which
+    /// `core.document`, `core.library` and `core.files` serve the plugins
+    /// from; `None` where it cannot be opened (none of them is wired then).
+    /// Not `storage`: on simulated time that one is private to the run.
+    pub card: Option<Rc<dyn Storage>>,
 }
 
 /// The transport of `core.net` on the device and the handle core gave for
@@ -187,6 +186,29 @@ impl std::fmt::Debug for Inputs {
             .field("view", &self.view)
             .field("simulated", &self.simulated)
             .finish_non_exhaustive()
+    }
+}
+
+/// What the card cannot tell the catalog reads, on the desktop: no walk
+/// shown, today's date from the computer's clock (none on simulated time, so
+/// no book is new in a run that must not depend on the day).
+struct Catalog {
+    simulated: bool,
+}
+
+impl CatalogEnv for Catalog {
+    fn walking(&self) -> Option<u32> {
+        None
+    }
+    fn today(&self) -> Option<u32> {
+        if self.simulated {
+            return None;
+        }
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        u32::try_from(seconds / 86_400).ok()
     }
 }
 
@@ -221,6 +243,25 @@ pub enum Unavailable {
     NoRoom,
     /// The wiring of `core.ui` or `core.device` was refused.
     Wiring(i32),
+}
+
+/// `core.document`, `core.library` and `core.files` over the card itself.
+/// The files come with the library: a book its move job carries is in use
+/// for the library's writes.
+fn on_the_card(
+    wiring: HostWiring,
+    profile: &'static Profile,
+    card: Rc<dyn Storage>,
+    simulated: bool,
+) -> HostWiring {
+    let display = profile.device.display;
+    wiring
+        .documents(
+            profile.device.memory,
+            u32::from(display.width.max(display.height)),
+        )
+        .library(card.clone(), Rc::new(Catalog { simulated }))
+        .files(card)
 }
 
 /// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
@@ -271,6 +312,14 @@ pub fn register(
             );
         (transport, sockets)
     });
+    // The books, the catalog and the card's files, from the card itself.
+    let mut on_card = Wired::default();
+    if let Some(card) = inputs.card {
+        wiring = on_the_card(wiring, profile, card, inputs.simulated);
+        on_card.documents = true;
+        on_card.library = true;
+        on_card.files = true;
+    }
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -297,6 +346,7 @@ pub fn register(
         work: true,
         net: wired.net().is_some(),
         sockets: wired.sockets().is_some(),
+        ..on_card
     };
     *inputs.net.borrow_mut() =
         transport
@@ -335,4 +385,49 @@ pub fn register(
         }
     }
     Ok(registered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(wired: Wired) -> Vec<&'static str> {
+        offered(wired).iter().map(|service| service.key).collect()
+    }
+
+    fn feature_keys(wired: Wired) -> Vec<&'static str> {
+        features(wired).iter().map(|feature| feature.key).collect()
+    }
+
+    #[test]
+    fn what_the_card_serves_is_offered_only_where_it_is_wired() {
+        let bare = Wired::default();
+        for key in ["core.document", "core.library", "core.files"] {
+            assert!(!keys(bare).contains(&key), "{key}");
+        }
+        assert!(!feature_keys(bare).contains(&"uses.storage"));
+        assert!(!feature_keys(bare).contains(&"uses.library"));
+        let card = Wired {
+            documents: true,
+            library: true,
+            files: true,
+            ..Wired::default()
+        };
+        for key in ["core.document", "core.library", "core.files"] {
+            assert!(keys(card).contains(&key), "{key}");
+        }
+        let wanted = feature_keys(card);
+        assert!(wanted.contains(&"uses.storage") && wanted.contains(&"uses.library"));
+        // The rest is offered as before.
+        assert!(keys(card).contains(&"core.ui") && wanted.contains(&"uses.registry"));
+        assert!(!wanted.contains(&"uses.secrets") && !wanted.contains(&"uses.network"));
+    }
+
+    #[test]
+    fn the_catalog_has_no_walk_and_no_day_on_simulated_time() {
+        let simulated = Catalog { simulated: true };
+        assert_eq!((simulated.walking(), simulated.today()), (None, None));
+        let real = Catalog { simulated: false };
+        assert!(real.today().is_some_and(|day| day > 20_000));
+    }
 }
