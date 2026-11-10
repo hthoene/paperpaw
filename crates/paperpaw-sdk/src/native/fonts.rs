@@ -175,15 +175,8 @@ impl<'cb> Font<'cb> {
         text: impl AsRef<str>,
     ) -> Result<f32, Error> {
         let text = text.as_ref();
-        validate_text(size, text, TEXT_DRAW_MAX_BYTES)?;
-        if !origin.x.is_finite() {
-            return Err(Error::Invalid);
-        }
+        let handle = self.drawable(canvas, size, origin, text)?;
         let target = canvas.host();
-        if self.host.ctx != target.ctx || !core::ptr::eq(self.host.table, target.table) {
-            return Err(Error::Invalid);
-        }
-        let handle = self.handle.ok_or(Error::State)?;
         let mut advance = 0.0;
         // SAFETY: the font and canvas retain the same admitted callback host.
         // Text and the disjoint advance output remain live through this call.
@@ -202,9 +195,31 @@ impl<'cb> Font<'cb> {
         Ok(advance)
     }
 
+    /// The handle to draw `text` with on `canvas`, after the checks both draws
+    /// share: size, text length, a finite position, a canvas of this font's
+    /// host and a handle not yet released.
+    fn drawable(
+        &self,
+        canvas: &Canvas<'_>,
+        size: f32,
+        origin: TextOrigin,
+        text: &str,
+    ) -> Result<u32, Error> {
+        validate_text(size, text, TEXT_DRAW_MAX_BYTES)?;
+        if !origin.x.is_finite() {
+            return Err(Error::Invalid);
+        }
+        let target = canvas.host();
+        if self.host.ctx != target.ctx || !core::ptr::eq(self.host.table, target.table) {
+            return Err(Error::Invalid);
+        }
+        self.handle.ok_or(Error::State)
+    }
+
     /// Draw text as [`render_text`](Self::render_text) does, inked as `ink` says
     /// (`docs/abi/screens-input.md` section 4, slot 41), and return its advance.
-    /// A refused call draws nothing; an old host answers Unsupported.
+    /// A refused call draws nothing; an old host answers Unsupported. A widening
+    /// above 16 pixels is not refused: the host clamps it.
     ///
     /// # Errors
     /// Returns Invalid for an invalid size/position, a foreign canvas or
@@ -220,15 +235,8 @@ impl<'cb> Font<'cb> {
         ink: Ink,
     ) -> Result<f32, Error> {
         let text = text.as_ref();
-        validate_text(size, text, TEXT_DRAW_MAX_BYTES)?;
-        if !origin.x.is_finite() {
-            return Err(Error::Invalid);
-        }
+        let handle = self.drawable(canvas, size, origin, text)?;
         let target = canvas.host();
-        if self.host.ctx != target.ctx || !core::ptr::eq(self.host.table, target.table) {
-            return Err(Error::Invalid);
-        }
-        let handle = self.handle.ok_or(Error::State)?;
         let tone: &[u8] = match &ink.tone {
             Some(alphas) => alphas,
             None => &[],
