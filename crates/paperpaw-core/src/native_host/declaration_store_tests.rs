@@ -40,6 +40,7 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::HelpHint,
     Kind::Format,
     Kind::Reader,
+    Kind::Lookup,
     Kind::BookField,
     Kind::BookBadge,
 ];

@@ -25,7 +25,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, FrameRect, Input},
         commands::{CommandSender, RedrawMode},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         i18n, registrations,
         reply::Reply,
         settings::SettingValue,
@@ -36,7 +35,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Paint, Screens,
+    Messages, Screens,
     mem::{SERVICE_BUFFER, buffer},
     paint, read_event, uitext,
     widget::{Cx, settings::base},
@@ -188,12 +187,7 @@ impl Plugin for NativeWeather {
             FORECAST_TOKEN => native_forecast::draw(&mut cx, &mut out, area, &shown)?,
             _ => return Err(Error::NotFound),
         }
-        let bold = if out.iter().any(|op| matches!(op, Paint::Bold { .. })) {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+        paint::replay(&mut frame, &cx.font, &out)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {

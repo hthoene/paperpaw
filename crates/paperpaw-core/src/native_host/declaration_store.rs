@@ -79,7 +79,7 @@ impl DeclKey {
     }
 }
 
-const KIND_COUNT: usize = 35;
+const KIND_COUNT: usize = 36;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
 
@@ -128,6 +128,8 @@ pub(crate) enum Kind {
     Format,
     /// `reader.spec` (category 32): a reading app the plugin offers.
     Reader,
+    /// `lookup.spec` (category 33): a lookup provider the plugin offers.
+    Lookup,
     /// `book_field.spec` (category 34): a field the plugin keeps with books.
     BookField,
     /// `book_badge.spec` (category 35): a badge the plugin shows on book rows.
@@ -170,6 +172,7 @@ impl Kind {
             Self::HelpHint => 17,
             Self::Format => 31,
             Self::Reader => 32,
+            Self::Lookup => 33,
             Self::BookField => 34,
             Self::BookBadge => 35,
         }
@@ -210,6 +213,7 @@ impl Kind {
             Record::HelpHint(_) => Self::HelpHint,
             Record::FormatSpec(_) => Self::Format,
             Record::ReaderSpec(_) => Self::Reader,
+            Record::LookupSpec(_) => Self::Lookup,
             Record::BookFieldSpec(_) => Self::BookField,
             Record::BookBadgeSpec(_) => Self::BookBadge,
             _ => return None,
@@ -558,9 +562,8 @@ impl PendingDeclarations {
                 // So do `input.spec` and `help.hint`.
                 usize::MAX,
                 usize::MAX,
-                // And `format.spec` and `reader.spec` (their counts are
-                // checked at commit), `book_field.spec` and `book_badge.spec`
-                // (likewise).
+                // And `format.spec`, `reader.spec`, `lookup.spec`, `book_field.spec`
+                // and `book_badge.spec` (their counts are checked at commit).
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
@@ -714,6 +717,29 @@ impl DeclarationStore {
                 allocations.cap = Some(Cap::of(problem, device));
                 return Err(paperpaw_native::host_glue::ERR_FULL);
             }
+        }
+        // And 32 lookup providers on the device (`document.md` section 7).
+        let providers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Lookup).len())
+            .sum();
+        if providers + pending.of_kind(Kind::Lookup).len()
+            > super::declaration_checks::LOOKUPS_DEVICE
+        {
+            allocations.cap = Some(Cap::of(
+                Cap::LOOKUPS,
+                super::declaration_checks::LOOKUPS_DEVICE,
+            ));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {

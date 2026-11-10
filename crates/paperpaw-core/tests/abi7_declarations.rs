@@ -1318,28 +1318,19 @@ fn malformed_widget_and_status_declarations_poison_construction() {
     }
 }
 
-/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: lookup
-/// providers and book data) decode but stay refused until the host admits
-/// them, as the UIX ones. Formats and readers are admitted
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: library
+/// book data) decode but stay refused until the host admits them, as the UIX
+/// ones. Formats, readers and lookup providers are admitted
 /// (`format_and_reader_declarations_are_admitted`), as are book fields and
 /// badges (`book_field_and_badge_declarations_are_admitted`).
 #[test]
 fn doc_and_lib_declarations_stay_refused_until_admitted() {
-    use paperpaw_core::native_host::registrations::{BookDataSpec, LookupSpec};
+    use paperpaw_core::native_host::registrations::BookDataSpec;
     // Well-formed ones: checked, then refused, never accepted and dropped.
-    let valid = [
-        Record::LookupSpec(LookupSpec {
-            name: "dict",
-            title: "lookup.dict",
-            languages: "en",
-            flags: 0,
-            token: 1,
-        }),
-        Record::BookDataSpec(BookDataSpec {
-            name: "notes",
-            kind: 0,
-        }),
-    ];
+    let valid = [Record::BookDataSpec(BookDataSpec {
+        name: "notes",
+        kind: 0,
+    })];
     for record in valid {
         let bytes = encode(&[record]);
         let decoded = records_decode(&bytes).unwrap();
@@ -1425,8 +1416,15 @@ fn book_field_and_badge_declarations_are_admitted() {
 /// the cross-record rules (extensions, screens, limits) are the commit's.
 #[test]
 fn format_and_reader_declarations_are_admitted() {
-    use paperpaw_core::native_host::registrations::{FormatSpec, ReaderSpec};
+    use paperpaw_core::native_host::registrations::{FormatSpec, LookupSpec, ReaderSpec};
     let admitted = [
+        Record::LookupSpec(LookupSpec {
+            name: "dict",
+            title: "lookup.dict",
+            languages: "en",
+            flags: 0,
+            token: 1,
+        }),
         Record::FormatSpec(FormatSpec {
             name: "epub",
             title: "format.epub",

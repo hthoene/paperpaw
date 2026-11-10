@@ -92,7 +92,8 @@ fn the_decoded_batches_say_what_the_registration_says() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [0; 6]);
+    // Only the note is an overlay (bit 2): the page shows above it.
+    assert_eq!(flags, [0, 0, 0, 0, 4, 0]);
     assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions, old.actions);
@@ -124,10 +125,12 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.keys, old.keys);
     assert_eq!(native.keys.len(), 6);
     // Nothing else is declared in these batches, and the native side hears
-    // the start and a moved book.
+    // the start, a moved book, sleep, stop and the quiet time that save the
+    // place, and a changed setting that lays the page out again (the last four
+    // are new in interface 7).
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
     assert!(native.status_places.is_empty() && native.others.is_empty());
-    assert_eq!(native.events.len(), 2);
+    assert_eq!(native.events.len(), 6);
 }
 
 /// The key bindings that hold while a switch is on: the registration's
