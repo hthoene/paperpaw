@@ -13,7 +13,7 @@ use crate::native_host::lib_service::{BookRef, One, StoredPosition};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
 use core::fmt::Write as _;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::{config, library, positions};
 
@@ -169,7 +169,9 @@ fn kept_fingerprint(data: &[u8]) -> Option<&str> {
 }
 
 /// Op 14's `write_position`: the whole file written atomically (the card's
-/// `write`); the book's fingerprint, which a reader keeps in it, stays.
+/// `write`); the book's fingerprint, which a reader keeps in it, stays. `busy`
+/// says a book is in use (a library move carries it): `ERR_BUSY`, nothing
+/// written.
 ///
 /// A file this cannot read as text (a hand-edited or damaged one) is
 /// replaced by the new place: the reader is at a new place anyway. A read
@@ -180,8 +182,12 @@ pub(super) fn write(
     book: BookRef<'_>,
     at: &wire::ServiceLibPosition<'_>,
     from_sync: bool,
+    busy: &dyn Fn(&str) -> bool,
 ) -> Result<(), i32> {
     reads.with_path(book, |path| {
+        if busy(path) {
+            return Err(ERR_BUSY);
+        }
         let old = text(&*reads.storage, path)?;
         let text = render(at, from_sync, old.as_deref().and_then(kept_fingerprint))?;
         let _ = reads.storage.create_dir(positions::DIR);
