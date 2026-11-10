@@ -35,7 +35,11 @@ impl Dashboard {
     /// The options of the item of `cell` open.
     pub(super) fn open_options(&mut self, host: &Host<'_>, cell: usize) -> Result<(), Error> {
         let settings = match self.widget_at(cell) {
-            Some(id) => item_settings::has_settings(host, id)?,
+            // A refused read (other than for memory) means: no Settings.
+            Some(id) => match item_settings::has_settings(host, id) {
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                found => found.unwrap_or(false),
+            },
             None => false,
         };
         self.options = Some(Options {
@@ -221,8 +225,15 @@ impl Dashboard {
         let renamed = placed != *id;
         if renamed {
             let mut items = crate::native_grid::copy_items(&laid.items)?;
-            items[item].what = What::Widget(paperpaw_ui_kit::text::copy(&placed)?);
-            self.write(host, &items, &[])?;
+            let Some(entry) = items.get_mut(item) else {
+                return Ok(());
+            };
+            entry.what = What::Widget(paperpaw_ui_kit::text::copy(&placed)?);
+            // Not saved (too big): the settings would show a placement the page
+            // does not hold.
+            if !self.write(host, &items, &[])? {
+                return Ok(());
+            }
         }
         item_settings::open(host, ui, &placed)
     }
@@ -347,7 +358,7 @@ impl Dashboard {
         if let Some(id) = reset {
             push(&mut resets, id)?;
         }
-        self.write(host, &rest, &resets)
+        self.write(host, &rest, &resets).map(drop)
     }
 
     /// The items as they are now, kept.
@@ -356,27 +367,28 @@ impl Dashboard {
             return Ok(());
         };
         let items = crate::native_grid::copy_items(&laid.items)?;
-        self.write(host, &items, &[])
+        self.write(host, &items, &[]).map(drop)
     }
 
     /// Stages `items` as the page, and what the removed placements set reset.
     /// Laid out anew from the settings afterwards, which is the old layout where
-    /// the change was too big to save.
+    /// the change was too big to save; `false` comes back then.
     fn write(
         &mut self,
         host: &Host<'_>,
         items: &[crate::native_grid::Item],
         resets: &[String],
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let Some(laid) = self.laid.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         let shown = Shown::current(host)?;
         let in_layout = laid.wide.then_some(&shown.frame.geometry);
         let writes = native_pages::store(&shown.src, laid.slot, items, in_layout)?;
-        add_screen::apply(host, &writes, resets)?;
+        let saved = add_screen::apply(host, &writes, resets)?;
         self.stale = true;
-        redraw(host)
+        redraw(host)?;
+        Ok(saved)
     }
 }
 
