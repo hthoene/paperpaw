@@ -73,10 +73,10 @@ impl Footnote {
     /// `NoMemory`.
     pub fn open(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<Self, Error> {
         let mut note = Self::default();
-        if let Some(handover) = handover {
-            if let Err(Error::NoMemory) = note.read(host, ui, handover) {
-                return Err(Error::NoMemory);
-            }
+        if let Some(handover) = handover
+            && let Err(Error::NoMemory) = note.read(host, ui, handover)
+        {
+            return Err(Error::NoMemory);
         }
         Ok(note)
     }
