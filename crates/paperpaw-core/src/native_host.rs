@@ -247,10 +247,6 @@ pub(crate) mod image_service;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;
-#[allow(
-    dead_code,
-    reason = "the kernel's service pump calls `pump_library_moves` (Core wires it)"
-)]
 pub(crate) mod lib_moves_service;
 pub(crate) mod lib_moves_walk;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
@@ -260,6 +256,7 @@ pub(crate) mod lib_service;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+mod moves_pump;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"

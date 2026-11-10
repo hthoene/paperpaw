@@ -183,6 +183,8 @@ impl crate::Kernel {
         let widget_more = self.native_widget_pump();
         // A changed screen stack reaches the plugins that subscribed (`stack_events`).
         let stack_more = self.native_stack_pump();
+        // The library's move job goes on, a bounded step a pass (`moves_pump`).
+        let moves_more = self.native_moves_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
@@ -196,6 +198,7 @@ impl crate::Kernel {
                 || setting_more
                 || widget_more
                 || stack_more
+                || moves_more
                 || dialog_more
                 || wifi_more
                 || firmware_more,
@@ -219,6 +222,7 @@ impl crate::Kernel {
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
+            .chain(instances.moves_retry())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())
