@@ -171,6 +171,10 @@ pub(crate) trait DocHost {
     /// same document (ids are generation-checked); the second call does
     /// nothing.
     fn end_images(&self, document: &Document);
+    /// The image ids of documents the host ended out of reach of the image
+    /// table (`end_images` kept them) end now in `images`. A host that ends
+    /// them at once has none to flush.
+    fn flush_images(&self, _images: &super::image_service::ImageTable) {}
     /// The host closed a document on its own (three malformed answers, the
     /// format plugin stopped): the opener gets `event.document_closed`. Only
     /// the event; the service ends the image ids (`end_images`) first and
@@ -325,6 +329,10 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// # Errors
 /// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY` (table
 /// borrowed; a retry ends it).
+///
+/// A caller that has the host services ends a document with
+/// `HostServices::end_document_by_host`, which also ends its image ids at
+/// once (this function alone defers them to the next call).
 pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<(), i32> {
     if let Some(document) = host.table().end_by_host(id, reason)? {
         host_closed(host, &document, reason);
@@ -1005,8 +1013,12 @@ fn verify(
         Check::Image => {
             let _: wire::ServiceDocImage = check::only(bytes)?;
             let kept = images(host, document, out, length, false)?;
-            // A picture that fails its check is not a picture at all.
-            require(kept != 0)?;
+            // A picture that fails its check is not a picture at all: none
+            // (`document.md` 1, op 15), and the format's file is at fault, not
+            // the caller's request, so the document is not struck for it.
+            if kept == 0 {
+                return Err(ERR_NOT_FOUND);
+            }
             return Ok(kept);
         }
         Check::Progress => {

@@ -22,7 +22,7 @@ use super::{
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, OnceCell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED};
 
 /// What the dispatcher tells a service backend about its caller.
 #[derive(Clone, Copy)]
@@ -630,6 +630,20 @@ impl HostServices {
     }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    /// The host ends one document on its own (`doc_service::end_by_host`) and
+    /// its image ids end at once, here where the image table is at hand: a
+    /// stale id must not draw what a later cache holds under the same name.
+    /// Only a borrowed table defers them (to the next call).
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` without a document service; `end_by_host`'s.
+    #[allow(dead_code, reason = "the card and move hooks call it; tests do today")]
+    pub(crate) fn end_document_by_host(&self, id: u32, reason: u32) -> Result<(), i32> {
+        let documents = self.documents().ok_or(ERR_UNSUPPORTED)?;
+        let result = doc_service::end_by_host(&*documents.0, id, reason);
+        documents.0.flush_images(&self.images);
+        result
     }
     /// The sources of paths in use, made on first use.
     pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {

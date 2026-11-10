@@ -18,11 +18,9 @@
 //!   call); documents of a format that went end as the format stopped.
 //!
 //! Not served yet, each answered as the contract's "none" and never
-//! half-done: the images of a document (`map_image` leaves a picture out, so
-//! no image id exists to end), `event.document_changed` (88: nothing raises
-//! it before the preparing loop), sniffing a file's first 512 bytes,
-//! root 5, the preparing loop and the cache (`format.spec.flags` `prepared`
-//! formats open and answer as their op 2 does), the root-6 cache stamps.
+//! half-done: `event.document_changed` (88: nothing raises it before the
+//! preparing loop), root 5, and the preparing loop itself (`format.spec.flags`
+//! `prepared` formats open and answer as their op 2 does).
 //!
 //! Memory: the state is the table (about 40 bytes a document), one small
 //! index (under 100 bytes a format) and one `Book` per open document
@@ -138,6 +136,14 @@ pub(crate) struct DocState {
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
     cache_cap: u64,
+    /// Whether the screen keeps colour (a picture's colour flag).
+    colour: bool,
+    /// Documents that ended where the image table could not be reached (the
+    /// host ended them, or the table was busy): their image ids end with the
+    /// next call.
+    pending_images: RefCell<Vec<u32>>,
+    /// A document's image ids could not be recorded as ended (logged once).
+    images_lost: Cell<bool>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
@@ -160,6 +166,43 @@ impl ImageMap for NoImages {
     }
 }
 
+/// A format's pictures as the opener's image ids: the cache files of the
+/// document's folder, checked, in the image table (`document.md` 5).
+struct DocImages<'a> {
+    table: &'a super::image_service::ImageTable,
+    storage: &'a dyn Storage,
+    state: &'a DocState,
+}
+
+impl ImageMap for DocImages<'_> {
+    fn map(
+        &self,
+        owner: u64,
+        document: u32,
+        image: &local::FmtImage<'_>,
+        in_block: bool,
+    ) -> Result<Option<wire::ServiceDocImage>, i32> {
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let Some(cache) = books
+            .iter()
+            .find(|book| book.document == document)
+            .and_then(|book| book.cache.as_ref())
+        else {
+            // A document without a cache has no picture to vouch for.
+            return Ok(None);
+        };
+        self.table.map_fmt_image(
+            self.storage,
+            owner,
+            document,
+            &cache.folder,
+            image,
+            in_block,
+            self.state.colour,
+        )
+    }
+}
+
 impl DocState {
     /// The state for a device with `limits` open documents and a screen whose
     /// long side is `long_side` pixels; reader holds go to `in_use`.
@@ -175,6 +218,10 @@ impl DocState {
         let mut unfinished = Vec::new();
         unfinished
             .try_reserve_exact(super::format_index::DEVICE)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        let mut images_pending = Vec::new();
+        images_pending
+            .try_reserve_exact(limits.device * 2)
             .map_err(|_| ERR_NO_MEMORY)?;
         let mut books = Vec::new();
         books
@@ -192,6 +239,9 @@ impl DocState {
             now: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
+            colour: false,
+            pending_images: RefCell::new(images_pending),
+            images_lost: Cell::new(false),
             fresh: Cell::new(false),
             reading: super::doc_reading::Reading::new(),
         })
@@ -203,6 +253,36 @@ impl DocState {
     pub(crate) fn with_storage(mut self, storage: Option<Rc<dyn Storage>>) -> Self {
         self.storage = storage;
         self
+    }
+
+    /// The state for a screen that keeps colour (or not): a picture's
+    /// `doc_image.flags` bit 0.
+    #[must_use]
+    pub(crate) fn with_colour(mut self, colour: bool) -> Self {
+        self.colour = colour;
+        self
+    }
+
+    /// The image ids of `document` end with the next call (the image table is
+    /// not at hand here).
+    fn ended_images(&self, document: u32) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut()
+            && pending.try_reserve(1).is_ok()
+        {
+            pending.push(document);
+        } else {
+            // Not recorded: the ids live until their plugin stops (at most 8
+            // each). The next call with a frame says so, once.
+            self.images_lost.set(true);
+        }
+    }
+
+    /// The image ids of the documents that ended out of reach of the table
+    /// end now (`images` is the device's table).
+    fn end_pending_images(&self, images: &super::image_service::ImageTable) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut() {
+            pending.retain(|document| images.document_closed(*document).is_err());
+        }
     }
 
     /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
@@ -386,9 +466,6 @@ macro_rules! frameless {
         ) -> Result<u64, i32> {
             self.state().conversion_key(open, format, options)
         }
-        fn end_images(&self, _document: &Document) {
-            // No image id exists until pictures are mapped.
-        }
         fn document_closed(&self, document: &Document, reason: u32) {
             self.state().table.raise_closed(document, reason);
             self.state().fresh.set(true);
@@ -414,10 +491,14 @@ macro_rules! frameless {
         fn map_image(
             &self,
             _document: &Document,
-            _image: &wire::ServiceDocImage,
+            image: &wire::ServiceDocImage,
             _in_block: bool,
         ) -> Result<Option<u32>, i32> {
-            Ok(None)
+            // The stage adapter mapped the picture when it translated the
+            // format's answer (`DocImages`: the cache check and the id), so
+            // the record carries the opener's id (0 where all are out, in a
+            // block stream); a picture that failed the check is not here.
+            Ok(Some(image.image))
         }
         fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
             self.state().formats_of_owner(owner, visit);
@@ -448,6 +529,12 @@ impl super::doc_service::DocHost for DocState {
         });
     }
     frameless!();
+    fn end_images(&self, document: &Document) {
+        self.ended_images(document.id);
+    }
+    fn flush_images(&self, images: &super::image_service::ImageTable) {
+        self.end_pending_images(images);
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.hold_book(document, root, path, None)
     }
@@ -724,6 +811,7 @@ impl Bound<'_> {
     /// it was. The documents of a format that went end as it stopped.
     fn sync(&self) -> Result<(), i32> {
         self.end_unfinished();
+        self.end_pending_images();
         let generation = self.frame.registry()?.generation();
         if self.state.synced.get() == generation {
             return Ok(());
@@ -759,6 +847,16 @@ impl Bound<'_> {
             }
         }
         Ok(())
+    }
+
+    /// The image ids of documents that ended out of reach of the table end.
+    fn end_pending_images(&self) {
+        self.state.end_pending_images(self.who.hosts.images());
+        if self.state.images_lost.replace(false) {
+            self.frame.log(format_args!(
+                "document: image ids of an ended document kept"
+            ));
+        }
     }
 
     /// Ends the documents of formats an earlier call could not finish.
@@ -855,6 +953,18 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn end_images(&self, document: &Document) {
+        // The ids end now where the table can be had, else with the next call.
+        if self
+            .who
+            .hosts
+            .images()
+            .document_closed(document.id)
+            .is_err()
+        {
+            self.state.ended_images(document.id);
+        }
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.state
             .hold_book(document, root, path, Some(self.who.plugin))
@@ -928,9 +1038,17 @@ impl super::doc_service::DocHost for Bound<'_> {
         }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let route = FrameRoute(self.frame);
+        let pictures = self.state.storage.as_deref().map(|storage| DocImages {
+            table: self.who.hosts.images(),
+            storage,
+            state: self.state,
+        });
         let stage = Stage {
             route: &route,
-            images: &NoImages,
+            images: match &pictures {
+                Some(pictures) => pictures,
+                None => &NoImages,
+            },
         };
         let mut result = Err(ERR_NOT_FOUND);
         let mut run = |sibling: &str| {
