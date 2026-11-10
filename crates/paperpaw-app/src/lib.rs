@@ -78,10 +78,8 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 14] = [
+pub const STORE_PLUGINS: [&str; 11] = [
     "aids",
-    "browser",
-    "calibre",
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -90,7 +88,6 @@ pub const STORE_PLUGINS: [&str; 14] = [
     "news",
     "notes-vault",
     "picture-home",
-    "read-later-cloud",
     "vocabulary",
     "widgets",
 ];
@@ -130,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -147,23 +144,84 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
 ];
+
+/// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
+/// `Kernel::register_linked`, before the kernel starts (the one path the X4,
+/// the emulator and the tests share). `host` is what the shell offers
+/// (its profile, the services it wires, and the consent features it backs: a
+/// plugin whose metadata needs a `uses.…` that is not in the host's list is
+/// refused at admission); `resources` is
+/// the shell's table of handles (each plugin gets a share) with its services
+/// wired; `depth` the shell's one dispatch budget; `services` makes one
+/// [`Services`](paperpaw_native::host_glue::Services) (heap and clock) per
+/// plugin. A plugin the host refuses (a service it does not wire, no memory)
+/// is returned with the reason and does not stop the others.
+///
+/// # Safety
+/// Every entry of [`NATIVE_PLUGINS`] comes from `native_plugin!(..., linked =
+/// NAME)` of a crate linked into this program, so its factory obeys the SDK's
+/// native factory contract and its code and static data stay for the whole
+/// run; the caller must not call this with a `host` that offers more than it
+/// backs: a service or a consent feature offered and not wired is a plugin
+/// that fails later.
+#[cfg(feature = "native-linked")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the shell supplies what Kernel::register_linked takes, once for every plugin"
+)]
+pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 'static>(
+    kernel: &mut paperpaw_core::Kernel,
+    host: &paperpaw_native::metadata::Host<'static>,
+    resources: &paperpaw_core::native_host::HostResources,
+    depth: &paperpaw_core::native_host::flat::FlatDepth,
+    mut services: impl FnMut() -> S,
+    teardown: paperpaw_core::native_host::shell::Report<S>,
+    report: fn(&S, u32, i32),
+) -> alloc::vec::Vec<(
+    &'static str,
+    Result<(), paperpaw_core::native_host::shell::Error>,
+)> {
+    use paperpaw_core::native_host::shell::Error;
+    let mut outcome = alloc::vec::Vec::new();
+    if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
+        return outcome;
+    }
+    for (id, linked) in &NATIVE_PLUGINS {
+        let Some(share) = resources.try_clone() else {
+            outcome.push((*id, Err(Error::Allocation)));
+            continue;
+        };
+        // SAFETY: as this function's contract says.
+        let status = unsafe {
+            kernel.register_linked(
+                linked.entry(),
+                linked.metadata(),
+                host,
+                id,
+                services(),
+                share,
+                depth,
+                teardown,
+                report,
+            )
+        };
+        outcome.push((*id, status));
+    }
+    outcome
+}
 
 /// The network settings of every networked first-party plugin, kept in
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "browser",
-    "calibre",
     "fonts-browser",
     "mail",
     "news",
-    "opds",
-    "read-later-cloud",
     "store",
     "transfer",
-    "update",
     "vocabulary",
     "wifi",
 );
@@ -208,12 +266,8 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_reader::Reader);
-    // Files, Home and Menu keep their order; Files and Menu are native
-    // plugins, linked (`NATIVE_PLUGINS`), where the feature says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_files::Files);
-    }
+    // Home and Menu keep their order; Files and Menu are native plugins,
+    // linked (`NATIVE_PLUGINS`), where the feature says.
     b = b.plugin(paperpaw_plugin_home::Home);
     #[cfg(not(feature = "native-linked"))]
     {
@@ -221,7 +275,6 @@ pub fn install_with(
     }
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
@@ -231,10 +284,6 @@ pub fn install_with(
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_transfer::Transfer);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_opds::Opds);
-    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
@@ -258,7 +307,7 @@ pub fn install_with(
     let builder = builder
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    builder.plugin(paperpaw_plugin_update::Update)
+    builder
 }
 
 /// Adds the plugins the store offers that ship off, wherever they are
@@ -269,12 +318,6 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
         StorePlugins::Left => StorePlugins::Left,
         _ => StorePlugins::Off(&|_| false),
     };
-    b = offered(b, shipped_off, paperpaw_plugin_browser::Browser);
-    b = offered(
-        b,
-        shipped_off,
-        paperpaw_plugin_read_later_cloud::ReadLaterCloud,
-    );
     b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
     b
 }

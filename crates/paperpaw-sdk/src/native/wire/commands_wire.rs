@@ -208,6 +208,8 @@ pub const COMMAND_INSTALL_AUTHOR_TAG: u32 = 1580;
 pub const COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES: usize = 32;
 /// Maximum bytes of `command.install_author.recovery`.
 pub const COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.install_author.sha256`.
+pub const COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES: usize = 32;
 /// Wire tag of the `command.install_rotation` command.
 pub const COMMAND_INSTALL_ROTATION_TAG: u32 = 1581;
 /// Maximum bytes of `command.install_rotation.to`.
@@ -258,6 +260,8 @@ pub const COMMAND_SET_HINT_TAG: u32 = 1594;
 pub const COMMAND_SET_HINT_ACTION_MAX_BYTES: usize = 128;
 /// Maximum bytes of `command.set_hint.label`.
 pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.firmware_dual_boot` command.
+pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -563,6 +567,8 @@ pub enum Command<'a> {
         author: &'a [u8],
         /// At most 32 bytes.
         recovery: &'a [u8],
+        /// At most 32 bytes.
+        sha256: &'a [u8],
     },
     /// The `command.install_rotation` command (`docs/abi/device.md`).
     InstallRotation {
@@ -654,6 +660,13 @@ pub enum Command<'a> {
         kind: u32,
         /// UTF-8 text of at most 64 bytes.
         label: &'a str,
+    },
+    /// The `command.firmware_dual_boot` command (`docs/abi/registry.md`).
+    FirmwareDualBoot {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        mode: u32,
     },
 }
 
@@ -1255,6 +1268,7 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     request: u32::from_le_bytes(scalar(body.take(4)?)),
                     author: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?,
                     recovery: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?,
+                    sha256: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES)?,
                 }
             }
             COMMAND_INSTALL_ROTATION_TAG => {
@@ -1349,6 +1363,13 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     action: text(body.bytes()?, COMMAND_SET_HINT_ACTION_MAX_BYTES)?,
                     kind: u32::from_le_bytes(scalar(body.take(4)?)),
                     label: text(body.bytes()?, COMMAND_SET_HINT_LABEL_MAX_BYTES)?,
+                }
+            }
+            COMMAND_FIRMWARE_DUAL_BOOT_TAG => {
+                body.bitmap()?;
+                Command::FirmwareDualBoot {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    mode: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
             _ => return Err(-1),
@@ -1602,11 +1623,15 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::FirmwareRestart {} => Ok((COMMAND_FIRMWARE_RESTART_TAG, 1)),
         Command::InstallAuthor {
-            author, recovery, ..
+            author,
+            recovery,
+            sha256,
+            ..
         } => {
             let mut len = 1 + 4;
             len += blob_len(author.len(), COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?;
             len += blob_len(recovery.len(), COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?;
+            len += blob_len(sha256.len(), COMMAND_INSTALL_AUTHOR_SHA256_MAX_BYTES)?;
             Ok((COMMAND_INSTALL_AUTHOR_TAG, len))
         }
         Command::InstallRotation { to, signature, .. } => {
@@ -1659,6 +1684,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             len += blob_len(label.len(), COMMAND_SET_HINT_LABEL_MAX_BYTES)?;
             Ok((COMMAND_SET_HINT_TAG, len))
         }
+        Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
     }
 }
 
@@ -1952,11 +1978,13 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     request,
                     author,
                     recovery,
+                    sha256,
                 } => {
                     out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
                     offset += 4;
                     write_blob(author, out, &mut offset);
                     write_blob(recovery, out, &mut offset);
+                    write_blob(sha256, out, &mut offset);
                 }
                 Command::InstallRotation {
                     request,
@@ -2040,6 +2068,12 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&kind.to_le_bytes());
                     offset += 4;
                     write_blob(label.as_bytes(), out, &mut offset);
+                }
+                Command::FirmwareDualBoot { request, mode } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
                 }
                 Command::SetSetting { .. } => {}
             }

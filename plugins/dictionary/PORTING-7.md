@@ -93,6 +93,12 @@ no further bump).
 - Goldens: the host draws no native screen yet (H1/H3/H4); no snapshot is blessed.
 - Not in the app's `NATIVE_PLUGINS`: like the other native-only plugins it joins the program at activation
   (Core #944); until then no dictionary runs in the desktop or Android program.
+- **Activation checklist (`NATIVE_PLUGINS`; this PR is HELD until native activation).** In the step that
+  activates native plugins: (1) list `NativeDictionary` in `paperpaw_app::NATIVE_PLUGINS` (keep the array length
+  and the counts in `crates/paperpaw-app/tests/sets.rs` equal) and in `tools/plugin-files7/complete.txt`;
+  (2) check that the shells' dictionary folder setting still uses the plugin's id `dictionary.folder` (Android's
+  `DICTIONARY_FOLDER` repeats the literal; a shared constant is not exported yet); (3) bless the dictionary
+  goldens once H1/H3/H4 draw the screens.
 - A dictionary that cannot be read is skipped at every lookup, and an index that cannot be made is tried
   again at every start (interface 6 kept a `failed` marker with the files' sizes).
 

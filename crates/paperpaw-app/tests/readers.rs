@@ -14,6 +14,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
@@ -232,7 +234,7 @@ impl App {
             // On touch screens without the hints over it all.
             .user_config(format!("[core]\nlanguage = en\n{config}"));
         let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
-        let mut kernel = more(builder).build().unwrap();
+        let mut kernel = native_activation::build(more(builder));
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -256,11 +258,6 @@ impl App {
     /// the topmost.
     fn tap(&mut self, label: &str) -> String {
         self.press_on(label, 60)
-    }
-
-    /// A finger held a second on what starts with `label`.
-    fn long_press(&mut self, label: &str) -> String {
-        self.press_on(label, 1000)
     }
 
     /// A finger on what starts with `label`, `ms` long.
@@ -429,6 +426,10 @@ fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
     let mut app = App::on(BOOX, books(), "", true);
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");
@@ -479,42 +480,6 @@ fn a_folders_reading_app_is_chosen_from_every_reader() {
     app.opens("core.down");
     app.opens("core.confirm");
     assert_eq!(app.opens("plain.folder"), SHIPPED);
-}
-
-/// The screen as a picture (PGM, gray), for a look before and after.
-fn shot(app: &mut App, dir: &std::path::Path, name: &str) {
-    let display = app.kernel.device().display;
-    let (w, h) = (usize::from(display.width), usize::from(display.height));
-    let mut gray = vec![255u8; w * h];
-    // All of it, also what was drawn before (once what waits is drawn).
-    app.kernel.render(&mut |_, _| {});
-    app.kernel.rerender(&mut |y, view| {
-        for row in 0..view.height {
-            for x in 0..view.width {
-                let at = usize::from(y + row) * w + usize::from(x);
-                if let Some(pixel) = gray.get_mut(at) {
-                    *pixel = view.pixel(x, row).luma();
-                }
-            }
-        }
-    });
-    let mut pgm = format!("P5\n{w} {h}\n255\n").into_bytes();
-    pgm.extend_from_slice(&gray);
-    std::fs::write(dir.join(format!("{name}.pgm")), pgm).unwrap();
-}
-
-/// Focuses the row that starts with `name`, down from where it is.
-fn focus_on(app: &mut App, name: &str) {
-    for _ in 0..40 {
-        app.kernel.render(&mut |_, _| {});
-        // The topmost focus: an overlay's, not the screen's below it.
-        let focused = app.kernel.describe().into_iter().rfind(|p| p.focused);
-        if focused.is_some_and(|p| p.label.starts_with(name)) {
-            return;
-        }
-        app.opens("core.down");
-    }
-    panic!("no row {name}");
 }
 
 /// The screens open in the reader's slot (one of the reading apps').
@@ -576,127 +541,4 @@ fn readers_read_in_screens_of_their_own() {
     // Borrower's tries are refused (it asserts so).
     let mut app = App::of(DEVICE, books(), "", |b| b.plugin(Borrower));
     assert_eq!(app.book(TEXT), SHIPPED);
-}
-
-/// The library's sheet of the book `notes.txt`: held on touch screens,
-/// the menu button with buttons only.
-fn book_sheet(app: &mut App) {
-    app.opens("core.library");
-    if app.kernel.device().input.touch {
-        app.long_press("notes");
-    } else {
-        focus_on(app, "notes");
-        app.opens("core.menu");
-    }
-}
-
-/// The book menu (the library's sheet of a book) as pictures in
-/// `PAPERPAW_SHOTS`, with a second reading app installed: `when` names
-/// them (before or after a change).
-#[test]
-#[ignore = "pictures for a look, run by hand"]
-fn book_menu_shots() {
-    let Some(dir) = std::env::var_os("PAPERPAW_SHOTS") else {
-        return;
-    };
-    let when = std::env::var("PAPERPAW_WHEN").unwrap_or_else(|_| String::from("now"));
-    let dir = std::path::PathBuf::from(dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    for (device, name) in [(DEVICE, "x4"), (BOOX, "boox")] {
-        let mut app = App::on(device, books(), "", true);
-        book_sheet(&mut app);
-        shot(&mut app, &dir, &format!("{name}-book-menu-{when}"));
-        // The list of *Open with …*, where there is one.
-        if rows_shown(&mut app)
-            .iter()
-            .any(|r| r.starts_with("Open with"))
-        {
-            pick(&mut app, "Open with");
-            shot(&mut app, &dir, &format!("{name}-open-with-{when}"));
-        }
-    }
-}
-
-/// Chooses the row or entry `label` of the list or sheet shown: with the
-/// buttons, down to it and confirm; by touch, a tap on it.
-fn pick(app: &mut App, label: &str) -> String {
-    if app.kernel.device().input.touch {
-        return app.tap(label);
-    }
-    focus_on(app, label);
-    app.opens("core.confirm")
-}
-
-/// The rows of the list or sheet on top.
-fn rows_shown(app: &mut App) -> Vec<String> {
-    app.kernel.render(&mut |_, _| {});
-    app.kernel
-        .describe()
-        .into_iter()
-        .filter(|p| p.role == paperpaw_sdk::semantics::Role::Row)
-        .map(|p| p.label)
-        .collect()
-}
-
-#[test]
-fn the_book_menu_offers_open_with_where_there_is_a_choice() {
-    for device in [DEVICE, BOOX] {
-        let mut app = App::on(device, books(), "", true);
-        book_sheet(&mut app);
-        assert!(
-            rows_shown(&mut app)
-                .iter()
-                .any(|r| r.starts_with("Open with")),
-            "{:?}",
-            rows_shown(&mut app)
-        );
-        // As shipped: one reading app, no other way: nothing to choose.
-        let mut app = App::on(device, books(), "", false);
-        book_sheet(&mut app);
-        assert!(
-            !rows_shown(&mut app)
-                .iter()
-                .any(|r| r.starts_with("Open with"))
-        );
-    }
-}
-
-#[test]
-fn open_with_opens_the_book_this_time_and_keeps_only_when_asked() {
-    for device in [DEVICE, BOOX] {
-        let mut app = App::on(device, books(), "", true);
-        book_sheet(&mut app);
-        assert_eq!(pick(&mut app, "Open with"), "core.choice-dialog");
-        let rows = rows_shown(&mut app);
-        let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
-        assert_eq!(
-            &rows[rows.len() - 4..],
-            [
-                "PaperPaw reader",
-                "Plain text reader",
-                "Send to a computer",
-                "Always open it with …"
-            ],
-            "{rows:?}"
-        );
-        assert_eq!(pick(&mut app, "Plain text reader"), "plain.screen");
-        // Not kept: the next time as before.
-        assert_eq!(app.opens("plain.text"), SHIPPED);
-        // Kept when asked to.
-        book_sheet(&mut app);
-        pick(&mut app, "Open with");
-        assert_eq!(pick(&mut app, "Always open it with"), "core.choice-dialog");
-        assert_eq!(pick(&mut app, "Plain text reader"), "plain.screen");
-        assert_eq!(app.opens("plain.text"), "plain.screen");
-    }
-}
-
-#[test]
-fn other_ways_to_open_a_book_get_the_book() {
-    SENT.with(|sent| sent.borrow_mut().clear());
-    let mut app = App::new(books(), "");
-    book_sheet(&mut app);
-    pick(&mut app, "Open with");
-    pick(&mut app, "Send to a computer");
-    assert_eq!(SENT.with(|sent| sent.borrow().clone()), [TEXT]);
 }

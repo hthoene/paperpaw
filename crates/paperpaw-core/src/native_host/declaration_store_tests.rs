@@ -36,6 +36,10 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Stage,
     Kind::Subscription,
     Kind::SetupStep,
+    Kind::InputSpec,
+    Kind::HelpHint,
+    Kind::Format,
+    Kind::Reader,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -194,6 +198,7 @@ fn every_reserve_failure_leaves_the_published_store_unchanged() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = pending(&source, owned, &mut allocations).and_then(|pending| {
                 store.prepare(pending, &mut allocations)?.commit();
@@ -232,6 +237,7 @@ fn failed_update_retains_old_entries_and_success_invalidates_old_keys() {
     new.generation.set(2);
     let mut failing = Allocations {
         fail_after: Some(0),
+        ..Default::default()
     };
     assert!(pending(&new, true, &mut failing).is_err());
     assert_eq!(keys(&store), old_keys);
@@ -467,6 +473,7 @@ fn ignored_failure_in_a_later_batch_cannot_publish_a_partial_load() {
     let mut pending = pending(&source, false, &mut allocations).unwrap();
     let mut failing = Allocations {
         fail_after: Some(0),
+        ..Default::default()
     };
     assert_eq!(
         pending.stage_batch(&source.bytes.borrow().clone(), &mut failing),
@@ -1279,6 +1286,7 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
     for fail_after in 0..12 {
         let mut allocations = Allocations {
             fail_after: Some(fail_after),
+            ..Default::default()
         };
         let source = image();
         let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
@@ -1312,5 +1320,87 @@ fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
         size_of::<PendingDeclarations>() <= 2 * size_of::<Vec<Slot>>() + per_kind + 160,
         "{}",
         size_of::<PendingDeclarations>()
+    );
+}
+
+/// An image of `records` for the fixture owner.
+fn image_of(records: &[Record<'_>]) -> Rc<Image> {
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    Rc::new(Image {
+        bytes: RefCell::new(bytes),
+        generation: Cell::new(1),
+        live: Cell::new(true),
+        errors: Cell::new(0),
+        active: Cell::new(false),
+        denied: Cell::new(0),
+    })
+}
+
+fn hint<'a>(screen: &'a str, input: u32, text: &'a str) -> Record<'a> {
+    Record::HelpHint(HelpHint {
+        screen,
+        input,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        text,
+    })
+}
+
+fn input<'a>(name: &'a str, kind: u32) -> Record<'a> {
+    Record::InputSpec(InputSpec {
+        name,
+        title: "fixture.input.title",
+        kind,
+        need: 0,
+        capability: 0,
+        flags: 0,
+    })
+}
+
+#[test]
+fn inputs_and_hints_are_kept_listed_and_removed_with_their_owner() {
+    // Hints for another plugin's screen too; one screen takes a hint for each
+    // input kind and each text.
+    let source = image_of(&[
+        input("chord", 0),
+        input("shake", 1),
+        hint("reader.page", 0, "fixture.help.page"),
+        hint("reader.page", 1, "fixture.help.page"),
+        hint("reader.page", 2, "fixture.help.page"),
+        hint("reader.page", 0, "fixture.help.other"),
+        hint("fixture.main", 0, "fixture.help.page"),
+    ]);
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let count = |store: &DeclarationStore, kind| {
+        let mut count = 0;
+        store.keys(kind, &mut |_| count += 1);
+        count
+    };
+    assert_eq!(count(&store, Kind::InputSpec), 2);
+    assert_eq!(count(&store, Kind::HelpHint), 5);
+    assert!(store.find("fixture", Kind::InputSpec, "shake", &mut |_| {}));
+    assert!(!store.find("fixture", Kind::InputSpec, "other", &mut |_| {}));
+    assert!(store.find_parts(
+        "fixture",
+        Kind::HelpHint,
+        &["reader.page", "2", "fixture.help.page"],
+        &mut |_| {}
+    ));
+    store.remove_owner(&Id::new_static("fixture"), 1);
+    assert_eq!(
+        count(&store, Kind::InputSpec) + count(&store, Kind::HelpHint),
+        0
     );
 }

@@ -131,8 +131,7 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page), the sleep
-  choice, the help hints, the widget and the events for the words looked up and the wake (the
+- Not declared yet: `uses.network` (the phone page) and the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
@@ -141,13 +140,12 @@ native screens replace these callers.
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The rest of the native shell: the scan action, events and help.
-- Screens (card files, sleep card) on `core.ui`.
-- The widgets on the widget stage (host call, Core todo 76) with Port A's toolkit (#366):
-  `widget::{cx,names,options}`; no drawing of its own.
+- The sleep card: done, see *Ported: the sleep card* below.
+- The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (decorations).
+- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
-- Card-folder files: `core.files` (#339).
+- Card-folder files: done, see *Ported: the card files* below.
 
 ## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
 
@@ -212,8 +210,7 @@ native screens replace these callers.
   none: the last time known stands, as in `cards::now_of`).
 - Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
   card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
-  (done: next section), the sleep card and review on waking (sleep and
-  wake stages), the widget, marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
+  (done: next section), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
 
@@ -226,14 +223,24 @@ native screens replace these callers.
   `store::range` (`WindowList`, #663), the page count follows from the word count and the fixed row height.
   Counted when the screen opens and when it is shown again (words looked up meanwhile; a dialog closed).
   No word: the empty state (*No words yet*) as interface 6.
-- Holding a word (or *Menu*) asks whether to delete it (a yes-or-no with *Delete* / *Keep*, the texts of
-  interface 6), one question at a time; yes removes it (`store::remove`, "could not be deleted" told on a
-  failure), then the list is counted again. Interface 6 first offered a choice (look up / go to / delete);
-  only delete can work now, so it is asked directly.
-- Not offered, each an ignored case: tapping a word to look it up again (the dictionary's panel on
-  `core.lookup`, #352/dictionary port), *Go to* in its book (the reader's open-at, #224), *Export*
-  (`core.files` adapter, #339/#384; `store::export` is ported and tested). A tap on a word takes the input and does
-  nothing. No row ends in a refusal.
+- Holding a word (or *Menu*) asks what to do with it where its book is on the card (`core.files` `stat`): a
+  choice *Go to the book* / *Delete* (the texts of interface 6; *Look up* waits for the dictionary's panel on
+  `core.lookup`, #352/dictionary port, and is not offered); *Delete* asks the yes-or-no with *Delete* / *Keep*.
+  Without the book (no path, or taken off) the yes-or-no is asked directly, as before. One question at a time. Yes
+  removes the word (`store::remove`, "could not be deleted" told on a failure), then the list is counted again.
+- *Go to the book* (`native_goto.rs`): `command.open` into `core.reader` (the reader the user bound there) with
+  the book's path and the word's section and offset (`docs/abi/document.md`, *Opening at a place*), as Notes
+  overview opens a note.
+- *Export* (`native_export.rs`) is the row after the last word, as in interface 6 (title and help
+  `vocabulary.export`, `.export.help`). Choosing it writes all words to `Notes/Vocabulary.tsv` beside the
+  library folder (the folder of `core.library-folder`, default `books`): staged in the data folder
+  (`export.part`, `store::export`), then moved onto the card with `core.files` `move` (replacing the old file)
+  once whole, so a refusal (memory, a full card) leaves the old file and removes the staged one. The reader is
+  told "Saved as {path}." or "The words could not be saved." (en and de, interface 6's texts). The notice is best
+  effort: a refusal of it is not an error of the export. The whole export runs in one callback (as in interface 6);
+  it moves to the work service (`core.work`) when long exports matter.
+- *Go to the book* is offered when the book's file is on the card; every refusal of the check other than memory
+  counts as "no book" and the hold asks about deleting directly.
 - A tap or *Select* on a word says "Hold a word to delete it." (`vocabulary.hold-to-delete`, en and de) until looking
   it up works.
 - Tested: the rows (pages, order, notes), the word a row names, the delete and the count after it
@@ -244,3 +251,93 @@ native screens replace these callers.
 - Differences: the words looked up while the list is open show when it is shown again, not at once (no
   word-looked-up event yet). Rows are numbered from the newest, so a hold first counts the words again: a list
   that changed since it was counted is counted again and drawn anew, never deleting another word.
+
+## Right-to-left (`ar`: a regression against Beta 3 until this is done)
+
+Beta 3 mirrored the interface where its language is written right to left (Arabic). The UI kit now
+does so for what it draws (`Style::rtl`, read from `core.language`: header, list rows, items, dialog,
+chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
+draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
+takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).
+## Ported: the card files (`native_card.rs`, `native_sd.rs`, `native_sd_shell.rs`)
+
+- **The card as a `Storage`** (`native_card.rs`): `core.files` (folders, information, moves) and the card root of the
+  storage calls, behind a `Card` trait like the file manager's adapter (the same code; a shared SDK helper would
+  take both). Differences: `rename` **replaces** (the save and the ledger put a part in place with it, as
+  `files::put_in_place` expects). `Both` puts the plugin's data folder (`.paperpaw/plugins/vocabulary/…`: the
+  decks, the ledger) and the card in one `Storage`, as the data layer and `sync` name them, so the sync and the
+  save run unchanged. A move across the two is `Unsupported` (nothing is ever moved between them).
+  `with_both` opens the service for a callback and gives it back.
+- **The menu** `vocabulary.sd-menu` (`MenuView`): *Update the decks*, then for each deck a row that saves it and,
+  where it is linked to a file, a switch for removing the cards the file lacks. Texts, notes and the Anki rule are those
+  of interface 6; the rows are made over `Words`, tested in both languages.
+- **The update/save screen** `vocabulary.sd-card` (`Run`): the sync `Job` or the export `Saver`, one bounded step at a
+  time. Each step is a `core.work` callback (`WorkDue`, key `vocabulary.sd`) that asks for the next while there is
+  one; the screen draws the rows as the host's list, so the progress is **a percentage in the first row** where
+  interface 6 drew a bar (no `Canvas`). The question about a deck of the file's name is the two rows *Add them to my
+  deck* / *Make a new deck* under the question. A refused allocation ends the run with *Not enough memory…*, never a
+  panic; closing the screen cancels a save (no part of a file stays). The flash cards' opening updates from the
+  new and changed files (`vocabulary.sd-auto`, once as the decks open).
+- The files row of the decks' screen is offered where the card can be read (the service is there); the phone row
+  stays out until its screen is ported.
+- Tests: `native_sd_tests.rs` (rows, an update, the ask, a save, the progress, cancelling a save, and every
+  allocation of a whole update refused in turn, with the decks still whole). Not tested (needs a host with `core.ui`,
+  `core.files` and `core.work`): what the shell draws and the work callbacks.
+- Metadata: `core.files` and `core.work` join the services.
+
+## Ported: the words looked up (`native_collect.rs`, `stages_subscribed.rs`)
+
+- Vocabulary subscribes to the stage `reader.word-looked-up@1` (Plugin Engineer's, PR #791; `stages/subscribed/` holds
+  a copy of the schema, `tests/stages.rs` pins it equal to the reader's and the generated codec to it:
+  `python3 tools/stage-codec.py stages/subscribed src/stages_subscribed.rs`). The call carries the word, the sentence, the book's path,
+  the place (section, offset) and, where known, the language and the title; the reply is empty.
+- `native_collect::keep` (host-free) keeps the word as interface 6's `record` did: newest first, once, blanks are no word,
+  nothing where `vocabulary.collect` is off, and with `vocabulary.cards-from-lookups` a card is queued for the deck
+  *Looked up*. A word that could not be kept tells the reader (*The word could not be kept…*), as before. Tested in
+  `native_collect_tests.rs`, also with every allocation refused.
+- **The interface-6 handler of `core.word-looked-up` stays** until the interface-6 plugin goes (the interface-6 reader
+  still fires that event, and the native reader does not run the stage yet, so removing it now would collect nothing);
+  the marks, the interface-6 list and `tests/collecting.rs` use it. It goes with the interface-6 removal.
+- Not run against a host (hosted construction): that the reader's call reaches `word_looked_up`.
+
+## Ported: the home widgets (`native_widgets.rs`, `native_widget_word.rs`, `native_widget_saved.rs`, `native_widget_due.rs`)
+
+- *Word of the day*, *Words saved* and *Cards due* are declared with the same ids, groups and settings as
+  interface 6 (look, size, alignment, `pick`, the parts), in `declarations.rs` (`widgets`), category
+  `core.widgets.words`; the word of the day is live. The host makes an instance (`event.widget_made`), measures
+  it through the `core.widget` stage and calls the plugin to draw it, as for Stats' widgets. Nothing of a
+  callback is kept: what a widget shows is read from the files when it is measured or drawn (one pass over the
+  words). A tap opens the list of words (the first two) or the flash cards (the third).
+- The minute tick asks the host to draw a widget again when what it shows changed (the day, the size of the
+  words file, the number of cards due); a word looked up does the same at once.
+- One difference from interface 6: where the device does not know the day, the word of the day is picked by a
+  seed made when the widget is made (the plugin has no random source), so it changes each time the screen
+  makes the widget, not at each reading of the words.
+- Not proved here: measuring and drawing a widget on a scripted host (`tests/acceptance_pending.rs`, hosted
+  construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
+  `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) go with the interface-6 removal.
+
+## Ported: the sleep card (`native_sleep_card.rs`, `declarations.rs` `navigation`)
+
+- *A flash card due* is offered as a sleep screen as in Beta 3: the screen `vocabulary.sleep-card` (one at a
+  time) is offered to the slot `core.sleep` at priority -1 (the sleep plugin's own is 0, so it stays the
+  default) and is a choice of `sleep.show` (declaration agreed with Port F, as Reading goal's). The host shows
+  the screen as the sleep screen and replaces it on waking; the plugin has no stage or wake callback for it.
+- The screen shows the front of the card due next, large in the middle (six lines at most), and below it how
+  many cards are due, or that none is. Opening it keeps the card shown in `cards/asleep.txt` (`<deck> <id>`),
+  forgetting the last one.
+- On waking (`event.resume`) the review opens with that card first where the sleep card was the sleep screen,
+  or, with `vocabulary.review-on-wake`, where cards are due. The decisions (`next`, `shown`) are host-free and
+  tested, with every allocation refused. Not proved here: the slot shown and the wake on a scripted host
+  (hosted construction, #944; the ignored case says so).
+- The colours are the theme's (`style.paper`, `style.ink`, `style.note`), not Beta 3's fixed white and black: on a
+  dark theme the card is light on dark, like the other screens.
+- A refused read of the card leaves the sleep screen saying that none is due; a refused read of `sleep.show` or
+  of `vocabulary.review-on-wake` counts as "not chosen"/"off", never ends the wake.
+
+## Ported: the help hints (`declarations.rs` `help`)
+
+- The review's four hints of interface 6 (`vocabulary.help.answers`, `.tap`, `.select`, `.back`; any input,
+  touch, buttons, any input) are declared as `help.hint` for the screen `vocabulary.review`; the host answers
+  them from `core.ui` op 3 `hints` (#892). Tested as declarations (`tests/declarations.rs`).
+

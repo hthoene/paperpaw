@@ -127,7 +127,10 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
     let mut construction = owner.as_ref().begin("weather").unwrap();
     let bytes = encode(&[Registration::Draw { token: 1 }; 8]).unwrap();
     slot.scope(&mut construction, || {
-        assert_eq!(submit(&slot, &bytes), OK);
+        // 32 registrations in four batches of the most a batch holds.
+        for _ in 0..4 {
+            assert_eq!(submit(&slot, &bytes), OK);
+        }
         assert_eq!(
             submit(&slot, &encode(&[Registration::Draw { token: 2 }]).unwrap()),
             ERR_NO_SPACE

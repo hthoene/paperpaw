@@ -12,10 +12,14 @@ use pending::Case;
 const COLLECT: Case = Case {
     name: "vocabulary-collect-and-list",
     golden: None,
-    blocked_by: &["native shell", "H1", "H4"],
+    blocked_by: &[
+        "reader emitter of reader.word-looked-up (Plugin Engineer)",
+        "scripted host with stage calls",
+    ],
 };
-/// The screens: the card files' screens. (The flash cards' decks and review and the list of words are
-/// ported; what they draw is proved by their tests of the rows and the decisions, not on a host.)
+/// The screens on a host. (The flash cards' decks and review, the list of words and the card files'
+/// screens are ported; what they draw is proved by their tests of the rows and the decisions, not on a
+/// host.)
 const SCREENS: Case = Case {
     name: "vocabulary-screens",
     golden: None,
@@ -31,13 +35,15 @@ const LOOKUP: Case = Case {
 const WIDGETS: Case = Case {
     name: "vocabulary-widgets",
     golden: None,
-    blocked_by: &["widget host call (Core todo 76)", "widget toolkit #366"],
+    blocked_by: &[
+        "a scripted host that measures and draws a widget with fonts and the cards (hosted construction, #944)",
+    ],
 };
 /// The words marked in books of their language.
 const MARKS: Case = Case {
     name: "vocabulary-marks",
     golden: None,
-    blocked_by: &["decoration stage"],
+    blocked_by: &["reader decorations (reader.decorations@1)"],
 };
 /// The phone page that edits decks and cards.
 const PHONE: Case = Case {
@@ -53,27 +59,23 @@ const PHONE: Case = Case {
 const CARD_FILES: Case = Case {
     name: "vocabulary-card-files",
     golden: None,
-    blocked_by: &[
-        "core.files #339",
-        "native::files facade #384",
-        "a Storage over core.files",
-    ],
+    blocked_by: &["scripted host with core.ui, core.files and core.work (hosted construction)"],
 };
 /// A word of the list is gone to in its book, and the list is exported.
 const WORD_LIST_ACTIONS: Case = Case {
     name: "vocabulary-word-list-go-to-and-export",
     golden: None,
     blocked_by: &[
-        "reader open-at (#224)",
-        "core.files #339",
-        "native::files facade #384",
+        "a scripted host that draws the list and drives its input and dialogs (hosted construction, #944)",
     ],
 };
 /// A flash card due is the sleep screen; the review opens on waking.
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
     golden: None,
-    blocked_by: &["sleep and wake stages"],
+    blocked_by: &[
+        "a scripted host that shows the sleep slot and wakes (hosted construction, #944)",
+    ],
 };
 
 #[test]
@@ -97,7 +99,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED native shell/H1/H4: word.looked-up event, store::add, the list screen pages store::range"]
+#[ignore = "BLOCKED a scripted host that runs the reader's stage reader.word-looked-up@1 (hosted construction) and the reader's emitter (Plugin Engineer): keeping the word is native_collect (tested), the list pages store::range"]
 fn a_word_looked_up_is_kept_and_listed_newest_first() {
     COLLECT.refuse().unwrap();
 }
@@ -115,13 +117,13 @@ fn a_tapped_word_is_looked_up_again() {
 }
 
 #[test]
-#[ignore = "BLOCKED Core todo 76 and #366: the widget host call and the widget toolkit"]
+#[ignore = "BLOCKED a scripted host that measures and draws a widget (hosted construction #944): the widgets are native (native_widgets.rs); made, dropped and declared are tested in tests/scripted_widgets.rs"]
 fn the_widgets_show_a_word_and_the_cards_due() {
     WIDGETS.refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED decorations: the decoration stage of interface 7 (marks.rs)"]
+#[ignore = "BLOCKED reader decorations: the reader's stage reader.decorations@1 (marks.rs keeps the logic ready)"]
 fn the_words_are_marked_in_books_of_their_language() {
     MARKS.refuse().unwrap();
 }
@@ -133,19 +135,19 @@ fn the_phone_page_edits_decks_and_cards() {
 }
 
 #[test]
-#[ignore = "BLOCKED #339/#384: a Storage over core.files (native::files) for the card folder (sdcard.rs, sync.rs) and the Notes export folder"]
+#[ignore = "BLOCKED a scripted host with core.ui, core.files and core.work (hosted construction): the card files' screens are native (native_sd*.rs) and their model is tested in native_sd_tests.rs"]
 fn card_files_on_the_card_update_the_decks() {
     CARD_FILES.refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED #224/#339/#384: Go to in the book (reader open-at) and Export (a Storage over core.files) on the list of words"]
+#[ignore = "BLOCKED a scripted host that drives the list screen, its dialogs and core.files (hosted construction #944): Export and Go to are native (native_export.rs, native_goto.rs); the rows and the export format are tested"]
 fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
     WORD_LIST_ACTIONS.refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED sleep/wake stages: the front of the next card asleep, answered on waking (sleep.rs)"]
+#[ignore = "BLOCKED a scripted host that shows the sleep slot and wakes (hosted construction #944): the pick of the card is native_sleep_card (tested), the offer is declared (tests/declarations.rs)"]
 fn a_flash_card_due_is_the_sleep_screen_and_review_opens_on_waking() {
     SLEEP.refuse().unwrap();
 }

@@ -8,10 +8,13 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     native::{
         Error, Host,
-        registry::{MenuQuery, Registry, RegistryMenuKind},
+        registry::{MenuQuery, Registry, RegistryMenuKind, RegistryWidget},
         settings::{self, SettingValue},
     },
-    widgets::grid::Geometry,
+    widgets::{
+        CellSpan,
+        grid::{Cells, Geometry},
+    },
 };
 use paperpaw_ui_kit::{
     mem::{SERVICE_BUFFER, buffer, push},
@@ -208,6 +211,7 @@ impl HostSource {
                         id: copy(w.id())?,
                         title: copy(w.title())?,
                         kind: copy(w.kind())?,
+                        span: span_of(&w),
                     },
                 )
             } else {
@@ -320,10 +324,69 @@ pub fn mm(dpi: u16, mm: u32) -> u32 {
     if px == 0 && tenths > 0 { 1 } else { px }
 }
 
+/// The cells a widget declared, as the SDK's hint has them: `None` where the
+/// place decides (0 by 0 cells).
+fn span_of(widget: &RegistryWidget<'_>) -> Option<CellSpan> {
+    let (w, h) = widget.cells();
+    if w == 0 && h == 0 {
+        return None;
+    }
+    let (min_w, min_h) = widget.min_cells();
+    let span = CellSpan::new(w, h).min(min_w, min_h);
+    Some(if widget.square() { span.square() } else { span })
+}
+
+/// The size a widget gets from what it declared, within the grid, as interface
+/// 6 `Geometry::size_of` has it: the cells it says, no less than its least,
+/// square where it is, and the fewest rows it can do with.
+fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
+    let w = hint.w.clamp(1, geometry.columns.max(1));
+    let h = hint.h.clamp(1, geometry.rows.max(1));
+    let cells = hint.keep(Cells::new(0, 0, w, h), w <= h);
+    let (w, h) = (cells.w.min(geometry.columns), cells.h.min(geometry.rows));
+    (w, h, hint.min_h.clamp(1, h))
+}
+
+/// Whether `key` is a setting of the grid's size, which the pages are fitted to.
+#[must_use]
+pub fn is_grid_setting(key: &str) -> bool {
+    key == COLUMNS || key == ROWS
+}
+
+impl HostSource {
+    /// The cells widget `id` (or its base) declared, with its least size.
+    #[must_use]
+    pub fn span(&self, id: &str) -> Option<CellSpan> {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span)
+    }
+
+    /// Whether widget `id` (or its base) declared how many cells it takes.
+    #[must_use]
+    pub fn declares(&self, id: &str) -> bool {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .any(|row| row.id == base && row.span.is_some())
+    }
+}
+
 impl Sizes for HostSource {
-    /// As measured; a widget not measured takes the grid's width and one row.
+    /// As declared where the widget says how many cells it takes; else as
+    /// measured, and a widget not measured takes the grid's width and one row.
     fn widget(&self, geometry: &Geometry, id: &str) -> (u8, u8, u8) {
         let base = native_pages::base(id);
+        if let Some(hint) = self
+            .widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span.as_ref())
+        {
+            return declared(geometry, hint);
+        }
         let (rows, least) = self
             .measured
             .iter()
@@ -391,6 +454,7 @@ mod tests {
                     id: (*s).into(),
                     title: (*s).into(),
                     kind: "k".into(),
+                    span: None,
                 })
                 .collect(),
             tools: [("core.library", "Library"), ("core.settings", "Settings")]
@@ -399,6 +463,15 @@ mod tests {
                 .collect(),
             ..HostSource::default()
         }
+    }
+
+    #[test]
+    fn only_the_grids_columns_and_rows_are_grid_settings() {
+        assert!(is_grid_setting("home.columns"));
+        assert!(is_grid_setting("home.rows"));
+        assert!(!is_grid_setting("home.status-bar"));
+        assert!(!is_grid_setting("home.page-1"));
+        assert!(!is_grid_setting(""));
     }
 
     #[test]
@@ -426,6 +499,41 @@ mod tests {
         assert_eq!(src.widget(&geometry, "home.clock@2"), (4, 3, 3));
         src.measured("home.clock", 2, 1).unwrap();
         assert_eq!(src.widget(&geometry, "home.clock"), (4, 2, 1));
+    }
+
+    #[test]
+    fn a_widget_that_declared_its_cells_takes_them_within_the_grid() {
+        let geometry = Geometry::of(paperpaw_sdk::Rect::new(0, 0, 400, 300), 4, 3, 0);
+        let mut src = source();
+        src.widgets[0].span = Some(CellSpan::new(2, 1));
+        // As declared, without being measured; its least rows from its least.
+        assert_eq!(src.widget(&geometry, "home.clock"), (2, 1, 1));
+        assert_eq!(src.widget(&geometry, "home.clock@3"), (2, 1, 1));
+        // Not less than its least width, within the grid.
+        src.widgets[0].span = Some(CellSpan::new(1, 2).min(3, 2));
+        assert_eq!(src.widget(&geometry, "home.clock"), (3, 2, 2));
+        src.widgets[0].span = Some(CellSpan::new(9, 9));
+        assert_eq!(src.widget(&geometry, "home.clock"), (4, 3, 1));
+        // Measuring does not change what it declared.
+        src.measured("home.clock", 2, 1).unwrap();
+        assert_eq!(src.widget(&geometry, "home.clock"), (4, 3, 1));
+        // The others are still as measured.
+        assert_eq!(src.widget(&geometry, "home.recent"), (4, 1, 1));
+    }
+
+    #[test]
+    fn a_square_widget_is_as_wide_as_it_is_high() {
+        let geometry = Geometry::of(paperpaw_sdk::Rect::new(0, 0, 400, 300), 4, 3, 0);
+        let mut src = source();
+        // 2 wide, 1 high: square follows the side that is not the wider one
+        // (`CellSpan::keep`: width <= height makes the height the width, else
+        // the width the height).
+        src.widgets[0].span = Some(CellSpan::new(2, 1).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (1, 1, 1));
+        src.widgets[0].span = Some(CellSpan::new(1, 2).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (1, 1, 1));
+        src.widgets[0].span = Some(CellSpan::new(2, 2).square());
+        assert_eq!(src.widget(&geometry, "home.clock"), (2, 2, 1));
     }
 
     #[test]

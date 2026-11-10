@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 11] = [
+const CASES: [Case; 12] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -40,6 +40,14 @@ const CASES: [Case; 11] = [
         name: "widgets-note-edits-on-tap",
         golden: None,
         blocked_by: &["H1", "H2", "H4"],
+    },
+    // The logo asks the host for its picture (the picture set, else PaperPaw's
+    // own from the install folder), draws it beside the name and asks again
+    // when `core.logo` changes: it needs the host's image service (H1, H3).
+    Case {
+        name: "widgets-logo-asks-for-and-draws-its-picture",
+        golden: None,
+        blocked_by: &["H1", "H3"],
     },
     Case {
         name: "widgets-quote-turns-on-tap",

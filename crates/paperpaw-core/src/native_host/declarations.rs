@@ -110,20 +110,23 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         // against the plugin's actions, screens, settings and menu sections at
         // commit (`declaration_checks.rs`).
         Record::SetupStep(_) => super::declaration_reg_checks::validate(plugin_id, record),
-        // Input and help declarations (`docs/abi/ui.md`): refused until the
-        // host admits them (UIX hand-off).
-        Record::InputSpec(_) | Record::HelpHint(_) => Err(ERR_UNSUPPORTED),
+        // Input and help declarations (`docs/abi/ui.md` sections 2 and 7):
+        // checked here and kept in the declaration store (`declarations_input`).
+        Record::InputSpec(_) | Record::HelpHint(_) => {
+            super::declarations_input::validate(plugin_id, record)
+        }
         // Widget and status declarations: checked in `declarations_uix`.
         Record::WidgetSpec(_)
         | Record::WidgetPlace(_)
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
-        // Format, reader, lookup and book declarations (`docs/abi/document.md`,
-        // `library.md`): checked, then refused until the host admits them
-        // (DOC/LIB hand-off).
-        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        // Format and reader declarations (`docs/abi/document.md` section 1):
+        // admitted (the cross-record limits are the commit's). The lookup and
+        // book declarations (`library.md`) are checked, then refused until the
+        // host admits them (DOC/LIB hand-off).
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec),
         Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
         Record::BookFieldSpec(spec) => {
             docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
@@ -188,6 +191,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBroadcast(_)
         | Record::EventDocumentClosed(_)
         | Record::EventTextTyped(_)
+        | Record::EventDocumentChanged(_)
         | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.

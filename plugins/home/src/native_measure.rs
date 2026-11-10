@@ -2,18 +2,15 @@
 //! (`ui.widget_measure`) at the grid's width, in cells. The same arithmetic as
 //! the interface-6 `Geometry::size_of`; the host call is the plugin's.
 //!
-//! TODO (Kernel, draft 29): a widget's least width and its square hint
-//! (`CellSpan::min_w`, `square`) have no ABI field yet, so a widget is kept one
-//! cell wide at the least and may be made any shape (`PORTING-7.md`,
-//! `KERNEL-cell-hints`).
+//! A widget that declared its cells (`widget.spec.cells`, with its least size and
+//! whether it stays square) is not measured: `native_source::declared` has its
+//! size, as interface 6 does.
 use paperpaw_sdk::{
-    native::{
-        Error, Host,
-        ui::{Ui, WidgetHandle},
-    },
+    native::{Error, Host, ui::Ui},
     widgets::grid::Geometry,
 };
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
+
+use crate::native_made::Made;
 
 /// Where the widgets are made (the place the plugin declares).
 pub const PLACE: &str = "home.pages";
@@ -41,26 +38,6 @@ pub fn rows_of(geometry: &Geometry, height: u32, least: u32) -> (u8, u8) {
     (rows, rows_for(geometry, least.min(height)).min(rows))
 }
 
-/// Measures a widget made: its rows and fewest rows at the grid's width. One
-/// the plugin draws itself is not asked (the host would answer `Busy`): one
-/// row.
-///
-/// # Errors
-/// Allocation and the host's refusals.
-pub fn measure_handle(
-    host: &Host<'_>,
-    ui: &Ui,
-    widget: WidgetHandle,
-    geometry: &Geometry,
-) -> Result<(u8, u8), Error> {
-    if widget.is_own() {
-        return Ok((1, 1));
-    }
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let size = ui.widget_measure(host, widget, grid_width(geometry), &mut input, &mut out)?;
-    Ok(rows_of(geometry, size.height(), size.min_height()))
-}
-
 /// Makes the widget `id` at `place`, measures it and lets it go; `None` where
 /// it is gone or not for this screen.
 ///
@@ -73,15 +50,13 @@ pub fn measure_widget(
     place: &str,
     geometry: &Geometry,
 ) -> Result<Option<(u8, u8)>, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let widget = match ui.widget_make(host, id, place, &mut input, &mut out) {
-        Ok(widget) => widget,
+    let made = match Made::make(host, ui, id, place) {
+        Ok(made) => made,
         Err(Error::NotFound | Error::Denied) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let measured = measure_handle(host, ui, widget, geometry);
-    // A refusal to let it go is of no matter: the host drops it with the screen.
-    let _ = ui.widget_drop(host, widget, &mut input, &mut out);
+    let measured = made.measure(host, ui, geometry);
+    made.release(host, ui);
     measured.map(Some)
 }
 

@@ -7,6 +7,7 @@
 //! native plugins can change image bytes without a sandbox.
 
 use super::{
+    declaration_checks::Cap,
     declarations,
     registrations::{Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
@@ -70,7 +71,17 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 29;
+impl DeclKey {
+    /// The place of the record: its owner's slot, its batch, its position in it.
+    /// Sorting by this gives plugin order, then record order.
+    pub(crate) fn order(self) -> (u16, u16, u16) {
+        (self.owner, self.batch, self.record)
+    }
+}
+
+const KIND_COUNT: usize = 33;
+/// The leading kinds with a per-kind record limit (`limits` in `charge`).
+const LIMITED_KINDS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -109,8 +120,16 @@ pub(crate) enum Kind {
     Subscription,
     /// `setup.step` (category 8).
     SetupStep,
+    /// `input.spec` (category 16): an input or gesture of the plugin's own.
+    InputSpec,
+    /// `help.hint` (category 17): a hint for any screen.
+    HelpHint,
+    /// `format.spec` (category 31): a book format the plugin reads.
+    Format,
+    /// `reader.spec` (category 32): a reading app the plugin offers.
+    Reader,
 }
-const _: () = assert!(Kind::SetupStep as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::Reader as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -143,6 +162,10 @@ impl Kind {
             Self::Stage => super::declaration_index::STAGE_KIND,
             Self::Subscription => super::declaration_index::STAGE_SUBSCRIPTION_KIND,
             Self::SetupStep => 8,
+            Self::InputSpec => 16,
+            Self::HelpHint => 17,
+            Self::Format => 31,
+            Self::Reader => 32,
         }
     }
 
@@ -177,6 +200,10 @@ impl Kind {
             Record::StageSpec(_) => Self::Stage,
             Record::RegistrationStage(_) => Self::Subscription,
             Record::SetupStep(_) => Self::SetupStep,
+            Record::InputSpec(_) => Self::InputSpec,
+            Record::HelpHint(_) => Self::HelpHint,
+            Record::FormatSpec(_) => Self::Format,
+            Record::ReaderSpec(_) => Self::Reader,
             _ => return None,
         })
     }
@@ -194,6 +221,8 @@ struct Slot {
 pub(crate) struct Allocations {
     #[cfg(test)]
     pub(crate) fail_after: Option<usize>,
+    /// The declaration cap `prepare` refused the plugin at, if it was one.
+    pub(crate) cap: Option<super::declaration_checks::Cap>,
 }
 impl Allocations {
     pub(crate) fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
@@ -258,8 +287,9 @@ pub(crate) struct PendingDeclarations {
     index_bytes: usize,
     image_entries: usize,
     /// Records of owned (not image-backed) batches, by kind, for the per-kind
-    /// limits.
-    owned_counts: [u16; KIND_COUNT],
+    /// limits: only the first kinds have one (the rest share the aggregate
+    /// byte cap), so the table does not grow as kinds are added.
+    owned_counts: [u16; LIMITED_KINDS],
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
@@ -300,7 +330,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         }
     }
 
@@ -320,7 +350,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; KIND_COUNT],
+            owned_counts: [0; LIMITED_KINDS],
         })
     }
 
@@ -517,6 +547,13 @@ impl PendingDeclarations {
                 usize::MAX,
                 // `setup.step` shares the aggregate byte cap.
                 usize::MAX,
+                // So do `input.spec` and `help.hint`.
+                usize::MAX,
+                usize::MAX,
+                // And `format.spec` and `reader.spec` (their counts are
+                // checked at commit).
+                usize::MAX,
+                usize::MAX,
             ];
             if self
                 .owned_counts
@@ -551,6 +588,8 @@ fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
 pub(crate) struct DeclarationStore {
     owners: Vec<Option<PendingDeclarations>>,
     incarnation: u32,
+    /// Owners taken out so far.
+    removed: u32,
 }
 
 /// Exclusive preparation prevents a second transaction invalidating reservations.
@@ -603,6 +642,43 @@ impl DeclarationStore {
             allocations.reserve(&mut self.owners, 1)?;
             self.owners.len()
         };
+        // At most 32 formats on the device (`document.md` section 1): the
+        // plugin's own 8 are checked with its batch; here the others count.
+        let others: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Format).len())
+            .sum();
+        if others + pending.of_kind(Kind::Format).len() > super::format_index::DEVICE {
+            allocations.cap = Some(Cap::of(Cap::FORMATS, super::format_index::DEVICE));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
+        // And 16 reading apps on the device, counted the same way.
+        let readers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Reader).len())
+            .sum();
+        if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
+            allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {
             store: self,
@@ -619,8 +695,19 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.id == *id && owner.generation == generation)
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
+    }
+
+    /// A number that differs after every change to what the store declares:
+    /// an owner added or replaced, or taken out. What was read from the store
+    /// is good while it stays the same (an owner that stops without being
+    /// taken out is not seen here). The input filter list leaves a filter out
+    /// whose calls failed three inputs in a row and keeps that until this
+    /// number changes (`input_chain::FilterCache`).
+    pub(crate) fn revision(&self) -> u64 {
+        u64::from(self.incarnation) << 32 | u64::from(self.removed)
     }
 
     pub(crate) fn prune_stopped_native(&mut self) {
@@ -629,6 +716,7 @@ impl DeclarationStore {
                 owner.source.owner_id().is_ok() && owner.source.generation() != owner.generation
             }) {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }
@@ -640,6 +728,7 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.source.owner_id() == Ok(key))
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }
@@ -656,6 +745,16 @@ impl DeclarationStore {
             .filter(|owner| owner.source.generation() == owner.generation)
             .ok_or(paperpaw_native::host_glue::ERR_NOT_FOUND)?;
         owner.source.native_lease()
+    }
+
+    /// The plugin id of the live owner `key`.
+    pub(crate) fn plugin_id_of_owner(&self, key: u64) -> Option<&str> {
+        self.owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .filter(|owner| owner.source.generation() == owner.generation)
+            .map(PendingDeclarations::plugin_id)
     }
 
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
@@ -910,6 +1009,13 @@ fn check_indexed_name(
     Ok(())
 }
 
+#[path = "declaration_formats.rs"]
+mod formats;
+#[allow(
+    unused_imports,
+    reason = "read by the document service's production host"
+)]
+pub(crate) use formats::{FormatDecl, ReaderDecl};
 #[path = "declaration_stages.rs"]
 mod stages;
 #[allow(

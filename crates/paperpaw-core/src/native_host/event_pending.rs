@@ -9,8 +9,23 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
 const EDGES: usize = 16;
 const PLUGIN_BYTES: usize = 4096;
 const DEVICE_BYTES: usize = 8192;
-const BITS: u8 = 6;
+/// Pending bits: five hints, the reread bit, the registry bit, the coalesced
+/// lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]), then
+/// the preview hint.
+const BITS: u8 = 12;
 const REREAD: u8 = 5;
+const REGISTRY: u8 = 6;
+const CORE_FIRST: u8 = 7;
+const PREVIEW: u8 = 11;
+/// The events that keep a pending bit, in bit order from `CORE_FIRST`: a
+/// second one before the first was told is one (tick, resume) or, for suspend
+/// and stopping, never lost to a full store (`events::bypasses_queue`).
+pub(crate) const CORE_TAGS: [u32; 4] = [
+    wire::EVENT_TICK_TAG,
+    wire::EVENT_RESUME_TAG,
+    wire::EVENT_SUSPEND_TAG,
+    wire::EVENT_STOPPING_TAG,
+];
 const ORDER: usize = EDGES + BITS as usize;
 
 pub(crate) use crate::abi7::settings_visibility::Visibility;
@@ -34,6 +49,8 @@ impl EventBudget {
             edges: Vec::new(),
             order: [0; ORDER],
             len: 0,
+            drop_logged: false,
+            registry: 0,
         })
     }
     #[cfg(test)]
@@ -45,10 +62,14 @@ impl EventBudget {
 pub(crate) struct Pending {
     budget: Shared<PluginBudget>,
     edges: Vec<HeldEdge>,
-    // IDs 0..5 are hint/overflow bits; IDs 6..21 name dense held-edge slots.
+    // IDs 0..10 are hint, overflow, registry and lifecycle bits; IDs 11..26 name dense held-edge slots.
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
+    /// `event.registry_changed.what` bits raised and not yet delivered.
+    registry: u32,
+    /// A dropped event was logged since the queue was last empty.
+    drop_logged: bool,
 }
 
 struct PluginBudget {
@@ -61,6 +82,8 @@ struct PluginBudget {
 /// The ledger remains alive when plugin teardown drops its Pending queue.
 pub(crate) struct HeldEdge {
     bytes: Vec<u8>,
+    /// The tag of the record held.
+    tag: u32,
     budget: Shared<PluginBudget>,
 }
 impl Drop for HeldEdge {
@@ -79,9 +102,25 @@ impl Drop for HeldEdge {
 pub(crate) enum Ready {
     Edge(HeldEdge),
     Hint(u32),
+    /// A coalesced lifecycle event (tick, resume, suspend, stopping), encoded
+    /// from the clock at delivery.
+    Core(u32),
+    /// `event.registry_changed` with the `what` bits raised since the last one.
+    Registry(u32),
     Reread,
 }
 impl Ready {
+    /// The encoded record of a held edge that is not a setting change
+    /// (`event.started`, `battery_measured`, `page_turned`).
+    pub(crate) fn event_bytes(&self) -> Option<(u32, &[u8])> {
+        match self {
+            Self::Edge(edge) if edge.tag != wire::EVENT_SETTING_CHANGED_TAG => {
+                Some((edge.tag, &edge.bytes))
+            }
+            _ => None,
+        }
+    }
+
     /// Recheck visibility at delivery too: revocation must not leak a queued old value.
     pub(crate) fn setting_record(
         &self,
@@ -98,7 +137,7 @@ impl Ready {
                 wire::Record::EventSettingChanged(event) => event,
                 _ => return Err(ERR_INVALID),
             },
-            Self::Hint(_) => return Err(ERR_INVALID),
+            Self::Hint(_) | Self::Registry(_) | Self::Core(_) => return Err(ERR_INVALID),
         };
         if event.key.is_empty() {
             return Ok(Some(wire::Record::EventSettingChanged(event)));
@@ -149,7 +188,15 @@ impl Pending {
         }
         let record =
             wire::Record::EventSettingChanged(wire::EventSettingChanged { now_ms, key, old });
-        let length = 1 + codec::framed_len(&record)?;
+        self.push_record(wire::EVENT_SETTING_CHANGED_TAG, &record)
+    }
+
+    /// Holds one encoded edge (`record`, of event tag `tag`) behind the ones
+    /// held. `ERR_NO_SPACE` when 16 are held, or the plugin's 4,096 bytes or
+    /// the device's 8,192 are used; `ERR_NO_MEMORY` when the room cannot be
+    /// reserved. The caller logs the drop; nothing is retried.
+    pub(crate) fn push_record(&mut self, tag: u32, record: &wire::Record<'_>) -> Result<(), i32> {
+        let length = 1 + codec::framed_len(record)?;
         if self.budget.edges.get() == EDGES
             || length > PLUGIN_BYTES - self.budget.bytes.get()
             || length > DEVICE_BYTES - self.budget.device.get()
@@ -159,15 +206,37 @@ impl Pending {
         let mut bytes = Vec::new();
         bytes.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
         bytes.resize(length, 0);
-        codec::encode_batch(&[record], &mut bytes)?;
+        codec::encode_batch(core::slice::from_ref(record), &mut bytes)?;
         self.edges.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         let budget = self.budget.try_clone().ok_or(ERR_NO_MEMORY)?;
         let id = BITS + self.edges.len() as u8;
-        self.edges.push(HeldEdge { bytes, budget });
+        self.edges.push(HeldEdge { bytes, tag, budget });
         self.budget.bytes.set(self.budget.bytes.get() + length);
         self.budget.device.set(self.budget.device.get() + length);
         self.budget.edges.set(self.budget.edges.get() + 1);
         self.touch(id);
+        Ok(())
+    }
+
+    /// Notes that an event was dropped; `true` for the first since the queue
+    /// was last empty (a full store logs once, not on every event).
+    pub(crate) fn note_drop(&mut self) -> bool {
+        !core::mem::replace(&mut self.drop_logged, true)
+    }
+
+    /// Whether a held edge waits: a later edge goes behind it.
+    pub(crate) fn has_edges(&self) -> bool {
+        !self.edges.is_empty()
+    }
+
+    /// Marks the lifecycle event `tag` (one of [`CORE_TAGS`]) pending: a
+    /// second one before the first was told is one. No allocation.
+    pub(crate) fn core(&mut self, tag: u32) -> Result<(), i32> {
+        let at = CORE_TAGS
+            .iter()
+            .position(|&known| known == tag)
+            .ok_or(ERR_INVALID)?;
+        self.touch(CORE_FIRST + at as u8);
         Ok(())
     }
 
@@ -178,6 +247,10 @@ impl Pending {
 
     /// Hints keep only an ordered pending bit; encode their current state at delivery.
     pub(crate) fn hint(&mut self, tag: u32) -> Result<(), i32> {
+        if tag == wire::EVENT_PREVIEW_CHANGED_TAG {
+            self.touch(PREVIEW);
+            return Ok(());
+        }
         let id = tag
             .checked_sub(wire::EVENT_PLUGINS_CHANGED_TAG)
             .filter(|id| *id < 5)
@@ -186,13 +259,22 @@ impl Pending {
         Ok(())
     }
 
+    /// Raises `what` bits of `event.registry_changed`: pending bits are
+    /// OR-ed together until the event is delivered, so none is lost.
+    pub(crate) fn registry(&mut self, what: u32) {
+        if what != 0 {
+            self.registry |= what;
+            self.touch(REGISTRY);
+        }
+    }
+
     fn touch(&mut self, id: u8) {
         let len = usize::from(self.len);
         if let Some(at) = self.order[..len].iter().position(|entry| *entry == id) {
             self.order.copy_within(at + 1..len, at);
             self.len -= 1;
         }
-        // At most 16 edge IDs and six distinct bits can be present.
+        // At most 16 edge IDs and ten distinct bits can be present.
         self.order[usize::from(self.len)] = id;
         self.len += 1;
     }
@@ -204,11 +286,23 @@ impl Pending {
         let id = self.order[0];
         self.order.copy_within(1..usize::from(self.len), 0);
         self.len -= 1;
+        if self.len == 0 {
+            self.drop_logged = false;
+        }
         if id == REREAD {
             return Some(Ready::Reread);
         }
-        if id < BITS {
+        if id == REGISTRY {
+            return Some(Ready::Registry(core::mem::take(&mut self.registry)));
+        }
+        if id == PREVIEW {
+            return Some(Ready::Hint(wire::EVENT_PREVIEW_CHANGED_TAG));
+        }
+        if id < REREAD {
             return Some(Ready::Hint(wire::EVENT_PLUGINS_CHANGED_TAG + u32::from(id)));
+        }
+        if id < BITS {
+            return Some(Ready::Core(CORE_TAGS[usize::from(id - CORE_FIRST)]));
         }
         let edge = self.edges.remove(usize::from(id - BITS));
         for next in &mut self.order[..usize::from(self.len)] {
@@ -223,6 +317,8 @@ impl Pending {
     pub(crate) fn clear(&mut self) {
         self.edges.clear();
         self.len = 0;
+        self.drop_logged = false;
+        self.registry = 0;
     }
 }
 impl Drop for Pending {

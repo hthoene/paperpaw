@@ -47,10 +47,19 @@ pub(crate) struct HostServices {
     images: super::image_service::ImageTable,
     ui: OnceCell<UiServices>,
     device: OnceCell<super::device_service::DeviceServices>,
+    /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
+    /// and the kernel's pump drives. One per device.
+    firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
+    /// The firmware request table (op 13 reads the state of a request and the
+    /// outcome kept for it). One per device.
+    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The library's move job and its card side, made when `core.files` is
+    /// wired (`lib_moves_service`).
+    pub(super) library_moves: OnceCell<Rc<super::lib_moves_service::LibraryMoves>>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
     /// The ids of the plugins linked into the firmware (root 2 of the file
@@ -98,6 +107,7 @@ impl core::fmt::Debug for HostServices {
             .field("hyphen", &self.hyphen.get().is_some())
             .field("ui", &self.ui.get().is_some())
             .field("device", &self.device.get().is_some())
+            .field("firmware", &self.firmware.get().is_some())
             .field("net", &self.net.get().is_some())
             .field("sockets", &self.sockets.get().is_some())
             .field("work", &self.work.get().is_some())
@@ -117,10 +127,13 @@ impl HostServices {
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
+            firmware: OnceCell::new(),
+            firmware_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -246,9 +259,13 @@ impl HostServices {
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
-    pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
+    pub(crate) fn wire_lookup(
+        &self,
+        host: Rc<dyn LookupHost>,
+        log: super::device_log::DeviceLog,
+    ) -> Result<(), i32> {
         self.lookup
-            .set(LookupServices::new(host))
+            .set(LookupServices::new(host, log))
             .map_err(|_| ERR_STATE)
     }
 
@@ -283,6 +300,25 @@ impl HostServices {
         self.ui.get()
     }
 
+    /// The file the hand-over of reader `instance` names, for `doc_open`
+    /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
+    /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
+    /// `core.ui` store is wired.
+    #[allow(
+        dead_code,
+        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
+    )]
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(super::ui_store::Handed<'_>),
+    ) -> Result<(), i32> {
+        self.ui()
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?
+            .store
+            .handed_file(instance, visit)
+    }
+
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
@@ -291,6 +327,31 @@ impl HostServices {
         self.device
             .set(super::device_service::DeviceServices(host))
             .map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the firmware request table once (op 13).
+    pub(crate) fn wire_firmware_requests(
+        &self,
+        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+    ) -> Result<(), i32> {
+        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
+    }
+
+    /// The firmware request table, where wired.
+    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
+        self.firmware_requests.get()
+    }
+
+    /// Wire the firmware install machine once.
+    #[allow(
+        dead_code,
+        reason = "the kernel's pump wires it (slice B2); tests do today"
+    )]
+    pub(crate) fn wire_firmware_install(
+        &self,
+        machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
+    ) -> Result<(), i32> {
+        self.firmware.set(machine).map_err(|_| ERR_STATE)
     }
 
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
@@ -383,6 +444,93 @@ impl HostServices {
         )
     }
 
+    /// The document service reports the books it has open
+    /// ([`reader_book_opened`](Self::reader_book_opened) and
+    /// [`reader_book_closed`](Self::reader_book_closed)): the in-use table is
+    /// the reader-book source of `core.files`. Called once, by the document
+    /// service's wiring, and only where it makes those calls: without them
+    /// "no book is open" would be a wrong answer, so `core.files` stays
+    /// unwired until this has been called.
+    ///
+    /// # Errors
+    /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
+    /// sources is in use; `ERR_NO_MEMORY`.
+    #[allow(
+        dead_code,
+        reason = "the document service's wiring calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
+        let sources = self.busy_sources();
+        if sources.has(super::storage_files::BusyKind::ReaderBook) {
+            return Err(ERR_STATE);
+        }
+        sources.register(
+            super::storage_files::BusyKind::ReaderBook,
+            self.in_use().clone(),
+        )
+    }
+
+    /// The library's move job is a busy source of `core.files`: called by the
+    /// library host once, with the `Moves` and the `MoveHost` it runs the job
+    /// with.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
+    pub(crate) fn register_library_moves(
+        &self,
+        moves: Rc<super::lib_service::moves::Moves>,
+        host: Rc<dyn super::lib_service::moves::MoveHost>,
+    ) -> Result<(), i32> {
+        self.busy_sources().register(
+            super::storage_files::BusyKind::LibraryMoves,
+            Rc::new(super::busy_adapters::MovesBusy::new(moves, host)),
+        )
+    }
+
+    /// A document of the book at `path` was opened through the document
+    /// service: plugins' writes, moves and removals of the book (and of a
+    /// folder holding it) answer `ERR_BUSY` until the document ends
+    /// ([`reader_book_closed`](Self::reader_book_closed)); the host's own
+    /// reads of it are not held back. Counted per path: several documents may
+    /// hold one book. The document service calls it once
+    /// when a document opens and refuses the open on an error, so a book is
+    /// never left unguarded.
+    ///
+    /// # Errors
+    /// `ERR_FULL` when the table has no slot for it (the open is refused
+    /// with it); `ERR_BUSY` when the table is borrowed.
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_opened(&self, path: &str) -> Result<(), i32> {
+        use paperpaw_native::host_glue::{ERR_FULL, ERR_NO_MEMORY};
+        self.in_use()
+            .claim(super::busy_adapters::READER_OWNER, path)
+            .map_err(|status| {
+                if status == ERR_NO_MEMORY {
+                    ERR_FULL
+                } else {
+                    status
+                }
+            })
+    }
+
+    /// A document of the book at `path` ended (an explicit close, its opener
+    /// or format stopping, the card going, the book moved or removed, its
+    /// place lost to another book): one hold on the path is given back. The
+    /// document service calls it once for each document that ended, with the
+    /// exact path it opened with. Whether there was a hold to give back: a
+    /// `false` is an unbalanced close, for the caller to surface (log).
+    #[allow(
+        dead_code,
+        reason = "the document service calls it (Host Engineer, train 6)"
+    )]
+    pub(crate) fn reader_book_closed(&self, path: &str) -> bool {
+        self.in_use()
+            .release(super::busy_adapters::READER_OWNER, path)
+    }
+
     /// The owner directory, made on first use.
     ///
     /// # Errors
@@ -404,13 +552,16 @@ impl HostServices {
     }
 
     /// The wired services that raise events to plugins, for the kernel's
-    /// event pump: `core.net` then `core.sockets`.
-    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 2] {
+    /// event pump: `core.net`, `core.sockets`, then `core.document`.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
         [
             self.net
                 .get()
                 .map(|s| s as &dyn super::service_events::ServiceEvents),
             self.sockets
+                .get()
+                .map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.documents
                 .get()
                 .map(|s| s as &dyn super::service_events::ServiceEvents),
         ]
@@ -426,7 +577,6 @@ impl HostServices {
         self.sockets.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
         let owners = self.owners()?;
@@ -440,7 +590,6 @@ impl HostServices {
         self.work.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
     /// Wire `core.secrets` once.
     pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
         self.secrets.set(secrets).map_err(|_| ERR_STATE)
@@ -477,6 +626,11 @@ impl HostServices {
     }
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
+    }
+    pub(crate) fn firmware_install(
+        &self,
+    ) -> Option<&Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
+        self.firmware.get()
     }
 
     /// The owner is retired (its callbacks are revoked and its handles

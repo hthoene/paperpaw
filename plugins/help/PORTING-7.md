@@ -8,6 +8,16 @@ with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata
 --bytes native/metadata.bin --json native/metadata.inspected.json`, likewise
 `metadata.host.*`). Drawing uses `paperpaw-ui-kit` (`Dialog`, `text::message`).
 
+## Events followed
+
+The plugin registers for `event.screen_ready` (87: the host raises it after the first draw of
+another plugin's screen, or the screen sends it itself when it `waits_ready`) and for
+`event.stack_changed` (81: hints that another screen now covers are closed, and the screen now on
+top gets its hints when it is not waiting for ready, as interface 6 did whenever a screen returned
+to the top; hints already on top are not opened twice). It does not register for `event.screen_shown` (38): the host refuses that
+registration, 38 goes to a screen's own token, which is how the plugin's own screens learn they
+are shown. A test pins that the host takes both registrations (it refuses 38 and 39).
+
 ## Ported
 
 - The hints over a screen the first time it opens: zones framed with their text in a
@@ -26,8 +36,7 @@ with `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata
 Unit: layout of zones and the box (`layout`), `seen.txt` lines, allocator-failure sweeps for
 both and for the kit's dialog. The image holds what the builders make and the host admits the screens
 (`tests/abi7_declarations.rs`), linked entry,
-construction in the kernel's real registered scope (`tests/hosted_construction.rs`: refused
-by the host today, see below).
+construction in the kernel's real registered scope (`tests/hosted_construction.rs`: made, as the host admits event 87 with #925 and event 81 with #964).
 
 ## Acceptance pending on the host
 

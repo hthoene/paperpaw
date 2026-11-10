@@ -3,29 +3,40 @@
 //! who signed it, newer, older, the same or another firmware, `native_check`),
 //! the install the device checks again and asks the reader about (decisions 132
 //! and 134), how it ended, and what is said after the restart. The online check,
-//! the downloads, the plugin fetch, the weekly look, the badge, the plugins an
-//! update leaves out and the dual-boot notice are named in `PORTING-7.md`.
+//! the downloads, the plugin fetch and the weekly look are in `online`, `fetch`
+//! and `waiting`; the plugins an update leaves out and the *New* mark are in
+//! `leaves`. What is not native yet (the dual-boot notice) is named in
+//! `PORTING-7.md`.
 use crate::{
-    declarations::{CHECK_TOKEN, FIRMWARE_CHANGED, INSTALL_DONE, OPEN_TOKEN, PAGE, STARTED},
+    declarations::{
+        CHECK_TOKEN, FIRMWARE_CHANGED, HTTP_DONE, HTTP_PROGRESS, INSTALL_DONE, OPEN_TOKEN, PAGE,
+        SETTING_CHANGED, STARTED, WORK_DUE,
+    },
     native_card::{
         self, CHECK_REQUEST, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, ended, percent,
         read_pair, reason,
     },
     native_check::{self, Evidence, Found, Image, Other, Signer},
+    native_leaves::{self, Recheck, Retry, Turn},
+    native_online::{Offer, Trouble},
 };
 use alloc::{string::String, vec::Vec};
 use core::cmp::Ordering;
+use paperpaw_sdk::firmware::compare_versions;
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::{CheckKind, CommandSender, FirmwareOptions, InstallRoot, RedrawMode},
-        device::{Device, DeviceOutcome, DeviceRequest, FirmwareState, InstallKind},
+        device::{
+            Device, DeviceCapability, DeviceOutcome, DeviceRequest, FirmwareState, InstallKind,
+        },
         events::{Event, Incoming, InstallDone, kinds},
         files::Files,
         formatting::Arg,
         registrations,
+        registry::PageCursor,
         reply::Reply,
         storage::{self, Root},
         ui::{Notify, Open},
@@ -38,6 +49,11 @@ use paperpaw_ui_kit::{
     read_event,
     text::{concat, copy},
 };
+
+mod fetch;
+mod leaves;
+mod online;
+mod waiting;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/update_declarations.rs"));
@@ -53,6 +69,8 @@ const OFFERED: &str = "offered.txt";
 const COMMANDS: usize = 1024;
 /// Pages of the update folder read at most.
 const MOST_PAGES: usize = 16;
+/// Wi-Fi transfer's action: opens its screen.
+const TRANSFER: &str = "transfer.open";
 
 /// What the page shows.
 #[derive(Debug, PartialEq, Eq)]
@@ -77,6 +95,21 @@ enum View {
     RestartFailed,
     /// Not installed, for this reason.
     Failed(DeviceOutcome),
+    /// The update server is asked.
+    Searching,
+    /// The server knows no newer update.
+    UpToDate,
+    /// The server could not be asked, or answered with an error.
+    Unreachable(Trouble),
+    /// An update the server named, to download, and the plugins built in now it
+    /// leaves out (their names, empty for none).
+    Offer(Offer, String),
+    /// An update the server named that waits for plugins.
+    Waiting(waiting::Waited),
+    /// The same, which the reader chose to download anyway.
+    Anyway(waiting::Waited),
+    /// The update (then the plugins for it) is downloaded: its version, how far.
+    Downloading(String, Option<i64>),
 }
 
 /// What a row of the page does.
@@ -86,6 +119,19 @@ enum Button {
     Install,
     Restart,
     Close,
+    /// Asks the update server.
+    Search,
+    /// Downloads the update the server named.
+    Download,
+    /// Opens Wi-Fi transfer, to put an update on the card.
+    Transfer,
+}
+
+/// What the device offers the page: a network, and Wi-Fi transfer.
+#[derive(Debug, Clone, Copy, Default)]
+struct Caps {
+    network: bool,
+    transfer: bool,
 }
 
 #[derive(Debug)]
@@ -113,6 +159,14 @@ struct Scan {
     next: usize,
     /// Whether a newer update is offered when this ends (at start).
     offer: bool,
+    /// The re-submits of the check of `next`: when the list of what its image
+    /// leaves out was asked while a check was running (op 16, `ERR_BUSY`) the
+    /// file waits for that check to end and its check is submitted again; after
+    /// a newer check replaced the result (`ERR_NOT_FOUND`) none runs, so it is
+    /// submitted again at once (op 6 and op 16 answer only for the most recent
+    /// check, so the old request is never read again), not offered and not
+    /// given up before.
+    recheck: Recheck,
 }
 
 /// How far the checks are.
@@ -126,6 +180,8 @@ enum Step {
 #[derive(Debug)]
 struct Running {
     version: String,
+    project: String,
+    chip: u32,
     state: FirmwareState,
     done: u64,
     total: u64,
@@ -143,6 +199,18 @@ pub struct NativeUpdate {
     settled: Option<Found>,
     /// The version running, as the page says it.
     current: String,
+    /// The version running, as the device says it.
+    version: String,
+    /// What the device offers the page.
+    caps: Caps,
+    /// The server was asked and knows no newer update: what the card's checks find
+    /// is *up to date* where it is no news.
+    searched: bool,
+    /// The reader left for Wi-Fi transfer: back here, the card is looked at again.
+    away: bool,
+    /// The reader chose to update anyway, while it waits for plugins.
+    anyway: bool,
+    online: online::Online,
 }
 
 impl Plugin for NativeUpdate {
@@ -173,7 +241,11 @@ impl Plugin for NativeUpdate {
             kinds::FirmwareChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
-            kinds::ScreenClosed
+            kinds::ScreenClosed,
+            kinds::HttpDone,
+            kinds::HttpProgress,
+            kinds::WorkDue,
+            kinds::SettingChanged
         ) else {
             return Ok(());
         };
@@ -185,26 +257,44 @@ impl Plugin for NativeUpdate {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("update.page")?)
             }
-            // BLOCKED (#228): asking the update server is the online flow
-            // (`core.net`, the download, the plugin fetch): `PORTING-7.md`.
+            // A rule's check: asked at a cheap moment, nobody waits for it.
             Event::ActionRun {
                 action: "update.check",
                 ..
-            } if token == CHECK_TOKEN => Err(Error::Unsupported),
+            } if token == CHECK_TOKEN => self.check_later(host),
             Event::Started { .. } if token == STARTED => self.started(host),
             Event::InstallDone(done) if token == INSTALL_DONE => match done.kind() {
                 InstallKind::Check => self.checked(host, &done),
+                InstallKind::Plugin => self.fetch_install_done(host, &done),
                 _ => self.install_done(host, &done),
             },
+            Event::HttpDone(done) if token == HTTP_DONE => self.http_done(host, &done),
+            Event::HttpProgress(progress) if token == HTTP_PROGRESS => {
+                self.load_progress(host, &progress)
+            }
+            Event::WorkDue(due) if token == WORK_DUE => self.work_due(host, due.key()),
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.setting_changed(host, key)
+            }
             Event::FirmwareChanged { .. } if token == FIRMWARE_CHANGED => self.progress(host),
             Event::ScreenOpened { instance, .. } if token == PAGE => {
+                self.anyway = false;
                 let page = self.look(host)?;
-                self.screens.open(instance, page)
+                let seen = self.waiting_seen(host, &page.view);
+                self.screens.open(instance, page)?;
+                online::tolerate(seen)
             }
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } if token == PAGE => self.screens.shown(token, instance),
+            } if token == PAGE => {
+                self.screens.shown(token, instance)?;
+                // Back from Wi-Fi transfer: a file may have come.
+                if core::mem::take(&mut self.away) {
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -254,6 +344,8 @@ impl NativeUpdate {
         match self.device(host)?.firmware(host, &mut input, &mut out) {
             Ok(info) => Ok(Some(Running {
                 version: copy(info.version())?,
+                project: copy(info.project())?,
+                chip: info.chip(),
                 state: info.state(),
                 done: info.done(),
                 total: info.total(),
@@ -268,33 +360,87 @@ impl NativeUpdate {
     /// the files on the card.
     fn look(&mut self, host: &Host<'_>) -> Result<Page, Error> {
         let Some(running) = self.firmware(host)? else {
-            return build(host, View::Unsupported, "");
+            return build(host, View::Unsupported, "", Caps::default());
         };
         let mut messages = Messages::new()?;
         self.current = shown_version(host, &mut messages, &running.version)?;
+        self.version = copy(&running.version)?;
+        self.caps = self.read_caps(host)?;
         let view = match running.state {
             _ if self.job.is_some() => View::Installing(percent(running.done, running.total)),
             FirmwareState::Waiting | FirmwareState::Installing => {
                 View::Installing(percent(running.done, running.total))
             }
             FirmwareState::Installed => View::Installed(true),
+            _ if self.online.downloading() => self.downloading()?,
+            _ if self.online.awaited() => View::Searching,
             _ => self.card(host)?,
         };
-        build(host, view, &self.current)
+        build(host, view, &self.current, self.caps)
+    }
+
+    /// Whether the device has a network, and Wi-Fi transfer is there to open.
+    fn read_caps(&mut self, host: &Host<'_>) -> Result<Caps, Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let network = self
+            .device(host)?
+            .device(host, &mut input, &mut out)?
+            .supports(DeviceCapability::Network);
+        let mut transfer = false;
+        let registry = self.online.registry(host)?;
+        let mut cursor = PageCursor::start();
+        for _ in 0..MOST_PAGES {
+            let page = registry.actions(host, "transfer", cursor, &mut input, &mut out)?;
+            transfer |= page.rows().any(|action| action.id() == TRANSFER);
+            match page.end().next_cursor() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        Ok(Caps { network, transfer })
+    }
+
+    /// The download going on, as the page shows it.
+    fn downloading(&self) -> Result<View, Error> {
+        let (version, percent) = self.online.progress();
+        Ok(View::Downloading(copy(version)?, percent))
+    }
+
+    /// What the card's files found and the update the server named, as the page
+    /// shows them: an update on the card that is as new as the one the server
+    /// named (or another firmware's image) comes first; else the server's.
+    fn view_for(&mut self, host: &Host<'_>, found: Option<Found>) -> Result<View, Error> {
+        let view = view_of(found);
+        if matches!(view, View::Foreign(_)) {
+            return Ok(view);
+        }
+        let Some(offer) = Self::offer(host, &self.version)? else {
+            return Ok(view);
+        };
+        match view {
+            View::Ready(image)
+                if image.order.is_gt()
+                    && !compare_versions(&image.version, &offer.version).is_lt() =>
+            {
+                Ok(View::Ready(image))
+            }
+            View::Nothing | View::Unfit(_) | View::Ready(_) => self.offer_view(host, offer),
+            other => Ok(other),
+        }
     }
 
     /// The card's files: what an offer at start found, a check going on, or the
     /// checks of the files there are now.
     fn card(&mut self, host: &Host<'_>) -> Result<View, Error> {
         if let Some(found) = self.settled.take() {
-            return Ok(view_of(Some(found)));
+            return self.view_for(host, Some(found));
         }
         if self.scan.is_some() {
             return Ok(View::Checking);
         }
         match self.begin(host, false)? {
             Step::Running => Ok(View::Checking),
-            Step::Done(found, _) => Ok(view_of(found)),
+            Step::Done(found, _) => self.view_for(host, found),
         }
     }
 
@@ -310,6 +456,7 @@ impl NativeUpdate {
             found: Vec::new(),
             next: 0,
             offer,
+            recheck: Recheck::default(),
         });
         self.advance(host)
     }
@@ -349,7 +496,13 @@ impl NativeUpdate {
             match sent {
                 Ok(()) => return Ok(Step::Running),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
+                // In a run of declared work no check goes out: not now.
+                Err(Error::State) => {
+                    self.scan = None;
+                    return Ok(Step::Done(None, false));
+                }
                 Err(_) => {
+                    scan.recheck = Recheck::default();
                     push(&mut scan.found, Found::Unfit(DeviceOutcome::Other))?;
                     scan.next = scan.next.saturating_add(1);
                 }
@@ -360,47 +513,77 @@ impl NativeUpdate {
     /// A check ended: what the device says of the file, then the next check, or
     /// the end of them all.
     fn checked(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
-        let Some(request) = done.request() else {
-            return Ok(());
-        };
         let Some(scan) = self.scan.as_ref() else {
             return Ok(());
         };
         let wanted = u32::try_from(scan.next)
             .ok()
             .and_then(|next| CHECK_REQUEST.checked_add(next));
-        let Some(name) = scan.names.get(scan.next) else {
-            return Ok(());
-        };
-        if wanted != Some(request.get()) {
+        if scan.next >= scan.names.len() {
             return Ok(());
         }
-        let path = native_card::path(name)?;
-        let found = if done.status().is_ok() {
-            self.read_check(host, request, &path)
-        } else {
-            Ok(Found::Unfit(match done.outcome() {
-                DeviceOutcome::Ok => DeviceOutcome::Other,
-                other => other,
-            }))
+        let Some(request) = wanted.and_then(DeviceRequest::new) else {
+            return Ok(());
         };
-        let step = match found {
-            Ok(found) => {
-                if let Some(scan) = self.scan.as_mut() {
-                    push(&mut scan.found, found)?;
-                    scan.next = scan.next.saturating_add(1);
+        let ours = done.request().map(DeviceRequest::get) == Some(request.get());
+        let turn = match self.scan.as_mut() {
+            Some(scan) => scan
+                .recheck
+                .ended(ours, done.status().is_ok(), done.outcome()),
+            None => return Ok(()),
+        };
+        let step = match turn {
+            Turn::Skip => return Ok(()),
+            // The running check that was waited for ended: the file's check
+            // goes out again, a new one.
+            Turn::Submit => self.advance(host),
+            Turn::Unfit(outcome) => self.found(host, Found::Unfit(outcome)),
+            Turn::Read => {
+                let Some(name) = self.scan.as_ref().and_then(|s| s.names.get(s.next)) else {
+                    return Ok(());
+                };
+                let path = native_card::path(name)?;
+                match self.read_check(host, request, &path) {
+                    Err(error) if native_leaves::is_stale(error) => self.stale(host, error),
+                    Ok(found) => self.found(host, found),
+                    Err(error) => {
+                        self.scan = None;
+                        Err(error)
+                    }
                 }
-                self.advance(host)
-            }
-            Err(error) => {
-                self.scan = None;
-                Err(error)
             }
         };
         match step? {
             Step::Running => Ok(()),
             Step::Done(found, offer) => self.settle(host, found, offer),
         }
+    }
+
+    /// The file's result is not there for its request (`error`: op 16 answered
+    /// `ERR_BUSY`, a check is running, or `ERR_NOT_FOUND`, a newer one replaced
+    /// it): for `Busy` wait for the running check to end and submit the file's
+    /// check again; for `NotFound` no check runs and no end would come, so
+    /// submit it at once. After a few times the file is unfit.
+    fn stale(&mut self, host: &Host<'_>, error: Error) -> Result<Step, Error> {
+        let retry = self
+            .scan
+            .as_mut()
+            .map_or(Retry::Unfit, |scan| scan.recheck.stale(error));
+        match retry {
+            Retry::Wait => Ok(Step::Running),
+            Retry::Now => self.advance(host),
+            Retry::Unfit => self.found(host, Found::Unfit(DeviceOutcome::Other)),
+        }
+    }
+
+    /// The file is settled: on to the next check, or the end of them all.
+    fn found(&mut self, host: &Host<'_>, found: Found) -> Result<Step, Error> {
+        if let Some(scan) = self.scan.as_mut() {
+            scan.recheck = Recheck::default();
+            push(&mut scan.found, found)?;
+            scan.next = scan.next.saturating_add(1);
+        }
+        self.advance(host)
     }
 
     /// Reads what the device found of the file `path` it has checked.
@@ -430,7 +613,28 @@ impl NativeUpdate {
             id: check.id(),
             version: check.version(),
         };
-        native_check::judge(path, &evidence, &running.version)
+        let found = native_check::judge(path, &evidence, &running.version)?;
+        self.with_leaves(host, found)
+    }
+
+    /// An image the device says leaves plugins out names them (its list is the
+    /// last check's only, so it is read now). Where the list cannot be read the
+    /// file is not offered: its plugins would go without a word. A check still
+    /// running (`Busy`) or one that replaced the result (`NotFound`) is returned as it is: not an answer.
+    fn with_leaves(&mut self, host: &Host<'_>, found: Found) -> Result<Found, Error> {
+        let Found::Image(mut image) = found else {
+            return Ok(found);
+        };
+        match self.left_by_check(host) {
+            Ok(names) => {
+                image.leaves = names;
+                Ok(Found::Image(image))
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            // A check is running or a newer one replaced the result: stale.
+            Err(error) if native_leaves::is_stale(error) => Err(error),
+            Err(_) => Ok(Found::Unfit(DeviceOutcome::Other)),
+        }
     }
 
     /// All files are checked: the page that is open shows what is offered; at
@@ -441,7 +645,11 @@ impl NativeUpdate {
             _ => false,
         };
         if self.screens.top(PAGE).is_some() {
-            return self.show(host, view_of(found));
+            let mut view = self.view_for(host, found)?;
+            if core::mem::take(&mut self.searched) && no_news(&view) {
+                view = View::UpToDate;
+            }
+            return self.show(host, view);
         }
         if offered {
             self.settled = found;
@@ -453,7 +661,7 @@ impl NativeUpdate {
 
     /// Shows `view` on the page that is open, if one is.
     fn show(&mut self, host: &Host<'_>, view: View) -> Result<(), Error> {
-        let page = build(host, view, &self.current)?;
+        let page = build(host, view, &self.current, self.caps)?;
         self.show_page(host, page)
     }
 
@@ -462,6 +670,34 @@ impl NativeUpdate {
         let mut commands = buffer(COMMANDS)?;
         match button {
             Some(Button::Close) => CommandSender::new(host, &mut commands).close_screen(),
+            Some(Button::Search) => {
+                drop(commands);
+                self.show(host, View::Searching)?;
+                self.search(host, false)
+            }
+            Some(Button::Download) => {
+                drop(commands);
+                let Some(page) = self.screens.top(PAGE) else {
+                    return Ok(());
+                };
+                match core::mem::replace(&mut page.view, View::Searching) {
+                    View::Offer(offer, _) => self.download(host, offer),
+                    View::Anyway(waited) => self.download(host, waited.offer),
+                    // Chosen anyway: the offer first, which says what stops.
+                    View::Waiting(waited) => {
+                        self.anyway = true;
+                        self.show(host, View::Anyway(waited))
+                    }
+                    other => {
+                        page.view = other;
+                        Ok(())
+                    }
+                }
+            }
+            Some(Button::Transfer) => {
+                self.away = true;
+                CommandSender::new(host, &mut commands).run_action(TRANSFER)
+            }
             Some(Button::Restart) => {
                 if CommandSender::new(host, &mut commands)
                     .firmware_restart()
@@ -567,6 +803,9 @@ impl NativeUpdate {
     }
 
     fn show_page(&mut self, host: &Host<'_>, page: Page) -> Result<(), Error> {
+        if self.screens.top(PAGE).is_some() {
+            online::tolerate(self.waiting_seen(host, &page.view))?;
+        }
         if let Some(open) = self.screens.top(PAGE) {
             *open = page;
             let mut scratch = [0; 64];
@@ -594,11 +833,22 @@ impl NativeUpdate {
         Ok(())
     }
 
-    /// At start: how an install went, said once, and its update file removed.
+    /// At start: how an install went, said once, its update file removed, the
+    /// weekly look declared.
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let card = self.started_card(host);
+        // Where the setting is on; a device without declared work has no look.
+        online::tolerate(self.plan_look(host))?;
+        // The *New* mark as the offer kept says (the host kept the last one).
+        online::tolerate(Self::mark_new(host))?;
+        card
+    }
+
+    fn started_card(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let Some(running) = self.firmware(host)? else {
             return Ok(());
         };
+        self.version = copy(&running.version)?;
         let mut messages = Messages::new()?;
         let version = shown_version(host, &mut messages, &running.version)?;
         let arguments = [Arg::Text {
@@ -620,6 +870,16 @@ impl NativeUpdate {
             let text = messages.format(host, "update.undone", &arguments)?;
             announce(host, &text)?;
             return Ok(());
+        }
+        // An update that waits for plugins: asked for again where due; a week
+        // unseen, the page opens once.
+        let open = match self.waiting_start(host, &running) {
+            Ok(open) => open,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => false,
+        };
+        if open {
+            return Self::open_page(host);
         }
         // A newer update on the card, not offered before: checked now, offered
         // when the device has said what it is.
@@ -759,14 +1019,36 @@ fn row(
 }
 
 /// What the button of an update says: an own build installs with its key, an
-/// older or the same version says so.
+/// older or the same version says so, one that leaves plugins out says that.
 const fn install_label(image: &Image) -> &'static str {
     match (&image.signer, image.order) {
         (Signer::Own(_), _) => "update.install-with-key",
         (_, Ordering::Less) => "update.install-older",
         (_, Ordering::Equal) => "update.reinstall",
+        _ if !image.leaves.is_empty() => "update.install-without",
         _ => "update.install",
     }
+}
+
+/// Whether a page's view says nothing a search for an update did not: nothing on
+/// the card, an image that is not newer, another firmware's.
+fn no_news(view: &View) -> bool {
+    match view {
+        View::Nothing | View::Unfit(_) | View::Foreign(_) => true,
+        View::Ready(image) => !image.order.is_gt(),
+        _ => false,
+    }
+}
+
+/// A row with a button and no value.
+fn plain(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    page: &mut (Vec<Item>, Vec<Button>),
+    key: &str,
+    button: Button,
+) -> Result<(), Error> {
+    row(host, messages, page, key, "", button)
 }
 
 /// The rows of `view`: the update's button where one waits for the reader's
@@ -775,6 +1057,7 @@ fn rows_of(
     host: &Host<'_>,
     messages: &mut Messages,
     view: &View,
+    caps: Caps,
 ) -> Result<(Vec<Item>, Vec<Button>), Error> {
     let mut rows = (Vec::new(), Vec::new());
     match view {
@@ -788,36 +1071,63 @@ fn rows_of(
                 &image.version,
                 Button::Install,
             )?;
+            // Before going back or installing the same again, the way to look
+            // for a newer one; not beside one's own build, which needs the room
+            // to say its key.
+            if caps.network && !image.order.is_gt() && image.signer == Signer::PaperPaw {
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
+            }
+        }
+        View::Nothing => {
+            if caps.network {
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
+            }
+            if caps.transfer {
+                plain(
+                    host,
+                    messages,
+                    &mut rows,
+                    "update.transfer",
+                    Button::Transfer,
+                )?;
+            }
+        }
+        View::Offer(_, leaves) => {
+            let label = if leaves.is_empty() {
+                "update.download"
+            } else {
+                "update.download-without"
+            };
+            plain(host, messages, &mut rows, label, Button::Download)?;
+        }
+        View::Waiting(_) => return waiting::rows(host, messages, false),
+        View::Anyway(_) => return waiting::rows(host, messages, true),
+        View::Unreachable(_) => {
+            plain(host, messages, &mut rows, "update.retry", Button::Search)?;
         }
         // Not installing is the way on: first; the other firmware second.
         View::Foreign(_) => {
-            row(host, messages, &mut rows, "update.later", "", Button::Close)?;
-            let install = Button::Install;
-            row(
+            plain(host, messages, &mut rows, "update.later", Button::Close)?;
+            plain(
                 host,
                 messages,
                 &mut rows,
                 "update.install-foreign",
-                "",
-                install,
+                Button::Install,
             )?;
+            if caps.network {
+                plain(host, messages, &mut rows, "update.check", Button::Search)?;
+            }
             return Ok(rows);
         }
         View::Installed(true) | View::RestartFailed => {
-            row(
-                host,
-                messages,
-                &mut rows,
-                "update.restart",
-                "",
-                Button::Restart,
-            )?;
+            plain(host, messages, &mut rows, "update.restart", Button::Restart)?;
         }
         _ => {}
     }
     let close = match view {
-        View::Ready(_) | View::Checking => "update.later",
-        View::Installing(_) => return Ok(rows),
+        View::Ready(_) | View::Checking | View::Offer(..) => "update.later",
+        View::Installing(_) | View::Searching | View::Downloading(..) => return Ok(rows),
         _ => "update.ok",
     };
     row(host, messages, &mut rows, close, "", Button::Close)?;
@@ -885,7 +1195,11 @@ fn texts(
             true,
         ),
         View::Unfit(outcome) => ("update.unfit.title", reason(*outcome), false),
-        View::Ready(image) => return ready_texts(host, messages, image, current),
+        View::Ready(image) => {
+            let (title, help) = ready_texts(host, messages, image, current)?;
+            let help = leaves::with_leaves(host, messages, &help, "update.leaves", &image.leaves)?;
+            return Ok((title, help));
+        }
         View::Foreign(other) => {
             let named = [Arg::Text {
                 name: "name",
@@ -911,6 +1225,25 @@ fn texts(
             ));
         }
         View::Installing(None) => ("update.installing.title", "update.installing.help", false),
+        View::Searching => {
+            let server = server_name(host)?;
+            let arguments = [Arg::Text {
+                name: "server",
+                value: &server,
+            }];
+            return Ok((
+                messages.copy(host, "update.checking.title")?,
+                messages.format(host, "update.checking.help", &arguments)?,
+            ));
+        }
+        View::UpToDate => ("update.up-to-date.title", "update.up-to-date.help", true),
+        View::Unreachable(trouble) => return unreachable_texts(host, messages, *trouble),
+        View::Offer(offer, leaves) => return offer_texts(host, messages, offer, leaves, current),
+        View::Waiting(waited) => return waiting::texts(host, messages, waited, false),
+        View::Anyway(waited) => return waiting::texts(host, messages, waited, true),
+        View::Downloading(version, percent) => {
+            return downloading_texts(host, messages, version, *percent);
+        }
         View::Installed(false) => ("update.installed.title", "update.installed.help", false),
         View::Installed(true) => (
             "update.installed.title",
@@ -945,10 +1278,133 @@ fn texts(
     Ok((messages.copy(host, title)?, help))
 }
 
+/// Why the update server could not be asked, or what it answered.
+fn unreachable_texts(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    trouble: Trouble,
+) -> Result<(String, String), Error> {
+    let server = server_name(host)?;
+    let title = messages.copy(host, "update.unreachable.title")?;
+    let named = Arg::Text {
+        name: "server",
+        value: &server,
+    };
+    let help = match trouble {
+        Trouble::Status(status) => messages.format(
+            host,
+            "update.server-error.help",
+            &[
+                named,
+                Arg::Int {
+                    name: "status",
+                    value: i64::from(status),
+                },
+            ],
+        )?,
+        Trouble::Reason(key) => {
+            let reason = messages.copy(host, key)?;
+            let reason = Arg::Text {
+                name: "reason",
+                value: &reason,
+            };
+            messages.format(host, "update.unreachable.help", &[named, reason])?
+        }
+    };
+    Ok((title, help))
+}
+
+/// An update the server named: its version, what is installed, and its size.
+fn offer_texts(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    offer: &Offer,
+    leaves: &str,
+    current: &str,
+) -> Result<(String, String), Error> {
+    let version = shown_version(host, messages, &offer.version)?;
+    let title = messages.format(
+        host,
+        "update.offer.title",
+        &[Arg::Text {
+            name: "version",
+            value: &version,
+        }],
+    )?;
+    let current = Arg::Text {
+        name: "current",
+        value: current,
+    };
+    // What cannot come along comes first: where the footer is cut, the size goes.
+    if offer.size == 0 {
+        let help = messages.format(host, "update.offer.help-unsized", &[current])?;
+        let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
+        return Ok((title, help));
+    }
+    let (key, value) = match offer.size / 1024 {
+        0..1000 => ("update.size.kb", offer.size.div_ceil(1024)),
+        _ => ("update.size.mb", offer.size.div_ceil(1024 * 1024)),
+    };
+    let size = messages.format(
+        host,
+        key,
+        &[Arg::Int {
+            name: "value",
+            value: i64::try_from(value).unwrap_or(i64::MAX),
+        }],
+    )?;
+    let size = Arg::Text {
+        name: "size",
+        value: &size,
+    };
+    let help = messages.format(host, "update.offer.help", &[current, size])?;
+    let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
+    Ok((title, help))
+}
+
+/// The download of the update (and then of the plugins for it).
+fn downloading_texts(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    version: &str,
+    percent: Option<i64>,
+) -> Result<(String, String), Error> {
+    let shown = shown_version(host, messages, version)?;
+    let version = Arg::Text {
+        name: "version",
+        value: &shown,
+    };
+    let help = messages.copy(host, "update.downloading.help")?;
+    let Some(percent) = percent else {
+        return Ok((
+            messages.format(host, "update.downloading.title", &[version])?,
+            help,
+        ));
+    };
+    let percent = Arg::Int {
+        name: "percent",
+        value: percent,
+    };
+    Ok((
+        messages.format(host, "update.downloading.percent", &[version, percent])?,
+        help,
+    ))
+}
+
+/// The server's name as the reader knows it, e.g. `paperpaw.org`.
+fn server_name(host: &Host<'_>) -> Result<String, Error> {
+    let name = paperpaw_ui_kit::widget::settings::text_of(host, "update.server", |setting| {
+        copy(crate::native_online::server_name(
+            crate::native_online::server(setting),
+        ))
+    })??;
+    Ok(name)
+}
+
 /// The page of `view`: its rows, the large line and the words under it.
-fn build(host: &Host<'_>, view: View, current: &str) -> Result<Page, Error> {
+fn build(host: &Host<'_>, view: View, current: &str, caps: Caps) -> Result<Page, Error> {
     let mut messages = Messages::new()?;
-    let (items, buttons) = rows_of(host, &mut messages, &view)?;
+    let (items, buttons) = rows_of(host, &mut messages, &view, caps)?;
     let (title, help) = texts(host, &mut messages, &view, current)?;
     Ok(Page {
         view,

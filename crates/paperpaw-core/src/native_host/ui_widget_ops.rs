@@ -164,6 +164,8 @@ impl StatusCache {
 pub(crate) struct WidgetState {
     pub(crate) handles: RefCell<UiHandles>,
     pub(crate) cache: RefCell<StatusCache>,
+    /// Taps and long presses op 6 queued for their owners (`ui_widget_layout`).
+    pub(crate) inputs: RefCell<super::ui_widget_layout::WidgetInputs>,
     /// The minute (of the monotonic clock) the cache last saw; `u64::MAX` before.
     minute: core::cell::Cell<u64>,
 }
@@ -173,6 +175,7 @@ impl WidgetState {
         Self {
             handles: RefCell::new(UiHandles::new(x4)),
             cache: RefCell::new(StatusCache::default()),
+            inputs: RefCell::new(super::ui_widget_layout::WidgetInputs::new(x4)),
             minute: core::cell::Cell::new(u64::MAX),
         }
     }
@@ -197,7 +200,6 @@ impl UiServices {
     /// outcome (`ui.md` 8.2); then it gives it back, even when the callback
     /// failed or trapped. An owner that stops, is unloaded, switched off or in
     /// safe mode loses its notices without a delivery (`plugin_stopped`).
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn next_widget_dropped(
         &self,
         owner: u64,
@@ -221,9 +223,18 @@ impl UiServices {
         Ok(Some((notice, len)))
     }
 
+    /// The owner of the oldest drop not yet told (`None`: nothing waits).
+    pub(crate) fn next_dropped_owner(&self) -> Result<Option<u64>, i32> {
+        Ok(self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_dropped_owner())
+    }
+
     /// The first delivery attempt of the notice is over, whatever its
     /// outcome: it is not listed any more.
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
         self.widgets
             .handles
@@ -231,6 +242,45 @@ impl UiServices {
             .map_err(|_| ERR_BUSY)?
             .dropped_delivered(notice);
         Ok(())
+    }
+
+    /// Whether `owner` may say instance `id` changed (`command.widget_changed`):
+    /// `ERR_NOT_FOUND`, `ERR_DENIED`, `ERR_BUSY` while the table is in use.
+    pub(crate) fn widget_check_changed(&self, owner: u64, id: u32) -> Result<(), i32> {
+        self.widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .check_changed(owner, id)
+    }
+
+    /// The checked `command.widget_changed` of `owner` take effect: each
+    /// instance is marked for its maker, once. `ERR_BUSY` when the table is in
+    /// use (nothing marked).
+    pub(crate) fn widgets_changed(&self, owner: u64, ids: &[u32]) -> Result<(), i32> {
+        let mut handles = self
+            .widgets
+            .handles
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?;
+        for id in ids {
+            handles.mark_changed(owner, *id);
+        }
+        Ok(())
+    }
+
+    /// Whether a change waits for its maker.
+    pub(crate) fn widget_change_waits(&self) -> bool {
+        self.widgets
+            .handles
+            .try_borrow()
+            .is_ok_and(|handles| handles.has_changed())
+    }
+
+    /// The oldest change not yet told, as (the maker, the instance), off the
+    /// list. `None`: nothing waits (or the table is in use).
+    pub(crate) fn take_widget_changed(&self) -> Option<(u64, u32)> {
+        self.widgets.handles.try_borrow_mut().ok()?.take_changed()
     }
 
     /// The lowest screen above `after` that still has widget instances.
@@ -251,6 +301,13 @@ impl UiServices {
             .map_err(|_| ERR_BUSY)?
             .end_callback(plugin, callback);
         Ok(())
+    }
+
+    /// A callback of `plugin` returned a failure: the questions it asked in it
+    /// never start (`ui.md` 3.1, a failed start cancels).
+    pub(crate) fn callback_failed(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        self.store
+            .callback_failed(super::ui_store::Stamp::new(plugin, callback)?)
     }
 
     /// Event 73 or the minute tick: cached status values go.
@@ -294,6 +351,12 @@ impl UiServices {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .drop_plugin(plugin);
+        // Taps still waiting for it would reach a plugin that is gone.
+        self.widgets
+            .inputs
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .drop_owner(plugin);
         // Values of the owner's items would answer for a plugin that is gone.
         self.widgets
             .cache

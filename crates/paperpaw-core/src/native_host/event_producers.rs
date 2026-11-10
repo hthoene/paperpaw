@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_UNSUPPORTED};
 use paperpaw_platform::SystemStatus;
 use paperpaw_sdk::{
-    SettingValue,
+    Id, SettingValue,
     power::{Power, PowerLevel},
     wifi::WifiState,
 };
@@ -63,6 +63,8 @@ impl OldValue {
 pub(crate) trait EventSink {
     fn setting(&self, now: u64, key: &str, old: Result<&[u8], i32>);
     fn hint(&self, tag: u32);
+    /// `event.registry_changed` with `what` bits (OR-ed until delivered).
+    fn registry(&self, _what: u32) {}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +98,10 @@ pub(crate) enum Hint<'a> {
     Power(&'a Power),
     Status,
     Charge(ChargeState),
+    /// `event.registry_changed` with its `what` bits.
+    Registry(u32),
+    /// `event.preview_changed`: the shown preview changed.
+    Preview,
 }
 impl Hint<'_> {
     pub(crate) fn tag(self) -> u32 {
@@ -105,6 +111,8 @@ impl Hint<'_> {
             Self::Power(_) => wire::EVENT_POWER_CHANGED_TAG,
             Self::Status => wire::EVENT_STATUS_CHANGED_TAG,
             Self::Charge(_) => wire::EVENT_CHARGE_CHANGED_TAG,
+            Self::Registry(_) => wire::EVENT_REGISTRY_CHANGED_TAG,
+            Self::Preview => wire::EVENT_PREVIEW_CHANGED_TAG,
         }
     }
     /// Encode current state at delivery, not a stale snapshot of a coalesced hint.
@@ -139,6 +147,12 @@ impl Hint<'_> {
                 now_ms,
                 flags: charge.flags(),
             }),
+            Self::Registry(what) => {
+                wire::Record::EventRegistryChanged(wire::EventRegistryChanged { now_ms, what })
+            }
+            Self::Preview => {
+                wire::Record::EventPreviewChanged(wire::EventPreviewChanged { now_ms })
+            }
         };
         codec::encode_batch(&[record], out)
     }
@@ -205,6 +219,23 @@ impl crate::Kernel {
         if let Some(ui) = self.shared.native_instances.ui_services() {
             ui.status_changed().ok();
         }
+    }
+    /// `event.registry_changed` for the `what` bits (bit 0: menus and item
+    /// state), coalesced per plugin until delivered.
+    pub(crate) fn native_registry_changed(&self, what: u32) {
+        if let Some(sink) = self.native_event_sink() {
+            sink.registry(what);
+        }
+        let instances = &self.shared.native_instances;
+        instances.setting_events.publish_registry(instances, what);
+    }
+    /// Bit 31 of `event.registry_changed` to `plugin` alone: a staged REG
+    /// batch of its own was dropped when applied.
+    pub(crate) fn native_registry_dropped(&self, plugin: &Id) {
+        let instances = &self.shared.native_instances;
+        instances
+            .setting_events
+            .publish_registry_to(instances, plugin, super::REGISTRY_DROPPED);
     }
     pub(crate) fn native_hint(&self, tag: u32) {
         // Event 73 also ends the cached status values of `core.ui` op 14.

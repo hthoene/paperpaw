@@ -380,6 +380,7 @@ impl Kernel {
             self.stack.last().map(|top| top.serial)
         };
         self.output.commands.push(events::PREVIEW_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 
     /// Ends the values shown without being kept when the screen that
@@ -455,6 +456,7 @@ impl Kernel {
             info.enabled = enabled;
         }
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     pub(crate) fn setting_changed(&mut self, id: &Id) {
@@ -472,7 +474,10 @@ impl Kernel {
             self.framebuffer
                 .set_mono_coverage(mono_coverage(&self.shared.settings));
         }
-        if *id == core_settings::KEYMAP_PRESET || self.keys.when.iter().any(|(s, _)| s == id) {
+        if *id == core_settings::KEYMAP_PRESET
+            || self.keys.when.iter().any(|(s, _)| s == id)
+            || self.native_key_when(id.as_str())
+        {
             self.rebuild_keymap();
         }
         if *id == core_settings::STATUS_FONT {

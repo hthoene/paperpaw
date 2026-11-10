@@ -28,6 +28,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 mod blocks;
 #[path = "tests/lists.rs"]
 mod lists;
+#[path = "tests/reader.rs"]
+mod reader;
 #[path = "tests/reads.rs"]
 mod reads;
 #[path = "tests/sides.rs"]
@@ -79,6 +81,14 @@ pub(crate) struct Fake {
     pub(crate) owner: Cell<u64>,
     /// The owner of the fake format plugin.
     pub(crate) format_owner: Cell<u64>,
+    /// (document, root, path) of each `reader_opened`, and the documents
+    /// `reader_closed` was called for.
+    pub(crate) readers: RefCell<Vec<(u32, u32, std::string::String)>>,
+    pub(crate) released: RefCell<Vec<u32>>,
+    /// `reader_opened` refuses with this.
+    pub(crate) reader_refuses: Cell<Option<i32>>,
+    /// Bit `n` set: owner `n` shows a screen.
+    pub(crate) shows: Cell<u64>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
@@ -101,6 +111,10 @@ impl Fake {
             keyed: RefCell::new(Vec::new()),
             owner: Cell::new(OWNER),
             format_owner: Cell::new(FORMAT_OWNER),
+            readers: RefCell::new(Vec::new()),
+            released: RefCell::new(Vec::new()),
+            reader_refuses: Cell::new(None),
+            shows: Cell::new(0),
         })
     }
     pub(crate) fn say(&self, records: &[Record<'_>]) {
@@ -108,6 +122,9 @@ impl Fake {
     }
 }
 impl DocHost for Fake {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn table(&self) -> &DocumentTable {
         &self.table
     }
@@ -173,6 +190,21 @@ impl DocHost for Fake {
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));
+    }
+    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+        if let Some(error) = self.reader_refuses.get() {
+            return Err(error);
+        }
+        self.readers
+            .borrow_mut()
+            .push((document, root, path.into()));
+        Ok(())
+    }
+    fn reader_closed(&self, document: u32) {
+        self.released.borrow_mut().push(document);
+    }
+    fn shows_screen(&self, owner: u64) -> bool {
+        self.shows.get() & (1 << owner) != 0
     }
     fn map_image(&self, _: &Document, _: &Image, in_block: bool) -> Result<Option<u32>, i32> {
         match self.image.get() {
@@ -776,16 +808,4 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
             generation: 0,
         },
     );
-}
-
-/// Senior #1110: on the X4 the reading plugin's `open` evicts a background
-/// opener's document, which is closed with reason 4 `needed`. Not built until
-/// Kernel's draft-20 contract carries the reason and the records.
-#[test]
-#[ignore = "waits for Kernel's draft-20 reason 4 `needed` (#228, Senior #1110)"]
-fn x4_reading_open_evicts_a_background_document_with_reason_needed() {
-    // Expected: a background opener holds the only slot it may take, the
-    // reading plugin opens its book, the background document ends with
-    // reason 4, its opener hears `event.document_closed` and the format gets
-    // op 4 close; the reader's open succeeds. A background open never evicts.
 }

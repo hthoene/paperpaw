@@ -10,7 +10,9 @@ use super::{
     shell,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, Services};
+use paperpaw_native::host_glue::{
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
+};
 use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
@@ -86,6 +88,23 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::MenuSection(_)
         | Record::MenuHide(_)
         | Record::MenuDescribe(_) => Ok(None),
+        // A key binding stays in the declaration store too (charged there,
+        // removed with its owner); the key map is built from it
+        // (`native_keys`). One the key map cannot hold is refused here, never
+        // dropped later.
+        Record::KeyBind(bind) => {
+            if crate::keymap::native_binding_ok(bind.layer, bind.input, bind.action) {
+                Ok(None)
+            } else {
+                Err(ERR_INVALID)
+            }
+        }
+        // An input of the plugin's own and a help hint stay in the declaration
+        // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
+        Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
+        // A format and a reading app stay in the declaration store too
+        // (`document.md` section 1); the document service reads them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -133,7 +152,12 @@ impl crate::Kernel {
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
+        let keys_before = self.native_key_count();
         self.admit_native(host, depth, folder, report)?;
+        if self.native_key_count() != keys_before {
+            // Its bindings are in the key map from now on.
+            self.rebuild_keymap();
+        }
         if self.shared.registry.offers() != offers_before {
             // The slots now bound are known to plugins (`Env::has_slot`).
             self.refresh_slots();
@@ -160,6 +184,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        let networked = host.features().feature(crate::work::USES_NETWORK).is_ok();
         self.shared
             .native_instances
             .adopt_pool(
@@ -179,11 +204,31 @@ impl crate::Kernel {
             );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
+        // The first plugin's depth is the shell's device-wide one, and every
+        // later plugin brings the same: a host stage run enters it, so a
+        // second counter would let nested dispatch past the budget.
+        match self.shared.native_depth.as_ref() {
+            None => {
+                self.shared.native_depth = Some(depth.try_clone().ok_or(shell::Error::Allocation)?);
+            }
+            Some(first) if !first.is_same_counter(&depth) => {
+                self.warn_runtime("a native plugin brought its own callback depth counter");
+                return Err(shell::Error::Status(ERR_STATE));
+            }
+            Some(_) => {}
+        }
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
-        let (retained, (owner, owned, tokens), raw) =
-            Retained::make_native_stored(host, map_declarations)?;
+        // A batch refused at a declaration cap keeps which one, for the
+        // plugin's `reg_plugin` row.
+        let refused = self.shared.registry.native_declarations.as_ref();
+        let (retained, (owner, owned, tokens, declared), raw) =
+            Retained::make_native_stored(host, map_declarations, |plugin, cap| {
+                if let Some(refused) = refused {
+                    refused.record_refusal(plugin, cap);
+                }
+            })?;
         if folder.is_none()
             && owned
                 .iter()
@@ -195,6 +240,22 @@ impl crate::Kernel {
         // The callback registrations are admitted whole or the owner is not:
         // none is dropped unrouted.
         let events = check_registrations(&retained, &depth, &tokens)?;
+        // Admitted when it declares OR registers anything (an events-only
+        // plugin is as good as any); a library with nothing at all is no
+        // plugin: invalid, not "needs a newer host".
+        if !declared && events.is_empty() {
+            // Refused before the kernel takes it in. An empty library has run
+            // only `make`, so its cleanup cannot be busy; say so if that
+            // ever stops being true (the owner would stay pinned).
+            let pool = retained.host().resource_identity();
+            drop(retained);
+            if pool.is_some_and(|pool| pool.retirements_pending()) {
+                self.try_warn_runtime(&[
+                    "a library with nothing in it could not be cleaned up; retried later",
+                ]);
+            }
+            return Err(shell::Error::Status(ERR_INVALID));
+        }
         let key = self
             .shared
             .native_instances
@@ -223,6 +284,10 @@ impl crate::Kernel {
                 .native_instances
                 .abandon(key)
                 .map_err(shell::Error::Status)?;
+        } else {
+            // With `uses.network` its network settings and policy (never a
+            // refusal: a failure warns).
+            self.admit_native_network(&owner, networked);
         }
         result
     }
@@ -251,13 +316,18 @@ impl crate::Kernel {
         key: u64,
         owner: &Id,
     ) -> Option<alloc::string::String> {
+        // Counted before the stop: a revoked owner's rows no longer show.
+        let keys_before = self.native_key_count();
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
+        // Its firmware requests and its confirmation go with it.
+        self.firmware_sender_stopped(key);
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
         self.warn_directory_missed();
+        let mut forgot_states = false;
         if let Some(declarations) = &self.shared.registry.native_declarations {
             let Ok(mut store) = declarations.store.try_borrow_mut() else {
                 return None;
@@ -266,6 +336,20 @@ impl crate::Kernel {
             if declarations.catalog.prune(&store).is_err() {
                 return None;
             }
+            // Its pushed item states go with it (`keep` waits for the kept
+            // file). The table is only borrowed here, never across a call.
+            let Ok(mut states) = declarations.items.try_borrow_mut() else {
+                return None;
+            };
+            forgot_states = states.forget(owner.as_str());
+        }
+        if forgot_states {
+            // The menus lose the states the plugin pushed (bit 0).
+            self.native_registry_changed(1);
+        }
+        if self.native_key_count() != keys_before {
+            // Its bindings leave the key map with it.
+            self.rebuild_keymap();
         }
         if self.native_owner_stopped(key).is_err() {
             return None;
@@ -282,6 +366,8 @@ impl crate::Kernel {
         // defined go with it (the reader's values stay for its next load).
         self.shared.actions.remove_plugin(owner.as_str());
         self.shared.settings.remove_plugin(owner.as_str());
+        // Its network policy goes; its network settings stay for its next load.
+        self.forget_native_network(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
@@ -653,7 +739,12 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
-) -> Result<(Id, Vec<Owned>, Vec<u32>), i32> {
+) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
+    // The host's own id is reserved: no plugin's action passes for a host
+    // one (ui.md 4.3).
+    if view.plugin == crate::RESERVED_PLUGIN_ID {
+        return Err(ERR_DENIED);
+    }
     let owner = Id::try_parse(view.plugin).map_err(|error| match error {
         IdError::NoMemory => ERR_NO_MEMORY,
         _ => ERR_INVALID,
@@ -686,10 +777,10 @@ fn map_declarations(
         })();
     })?;
     result?;
-    if !any {
-        return Err(ERR_UNSUPPORTED);
-    }
-    Ok((owner, owned, tokens))
+    // Whether it declared anything is told with the result: a library that only
+    // registers callbacks (an event, a tick) is admitted too; one with neither
+    // is refused where the registrations are known ([`Kernel::admit_native`]).
+    Ok((owner, owned, tokens, any))
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

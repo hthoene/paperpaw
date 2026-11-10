@@ -505,19 +505,21 @@ fn the_real_dualbooter_bootloader_is_recognised() {
 }
 
 #[test]
-fn the_note_the_firmware_writes_is_the_one_the_update_plugin_reads() {
+fn the_note_the_firmware_writes_is_a_note_by_its_own_reading() {
     use paperpaw_sdk::Storage;
     use paperpaw_x4::dual_boot::{NOTE, note, noted};
     let card = MemoryStorage::new();
-    assert!(!paperpaw_plugin_update::dual_boot_declared(&card));
+    assert!(!noted(""));
     for source in [Source::Ini, Source::Marker, Source::X4Boot] {
         for slot in 0..SLOTS {
             let text = note(source, Some(slot));
             assert!(noted(&text));
             card.write(NOTE, text.as_bytes()).unwrap();
-            assert!(paperpaw_plugin_update::dual_boot_declared(&card));
+            let mut kept = vec![0; text.len()];
+            assert_eq!(card.read_at(NOTE, 0, &mut kept).unwrap(), text.len());
+            assert!(noted(core::str::from_utf8(&kept).unwrap()));
             card.write(NOTE, b"").unwrap();
-            assert!(!paperpaw_plugin_update::dual_boot_declared(&card));
+            assert_eq!(card.size(NOTE).unwrap(), 0);
         }
     }
 }

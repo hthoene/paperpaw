@@ -12,6 +12,13 @@ link them until the host activates native plugins; then they go together (no shi
 
 ## Ported
 
+- *Events 75 and 76:* the host admits `event.registry_changed` and `event.preview_changed` since #916
+  (coalesced hints), so the plugin's four event subscriptions are admitted as a whole and
+  `tests/hosted_construction.rs` constructs it in the real registered scope (no longer ignored).
+  A registry change (and a plugins change) rebuilds what shows on top and notes the covered pages
+  as stale; a preview change redraws. The widget preview above a group's settings stays blocked on
+  the registry's `previews` read (SDK accessor) and the host's slot 35 (`settings-group-preview`).
+
 - *Passwords and keys* (`src/native_secrets.rs`, screens `settings.secrets` and `settings.secret`, the
   action `settings.secrets.open`, its entry in `core.settings-pages` at order 95 and the icon `key`,
   as in interface 6; parity in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
@@ -103,3 +110,11 @@ search, secrets, restart).
   X4 is not measured: device gate open.
 - Settings is built into the firmware (no `.ppn`), so there is no store-file size to record; the
   native packing waits for the shared 6→7 linker migration.
+
+## Right-to-left (`ar`: a regression against Beta 3 until this is done)
+
+Beta 3 mirrored the interface where its language is written right to left (Arabic). The UI kit now
+does so for what it draws (`Style::rtl`, read from `core.language`: header, list rows, items, dialog,
+chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
+draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
+takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).

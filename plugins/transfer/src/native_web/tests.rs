@@ -77,7 +77,19 @@ fn ask(card: &mut Fake, guard: &mut Guard, method: &str, target: &str) -> Outcom
         body_len: 10,
         at: Instant(0),
     };
-    answer(card, guard, &request)
+    reply(card, guard, &request)
+}
+
+/// Answers with no plugins to install (the card's requests only).
+fn reply(card: &mut Fake, guard: &mut Guard, request: &Request<'_>) -> Outcome {
+    let mut plugins = crate::native_install::tests::Fake::default();
+    let mut installs = Installs::default();
+    let mut parts = Parts {
+        card,
+        plugins: &mut plugins,
+        installs: &mut installs,
+    };
+    answer(&mut parts, guard, request)
 }
 
 fn run(card: &mut Fake, method: &str, target: &str) -> Outcome {
@@ -95,7 +107,10 @@ fn json(answer: &Answer) -> &str {
 fn the_page_is_served_with_the_key_and_not_without() {
     let mut card = Fake::default();
     let (page, done) = run(&mut card, "GET", "/?k=key");
-    assert_eq!((page.status, page.body, done), (200, Body::Page, None));
+    assert_eq!(
+        (page.status, page.body, done),
+        (200, Body::Data(PAGE_FILE), None)
+    );
     let (refused, _) = run(&mut card, "GET", "/");
     assert_eq!(refused.status, 403);
     let (refused, _) = run(&mut card, "GET", "/?k=wrong");
@@ -120,7 +135,7 @@ fn a_few_wrong_keys_lock_even_the_right_one_for_a_while() {
         body_len: 0,
         at: Instant(LOCKED_FOR + 1),
     };
-    assert_eq!(answer(&mut card, &mut guard, &later).0.status, 200);
+    assert_eq!(reply(&mut card, &mut guard, &later).0.status, 200);
 }
 
 #[test]
@@ -322,17 +337,15 @@ fn a_folder_is_made_in_a_free_place_and_deleting_takes_what_is_in_it() {
 }
 
 #[test]
-fn moving_and_installing_plugins_are_said_to_be_missing() {
+fn moving_is_said_to_be_missing() {
     let mut card = Fake::with(&[("a.epub", false, 5)]);
-    for (method, target) in [
-        ("POST", "/api/move?k=key&path=a.epub&to="),
-        ("GET", "/api/plugins?k=key"),
-        ("PUT", "/api/plugin/x/y?k=key"),
-        ("POST", "/api/plugin/x?k=key"),
-    ] {
-        assert_eq!(run(&mut card, method, target).0.status, 501, "{target}");
-    }
-    // The key is asked for first.
+    assert_eq!(
+        run(&mut card, "POST", "/api/move?k=key&path=a.epub&to=")
+            .0
+            .status,
+        501
+    );
+    // The key is asked for first, for the plugin requests too.
     assert_eq!(run(&mut card, "GET", "/api/plugins").0.status, 403);
     assert_eq!(run(&mut card, "GET", "/api/other?k=key").0.status, 404);
     assert_eq!(card.entries.len(), 1);

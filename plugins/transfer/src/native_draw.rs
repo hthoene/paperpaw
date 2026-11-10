@@ -85,17 +85,29 @@ pub fn qr_rects(
     Ok(())
 }
 
+/// The reader's own network, joined first: its code, and its name and
+/// password to type where the code cannot be scanned.
+#[derive(Debug, Clone, Copy)]
+pub struct Join<'a> {
+    pub qr: Option<&'a QrCode>,
+    pub title: &'a str,
+    pub note: &'a str,
+}
+
 /// What is under the header: the code on top, then the address, the hint and
-/// the last thing that happened, centred.
+/// the last thing that happened, centred. With `join` the code to join the
+/// reader's own network takes the upper half.
 ///
 /// # Errors
 /// What the host's fonts, canvas and texts refuse; `NoMemory`.
 pub fn draw_address(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
+    hint: &str,
     url: &str,
     qr: Option<&QrCode>,
     last: Option<&str>,
+    join: Option<&Join<'_>>,
 ) -> Result<(), Error> {
     if !matches!(frame.purpose, DrawPurpose::Screen) {
         return Ok(());
@@ -103,16 +115,31 @@ pub fn draw_address(
     let display = snapshot::capture_snapshot(host)?;
     let font = Font::acquire_role(host, FontRole::Ui)?;
     let style = Style::read(host, &display, &font)?;
-    let drawn = lay_out(host, &font, &style, &display, url, qr.is_some(), last)
-        .and_then(|(ops, code)| paint::replay(frame, &font, ops.iter()).map(|()| code));
+    let (width, height) = (display.display_width(), display.display_height());
+    let top = style.header.saturating_add(style.gap);
+    let rest = height.saturating_sub(top);
+    let half = if join.is_some() { rest / 2 } else { 0 };
+    let upper = Rect::new(0, top, width, half);
+    let lower = Rect::new(0, top.saturating_add(half), width, rest - half);
+    let drawn = lay_out(host, &font, &style, lower, (hint, url), qr.is_some(), last).and_then(
+        |(mut ops, code)| {
+            let joined = match join {
+                Some(join) => lay_out_join(&font, &style, upper, join, &mut ops)?,
+                None => None,
+            };
+            paint::replay(frame, &font, ops.iter()).map(|()| (code, joined))
+        },
+    );
     let released = font.release();
-    let code = drawn?;
+    let (code, joined) = drawn?;
     released?;
-    if let (Some(qr), Some(area)) = (qr, code) {
-        let canvas = frame.draw_canvas()?;
-        qr_rects(qr, area, |rect, color| {
-            canvas.fill_rectangle(frame_rect(rect), color)
-        })?;
+    let canvas = frame.draw_canvas()?;
+    for (qr, area) in [(qr, code), (join.and_then(|join| join.qr), joined)] {
+        if let (Some(qr), Some(area)) = (qr, area) {
+            qr_rects(qr, area, |rect, color| {
+                canvas.fill_rectangle(frame_rect(rect), color)
+            })?;
+        }
     }
     Ok(())
 }
@@ -153,14 +180,14 @@ fn lay_out(
     host: &Host<'_>,
     font: &Font<'_>,
     style: &Style,
-    display: &snapshot::Snapshot,
-    url: &str,
+    area: Rect,
+    (hint, url): (&str, &str),
     has_code: bool,
     last: Option<&str>,
 ) -> Result<(Vec<Paint>, Option<Rect>), Error> {
-    let (width, height) = (display.display_width(), display.display_height());
+    let (width, height) = (area.width, area.y.saturating_add(area.height));
     let inner = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
-    let hint = Messages::new()?.copy(host, "transfer.hint")?;
+    let hint = Messages::new()?.copy(host, hint)?;
     let wrap = |size: f32, words: &str, most: usize| {
         text::wrap_with(|line| font.measure_text(size, line), words, inner, most)
     };
@@ -177,13 +204,13 @@ fn lay_out(
     if !lasts.is_empty() {
         below += gap + i64::from(small) * lasts.len() as i64;
     }
-    let top = style.header.saturating_add(style.gap);
+    let top = area.y;
     let room = i64::from(height) - i64::from(top) - below - gap;
     let side = clamp_u16(
         room.min(i64::from(width.saturating_sub(2 * style.margin)))
             .max(0),
     );
-    let area = Rect::new(0, top, width, side);
+    let code_area = Rect::new(0, top, width, side);
     let y = top
         .saturating_add(if has_code { side } else { 0 })
         .saturating_add(style.gap);
@@ -202,7 +229,53 @@ fn lay_out(
         run.y = run.y.saturating_add(style.gap);
         run.put(&mut ops, &lasts, style.small, small, style.ink)?;
     }
-    Ok((ops, (has_code && side > 0).then_some(area)))
+    Ok((ops, (has_code && side > 0).then_some(code_area)))
+}
+
+/// The join code's title and note, and the room for the code between them
+/// (none where there is not a pixel for a module).
+fn lay_out_join(
+    font: &Font<'_>,
+    style: &Style,
+    area: Rect,
+    join: &Join<'_>,
+    ops: &mut Vec<Paint>,
+) -> Result<Option<Rect>, Error> {
+    let inner = f32::from(area.width.saturating_sub(2 * style.margin)).max(1.0);
+    let (big, small) = (line_px(font, style.text)?, line_px(font, style.small)?);
+    let title = text::wrap_with(
+        |line| font.measure_text(style.text, line),
+        join.title,
+        inner,
+        2,
+    )?;
+    let note = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        join.note,
+        inner,
+        3,
+    )?;
+    let title_rows = u16::try_from(title.len()).unwrap_or(2);
+    let note_rows = u16::try_from(note.len()).unwrap_or(3);
+    let (title_high, note_high) = (
+        big.saturating_mul(title_rows),
+        small.saturating_mul(note_rows),
+    );
+    let mut run = Run {
+        font,
+        style,
+        inner,
+        width: area.width,
+        y: area.y,
+    };
+    run.put(ops, &title, style.text, big, style.ink)?;
+    run.y = (area.y.saturating_add(area.height)).saturating_sub(note_high);
+    run.put(ops, &note, style.small, small, style.note)?;
+    let room = area
+        .height
+        .saturating_sub(title_high.saturating_add(note_high));
+    Ok((join.qr.is_some() && room > 0)
+        .then(|| Rect::new(0, area.y.saturating_add(title_high), area.width, room)))
 }
 
 #[cfg(test)]

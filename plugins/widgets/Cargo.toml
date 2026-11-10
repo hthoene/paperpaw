@@ -13,7 +13,7 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/quotes.*.txt"]
+card-files = ["data/quotes.*.txt", "pictures/*.png"]
 
 [features]
 linked = []

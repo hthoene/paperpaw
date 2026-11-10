@@ -347,6 +347,14 @@ fn book_and_next_series_validate_records_and_preserve_reference_identity() {
     );
     let reference = row.reference().unwrap();
     assert_eq!((reference.0.key, reference.0.generation), (Some(0), 9));
+    assert!(row.opened() && !row.missing());
+    let mut gone = book_row(0, 9);
+    if let Record::ServiceLibBook(row) = &mut gone {
+        row.flags = 0x100 | 2;
+    }
+    reply(&state, &[gone]);
+    let row = lib.book(&host, book, &mut input, &mut out).unwrap();
+    assert!(row.missing() && row.opened());
     for bad in [book_row(1, 9), book_row(0, 10)] {
         reply(&state, &[bad]);
         assert!(matches!(
@@ -444,6 +452,8 @@ fn refused_field_writes_never_commit_at_the_host_seam() {
 #[path = "tests/anchors.rs"]
 mod anchors;
 mod annotations;
+#[path = "tests/book_text.rs"]
+mod book_text;
 #[path = "tests/cover.rs"]
 mod cover;
 #[path = "tests/edits.rs"]

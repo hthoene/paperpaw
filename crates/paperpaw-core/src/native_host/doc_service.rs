@@ -25,14 +25,14 @@ use crate::abi7::{
 use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_CANCELLED, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 
 mod args;
 mod check;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING};
+pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -94,6 +94,10 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) text: &'a str,
     /// Op 2 only.
     pub(crate) options: Options<'a>,
+    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
+    /// `""` for none), which the format reads as root 4.
+    pub(crate) css_root: u32,
+    pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
     fn new(format: FormatRef, op: u32, document: u32) -> Self {
@@ -112,6 +116,8 @@ impl FormatCall<'_> {
             conversion: 0,
             text: "",
             options: Options::NONE,
+            css_root: 0,
+            css_path: "",
         }
     }
 }
@@ -119,6 +125,14 @@ impl FormatCall<'_> {
 /// Everything the document service needs from the host. The shell implements
 /// it over its declarations, storage and stage broker; tests over fakes.
 pub(crate) trait DocHost {
+    /// This host as a trait object (so [`serve`](Self::serve) can hand it on).
+    fn as_dyn(&self) -> &dyn DocHost;
+    /// Runs `run` with the host that serves one call of `who`, bound to its
+    /// `frame` (the settings, the declarations, a directed stage call). A host
+    /// that needs none of it serves as it is; the production host binds them.
+    fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
+        run(self.as_dyn());
+    }
     /// The calling plugin: a never-reused host owner id. The shell's host
     /// does not know it; the backend wraps it in the call's owner.
     fn owner(&self) -> u64 {
@@ -161,6 +175,44 @@ pub(crate) trait DocHost {
     /// the event; the service ends the image ids (`end_images`) first and
     /// never calls the format here.
     fn document_closed(&self, document: &Document, reason: u32);
+    /// The oldest `event.document_closed` of `owner` still to deliver,
+    /// encoded into `out` as a one-record batch: its length, or `None`. A
+    /// failure consumes nothing. A host without events has none.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the host's queue is borrowed; `ERR_NO_SPACE` when `out`
+    /// is too small.
+    fn next_event(&self, _owner: u64, _out: &mut [u8]) -> Result<Option<usize>, i32> {
+        Ok(None)
+    }
+    /// Whether an event was raised since the pump's last pass ([`Self::set_now`]
+    /// starts one): the kernel's pump looks again at once. Events left over
+    /// for an owner that does not run are not asked for again.
+    fn events_waiting(&self) -> bool {
+        false
+    }
+    /// The kernel's clock, milliseconds, as the pump last read it: the time
+    /// the events it delivers are stamped with.
+    fn set_now(&self, _now_ms: u64) {}
+    /// An `open` is about to read the card path `path` of root `root`
+    /// (document `document`): the host counts it so the file is not freed under
+    /// the reader. `Err` refuses the open: nothing is opened and the error is
+    /// the `open`'s. Called once per document, before the format.
+    ///
+    /// # Errors
+    /// What the host's in-use table says (`ERR_FULL`, `ERR_BUSY`).
+    fn reader_opened(&self, _document: u32, _root: u32, _path: &str) -> Result<(), i32> {
+        Ok(())
+    }
+    /// Document `document` ended, whichever way (`close`, its opener or format
+    /// stopped, the host closed it, its place was taken): called once per
+    /// document that `reader_opened` accepted.
+    fn reader_closed(&self, _document: u32) {}
+    /// Whether the plugin `owner` shows a screen now. A document of an opener
+    /// that shows none may be taken for a book to show (`document.md` 2.1).
+    fn shows_screen(&self, _owner: u64) -> bool {
+        false
+    }
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
     /// (`in_block` only; else `ERR_BUSY`), or `None` for a picture that fails
@@ -171,6 +223,9 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The format answered that the document is ready (the open, or the
+    /// last preparing call): what the host keeps for it is complete now.
+    fn document_ready(&self, _document: u32) {}
     /// The owner is a format plugin that stopped: it is removed from the
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
@@ -223,12 +278,52 @@ fn end(host: &dyn DocHost, document: &Document) {
     if !document.format_gone {
         host.close_format(document);
     }
+    // One that the host closed earlier released its reader then; one whose
+    // format retired with its opener (no event) still holds it here.
+    if document.reader_held {
+        host.reader_closed(document.id);
+        host.table().release_reader(document.id);
+    }
 }
 
-/// The host closes a document on its own: image ids end, the opener hears it.
+/// The host closes a document on its own: image ids end, the reader is
+/// released, the opener hears it.
 fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
     host.end_images(document);
+    if document.reader_held {
+        host.reader_closed(document.id);
+        host.table().release_reader(document.id);
+    }
     host.document_closed(document, reason);
+}
+
+/// The host ends one document on its own: the card went (reason 2) or its book
+/// was moved or removed (reason 3), or reason 1. The opener hears
+/// `event.document_closed`, later calls but `close` are `ERR_CANCELLED`, and the
+/// book's reader is released. A document already ended is left alone.
+///
+/// # Errors
+/// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY` (table
+/// borrowed; a retry ends it).
+pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<(), i32> {
+    if let Some(document) = host.table().end_by_host(id, reason)? {
+        host_closed(host, &document, reason);
+    }
+    Ok(())
+}
+
+/// A document taken for a book to show (`document.md` 2.1): closed as by
+/// `close` (image ids end, the format gets op 4, the reader is released) and
+/// its opener hears reason 4 `needed`.
+fn taken(host: &dyn DocHost, document: &Document) {
+    host.end_images(document);
+    if !document.format_gone {
+        host.close_format(document);
+    }
+    if document.reader_held {
+        host.reader_closed(document.id);
+    }
+    host.document_closed(document, table::NEEDED);
 }
 
 /// A format plugin stopped or was uninstalled: its documents are closed by the
@@ -266,6 +361,9 @@ struct Cx<'a> {
     owner: u64,
 }
 impl DocHost for Cx<'_> {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn owner(&self) -> u64 {
         self.owner
     }
@@ -303,6 +401,18 @@ impl DocHost for Cx<'_> {
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.host.document_closed(document, reason);
+    }
+    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+        self.host.reader_opened(document, root, path)
+    }
+    fn document_ready(&self, document: u32) {
+        self.host.document_ready(document);
+    }
+    fn reader_closed(&self, document: u32) {
+        self.host.reader_closed(document);
+    }
+    fn shows_screen(&self, owner: u64) -> bool {
+        self.host.shows_screen(owner)
     }
     fn map_image(
         &self,
@@ -369,28 +479,32 @@ mod op {
 
 /// The `core.document` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
-    let host = &Cx {
-        host: &*services.0,
-        owner: who.owner,
-    };
-    let host: &dyn DocHost = host;
-    match op.id {
-        op::OPEN => open(host, input, out),
-        op::STATE => state(host, input, out),
-        op::CLOSE => close(host, input),
-        op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::FORMAT_FOR => format_for(host, input, out),
-        op::META..=op::PROGRESS => read(host, op, input, out),
-        _ => Err(ERR_UNSUPPORTED),
-    }
+    let mut result = Err(ERR_STATE);
+    services.0.serve(frame, who, &mut |bound| {
+        let host = &Cx {
+            host: bound,
+            owner: who.owner,
+        };
+        let host: &dyn DocHost = host;
+        result = match op.id {
+            op::OPEN => open(host, input, out),
+            op::STATE => state(host, input, out),
+            op::CLOSE => close(host, input),
+            op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::FORMAT_FOR => format_for(host, input, out),
+            op::META..=op::PROGRESS => read(host, op, input, out),
+            _ => Err(ERR_UNSUPPORTED),
+        };
+    });
+    result
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
@@ -425,7 +539,12 @@ fn state(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32>
 
 fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
     let reference: wire::ServiceDocRef = codec::single(input)?;
-    let document = host.table().close(host.owner(), reference.document)?;
+    let document = match host.table().close(host.owner(), reference.document) {
+        Ok(document) => document,
+        // Taken for a book to show: already ended, nothing left to do.
+        Err(ERR_CANCELLED) => return Ok(0),
+        Err(other) => return Err(other),
+    };
     end(host, &document);
     Ok(0)
 }
@@ -459,15 +578,33 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
-    let id = table.open(host.owner(), format, PREPARING, request.flags)?;
-    table.set_sides(id, image_side, cover_side)?;
+    let caller_shows = host.shows_screen(host.owner());
+    let (id, took) = table.open(
+        host.owner(),
+        caller_shows,
+        format,
+        PREPARING,
+        request.flags,
+        &|owner| host.shows_screen(owner),
+    )?;
+    if let Some(victim) = took {
+        taken(host, &victim);
+    }
+    if let Err(error) = host.reader_opened(id, request.root, request.path) {
+        table.discard(id);
+        return Err(error);
+    }
+    table.hold_reader(id);
     let answered = (|| {
+        table.set_sides(id, image_side, cover_side)?;
         let mut call = FormatCall::new(format, fmt::OPEN, id);
         call.flags = request.flags;
         call.image_side = image_side;
         call.cover_side = cover_side;
         call.conversion = conversion;
         call.options = options;
+        call.css_root = request.css_root;
+        call.css_path = request.css_path;
         let length = run(host, &call, out)?;
         let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
         check::state(&answer)?;
@@ -478,7 +615,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
             answer.status,
             answer.flags,
             conversion,
-        )
+        )?;
+        if answer.state == READY {
+            host.document_ready(id);
+        }
+        Ok(())
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
