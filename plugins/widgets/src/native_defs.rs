@@ -148,6 +148,14 @@ static HIGHLIGHT: Behaviour = Behaviour {
     tap: Tap::OpenHighlight,
 };
 
+static LOGO: Behaviour = Behaviour {
+    height: crate::native_logo::height,
+    // The picture is drawn by the plugin over the paint (`native_plugin`).
+    draw: |cx, out, area| crate::native_logo::draw_with(cx, out, area, None).map(|_| ()),
+    shows: crate::native_logo::shows,
+    tap: Tap::None,
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
@@ -168,6 +176,7 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         102 => Some(&CALENDAR),
         100 => Some(&DAY),
         101 => Some(&TILES),
+        121 => Some(&LOGO),
         _ => None,
     }
 }

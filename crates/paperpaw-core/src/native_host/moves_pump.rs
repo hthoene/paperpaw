@@ -12,7 +12,7 @@
 //! * `More`: another pass at once. `Wait` (the card or memory refused the
 //!   step; the job is kept): the next try is [`WAIT_MS`] later (twice as long
 //!   after each refusal in a row, at most [`WAIT_MAX_MS`]; the first one is
-//!   logged), and the
+//!   logged; a move begun meanwhile starts the back-off again), and the
 //!   service pump's next wake-up says so (`service_due`). `Idle`: nothing is
 //!   scheduled; each pass looks again, which costs one flag read, so a move
 //!   that starts in a callback is carried by the next pass.
@@ -46,6 +46,11 @@ impl crate::Kernel {
             return true;
         }
         let now = self.now.millis();
+        // A move the user just began is not held back by the wait of an
+        // earlier step.
+        if let Some(moves) = hosts.library_moves() {
+            instances.moves_begun_seen(moves.begun());
+        }
         if instances.moves_retry().is_some_and(|at| now < at) {
             return false;
         }

@@ -205,6 +205,8 @@ pub(crate) struct NativeInstances {
     doc_retry: Cell<Option<u64>>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
+    /// The count of begun moves the pump last saw (`moves_pump`).
+    moves_begun: Cell<u32>,
     /// Where the event pump goes on (the running plugin it starts at).
     service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
@@ -691,6 +693,18 @@ impl NativeInstances {
         let failures = self.moves_failures.get().saturating_add(1);
         self.moves_failures.set(failures);
         failures
+    }
+
+    /// The pump saw the count of begun moves: when it differs from the last
+    /// one, the back-off of earlier steps is dropped. It matters when no job
+    /// is open (a move is refused as busy while one is, and a refused step
+    /// keeps its job open): a journal that could not be read at the start, a
+    /// job ended by the failure.
+    pub(crate) fn moves_begun_seen(&self, begun: u32) {
+        if self.moves_begun.replace(begun) != begun {
+            self.moves_failures.set(0);
+            self.moves_retry.set(None);
+        }
     }
 
     /// A step was not refused: the back-off starts again.
