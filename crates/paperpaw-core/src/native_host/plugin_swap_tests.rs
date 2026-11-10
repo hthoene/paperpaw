@@ -100,6 +100,15 @@ impl<'a> Cut<'a> {
             fail_only: None,
         }
     }
+    /// Action `nth` fails and the power goes `after` actions in all.
+    fn failing_then_cut(card: &'a MemoryStorage, nth: usize, after: usize) -> Self {
+        Self {
+            card,
+            done: Cell::new(0),
+            allowed: after,
+            fail_only: Some(nth),
+        }
+    }
     pub(in crate::native_host) fn failing(card: &'a MemoryStorage, nth: usize) -> Self {
         Self {
             card,
@@ -512,4 +521,120 @@ fn the_pins_are_taken_idempotently() {
     // The recovery key stays.
     assert_eq!(keys::known_recovery(&card, "dials"), Some(key(&R_SEED)));
     let _ = format!("{entry:?}");
+}
+
+/// An update through the chain A to B to C (two rotations).
+fn chain_pins() -> Pins {
+    let step = |from: &[u8; 32], to: &[u8; 32]| Rotation {
+        to: key(to),
+        signature: sign_message(
+            rotation_message("dials", &key(from), &key(to)).as_bytes(),
+            &R_SEED,
+        ),
+    };
+    let c_seed = [5_u8; 32];
+    let evidence = Evidence::new(None, &[step(&A_SEED, &B_SEED), step(&B_SEED, &c_seed)]).unwrap();
+    let staged = Staged {
+        id: "dials",
+        code: Some((key(&c_seed), NEW_CODE)),
+        standing: Standing {
+            pinned: Some(key(&A_SEED)),
+            recovery: Some(key(&R_SEED)),
+            revoked: false,
+        },
+    };
+    match decide(&staged, &evidence) {
+        Decision::Install { pins, .. } => {
+            assert_eq!(pins.rotations().len(), 2);
+            pins
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_replay_after_the_pins_were_taken_follows_only_the_steps_after_the_pinned_key() {
+    let entry = Entry {
+        id: Text::new("dials"),
+        had_old: true,
+        pins: chain_pins(),
+    };
+    let c = key(&[5; 32]);
+    // Taken, then taken again (a cut after the pins, before the journal went).
+    let card = updated_card();
+    assert!(take_pins(&card, &entry));
+    assert_eq!(native::known_author(&card, "dials"), Some(c));
+    assert!(take_pins(&card, &entry));
+    assert_eq!(native::known_author(&card, "dials"), Some(c));
+    // Cut between the two rotations: the next start goes on from B.
+    let card = updated_card();
+    let first = Entry {
+        pins: Pins::with(None, &entry.pins.rotations()[..1], None).unwrap(),
+        ..entry
+    };
+    assert!(take_pins(&card, &first));
+    assert_eq!(native::known_author(&card, "dials"), Some(key(&B_SEED)));
+    assert!(take_pins(&card, &entry));
+    assert_eq!(native::known_author(&card, "dials"), Some(c));
+    assert_eq!(native::installed_code(&card, "dials"), Some(NEW_CODE));
+}
+
+#[test]
+fn a_cut_during_the_roll_back_never_leaves_the_old_plugin_with_the_new_pins() {
+    let entry = update_entry();
+    let total = actions(&updated_card(), &entry);
+    let mut rolled = 0;
+    // The stage's move into place fails (action k); the power goes a few
+    // actions later, wherever the roll back is.
+    for failing in 0..total {
+        for extra in 0..5 {
+            let card = updated_card();
+            let cut = Cut::failing_then_cut(&card, failing, failing + 1 + extra);
+            let Ok(SwapStep::Failed(_)) = install(&cut, &entry) else {
+                continue;
+            };
+            rolled += 1;
+            let _ = replay(&card);
+            let now = state(&card);
+            assert!(
+                now == old_state() || now == new_state(),
+                "failing {failing}, cut after {extra}: {now:?}"
+            );
+        }
+    }
+    assert!(rolled > 0);
+}
+
+#[test]
+fn another_installs_unfinished_journal_is_not_replaced() {
+    let card = updated_card();
+    let other = Entry {
+        id: Text::new("other"),
+        had_old: false,
+        pins: Pins::NONE,
+    };
+    begin(&card, &other).unwrap();
+    let before = card.size(JOURNAL).unwrap();
+    assert_eq!(begin(&card, &update_entry()), Err(reason::OTHER));
+    assert_eq!(card.size(JOURNAL).unwrap(), before);
+    assert_eq!(read(&card), Ok(Found::Entry(other)));
+}
+
+#[test]
+fn the_two_moves_of_the_swap_are_one_step() {
+    // A stop between steps never finds the plugin without its folder.
+    let card = updated_card();
+    let entry = update_entry();
+    begin(&card, &entry).unwrap();
+    let mut swap = Swap::new(entry, true).unwrap();
+    loop {
+        assert!(card.exists("plugins/dials/plugin.ini"), "between two steps");
+        match swap.step(&card) {
+            SwapStep::More => {}
+            end => {
+                assert_eq!(end, SwapStep::Done { rolled_back: false });
+                break;
+            }
+        }
+    }
 }

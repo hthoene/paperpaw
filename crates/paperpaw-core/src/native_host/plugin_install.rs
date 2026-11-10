@@ -26,7 +26,7 @@
 //! The stage is removed on every end before the journal. A job aborted while
 //! it holds the card leaves the stage for the next start's cleanup (B2c-3);
 //! after the journal, the next start finishes the swap.
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use paperpaw_native::{
     header5::{HEADER_LEN, Header5},
     metadata,
@@ -38,6 +38,7 @@ use paperpaw_sdk::{
     native::CODE_FILES,
 };
 
+use super::files_service::same_fold;
 use super::plugin_check::PluginCheck;
 use super::plugin_folder::{self, Manifest, Walk, Walked};
 use super::plugin_job::{
@@ -46,7 +47,8 @@ use super::plugin_job::{
 };
 use super::plugin_rules::{Decision, Evidence, Pins, Staged, decide};
 use super::plugin_swap::{self, Entry, Swap, SwapStep, io, present};
-use super::plugin_trust;
+use super::plugin_trust::{self, Inquiry, Standing};
+use super::shared::try_box;
 
 /// `install_plugin.flags` bit 0: replace an installed plugin of the id.
 pub(crate) const FLAG_REPLACE: u32 = 1;
@@ -62,6 +64,7 @@ enum Phase {
     List,
     Copy,
     Check,
+    Standing,
     Rules,
     Ask,
     Waiting,
@@ -91,7 +94,9 @@ pub(crate) struct PluginInstall {
     owner: u64,
     request: u32,
     flags: u32,
-    evidence: Evidence,
+    // The big values are boxed: the job is built and moved by value, and a
+    // frame on the X4 holds 2 KiB.
+    evidence: Box<Evidence>,
     phase: Phase,
     source: String,
     id: Text<ID_MAX>,
@@ -106,10 +111,15 @@ pub(crate) struct PluginInstall {
     facts: Option<super::plugin_job::PluginFacts>,
     installed: Option<Installed>,
     manifest: Option<Manifest>,
-    decision: Option<(bool, Pins)>,
-    question: Option<PluginQuestion>,
+    pins: Option<Box<Pins>>,
+    question: Option<Box<PluginQuestion>>,
+    inquiry: Inquiry,
+    standing: Option<Standing>,
+    /// The name of the staged code file as it was copied (a FAT keeps the
+    /// case it was stored in).
+    code_name: Text<16>,
     answer: Option<Answer>,
-    swap: Option<Swap>,
+    swap: Option<Box<Swap>>,
     stopped: Option<u8>,
 }
 
@@ -133,7 +143,7 @@ impl PluginInstall {
             owner,
             request,
             flags,
-            evidence,
+            evidence: try_box(evidence)?,
             phase: Phase::Start,
             source: path,
             id: Text::new(""),
@@ -148,8 +158,11 @@ impl PluginInstall {
             facts: None,
             installed: None,
             manifest: None,
-            decision: None,
+            pins: None,
             question: None,
+            inquiry: Inquiry::new(),
+            standing: None,
+            code_name: Text::new(CODE),
             answer: None,
             swap: None,
             stopped: None,
@@ -287,6 +300,9 @@ impl PluginInstall {
                 _ => return self.end(storage, reason::OTHER),
             };
             self.next += 1;
+            if !rel.contains('/') && same_fold(rel, CODE) {
+                self.code_name = Text::new(rel);
+            }
             if let Some((dir, _)) = dst.rsplit_once('/')
                 && let Err(error) = storage.create_dir(dir)
             {
@@ -349,10 +365,28 @@ impl PluginInstall {
                     return self.end(env.storage, done.reason);
                 }
                 self.facts = done.facts;
-                self.phase = Phase::Rules;
+                // The pins and revocations are read with the job's buffer.
+                let Some(buf) = io_buffer() else {
+                    return self.end(env.storage, reason::OTHER);
+                };
+                self.buf = buf;
+                self.phase = Phase::Standing;
                 JobStep::More
             }
             _ => JobStep::More,
+        }
+    }
+
+    /// The pins and revocations of the id, a step at a time.
+    fn standing(&mut self, storage: &dyn Storage) -> JobStep {
+        match self.inquiry.step(storage, self.id.as_str(), &mut self.buf) {
+            Ok(Some(standing)) => {
+                self.standing = Some(standing);
+                self.phase = Phase::Rules;
+                JobStep::More
+            }
+            Ok(None) => JobStep::More,
+            Err(plugin_trust::Unreadable) => self.end(storage, reason::CARD),
         }
     }
 
@@ -363,19 +397,14 @@ impl PluginInstall {
         let Some(facts) = self.facts else {
             return self.end(storage, reason::OTHER);
         };
-        let Some(buf) = io_buffer() else {
+        let Some(standing) = self.standing else {
             return self.end(storage, reason::OTHER);
         };
-        self.buf = buf;
         // The manifest of the stage is what installs: it names the id still.
         let manifest = match plugin_folder::read_manifest(storage, &self.stage, self.id.as_str()) {
             Ok(manifest) if manifest.id.as_str() == self.id.as_str() => manifest,
             Ok(_) => return self.end(storage, reason::CHANGED),
             Err(why) => return self.end(storage, why),
-        };
-        let standing = match plugin_trust::standing(storage, self.id.as_str(), &mut self.buf) {
-            Ok(standing) => standing,
-            Err(plugin_trust::Unreadable) => return self.end(storage, reason::CARD),
         };
         let code = facts.key.zip(facts.sha256);
         let staged = Staged {
@@ -402,7 +431,12 @@ impl PluginInstall {
         if relation != Relation::Newer && self.flags & FLAG_OLDER == 0 {
             return self.end(storage, reason::OLDER_NOT_ALLOWED);
         }
-        let uses = self.uses(env, &self.stage_code());
+        // What the staged code declares: a stage that cannot be read does not
+        // show "no features" (the grant would then skip the question).
+        let uses = match self.uses(env, code.is_some()) {
+            Ok(uses) => uses,
+            Err(why) => return self.end(storage, why),
+        };
         let new_uses = code.is_some() && self.installed.is_some() && self.new_uses(env, &uses);
         let question = PluginQuestion {
             owner: self.owner,
@@ -418,31 +452,35 @@ impl PluginInstall {
             uses,
         };
         self.manifest = Some(manifest);
-        self.decision = Some((sideload, pins));
+        let Some(pins) = try_box(pins) else {
+            return self.end(storage, reason::OTHER);
+        };
+        self.pins = Some(pins);
         // The grant skips only the prompt.
         let skip = env.granted && !sideload && !new_uses && self.installed.is_some();
         if skip {
             self.phase = Phase::Marks;
             JobStep::More
         } else {
+            let Some(question) = try_box(question) else {
+                return self.end(storage, reason::OTHER);
+            };
             self.question = Some(question);
             self.phase = Phase::Ask;
             JobStep::More
         }
     }
 
-    fn stage_code(&self) -> String {
-        let mut path = String::new();
-        let _ = path.try_reserve_exact(self.stage.len() + 1 + CODE.len());
-        path.push_str(&self.stage);
-        path.push('/');
-        path.push_str(CODE);
-        path
-    }
-
     /// What the staged code declares, as shown (empty for a data plugin).
-    fn uses(&self, env: &JobEnv<'_>, path: &str) -> Uses {
-        uses_of(env, path).unwrap_or_else(no_uses)
+    ///
+    /// # Errors
+    /// A reason where the code of the stage cannot be read.
+    fn uses(&self, env: &JobEnv<'_>, code: bool) -> Result<Uses, u8> {
+        if !code {
+            return Ok(no_uses());
+        }
+        let path = join(&self.stage, self.code_name.as_str()).ok_or(reason::OTHER)?;
+        uses_of(env, &path)
     }
 
     /// Whether the staged version declares a feature the installed one does
@@ -462,7 +500,7 @@ impl PluginInstall {
         path.push_str(self.id.as_str());
         path.push('/');
         path.push_str(CODE);
-        let Some(installed) = uses_of(env, &path) else {
+        let Ok(installed) = uses_of(env, &path) else {
             return true;
         };
         staged.more
@@ -472,7 +510,7 @@ impl PluginInstall {
     }
 
     fn marks(&mut self, storage: &dyn Storage) -> JobStep {
-        let (Some(manifest), Some((_, _))) = (self.manifest, self.decision) else {
+        let (Some(manifest), Some(_)) = (self.manifest, self.pins.as_ref()) else {
             return self.end(storage, reason::OTHER);
         };
         // A catalog's install keeps its store: it offers its updates.
@@ -489,30 +527,35 @@ impl PluginInstall {
     }
 
     fn journal(&mut self, storage: &dyn Storage) -> JobStep {
-        let Some((_, pins)) = self.decision else {
+        let Some(pins) = self.pins.as_deref().copied() else {
             return self.end(storage, reason::OTHER);
         };
-        let had_old = match present(
-            storage,
-            &plugin_swap::target_path(self.id.as_str()).unwrap_or_default(),
-        ) {
+        let Some(target) = plugin_swap::target_path(self.id.as_str()) else {
+            return self.end(storage, reason::OTHER);
+        };
+        let had_old = match present(storage, &target) {
             Ok(had) => had,
             Err(why) => return self.end(storage, why),
         };
+        // A folder that appeared (or went) while the user decided is not what
+        // was confirmed.
+        if had_old != self.installed.is_some() {
+            return self.end(storage, reason::CHANGED);
+        }
         let entry = Entry {
             id: self.id,
             had_old,
             pins,
+        };
+        // Built before the journal: a refusal for memory leaves none.
+        let Some(swap) = Swap::new(entry, true).and_then(try_box) else {
+            return self.end(storage, reason::OTHER);
         };
         if let Err(why) = plugin_swap::begin(storage, &entry) {
             return self.end(storage, why);
         }
         // From the journal on, the stage is the swap's.
         self.phase = Phase::Swapping;
-        let Some(swap) = Swap::new(entry, true) else {
-            // The journal is written: the next start finishes it.
-            return self.end(storage, reason::OTHER);
-        };
         self.release();
         self.swap = Some(swap);
         JobStep::More
@@ -606,25 +649,29 @@ fn read_all(storage: &dyn Storage, path: &str, mut at: u64, buf: &mut [u8]) -> R
 }
 
 /// The `uses.*` features the format-5 code at `path` asks for, as shown.
-/// `None` for no code there or none this device reads.
+///
+/// # Errors
+/// A reason: 1 for no memory, 16 for a card error, 4 where the file is none
+/// this device reads.
 #[inline(never)]
-fn uses_of(env: &JobEnv<'_>, path: &str) -> Option<Uses> {
+fn uses_of(env: &JobEnv<'_>, path: &str) -> Result<Uses, u8> {
     let storage = env.storage;
-    let size = storage.size(path).ok()?;
+    let size = storage.size(path).map_err(io)?;
     let mut head = [0_u8; HEADER_LEN];
-    read_all(storage, path, 0, &mut head).ok()?;
-    let header = Header5::read(&head, size, &env.host.loader).ok()?;
+    read_all(storage, path, 0, &mut head)?;
+    let header = Header5::read(&head, size, &env.host.loader).map_err(|_| reason::DAMAGED)?;
     let mut record = Vec::new();
-    record.try_reserve_exact(header.meta_len as usize).ok()?;
+    record
+        .try_reserve_exact(header.meta_len as usize)
+        .map_err(|_| reason::OTHER)?;
     record.resize(header.meta_len as usize, 0);
     read_all(
         storage,
         path,
         HEADER_LEN as u64 + u64::from(header.meta_at),
         &mut record,
-    )
-    .ok()?;
-    let checked = metadata::check(&record, &env.host.offered).ok()?;
+    )?;
+    let checked = metadata::check(&record, &env.host.offered).map_err(|_| reason::DAMAGED)?;
     let mut uses = no_uses();
     for feature in checked.requested_features() {
         if usize::from(uses.count) < USES_SHOWN {
@@ -634,7 +681,7 @@ fn uses_of(env: &JobEnv<'_>, path: &str) -> Option<Uses> {
             uses.more = true;
         }
     }
-    Some(uses)
+    Ok(uses)
 }
 
 impl PluginJob for PluginInstall {
@@ -661,11 +708,12 @@ impl PluginJob for PluginInstall {
             Phase::List => self.list(storage),
             Phase::Copy => self.copy(storage),
             Phase::Check => self.check(env),
+            Phase::Standing => self.standing(storage),
             Phase::Rules => self.rules(env),
             Phase::Ask => match self.question.take() {
                 Some(question) => {
                     self.phase = Phase::Waiting;
-                    JobStep::Ask(question)
+                    JobStep::Ask(*question)
                 }
                 None => self.end(storage, reason::OTHER),
             },

@@ -828,3 +828,119 @@ fn an_allocation_that_fails_ends_the_install_without_a_panic_or_a_half_install()
     assert!(refused >= 8, "{refused} allocations were refused");
     let _ = (FLAG_DATA_PLUGIN, INI, plugin_swap::JOURNAL);
 }
+
+#[test]
+fn a_folder_that_appears_while_the_user_decides_is_not_replaced() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let mut job = job(0, Evidence::NONE);
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Names,
+        granted: false,
+    };
+    let done = loop {
+        match job.step(&env) {
+            JobStep::Ask(_) => {
+                // Someone put a plugin of the id there meanwhile.
+                installed(&card, "0.9.0", None, None);
+                job.answer(Answer::Yes);
+            }
+            JobStep::Done(done) => break done,
+            _ => {}
+        }
+    };
+    assert_eq!(done.reason, reason::CHANGED);
+    assert_eq!(text(&card, "plugins/dials/old.txt").as_deref(), Some("old"));
+    assert!(!card.exists("plugins/.dials.part/plugin.ini") && !card.exists("plugins/.journal"));
+}
+
+#[test]
+fn the_plugin_always_has_its_folder_between_two_steps() {
+    let card = MemoryStorage::new();
+    installed(&card, "1.0.0", None, None);
+    data_source(&card, "1.1.0");
+    let mut job = job(REPLACE, Evidence::NONE);
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Names,
+        granted: false,
+    };
+    loop {
+        assert!(card.exists("plugins/dials/plugin.ini"), "between two steps");
+        match job.step(&env) {
+            JobStep::Ask(_) => job.answer(Answer::Yes),
+            JobStep::Done(done) => {
+                assert_eq!(done.reason, reason::OK);
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn an_allocation_that_fails_never_lets_the_grant_skip_the_question_for_a_new_feature() {
+    let wider = record(
+        &["core.plugin"],
+        &[("uses.registry", false), ("uses.wifi", false)],
+        1,
+    );
+    let old = code_file(&good_record(), Some(&AUTHOR_SEED), 4096);
+    let mut asked_and_installed = 0;
+    for nth in 1..600_u32 {
+        let card = MemoryStorage::new();
+        installed(&card, "1.0.0", Some(&old), Some(author()));
+        code_source_with(&card, "1.1.0", &wider, &AUTHOR_SEED);
+        let shield = Shielded(&card);
+        FAIL_NTH.with(|n| n.set(nth));
+        let ran = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            let mut job = PluginInstall::new(7, 3, SOURCE, REPLACE, Evidence::NONE)?;
+            let env = JobEnv {
+                storage: &shield,
+                host: &host(),
+                built_ins: &Names,
+                granted: true,
+            };
+            let mut asked = 0;
+            for _ in 0..10_000 {
+                let sdk = matches!(job.phase, Phase::Marks | Phase::Swapping);
+                let armed = FAIL_NTH.with(|n| if sdk { n.replace(0) } else { n.get() });
+                let step = job.step(&env);
+                if sdk {
+                    FAIL_NTH.with(|n| n.set(armed));
+                }
+                match step {
+                    JobStep::Ask(_) => {
+                        asked += 1;
+                        job.answer(Answer::Yes);
+                    }
+                    JobStep::Done(done) => return Some((done, asked)),
+                    _ => {}
+                }
+            }
+            panic!("an install that never ends");
+        }));
+        FAIL_NTH.with(|n| n.set(0));
+        let Some((done, asked)) = ran.expect("never a panic") else {
+            continue;
+        };
+        if done.reason == reason::OK {
+            assert_eq!(asked, 1, "allocation {nth}: installed without asking");
+            asked_and_installed += 1;
+        }
+    }
+    assert!(asked_and_installed > 0);
+}
+
+#[test]
+fn the_job_is_small_enough_to_pass_by_value_on_the_x4() {
+    // Frames hold 2 KiB there; the big values live in boxes.
+    assert!(
+        core::mem::size_of::<PluginInstall>() <= 1024,
+        "{} bytes",
+        core::mem::size_of::<PluginInstall>()
+    );
+}

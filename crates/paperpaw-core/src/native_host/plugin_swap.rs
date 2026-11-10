@@ -224,9 +224,17 @@ pub(crate) fn io(error: StorageError) -> u8 {
 /// Writes the journal whole: a temporary file, synced, renamed into place.
 ///
 /// # Errors
-/// A reason of 5.5 (16 a card error, 17 a full card); the journal is then
-/// either not there or the old one, never half written.
+/// A reason of 5.5 (16 a card error, 17 a full card; 1 where another journal
+/// is still there); the journal is then either not there or the old one, never
+/// half written.
 pub(crate) fn begin(storage: &dyn Storage, entry: &Entry) -> Result<(), u8> {
+    // The journal of another install, one that could not be finished, is not
+    // ours to replace: the start finishes it.
+    match storage.size(JOURNAL) {
+        Ok(_) => return Err(reason::OTHER),
+        Err(StorageError::NotFound) => {}
+        Err(error) => return Err(io(error)),
+    }
     let mut buf = [0_u8; RECORD_MAX];
     let len = encode(entry, &mut buf);
     storage
@@ -366,10 +374,15 @@ impl Swap {
         if old && !target && storage.rename(&self.old, &self.target).is_err() {
             return;
         }
+        // The journal goes before the stage: a cut while the stage is half
+        // removed must not let the replay install what is left of it.
+        match storage.remove(JOURNAL) {
+            Ok(()) | Err(StorageError::NotFound) => {}
+            Err(_) => return,
+        }
         if stage {
             let _ = storage.remove_dir_all(&self.stage);
         }
-        let _ = storage.remove(JOURNAL);
         self.rolled_back = true;
     }
 
@@ -447,10 +460,12 @@ impl Swap {
                 self.phase = Phase::RemoveJournal;
                 SwapStep::More
             }
-            // The old folder goes first.
+            // The old folder goes first, and the stage follows in the same
+            // step: a stop between the two would leave the plugin without its
+            // folder until the next start.
             (true, false, true) if self.entry.had_old => {
                 match storage.rename(&self.target, &self.old) {
-                    Ok(()) => SwapStep::More,
+                    Ok(()) => self.moving(storage),
                     Err(error) => {
                         let why = io(error);
                         self.fail(storage, why)
@@ -487,7 +502,10 @@ pub(crate) fn take_pins(storage: &dyn Storage, entry: &Entry) -> bool {
     let mut kept = true;
     if let Some((author, recovery)) = pins.first {
         match native::known_author(storage, id) {
-            Some(known) => kept &= known == author,
+            // Or a key it was rotated to since: a replay after a cut.
+            Some(known) => {
+                kept &= known == author || pins.rotations().iter().any(|step| step.to == known);
+            }
             None => {
                 kept &= match recovery {
                     Some(recovery) => keys::remember_first_install(storage, id, &author, &recovery),
@@ -496,10 +514,15 @@ pub(crate) fn take_pins(storage: &dyn Storage, entry: &Entry) -> bool {
             }
         }
     }
-    for step in pins.rotations() {
-        if native::known_author(storage, id) == Some(step.to) {
-            continue;
-        }
+    // Only the steps after the key pinned now: a replay after a cut finds the
+    // chain taken as far as it got, and a step before it would not hold.
+    let known = native::known_author(storage, id);
+    let taken = pins
+        .rotations()
+        .iter()
+        .rposition(|step| Some(step.to) == known)
+        .map_or(0, |at| at + 1);
+    for step in pins.rotations().iter().skip(taken) {
         kept &= keys::accept_rotation(storage, id, &step.to, &step.signature).is_ok();
         if !kept {
             return false;

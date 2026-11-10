@@ -78,6 +78,8 @@ pub(crate) struct PluginCheck {
     at: u64,
     /// The code's header digest, once it held.
     digest: Option<[u8; 32]>,
+    /// The look at the author's standing, one step at a time.
+    inquiry: plugin_trust::Inquiry,
     /// Set by [`PluginJob::abort`]: the next step ends with it.
     stopped: Option<u8>,
     /// The id a manifest that names none has: a staged copy's folder is not
@@ -112,6 +114,7 @@ impl PluginCheck {
             check: None,
             at: 0,
             digest: None,
+            inquiry: plugin_trust::Inquiry::new(),
             stopped: None,
             hint: None,
         })
@@ -141,12 +144,13 @@ impl PluginCheck {
     }
 
     fn code_path(&self) -> Option<String> {
-        let root = self.walk.as_ref()?.root();
+        let walk = self.walk.as_ref()?;
+        let (root, name) = (walk.root(), walk.code_name());
         let mut path = String::new();
-        path.try_reserve_exact(root.len() + 1 + CODE.len()).ok()?;
+        path.try_reserve_exact(root.len() + 1 + name.len()).ok()?;
         path.push_str(root);
         path.push('/');
-        path.push_str(CODE);
+        path.push_str(name);
         Some(path)
     }
 
@@ -270,7 +274,7 @@ impl PluginCheck {
         // Room for the code beside the others, before the file is read whole.
         let manifest = self.manifest;
         let id = manifest.as_ref().map_or("", |m| m.id.as_str());
-        if !room_fits(storage, &env.host.loader, &header, id, &mut self.buf) {
+        if !room_fits(storage, &env.host.loader, &header, id) {
             return self.end(reason::NO_ROOM);
         }
         let sha = header.digest();
@@ -379,11 +383,15 @@ impl PluginCheck {
             // Code with no author's signature does not install.
             return self.end(reason::UNSIGNED);
         };
-        let standing =
-            match plugin_trust::standing(env.storage, manifest.id.as_str(), &mut self.buf) {
-                Ok(standing) => standing,
-                Err(plugin_trust::Unreadable) => return self.end(reason::CARD),
-            };
+        let standing = match self
+            .inquiry
+            .step(env.storage, manifest.id.as_str(), &mut self.buf)
+        {
+            Ok(Some(standing)) => standing,
+            // The revocations are read a buffer at a time.
+            Ok(None) => return JobStep::More,
+            Err(plugin_trust::Unreadable) => return self.end(reason::CARD),
+        };
         let mut flags = 0;
         match standing.pinned {
             Some(pinned) if pinned == signature.key => flags |= FLAG_PINNED_HERE,
@@ -498,13 +506,12 @@ fn room_fits(
     loader: &paperpaw_native::header5::Host,
     header: &Header5,
     id: &str,
-    buf: &mut [u8],
 ) -> bool {
     let Some(room) = native::code_room(storage) else {
         return true;
     };
     let need = room.needs(u64::from(header.image_len), header.align);
-    let own = own_need(storage, loader, &room, id, buf);
+    let own = own_need(storage, loader, &room, id);
     let taken = room.used.saturating_sub(own.unwrap_or(0));
     let placed = room.placed.saturating_sub(u32::from(own.is_some()));
     room.fits(taken, placed, need)
@@ -517,8 +524,9 @@ fn own_need(
     loader: &paperpaw_native::header5::Host,
     room: &native::CodeRoom,
     id: &str,
-    buf: &mut [u8],
 ) -> Option<u64> {
+    // Its own buffer: the caller's holds the new file's header.
+    let mut head = [0_u8; HEADER_LEN];
     let mut path = String::new();
     path.try_reserve_exact(paperpaw_sdk::builtin::PLUGIN_DIR.len() + id.len() + 2 + CODE.len())
         .ok()?;
@@ -528,8 +536,8 @@ fn own_need(
     path.push('/');
     path.push_str(CODE);
     let size = storage.size(&path).ok()?;
-    read_exact(storage, &path, 0, buf.get_mut(..HEADER_LEN)?).ok()?;
-    let header = Header5::read(&buf[..HEADER_LEN], size, loader).ok()?;
+    read_exact(storage, &path, 0, &mut head).ok()?;
+    let header = Header5::read(&head, size, loader).ok()?;
     Some(room.needs(u64::from(header.image_len), header.align))
 }
 
