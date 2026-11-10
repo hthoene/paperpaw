@@ -86,14 +86,12 @@ impl PluginJob for Script {
     fn step(&mut self, _: &JobEnv<'_>) -> JobStep {
         self.seen.steps.set(self.seen.steps.get() + 1);
         if self.seen.steps.get() >= self.steps {
-            JobStep::Done(Finished {
-                reason: self.done.reason,
-                facts: self.done.facts,
-            })
+            JobStep::Done(Finished::checked(self.done.reason, self.done.facts))
         } else {
             JobStep::More
         }
     }
+    fn answer(&mut self, _: crate::native_host::plugin_job::Answer) {}
     fn abort(&mut self, reason: u8) {
         self.seen.aborted.set(Some(reason));
     }
@@ -118,10 +116,7 @@ fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
         request,
         kind: KIND_CHECK,
         steps,
-        done: Finished {
-            reason: 0,
-            facts: Some(facts("dials")),
-        },
+        done: Finished::checked(0, Some(facts("dials"))),
         seen: Rc::clone(&seen),
         must_finish: false,
         keep: false,

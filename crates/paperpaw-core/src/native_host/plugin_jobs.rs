@@ -3,7 +3,8 @@
 //! second time when a plugin triggers it). A new kind of job is a new
 //! variant that delegates to its [`PluginJob`].
 use super::plugin_check::PluginCheck;
-use super::plugin_job::{JobEnv, JobStep, PluginJob};
+use super::plugin_install::PluginInstall;
+use super::plugin_job::{Answer, JobEnv, JobStep, PluginJob};
 
 /// One plugin job.
 #[allow(
@@ -13,6 +14,8 @@ use super::plugin_job::{JobEnv, JobStep, PluginJob};
 pub(crate) enum PluginJobs {
     /// `check_file` of a plugin folder.
     Check(PluginCheck),
+    /// `install_plugin` of a plugin folder.
+    Install(PluginInstall),
     /// A scripted job of the driver's tests.
     #[cfg(test)]
     Script(super::firmware_driver::plugin_tests::Script),
@@ -22,6 +25,7 @@ macro_rules! each {
     ($self:expr, $job:ident => $body:expr) => {
         match $self {
             Self::Check($job) => $body,
+            Self::Install($job) => $body,
             #[cfg(test)]
             Self::Script($job) => $body,
         }
@@ -40,6 +44,9 @@ impl PluginJob for PluginJobs {
     }
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep {
         each!(self, job => job.step(env))
+    }
+    fn answer(&mut self, answer: Answer) {
+        each!(self, job => job.answer(answer));
     }
     fn abort(&mut self, reason: u8) {
         each!(self, job => job.abort(reason));

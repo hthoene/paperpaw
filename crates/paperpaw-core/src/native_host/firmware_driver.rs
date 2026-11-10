@@ -36,7 +36,8 @@ use super::firmware_install::{
     Question,
 };
 use super::plugin_job::{
-    Finished, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost, PluginJob,
+    Finished, InstallGrants, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost, PluginJob,
+    PluginQuestion,
 };
 use super::plugin_jobs::PluginJobs;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
@@ -135,6 +136,10 @@ pub(crate) struct Driver {
     finishing: Option<bool>,
     /// What the device tells a plugin job; `None`: no plugin job is accepted.
     plugin_host: Option<PluginHost>,
+    /// Which plugins hold the trusted-installer grant (`None`: none does).
+    grants: Option<Box<dyn InstallGrants>>,
+    /// The running plugin job asked the user and waits for the answer.
+    plugin_question: Option<PluginQuestion>,
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
@@ -170,6 +175,8 @@ impl Driver {
             running: None,
             finishing: None,
             plugin_host: None,
+            grants: None,
+            plugin_question: None,
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
@@ -323,6 +330,36 @@ impl Driver {
     /// [`Self::submit_plugin`] accepts them.
     pub(crate) fn set_plugin_host(&mut self, host: PluginHost) {
         self.plugin_host = Some(host);
+    }
+
+    /// The host's trusted-installer grants (`core.grant.install.<plugin>`,
+    /// `device.md` 5.2): without them no install skips its question.
+    pub(crate) fn set_install_grants(&mut self, grants: Box<dyn InstallGrants>) {
+        self.grants = Some(grants);
+    }
+
+    /// The question the running plugin job waits on, for the host to show
+    /// (`None` when none waits). Answered by [`Self::answer_plugin`].
+    pub(crate) fn plugin_question(&self) -> Option<&PluginQuestion> {
+        self.plugin_question.as_ref()
+    }
+
+    /// The user's answer to [`Self::plugin_question`]; `false` for a question
+    /// that is not (or no longer) the open one.
+    pub(crate) fn answer_plugin(&mut self, owner: u64, request: u32, answer: Answer) -> bool {
+        let open = self
+            .plugin_question
+            .as_ref()
+            .is_some_and(|question| (question.owner, question.request) == (owner, request));
+        if !open || self.running != Some((owner, request)) {
+            return false;
+        }
+        let Some(at) = self.plugin_at(owner, request) else {
+            return false;
+        };
+        self.plugin_question = None;
+        self.plugin_jobs[at].answer(answer);
+        true
     }
 
     /// Whether plugin jobs are accepted (a plugin host is set).
@@ -564,6 +601,10 @@ impl Driver {
         now_ms: u64,
     ) -> Event {
         if self.running.is_some() {
+            // A job that asked the user waits for the answer; nothing to step.
+            if self.plugin_question.is_some() {
+                return Event::Quiet;
+            }
             return self.plugin_step(storage, built_ins);
         }
         let Ok(mut machine) = self.machine.try_borrow_mut() else {
@@ -610,8 +651,16 @@ impl Driver {
                 storage,
                 host,
                 built_ins,
+                granted: self
+                    .grants
+                    .as_ref()
+                    .is_some_and(|grants| grants.granted(owner)),
             }) {
-                JobStep::More => return Event::Quiet,
+                JobStep::More | JobStep::Wait => return Event::Quiet,
+                JobStep::Ask(question) => {
+                    self.plugin_question = Some(question);
+                    return Event::Quiet;
+                }
                 JobStep::Done(finished) => finished,
             },
             // Not reachable (no job is accepted without a host): ends, told.
@@ -637,6 +686,8 @@ impl Driver {
             request,
             kind,
             reason: finished.reason,
+            flags: finished.flags,
+            id: finished.changed,
         }))
     }
 
@@ -868,6 +919,8 @@ impl Driver {
         // releases what it holds) and ends like a waiting one. One that must
         // finish (past the point where the card holds half of a change)
         // stays, aborted: [`Self::finish_stopped`] steps it on.
+        // Nobody is left to answer.
+        self.plugin_question = None;
         let mut running = None;
         if let Some((owner, request)) = self.running.take()
             && let Some(at) = self.plugin_at(owner, request)
@@ -899,6 +952,8 @@ impl Driver {
                 request: job.request(),
                 kind,
                 reason: STOPPED,
+                flags: 0,
+                id: None,
             });
         }
         // What is left has no job: a restart that waits for its answer. With
@@ -916,6 +971,8 @@ impl Driver {
                 request: entry.request,
                 kind: entry.kind,
                 reason: STOPPED,
+                flags: 0,
+                id: None,
             });
         }
     }
@@ -955,6 +1012,10 @@ impl Driver {
                 .entries
                 .iter()
                 .any(|entry| entry.owner == owner && !self.queue_has(entry));
+        if plugin_runs {
+            // Its question goes with its sender (or with the job).
+            self.plugin_question = None;
+        }
         if plugin_runs
             && let Some((runs, request)) = self.running
             && let Some(at) = self.plugin_at(runs, request)
@@ -1013,6 +1074,9 @@ impl Driver {
 #[path = "firmware_driver_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "firmware_driver_install_tests.rs"]
+mod install_tests;
 #[cfg(test)]
 #[path = "firmware_driver_plugin_tests.rs"]
 pub(crate) mod plugin_tests;

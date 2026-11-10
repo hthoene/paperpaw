@@ -387,3 +387,194 @@ fn a_restart_is_for_the_plugin_whose_install_waits_and_the_host_then_asks() {
     let ask = d.borrow().peek_ask().unwrap();
     assert!(ask.restart, "the host asks again");
 }
+
+fn install_plugin(request: u32, flags: u32) -> WireCommand<'static> {
+    WireCommand::InstallPlugin {
+        request,
+        root: 0,
+        path: "Download/dials",
+        flags,
+    }
+}
+
+fn author<'a>(request: u32, author: &'a [u8], recovery: &'a [u8]) -> WireCommand<'a> {
+    WireCommand::InstallAuthor {
+        request,
+        author,
+        recovery,
+    }
+}
+
+fn rotation<'a>(request: u32, to: &'a [u8], signature: &'a [u8]) -> WireCommand<'a> {
+    WireCommand::InstallRotation {
+        request,
+        to,
+        signature,
+    }
+}
+
+#[test]
+fn an_install_needs_the_feature_a_plugin_host_known_flags_and_a_path_the_plugin_may_read() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[install_plugin(1, 0)]).0,
+        ERR_DENIED
+    );
+    // No plugin host: nothing to run it.
+    let bare = driver();
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&bare), &[install_plugin(1, 0)]).0,
+        ERR_UNSUPPORTED
+    );
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&d), &[install_plugin(0, 0)]).0,
+        ERR_INVALID
+    );
+    // Bits 0 (replace) and 1 (older) only.
+    assert_eq!(
+        stage(&kernel, INSTALL, Some(&d), &[install_plugin(1, 4)]).0,
+        ERR_INVALID
+    );
+    let card = WireCommand::InstallPlugin {
+        request: 1,
+        root: 1,
+        path: "Download/dials",
+        flags: 0,
+    };
+    assert_eq!(stage(&kernel, INSTALL, Some(&d), &[card]).0, ERR_DENIED);
+    assert_eq!(d.borrow().waiting(), 0, "a refusal accepts nothing");
+    // One install a batch, like the other firmware commands.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&d),
+            &[install_plugin(1, 0), install_plugin(2, 0)]
+        )
+        .0,
+        ERR_INVALID
+    );
+    // Accepted at submit; given back when the batch never applies.
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[install_plugin(1, 3)]);
+    assert_eq!(status, OK);
+    assert!(d.borrow().holds(OWNER, 1));
+    drop(output);
+    assert_eq!(d.borrow().waiting(), 0);
+}
+
+#[test]
+fn evidence_belongs_to_the_install_before_it_and_is_none_or_whole() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    let (key, signature) = ([1_u8; 32], [2_u8; 64]);
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    // Before its install, or for another request: out of place.
+    assert_eq!(
+        run(&[author(1, &key, &[]), install_plugin(1, 0)]),
+        ERR_INVALID
+    );
+    assert_eq!(
+        run(&[install_plugin(1, 0), author(2, &key, &[])]),
+        ERR_INVALID
+    );
+    assert_eq!(
+        run(&[install_plugin(1, 0), rotation(2, &key, &signature)]),
+        ERR_INVALID
+    );
+    // Evidence with no install at all.
+    assert_eq!(run(&[author(1, &key, &[])]), ERR_INVALID);
+    // At most one author.
+    assert_eq!(
+        run(&[
+            install_plugin(1, 0),
+            author(1, &key, &[]),
+            author(1, &key, &[])
+        ]),
+        ERR_INVALID
+    );
+    // Keys are 0 or 32 bytes, a rotation's key 32 and its signature 64.
+    for bad in [1_usize, 5, 31] {
+        let short = [7_u8; 32];
+        assert_eq!(
+            run(&[install_plugin(1, 0), author(1, &short[..bad], &[])]),
+            ERR_INVALID,
+            "author of {bad} bytes"
+        );
+        assert_eq!(
+            run(&[install_plugin(1, 0), author(1, &key, &short[..bad])]),
+            ERR_INVALID,
+            "recovery of {bad} bytes"
+        );
+    }
+    assert_eq!(
+        run(&[install_plugin(1, 0), rotation(1, &key[..31], &signature)]),
+        ERR_INVALID
+    );
+    assert_eq!(
+        run(&[install_plugin(1, 0), rotation(1, &key, &signature[..63])]),
+        ERR_INVALID
+    );
+    // Six rotations, no more.
+    let mut six = alloc::vec![install_plugin(1, 0), author(1, &key, &key)];
+    for _ in 0..6 {
+        six.push(rotation(1, &key, &signature));
+    }
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &six);
+    assert_eq!(status, OK);
+    drop(output);
+    assert_eq!(d.borrow().waiting(), 0);
+    // A seventh is refused by the host whatever the wire carries.
+    let mut seen = EvidenceSeen::default();
+    seen.install(1);
+    for _ in 0..6 {
+        assert_eq!(seen.take(&rotation(1, &key, &signature)), Ok(()));
+    }
+    assert_eq!(seen.take(&rotation(1, &key, &signature)), Err(ERR_INVALID));
+}
+
+#[test]
+fn the_evidence_of_the_batch_reaches_the_job() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    let (key, recovery, signature) = ([1_u8; 32], [3_u8; 32], [2_u8; 64]);
+    let (status, output) = stage(
+        &kernel,
+        INSTALL,
+        Some(&d),
+        &[
+            install_plugin(5, 1),
+            author(5, &key, &recovery),
+            rotation(5, &[9; 32], &signature),
+        ],
+    );
+    assert_eq!(status, OK);
+    let (_, _, _, batch) = output;
+    let [item] = batch.items.as_slice() else {
+        panic!("one item")
+    };
+    let DevOp::Firmware(FirmwareOp::PluginInstall {
+        request,
+        flags,
+        evidence,
+        ..
+    }) = &item.op
+    else {
+        panic!("an install")
+    };
+    assert_eq!((*request, *flags), (5, 1));
+    let author = evidence.author.expect("the author record");
+    assert_eq!(
+        (author.author, author.recovery, author.sha256),
+        (Some(key), Some(recovery), None)
+    );
+    assert_eq!(evidence.rotations().len(), 1);
+    assert_eq!(evidence.rotations()[0].to, [9; 32]);
+    // Without the author record the install is a sideload.
+    let (_, output) = stage(&kernel, INSTALL, Some(&d), &[install_plugin(6, 0)]);
+    let (_, _, _, batch) = output;
+    let DevOp::Firmware(FirmwareOp::PluginInstall { evidence, .. }) = &batch.items[0].op else {
+        panic!("an install")
+    };
+    assert!(evidence.author.is_none() && evidence.rotations().is_empty());
+}

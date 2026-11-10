@@ -33,6 +33,8 @@ fn outcome(kind: u32, reason: u8) -> Outcome {
         request: 1,
         kind,
         reason,
+        flags: 0,
+        id: None,
     }
 }
 

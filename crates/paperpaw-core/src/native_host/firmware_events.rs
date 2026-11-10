@@ -201,11 +201,11 @@ impl Kernel {
                 kind: outcome.kind,
                 status: status_of(outcome),
                 reason: u32::from(outcome.reason),
-                flags: 0,
+                flags: outcome.flags,
                 id: if outcome.kind == super::firmware_install::KIND_FIRMWARE {
                     ""
                 } else {
-                    id
+                    outcome.id.as_ref().map_or(id, |text| text.as_str())
                 },
             });
             if self.firmware_tell(outcome.owner, wire::EVENT_INSTALL_DONE_TAG, &record)
