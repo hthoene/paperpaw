@@ -34,6 +34,7 @@ pub mod native_job;
 pub mod native_plan;
 /// The interface-7 plugin.
 pub mod native_plugin;
+mod native_sample;
 mod native_view;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

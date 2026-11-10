@@ -10,6 +10,7 @@ use crate::{
     declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN},
     native_catalog::{Catalog, Font},
     native_job::Job,
+    native_sample,
     native_view::{Installed, Row, Trouble, rows, should_fetch},
 };
 use alloc::{string::String, vec::Vec};
@@ -52,6 +53,8 @@ const CATALOG_REQUEST: u32 = 1;
 /// The token of the font files' requests, and the numbers of the host
 /// requests (an install, a removal) in their `install_done`.
 const DOWNLOADED_FILE: u32 = 2;
+/// The token of a font's sample request.
+const SAMPLE_REQUEST: u32 = 3;
 /// The first request number of an install; each download counts up from it.
 const INSTALL_REQUEST: u32 = 16;
 const REMOVE_REQUEST: u32 = 2;
@@ -81,9 +84,23 @@ struct FontView {
     /// What each item of `list` does (`None` for the lines of text).
     rows: Vec<Option<Row>>,
     list: ItemList,
+    /// The sample of the font in its own face: where it is kept, and whether it
+    /// is there (item 0 of `list` is the sentence in the menus' face until it is).
+    sample: Option<Sample>,
+}
+
+/// The sample of a font kept in the data folder.
+#[derive(Debug)]
+struct Sample {
+    path: String,
+    ready: bool,
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one view per open screen; boxing it would be an allocation that can fail"
+)]
 enum View {
     List(ListView),
     Font(FontView),
@@ -102,6 +119,8 @@ pub struct NativeFontsBrowser {
     /// The font being downloaded, and the request of its file in flight.
     job: Option<Job>,
     file_request: Option<RequestId>,
+    /// The request of the sample of the font on show.
+    sampling: Option<RequestId>,
     /// Downloads started so far: each has its own install request number.
     started: u32,
 }
@@ -168,6 +187,9 @@ impl Plugin for NativeFontsBrowser {
                     self.catalog_done(host, &done)?;
                 } else if done.token() == DOWNLOADED_FILE {
                     self.file_done(host, &done)?;
+                } else if done.token() == SAMPLE_REQUEST && self.sampling == Some(done.id()) {
+                    self.sampling = None;
+                    self.sample_done(host, &done)?;
                 }
                 Ok(())
             }
@@ -187,6 +209,10 @@ impl Plugin for NativeFontsBrowser {
                 Ok(())
             }
             Event::ScreenClosed { instance, .. } => {
+                // A sample still on its way is not waited for by a screen that is gone.
+                if token == FONT {
+                    self.sampling = None;
+                }
                 self.screens.close(instance);
                 Ok(())
             }
@@ -233,7 +259,8 @@ impl Plugin for NativeFontsBrowser {
                     None => messages.copy(host, "fonts-browser.title")?,
                 };
                 view.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                    .draw_with(host, &mut frame, &title, true, Footer::None)?;
+                Self::draw_sample(host, &mut frame, view)
             }
         }
     }
@@ -579,8 +606,79 @@ impl NativeFontsBrowser {
             .map(|job| copy(&job.plan.plugin))
             .transpose()?;
         let installing = self.job.as_ref().is_some_and(|job| job.installing());
-        let view = Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
+        let mut view = Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
+        // The sample is asked for; the page shows the plain line until it is there.
+        view.sample = self.want_sample(host, &view)?;
         self.screens.open(instance, View::Font(view))
+    }
+
+    /// The sample of the font of `view`: kept already (ready), or asked for while
+    /// the device has a network. A library that has none, or a refusal to ask,
+    /// leaves the plain line.
+    fn want_sample(&mut self, host: &Host<'_>, view: &FontView) -> Result<Option<Sample>, Error> {
+        let Some(font) = &view.font else {
+            return Ok(None);
+        };
+        if font.sample.is_empty() {
+            return Ok(None);
+        }
+        let mut scratch = [0; 32];
+        let language = paperpaw_sdk::native::i18n::language(host, &mut scratch)?;
+        let path = native_sample::path(&font.id, &font.version, language)?;
+        let storage = DataStorage::new(host);
+        if paperpaw_sdk::Storage::exists(&storage, &path) {
+            return Ok(Some(Sample { path, ready: true }));
+        }
+        if self.sampling.is_some() || !self.has_network(host)? {
+            return Ok(None);
+        }
+        let sentence = Messages::new()?.copy(host, "fonts-browser.sample")?;
+        let url = native_sample::url(
+            &font.sample,
+            &native_sample::characters(&font.name, &sentence)?,
+        )?;
+        paperpaw_sdk::Storage::create_dir(&storage, native_sample::DIR).ok();
+        let (mut input, mut reply) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+        let request = Request::get(SAMPLE_REQUEST, &url)?
+            .save_to(FileRoot::Data, &path)?
+            .max_file(native_sample::MAX_FILE)?;
+        match self
+            .net(host)?
+            .request(host, &request, &mut input, &mut reply)
+        {
+            Ok(id) => {
+                self.sampling = Some(id);
+                Ok(Some(Sample { path, ready: false }))
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// The sample arrived (or did not): a file that is no sample is removed.
+    fn sample_done(
+        &mut self,
+        host: &Host<'_>,
+        done: &paperpaw_sdk::native::net::HttpDone,
+    ) -> Result<(), Error> {
+        let ok = done.reason() == Reason::Ok && (200..300).contains(&done.status());
+        let mut gone = None;
+        if let Some(View::Font(view)) = self.screens.top(FONT)
+            && let Some(sample) = &mut view.sample
+            && !sample.ready
+        {
+            if ok {
+                sample.ready = true;
+            } else {
+                gone = view.sample.take();
+            }
+        }
+        if let Some(gone) = gone {
+            paperpaw_sdk::Storage::remove(&DataStorage::new(host), &gone.path).ok();
+        }
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch)
+            .queue_redraw(paperpaw_sdk::native::commands::RedrawMode::Partial)
     }
 
     /// The page of `font`: what it is, and what can be done with it.
@@ -609,6 +707,7 @@ impl NativeFontsBrowser {
                 font: None,
                 rows: kinds,
                 list: ItemList::new(items),
+                sample: None,
             });
         };
         // The sentence in the menus' font (BLOCKED #228: the font's own face
@@ -648,6 +747,7 @@ impl NativeFontsBrowser {
             font: Some(font),
             rows: kinds,
             list: ItemList::new(items),
+            sample: None,
         })
     }
 
@@ -691,6 +791,28 @@ impl NativeFontsBrowser {
             ),
             Row::Remove => (messages.copy(host, "fonts-browser.remove")?, String::new()),
         })
+    }
+
+    /// The sentence over its line in the sample's own face (item 0 of the page).
+    /// A sample that cannot be drawn is let go: the plain line stays.
+    fn draw_sample(
+        host: &Host<'_>,
+        frame: &mut DrawFrame<'_>,
+        view: &mut FontView,
+    ) -> Result<(), Error> {
+        let Some(sample) = view.sample.as_ref().filter(|s| s.ready) else {
+            return Ok(());
+        };
+        let Some(area) = view.list.rect_of(0) else {
+            return Ok(());
+        };
+        let sentence = Messages::new()?.copy(host, "fonts-browser.sample")?;
+        if !native_sample::draw(host, frame, area, (&sentence, &sample.path))?
+            && let Some(gone) = view.sample.take()
+        {
+            paperpaw_sdk::Storage::remove(&DataStorage::new(host), &gone.path).ok();
+        }
+        Ok(())
     }
 
     /// What choosing a row of a font's page does.
