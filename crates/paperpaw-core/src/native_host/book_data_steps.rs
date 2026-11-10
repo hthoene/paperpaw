@@ -416,6 +416,7 @@ pub(crate) fn follow_removal(storage: &dyn Storage, data: &[BookData], path: &st
 ///
 /// # Errors
 /// `ERR_NO_MEMORY`; the card's status for a transient error (repeat the call).
+#[cfg(test)]
 pub(crate) fn remove_data(
     storage: &dyn Storage,
     data: &[BookData],
