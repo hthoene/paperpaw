@@ -515,6 +515,77 @@ fn a_book_of_the_card_is_held_until_its_document_closes() {
 }
 
 #[test]
+fn a_book_of_the_openers_data_is_held_under_its_card_path_until_the_document_closes() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let held = ".paperpaw/plugins/opener/books/a.epub";
+        let document = w.open(0, "books/a.epub").unwrap();
+        assert!(w.hosts.in_use().holds(held, false));
+        // The card's own path of the same name is another file.
+        assert!(!w.hosts.in_use().holds("books/a.epub", false));
+        w.call(
+            AdmittedFeatures::NONE,
+            18,
+            &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+        )
+        .unwrap();
+        assert!(!w.hosts.in_use().holds(held, false));
+        assert_eq!(w.state.books.borrow().len(), 0);
+        // A format that fails the open gives it back too.
+        *w.reply.borrow_mut() = Err(ERR_IO);
+        assert!(w.open(0, "books/b.epub").is_err());
+        assert!(
+            !w.hosts
+                .in_use()
+                .holds(".paperpaw/plugins/opener/books/b.epub", false)
+        );
+        assert_eq!(w.state.books.borrow().len(), 0);
+    });
+}
+
+#[test]
+fn the_longest_root_0_path_is_held_and_a_longer_one_is_refused_before_any_hold() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        // 512 bytes is the longest path `doc_open` takes; the card path that
+        // joins it still fits the in-use table's names.
+        let longest = "a".repeat(507) + ".epub";
+        assert!(w.open(0, &longest).is_ok());
+        assert_eq!(w.state.books.borrow().len(), 1);
+        let joined = ".paperpaw/plugins/opener/".to_string() + &longest;
+        assert!(w.hosts.in_use().holds(&joined, false));
+        // One byte more never reaches the host.
+        let longer = "a".repeat(508) + ".epub";
+        assert!(w.open(0, &longer).is_err());
+        assert_eq!(w.state.books.borrow().len(), 1);
+    });
+}
+
+#[test]
+fn a_refused_allocation_holds_no_root_0_book_and_makes_no_document() {
+    // The eleventh allocation is the test format's own call log, which
+    // cannot be refused; the ten before it are the host's.
+    for nth in 1..=10 {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            w.fail.set(nth);
+            let opened = w.open(0, "books/a.epub");
+            w.fail.set(0);
+            if opened.is_err() {
+                assert!(
+                    !w.hosts
+                        .in_use()
+                        .holds(".paperpaw/plugins/opener/books/a.epub", false),
+                    "allocation {nth}"
+                );
+                assert_eq!(w.state.books.borrow().len(), 0, "allocation {nth}");
+                assert_eq!(w.state.table.len(), 0, "allocation {nth}");
+            }
+        });
+    }
+}
+
+#[test]
 fn a_format_that_stops_ends_its_documents_and_is_not_called_again() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);

@@ -42,7 +42,7 @@ use super::{
 };
 use crate::abi7::context::{Frame, RowsEnd};
 use crate::native_host::codec;
-use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
@@ -61,7 +61,10 @@ struct Book {
     document: u32,
     /// The path as the host named it to the in-use table (root 1: the card
     /// path); empty when the book is not held.
-    path: Box<str>,
+    ///
+    /// A `String`, not a `Box<str>`: boxing would shrink it, and a shrink
+    /// cannot be refused.
+    path: String,
     held: bool,
 }
 
@@ -174,24 +177,39 @@ impl DocState {
         self.index.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
 
-    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+    fn hold_book(
+        &self,
+        document: u32,
+        root: u32,
+        path: &str,
+        plugin: Option<&str>,
+    ) -> Result<(), i32> {
         let mut books = self.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if books.len() >= books.capacity() {
             return Err(ERR_FULL);
         }
-        // Root 1 is the card's top: the path is the card path, without a
-        // leading slash. The data and install folders (roots 0, 5) are
-        // resolved by the files service's own rules: not held yet.
-        let held = root == 1;
-        let shown = if held {
-            path.trim_start_matches('/')
+        // The in-use table names the card path: root 1 is the card's top
+        // (without a leading slash), root 0 the opener's data folder. The
+        // install folder (root 5) is not held yet.
+        let held = root == 1 || root == 0;
+        let copy = if root == 0 {
+            // Without a caller there is no data folder to name.
+            if plugin.is_none() {
+                return Err(ERR_UNSUPPORTED);
+            }
+            super::owner_paths::OwnerPaths::join(plugin, 0, path)?
         } else {
-            path
+            let shown = if held {
+                path.trim_start_matches('/')
+            } else {
+                path
+            };
+            let mut copy = String::new();
+            copy.try_reserve_exact(shown.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+            copy.push_str(shown);
+            copy
         };
-        let mut copy = String::new();
-        copy.try_reserve_exact(shown.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        copy.push_str(shown);
         if held {
             self.in_use
                 .claim(super::busy_adapters::READER_OWNER, &copy)
@@ -205,7 +223,7 @@ impl DocState {
         }
         books.push(Book {
             document,
-            path: copy.into_boxed_str(),
+            path: copy,
             held,
         });
         Ok(())
@@ -329,9 +347,6 @@ macro_rules! frameless {
             self.state().fresh.set(false);
             self.state().now.set(now_ms);
         }
-        fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
-            self.state().reader_opened(document, root, path)
-        }
         fn reader_closed(&self, document: u32) {
             self.state().reader_closed(document);
         }
@@ -372,6 +387,9 @@ impl super::doc_service::DocHost for DocState {
         });
     }
     frameless!();
+    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+        self.hold_book(document, root, path, None)
+    }
     fn root_access(&self, _root: u32) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
@@ -548,6 +566,10 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+        self.state
+            .hold_book(document, root, path, Some(self.who.plugin))
+    }
 
     fn root_access(&self, root: u32) -> Result<(), i32> {
         match root {
