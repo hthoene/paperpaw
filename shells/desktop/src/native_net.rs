@@ -38,7 +38,7 @@ use paperpaw_core::native_host::shell_wiring::{
 };
 use paperpaw_core::sdk::HttpError;
 use paperpaw_core::{HttpCall, HttpResponse};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
 
 use crate::http::Http;
@@ -87,6 +87,8 @@ pub struct NativeNet {
     view: Rc<DeviceView>,
     pending: RefCell<HashMap<u32, Pending>>,
     demand: Cell<bool>,
+    /// Redirects to `https` core was too busy to take.
+    upgrades: RefCell<Vec<u32>>,
 }
 
 impl std::fmt::Debug for NativeNet {
@@ -108,6 +110,7 @@ impl NativeNet {
             view,
             pending: RefCell::new(HashMap::new()),
             demand: Cell::new(false),
+            upgrades: RefCell::new(Vec::new()),
         }
     }
 
@@ -126,6 +129,29 @@ impl NativeNet {
     /// Hands core the answers that have come (waiting up to `wait` for the
     /// first), then lets it take its turn (`tick`).
     pub fn pump(&self, reports: &NetReports, wait: Option<std::time::Duration>) {
+        self.pump_with(
+            wait,
+            &|id, done| {
+                // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
+                let _ = reports.finished(id, done);
+            },
+            &|id| reports.redirected_to_https(id),
+        );
+        let _ = reports.tick();
+    }
+
+    /// [`NativeNet::pump`] with what core is told through `finish` (a
+    /// request's end) and `to_https` (`redirected_to_https`).
+    fn pump_with(
+        &self,
+        wait: Option<std::time::Duration>,
+        finish: &dyn Fn(u32, HttpDone<'_>),
+        to_https: &dyn Fn(u32) -> Result<(), i32>,
+    ) {
+        // Redirects core was too busy to take: again.
+        for id in std::mem::take(&mut *self.upgrades.borrow_mut()) {
+            self.upgrade(id, finish, to_https);
+        }
         loop {
             let response = {
                 let mut http = self.http.borrow_mut();
@@ -140,22 +166,75 @@ impl NativeNet {
                 continue;
             };
             let id = response.id;
-            match followed(&mut pending, response, |id| reports.redirected_to_https(id)) {
+            match followed(&mut pending, response) {
                 Outcome::Done(response) => {
-                    // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
-                    let _ = reports.finished(id, done_of(&response, &pending, &*self.storage));
+                    finish(id, done_of(&response, &pending, &*self.storage));
                 }
                 Outcome::Send => {
                     self.resume(&mut pending);
                     self.pending.borrow_mut().insert(id, pending);
                 }
-                Outcome::Parked => {
+                Outcome::Upgrade => {
+                    // Back in the table, parked, before core is told: core
+                    // may start the request again within its report.
                     self.pending.borrow_mut().insert(id, pending);
+                    self.upgrade(id, finish, to_https);
                 }
-                Outcome::Gone => {}
             }
         }
-        let _ = reports.tick();
+    }
+
+    /// Tells core that request `id` was redirected to `https` and is parked
+    /// (no entry is borrowed: core starts it again from inside the report
+    /// where the session is free).
+    fn upgrade(
+        &self,
+        id: u32,
+        finish: &dyn Fn(u32, HttpDone<'_>),
+        to_https: &dyn Fn(u32) -> Result<(), i32>,
+    ) {
+        match to_https(id) {
+            Ok(()) => {}
+            Err(ERR_BUSY) => self.upgrades.borrow_mut().push(id),
+            // Cancelled meanwhile: no one to tell.
+            Err(ERR_NOT_FOUND) => {
+                self.pending.borrow_mut().remove(&id);
+            }
+            Err(_) => {
+                let Some(pending) = self.pending.borrow_mut().remove(&id) else {
+                    return;
+                };
+                let failed =
+                    HttpResponse::failed(id, HttpError::Io, "the redirect to https was not taken");
+                finish(id, done_of(&failed, &pending, &*self.storage));
+            }
+        }
+    }
+
+    /// A request core starts: new, or one parked for `https` going on as it
+    /// was parked (its address, method, body and headers as redirected).
+    fn begin(&self, mut call: HttpCall, save_path: Option<&str>, max_file: u64) -> Result<(), i32> {
+        let id = call.id;
+        if let Some(pending) = self.pending.borrow_mut().get_mut(&id) {
+            if !std::mem::take(&mut pending.parked) {
+                return Err(ERR_INVALID);
+            }
+            self.resume(pending);
+            return Ok(());
+        }
+        call.load_body(&*self.storage).map_err(|_| ERR_IO)?;
+        let mut pending = Pending {
+            save_path: save_path.map(str::to_owned),
+            max_file,
+            timeout_ms: call.timeout_ms,
+            call,
+            hops: 0,
+            started: Instant::now(),
+            parked: false,
+        };
+        self.resume(&mut pending);
+        self.pending.borrow_mut().insert(id, pending);
+        Ok(())
     }
 
     /// Sends the request on as it is now; where its time is spent, it is
@@ -175,7 +254,7 @@ impl NativeNet {
 
 impl ShellHttp for NativeNet {
     fn start(&self, job: &HttpJob<'_>) -> Result<(), i32> {
-        let mut call = HttpCall {
+        let call = HttpCall {
             id: job.id,
             method: job.method.to_owned(),
             url: job.url.to_owned(),
@@ -198,28 +277,7 @@ impl ShellHttp for NativeNet {
             save_to: job.save_path.map(str::to_owned),
             progress: false,
         };
-        // A request redirected to `https` goes on as it was parked (its
-        // address, method, body and headers as redirected).
-        if let Some(pending) = self.pending.borrow_mut().get_mut(&job.id) {
-            if !std::mem::take(&mut pending.parked) {
-                return Err(ERR_INVALID);
-            }
-            self.resume(pending);
-            return Ok(());
-        }
-        call.load_body(&*self.storage).map_err(|_| ERR_IO)?;
-        let mut pending = Pending {
-            save_path: job.save_path.map(str::to_owned),
-            max_file: job.max_file,
-            call,
-            hops: 0,
-            started: Instant::now(),
-            timeout_ms: job.timeout_ms,
-            parked: false,
-        };
-        self.resume(&mut pending);
-        self.pending.borrow_mut().insert(job.id, pending);
-        Ok(())
+        self.begin(call, job.save_path, job.max_file)
     }
 
     fn abort(&self, id: u32) {
@@ -262,20 +320,15 @@ enum Outcome {
     Done(HttpResponse),
     /// A redirect was followed: the request goes on as it is now.
     Send,
-    /// Redirected to `https` and told to core: core starts it again.
-    Parked,
-    /// Cancelled meanwhile: no one to tell.
-    Gone,
+    /// Redirected to `https` and parked (`parked`): core is told, and starts
+    /// it again.
+    Upgrade,
 }
 
 /// Follows the redirect `response` is, if it is one (`network.md` 3.1, by
 /// `paperpaw_http::follow`): `pending.call` becomes the request that goes
-/// on. `to_https` tells core of a redirect to `https` (`redirected_to_https`).
-fn followed(
-    pending: &mut Pending,
-    response: HttpResponse,
-    to_https: impl FnOnce(u32) -> Result<(), i32>,
-) -> Outcome {
+/// on.
+fn followed(pending: &mut Pending, response: HttpResponse) -> Outcome {
     let id = response.id;
     let failed = |error, why: &str| Outcome::Done(HttpResponse::failed(id, error, why));
     let location = response
@@ -325,14 +378,8 @@ fn followed(
     }
     // The plain connection is closed (curl's ended with the answer); core
     // starts the request again when the session is its.
-    match to_https(id) {
-        Ok(()) => {
-            pending.parked = true;
-            Outcome::Parked
-        }
-        Err(code) if code == ERR_NOT_FOUND => Outcome::Gone,
-        Err(_) => failed(HttpError::Io, "the redirect to https was not taken"),
-    }
+    pending.parked = true;
+    Outcome::Upgrade
 }
 
 /// Core's reason for a failed request.
@@ -439,11 +486,6 @@ mod tests {
         }
     }
 
-    /// No redirect to `https` is expected.
-    fn no_upgrade(_: u32) -> Result<(), i32> {
-        panic!("not an upgrade");
-    }
-
     fn header_names(pending: &Pending) -> Vec<&str> {
         pending
             .call
@@ -531,8 +573,7 @@ mod tests {
     #[test]
     fn a_downgrade_to_plain_http_is_refused() {
         let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
-        let Outcome::Done(done) = followed(&mut p, redirect(302, "http://a.example/y"), no_upgrade)
-        else {
+        let Outcome::Done(done) = followed(&mut p, redirect(302, "http://a.example/y")) else {
             panic!("not refused");
         };
         assert_eq!(done.error, Some(HttpError::Refused));
@@ -543,14 +584,14 @@ mod tests {
     fn another_origin_gets_only_the_harmless_headers_and_the_same_one_all() {
         let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
         assert!(matches!(
-            followed(&mut p, redirect(302, "https://b.example/y"), no_upgrade),
+            followed(&mut p, redirect(302, "https://b.example/y")),
             Outcome::Send
         ));
         assert_eq!(header_names(&p), ["Accept", "Content-Type"]);
         assert_eq!(p.call.url, "https://b.example/y");
         let mut p = flight("GET", "https://a.example/x", &KEYED, None, None, 0);
         assert!(matches!(
-            followed(&mut p, redirect(302, "/z"), no_upgrade),
+            followed(&mut p, redirect(302, "/z")),
             Outcome::Send
         ));
         assert_eq!(header_names(&p).len(), 5);
@@ -567,9 +608,7 @@ mod tests {
             None,
             0,
         );
-        let Outcome::Done(done) =
-            followed(&mut p, redirect(307, "https://b.example/y"), no_upgrade)
-        else {
+        let Outcome::Done(done) = followed(&mut p, redirect(307, "https://b.example/y")) else {
             panic!("not refused");
         };
         assert_eq!(done.error, Some(HttpError::Refused));
@@ -583,7 +622,7 @@ mod tests {
             0,
         );
         assert!(matches!(
-            followed(&mut p, redirect(307, "/y"), no_upgrade),
+            followed(&mut p, redirect(307, "/y")),
             Outcome::Send
         ));
         assert_eq!(
@@ -600,7 +639,7 @@ mod tests {
             0,
         );
         assert!(matches!(
-            followed(&mut p, redirect(303, "https://b.example/y"), no_upgrade),
+            followed(&mut p, redirect(303, "https://b.example/y")),
             Outcome::Send
         ));
         assert_eq!(
@@ -616,11 +655,11 @@ mod tests {
         for n in 1..=10 {
             let to = format!("/{n}");
             assert!(matches!(
-                followed(&mut p, redirect(302, &to), no_upgrade),
+                followed(&mut p, redirect(302, &to)),
                 Outcome::Send
             ));
         }
-        let Outcome::Done(done) = followed(&mut p, redirect(302, "/11"), no_upgrade) else {
+        let Outcome::Done(done) = followed(&mut p, redirect(302, "/11")) else {
             panic!("followed an eleventh");
         };
         assert_eq!(done.error, Some(HttpError::Refused));
@@ -628,42 +667,153 @@ mod tests {
     }
 
     #[test]
-    fn a_redirect_to_https_is_told_to_core_and_waits_to_be_started_again() {
+    fn a_redirect_to_https_parks_the_request_with_all_its_headers() {
         let mut p = flight("GET", "http://a.example/x", &KEYED, None, None, 0);
-        let mut told = None;
-        let outcome = followed(&mut p, redirect(301, "https://a.example/x"), |id| {
-            told = Some(id);
-            Ok(())
-        });
-        assert!(matches!(outcome, Outcome::Parked));
+        let outcome = followed(&mut p, redirect(301, "https://a.example/x"));
+        assert!(matches!(outcome, Outcome::Upgrade));
         assert_eq!(
-            (told, p.parked, p.call.url.as_str()),
-            (Some(1), true, "https://a.example/x")
+            (p.parked, p.call.url.as_str()),
+            (true, "https://a.example/x")
         );
         // Same host, the schemes' own ports: the same server, all headers.
         assert_eq!(header_names(&p).len(), 5);
-        // Cancelled meanwhile: nothing more to do.
-        let mut p = flight("GET", "http://a.example/x", &[], None, None, 0);
-        let outcome = followed(&mut p, redirect(301, "https://a.example/x"), |_| {
-            Err(ERR_NOT_FOUND)
+    }
+
+    /// A route that answers an `http` address with a redirect to its
+    /// `https` one and that one with `ok`, and keeps what it was asked.
+    struct Upgrading(Rc<RefCell<Vec<HttpCall>>>);
+
+    impl crate::http::Route for Upgrading {
+        fn start(&mut self, call: HttpCall) -> Option<HttpResponse> {
+            let id = call.id;
+            let plain = call.url.starts_with("http://");
+            self.0.borrow_mut().push(call);
+            Some(if plain {
+                HttpResponse {
+                    headers: vec![(
+                        String::from("location"),
+                        String::from("https://a.example/x"),
+                    )],
+                    ..HttpResponse {
+                        id,
+                        status: 307,
+                        ..HttpResponse::default()
+                    }
+                }
+            } else {
+                answer_to(id, 200, b"ok")
+            })
+        }
+
+        fn later(&mut self) -> Option<HttpResponse> {
+            None
+        }
+    }
+
+    fn answer_to(id: u32, status: u16, body: &[u8]) -> HttpResponse {
+        HttpResponse {
+            id,
+            status,
+            body: body.to_vec(),
+            ..HttpResponse::default()
+        }
+    }
+
+    /// Core answers a redirect report by starting the request again within
+    /// it: the plain request is not sent a second time, the `https` one goes
+    /// out once, and its answer is the one id's.
+    #[test]
+    fn a_redirect_to_https_that_core_restarts_at_once_is_one_request() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        crate::http::set_route(Some(Box::new(Upgrading(seen.clone()))));
+        let net = NativeNet::new(Rc::new(MemoryStorage::new()), Rc::default());
+        let first = flight(
+            "POST",
+            "http://a.example/x",
+            &KEYED,
+            Some(b"secret"),
+            None,
+            0,
+        )
+        .call;
+        net.begin(first, None, 0).unwrap();
+        let ended = RefCell::new(Vec::new());
+        let told = Cell::new(0);
+        net.pump_with(
+            None,
+            &|id, done| ended.borrow_mut().push((id, done.status, done.reason)),
+            &|id| {
+                told.set(told.get() + 1);
+                // Core starts the parked request again from inside the report.
+                let again = flight("POST", "http://a.example/x", &[], None, None, 0).call;
+                assert_eq!(id, again.id);
+                net.begin(again, None, 0)
+            },
+        );
+        crate::http::set_route(None);
+        let seen = seen.borrow();
+        let urls: Vec<&str> = seen.iter().map(|call| call.url.as_str()).collect();
+        assert_eq!(urls, ["http://a.example/x", "https://a.example/x"]);
+        // The redirect kept method, body and headers (the same server).
+        assert_eq!(seen[1].method, "POST");
+        assert_eq!(seen[1].body.as_deref(), Some(&b"secret"[..]));
+        assert_eq!(seen[1].headers.len(), 5);
+        assert_eq!(told.get(), 1);
+        assert_eq!(*ended.borrow(), [(1, 200, HttpReason::Ok)]);
+        assert_eq!(net.in_flight(), 0);
+    }
+
+    #[test]
+    fn a_busy_report_is_tried_again_and_a_refused_one_ends_the_request() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        crate::http::set_route(Some(Box::new(Upgrading(seen.clone()))));
+        let net = NativeNet::new(Rc::new(MemoryStorage::new()), Rc::default());
+        let first = flight("GET", "http://a.example/x", &[], None, None, 0).call;
+        net.begin(first, None, 0).unwrap();
+        let ended = RefCell::new(Vec::new());
+        let finish =
+            |id, done: HttpDone<'_>| ended.borrow_mut().push((id, done.status, done.reason));
+        // Busy: parked, tried again at the next pump, which starts it and
+        // takes its answer.
+        net.pump_with(None, &finish, &|_| Err(ERR_BUSY));
+        assert!(ended.borrow().is_empty() && net.in_flight() == 1);
+        net.pump_with(None, &finish, &|id| {
+            let again = flight("GET", "http://a.example/x", &[], None, None, 0).call;
+            assert_eq!(id, again.id);
+            net.begin(again, None, 0)
         });
-        assert!(matches!(outcome, Outcome::Gone));
+        assert_eq!(*ended.borrow(), [(1, 200, HttpReason::Ok)]);
+        // Refused: the request ends `Io` and leaves nothing parked.
+        ended.borrow_mut().clear();
+        let first = flight("GET", "http://a.example/x", &[], None, None, 0).call;
+        net.begin(first, None, 0).unwrap();
+        net.pump_with(None, &finish, &|_| Err(ERR_IO));
+        assert_eq!(*ended.borrow(), [(1, 0, HttpReason::Io)]);
+        assert_eq!(net.in_flight(), 0);
+        // Cancelled meanwhile: nothing to tell, nothing parked.
+        ended.borrow_mut().clear();
+        let first = flight("GET", "http://a.example/x", &[], None, None, 0).call;
+        net.begin(first, None, 0).unwrap();
+        net.pump_with(None, &finish, &|_| Err(ERR_NOT_FOUND));
+        assert!(ended.borrow().is_empty());
+        assert_eq!(net.in_flight(), 0);
+        crate::http::set_route(None);
     }
 
     #[test]
     fn the_final_address_and_an_ordinary_answer_are_kept() {
         let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
         assert!(matches!(
-            followed(&mut p, redirect(302, "/1"), no_upgrade),
+            followed(&mut p, redirect(302, "/1")),
             Outcome::Send
         ));
-        let Outcome::Done(done) = followed(&mut p, answer(200, b"ok"), no_upgrade) else {
+        let Outcome::Done(done) = followed(&mut p, answer(200, b"ok")) else {
             panic!("not done");
         };
         assert_eq!(done.url.as_deref(), Some("https://a.example/1"));
         // A 302 with no Location is an answer like any other.
         let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
-        let Outcome::Done(done) = followed(&mut p, answer(302, b""), no_upgrade) else {
+        let Outcome::Done(done) = followed(&mut p, answer(302, b"")) else {
             panic!("not done");
         };
         assert_eq!((done.status, done.url), (302, None));
