@@ -30,6 +30,7 @@ use super::book_data_steps::{self, Progress};
 use super::lib_moves_host::MoveCarry;
 use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
+use super::storage::status;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
@@ -136,14 +137,15 @@ impl<'a> EnvCarry<'a> {
     /// sibling goes too.
     ///
     /// # Errors
-    /// `ERR_NO_MEMORY` or the card's status from the data's move: the step
-    /// is repeated (idempotent) and goes on from what is moved.
+    /// `ERR_NO_MEMORY` or the card's status from the details' or the data's
+    /// move (`library::try_moved`): the step is repeated (idempotent) and goes
+    /// on from what is moved.
     fn carry_one(&self, old: &str, new: &str) -> Result<(), i32> {
-        library::moved(self.storage, old, new);
+        library::try_moved(self.storage, old, new).map_err(status)?;
         book_data_steps::move_data(self.storage, self.book_data, old, new)?;
         let (old_bak, new_bak) = (format!("{old}.bak"), format!("{new}.bak"));
         if self.storage.exists(&new_bak) {
-            library::moved(self.storage, &old_bak, &new_bak);
+            library::try_moved(self.storage, &old_bak, &new_bak).map_err(status)?;
             book_data_steps::move_data(self.storage, self.book_data, &old_bak, &new_bak)?;
         }
         Ok(())
@@ -180,7 +182,7 @@ impl<'a> EnvCarry<'a> {
 
 impl MoveCarry for EnvCarry<'_> {
     fn discard(&self, to: &str) -> Result<bool, i32> {
-        library::removed(self.storage, to);
+        library::try_removed(self.storage, to).map_err(status)?;
         // One bounded piece budget a call: while the book still has data the
         // step answers `false` and runs again (nothing is recorded as
         // discarded until it is all gone, and the repeat finds what is left).

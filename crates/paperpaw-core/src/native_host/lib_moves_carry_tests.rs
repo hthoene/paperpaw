@@ -271,6 +271,69 @@ fn the_discard_of_a_book_with_much_data_is_progress_until_all_is_gone() {
     assert_eq!(left, 0);
 }
 
+/// A card that reads but refuses every change (`Io`): the power is flaky.
+struct Refusing<'a>(&'a MemoryStorage);
+
+impl Storage for Refusing<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn rename(&self, _: &str, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn create_dir(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+    fn remove_dir_all(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Io)
+    }
+}
+
+/// A refused write while a book is carried is the step's status, not "done":
+/// the phase does not move on, and the repeat on a card that works finishes
+/// (the favourites and the data are at the new key).
+#[test]
+fn a_card_that_refuses_a_write_fails_the_step_and_the_repeat_finishes_it() {
+    let f = fixture();
+    f.book("Books/new/a.epub");
+    f.place("Books/old/a.epub");
+    library::set_favourite(&f.storage, "Books/old/a.epub", true);
+    let refusing = Refusing(&f.storage);
+    let mut out = |_| ();
+    let carry = EnvCarry::from_parts(
+        &refusing,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
+    assert_eq!(
+        carry.carry("Books/old", "Books/new", Phase::Books(0)),
+        Err(super::super::storage::status(StorageError::Io))
+    );
+    assert!(f.has_place("Books/old/a.epub") && !f.has_place("Books/new/a.epub"));
+    assert_eq!(library::favourites(&f.storage), ["Books/old/a.epub"]);
+    f.run("Books/old", "Books/new");
+    assert!(f.has_place("Books/new/a.epub") && !f.has_place("Books/old/a.epub"));
+    assert_eq!(library::favourites(&f.storage), ["Books/new/a.epub"]);
+}
+
 #[test]
 fn folder_settings_that_name_the_moved_folder_follow_it() {
     static FOLDER: SettingExtra =
