@@ -1492,3 +1492,42 @@ fn a_cache_that_ran_out_of_room_is_removed_with_what_was_counted() {
         assert_eq!(w.hosts.format_scope().total(&folder), 0);
     });
 }
+
+#[test]
+fn what_a_format_wrote_after_the_stamp_is_in_the_stamp_when_its_last_document_closes() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.makes_cache.set(true);
+        w.card.write("books/a.epub", b"book").unwrap();
+        let id = w.open(1, "books/a.epub").unwrap();
+        let folder = seen_cache(w, 0);
+        let stamp = std::format!("{folder}/{}", crate::native_host::doc_cache::STAMP);
+        let bytes = |w: &World<'_>| {
+            let text = w.card.get(&stamp).unwrap();
+            let line = text.rsplit(|b| *b == b'\n').nth(1).unwrap().to_vec();
+            std::string::String::from_utf8(line).unwrap()
+        };
+        // The format answered ready with nothing counted; it writes on later.
+        assert_eq!(bytes(w), "0");
+        let scope = w.hosts.format_scope();
+        scope.charge(&folder, 700, 0, u64::MAX).unwrap();
+        // A second document of the same cache keeps the count.
+        let second = w.open(1, "books/a.epub").unwrap();
+        let close = |document: u32| {
+            w.call(
+                AdmittedFeatures::NONE,
+                18,
+                &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+            )
+            .unwrap();
+        };
+        close(id);
+        assert_eq!((bytes(w), scope.total(&folder)), ("0".into(), 700));
+        close(second);
+        // The last one closed: the stamp says it, the count starts again
+        // from the stamp at the next open.
+        assert_eq!((bytes(w), scope.total(&folder)), ("700".into(), 0));
+        open_and_close(w, "books/a.epub", "");
+        assert_eq!(bytes(w), "700");
+    });
+}

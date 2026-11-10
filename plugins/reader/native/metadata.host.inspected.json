@@ -1,0 +1,39 @@
+{
+  "abi_major": 7,
+  "entry": {
+    "align": 8,
+    "bytes": 32,
+    "layout": 1
+  },
+  "exports": [
+    {
+      "expected_bytes": 32,
+      "kind": 1,
+      "name": "PAPERPAW_ENTRY"
+    }
+  ],
+  "features": [],
+  "flags": 0,
+  "layout": 2,
+  "needs_minor": 1,
+  "prefix_bytes": 32,
+  "profile": {
+    "byte_order": "little",
+    "calling_convention": "x86_64-sysv64",
+    "entry_align": 8,
+    "entry_bytes": 32,
+    "entry_layout": 1,
+    "name": "linux-x86_64-sysv64-le",
+    "pointer_bits": 64
+  },
+  "services": [
+    {
+      "key": "core.ui",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    }
+  ],
+  "target": "linux-x86_64-sysv64-le",
+  "total_bytes": 97
+}

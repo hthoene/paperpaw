@@ -38,6 +38,8 @@ const STAMP_HEAD: &str = "paperpaw-cache 2";
 /// The most of a CSS file whose bytes are hashed (its size and time are
 /// always part of the key).
 const CSS_HASHED: u64 = 64 * 1024;
+/// The most entries of a folder book's top level the content line tells.
+const LISTED: u32 = 256;
 
 /// What one cache is for.
 #[derive(Clone, Copy, Debug)]
@@ -200,10 +202,11 @@ pub(crate) fn content(storage: &dyn Storage, path: &str, css: &str) -> Result<St
             text.push(' ');
             text.push_str(&found.md5);
         }
-        None => match storage.modified(path) {
-            Some(time) => {
-                text.push('m');
-                decimal(time.unsigned_abs(), &mut text);
+        // A folder book (or none): its top level, by names, sizes and times.
+        None => match listed_hash(storage, path) {
+            Some(hash) => {
+                text.push('d');
+                decimal(hash, &mut text);
             }
             None => text.push('-'),
         },
@@ -223,6 +226,36 @@ pub(crate) fn content(storage: &dyn Storage, path: &str, css: &str) -> Result<St
         _ => text.push('-'),
     }
     Ok(text)
+}
+
+/// FNV-1a 64 of the first [`LISTED`] entries of the folder `path`: names,
+/// kinds, sizes and times; `None` where it is not a folder.
+fn listed_hash(storage: &dyn Storage, path: &str) -> Option<u64> {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let mut count = 0_u32;
+    storage
+        .list(path, &mut |entry| {
+            count += 1;
+            if count > LISTED {
+                return;
+            }
+            let numbers = [
+                u64::from(entry.is_dir),
+                entry.size,
+                entry.modified.map_or(0, i64::unsigned_abs),
+            ];
+            for byte in entry
+                .name
+                .bytes()
+                .chain(numbers.iter().flat_map(|n| n.to_le_bytes()))
+                .chain([0xff])
+            {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+        })
+        .ok()?;
+    Some(hash)
 }
 
 /// FNV-1a 64 of the first `len` bytes of the file (a short read ends it).
