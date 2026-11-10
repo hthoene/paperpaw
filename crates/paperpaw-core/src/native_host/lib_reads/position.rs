@@ -8,7 +8,7 @@
 //! SDK's `Position` has no field for and that older readers skip: `insert`
 //! (kept only when not 0) and `sync = 1` (a position written by a sync without
 //! the user's confirmation; any other write removes it).
-use super::{CatalogReads, fail};
+use super::{CatalogReads, fail, kept_file};
 use crate::native_host::lib_service::{BookRef, One, StoredPosition};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -89,16 +89,8 @@ struct Marks {
 }
 
 /// The name of the position file of `path`, had fallibly.
-fn file(path: &str) -> Result<String, i32> {
-    let mut digits = [0_u8; library::KEY_LEN];
-    let key = library::key_into(path, &mut digits);
-    let mut name = String::new();
-    name.try_reserve_exact(positions::DIR.len() + 1 + key.len() + ".txt".len())
-        .map_err(|_| ERR_NO_MEMORY)?;
-    for part in [positions::DIR, "/", key, ".txt"] {
-        name.push_str(part);
-    }
-    Ok(name)
+pub(super) fn file(path: &str) -> Result<String, i32> {
+    kept_file(positions::DIR, path)
 }
 
 /// The file's text, `None` where the book has no position.

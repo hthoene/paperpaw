@@ -32,7 +32,7 @@ fn it_has_no_writes_and_says_so() {
         host.set_status(BookRef::Path("books/a.epub"), 1, 0),
         Err(ERR_UNSUPPORTED)
     );
-    assert_eq!(host.delete("books/a.epub").0, ERR_UNSUPPORTED);
+    assert_eq!(host.delete(&["books/a.epub"], false), Err(ERR_UNSUPPORTED));
     assert_eq!(
         host.move_book("books/a.epub", "books/z.epub", false),
         Err(ERR_UNSUPPORTED)
