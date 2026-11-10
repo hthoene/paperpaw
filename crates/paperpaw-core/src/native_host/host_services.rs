@@ -292,6 +292,25 @@ impl HostServices {
         self.ui.get()
     }
 
+    /// The file the hand-over of reader `instance` names, for `doc_open`
+    /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
+    /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
+    /// `core.ui` store is wired.
+    #[allow(
+        dead_code,
+        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
+    )]
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(super::ui_store::Handed<'_>),
+    ) -> Result<(), i32> {
+        self.ui()
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?
+            .store
+            .handed_file(instance, visit)
+    }
+
     /// Wire `core.device` once.
     pub(crate) fn wire_device(
         &self,
