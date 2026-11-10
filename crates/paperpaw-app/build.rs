@@ -81,7 +81,7 @@ fn plugin_versions(crates: &[String]) {
         let Ok(source) = std::fs::read_to_string(&file) else {
             continue;
         };
-        let source = source.replace("\r\n", "\n");
+        let source = format!("\n{}", source.replace("\r\n", "\n"));
         let package = source
             .split("\n[package]\n")
             .nth(1)
