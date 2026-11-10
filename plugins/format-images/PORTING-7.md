@@ -71,3 +71,7 @@ Tests of other crates that read a picture as a book through the app are ignored 
 Switch `pictures::open` to `ImageFile::try_open` (fallible, with the `TooLarge` split) and drop the plugin-side header parser, so there is one parser of the decoded-file header, not two.
 
 X4 `.ppn` size: see the PR notes (built with `tools/plugin-files7/build.sh x4 <out> --only format-images`).
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-images/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).
