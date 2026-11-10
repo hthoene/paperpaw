@@ -51,6 +51,7 @@ struct BuilderParts {
     font_dirs: Vec<String>,
     catalog_device: Option<&'static str>,
     random: paperpaw_sdk::random::Random,
+    device_log: Option<fn(&str)>,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
     slept_for: Option<core::time::Duration>,
@@ -253,6 +254,16 @@ impl KernelBuilder {
     /// by browser).
     pub fn random(mut self, fill: fn(&mut [u8]) -> bool) -> Self {
         self.0.random = paperpaw_sdk::random::Random::new(fill);
+        self
+    }
+
+    /// Where the host's own diagnostics go: `sink` gets one line at a time
+    /// (at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets). Without one the lines are dropped: nothing is
+    /// formatted and nothing fails. A line may come at any time the kernel
+    /// runs, so `sink` must be quick and must not call the kernel.
+    pub fn device_log(mut self, sink: fn(&str)) -> Self {
+        self.0.device_log = Some(sink);
         self
     }
 
@@ -732,6 +743,7 @@ impl BuilderParts {
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
                 random: self.random,
+                device_log: crate::native_host::device_log::DeviceLog::new(self.device_log),
                 memory: self.memory,
                 started: self.started,
                 slept_for: self.slept_for,
@@ -1161,6 +1173,7 @@ impl Kernel {
             font_dirs: Vec::new(),
             catalog_device: None,
             random: paperpaw_sdk::random::Random::NONE,
+            device_log: None,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
             slept_for: None,

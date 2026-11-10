@@ -16,8 +16,7 @@ linked = []
 native-entry = []
 
 [dependencies]
-# Installs firmware and fetches code plugins for it (kernel).
-paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
@@ -25,11 +24,8 @@ paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true
-paperpaw-digest.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-native.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-update.workspace = true
 

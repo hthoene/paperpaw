@@ -37,12 +37,12 @@ const CASES: [Case; 13] = [
         blocked_by: &["H1", "H4"],
     },
     // The grid's columns or rows changed: every page fitted to it, what has no
-    // room carried to the next page. Widgets' sizes come from `widget_measure`
-    // of an instance the dashboard makes, so this runs with the dashboard.
+    // room carried to the next page. The handler is native (`native_reflow`);
+    // the end-to-end case needs a host that keeps settings.
     Case {
         name: "home-grid-reflow",
         golden: None,
-        blocked_by: &["HOME-reflow-slice", "H3"],
+        blocked_by: &["HOST-settings-store"],
     },
     // The tools drawer: every tool as an icon in a grid.
     Case {
@@ -139,7 +139,7 @@ fn home_footer_items_editor() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-reflow-slice: the handler of the setting change (columns, rows) that measures the widgets and fits the pages is not written yet (event 64 is admitted, #763; the dashboard it needs exists since slice 3b; `native_pages::reflow` is ready); H3: composing the widgets to measure is #827 (draft)"]
+#[ignore = "BLOCKED HOST-settings-store: the handler is written (native_reflow.rs, tested without a host in native_pages), but the scripted host has no settings store to change columns or rows and read the pages back"]
 fn home_grid_reflow() {
     CASES[4].refuse().unwrap();
 }

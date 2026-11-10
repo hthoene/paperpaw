@@ -9,6 +9,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::Kernel;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -34,7 +36,7 @@ fn fonts() -> paperpaw_app::Fonts {
 fn app(config: &str) -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel
 }
@@ -77,16 +79,4 @@ fn network_settings_keep_their_ids_defaults_and_values() {
         "core.saving.manual"
     );
     assert!(kernel.settings().bool("core.network.news"));
-}
-
-/// A native plugin admitted with `uses.network` gets `core.network.<id>` and
-/// `core.saving.<id>` (Kernel ruling on #228); the wifi plugin is the first
-/// that has no interface-6 form to get them from.
-#[test]
-#[ignore = "BLOCKED NET-SETTINGS-NATIVE: the host defines them for native plugins at admission (Core)"]
-fn a_native_only_plugin_gets_its_network_settings() {
-    let kernel = app("");
-    let settings = kernel.settings();
-    assert!(settings.bool("core.network.wifi"));
-    assert_eq!(settings.text("core.saving.wifi"), "core.saving.follow");
 }

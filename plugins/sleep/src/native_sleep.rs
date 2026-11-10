@@ -255,12 +255,6 @@ impl Pictures {
         Ok(())
     }
 
-    /// The kept pictures' names, in order of name.
-    #[must_use]
-    pub fn names(&self) -> &[String] {
-        &self.names
-    }
-
     /// The picture after `shown` pictures, one after the other from where the
     /// last sleep left off, and the count to keep for the next time; `None`
     /// for a folder with none.

@@ -150,6 +150,10 @@ pub(crate) struct Finished {
     /// The plugin list changed (event 70): a data plugin to load now, or one
     /// gone.
     pub(crate) changed: Option<Text<ID_MAX>>,
+    /// `dev_check.needs_draft` of a check that ended with reason 10: the
+    /// interface revision the file needs (the header's `needs_minor`), 0 for
+    /// every other end and where the file names no number (`device.md` 5.1).
+    pub(crate) needs_draft: u32,
 }
 
 impl Finished {
@@ -159,6 +163,15 @@ impl Finished {
             facts: None,
             flags: 0,
             changed: None,
+            needs_draft: 0,
+        }
+    }
+
+    /// A check that ends with reason 10 and says which revision it needs.
+    pub(crate) const fn needs_newer(needs_draft: u32) -> Self {
+        Self {
+            needs_draft,
+            ..Self::refused(reason::NEEDS_NEWER)
         }
     }
 
@@ -169,6 +182,7 @@ impl Finished {
             facts,
             flags: 0,
             changed: None,
+            needs_draft: 0,
         }
     }
 }
