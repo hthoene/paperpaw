@@ -1262,26 +1262,7 @@ impl NativeSettings {
             let groups = reader.groups()?;
             let all = reader.settings("")?;
             let cx = context(host, false)?;
-            let mut keys: Vec<String> = Vec::new();
-            for setting in &all {
-                if setting.has(flag::KEPT_ON_RESET)
-                    || setting.has(flag::SECRET)
-                    || setting.is_default && !setting.in_scope
-                    || setting.key == model::SCOPE_ONLY
-                {
-                    continue;
-                }
-                let chosen = if group.is_empty() {
-                    setting.key != model::LANGUAGE
-                } else {
-                    model::group_is(&groups, setting, group)
-                        && model::visible(&groups, cx, setting, None)
-                };
-                if chosen {
-                    push(&mut keys, copy(&setting.key)?)?;
-                }
-            }
-            Ok(keys)
+            model::reset_plan(&groups, cx, &all, group)
         })();
         let keys = reader.finish(found)?;
         let mut scratch = buffer(512)?;
@@ -1289,9 +1270,6 @@ impl NativeSettings {
         for key in &keys {
             commands.reset_setting(ResetTarget::Setting(key))?;
         }
-        // "Only this book" last: clearing it first would send later resets to
-        // the global settings instead of the book's values.
-        commands.reset_setting(ResetTarget::Setting(model::SCOPE_ONLY))?;
         Self::notify(host, "settings.reset-done")
     }
 }

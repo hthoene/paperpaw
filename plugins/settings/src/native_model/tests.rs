@@ -358,3 +358,259 @@ fn a_copy_of_a_long_text_value_is_whole() {
     a.value = Some(Val::Text(long.clone()));
     assert_eq!(a.try_clone().unwrap().value, Some(Val::Text(long)));
 }
+
+/// A plugin with an account: a server typed in (kept on a reset), a password
+/// (a secret) and a number (reset); the library folder is kept on reset too.
+fn account_world() -> (Vec<Group>, Vec<Setting>) {
+    let groups = vec![
+        group("acct.page", "", 0, "Account"),
+        group("core.g", "", 0, "Core"),
+    ];
+    let mut server = setting(
+        "acct.server",
+        "acct.page",
+        Kind::Text,
+        SHOWN | flag::KEPT_ON_RESET,
+    );
+    let mut password = setting(
+        "acct.password",
+        "acct.page",
+        Kind::Text,
+        SHOWN | flag::SECRET,
+    );
+    let mut count = setting("acct.count", "acct.page", Kind::Int, SHOWN);
+    let mut folder = setting(
+        "core.library-folder",
+        "core.g",
+        Kind::Text,
+        SHOWN | flag::KEPT_ON_RESET,
+    );
+    let mut language = setting(LANGUAGE, "core.g", Kind::Language, SHOWN);
+    let mut size = setting("core.font-size", "core.g", Kind::Int, SHOWN);
+    for s in [
+        &mut server,
+        &mut password,
+        &mut count,
+        &mut folder,
+        &mut language,
+        &mut size,
+    ] {
+        s.is_default = false;
+    }
+    (
+        groups,
+        vec![server, password, count, folder, language, size],
+    )
+}
+
+fn plan(groups: &[Group], all: &[Setting], of: &str) -> Vec<String> {
+    reset_plan(groups, Context::default(), all, of).unwrap()
+}
+
+#[test]
+fn a_page_reset_keeps_the_account_and_its_password() {
+    let (groups, all) = account_world();
+    // Only what the page holds and is not kept: the number. "Only this book"
+    // goes last, always.
+    assert_eq!(plan(&groups, &all, "acct.page"), ["acct.count", SCOPE_ONLY]);
+    // Only "reset all" keeps the language; a page that holds it resets it.
+    assert_eq!(
+        plan(&groups, &all, "core.g"),
+        [LANGUAGE, "core.font-size", SCOPE_ONLY]
+    );
+}
+
+#[test]
+fn everything_reset_keeps_accounts_folders_passwords_and_the_language() {
+    let (groups, all) = account_world();
+    assert_eq!(
+        plan(&groups, &all, ""),
+        ["acct.count", "core.font-size", SCOPE_ONLY]
+    );
+}
+
+#[test]
+fn reset_all_does_not_reload_unchanged_defaults() {
+    let (groups, mut all) = account_world();
+    // Back at its default: nothing to put back, no event, no read of the card.
+    all[2].is_default = true;
+    assert_eq!(plan(&groups, &all, ""), ["core.font-size", SCOPE_ONLY]);
+    // But a value kept for the book alone is cleared though it equals the default.
+    all[2].in_scope = true;
+    assert_eq!(
+        plan(&groups, &all, ""),
+        ["acct.count", "core.font-size", SCOPE_ONLY]
+    );
+    // Nothing set at all: only the book scope's own switch goes.
+    for s in &mut all {
+        s.is_default = true;
+        s.in_scope = false;
+    }
+    assert_eq!(plan(&groups, &all, ""), [SCOPE_ONLY]);
+}
+
+#[test]
+fn resetting_a_books_values_clears_the_scope_last_so_none_fall_to_global_values() {
+    let (groups, mut all) = account_world();
+    // The book's switch is itself set, and listed among the settings.
+    let mut scope = setting(SCOPE_ONLY, "core.g", Kind::Bool, SHOWN);
+    scope.is_default = false;
+    scope.in_scope = true;
+    all.insert(0, scope);
+    all[3].in_scope = true;
+    for of in ["", "acct.page", "core.g"] {
+        let keys = plan(&groups, &all, of);
+        // Last, and once: clearing it earlier would send the later resets to
+        // the global settings instead of the book's values.
+        assert_eq!(keys.last().map(String::as_str), Some(SCOPE_ONLY), "{of:?}");
+        assert_eq!(
+            keys.iter().filter(|k| *k == SCOPE_ONLY).count(),
+            1,
+            "{of:?}"
+        );
+    }
+}
+
+#[test]
+fn a_page_reset_leaves_what_the_page_does_not_show() {
+    let (groups, mut all) = account_world();
+    // An advanced setting of the page that is not shown stays; shown, goes.
+    all[2].flags |= flag::ADVANCED;
+    assert_eq!(plan(&groups, &all, "acct.page"), [SCOPE_ONLY]);
+    let shown = Context {
+        advanced: true,
+        ..Context::default()
+    };
+    assert_eq!(
+        reset_plan(&groups, shown, &all, "acct.page").unwrap(),
+        ["acct.count", SCOPE_ONLY]
+    );
+    // A setting not offered at all (the developer's) is left on a page reset
+    // and goes with everything.
+    let mut dev = setting("dev.x", DEVELOPER_GROUP, Kind::Bool, SHOWN);
+    dev.is_default = false;
+    all.push(dev);
+    let groups: Vec<Group> = groups
+        .into_iter()
+        .chain([group(DEVELOPER_GROUP, "", 0, "Developer")])
+        .collect();
+    assert_eq!(plan(&groups, &all, DEVELOPER_GROUP), [SCOPE_ONLY]);
+    assert!(plan(&groups, &all, "").contains(&"dev.x".to_string()));
+}
+
+#[test]
+fn reset_refusals_end_in_no_memory() {
+    use crate::fail_alloc::sweep;
+    let (groups, all) = account_world();
+    sweep(|| reset_plan(&groups, Context::default(), &all, "").map(|k| k.len()));
+    sweep(|| reset_plan(&groups, Context::default(), &all, "acct.page").map(|k| k.len()));
+}
+
+/// Words made up at random from the letters of a search (the old property
+/// test's alphabet), by a small generator without a dependency.
+fn made_up_queries(count: usize) -> Vec<String> {
+    const ALPHABET: &[char] = &[
+        'a', 'b', 'c', 'z', 'A', 'B', 'Z', 'ä', 'ö', 'ü', 'Ä', 'Ö', 'Ü', 'é', 'ß', ' ', ' ', '0',
+        '9', '.', ',', '%', '-',
+    ];
+    let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    (0..count)
+        .map(|_| {
+            let length = (next() % 25) as usize;
+            (0..length)
+                .map(|_| ALPHABET[(next() % ALPHABET.len() as u64) as usize])
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn any_words_search_without_a_panic_and_case_does_not_matter() {
+    let titles = [
+        "Font size",
+        "Schriftgröße",
+        "Ränder",
+        "Café Straße",
+        "Brightness of the light",
+        "100 % - ok, 9.5",
+        "",
+    ];
+    for query in made_up_queries(2000) {
+        let lower = words(&query.to_lowercase()).unwrap();
+        let upper = words(&query.to_uppercase()).unwrap();
+        // The same words, whatever the case.
+        assert_eq!(lower, upper, "{query:?}");
+        assert_eq!(lower.is_empty(), query.trim().is_empty(), "{query:?}");
+        for title in titles {
+            let a = matches(title, &lower).unwrap();
+            let b = matches(title, &upper).unwrap();
+            assert_eq!(a, b, "{query:?} in {title:?}");
+            // And the title found by its own upper or lower case.
+            assert!(
+                matches(
+                    &title.to_uppercase(),
+                    &words(&title.to_lowercase()).unwrap()
+                )
+                .unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_blank_search_finds_nothing_to_open() {
+    // Typed blank, the search does not open: no words.
+    for blank in ["", " ", "   ", "\t \n"] {
+        assert!(words(blank).unwrap().is_empty());
+    }
+    // Words a setting's title and description hold, in either language,
+    // with or without accents.
+    let find = |text: &str, query: &str| matches(text, &words(query).unwrap()).unwrap();
+    assert!(find("Font size the size of the font", "  SIZE   font "));
+    assert!(find("Schriftgröße", "schriftgröße"));
+    assert!(find("Schriftgröße", "SCHRIFTGROSSE"));
+    assert!(!find("Font size", "zzqx flibbertigibbet"));
+}
+
+#[test]
+fn a_choice_with_nothing_to_choose_is_not_offered() {
+    let groups = vec![group("g", "", 0, "G")];
+    let choice = setting("g.frame", "g", Kind::Choice, SHOWN);
+    let cx = Context::default();
+    // The page frame offers one column alone until a plugin adds a frame.
+    assert!(!offered(&groups, cx, &choice, Some(1)));
+    assert!(!offered(&groups, cx, &choice, Some(0)));
+    // A choice of two is (the clock's 24 or 12 hours).
+    assert!(offered(&groups, cx, &choice, Some(2)));
+    assert!(offered(&groups, cx, &choice, None));
+}
+
+#[test]
+fn advanced_settings_are_found_only_once_shown() {
+    let groups = vec![
+        group("g", "", 0, "G"),
+        group(DEVELOPER_GROUP, "", 0, "Developer"),
+    ];
+    let advanced = setting("g.address", "g", Kind::Text, SHOWN | flag::ADVANCED);
+    let basic = Context::default();
+    let shown = Context {
+        advanced: true,
+        ..basic
+    };
+    assert!(!visible(&groups, basic, &advanced, None));
+    assert!(visible(&groups, shown, &advanced, None));
+    // The developer's settings show with the developer switch alone.
+    let dev = setting("g.dev", DEVELOPER_GROUP, Kind::Bool, SHOWN | flag::ADVANCED);
+    let dev_on = Context {
+        developer: true,
+        ..basic
+    };
+    assert!(!visible(&groups, basic, &dev, None));
+    assert!(visible(&groups, dev_on, &dev, None));
+}

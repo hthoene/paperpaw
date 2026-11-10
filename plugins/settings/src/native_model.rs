@@ -370,6 +370,44 @@ pub fn main_groups(
     Ok(found)
 }
 
+/// The settings a reset of `group` (empty: all) puts back, in the order they
+/// are sent, and "only this book" last: clearing it first would send the
+/// later resets to the global settings instead of the book's values.
+///
+/// Left alone: what is kept on reset (accounts, folders), secrets, settings
+/// already at their default outside a book scope (nothing to reload), the
+/// language on a reset of all, and on a page what that page does not show.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot be built.
+pub fn reset_plan(
+    groups: &[Group],
+    cx: Context,
+    all: &[Setting],
+    group: &str,
+) -> Result<Vec<String>, Error> {
+    let mut keys: Vec<String> = Vec::new();
+    for setting in all {
+        if setting.has(flag::KEPT_ON_RESET)
+            || setting.has(flag::SECRET)
+            || setting.is_default && !setting.in_scope
+            || setting.key == SCOPE_ONLY
+        {
+            continue;
+        }
+        let chosen = if group.is_empty() {
+            setting.key != LANGUAGE
+        } else {
+            group_is(groups, setting, group) && visible(groups, cx, setting, None)
+        };
+        if chosen {
+            push(&mut keys, copy(&setting.key)?)?;
+        }
+    }
+    push(&mut keys, copy(SCOPE_ONLY)?)?;
+    Ok(keys)
+}
+
 /// The standard order of sections on a page (after those that name none).
 pub const SECTION_ORDER: &[&str] = paperpaw_sdk::builtin::group_sections::ORDER;
 
