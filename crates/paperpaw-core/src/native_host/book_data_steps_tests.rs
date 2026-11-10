@@ -562,3 +562,34 @@ fn the_event_handlers_end_with_everything_left_when_the_card_refuses_for_good() 
     follow_removal(&refusing, &data(), BOOK);
     assert_eq!(names_of(&card, BOOK).len(), 204);
 }
+
+/// The host's own cache of a document: `.paperpaw/cache/<key>/`, not renamed
+/// (its stamp names the key) but removed, and only that book's.
+#[test]
+fn the_document_cache_of_a_book_is_removed_and_only_its_own() {
+    let card = card();
+    let (key, other) = (at(BOOK), at(OTHER));
+    for n in 0..150 {
+        card.write(&format!(".paperpaw/cache/{key}/epub/pages/p{n}.bin"), b"x")
+            .unwrap();
+    }
+    card.write(&format!(".paperpaw/cache/{key}/.complete"), b"k")
+        .unwrap();
+    card.write(&format!(".paperpaw/cache/{other}/.complete"), b"o")
+        .unwrap();
+    let mut calls = 0;
+    while remove_doc_cache(&card, BOOK, 1).unwrap() == Progress::More {
+        calls += 1;
+        assert!(calls < 100, "never ends");
+    }
+    assert!(calls >= 2, "bounded pieces: {calls}");
+    assert!(!card.exists(&format!(".paperpaw/cache/{key}/.complete")));
+    assert!(card.exists(&format!(".paperpaw/cache/{other}/.complete")));
+    // Not renamed to the new key by a move; gone with the old one.
+    let card = self::card();
+    card.write(&format!(".paperpaw/cache/{key}/.complete"), b"k")
+        .unwrap();
+    follow_move(&card, &data(), BOOK, MOVED);
+    assert!(!card.exists(&format!(".paperpaw/cache/{key}/.complete")));
+    assert!(!card.exists(&format!(".paperpaw/cache/{}/.complete", at(MOVED))));
+}

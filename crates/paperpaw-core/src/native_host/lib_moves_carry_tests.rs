@@ -334,6 +334,36 @@ fn a_card_that_refuses_a_write_fails_the_step_and_the_repeat_finishes_it() {
     assert_eq!(library::favourites(&f.storage), ["Books/new/a.epub"]);
 }
 
+/// The host's document cache of a moved book goes with its old key, a bounded
+/// piece at a time: a cache too big for one step holds the phase, which
+/// repeats, and nothing of another book's cache is touched.
+#[test]
+fn the_document_cache_of_a_moved_book_is_removed_over_several_steps() {
+    let f = fixture();
+    f.book("Books/new/a.epub");
+    f.place("Books/old/a.epub");
+    let (old, other) = (key("Books/old/a.epub"), key("Books/other.epub"));
+    for n in 0..300 {
+        f.storage
+            .write(&std::format!(".paperpaw/cache/{old}/pages/p{n}.bin"), b"x")
+            .unwrap();
+    }
+    f.storage
+        .write(&std::format!(".paperpaw/cache/{other}/.complete"), b"o")
+        .unwrap();
+    let (_, steps) = f.run("Books/old", "Books/new");
+    assert!(steps > 3, "the cache needed more than one step: {steps}");
+    assert!(
+        !f.storage
+            .exists(&std::format!(".paperpaw/cache/{old}/pages/p0.bin"))
+    );
+    assert!(
+        f.storage
+            .exists(&std::format!(".paperpaw/cache/{other}/.complete"))
+    );
+    assert!(f.has_place("Books/new/a.epub") && !f.has_place("Books/old/a.epub"));
+}
+
 #[test]
 fn folder_settings_that_name_the_moved_folder_follow_it() {
     static FOLDER: SettingExtra =

@@ -34,7 +34,7 @@ use super::storage::status;
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{BookData, KEY_LEN, key_into};
+use paperpaw_sdk::library::{BookData, BookDataKind, KEY_LEN, key_into};
 
 /// Entries of one book in one folder found, and then changed, as one batch.
 /// A book with more (per-page files) takes more batches.
@@ -288,12 +288,30 @@ fn remove_entry(storage: &dyn Storage, entry: &Kept, place: &mut u64) -> Result<
     }
 }
 
+/// Removes what the host keeps to show the document at `path`
+/// (`.paperpaw/cache/<book key>/`, `docs/abi/document.md`: its `.complete` stamp
+/// names the key, so the folder is never renamed to a book's new key; the new
+/// key's is made at the next open): up to `pieces` bounded pieces. A book that
+/// is open is busy for a move, so no document holds the folder here.
+///
+/// # Errors
+/// As [`remove_data`].
+pub(crate) fn remove_doc_cache(
+    storage: &dyn Storage,
+    path: &str,
+    pieces: u32,
+) -> Result<Progress, i32> {
+    let folder = [BookData::new(".paperpaw/cache", "", BookDataKind::Cache)];
+    remove_data(storage, &folder, path, pieces)
+}
+
 /// What a `book_moved` event of the `core` plugin does for the data kept for
 /// the book: the library's own steps moved it already, this catches a move that
 /// came another way. A card error leaves the rest under the old key, where the
 /// next move or the clean-up finds it.
 pub(crate) fn follow_move(storage: &dyn Storage, data: &[BookData], from: &str, to: &str) {
     let _ = move_data(storage, data, from, to);
+    let _ = remove_doc_cache(storage, from, REMOVE_PIECES);
 }
 
 /// What a `book_removed` event does: at most [`REMOVE_PIECES`] bounded pieces
@@ -301,6 +319,7 @@ pub(crate) fn follow_move(storage: &dyn Storage, data: &[BookData], from: &str, 
 /// longer found.
 pub(crate) fn follow_removal(storage: &dyn Storage, data: &[BookData], path: &str) {
     let _ = remove_data(storage, data, path, REMOVE_PIECES);
+    let _ = remove_doc_cache(storage, path, REMOVE_PIECES);
 }
 
 /// Removes what the plugins keep for the book at `path` in folders `data`,

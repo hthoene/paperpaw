@@ -134,21 +134,32 @@ impl<'a> EnvCarry<'a> {
 
     /// One book to its new key: details, cover, place among the recently
     /// opened and the favourites, and what plugins keep by its path. A `.bak`
-    /// sibling goes too.
+    /// sibling goes too. What the host keeps for the document (`.paperpaw/cache/
+    /// <old key>/`, a stamp that names the key) is not renamed: it is removed,
+    /// a bounded piece at a time, and made again at the next open.
+    ///
+    /// `Progress::More`: the document cache of the old key is not all gone: the
+    /// step is to run again.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` or the card's status from the details' or the data's
     /// move (`library::try_moved`): the step is repeated (idempotent) and goes
     /// on from what is moved.
-    fn carry_one(&self, old: &str, new: &str) -> Result<(), i32> {
+    fn carry_one(&self, old: &str, new: &str) -> Result<Progress, i32> {
         library::try_moved(self.storage, old, new).map_err(status)?;
         book_data_steps::move_data(self.storage, self.book_data, old, new)?;
+        let mut progress = book_data_steps::remove_doc_cache(self.storage, old, DISCARD_PIECES)?;
         let (old_bak, new_bak) = (format!("{old}.bak"), format!("{new}.bak"));
         if self.storage.exists(&new_bak) {
             library::try_moved(self.storage, &old_bak, &new_bak).map_err(status)?;
             book_data_steps::move_data(self.storage, self.book_data, &old_bak, &new_bak)?;
+            if book_data_steps::remove_doc_cache(self.storage, &old_bak, DISCARD_PIECES)?
+                == Progress::More
+            {
+                progress = Progress::More;
+            }
         }
-        Ok(())
+        Ok(progress)
     }
 
     /// Settings that name folder `from` or one in it, chosen as folders,
@@ -186,18 +197,20 @@ impl MoveCarry for EnvCarry<'_> {
         // One bounded piece budget a call: while the book still has data the
         // step answers `false` and runs again (nothing is recorded as
         // discarded until it is all gone, and the repeat finds what is left).
-        Ok(
-            book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)?
-                == Progress::Done,
-        )
+        let data = book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)?;
+        let cache = book_data_steps::remove_doc_cache(self.storage, to, DISCARD_PIECES)?;
+        Ok(data == Progress::Done && cache == Progress::Done)
     }
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         match phase {
             Phase::Books(cursor) => {
                 let (books, more) = self.window(false, to, cursor)?;
-                for book in &books {
-                    self.carry_one(&Self::old_path(from, to, book), book)?;
+                for (done, book) in books.iter().enumerate() {
+                    if self.carry_one(&Self::old_path(from, to, book), book)? == Progress::More {
+                        // The books before it are carried: on from this one.
+                        return Ok(Phase::Books(cursor + done as u64));
+                    }
                 }
                 Ok(if more {
                     Phase::Books(cursor + books.len() as u64)
@@ -224,12 +237,14 @@ impl MoveCarry for EnvCarry<'_> {
                     return Ok(Phase::Done);
                 }
                 let (books, more) = self.window(true, to, cursor)?;
-                for book in &books {
+                for (done, book) in books.iter().enumerate() {
                     // Carried once more: a book the first pass missed (a file
                     // added from outside shifted its place) is caught here;
                     // for one already carried it changes nothing.
                     let old = Self::old_path(from, to, book);
-                    self.carry_one(&old, book)?;
+                    if self.carry_one(&old, book)? == Progress::More {
+                        return Ok(Phase::Events(cursor + done as u64));
+                    }
                     self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
                 }
                 if more {
@@ -243,7 +258,11 @@ impl MoveCarry for EnvCarry<'_> {
     }
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
-        self.carry_one(&Self::old_path(from, to, book), book.trim_matches('/'))
+        // A reader that opens the book needs it all carried: it retries.
+        match self.carry_one(&Self::old_path(from, to, book), book.trim_matches('/'))? {
+            Progress::Done => Ok(()),
+            Progress::More => Err(ERR_BUSY),
+        }
     }
 }
 
