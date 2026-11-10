@@ -139,6 +139,12 @@ pub struct ItemList {
     /// The − and + buttons of the stepper rows of the last frame.
     pub(crate) steps: Vec<(Rect, Rect, usize)>,
     pub(crate) header: Page,
+    /// The first this many items carry a grip (a finger takes the row along).
+    grips: usize,
+    /// The grips of the rows of the last frame.
+    pub(crate) grip_rects: Vec<(Rect, usize)>,
+    /// The row a finger has taken along and the row it would land on.
+    drag: Option<(usize, usize)>,
 }
 
 impl ItemList {
@@ -256,6 +262,45 @@ impl ItemList {
             },
             _ => ItemStep::Ignored,
         }
+    }
+
+    /// The first `movable` items carry a grip (≡) at their end, which a finger
+    /// can take along ([`Self::grip_at`], [`Self::drop_row`]); none by default.
+    pub fn set_grips(&mut self, movable: usize) {
+        self.grips = movable;
+    }
+
+    /// The row a finger has taken along and the row it would land on (framed,
+    /// and a bar where it lands), or `None`.
+    pub fn set_drag(&mut self, drag: Option<(usize, usize)>) {
+        self.drag = drag;
+    }
+
+    /// The item whose grip is at `position` in the last frame.
+    #[must_use]
+    pub fn grip_at(&self, position: Point) -> Option<usize> {
+        self.grip_rects
+            .iter()
+            .find(|(rect, _)| rect.contains(position))
+            .map(|(_, item)| *item)
+    }
+
+    /// The row an item dragged to height `y` would land on: the row of the
+    /// last frame under `y`, kept to the rows that carry a grip (above them,
+    /// the first; below them, the last). `None` without such a row.
+    #[must_use]
+    pub fn drop_row(&self, y: i32) -> Option<usize> {
+        let mut last = None;
+        for (rect, item) in &self.hits {
+            if *item >= self.grips {
+                continue;
+            }
+            last = Some(*item);
+            if y < i32::from(rect.y) + i32::from(rect.height) {
+                return last;
+            }
+        }
+        last
     }
 
     /// Where item `index` was drawn in the last frame; `None` off the page.
@@ -403,6 +448,7 @@ impl ItemList {
         paint::push(&mut body, Paint::Fill(area, style.paper))?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
+        let mut grip_rects = Vec::new();
         let mut y = top;
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
@@ -410,8 +456,9 @@ impl ItemList {
             match &self.items[index] {
                 Item::Heading(text) => heading(&mut body, &font, &style, rect, text)?,
                 Item::Row(row) => {
+                    let grip = (index < self.grips).then_some((&mut grip_rects, index));
                     if let Some((minus, plus)) =
-                        draw_row(&mut body, &font, &style, rect, row, focused)?
+                        draw_row_with_grip(&mut body, &font, &style, rect, row, focused, grip)?
                     {
                         steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
                         steps.push((minus, plus, index));
@@ -421,6 +468,9 @@ impl ItemList {
                 }
             }
             y = y.saturating_add(high);
+        }
+        if let Some((from, to)) = self.drag {
+            draw_drag(&mut body, &style, &hits, from, to)?;
         }
         if let Some((rect, lines)) = &note {
             draw_note(&mut body, &font, &style, *rect, lines)?;
@@ -443,8 +493,142 @@ impl ItemList {
         self.starts = starts;
         self.hits = hits;
         self.steps = steps;
+        self.grip_rects = grip_rects;
         Ok(())
     }
+}
+
+/// Draws a row, with a grip at its end where `grip` (the list the grips are
+/// noted in and the row's index) is given; the steppers' buttons it has.
+fn draw_row_with_grip(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    row: &RowItem,
+    focused: bool,
+    grip: Option<(&mut Vec<(Rect, usize)>, usize)>,
+) -> Result<Option<(Rect, Rect)>, Error> {
+    let content = match grip {
+        Some((grips, index)) => grip_row(paint, style, rect, focused, grips, index)?,
+        None => rect,
+    };
+    draw_row(paint, font, style, content, row, focused)
+}
+
+/// The grip of a row in `rect`: as wide as the row is high, at its end (the left
+/// where the interface runs right to left).
+fn grip_strip(style: &Style, rect: Rect) -> Rect {
+    let side = rect.height.min(rect.width);
+    style.flip(
+        rect,
+        Rect::new(
+            rect.x.saturating_add(rect.width.saturating_sub(side)),
+            rect.y,
+            side,
+            rect.height,
+        ),
+    )
+}
+
+/// Draws the grip (three bars) of a row and notes it for [`ItemList::grip_at`];
+/// what is left of the row for its content.
+fn grip_row(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    focused: bool,
+    grips: &mut Vec<(Rect, usize)>,
+    index: usize,
+) -> Result<Rect, Error> {
+    let strip = grip_strip(style, rect);
+    // The focus fills the whole row, under its content.
+    backdrop(paint, style, rect, focused)?;
+    let bar = style.line.max(2);
+    let pitch = bar.saturating_mul(3);
+    let width = (strip.width / 2).max(bar);
+    let x = strip
+        .x
+        .saturating_add(strip.width.saturating_sub(width) / 2);
+    let top = strip.y.saturating_add(
+        strip
+            .height
+            .saturating_sub(bar.saturating_add(pitch.saturating_mul(2)))
+            / 2,
+    );
+    let ink = ink(style, focused);
+    for n in 0..3u16 {
+        let y = top.saturating_add(n.saturating_mul(pitch));
+        paint::push(paint, Paint::Fill(Rect::new(x, y, width, bar), ink))?;
+    }
+    grips.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    grips.push((strip, index));
+    let side = strip.width.min(rect.width);
+    let x = if style.rtl {
+        rect.x.saturating_add(side)
+    } else {
+        rect.x
+    };
+    Ok(Rect::new(
+        x,
+        rect.y,
+        rect.width.saturating_sub(side),
+        rect.height,
+    ))
+}
+
+/// A frame round the row taken along and a bar where it would land: below the
+/// row it passes when moving down, above it when moving up.
+fn draw_drag(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    hits: &[(Rect, usize)],
+    from: usize,
+    to: usize,
+) -> Result<(), Error> {
+    let rect_of = |item: usize| hits.iter().find(|(_, i)| *i == item).map(|(r, _)| *r);
+    if let Some(r) = rect_of(from) {
+        let t = style.line.saturating_mul(2).max(2).min(r.height / 2);
+        for edge in [
+            Rect::new(r.x, r.y, r.width, t),
+            Rect::new(
+                r.x,
+                r.y.saturating_add(r.height.saturating_sub(t)),
+                r.width,
+                t,
+            ),
+            Rect::new(r.x, r.y, t, r.height),
+            Rect::new(
+                r.x.saturating_add(r.width.saturating_sub(t)),
+                r.y,
+                t,
+                r.height,
+            ),
+        ] {
+            paint::push(paint, Paint::Fill(edge, style.ink))?;
+        }
+    }
+    if to == from {
+        return Ok(());
+    }
+    // Not on this page (it was turned meanwhile): no bar.
+    let Some(r) = rect_of(to) else {
+        return Ok(());
+    };
+    let thick = style.line.saturating_mul(4).max(4);
+    let y = if to > from {
+        r.y.saturating_add(r.height).saturating_sub(thick / 2)
+    } else {
+        r.y.saturating_sub(thick / 2)
+    };
+    let margin = style.margin;
+    let bar = Rect::new(
+        r.x.saturating_add(margin),
+        y,
+        r.width.saturating_sub(margin.saturating_mul(2)),
+        thick,
+    );
+    paint::push(paint, Paint::Fill(bar, style.ink))
 }
 
 /// The wrapped lines of a footer note and the strip they take at the bottom.
