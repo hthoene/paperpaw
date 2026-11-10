@@ -393,6 +393,7 @@ impl Kernel {
             active
                 .screen
                 .draw(&mut canvas.clipped(area).offset(x, y), &own_env);
+            active.drawn = true;
             if (at + 1..dims.len()).any(|k| dims[k] && !hidden[k]) {
                 canvas.wash(area);
             }
@@ -442,6 +443,8 @@ impl Kernel {
             let corner = (i32::from(env.content().x), i32::from(env.content().y));
             notice.draw(&mut canvas.clipped(area).offset(corner.0, corner.1), &env);
         }
+        // What was drawn for the first time tells its subscribers (87).
+        self.raise_screen_ready();
     }
 
     /// What the screens shown are, part by part (rows, buttons, headings
