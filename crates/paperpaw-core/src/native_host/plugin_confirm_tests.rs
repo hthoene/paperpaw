@@ -17,6 +17,8 @@ use paperpaw_sdk::{Instant, Params};
 fn en() -> paperpaw_i18n::Translator {
     let mut translator = paperpaw_i18n::Translator::new();
     translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/en.ini")).unwrap());
+    // The install texts are the host's (`i18n/host`), not the core plugin's.
+    translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/host/en.ini")).unwrap());
     translator
 }
 
