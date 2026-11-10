@@ -2273,6 +2273,7 @@ dependencies = [
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
+ "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
@@ -2464,6 +2465,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-files"
 version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-fonts-browser"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
