@@ -1,6 +1,6 @@
 [package]
 name = "paperpaw-plugin-fonts-browser"
-description = "PaperPaw fonts from the internet: browse a catalog of fonts with a sample of each, download one and read with it"
+description = "PaperPaw fonts from the internet: browse a catalog of fonts, download one and read with it"
 version = "1.0.8"
 edition.workspace = true
 rust-version.workspace = true
@@ -24,12 +24,8 @@ paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-native.workspace = true
-paperpaw-digest.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-platform.workspace = true
-paperpaw-text.workspace = true
 
 [lints]
 workspace = true

@@ -1,6 +1,6 @@
 //! The catalog of fonts without the host: what the library's JSON file says
 //! of each font, read as it streams, and the files of one font to download.
-//! The same rules as the interface-6 reader (`catalog.rs`), with fallible
+//! The same rules as the interface-6 reader had (it is gone), with fallible
 //! allocation: a refused allocation ends the reading in
 //! [`Error::NoMemory`] and nothing is returned in part.
 //!

@@ -1972,13 +1972,9 @@ name = "paperpaw-plugin-fonts-browser"
 version = "1.0.8"
 dependencies = [
  "paperpaw-core",
- "paperpaw-digest",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
- "paperpaw-text",
  "paperpaw-ui-kit",
 ]
 
