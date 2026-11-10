@@ -11,6 +11,9 @@ use paperpaw_ui_kit::dialog::Dialog;
 use super::*;
 use crate::native_add_screen as add_screen;
 use crate::native_arrange::{self as arrange, Choice, Dir, Mode, Put, choices};
+
+/// The word of *Cancel* in the options: the plugin's own.
+const CANCEL: &str = "home.edit.cancel";
 use crate::native_item_settings as item_settings;
 use paperpaw_sdk::{native::callbacks::PointerPhase, widgets::grid::Cells};
 
@@ -106,7 +109,12 @@ impl Dashboard {
         words
             .try_reserve_exact(choices(settings).len())
             .map_err(|_| Error::NoMemory)?;
-        for (_, key) in choices(settings) {
+        for (choice, key) in choices(settings) {
+            let key = if *choice == Choice::Cancel {
+                CANCEL
+            } else {
+                key
+            };
             words.push(messages.copy(host, key)?);
         }
         let mut labels: Vec<&str> = Vec::new();

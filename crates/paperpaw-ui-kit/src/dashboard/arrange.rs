@@ -5,17 +5,23 @@
 //! as laid out and writes them with `native_pages::store` once an item is set
 //! down.
 //!
-//! Differences (`PORTING-7.md`): a widget's own size hint (`CellSpan::keep`) is
-//! not read; a widget is kept at least as high as it measured at the grid's
-//! width, and one cell wide at the least.
+//! A widget is kept at least as high as it can do with (`Sizes`: what it declared
+//! as its least rows, else what it measured at the grid's width), and one cell
+//! wide at the least, as in interface 6, whose resizing did not read the hint's
+//! least width or square either (only the size an item gets when added or placed
+//! does).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
+    Point,
     native::Error,
-    widgets::grid::{Cells, Geometry},
+    widgets::{
+        CellSpan,
+        grid::{self, Cells, Geometry},
+    },
 };
 use paperpaw_ui_kit::{mem::push, text::copy};
 
-use crate::native_grid::{Item, What};
+use super::grid::{Item, What};
 
 /// What the buttons do to the item chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +107,42 @@ pub fn put(items: &mut [Item], index: usize, to: Cells, geometry: &Geometry) -> 
     Put::Done
 }
 
+/// Whether item `index` may take the cells `to`: inside the grid and clear of
+/// every other item.
+#[must_use]
+pub fn free(items: &[Item], index: usize, to: Cells, geometry: &Geometry) -> bool {
+    to.fits(geometry.columns, geometry.rows)
+        && !items
+            .iter()
+            .enumerate()
+            .any(|(i, item)| i != index && item.at.is_some_and(|other| other.overlaps(&to)))
+}
+
+/// The cells an item at `from` takes when a finger that came down at `start` is
+/// at `point`: moved by as many cells as the finger moved, or with `resize` (its
+/// corner taken) its corner in the cell under the finger. A widget is kept at
+/// least as high as it can do with (`least` rows) and as its declared cells say
+/// (`span`: its least size, square). `None` off the grid.
+#[must_use]
+pub fn dragged(
+    geometry: &Geometry,
+    from: Cells,
+    (start, point): (Point, Point),
+    resize: bool,
+    (least, span): (u8, Option<CellSpan>),
+) -> Option<Cells> {
+    let to = grid::dragged(geometry, from, start, point, resize)?;
+    if !resize {
+        return Some(to);
+    }
+    let kept = match span {
+        Some(span) => span.keep(to, to.w != from.w),
+        None => to,
+    };
+    let h = kept.h.max(least.max(1)).min(geometry.rows.max(1));
+    Some(Cells::new(kept.col, kept.row, kept.w, h))
+}
+
 /// `items` without item `index`, and the placement whose values go with it:
 /// a widget's own placement (`id@n`) is reset when it is removed.
 ///
@@ -130,18 +172,45 @@ pub fn removed(items: &[Item], index: usize) -> Result<(Vec<Item>, Option<String
 pub enum Choice {
     Move,
     Resize,
+    /// The widget's own settings (a placement of its own), where it has some.
+    Settings,
     Remove,
     Cancel,
 }
 
+/// The catalog key of the *Cancel* word, which is the plugin's own (`home.edit.cancel`,
+/// `picture-home.edit.cancel`): empty here, the plugin puts its key in its place.
+pub const CANCEL: &str = "";
+
 /// The options in the order they are offered, each with the catalog key of its
-/// word (the core's: they are the grid's own words).
+/// word (the core's: they are the grid's own words; *Cancel*'s is [`CANCEL`]).
 pub const CHOICES: [(Choice, &str); 4] = [
     (Choice::Move, "core.grid.move"),
     (Choice::Resize, "core.grid.resize"),
     (Choice::Remove, "core.grid.remove"),
-    (Choice::Cancel, "picture-home.edit.cancel"),
+    (Choice::Cancel, CANCEL),
 ];
+
+/// The options of a widget that has settings of its own: *Settings* between
+/// *Change the size* and *Remove*, as interface 6 offered them.
+pub const CHOICES_WITH_SETTINGS: [(Choice, &str); 5] = [
+    (Choice::Move, "core.grid.move"),
+    (Choice::Resize, "core.grid.resize"),
+    (Choice::Settings, "core.grid.settings"),
+    (Choice::Remove, "core.grid.remove"),
+    (Choice::Cancel, CANCEL),
+];
+
+/// The options an item offers: with *Settings* where it is a widget that has
+/// settings.
+#[must_use]
+pub const fn choices(settings: bool) -> &'static [(Choice, &'static str)] {
+    if settings {
+        &CHOICES_WITH_SETTINGS
+    } else {
+        &CHOICES
+    }
+}
 
 /// The help said when moving or sizing starts.
 #[must_use]

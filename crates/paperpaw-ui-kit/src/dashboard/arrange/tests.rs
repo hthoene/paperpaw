@@ -1,6 +1,6 @@
 use super::*;
+use crate::dashboard::grid as native_grid;
 use crate::fail_alloc::sweep;
-use crate::native_grid;
 use paperpaw_sdk::{Point, Rect, widgets::CellSpan};
 
 fn grid() -> Geometry {

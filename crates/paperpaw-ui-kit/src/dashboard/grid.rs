@@ -1,4 +1,4 @@
-//! The grid of cells the home screen's pages are laid out in, without the
+//! The grid of cells a dashboard's pages (the home screen's, the picture home's) are laid out in, without the
 //! host: items (a widget or a tool) with the cells they take, the text they
 //! are kept as, and putting them in a grid. The same rules as the SDK's
 //! interface-6 grid (`paperpaw_sdk::widgets::grid`), with fallible
