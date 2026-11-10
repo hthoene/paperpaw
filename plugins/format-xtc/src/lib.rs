@@ -32,17 +32,6 @@ use paperpaw_sdk::document::{
 use paperpaw_sdk::image::{GrayFile, GrayWriter, ImageError, ImageSink};
 use paperpaw_sdk::{Storage, StorageError};
 
-/// Help text published by the host during atomic native admission.
-pub static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-/// Catalog sources published before native callbacks.
-pub static CATALOGS: [(&str, &str); 2] = [
-    ("en", include_str!("../i18n/en.ini")),
-    ("de", include_str!("../i18n/de.ini")),
-];
-
 /// The book: root 3, whose path is `""`.
 const BOOK: &str = "";
 

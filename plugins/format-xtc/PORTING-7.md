@@ -47,8 +47,8 @@ that name). `tools/plugin-files7` builds it as a file.
 
 Removed with the interface-6 form:
 1. `XtcFormat` and its `Plugin` impl (`FORMAT`, `PLUGIN`, the manifest, `add_book_cache`, `add_format` with its
-   `sniff`). `HOW` and `CATALOGS` (en/de, from `how/` and `i18n/`) stay as the statics the host publishes at
-   admission, as in `browser`; the translations test stays;
+   `sniff`). The `HOW` and `CATALOGS` statics are gone too: nothing in the native registry reads them (the texts in
+   `how/` and `i18n/` stay for the native how-to and the built catalogs);
 2. `XtcDocument::open` (and `open_in`, `fingerprint`) with the plugin-folder cache and the interface-6 `source` stamp
    (`XtcDocument::open_native` is the one opener; the pages are `p<n>.gray` in the host's cache, root 6). The title
    fallback to the file name went with it (see below);
@@ -68,3 +68,7 @@ opens an XTC book, so none is ignored.
 - **Title from the file name** belongs to the library (root 3 has no name): a book without a title in its metadata
   has none here (interface 6 named it by its file).
 - X4: decoding a page writes up to a page's gray picture per `block` call; time and stack are not measured.
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-xtc/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).
