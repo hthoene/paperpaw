@@ -138,11 +138,10 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         invocation: shell::TokenInvocation<'_>,
         input: bool,
     ) -> Result<i32, i32> {
-        // Nothing is called while the queue is full: the callback would stage
-        // what could not wait.
-        if !queue.has_room() {
-            return Err(host_glue::ERR_BUSY);
-        }
+        // Nothing is called while the queue is full or cannot be made ready:
+        // the callback would stage what could not wait, and a batch it
+        // believes went through must not be dropped afterwards.
+        queue.reserve()?;
         let owner = paperpaw_sdk::Id::try_parse(self.instance.host().owner().context().plugin_id())
             .map_err(|error| match error {
                 paperpaw_sdk::IdError::NoMemory => host_glue::ERR_NO_MEMORY,

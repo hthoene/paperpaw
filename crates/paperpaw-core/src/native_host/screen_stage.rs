@@ -64,11 +64,21 @@ impl ScreenStage {
         self.inputs.get()
     }
 
-    /// Whether another batch can wait.
-    pub(crate) fn has_room(&self) -> bool {
-        self.queue
-            .try_borrow()
-            .is_ok_and(|queue| queue.len() < SCREEN_BATCHES)
+    /// Makes room for another batch before its callback runs: the queue's
+    /// whole capacity (`SCREEN_BATCHES`) is reserved at once, so a batch the
+    /// callback believes went through is never dropped for want of memory
+    /// ([`Self::put`] cannot reallocate).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the queue is full (or borrowed), `ERR_NO_MEMORY` when its
+    /// capacity cannot be reserved.
+    pub(crate) fn reserve(&self) -> Result<(), i32> {
+        let mut queue = self.queue.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if queue.len() >= SCREEN_BATCHES {
+            return Err(ERR_BUSY);
+        }
+        let more = SCREEN_BATCHES - queue.len();
+        queue.try_reserve_exact(more).map_err(|_| ERR_NO_MEMORY)
     }
 
     /// Keeps a batch for the kernel.
@@ -80,6 +90,8 @@ impl ScreenStage {
         if queue.len() >= SCREEN_BATCHES {
             return Err(ERR_BUSY);
         }
+        // `reserve` made the room before the callback ran; nested callbacks
+        // each reserved the whole capacity, so this never grows the queue.
         queue.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         queue.push(staged);
         Ok(())
@@ -172,16 +184,28 @@ mod tests {
     fn the_queue_keeps_four_batches_in_order_and_refuses_a_fifth() {
         let queue = ScreenStage::new();
         for owner in 1..=4 {
-            assert!(queue.has_room());
+            queue.reserve().unwrap();
             queue.put(batch(owner)).unwrap();
         }
-        assert!(!queue.has_room());
+        assert_eq!(queue.reserve(), Err(ERR_BUSY));
         assert_eq!(queue.put(batch(5)), Err(ERR_BUSY));
         for owner in 1..=4 {
             assert_eq!(queue.take().map(|staged| staged.owner), Some(owner));
         }
         assert!(queue.take().is_none());
-        assert!(queue.has_room());
+        queue.reserve().unwrap();
+    }
+
+    #[test]
+    fn a_batch_is_put_without_growing_the_queue_after_it_was_reserved() {
+        let queue = ScreenStage::new();
+        queue.reserve().unwrap();
+        let capacity = queue.queue.borrow().capacity();
+        assert!(capacity >= SCREEN_BATCHES);
+        for owner in 1..=4 {
+            queue.put(batch(owner)).unwrap();
+        }
+        assert_eq!(queue.queue.borrow().capacity(), capacity);
     }
 
     #[test]
