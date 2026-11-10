@@ -155,6 +155,7 @@
   ],
   "features": [
     "uses.install",
-    "uses.network"
+    "uses.network",
+    "uses.wifi"
   ]
 }

@@ -22,6 +22,11 @@
       "key": "uses.network",
       "required": false,
       "revision": 1
+    },
+    {
+      "key": "uses.wifi",
+      "required": false,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -64,5 +69,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 205
+  "total_bytes": 222
 }

@@ -1,8 +1,14 @@
 //! What the two screens show, as data without the host: which rows a font's
 //! page offers, and the version of a font that is installed.
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{Version, native::Error};
-use paperpaw_ui_kit::mem::push;
+use paperpaw_sdk::{
+    Version,
+    native::{
+        Error,
+        callbacks::{Input, InputGestureKind},
+    },
+};
+use paperpaw_ui_kit::{mem::push, text};
 
 use crate::native_catalog::Font;
 
@@ -18,6 +24,51 @@ pub enum Trouble {
     Offline,
     /// The library answered with something else than a catalog.
     Failed,
+    /// The device is in Offline mode: the offer to go online for the list.
+    Offer,
+}
+
+/// A font being downloaded, as the screens show it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Running {
+    /// The font's plugin.
+    pub plugin: String,
+    /// Files that are here, and all there are.
+    pub done: usize,
+    pub total: usize,
+    /// The host was asked to install it: *Stop* is no longer offered.
+    pub installing: bool,
+}
+
+impl Running {
+    /// How far it is, `done / total` in ASCII digits (the host writes them in
+    /// the language's).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn progress(&self) -> Result<String, Error> {
+        let (mut a, mut b) = ([0u8; 20], [0u8; 20]);
+        text::concat(&[
+            text::decimal_u64(self.done as u64, &mut a),
+            " / ",
+            text::decimal_u64(self.total as u64, &mut b),
+        ])
+    }
+}
+
+/// Whether `input` is a choice on a list that has nothing to choose: Confirm,
+/// or a tap (the header's own taps are taken before). Where the list says why
+/// it is empty this tries again, or goes online.
+#[must_use]
+pub fn wants_to_go_on(input: &Input<'_>) -> bool {
+    match *input {
+        Input::Action { action, .. } => action == "core.confirm",
+        Input::Gesture {
+            kind: InputGestureKind::Tap,
+            ..
+        } => true,
+        _ => false,
+    }
 }
 
 /// What a row of a font's page does.
@@ -74,6 +125,14 @@ pub fn rows(
 #[must_use]
 pub const fn should_fetch(asked: bool, in_flight: bool) -> bool {
     !asked && !in_flight
+}
+
+/// The page of *Your own fonts*: its title, a blank line, the help's text.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn own_page(title: &str, text: &str) -> Result<String, Error> {
+    paperpaw_ui_kit::text::concat(&[title, "\n\n", text.trim(), "\n"])
 }
 
 /// The fonts that are installed: their plugins' ids and versions.
@@ -161,6 +220,25 @@ mod tests {
     #[test]
     fn no_stop_once_the_host_is_asked_to_install() {
         assert!(rows(&font("1.0.0"), None, true, true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_progress_is_the_files_that_are_here_of_all() {
+        let running = Running {
+            plugin: String::from("font-x"),
+            done: 2,
+            total: 5,
+            installing: false,
+        };
+        assert_eq!(running.progress().unwrap(), "2 / 5");
+    }
+
+    #[test]
+    fn the_page_of_your_own_fonts_is_its_title_and_the_help() {
+        assert_eq!(
+            own_page("Your own fonts", "\nA font of your own.\n").unwrap(),
+            "Your own fonts\n\nA font of your own.\n"
+        );
     }
 
     #[test]
