@@ -109,7 +109,14 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   answers `Unsupported` and the widget shows the change at its next measure) tell the instances to ask again.
   Differences: the rule between headlines is a plain light gray line (interface 6 dithered it); the kit lays
   the lines out (`label`, `wrap`, `caption`), so a line may break at another place than the old `Wrapped`.
-  Not measured: the widget's frames on the X4 and its draw time with eight headlines of two lines.
+  Not measured: the widget's frames on the X4 and its draw time with eight headlines of two lines. X4 timing
+  gate: each measure, targets, draw and tap reads `headlines.txt` once and calls `storage::size` for up to
+  eight books (the library's `missing` bit would save these).
+- A new feed whose list cannot be saved is not added: the notice *news.unsaved* says so (a fetch would ask
+  for a feed the re-read list no longer holds).
+- The plugin's metadata asks for what the code calls: `core.library`, `core.ui` next to the earlier three
+  services, the features `uses.library` and `uses.storage` (`Root::Files` sizes), and the drawing host calls
+  of the widget (`canvas.*`, `text.*`, `font.acquire`).
 - The plugin is not listed as complete and is not in the app yet: the removal of interface 6 (slice C,
   held until native activation) follows.
 - An article's text is cut by the device's memory class (`core.device` op 1 `dev_device.class`,

@@ -372,8 +372,13 @@ impl NativeNews {
                         name: String::new(),
                     },
                 )?;
-                // A card that does not take the list costs the change only.
-                save(&DataVolume(host), &view.feeds).ok();
+                // A card that does not take the list does not get the feed:
+                // a fetch of a feed the list does not hold would ask for a
+                // book that is not there.
+                if save(&DataVolume(host), &view.feeds).is_err() {
+                    view.feeds.pop();
+                    return notice(host, "news.unsaved");
+                }
                 view.feeds.len() - 1
             }
         };
