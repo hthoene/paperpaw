@@ -24,7 +24,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         clock,
         commands::{CommandSender, RedrawMode},
-        document::{DocId, Documents, OpenBook, Preparation, Root},
+        document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
         settings::{self, SettingValue},
@@ -93,6 +93,10 @@ struct Open {
     unsaved: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
+    /// The book's title as a report carries it.
+    title: String,
+    /// The book was reported read to the end.
+    finished: bool,
     /// A refused write has been said (once for a book).
     said: bool,
 }
@@ -192,7 +196,11 @@ impl View {
             }
         }
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
-            Ok(meta) => meta.sections().max(1),
+            Ok(meta) => (
+                meta.sections().max(1),
+                // The path stands for a title the format does not give.
+                text::copy(native_place::title_of(meta.title(), &found.path)),
+            ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
                 return Err(Error::NoMemory);
@@ -201,6 +209,11 @@ impl View {
                 Self::forget(host, docs, id);
                 return Ok(Self::message("reader.error"));
             }
+        };
+        let (sections, title) = sections;
+        let Ok(title) = title else {
+            Self::forget(host, docs, id);
+            return Err(Error::NoMemory);
         };
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
@@ -212,44 +225,67 @@ impl View {
                 return Err(error);
             }
         };
-        let mut stored_ppm = 0;
-        let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
-            Start::At(place) => (place.section, place.offset),
-            Start::Saved => {
-                // The library's calls take 1,024 bytes of input.
-                let mut ask = buffer(1024)?;
-                let stored = library.map(|library| {
-                    native_place::saved(
-                        host,
-                        library,
-                        &found.path,
-                        (sections, conversion),
-                        (&mut ask, &mut out),
-                    )
-                });
-                stored_ppm = stored.map_or(0, |s| s.ppm);
-                stored.and_then(|s| s.at).unwrap_or((0, 0))
-            }
-            _ => (0, 0),
+        let (at, stored_ppm) =
+            Self::starting_place(host, library, &found, (sections, conversion), &mut out)?;
+        let mut open = Open {
+            id,
+            sections,
+            whole_pages,
+            at,
+            page: None,
+            trail: Trail::new(),
+            path: found.path,
+            conversion,
+            progress,
+            stored_ppm,
+            saved_at: None,
+            unsaved: false,
+            turned: false,
+            said: false,
+            title,
+            finished: false,
         };
+        // The host's book events start here (`document.md` 2.4); a book whose
+        // first page cannot be laid out is told with its first draw.
+        open.announce(host, docs);
         Ok(Self {
-            body: Body::Open(Open {
-                id,
-                sections,
-                whole_pages,
-                at,
-                page: None,
-                trail: Trail::new(),
-                path: found.path,
-                conversion,
-                progress,
-                stored_ppm,
-                saved_at: None,
-                unsaved: false,
-                turned: false,
-                said: false,
-            }),
+            body: Body::Open(open),
         })
+    }
+
+    /// Where the book opens and the progress stored with its place: the place
+    /// the hand-over names, if the book has it; else the place saved last time;
+    /// else the start (a page number needs the page index: `PORTING-7.md`).
+    fn starting_place(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        found: &Handover,
+        (sections, conversion): (u32, u64),
+        out: &mut [u8],
+    ) -> Result<((u32, u32), u32), Error> {
+        Ok(
+            match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
+                Start::At(place) => ((place.section, place.offset), 0),
+                Start::Saved => {
+                    // The library's calls take 1,024 bytes of input.
+                    let mut ask = buffer(1024)?;
+                    let stored = library.map(|library| {
+                        native_place::saved(
+                            host,
+                            library,
+                            &found.path,
+                            (sections, conversion),
+                            (&mut ask, out),
+                        )
+                    });
+                    (
+                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
+                        stored.map_or(0, |s| s.ppm),
+                    )
+                }
+                _ => ((0, 0), 0),
+            },
+        )
     }
 
     const fn message(key: &'static str) -> Self {
@@ -314,6 +350,7 @@ impl View {
             open.unsaved = true;
             open.turned = true;
             open.save(host, library, When::Turn);
+            open.announce(host, docs);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         }
@@ -441,6 +478,54 @@ impl Open {
         } else if !self.said {
             self.said = true;
             self.say_not_saved(host, when == When::Closing);
+        }
+    }
+
+    /// Tells the host where the reader is (`core.document` op 22, `document.md`
+    /// 2.4): the page on show, laid out here if it is not yet, its place and
+    /// progress, and that the book is read to the end when this page ends it.
+    /// The host raises the book events from it. A page that cannot be laid out,
+    /// or a refusal, is no report (the draw says what is wrong). No chapter, page
+    /// number or page count is told: the table of contents and the page index
+    /// come with their slices (`PORTING-7.md`).
+    fn announce(&mut self, host: &Host<'_>, docs: &Documents) {
+        let Ok(setup) = Setup::read(host) else {
+            return;
+        };
+        if self.page.is_none() {
+            match self.lay(host, docs, &setup, self.at) {
+                Ok(page) => self.page = Some(page),
+                Err(_) => return,
+            }
+        }
+        let Some(page) = &self.page else {
+            return;
+        };
+        let ppm = self
+            .progress
+            .as_ref()
+            .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
+        let at_end = !page.is_past_end()
+            && self.progress.as_ref().is_some_and(|p| {
+                native_place::reaches_end(p.ppm(page.end.section, page.end.offset))
+            });
+        let mut report = Report::new(
+            DocPosition::new(self.at.0, self.at.1),
+            native_place::report_ppm(self.finished || at_end, ppm),
+        )
+        .title(&self.title);
+        if at_end && !self.finished {
+            report = report.finished();
+        }
+        let (Ok(mut input), Ok(mut out)) = (buffer(1024), buffer(64)) else {
+            return;
+        };
+        if docs
+            .report(host, self.id, &report, &mut input, &mut out)
+            .is_ok()
+            && at_end
+        {
+            self.finished = true;
         }
     }
 

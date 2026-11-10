@@ -136,6 +136,39 @@ pub fn saved(
     }
 }
 
+/// Most bytes of the title a report carries.
+pub const TITLE_MAX: usize = 256;
+
+/// `text` cut at a character boundary to at most [`TITLE_MAX`] bytes.
+#[must_use]
+pub fn cut_title(text: &str) -> &str {
+    let mut end = text.len().min(TITLE_MAX);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default()
+}
+
+/// The title a report carries: the book's, else its path (as Beta 3), cut.
+#[must_use]
+pub fn title_of<'a>(title: &'a str, path: &'a str) -> &'a str {
+    cut_title(if title.is_empty() { path } else { title })
+}
+
+/// The progress a report carries: the whole once the book was read to the end,
+/// also where the reader pages back (Beta 3's `reading()`).
+#[must_use]
+pub const fn report_ppm(finished: bool, ppm: u32) -> u32 {
+    if finished { 1_000_000 } else { ppm }
+}
+
+/// Whether a page ending at progress `end_ppm` ends the book: it is read to the
+/// end (Beta 3's `at_end`, progress of 0.999).
+#[must_use]
+pub const fn reaches_end(end_ppm: u32) -> bool {
+    end_ppm >= 999_000
+}
+
 /// The wall time of the write in seconds since 1970, from the snapshot; 0 where
 /// the device has no valid clock (`library.md` section 2.2: never made up).
 #[must_use]
