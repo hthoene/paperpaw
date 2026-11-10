@@ -5,15 +5,28 @@
 //! The key is 32 random bytes in `device.key` in the user's configuration
 //! folder (`$XDG_CONFIG_HOME/paperpaw-emulator`, or `~/.config/paperpaw-emulator`;
 //! the folder and the file are this user's alone, 0700 and 0600, where the
-//! system has such rights). It is made at the first use, atomically, and is
-//! never replaced: a key file of another size, or one this user cannot be
-//! the only reader of, is refused. Without a key nothing is sealed and
+//! system has such rights). It is made at the first use, atomically (a
+//! synced temporary file linked into place, so another start sees no key or
+//! the whole key, never a part), and is never replaced: a key file of another
+//! size, or one this user cannot be the only reader of (open to group or
+//! others, owned by another user, in a folder others can write to), is
+//! refused. Two starts at once end with the same key. Without a key nothing is sealed and
 //! `core.secrets` is not wired: a plugin that needs it is refused. A secrets
 //! file copied to another computer (or kept with the card's files) does not
 //! open there: its values are absent, as on a device.
 //!
-//! A run on simulated time (tests, scripts) keeps its key in memory for the
-//! process: it writes nothing outside its own folders.
+//! The store is fixed for the whole process: it is chosen once, when the linked
+//! plugins are registered, and a key made or removed, or a card that cannot be
+//! opened, afterwards changes nothing until the next start.
+//!
+//! A run on simulated time (tests, scripts) keeps its key **and its secrets
+//! file** in memory for the process: it writes nothing outside its own folders
+//! and cannot lose the secrets of a card it shares with a real run (`linked`).
+//!
+//! The key belongs to the user, not to a card: the same card folder opened
+//! on another account, or after the key file was removed, has secrets that do
+//! not open (they are absent, as on a device with another key), and a save
+//! then writes beside them.
 //!
 //! Every `seal` draws a fresh 12-byte nonce from the system's random source
 //! ([`crate::host::random`]); where that fails the seal fails and nothing is
@@ -22,6 +35,7 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use zeroize::Zeroizing;
 
 use aes_gcm::aead::{AeadInPlace, KeyInit, generic_array::GenericArray};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
@@ -91,15 +105,16 @@ impl KeySealer {
         match read_key(&path) {
             Ok(key) => Ok(Self::from_key(&key)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                let mut key = [0u8; KEY_BYTES];
-                if !crate::host::random(&mut key) {
+                let mut key = Zeroizing::new([0u8; KEY_BYTES]);
+                if !crate::host::random(&mut *key) {
                     return Err(io::Error::other("no random numbers for a key"));
                 }
-                match create_key(&path, &key) {
+                match create_key(folder, &path, &key) {
                     Ok(()) => Ok(Self::from_key(&key)),
                     // Another start made it first: its key is the key.
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                        Ok(Self::from_key(&read_key(&path)?))
+                        let key = read_key(&path)?;
+                        Ok(Self::from_key(&key))
                     }
                     Err(e) => Err(e),
                 }
@@ -130,15 +145,43 @@ fn make_folder(folder: &Path) -> io::Result<()> {
     builder.recursive(true);
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(folder)
+    builder.create(folder)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = std::fs::metadata(folder)?;
+        if meta.permissions().mode() & 0o022 != 0 {
+            return Err(io::Error::other(format!(
+                "{} can be written by others (mode {:o}); it is refused",
+                folder.display(),
+                meta.permissions().mode() & 0o777
+            )));
+        }
+        if meta.uid() != me()? {
+            return Err(io::Error::other(format!(
+                "{} is owned by another user; it is refused",
+                folder.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
-fn read_key(path: &Path) -> io::Result<[u8; KEY_BYTES]> {
+/// This process's user id (the owner of its own `/proc` entry on Linux, the
+/// one platform the linked plugins run on here).
+#[cfg(unix)]
+fn me() -> io::Result<u32> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(std::fs::metadata("/proc/self")?.uid())
+}
+
+fn read_key(path: &Path) -> io::Result<Zeroizing<[u8; KEY_BYTES]>> {
     let file = std::fs::File::open(path)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = file.metadata()?.permissions().mode();
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = file.metadata()?;
+        let mode = meta.permissions().mode();
         if mode & 0o077 != 0 {
             return Err(io::Error::other(format!(
                 "{} is open to other users (mode {:o}); it is refused",
@@ -146,21 +189,51 @@ fn read_key(path: &Path) -> io::Result<[u8; KEY_BYTES]> {
                 mode & 0o777
             )));
         }
+        if meta.uid() != me()? {
+            return Err(io::Error::other(format!(
+                "{} is owned by another user; it is refused",
+                path.display()
+            )));
+        }
     }
-    let mut bytes = Vec::new();
+    let mut bytes = Zeroizing::new(Vec::with_capacity(KEY_BYTES + 1));
     file.take(KEY_BYTES as u64 + 1).read_to_end(&mut bytes)?;
-    <[u8; KEY_BYTES]>::try_from(bytes.as_slice())
-        .map_err(|_| io::Error::other(format!("{} is not a 32-byte key", path.display())))
+    let mut key = Zeroizing::new([0u8; KEY_BYTES]);
+    if bytes.len() != KEY_BYTES {
+        return Err(io::Error::other(format!(
+            "{} is not a 32-byte key",
+            path.display()
+        )));
+    }
+    key.copy_from_slice(&bytes);
+    Ok(key)
 }
 
-fn create_key(path: &Path, key: &[u8; KEY_BYTES]) -> io::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(path)?;
-    file.write_all(key)?;
-    file.sync_all()
+/// Makes the key file whole or not at all: written and synced under a name of
+/// its own, linked to `path` (which fails if there is one: the first start
+/// wins), the temporary name removed and the folder synced.
+fn create_key(folder: &Path, path: &Path, key: &[u8; KEY_BYTES]) -> io::Result<()> {
+    let mut suffix = [0u8; 8];
+    if !crate::host::random(&mut suffix) {
+        return Err(io::Error::other("no random numbers for a name"));
+    }
+    let name: String = suffix.iter().map(|b| format!("{b:02x}")).collect();
+    let temp = folder.join(format!("{FILE}.{name}.new"));
+    let made = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&temp)?;
+        file.write_all(key)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::hard_link(&temp, path)
+    })();
+    let _ = std::fs::remove_file(&temp);
+    made?;
+    // The link is on disk before the key is used for a secret.
+    std::fs::File::open(folder)?.sync_all()
 }
 
 impl Sealer for KeySealer {
@@ -312,6 +385,51 @@ mod tests {
         }
         assert!(KeySealer::in_folder(&dir).is_err());
         assert_eq!(std::fs::read(dir.join(FILE)).unwrap(), b"short");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn two_first_starts_at_once_end_with_the_same_key() {
+        let dir = crate::private::dir("paperpaw-sealing-race").unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let (dir, barrier) = (dir.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let sealer = KeySealer::in_folder(&dir).unwrap();
+                    // What each start can open of what another sealed.
+                    let mut out = [0u8; 64];
+                    let n = sealer.seal(b"a", b"v", &mut out).unwrap();
+                    (out, n)
+                })
+            })
+            .collect();
+        let sealed: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let sealer = KeySealer::in_folder(&dir).unwrap();
+        for (out, n) in &sealed {
+            let mut plain = [0u8; 8];
+            assert_eq!(sealer.open(b"a", &out[..*n], &mut plain), Ok(1));
+        }
+        // No temporary file is left.
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [std::ffi::OsString::from(FILE)]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_others_can_write_to_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = crate::private::dir("paperpaw-sealing-folder").unwrap();
+        KeySealer::in_folder(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+        assert!(KeySealer::in_folder(&dir).is_err());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(KeySealer::in_folder(&dir).is_ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

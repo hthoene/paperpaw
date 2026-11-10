@@ -46,7 +46,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Code plugins built for this computer (`native`).
 libloading = "0.9"
 # What seals the secrets of linked native plugins (`sealing`, AES-256-GCM).
-aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes"] }
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "zeroize"] }
+# The key is wiped from memory when it is dropped.
+zeroize = { version = "1", optional = true }
 # What is checked on a plugin's bytes before it is loaded (ADR 0034); the
 # kernel's part is the freestanding rule shared with the packager (ADR 0020).
 paperpaw-native = { workspace = true, features = ["kernel"] }
@@ -80,7 +82,7 @@ interlinear = ["dep:paperpaw-sample-interlinear"]
 # the app keeps their interface-6 form). Off until every host service and
 # event the plugins need is wired (#2220): the app without their interface-6
 # form lacks the screens of the ones that cannot register yet.
-native-linked = ["paperpaw-app/native-linked", "dep:aes-gcm"]
+native-linked = ["paperpaw-app/native-linked", "dep:aes-gcm", "dep:zeroize"]
 
 [lints]
 workspace = true

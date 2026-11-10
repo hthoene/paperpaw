@@ -118,8 +118,11 @@ impl WorkDevice for DeviceView {
 /// What the device hands the registration besides its profile.
 #[derive(Clone)]
 pub struct Inputs {
-    /// The card, where the secrets file is kept (sealed).
-    pub storage: Rc<dyn Storage>,
+    /// Where the secrets file is kept (sealed): the card of a real run, a
+    /// store in memory for a run on simulated time. `None` where the card
+    /// cannot be opened: `core.secrets` is then not wired, rather than a
+    /// store that loses what is saved.
+    pub storage: Option<Rc<dyn Storage>>,
     /// The clock and network `core.work` asks for.
     pub view: Rc<DeviceView>,
     /// A run on simulated time (tests, scripts): its secrets key is kept in
@@ -187,17 +190,18 @@ pub fn register(
         .ui(profile.device.memory)
         .device(device)
         .work(WorkInputs::new(inputs.view, profile.device.memory));
-    match sealer(inputs.simulated) {
-        Ok(sealer) => {
+    match (inputs.storage, sealer(inputs.simulated)) {
+        (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
+        (Some(storage), Ok(sealer)) => {
             wiring = wiring.secrets(
-                SecretsInputs::new(inputs.storage, sealer)
+                SecretsInputs::new(storage, sealer)
                     .with_rng(Rc::new(crate::sealing::SystemRng))
                     .on_unreadable(Rc::new(|| {
                         eprintln!("the secrets file could not be read");
                     })),
             );
         }
-        Err(why) => eprintln!("native plugins: no secrets (no key: {why})"),
+        (Some(_), Err(why)) => eprintln!("native plugins: no secrets (no key: {why})"),
     }
     let wired = resources.wire(wiring).map_err(Unavailable::Wiring)?;
     // Values an older version kept veiled are sealed now (none to do on a
