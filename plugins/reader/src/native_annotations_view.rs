@@ -385,13 +385,18 @@ pub fn export(host: &Host<'_>, library: &Library, path: &str) -> Result<String, 
     if written.is_err() {
         storage::remove(host, Root::Files, &temp).ok();
     }
+    let refused = written.as_ref().err().copied();
     let done = model::export(
         |_, _| written,
         &file,
         "",
         || native_notes::run(host, native_notes::ROOT_FILES, &file, &title),
     );
-    if done { Ok(file) } else { Err(Error::Io) }
+    match (done, refused) {
+        (true, _) => Ok(file),
+        (false, Some(Error::NoMemory)) => Err(Error::NoMemory),
+        (false, _) => Err(Error::Io),
+    }
 }
 
 /// The library folder, without the slashes at its ends.
