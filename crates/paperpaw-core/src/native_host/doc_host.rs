@@ -46,8 +46,8 @@ use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
-    ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
@@ -237,9 +237,10 @@ impl DocState {
             return Err(ERR_FULL);
         }
         // The in-use table names the card path: root 1 is the card's top
-        // (without a leading slash), root 0 the opener's data folder. The
-        // install folder (root 5) is not held yet.
-        let held = root == 1 || root == 0;
+        // (without a leading slash), root 0 the opener's data folder, root 5
+        // the handed file's card path.
+        // Root 5's path is the card path the hand-over resolved to.
+        let held = root == 1 || root == 0 || root == super::doc_service::ROOT_HANDED;
         let copy = if root == 0 {
             // Without a caller there is no data folder to name.
             if plugin.is_none() {
@@ -830,9 +831,48 @@ impl super::doc_service::DocHost for Bound<'_> {
             0 => Ok(()),
             // The card's top needs `uses.storage` (decision 125).
             1 => self.who.features.feature("uses.storage"),
-            // The handed file is not wired yet.
+            // The handed file is resolved by `handed_open`.
             5 => Err(ERR_UNSUPPORTED),
             _ => Err(ERR_INVALID),
+        }
+    }
+
+    #[inline(never)]
+    fn handed_open(&self, path: &str) -> Result<String, i32> {
+        // Until the `core.ui` store is wired no file is handed.
+        if self.who.hosts.ui().is_none() {
+            return Err(ERR_UNSUPPORTED);
+        }
+        // An instance that is not a reader screen has no hand-over.
+        let instance = self.frame.calling_instance().map_err(|_| ERR_DENIED)?;
+        let mut handed = Err(ERR_DENIED);
+        self.who.hosts.handed_file(instance, &mut |file| {
+            // Only the one file the hand-over names, in a folder of its maker.
+            let ours = file.path == path && matches!(file.root, 0 | 2);
+            handed = if ours && file.path.len() <= 512 {
+                copy(file.path).map(|text| (file.maker, file.root, text))
+            } else {
+                Err(ERR_DENIED)
+            };
+        })?;
+        let (maker, root, file_path) = handed?;
+        // The maker may be gone: its key never names another plugin.
+        let mut id: Result<String, i32> = Err(ERR_NOT_FOUND);
+        self.frame.with_declarations(&mut |any| {
+            let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>()
+            else {
+                return;
+            };
+            if let Some(name) = store.plugin_id_of_owner(maker) {
+                id = copy(name);
+            }
+        })?;
+        let joined = OwnerPaths::join(Some(&id?), root, &file_path)?;
+        let storage = self.state.storage.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        match storage.size(&joined) {
+            Ok(_) => Ok(joined),
+            Err(paperpaw_platform::StorageError::NotFound) => Err(ERR_NOT_FOUND),
+            Err(error) => Err(super::storage::status(error)),
         }
     }
 
