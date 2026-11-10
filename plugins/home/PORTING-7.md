@@ -207,10 +207,12 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   grid's `dragged`, then a widget's declared least size and its least rows, as the buttons' sizing
   keeps them), is kept like a button step, and the page is laid out anew; where another item is in
   the way it says so and the item stays. One finger only (`contact`); a cancelled finger puts
-  nothing down. Two small strokes in the corner of each item while editing show where to size it.
+  nothing down; a finger down again, or the screen shown again, starts afresh (no end is waited for).
+  The drop is put on a copy of the items and written, so a refused write leaves what shows as it was.
+  Two small strokes in the corner of each item while editing show where to size it.
   Not covered without a real host: the finger itself and the refresh cost of a redraw per landing
   change on the X4 (a partial redraw of the whole page; Beta 3 redrew the cells' area only, there is
-  no area command): `home-edit-arrange` (H1). The options' *Settings* entry is native (slice 4e,
+  no area command), and the corner marks drawn on each item while editing (X4 per-sample cost list): `home-edit-arrange` (H1). The options' *Settings* entry is native (slice 4e,
   below).
 - *Add*'s ready-made layouts and the rows' icons: `home-add` (#517). The things of a tool kind are
   listed by name.

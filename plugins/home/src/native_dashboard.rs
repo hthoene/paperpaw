@@ -184,6 +184,8 @@ impl Dashboard {
         self.stale = true;
         self.reshow = true;
         self.last_input = last_input;
+        // A finger's drag does not outlive the screen's being covered.
+        self.drag = None;
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are

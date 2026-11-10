@@ -169,7 +169,12 @@ impl Dashboard {
             return Ok(None);
         }
         match (phase, self.drag) {
-            (PointerPhase::Down, None) => Ok(self.drag_start(position, contact)),
+            // A finger down again is a fresh start: one whose end was lost (no up,
+            // no cancel) does not keep a later one from taking an item.
+            (PointerPhase::Down, drag) if drag.is_none_or(|drag| drag.contact == contact) => {
+                self.drag = None;
+                Ok(self.drag_start(position, contact))
+            }
             (PointerPhase::Move, Some(drag)) if drag.contact == contact => {
                 self.drag_to(host, drag, position)?;
                 Ok(Some(Handled::Yes))
@@ -265,14 +270,16 @@ impl Dashboard {
             }
             return self.open_options(host, drag.cell);
         }
-        let Some(laid) = self.laid.as_mut() else {
+        let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
         let Some(item) = laid.cells.get(drag.cell).map(|cell| cell.item) else {
             return Ok(());
         };
-        match arrange::put(&mut laid.items, item, drag.to, &laid.frame.geometry) {
-            Put::Done => self.keep(host),
+        // Put on a copy: what is in memory is changed only once it is written.
+        let mut items = crate::native_grid::copy_items(&laid.items)?;
+        match arrange::put(&mut items, item, drag.to, &laid.frame.geometry) {
+            Put::Done => self.write(host, &items, &[]).map(drop),
             Put::InTheWay => {
                 add_screen::say(host, "core.grid.in-the-way")?;
                 redraw(host)
