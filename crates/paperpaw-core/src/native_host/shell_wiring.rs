@@ -61,6 +61,7 @@ pub struct HostWiring {
     ui: Option<bool>,
     /// `core.document`: the memory class and the screen's long side.
     documents: Option<(paperpaw_platform::MemoryClass, u32)>,
+    document_colour: bool,
     /// `core.library`: the catalog's card and the shell's facts.
     library: Option<(Rc<dyn Storage>, Rc<dyn CatalogEnv>)>,
     /// `core.lookup`.
@@ -185,6 +186,15 @@ impl HostWiring {
         screen_long_side: u32,
     ) -> Self {
         self.documents = Some((memory, screen_long_side));
+        self
+    }
+
+    /// The screen keeps colour: a book's pictures that are in colour say so
+    /// (`doc_image.flags` bit 0). Without it, never. It must match the
+    /// shell's real panel: a shell whose screen is grey says `false`.
+    #[must_use]
+    pub fn document_colour(mut self, colour: bool) -> Self {
+        self.document_colour = colour;
         self
     }
 
@@ -458,7 +468,8 @@ impl HostResources {
             };
             let state =
                 super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?
-                    .with_storage(wiring.files.clone());
+                    .with_storage(wiring.files.clone())
+                    .with_colour(wiring.document_colour);
             // The reader's open book is a source of `core.files` from now on.
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;
