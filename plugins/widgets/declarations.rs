@@ -10,6 +10,8 @@ use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
+/// The callback token of the reading events, which the reading widget records.
+pub const READING: u32 = 2;
 /// The callback token of the to-do list's screen.
 pub const TODO_SCREEN: u32 = 10;
 /// The callback token of the action that opens it.
@@ -346,6 +348,69 @@ const SERIES_OPTIONS: &[Opt] = &[
     Opt::Part("titles", "widgets.books.part.titles", false),
     Opt::Part("read", "widgets.books.part.read", true),
     Opt::Part("current", "widgets.books.part.current", true),
+];
+
+const NEXT_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "pick",
+        "widgets.books.setting.pick",
+        &[
+            "widgets.next.series",
+            "widgets.next.newest",
+            "widgets.next.random",
+        ],
+        "widgets.next.series",
+        "widgets.books.setting.pick.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("series", "widgets.books.part.series", true),
+];
+
+const PROGRESS_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.progress.beside",
+            "widgets.progress.round",
+            "widgets.progress.ring",
+            "widgets.progress.bar",
+        ],
+        "widgets.progress.beside",
+        "widgets.progress.style.help",
+    ),
+    Opt::Choice(
+        "thickness",
+        "widgets.books.setting.thickness",
+        &[
+            "widgets.books.thin",
+            "widgets.books.medium",
+            "widgets.books.thick",
+        ],
+        "widgets.books.medium",
+        "widgets.progress.thickness.help",
+    ),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("title", "widgets.books.part.title", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
+const READING_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("pages", "widgets.books.part.pages", true),
+    Opt::Part("bar", "widgets.books.part.bar", true),
+    Opt::Part("left", "widgets.books.part.left", true),
+    Opt::Part("chapter", "widgets.books.part.chapter", true),
+    // Shown again when the reading position carries the chapter's end (Kernel).
+    Opt::Part("chapter-left", "widgets.books.part.chapter-left", true),
 ];
 
 const MOON_OPTIONS: &[Opt] = &[
@@ -770,6 +835,33 @@ pub const WIDGETS: &[Def] = &[
         options: SERIES_OPTIONS,
     },
     Def {
+        name: "next",
+        token: 118,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: NEXT_OPTIONS,
+    },
+    Def {
+        name: "progress",
+        token: 119,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: PROGRESS_OPTIONS,
+    },
+    Def {
+        name: "reading",
+        token: 120,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: READING_OPTIONS,
+    },
+    Def {
         name: "logo",
         token: 121,
         category: category::OTHER,
@@ -826,6 +918,15 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
+    for kind in [
+        EventKind::BookOpened,
+        EventKind::PageTurned,
+        EventKind::BookClosed,
+        EventKind::Suspend,
+        EventKind::Stopping,
+    ] {
+        d.subscribe_event(kind, READING)?;
+    }
     // The answer to the logo picture asked for, and a change of the picture set.
     d.subscribe_event(EventKind::ImageReady, TICK)?;
     d.subscribe_event(EventKind::SettingChanged, TICK)?;
