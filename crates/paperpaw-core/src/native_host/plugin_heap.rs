@@ -2,14 +2,28 @@
 //! block a plugin allocates, and how much of its budget a plugin has used.
 //!
 //! Both doors of the host heap (the host table's slots 0–2 and the `PpHeap`
-//! table) allocate through [`Charged`], which puts a [`Header`] in front of
-//! every block: the owner (an index into the device's owner table) and the
-//! links of that owner's block list. `dealloc` and `realloc` follow the block's
-//! header, never the frame, so a block freed in another plugin's frame leaves
-//! both budgets exact, and the list lets the teardown sweep find every block a
-//! plugin still owns without walking the heap. Unlinking is O(1).
+//! table) allocate through [`Charged`]. Two kinds of block:
 //!
-//! The budget is a ceiling, not a reservation: header and the padding an
+//! - A **large** block (`LARGE_BLOCK` bytes or more) gets a [`Header`] in front
+//!   of it: the owner (an index into the device's owner table) and the links of
+//!   that owner's block list. `dealloc` and `realloc` follow the block's header,
+//!   never the frame, so a block freed in another plugin's frame leaves both
+//!   budgets exact, and the list lets the teardown sweep find every large
+//!   block a plugin still owns without walking the heap. Unlinking is O(1).
+//! - A **small** block has no header: a plugin holds hundreds of them (strings,
+//!   list items), and 12 bytes each on the X4 would be kilobytes of heap
+//!   Beta 3 did not spend. It is charged by its size, rounded up to
+//!   `SMALL_GRAIN`, to the owner of the frame that allocates it and credited
+//!   to the owner of the frame that frees it. A plugin frees its own blocks, in
+//!   its own frames (the destructor runs in the owner's frame); a small block
+//!   freed in another plugin's frame leaves that budget short by its size
+//!   (clamped at zero) and the allocator's own heap exact. A small block a
+//!   plugin leaks is counted in its use and never found by the sweep.
+//!
+//! The size decides the kind, at `alloc`, `dealloc` and `realloc`: a plugin
+//! passes the size it allocated with (`abi/heap-word.md` section 3).
+//!
+//! The budget is a ceiling, not a reservation: the header and the padding an
 //! alignment needs count against it, and a full real heap still gives null.
 
 use alloc::vec::Vec;
@@ -45,6 +59,18 @@ struct Header {
     owner: u32,
 }
 
+/// Blocks of at least this many bytes get a header; smaller ones are charged
+/// by size (the header would be more than 5 % of the block, and a plugin holds
+/// hundreds of small ones).
+pub const LARGE_BLOCK: usize = 256;
+
+/// The unit a small block is charged in.
+const SMALL_GRAIN: usize = 8;
+
+const fn is_large(size: usize) -> bool {
+    size >= LARGE_BLOCK
+}
+
 const HEADER: usize = core::mem::size_of::<Header>();
 const HEADER_ALIGN: usize = core::mem::align_of::<Header>();
 
@@ -62,8 +88,9 @@ const fn offset(align: usize) -> usize {
     HEADER.next_multiple_of(align)
 }
 
-/// What a block of `size` bytes aligned to `align` costs its owner: its
-/// header, the padding the alignment needs, and the block.
+/// What a block of `size` bytes aligned to `align` costs its owner: a large
+/// block its header, the padding the alignment needs, and the block; a small
+/// one its size rounded up to `SMALL_GRAIN`.
 #[cfg_attr(
     not(test),
     allow(
@@ -73,7 +100,11 @@ const fn offset(align: usize) -> usize {
 )]
 #[must_use]
 pub(crate) const fn block_cost(size: usize, align: usize) -> usize {
-    offset(align) + size
+    if is_large(size) {
+        offset(align) + size
+    } else {
+        size.next_multiple_of(SMALL_GRAIN)
+    }
 }
 
 /// One owner's use of the heap.
@@ -181,12 +212,12 @@ pub(crate) struct Charged<'a, S> {
 }
 
 impl<S: Services> Charged<'_, S> {
-    /// The header of the block at `block`.
+    /// The header of the large block at `block`.
     fn header(block: *mut u8) -> *mut Header {
         block.wrapping_sub(HEADER).cast()
     }
 
-    /// The start of the whole allocation of the block at `block`.
+    /// The start of the whole allocation of the large block at `block`.
     fn base(block: *mut u8, align: usize) -> *mut u8 {
         block.wrapping_sub(offset(align))
     }
@@ -194,15 +225,21 @@ impl<S: Services> Charged<'_, S> {
     fn layout(total: usize, align: usize) -> Option<Layout> {
         Layout::from_size_align(total, align.max(HEADER_ALIGN)).ok()
     }
-}
 
-impl<S: Services> Services for Charged<'_, S> {
-    fn alloc(&self, size: usize, align: usize) -> *mut u8 {
-        let Some(total) = offset(align).checked_add(size) else {
+    /// A block charged to `self.owner`, with `credit` bytes of its use about
+    /// to be given back (a realloc that moves).
+    fn take(&self, size: usize, align: usize, credit: usize) -> *mut u8 {
+        if Layout::from_size_align(size, align).is_err() {
             return ptr::null_mut();
-        };
-        let Some(layout) = Self::layout(total, align) else {
-            return ptr::null_mut();
+        }
+        let large = is_large(size);
+        let total = if large {
+            let Some(total) = offset(align).checked_add(size) else {
+                return ptr::null_mut();
+            };
+            total
+        } else {
+            block_cost(size, align)
         };
         let Ok(mut owners) = self.state.owners.try_borrow_mut() else {
             return ptr::null_mut();
@@ -210,10 +247,20 @@ impl<S: Services> Services for Charged<'_, S> {
         let Some(owner) = owners.get_mut(self.owner as usize) else {
             return ptr::null_mut();
         };
-        match owner.used.checked_add(total) {
+        match owner.used.saturating_sub(credit).checked_add(total) {
             Some(used) if used <= self.state.limit.get() => {}
             _ => return ptr::null_mut(),
         }
+        if !large {
+            let block = self.inner.alloc(size, align);
+            if !block.is_null() {
+                owner.used += total;
+            }
+            return block;
+        }
+        let Some(layout) = Self::layout(total, align) else {
+            return ptr::null_mut();
+        };
         let base = self.inner.alloc(layout.size(), layout.align());
         if base.is_null() {
             return ptr::null_mut();
@@ -239,7 +286,86 @@ impl<S: Services> Services for Charged<'_, S> {
         block
     }
 
+    /// A small block of the owner of this door, grown or shrunk in place of
+    /// the allocator's own `realloc` (a small block stays small).
+    ///
+    /// # Safety
+    /// The contract of `Services::realloc` for a block `alloc` made small.
+    unsafe fn realloc_small(
+        &self,
+        block: *mut u8,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+    ) -> *mut u8 {
+        if Layout::from_size_align(new_size, align).is_err() {
+            return ptr::null_mut();
+        }
+        let (old_cost, new_cost) = (block_cost(old_size, align), block_cost(new_size, align));
+        let Ok(mut owners) = self.state.owners.try_borrow_mut() else {
+            return ptr::null_mut();
+        };
+        let Some(owner) = owners.get_mut(self.owner as usize) else {
+            return ptr::null_mut();
+        };
+        let rest = owner.used.saturating_sub(old_cost);
+        if new_cost > old_cost && rest.saturating_add(new_cost) > self.state.limit.get() {
+            return ptr::null_mut();
+        }
+        // SAFETY: the caller's contract.
+        let moved = unsafe { self.inner.realloc(block, old_size, align, new_size) };
+        if !moved.is_null() {
+            owner.used = rest + new_cost;
+        }
+        moved
+    }
+
+    /// A block that changes kind (small to large or back): a new block, the
+    /// bytes that fit, the old one freed. The old block's cost is credited
+    /// before the new one is checked, so a shrink is never refused.
+    ///
+    /// # Safety
+    /// The contract of `Services::realloc` for a block of this heap.
+    unsafe fn realloc_across(
+        &self,
+        block: *mut u8,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+    ) -> *mut u8 {
+        let credit = block_cost(old_size, align);
+        let moved = self.take(new_size, align, credit);
+        if moved.is_null() {
+            return moved;
+        }
+        // SAFETY: both blocks are live and at least `min` bytes, and distinct.
+        unsafe {
+            ptr::copy_nonoverlapping(block, moved, old_size.min(new_size));
+            self.dealloc(block, old_size, align);
+        }
+        moved
+    }
+}
+
+impl<S: Services> Services for Charged<'_, S> {
+    fn alloc(&self, size: usize, align: usize) -> *mut u8 {
+        self.take(size, align, 0)
+    }
+
     unsafe fn dealloc(&self, block: *mut u8, size: usize, align: usize) {
+        let Ok(mut owners) = self.state.owners.try_borrow_mut() else {
+            return;
+        };
+        if !is_large(size) {
+            // No header: the frame's owner gets it back (clamped at zero).
+            if let Some(owner) = owners.get_mut(self.owner as usize) {
+                owner.used = owner.used.saturating_sub(block_cost(size, align));
+            }
+            // SAFETY: the contract: a block of this heap with this size and
+            // alignment, freed once.
+            unsafe { self.inner.dealloc(block, size, align) };
+            return;
+        }
         let Some(total) = offset(align).checked_add(size) else {
             return;
         };
@@ -247,9 +373,6 @@ impl<S: Services> Services for Charged<'_, S> {
         // SAFETY: the contract: a block of this heap with this size and
         // alignment, so its header is in front of it.
         let owner_index = unsafe { (*header).owner } as usize;
-        let Ok(mut owners) = self.state.owners.try_borrow_mut() else {
-            return;
-        };
         let Some(owner) = owners.get_mut(owner_index) else {
             // Not a block of this heap (a plugin fault): left alone.
             return;
@@ -271,6 +394,37 @@ impl<S: Services> Services for Charged<'_, S> {
     }
 
     unsafe fn realloc(
+        &self,
+        block: *mut u8,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+    ) -> *mut u8 {
+        match (is_large(old_size), is_large(new_size)) {
+            // SAFETY: the contract of `Services::realloc`, passed on.
+            (false, false) => unsafe { self.realloc_small(block, old_size, align, new_size) },
+            // SAFETY: as above.
+            (true, false) | (false, true) => unsafe {
+                self.realloc_across(block, old_size, align, new_size)
+            },
+            (true, true) => {
+                // SAFETY: as above.
+                unsafe { self.realloc_large(block, old_size, align, new_size) }
+            }
+        }
+    }
+
+    fn micros(&self) -> u64 {
+        self.inner.micros()
+    }
+}
+
+impl<S: Services> Charged<'_, S> {
+    /// A large block grown or shrunk: its header follows it.
+    ///
+    /// # Safety
+    /// The contract of `Services::realloc` for a large block of this heap.
+    unsafe fn realloc_large(
         &self,
         block: *mut u8,
         old_size: usize,
@@ -331,10 +485,6 @@ impl<S: Services> Services for Charged<'_, S> {
         }
         owner.used = used;
         moved
-    }
-
-    fn micros(&self) -> u64 {
-        self.inner.micros()
     }
 }
 
