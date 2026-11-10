@@ -89,6 +89,13 @@ fn toc(index: u32, level: u32, flags: u32, title: &str) -> Record<'_> {
         title,
     })
 }
+fn section(index: u32, length: u32, flags: u32) -> Record<'static> {
+    Record::ServiceDocSection(wire::ServiceDocSection {
+        index,
+        length,
+        flags,
+    })
+}
 fn link(start: u32, end: u32, kind: u32, href: &str) -> Record<'_> {
     Record::ServiceDocLink(wire::ServiceDocLink {
         start,
@@ -106,6 +113,79 @@ fn at(section: u32, offset: u32) -> Record<'static> {
         cursor: 0,
         generation: 0,
     })
+}
+
+#[test]
+fn sections_read_as_lengths_page_by_cursor_and_refuse_a_bad_page() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 256], [0; 4096]);
+    reply(
+        &state,
+        &[
+            section(0, 1_200, 0),
+            section(1, u32::MAX, 1),
+            section(2, 0, 0b110),
+            end(0, 4, 5, 3),
+        ],
+    );
+    let page = docs
+        .sections(&host, DOC, DocCursor::start(), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(state.op.get(), schema::OP_SECTIONS);
+    let rows: Vec<_> = page.rows().collect();
+    assert_eq!(page.len(), 3);
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.index(), r.length(), r.whole_page_picture()))
+            .collect::<Vec<_>>(),
+        [(0, 1_200, false), (1, u32::MAX, true), (2, 0, false)]
+    );
+    assert_eq!(page.end().total(), 4);
+    let next = page.end().next().unwrap();
+    {
+        let bytes = state.input.borrow();
+        let sent = wire::records_decode(&bytes).unwrap();
+        assert!(matches!(
+            sent.iter().next(),
+            Some(Record::ServiceDocPage(p))
+                if (p.document, p.scope, p.cursor, p.generation) == (4, "", 0, 0)
+        ));
+    }
+    // The cursor goes back with the end's generation; another one is stale.
+    reply(&state, &[section(3, 7, 0), end(1, 4, 6, 4)]);
+    assert_eq!(
+        docs.sections(&host, DOC, next, &mut input, &mut out)
+            .map(|p| p.len()),
+        Err(Error::State)
+    );
+    reply(&state, &[section(3, 7, 0), end(1, 4, 5, 4)]);
+    let page = docs
+        .sections(&host, DOC, next, &mut input, &mut out)
+        .unwrap();
+    assert!(page.end().next().is_none());
+    // A row that is not a section, a page that does not follow, a last page that
+    // is not the last, an empty page that is not the last and unknown end flags.
+    let bad: [Vec<Record<'_>>; 5] = [
+        vec![toc(3, 0, 0, "x"), end(1, 4, 5, 4)],
+        vec![section(3, 7, 0), end(1, 4, 5, 5)],
+        vec![section(3, 7, 0), end(0, 4, 5, 4)],
+        vec![end(0, 4, 5, 3)],
+        vec![section(3, 7, 0), end(2, 4, 5, 4)],
+    ];
+    for rows in bad {
+        reply(&state, &rows);
+        assert_eq!(
+            docs.sections(&host, DOC, next, &mut input, &mut out)
+                .map(|p| p.len()),
+            Err(Error::Invalid)
+        );
+    }
+    state.error.set(abi::ERR_BUSY);
+    assert_eq!(
+        docs.sections(&host, DOC, next, &mut input, &mut out)
+            .map(|p| p.len()),
+        Err(Error::Busy)
+    );
 }
 
 #[test]
@@ -755,6 +835,14 @@ fn read_block(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8
         let _ = (fragment.continuation(), fragment.next_block());
     }
 }
+fn read_sections(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8]) {
+    if let Ok(page) = docs.sections(host, DOC, DocCursor::start(), input, out) {
+        for row in page.rows() {
+            let _ = (row.index(), row.length(), row.whole_page_picture());
+        }
+        let _ = page.end();
+    }
+}
 fn read_toc(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8]) {
     if let Ok(page) = docs.toc(host, DOC, DocCursor::start(), input, out) {
         for row in page.rows() {
@@ -768,7 +856,7 @@ fn read_toc(docs: &Documents, host: &Host<'_>, input: &mut [u8], out: &mut [u8])
 fn every_truncation_and_byte_change_of_a_valid_reply_is_an_error_or_a_valid_view() {
     setup!(table, state, host, docs);
     let (mut input, mut out) = ([0; 256], [0; 4096]);
-    let sets: [Case<'_>; 2] = [
+    let sets: [Case<'_>; 3] = [
         (
             vec![
                 head(1, 0b10),
@@ -796,6 +884,10 @@ fn every_truncation_and_byte_change_of_a_valid_reply_is_an_error_or_a_valid_view
         (
             vec![toc(0, 0, 0, "One"), toc(1, 1, 1, "Two"), end(1, 2, 8, 2)],
             read_toc,
+        ),
+        (
+            vec![section(0, 900, 0), section(1, 70, 1), end(1, 2, 8, 2)],
+            read_sections,
         ),
     ];
     for (rows, read) in sets {

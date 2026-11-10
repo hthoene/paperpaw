@@ -4175,6 +4175,7 @@ pub fn paperpaw_sdk::native::document::Documents::formats<'a>(&self, &paperpaw_s
 impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::link_target(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::links<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocSpan, paperpaw_sdk::native::document::DocCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPage<'a, paperpaw_sdk::native::document::Link<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::sections<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPage<'a, paperpaw_sdk::native::document::SectionEntry>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::toc<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPage<'a, paperpaw_sdk::native::document::TocEntry<'a>>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::toc_target(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
@@ -4253,6 +4254,11 @@ pub struct paperpaw_sdk::native::document::ReaderPageEnd
 impl paperpaw_sdk::native::document::ReaderPageEnd
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::ReaderCursor>
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::total(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::SectionEntry(_)
+impl paperpaw_sdk::native::document::SectionEntry
+pub const fn paperpaw_sdk::native::document::SectionEntry::index(&self) -> u32
+pub const fn paperpaw_sdk::native::document::SectionEntry::length(&self) -> u32
+pub const fn paperpaw_sdk::native::document::SectionEntry::whole_page_picture(&self) -> bool
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::TocEntry<'a>(_)
 impl<'a> paperpaw_sdk::native::document::TocEntry<'a>
 pub const fn paperpaw_sdk::native::document::TocEntry<'a>::approximate(&self) -> bool
