@@ -1,0 +1,1 @@
+- Reader: host-free model of the annotations screen (Markdown export, notes folder, file name, list rows), allocation fallible.

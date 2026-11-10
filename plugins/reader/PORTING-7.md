@@ -90,3 +90,13 @@ relative to the data folder).
   calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
   `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
 
+
+## Annotations (native model, `native_annotations.rs`)
+
+- Host-free: the Markdown export (same form as interface 6, plugins read the file), the notes folder
+  beside the library folder, the file name (author and title, fit for a card), the list rows and the
+  export order (the `reader.notes-exported@1` stage runs only after a write that worked). Allocation
+  is fallible; every allocation refused in turn is tested.
+- **Not yet: the screen.** It needs a native `core.reader` entry, the book data of a book
+  (`add_book_data` / `LIB-position` have no native declaration) and the files service for the write.
+  When those exist the screen calls `native_notes::run` after `export` succeeds.
