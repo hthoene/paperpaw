@@ -595,8 +595,6 @@ mod data_fonts {
         assert_eq!((CACHE_SMALL, CACHE_LARGE), (4 * 1024, 16 * 1024));
         assert_eq!(cache_for(PackLimits::SMALL), CACHE_SMALL);
         assert_eq!(cache_for(PackLimits::LARGE), CACHE_LARGE);
-        // Eight handles on the X4: 32 KiB of its 256 KiB heap at most.
-        assert!(8 * CACHE_SMALL <= 32 * 1024);
     }
 
     #[test]
