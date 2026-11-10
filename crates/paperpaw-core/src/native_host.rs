@@ -22,6 +22,11 @@ pub(crate) mod event_tags;
 pub(crate) mod owner_directory;
 
 pub(crate) mod device_log;
+#[allow(
+    dead_code,
+    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
+)]
+pub(crate) mod dual_boot_ini;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;

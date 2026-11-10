@@ -1,0 +1,282 @@
+//! The `dual-boot` setting of `paperpaw.ini`'s `[firmware]` section as the
+//! host reads and writes it for `command.firmware_dual_boot`
+//! (`docs/abi/device.md` 5.3 "Dual boot", `docs/dual-boot.md`).
+//!
+//! * **Read whole, written whole.** The file is read whole (a file that
+//!   cannot be read, is over [`INI_MAX`] bytes or is not UTF-8 is a
+//!   [`Failure`] and nothing is written), the `dual-boot` of the last
+//!   `[firmware]` section is set (the section is added where there is none,
+//!   the rest of the file stays as it was, line endings included), and
+//!   [`Storage::write`] replaces the file, which is atomic where the medium
+//!   allows: a power cut leaves the old or the new file, never half of one.
+//! * **The same reading as the firmware's.** The last `dual-boot` of a
+//!   `[firmware]` section wins; `off`, `false`, `no` and `0` mean off (any
+//!   case), `auto` or nothing mean auto, anything else means on (a typo of
+//!   the guard must not leave the other firmware open to an update).
+//! * Allocation is fallible and bounded by the file's size and a few lines.
+use alloc::vec::Vec;
+use paperpaw_platform::Storage;
+
+/// The file, in the card's root.
+pub(crate) const INI_PATH: &str = "paperpaw.ini";
+
+/// The longest file read whole, in bytes: on the X4 it is read and the
+/// edited copy built in the same heap.
+pub(crate) const INI_MAX: usize = 16 * 1024;
+
+/// The section and the key.
+const SECTION: &str = "firmware";
+const KEY: &str = "dual-boot";
+
+/// What a read, an edit or the write failed on (`install_done` reason 16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Failure {
+    /// The file cannot be read whole, is over [`INI_MAX`] or is not UTF-8.
+    Unreadable,
+    /// No room for the edited copy.
+    NoMemory,
+    /// The card refused the write; the old file is as it was.
+    Write,
+}
+
+/// The value written for `command.firmware_dual_boot`'s `mode`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// `mode` 0: `dual-boot = auto`.
+    Auto,
+    /// `mode` 1: `dual-boot = off`.
+    Off,
+}
+
+impl Mode {
+    /// The mode `mode` names; `None` for any other number.
+    pub(crate) fn of(mode: u32) -> Option<Self> {
+        match mode {
+            0 => Some(Self::Auto),
+            1 => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// What the file chooses, as the firmware reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Choice {
+    /// Not set, or `auto`.
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl Choice {
+    fn of(value: &str) -> Self {
+        let value = value.trim();
+        if value.is_empty() || value.eq_ignore_ascii_case("auto") {
+            return Self::Auto;
+        }
+        if ["off", "false", "no", "0"]
+            .iter()
+            .any(|off| value.eq_ignore_ascii_case(off))
+        {
+            return Self::Off;
+        }
+        Self::On
+    }
+}
+
+/// One line as the section scan sees it.
+enum Line<'a> {
+    /// `[name]`.
+    Header(&'a str),
+    /// `key = value`, comments and blank lines being neither.
+    Entry(&'a str, &'a str),
+    Other,
+}
+
+fn classify(line: &str) -> Line<'_> {
+    let line = line.trim();
+    if let Some(header) = line.strip_prefix('[') {
+        return header
+            .split_once(']')
+            .map_or(Line::Other, |(name, _)| Line::Header(name.trim()));
+    }
+    if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+        return Line::Other;
+    }
+    line.split_once('=').map_or(Line::Other, |(key, value)| {
+        Line::Entry(key.trim(), value.trim())
+    })
+}
+
+/// What `text` chooses: the last `dual-boot` of a `[firmware]` section.
+pub(crate) fn choice(text: &str) -> Choice {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut inside = false;
+    let mut choice = Choice::Auto;
+    for line in text.lines() {
+        match classify(line) {
+            Line::Header(name) => inside = name == SECTION,
+            Line::Entry(KEY, value) if inside => choice = Choice::of(value),
+            _ => {}
+        }
+    }
+    choice
+}
+
+/// Where `dual-boot` is set in `text` and where the section ends.
+struct Places {
+    /// The last `dual-boot` line inside a `[firmware]` section.
+    key: Option<usize>,
+    /// The line after the last non-blank line of the last `[firmware]`
+    /// section; `None` where there is no such section.
+    end: Option<usize>,
+}
+
+fn places(text: &str) -> Places {
+    let mut inside = false;
+    let mut places = Places {
+        key: None,
+        end: None,
+    };
+    for (index, line) in text.split_inclusive('\n').enumerate() {
+        match classify(line) {
+            Line::Header(name) => {
+                inside = name == SECTION;
+                if inside {
+                    // A newer section starts: its own end and key.
+                    places.end = Some(index + 1);
+                    places.key = None;
+                }
+            }
+            Line::Entry(KEY, _) if inside => {
+                places.key = Some(index);
+                places.end = Some(index + 1);
+            }
+            _ if inside && !line.trim().is_empty() => places.end = Some(index + 1),
+            _ => {}
+        }
+    }
+    places
+}
+
+/// Appends `dual-boot = <mode>` and `eol` (no room is `out`'s own growth: it
+/// was reserved for the line).
+fn key_line(out: &mut Vec<u8>, mode: Mode, eol: &str) {
+    out.extend_from_slice(KEY.as_bytes());
+    out.extend_from_slice(b" = ");
+    out.extend_from_slice(mode.word().as_bytes());
+    out.extend_from_slice(eol.as_bytes());
+}
+
+/// `text` with `dual-boot` set to `mode` in the last `[firmware]` section
+/// (added at the end where there is none), the rest unchanged.
+///
+/// # Errors
+/// [`Failure::Unreadable`] over [`INI_MAX`] bytes, [`Failure::NoMemory`].
+pub(crate) fn edit(text: &str, mode: Mode) -> Result<Vec<u8>, Failure> {
+    if text.len() > INI_MAX {
+        return Err(Failure::Unreadable);
+    }
+    let mut out = Vec::new();
+    // The text, a new section header, one key line and the endings.
+    out.try_reserve_exact(text.len() + SECTION.len() + KEY.len() + 24)
+        .map_err(|_| Failure::NoMemory)?;
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let places = places(text);
+    let count = text.split_inclusive('\n').count();
+    for (index, old) in text.split_inclusive('\n').enumerate() {
+        if places.key == Some(index) {
+            // The line's own ending stays.
+            let ending = &old[old.trim_end_matches(['\r', '\n']).len()..];
+            key_line(&mut out, mode, ending);
+            continue;
+        }
+        if places.key.is_none() && places.end == Some(index) {
+            key_line(&mut out, mode, eol);
+        }
+        out.extend_from_slice(old.as_bytes());
+        if places.key.is_none() && places.end == Some(index + 1) && !old.ends_with('\n') {
+            // The line before the new one has no ending: it gets one.
+            out.extend_from_slice(eol.as_bytes());
+        }
+    }
+    match (places.key, places.end) {
+        (None, Some(end)) if end == count => key_line(&mut out, mode, eol),
+        (None, None) => {
+            if !text.is_empty() && !text.ends_with('\n') {
+                out.extend_from_slice(eol.as_bytes());
+            }
+            out.extend_from_slice(b"[firmware]");
+            out.extend_from_slice(eol.as_bytes());
+            key_line(&mut out, mode, eol);
+        }
+        _ => {}
+    }
+    Ok(out)
+}
+
+/// Reads `paperpaw.ini` whole; a missing file is an empty one.
+///
+/// # Errors
+/// [`Failure::Unreadable`], [`Failure::NoMemory`].
+pub(crate) fn read(storage: &dyn Storage) -> Result<Vec<u8>, Failure> {
+    let size = match storage.size(INI_PATH) {
+        Ok(size) => size,
+        Err(paperpaw_platform::StorageError::NotFound) => return Ok(Vec::new()),
+        Err(_) => return Err(Failure::Unreadable),
+    };
+    let size = usize::try_from(size)
+        .ok()
+        .filter(|size| *size <= INI_MAX)
+        .ok_or(Failure::Unreadable)?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(size)
+        .map_err(|_| Failure::NoMemory)?;
+    bytes.resize(size, 0);
+    let mut done = 0;
+    while done < size {
+        let read = storage
+            .read_at(INI_PATH, done as u64, &mut bytes[done..])
+            .map_err(|_| Failure::Unreadable)?;
+        if read == 0 {
+            return Err(Failure::Unreadable);
+        }
+        done += read;
+    }
+    Ok(bytes)
+}
+
+/// What the card's `paperpaw.ini` chooses.
+///
+/// # Errors
+/// As [`read`], and [`Failure::Unreadable`] for a file that is not UTF-8.
+pub(crate) fn card_choice(storage: &dyn Storage) -> Result<Choice, Failure> {
+    let bytes = read(storage)?;
+    let text = core::str::from_utf8(&bytes).map_err(|_| Failure::Unreadable)?;
+    Ok(choice(text))
+}
+
+/// Sets `dual-boot` in the card's `paperpaw.ini`: read whole, edited, written
+/// whole.
+///
+/// # Errors
+/// [`Failure`]; the file is as it was.
+pub(crate) fn set(storage: &dyn Storage, mode: Mode) -> Result<(), Failure> {
+    let bytes = read(storage)?;
+    let text = core::str::from_utf8(&bytes).map_err(|_| Failure::Unreadable)?;
+    let edited = edit(text, mode)?;
+    storage.write(INI_PATH, &edited).map_err(|_| Failure::Write)
+}
+
+#[cfg(test)]
+#[path = "dual_boot_ini_tests.rs"]
+mod tests;
