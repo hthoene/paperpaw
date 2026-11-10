@@ -206,11 +206,15 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
             other => other.key(),
         };
         match problem {
-            // The cap the batch ran into, where the host says it.
+            // The limit the batch ran into, where the host says it.
             Problem::TooManyFormats | Problem::TooManyReaders if row.problem_arg != 0 => {
                 let mut digits = [0u8; 20];
                 let cap = decimal(row.problem_arg as usize, &mut digits);
                 Some(say.say_with(key, "cap", cap)?)
+            }
+            // No limit said: the text would have a hole where it stands.
+            Problem::TooManyFormats | Problem::TooManyReaders => {
+                Some(say.say("plugin-manager.failed")?)
             }
             _ => Some(say.say(key)?),
         }
@@ -534,12 +538,13 @@ mod tests {
             ..formats.clone()
         };
         assert!(note_of(&readers, "d").starts_with("plugin-manager.readers.too-many[cap=16] d"));
-        // Without a cap from the host the words stand without it.
+        // Without a limit from the host the words would have a hole: the
+        // plain "could not be loaded" is said.
         let bare = PluginRow {
             problem_arg: 0,
             ..formats
         };
-        assert!(note_of(&bare, "d").starts_with("plugin-manager.formats.too-many d"));
+        assert!(note_of(&bare, "d").starts_with("plugin-manager.failed d"));
     }
 
     fn name(id: &str) -> Result<String, Error> {
