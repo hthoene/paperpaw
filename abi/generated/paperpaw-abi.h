@@ -51,6 +51,7 @@ typedef struct {
     int32_t (*text_hyphenate)(void * ctx, PpBytes language, PpBytes word, uint32_t left, uint32_t right, PpBuffer out);
     int32_t (*text_covers)(void * ctx, uint32_t font, PpBytes text);
     int32_t (*icon_glyph)(void * ctx, PpBytes name, PpBuffer out);
+    int32_t (*text_draw_inked)(void * ctx, uint32_t font, float size, float x, int32_t baseline, uint32_t color, PpBytes text, uint32_t extra, PpBytes tone, uint32_t flags, float * out);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1

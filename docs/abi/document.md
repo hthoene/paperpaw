@@ -171,8 +171,10 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
-  `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
-  format's op 2 `open`; its answer becomes `doc_state`.
+  `ERR_INVALID`. On root 1, a `path` or `css_path` whose first segment is `plugins`, `.paperpaw` or
+  `paperpaw.ini` (in any case) is `ERR_INVALID`, as on `core.files` (`files.md` 1.1); op 20's sniff
+  refuses such a path the same way. The host checks the roots, finds the format, gives a new
+  document id and calls the format's op 2 `open`; its answer becomes `doc_state`.
 - [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
   (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
   file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
@@ -202,6 +204,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
   the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
+- [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
+  `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
+  the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
+  the partial cache goes, `doc_state` is state 2 with that status and the opener gets event 88.
+  The count starts at 0 with each preparation and goes back to 0 at every answer that moves the
+  progress. Since the progress only rises and stops at 1,000,000, a format cannot keep the main
+  loop busy for ever (at most 32 calls of 50 ms without movement). Idle sleep is no bound: a
+  device on USB power never sleeps.
 - [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
   of everything that changes the output (publisher styles, colour, `image_side`, `cover_side`, the
