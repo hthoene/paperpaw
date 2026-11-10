@@ -4,7 +4,7 @@
 //! same (`native_convert_tests.rs`), what is new is that every step is
 //! fallible and the feed is read in small pieces over the storage calls.
 use paperpaw_sdk::native::{Error, storage::MAX_DATA};
-use paperpaw_ui_kit::files::Volume;
+use paperpaw_ui_kit::{files::Volume, mem};
 
 use crate::native_convert::{Converted, Converter, DateText};
 use crate::native_news::MAX_FEED_FILE;
@@ -83,7 +83,8 @@ fn convert(
         Err(error) => return Err(error.into()),
     }
     let mut converter = Converter::new(max_articles, max_text, date_text);
-    let mut piece = [0u8; PIECE];
+    // On the heap: a 2 KiB array here would make the frame too large for the X4's stack guard.
+    let mut piece = mem::buffer(PIECE)?;
     let mut at = 0u64;
     while !converter.is_done() {
         let n = volume.read_at(from, at, &mut piece)?;

@@ -1,8 +1,11 @@
 # Interface-7 port (slice 4: the decisions, the declarations, the converter, the page and the fetch)
 
 Version 1.0.10. Partial: what the plugin decides and what it declares, without the host. No native
-list screen and no `NATIVE_ENTRY` yet; the interface-6 `News` and everything of it stays until the
+list screen yet; the interface-6 `News` and everything of it stays until the
 host activates native plugins (then it goes together, no shim).
+`tools/plugin-files7` builds and packs the native file for the X4 (`news-1.0.10-x4.ppn`, 81,412 bytes: 58,516
+code, 19,968 data); it is not in `complete.txt` (a partial port). The page's read buffer is on the heap
+(a 2 KiB array made the frame 2,368 bytes, over the packer's limit of 2,048).
 
 ## Ported
 

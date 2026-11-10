@@ -227,10 +227,6 @@ pub type Placed5 = flash::Placed5;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
-    /// The nesting budget every interface-7 plugin of this device shares,
-    /// made with the first one (a fallible allocation: `NoRoom`).
-    #[cfg(feature = "ppn5")]
-    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     /// The device-wide table of handles the plugins' owners share (made with
     /// the first plugin; each plugin holds a counted share of it).
     #[cfg(feature = "ppn5")]
@@ -239,19 +235,47 @@ pub struct Loader {
     /// the network runs it.
     #[cfg(feature = "ppn5")]
     host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+    /// The device behind `core.device`, wired with the table of handles and
+    /// told the code room when the loader is done.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
 /// loader and the linked-plugin probe (`register_linked_probe`) both take their
 /// share of this one, so what is wired into it (`core.ui`, `text.hyphenate`)
 /// stays single. A clone is another view of the same cell (nothing is made
-/// twice); the table itself is made at the first use.
+/// twice); the table itself is made at the first use, with `core.device`
+/// wired to the device it holds.
 #[cfg(feature = "ppn5")]
-#[derive(Clone, Default)]
-pub struct DeviceTable(alloc::rc::Rc<RefCell<Option<paperpaw_core::native_host::HostResources>>>);
+#[derive(Clone)]
+pub struct DeviceTable(
+    alloc::rc::Rc<RefCell<Option<paperpaw_core::native_host::HostResources>>>,
+    alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    alloc::rc::Rc<paperpaw_x4::device_depth::DeviceDepth>,
+);
 
 #[cfg(feature = "ppn5")]
 impl DeviceTable {
+    /// An empty table that wires `device` into `core.device` when it is made.
+    fn new(device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>) -> Self {
+        Self(alloc::rc::Rc::default(), device, alloc::rc::Rc::default())
+    }
+
+    /// A counted share of the device's one callback-depth counter, for the
+    /// loader and the linked-plugin probe alike: the kernel refuses a plugin
+    /// that brings another (`paperpaw_x4::device_depth`).
+    pub(crate) fn depth(&self) -> Option<paperpaw_core::native_host::flat::FlatDepth> {
+        self.2.share()
+    }
+
+    /// The device as the host services take it.
+    fn device_host(
+        &self,
+    ) -> alloc::rc::Rc<dyn paperpaw_core::native_host::device_service::DeviceHost> {
+        self.1.clone()
+    }
+
     /// A counted share of the table, made (with `core.ui` wired) if it is not
     /// there yet. `None` where it has no room, or where the loader is busy
     /// with it (a plugin loading: no other caller exists on this one core).
@@ -259,7 +283,7 @@ impl DeviceTable {
     pub(crate) fn share(&self) -> Option<paperpaw_core::native_host::HostResources> {
         let mut table = self.0.try_borrow_mut().ok()?;
         if table.is_none() {
-            *table = new_resources();
+            *table = new_resources(Some(self.device_host()));
         }
         table.as_ref()?.try_clone()
     }
@@ -269,15 +293,16 @@ impl Loader {
     pub fn new(
         place: Place,
         #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
+        #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     ) -> Self {
         Self {
             place,
             #[cfg(feature = "ppn5")]
-            depth: None,
-            #[cfg(feature = "ppn5")]
-            resources: DeviceTable::default(),
+            resources: DeviceTable::new(device.clone()),
             #[cfg(feature = "ppn5")]
             host_net,
+            #[cfg(feature = "ppn5")]
+            device,
         }
     }
 
@@ -308,13 +333,20 @@ impl Loader {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
             }
+            // The nesting budget every interface-7 plugin of this device
+            // shares: the device's one counter (the linked probe takes the same),
+            // made at the first use (a fallible allocation: `NoRoom`).
+            let Some(depth) = self.resources.depth() else {
+                return Err(PluginProblem::NoRoom);
+            };
             let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
                 return Err(PluginProblem::NoRoom);
             };
             let loaded = ppn5::load(
                 &mut self.place,
-                &mut self.depth,
+                &depth,
                 &mut resources,
+                &self.device,
                 storage,
                 code,
             );
@@ -464,7 +496,9 @@ impl Loader {
 /// the store has no room: then no interface-7 plugin loads, or `core.ui` is
 /// absent and the plugin is told so.
 #[cfg(feature = "ppn5")]
-fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
+fn new_resources(
+    device: Option<alloc::rc::Rc<dyn paperpaw_core::native_host::device_service::DeviceHost>>,
+) -> Option<paperpaw_core::native_host::HostResources> {
     use paperpaw_core::native_host::{HostResources, HostWiring};
     let resources = match HostResources::try_new() {
         Ok(resources) => resources,
@@ -473,7 +507,12 @@ fn new_resources() -> Option<paperpaw_core::native_host::HostResources> {
             return None;
         }
     };
-    match resources.wire(HostWiring::new().ui(crate::DEVICE.memory)) {
+    let wiring = HostWiring::new().ui(crate::DEVICE.memory);
+    let wiring = match device {
+        Some(device) => wiring.device(device),
+        None => wiring,
+    };
+    match resources.wire(wiring) {
         Ok(wired) if wired.ui_skipped() => {
             warn!("native: core.ui not wired (no memory for its store)");
         }
@@ -549,7 +588,7 @@ impl CodeLoader for Loader {
         use paperpaw_core::native_host::HostWiring;
         let mut resources = self.resources.0.try_borrow_mut().ok()?;
         if resources.is_none() {
-            *resources = new_resources();
+            *resources = new_resources(Some(self.resources.device_host()));
         }
         // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
         // A plugin's `make` that asks for it earlier gets a one-off
@@ -582,6 +621,11 @@ impl CodeLoader for Loader {
         self.place.finish();
         // For the store and the plugin manager: how much room is left.
         let room = self.place.room();
+        #[cfg(feature = "ppn5")]
+        if let Some(room) = room.as_ref() {
+            let (free, largest) = paperpaw_x4::device_facts::code_room(room);
+            self.device.set_code_room(free, largest);
+        }
         if !paperpaw_sdk::native::keep_code_room(storage, room.as_ref()) {
             warn!("native: the room for code plugins could not be kept");
         }

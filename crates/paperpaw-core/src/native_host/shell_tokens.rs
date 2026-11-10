@@ -111,6 +111,9 @@ pub(crate) fn dispatch_token_draw<S, M>(
     let mut bytes = [0; 320];
     let len = super::super::frames::encode(draw_frame, &mut bytes).map_err(Error::Status)?;
     batch.dispatch_owner(depth, |context| {
+        // A child's draw reached from another plugin's (compose) is charged to
+        // the child; a screen's own draw was entered by the screen router.
+        let _running = frame.meter.enter_unless_running(&context.id);
         let instance = context.instance.get().ok_or(Error::Attempt)?;
         let callback = instance
             .draw

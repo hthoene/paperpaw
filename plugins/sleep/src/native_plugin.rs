@@ -6,7 +6,7 @@
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 use crate::{
-    declarations::{EVENTS, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    declarations::{EVENTS, IMAGE_READY, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
     native_screen::{Sleeping, read_text},
     native_sleep,
 };
@@ -18,6 +18,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         events::{Event, Incoming, kinds},
+        image::ImageReady,
         registrations,
         registry::{PageCursor, Registry},
         reply::Reply,
@@ -48,6 +49,8 @@ pub struct NativeSleep {
     /// Opened for the slot offers the first time a foreign mode needs them,
     /// then kept for the plugin's lifetime (as `ui`).
     registry: Option<Registry>,
+    /// The cookie of the last picture asked for (counted on, never 0).
+    cookie: u32,
 }
 
 impl Plugin for NativeSleep {
@@ -78,7 +81,8 @@ impl Plugin for NativeSleep {
             kinds::SettingChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
-            kinds::ScreenClosed
+            kinds::ScreenClosed,
+            kinds::ImageReady
         ) else {
             return Ok(());
         };
@@ -91,9 +95,14 @@ impl Plugin for NativeSleep {
                 ..
             } if token == SCREEN => self.shown(host, instance),
             Event::ScreenClosed { instance, .. } if token == SCREEN => {
+                // The pictures go back to the host with the screen.
+                if let Some(view) = self.screens.get(instance) {
+                    view.release(host);
+                }
                 self.screens.close(instance);
                 Ok(())
             }
+            Event::ImageReady(ready) if token == IMAGE_READY => self.image_ready(host, &ready),
             Event::Resume { .. } if token == EVENTS => self.woke(host),
             // At start and when the plugins changed: a stored foreign mode
             // binds the slot where the reader has not bound it, never unbinds.
@@ -307,11 +316,36 @@ impl NativeSleep {
         // What cannot be read shows the message: a device that cannot show what
         // was asked still shows that it sleeps.
         let view = match Sleeping::open(host, ui, handover) {
-            Ok(view) => view,
+            Ok(mut view) => {
+                // The pictures it shows are asked for now: a draw cannot.
+                view.begin(host, &mut self.cookie)?;
+                view
+            }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => Sleeping::plain(false),
         };
+        // One opened again lets its pictures go first.
+        if let Some(old) = self.screens.get(instance) {
+            old.release(host);
+        }
         self.screens.open(instance, view)
+    }
+
+    /// A picture the host decoded: the screen it was asked for takes it; one
+    /// nobody waits for (the screen is gone) is given back.
+    fn image_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        for view in self.screens.all() {
+            if view.answer(host, ready, &mut self.cookie)? {
+                return Ok(());
+            }
+        }
+        if let Some(image) = ready.image() {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .image_release(image)
+                .ok();
+        }
+        Ok(())
     }
 
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
