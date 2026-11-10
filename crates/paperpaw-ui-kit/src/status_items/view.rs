@@ -61,6 +61,7 @@ impl Texts {
 
 /// What an input did to the view.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Step {
     /// Not for the view (the screen goes back for *Back*).
     Ignored,

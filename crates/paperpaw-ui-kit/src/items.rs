@@ -552,7 +552,7 @@ fn grip_row(
         .saturating_add(strip.width.saturating_sub(width) / 2);
     let top = strip
         .y
-        .saturating_add(strip.height.saturating_sub(bar.saturating_add(2 * pitch)) / 2);
+        .saturating_add(strip.height.saturating_sub(bar.saturating_add(pitch.saturating_mul(2))) / 2);
     let ink = ink(style, focused);
     for n in 0..3u16 {
         let y = top.saturating_add(n.saturating_mul(pitch));
