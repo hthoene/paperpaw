@@ -5,41 +5,125 @@
 //! the plugin is not in the app's `NATIVE_PLUGINS` until they have one
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
+use crate::{
+    declarations::{SCREEN, STOPPING, SUSPEND, WORK_DUE},
+    native_view::View,
+};
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
-        events::Incoming,
+        document::Documents,
+        events::{Event, Incoming, kinds},
+        library::Library,
         registrations,
         reply::Reply,
+        ui::Ui,
+        work::{Work, WorkSpec},
     },
 };
+use paperpaw_ui_kit::{Screens, read_event};
 
-#[expect(
-    dead_code,
-    reason = "the events are in the image, submitted once the host admits event.book_moved"
-)]
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reader_declarations.rs"));
 }
 
 /// The batches the reader submits, in the order the host needs them: the
-/// settings and screens before what refers to them. Not the events: the host
-/// does not admit `event.book_moved` yet (the registration is refused as a
-/// whole), so the reader hears nothing until it does (`PORTING-7.md`).
-const BATCHES: [&[&[u8]]; 6] = [
+/// settings and screens before what refers to them. The events are heard for
+/// what saves the place (sleep, stop, the quiet time); the start and a moved
+/// book have no handler yet (`PORTING-7.md`).
+const BATCHES: [&[&[u8]]; 7] = [
     image::SETTINGS,
     image::SCREENS,
     image::NAVIGATION,
     image::KEYS,
     image::HOLD_KEYS,
+    image::EVENTS,
     image::STAGES,
 ];
 
+/// The key of the work that writes the place, and how long a page rests first
+/// (Beta 3's `SAVE_QUIET_MS`).
+const QUIET_KEY: &str = "place";
+const QUIET_MS: u32 = 2_000;
+
 /// The interface-7 reader.
 #[derive(Debug, Default)]
-pub struct NativeReader;
+pub struct NativeReader {
+    ui: Option<Ui>,
+    docs: Option<Documents>,
+    library: Option<Library>,
+    work: Option<Work>,
+    /// The host has no work for the reader: not asked again.
+    no_work: bool,
+    screens: Screens<View>,
+}
+
+impl NativeReader {
+    /// The reading screen opened: its book is opened with it.
+    fn open(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        if self.docs.is_none() {
+            self.docs = Some(Documents::open(host)?);
+        }
+        // Without the library there is no saved place, and none is written.
+        if self.library.is_none() {
+            self.library = Library::open(host).ok();
+        }
+        let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
+            return Err(Error::State);
+        };
+        let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
+        self.screens.open(instance, view)
+    }
+
+    /// Writes the place of every reading screen not saved.
+    fn save_now(&mut self, host: &Host<'_>) {
+        let library = self.library.as_ref();
+        for view in self.screens.all() {
+            view.save_now(host, library);
+        }
+    }
+
+    /// The place is to be written after the quiet time: declared at every
+    /// turn, which replaces the work and starts the time again. Where the host
+    /// has no work, the place is written at sleep, stop and close.
+    fn start_quiet(&mut self, host: &Host<'_>) {
+        if self.work.is_none() && !self.no_work {
+            self.work = Work::open(host).ok();
+            self.no_work = self.work.is_none();
+        }
+        let Some(work) = &self.work else {
+            return;
+        };
+        let (Ok(mut input), Ok(mut out)) = (
+            paperpaw_ui_kit::mem::buffer(256),
+            paperpaw_ui_kit::mem::buffer(64),
+        ) else {
+            return;
+        };
+        if let Ok(spec) = WorkSpec::new(QUIET_KEY, WORK_DUE) {
+            work.declare(host, &spec.after_ms(QUIET_MS), &mut input, &mut out)
+                .ok();
+        }
+    }
+
+    /// The screen closed: its document is given back.
+    fn close(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
+        if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.close(host, (docs, self.library.as_ref()));
+        }
+        self.screens.close(instance);
+    }
+}
 
 impl Plugin for NativeReader {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
@@ -48,29 +132,86 @@ impl Plugin for NativeReader {
                 registrations::submit(host, batch)?;
             }
         }
-        Ok(Self)
+        Ok(Self::default())
     }
 
     fn event(
         &mut self,
-        _host: &Host<'_>,
-        _token: u32,
-        _incoming: Incoming<'_>,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        Ok(())
+        let Some(event) = read_event!(
+            incoming;
+            kinds::ScreenOpened,
+            kinds::ScreenShown,
+            kinds::ScreenClosed,
+            kinds::Suspend,
+            kinds::Stopping,
+            kinds::WorkDue
+        ) else {
+            return Ok(());
+        };
+        match event {
+            // The quiet time has come, or the device sleeps or stops.
+            Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
+                if matches!(token, WORK_DUE | SUSPEND | STOPPING) =>
+            {
+                self.save_now(host);
+                Ok(())
+            }
+            // Only the reading screen has a view yet (`PORTING-7.md`).
+            _ if token != SCREEN => Ok(()),
+            Event::ScreenOpened {
+                instance, handover, ..
+            } => self.open(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => self.screens.shown(SCREEN, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.close(host, instance);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
-    fn draw(&mut self, _host: &Host<'_>, _token: u32, _frame: DrawFrame<'_>) -> Result<(), Error> {
-        Err(Error::State)
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
+            return Err(Error::State);
+        };
+        view.draw(host, docs, &mut frame)
     }
 
-    fn input(
-        &mut self,
-        _host: &Host<'_>,
-        _token: u32,
-        _input: Input<'_>,
-    ) -> Result<Handled, Error> {
-        Ok(Handled::No)
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        let (handled, turned) = match (self.screens.top(token), &self.docs) {
+            (Some(view), Some(docs)) => {
+                let handled = view.input(host, (docs, self.library.as_ref()), &input)?;
+                (handled, view.take_turned())
+            }
+            _ => return Ok(Handled::No),
+        };
+        if turned {
+            self.start_quiet(host);
+        }
+        Ok(handled)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Beta 3 saved the place 2 seconds after the last turn.
+    #[test]
+    fn the_quiet_time_is_beta_3s_and_the_tokens_differ() {
+        assert_eq!(QUIET_MS, 2_000);
+        assert!(WorkSpec::new(QUIET_KEY, WORK_DUE).is_ok());
+        let tokens = [SCREEN, SUSPEND, STOPPING, WORK_DUE];
+        for (i, a) in tokens.iter().enumerate() {
+            assert!(tokens[i + 1..].iter().all(|b| a != b));
+        }
     }
 }

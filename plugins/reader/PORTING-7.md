@@ -116,10 +116,7 @@ relative to the data folder).
   with the six `slot.offer`s, keys, hold keys, events, stages) and `native/metadata*` (regenerate with
   `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
   native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
-- `make` submits six groups. **Not the events** (start, a book moved): the host's event admission
-  (`native_host/events.rs` `is_event_tag`) lacks `event.book_moved`, and the registration is refused
-  as a whole (`Factory(-1)`, found by `tests/hosted_construction.rs`); they are in the image and go
-  in once the host admits it; an opened screen draws nothing
+- `make` submits seven groups, the events too (the start and a moved book have no handler yet; the host admits `event.book_moved` now). At this slice an opened screen draws nothing
   (`Error::State`). **The plugin is not in `paperpaw_app::NATIVE_PLUGINS`**: with no view the
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
@@ -129,3 +126,154 @@ relative to the data folder).
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
+
+## The block assembler (view slice R1a, `native_block.rs`)
+
+- Joins the fragments of `core.document` op 6 into the `Block` the layout takes: head fields as data
+  (`Head`), text parts, runs, checkpoints, inline languages, annotations. Checked: the text is as long
+  as the head said (at most 64 KiB), runs sorted, inside the text and on character boundaries, checkpoints
+  in order, at most 2,048 parts and 15 languages. A refusal forgets the block; allocation is fallible
+  and tested refused in turn. `pieces(&BlockFragment)` turns a fragment into the data the assembler
+  takes (the fragment type has no public constructor, so the join is tested on pieces).
+- Gaps: a picture block and a table row read as a paragraph of their text (images wait for `core.image`
+  and the table records); the fragment-to-pieces step is covered by the hosted test of the view slice.
+- Builds on the SDK Documents facade (PR #959, merged into this branch locally: the stack is #954,
+  #959, this).
+- Review remarks (PR #969), for the view: a text part that would take the text past the head's length
+  is refused at once. A block is up to 64 KiB of text and 2,048 runs, checkpoints and annotations each
+  (over 100 KB in all): too much for the X4's heap, so the view must read with lower caps by device class
+  (measurement list), and a block refused as `NoSpace` is shown as a visible notice in the page, never
+  cut silently. The view always advances past a block, also when its end is not after its start or when
+  reading it failed (the next place is the block's end, else one further), or a page could repeat for
+  ever. A checkpoint's text index is not checked against the text length (the layout clamps it).
+
+## The document adapter (view slice R1b, `native_document.rs`)
+
+- `HostDocument` implements the layout's `Document` over `Documents::block_at` for the length of one
+  callback (it holds the callback's host); its read buffers (256 B ask, 4,096 B reply) are on the heap,
+  made once. `read_block` joins the fragments, reads a block that changed again from its start (three
+  times at most) and refuses one of more than 64 fragments; a section's end (`NotFound`) is `None`.
+- Gaps: `section_len` is 0 (progress needs op 5 of the SDK facade); no table of contents or links
+  through it yet (the facade has them: the TOC and links slices); the hosted end-to-end test of
+  `block_at` (the host's real `core.document` with a format) comes with the view.
+
+## The typesetter (view slice R1c, `native_typeset.rs`)
+
+- `Faces<M>` is the layout's `Typesetter` over the host's four reading fonts (`role:reading`,
+  `-bold`, `-italic`, `-bold-italic`; the host resolves and falls back at each call; four of the
+  plugin's eight font handles). The size follows Beta 3's `ReadingFaces`: the book's percent first, else a heading's level (1.6,
+  1.4, 1.2, 1.1, 1.0, 1.0 of the body size), else the reader's. The font comes from the style bits
+  only. Body lines keep the reader's ascent and line height from the line spacing (`Faces::new`,
+  scaled by the book's percent); a heading is at least 1.2 of its size high with the extra shared
+  above and below. Widths of single characters are kept in a 256-entry table
+  (direct-mapped, 4 KiB on the heap; one host call for each character not in it, and four of the
+  plugin's eight font handles are held); a host that refuses a measure gives width 0 and sets `failed`, which
+  the view turns into a notice. `Measure` is the seam: tests use a fake that counts the asks.
+- Gaps: no kerning, small capitals, superscripts, letter spacing, the book's own fonts or shaped (Arabic)
+  text widths yet; the base size comes from the reader's settings in the view slice.
+- Review remarks (PR #972): `NotFound` ends a section only as the answer to the first ask of a block;
+  after a fragment or a restart it is `Invalid` (a malformed block), so a section is never cut short in
+  silence. The document's metadata (title, authors, language, direction) is not read into the adapter
+  yet (the facade has it): the layout does not need it. X4 measurement list: the two read buffers (4.3 KiB),
+  a block of over 100 KB (see the assembler's caps) and the frame of `read_block`.
+
+## The page drawn (view slice R1d, `native_draw.rs`)
+
+- `draw_lines` sets the words of each laid-out line one after the other (the layout's gaps and the
+  line's word spacing), in the role of each run; `Ink` is the pen (`HostInk` draws with the host's
+  reading fonts on the frame's canvas in one colour). The tests lay real pages out with a fake document
+  and measure, and record what is drawn.
+- `draw_run` is the one place that decides how a run reaches the host: `Font::draw_inked` (slot 41),
+  with the ink of `native_look::Look` read from the settings once per draw: `core.font-weight` 0-4 →
+  extra pixels (`weight × size / 48`, rounded, at least 1), `core.text-contrast` and
+  `core.text-sharpness` → the tone curve (soft a step lighter, sharp a step darker and without grays),
+  `core.text-curve` (the entry without a script) replacing both, `core.smooth-text` off → sharp except on a
+  two-gray panel (Beta 3's `ink`). Gaps: a `core.text-curve` longer than 256 bytes is read as no curve of its own (the contrast is used); the per-script entry of `core.text-curve` is not used (the view
+  tells no script yet); the per-character host call is uncached; X4 flash cost is not measured.
+- Gaps: lines of mixed direction are drawn in logical order; underline, overline, strike-through,
+  super/subscript shifts, small capitals, pictures, rules (tables), annotations and the lines between
+  inserted blocks are not drawn; no hanging punctuation.
+- Review remarks (PR #986): characters that are not drawn (zero-width, direction marks, byte order mark) take
+  no room and are left out of a word (copied only where one is present); a space is the font's own
+  times the reader's word spacing (`Faces::word_spacing`, 0.5 to 2.0). Named, not changed: the pen
+  moves by the advance the host drew while the layout summed the widths it measured (the same font,
+  so they agree); all lines of a page are sent for each drawn band (Beta 3 skipped lines outside the
+  clip: the host clips, the cost is on the first-page timing list for the X4); a page is drawn in one
+  colour and each word is one host call, no per-word ink.
+
+## The reading screen (view slice R1e, `native_view.rs`, `native_pages.rs`)
+
+- `core.reader`'s screen (token `SCREEN`): on open it reads the hand-over (`path`, `root`, `section`,
+  `offset`, `page`), opens the book through `core.document` (publisher styles on; root 1, 0 or the handed
+  file 5), reads the section count, and starts at the place the hand-over names if the book has it
+  (`native_open::opening`). Preparing, failed, not ready and "no book" are screens that say so (the
+  Beta 3 texts `reader.preparing`, `reader.error`, `reader.not-ready`, `reader.no-book`; out of memory
+  and no reading font too). The document is closed with the screen.
+- Drawing: the reading settings (`core.font-size`, line and word spacing, margins at the sides and at
+  the ends, justify) and the display give the content box (`native_pages::content_box`; a margin that
+  leaves less than 16 px is a screen that says "no memory"-class error, not a page), the page is laid
+  out once (`layout_page` over `HostDocument` and `Faces`) and drawn on white with `draw_lines`; four of
+  the plugin's eight font handles are held for the length of a draw or a back-layout.
+- Turning: the actions `core.next-page`/`core.prev-page` and the arrows (the keys, edge swipes and
+  tap zones are the host's input mapping). On: the start of the page is kept in a trail of 64; at the
+  end of the book nothing happens (the end-of-book hand-over is the progress slice). Back: the trail,
+  else the page before is found by laying pages out from the section's start (at most 4,096), as the
+  trail is empty after opening in the middle.
+- Metadata now asks `core.document` and `core.ui` and the feature `uses.storage` (root 1); the host
+  calls `services.query` added.
+- **Not yet (named gaps):** the place saved last time and `page` numbers (`LIB-position`, R2); progress,
+  the page index and status lines (R2, op 5 sections in #973); the menus and the font/layout panel (R3);
+  selection, words, links, footnotes (R4); annotations (R5); TOC and skim (R6); search (R7); reflow on
+  a turned screen and on a changed setting (the page is laid out again only after a turn); a document
+  that is still preparing is not read again when the host says it is ready (`document_changed`); the
+  paragraph indent and spacing, widows and orphans, hyphenation and the book-style switches of the
+  layout `Style` (defaults only); pictures and tables (see the assembler); a hosted end-to-end test
+  (open a book of a real format plugin, draw, turn) waits for DocHost's root 5 and a format plugin in
+  the hosted harness; first-page timing on the X4 is not measured.
+
+### R1e review notes (#1000)
+
+- The handover read turns an out-of-memory error into "no book" (a named gap).
+- One input callback can lay out up to 4,096 pages going back: an X4 timing gate, not measured.
+- Settings and fonts are read on every draw band (cost not measured on X4).
+- `uses.storage` is declared but no call uses it in this slice (R2 saves the place).
+- Whole-page books (xtc, images) use margins of 0, as Beta 3; a margin setting of 0 is 0 mm.
+
+## The saved place and progress (view slice R2a, `native_place.rs`)
+
+- The sections' lengths are read at open through `core.document` op 5 (`Progress::read`, pages of the
+  facade; at most 4,096 sections, 16 KiB; more, or a refusal, is no progress); progress before a
+  page's start is the source text before it over all of it (N5 rule 1, as Beta 3's `Document::progress`),
+  in millionths, integer arithmetic (no float on the X4).
+- The place saved last time is read through `core.library` (`position`, op 13) when the hand-over names
+  no place; it is used if its section exists and its conversion is the open document's (or none was
+  stored). Else the start of the book.
+- It is written (`set_position`, op 14, with progress and the conversion) when the screen closes and,
+  while pages are turned, at most once in 5 seconds (Beta 3's `SAVE_EVERY_MS`), by the host's monotonic
+  clock; a refused write is tried again at the next turn or the close.
+- Metadata asks `core.library` now (both `.bin` pairs regenerated).
+- A refused write says `reader.not-saved` once for a book (`command.notify`, `announce` when it was the
+  close that failed); `updated` is the snapshot's wall time, 0 only where the device has none.
+- The quiet-time write (Beta 3's 2 s after the last turn): `core.work` `declare` with the key `place`
+  and `after_ms(2000)` at every turn (a key declared again replaces the work and restarts the time);
+  when it is due, and at `event.suspend` and `event.stopping`, the place of every reading screen not
+  saved is written. The host answering `Unsupported` for work (not wired) leaves the write to sleep,
+  stop and close. The events image is submitted now (the start and a moved book have no handler yet).
+  Metadata asks `core.work`. Tests: the declarations (five events), the hosted construction, the
+  tokens; the writing itself needs a library host in the harness (named above).
+- **Not yet:** the KOReader
+  pointer written with the place; a saved place of another conversion is not mapped (the start is
+  used); a `page` number of the hand-over (needs the page index); a hand-over `root` other than the
+  library's for the saved place's path; the status lines and the page index; the hosted end-to-end test
+  of save and restore (needs a library host in the harness). Progress is not shown yet.
+- Review remarks of #1019, named: a close without a turn does not write the place (Beta 3 forced it;
+  here it would overwrite a place that could not be read); a stored place that cannot be read means
+  the start, and the first turn overwrites it (Beta 3 retried the read and set the old file aside); a
+  book of more than 4,096 sections writes progress 0; a book outside the catalog gets NOT_FOUND on
+  read and write, so it is "not saved" (said once).
+- **The gates before the reader goes into `NATIVE_PLUGINS`** (Port Reviewer 2) are done: a read of the
+  stored place that fails other than as "no place" is tried once more; a place is written only after a
+  turn (so an unreadable one is not overwritten before the reader reads on; Beta 3's setting aside of
+  the old file is not ported); the progress stored is written again where it is unknown. **X4 timing list:** the extra
+  `work.declare` at every page turn. The quiet time is started again on a turn only (as Beta 3), and a
+  host without work is asked once.
