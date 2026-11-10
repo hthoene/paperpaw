@@ -220,14 +220,10 @@ mod tests {
 
     #[test]
     fn translations_are_complete() {
-        for (en, de) in [(
-            include_str!("../../../plugins/format-epub/i18n/en.ini"),
-            include_str!("../../../plugins/format-epub/i18n/de.ini"),
-        )] {
-            let (en, de) = (Catalog::parse(en).unwrap(), Catalog::parse(de).unwrap());
-            let issues = check::compare(&en, &de);
-            assert!(issues.is_empty(), "{issues:?}");
-        }
+        let en = Catalog::parse(include_str!("../../../plugins/format-epub/i18n/en.ini")).unwrap();
+        let de = Catalog::parse(include_str!("../../../plugins/format-epub/i18n/de.ini")).unwrap();
+        let issues = check::compare(&en, &de);
+        assert!(issues.is_empty(), "{issues:?}");
     }
 
     const CONTAINER: &str = r#"<?xml version="1.0"?>
