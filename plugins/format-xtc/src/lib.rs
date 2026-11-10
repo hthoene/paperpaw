@@ -392,7 +392,7 @@ impl XtcDocument {
         read_exact(storage, BOOK, at, &mut entry)?;
         let offset = u64_at(&entry, 0);
         let mut writer = GrayWriter::new(storage, cache);
-        decode_page(storage, BOOK, self.size, offset, &mut writer)?;
+        decode_page(storage, self.size, offset, &mut writer)?;
         writer.finish().map_err(image_error)
     }
 }
@@ -405,11 +405,10 @@ fn image_error(e: ImageError) -> DocumentError {
     }
 }
 
-/// Decodes the page picture at `offset` of `path` (`file_size` bytes long)
+/// Decodes the page picture at `offset` of the book (`file_size` bytes long)
 /// into `sink`.
 fn decode_page(
     storage: &dyn Storage,
-    path: &str,
     file_size: u64,
     offset: u64,
     sink: &mut dyn ImageSink,
@@ -446,7 +445,7 @@ fn decode_page(
     {
         return Err(malformed("page data past the end"));
     }
-    let mut window = Window::new(storage, path)?;
+    let mut window = Window::new(storage, BOOK)?;
     let mut row = zeroed(width as usize)?;
     sink.start(width, height).map_err(image_error)?;
     if magic == XTG {
