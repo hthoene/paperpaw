@@ -6,7 +6,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, PpBuffer, PpBytes, buffers};
 
 /// # Safety
 /// The context and all nonempty pairs are live and disjoint for this call.
-pub(super) unsafe extern "C" fn run<S>(
+pub(super) unsafe extern "C" fn run<S: 'static>(
     ctx: *mut c_void,
     stage: PpBytes,
     cursor: u32,
