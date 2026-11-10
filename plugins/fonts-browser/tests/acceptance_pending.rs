@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 3] = [
+const CASES: [Case; 7] = [
     // The list of fonts (fetched with `core.net`, kept in the data folder), the
     // font's page with Download / Update / Remove, and choosing a font draw as before.
     Case {
@@ -31,6 +31,32 @@ const CASES: [Case; 3] = [
         name: "fonts-browser-samples",
         golden: None,
         blocked_by: &["FONT-runtime"],
+    },
+    // Coming back from a font's page to the list fetches nothing again, and the
+    // page has its font from the list (the catalog kept is not read again).
+    Case {
+        name: "fonts-browser-list-back",
+        golden: None,
+        blocked_by: &["H1", "H4"],
+    },
+    // Updating the font one reads with keeps it chosen.
+    Case {
+        name: "fonts-browser-update-keeps-font",
+        golden: None,
+        blocked_by: &["H2"],
+    },
+    // A download cut off by a restart is dropped (`make` clears the staging
+    // folder; the host's `install_done` ends one that was asked).
+    Case {
+        name: "fonts-browser-restart-drops-download",
+        golden: None,
+        blocked_by: &["H2"],
+    },
+    // *Your own fonts* shows the plugin's help part in the reader.
+    Case {
+        name: "fonts-browser-own-fonts",
+        golden: None,
+        blocked_by: &["draft-22-doc_open-root-5"],
     },
 ];
 
@@ -60,4 +86,28 @@ fn fonts_browser_install() {
 #[ignore = "BLOCKED FONT-runtime: no host path to draw with a font loaded at run time"]
 fn fonts_browser_samples() {
     CASES[2].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: native screen commands and input are not qualified"]
+fn fonts_browser_list_back() {
+    CASES[3].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H2: the host's install question is not wired to native plugins"]
+fn fonts_browser_update_keeps_font() {
+    CASES[4].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H2: the host's install question is not wired to native plugins"]
+fn fonts_browser_restart_drops_download() {
+    CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED draft-22-doc_open-root-5: command.open into core.reader (root 5, handed) is not there"]
+fn fonts_browser_own_fonts() {
+    CASES[6].refuse().unwrap();
 }

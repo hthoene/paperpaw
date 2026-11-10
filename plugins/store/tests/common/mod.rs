@@ -293,7 +293,6 @@ impl Shopping {
             .storage(storage.clone())
             .network(true)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
             .plugin(paperpaw_plugin_menu::Menu)
             .plugin(paperpaw_plugin_keyboard::Keyboard)
             .plugin(Store)
@@ -343,7 +342,6 @@ impl Shopping {
             .storage(storage.clone())
             .network(network)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
             // Shows the notices.
             .plugin(paperpaw_plugin_menu::Menu)
             // Asks for text and numbers.

@@ -1,10 +1,11 @@
 # Interface-7 port (slices 1 to 4: the model, the declarations, the native entry and screens, install and removal)
 
-Version 1.0.8 (already above its Beta 3 version; no further bump). Status: **not complete**: the native
-entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the list and a
-font's page, but downloading, installing and removing a font are named blocked steps below, so the plugin is not
-in `tools/plugin-files7/complete.txt`. The interface-6 `FontsBrowser` and everything of it stays until the host
-activates native plugins (then it goes together, no shim; see the removal step).
+Version 1.0.8 (already above its Beta 3 version; no further bump). Status: the interface-6 `FontsBrowser`
+is **removed** (this port: the plugin, its list and font screens, the installer, the samples, `catalog.rs`, the
+plugin-file build of `tools/plugin-files`, the app's store-offer line, the store tests' use of it). The native
+entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) is what is left. **The
+current interface-6 app loses the fonts browser until native activation (#243): merge right after it.** It is
+not yet in `tools/plugin-files7/complete.txt`: list it when download, update and removal run end to end (H2).
 
 ## Ported
 
@@ -106,10 +107,27 @@ activates native plugins (then it goes together, no shim; see the removal step).
   0, a path that leaves the folder, a plugin id over 40 bytes) is not offered
   (`native_plan::fits`, used by `Catalog::finish`).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Interface-6 suites replaced
 
-1. `FontsBrowser` and its `Plugin` impl, `list.rs`, `font.rs`, `install.rs`, `samples.rs`, `catalog.rs` (the interface-6
-   catalog; `native_catalog` is the same rules), the `HOW` table kept for the manifest;
-2. the app's store-offer line and the other plugins' tests that register `FontsBrowser`;
-3. list `NativeFontsBrowser` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` once download, update and
-   removal are native.
+| Removed interface-6 test | Native coverage |
+|---|---|
+| `catalog`: `fonts_and_files_past_the_limits_leave_those_kept_whole` | `native_catalog/tests.rs` `fonts_over_the_caps_are_not_offered`, `the_catalog_reads_as_the_interface_6_reader_did` (what the old reader made, pinned as literals) |
+| `catalog`: `only_the_files_this_device_takes_are_kept` | the same two (packs or outlines per device) |
+| `catalog`: `a_font_goes_to_its_page_whole` | `native_catalog/tests.rs` (same name) |
+| `samples`: `samples_are_held_within_their_budget` | ignored case `fonts-browser-samples` (`FONT-runtime`) |
+| `install`: `the_catalog_is_shown_with_what_fits` | `native_catalog`, `native_view` tests; screens: ignored `fonts-browser-screens` |
+| `install`: `a_font_is_downloaded_chosen_and_removed` | `native_job/tests.rs`, `native_plan/tests.rs`; end to end: ignored `fonts-browser-install` (H2) |
+| `install`: `a_damaged_download_is_not_installed` | `native_job/tests.rs` `a_file_is_kept_only_if_size_and_digest_are_the_catalogs` |
+| `install`: `updating_the_font_one_reads_with_keeps_it` | ignored `fonts-browser-update-keeps-font` (H2) |
+| `install`: `coming_back_to_the_list_fetches_nothing` | `native_view::should_fetch` test; ignored `fonts-browser-list-back` |
+| `install`: `a_font_page_has_its_font_from_the_list` | `native_catalog` `a_font_goes_to_its_page_whole`; ignored `fonts-browser-list-back` |
+| `install`: `a_download_cut_off_by_a_restart_is_dropped` | `make` clears `staging`; ignored `fonts-browser-restart-drops-download` |
+| `install`: `your_own_fonts_shows_how_to_read_with_a_font_file` | ignored `fonts-browser-own-fonts` (`draft-22-doc_open-root-5`): the native action answers `Unsupported` meanwhile |
+| declaration tests (compared with the interface-6 registration) | `tests/abi7_declarations.rs` pins the decoded records as literals |
+
+## Set aside until native activation (todo 380)
+
+- Six tests of the store (`plugins/store/tests/store.rs`: `fonts_open_the_fonts_browser`, `discover_fonts_opens_the_list_where_the_fonts_browser_runs`,
+  `discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for`, `discover_fonts_offers_to_switch_a_switched_off_fonts_browser_on`,
+  `larger_sizes_are_discovered_from_the_reading_settings`, `the_list_shows_what_fits_by_group`) are `#[ignore]`d: they need the browser registered.
+- *Your own fonts* does nothing natively until the reader can be opened with a handed page (above).

@@ -25,7 +25,6 @@ store-plugins = [
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
-    "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
@@ -86,7 +85,6 @@ paperpaw-i18n.workspace = true
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
-paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
 paperpaw-plugin-format-epub.workspace = true
 paperpaw-plugin-format-txt.workspace = true

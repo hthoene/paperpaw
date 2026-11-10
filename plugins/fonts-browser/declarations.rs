@@ -1,5 +1,5 @@
 //! What the fonts browser declares, built into its image by `build.rs` and
-//! compared with the interface-6 registration by the declaration tests.
+//! pinned by the declaration tests.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, Instances, Kind, MenuEntryDecl, ScreenDecl,
     SpecDecl,
