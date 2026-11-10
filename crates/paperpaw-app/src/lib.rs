@@ -258,6 +258,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
 )> {
     use paperpaw_core::native_host::shell::Error;
     use paperpaw_core::sdk::PluginState;
+    let config = kernel.native_config();
     let mut outcome = alloc::vec::Vec::new();
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
@@ -268,13 +269,19 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         let Some(default) = default_on(id) else {
             continue;
         };
-        if !kernel.native_enabled(id, default) {
-            list(kernel, id, PluginState::Off, false);
+        // Once for each plugin: in safe mode a decision saves the file.
+        let decision = kernel.native_decide(&config, id, default, false);
+        if !decision.hosts() {
+            list(
+                kernel,
+                id,
+                (PluginState::Off, decision.enabled(), decision.problem()),
+            );
             continue;
         }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
-            list(kernel, id, PluginState::Failed, true);
+            list(kernel, id, (PluginState::Failed, true, None));
             continue;
         };
         // SAFETY: as this function's contract says.
@@ -296,13 +303,14 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         } else {
             PluginState::Failed
         };
-        list(kernel, id, state, true);
+        list(kernel, id, (state, true, None));
         outcome.push((*id, status));
     }
     outcome
 }
 
-/// Lists the linked native plugin `id` for the plugin manager: its version
+/// Lists the linked native plugin `id` for the plugin manager, with its state,
+/// whether it is switched on and why it is held back (safe mode): its version
 /// from its crate, its name the id (the registry shows the plugin's own
 /// `<id>.plugin.name` and `.description` from its catalog, in the reader's
 /// language, wherever it has them). A listing that fails (the id is listed
@@ -311,8 +319,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
 fn list(
     kernel: &mut paperpaw_core::Kernel,
     id: &'static str,
-    state: paperpaw_core::sdk::PluginState,
-    enabled: bool,
+    (state, enabled, problem): (
+        paperpaw_core::sdk::PluginState,
+        bool,
+        Option<paperpaw_core::sdk::PluginProblem>,
+    ),
 ) {
     use paperpaw_core::sdk::{Id, Manifest, PluginInfo, PluginKind, RequiredFor, Version};
     let Some(version) = native_version(id).and_then(Version::parse) else {
@@ -325,7 +336,7 @@ fn list(
         enabled,
         RequiredFor::default(),
         PluginKind::BuiltIn,
-        None,
+        problem,
         None,
     );
     let _ = kernel.list_native(info);

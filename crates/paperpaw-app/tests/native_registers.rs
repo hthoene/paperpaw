@@ -209,3 +209,33 @@ fn where_the_store_installs_a_plugin_the_linked_one_is_not_hosted_nor_listed() {
     // The ones the app always has are still listed.
     assert!(state(&kernel, "menu").is_some());
 }
+
+#[test]
+fn in_safe_mode_the_linked_plugins_run_but_the_one_the_crash_was_in() {
+    use paperpaw_sdk::PluginProblem;
+    use paperpaw_sdk::native::{SafeMode, SafeModeReason};
+    let mut safe = SafeMode::new(SafeModeReason::FailedStarts);
+    safe.crashed = Some(String::from("menu"));
+    let builder: KernelBuilder = Kernel::builder(DEVICE)
+        .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
+        .user_config("[core]\nlanguage = en\n")
+        .safe_mode(safe);
+    let kernel = native_activation::build(paperpaw_app::install(
+        builder,
+        #[cfg(any(feature = "packs", not(feature = "outline")))]
+        paperpaw_app::Fonts::Packs,
+        #[cfg(all(feature = "outline", not(feature = "packs")))]
+        paperpaw_app::Fonts::Outline,
+    ));
+    let menu = kernel
+        .plugins()
+        .iter()
+        .find(|plugin| plugin.manifest.id.as_str() == "menu")
+        .expect("menu is listed");
+    assert_eq!(menu.state, PluginState::Off);
+    assert!(!menu.enabled);
+    assert_eq!(menu.problem, Some(PluginProblem::Crashed));
+    // A built-in plugin that did not crash is hosted as before.
+    let (state, enabled) = state(&kernel, "settings").expect("settings is listed");
+    assert!(enabled && state != PluginState::Off);
+}
