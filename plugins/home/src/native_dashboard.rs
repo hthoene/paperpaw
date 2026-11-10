@@ -206,6 +206,9 @@ impl Dashboard {
         let released = font.release();
         let laid = made?;
         if let Err(error) = released {
+            if let Some((made, _)) = laid.status {
+                made.release(host, ui);
+            }
             release_cells(host, ui, laid.cells);
             return Err(error);
         }
@@ -345,7 +348,13 @@ impl Dashboard {
             return Ok(None);
         };
         match Made::make(host, ui, native_pages::STATUS, PLACE) {
-            Ok(made) => made.place(host, ui, rect).map(|()| Some((made, rect))),
+            Ok(made) => match made.place(host, ui, rect) {
+                Ok(()) => Ok(Some((made, rect))),
+                Err(error) => {
+                    made.release(host, ui);
+                    Err(error)
+                }
+            },
             Err(Error::NotFound | Error::Denied) => Ok(None),
             Err(error) => Err(error),
         }
@@ -823,11 +832,18 @@ impl Dashboard {
                 .as_ref()
                 .filter(|(_, rect)| inside(*rect, point))
         {
-            for (target, at) in made.targets(host, ui, *rect)? {
-                if inside(at, point) {
-                    made.input(host, ui, target, point, kind)?;
-                    return Ok(Handled::Yes);
+            // A refusal of the line's targets leaves the tap to the grid.
+            match made.targets(host, ui, *rect) {
+                Ok(found) => {
+                    for (target, at) in found {
+                        if inside(at, point) {
+                            made.input(host, ui, target, point, kind)?;
+                            return Ok(Handled::Yes);
+                        }
+                    }
                 }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
             }
         }
         // The nearest target the point is in: widgets' own first (they answer
