@@ -45,8 +45,10 @@ use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
+mod field;
 mod position;
 mod provide;
+mod write;
 
 const PPM: u32 = 1_000_000;
 /// Counts of the books `state` takes while the catalog changes under it.
@@ -64,6 +66,12 @@ pub trait CatalogEnv {
     /// The id of the format of the book at `path`, as the format index
     /// finds it by extension; nothing for none.
     fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The field `id` (`<plugin>.<name>`) a plugin declared with
+    /// `book_field.spec`: `Some(true)` kept in the catalog too (short values),
+    /// `Some(false)` kept with the book only, `None` for none declared.
+    fn book_field(&self, _id: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// The catalog reads over `storage`.

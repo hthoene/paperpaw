@@ -31,6 +31,14 @@ impl CatalogEnv for Env {
             visit("epub");
         }
     }
+    /// `stars.rating` is kept with the book only, `stars.tag` in the catalog.
+    fn book_field(&self, id: &str) -> Option<bool> {
+        match id {
+            "stars.rating" => Some(false),
+            "stars.tag" => Some(true),
+            _ => None,
+        }
+    }
 }
 
 /// Five books: A (a favourite, 40 % by the log), B (long title, tags and
