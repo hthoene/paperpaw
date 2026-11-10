@@ -711,8 +711,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   one plugin is `ERR_INVALID` for the batch; two plugins may use the same name (a `lookup_ready`
   matched to the wrong one of them costs one more ask, nothing worse).
 - [D] **Network providers** (`flags` bit 0) are called only while the host's network is connected
-  at the ask (Wi-Fi connected as `event.wifi_changed` reports it, or the cable link up); else they
-  are skipped without a page. A lookup never starts a join.
+  at the ask (as `event.wifi_changed` reports it; the cable serves a computer, not the internet,
+  and does not count); else they are skipped without a page. A lookup never starts a join.
 - [D] **Languages** (interface 6 `LookupQuery::fits`): an empty ask `language` or an empty spec
   `languages` takes any; else a spec tag fits when it equals the ask's tag or the ask's primary
   subtag (the part before the first `-` or `_`), ASCII case ignored: spec `de` takes `de-AT` and
