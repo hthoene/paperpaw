@@ -11,8 +11,12 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
-/// The smallest and the largest reading size, in points (the setting's range).
-pub const SIZES: (i64, i64) = (6, 72);
+/// Most entries of the table looked at (as the contents screen lists).
+pub const MAX_ENTRIES: usize = 500;
+
+/// The smallest and the largest reading size, in points (the setting's range;
+/// a font pack may allow less, which the host applies).
+pub const SIZES: (i64, i64) = (6, 40);
 
 /// The size after `step` points, kept to what the setting allows.
 #[must_use]
@@ -87,28 +91,36 @@ pub fn chapter(
     forward: bool,
 ) -> Result<Option<(u32, u32)>, Error> {
     let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+    let (mut ask, mut reply) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
     let mut best: Option<(u32, u32)> = None;
     let mut cursor = DocCursor::start();
+    let mut seen = 0;
     loop {
-        let Ok(page) = docs.toc(host, id, cursor, &mut input, &mut out) else {
-            return Ok(best);
+        // A table the host cannot give or hold is an error, not the chapter
+        // found so far: going back could land on an earlier one.
+        let page = match docs.toc(host, id, cursor, &mut input, &mut out) {
+            Ok(page) => page,
+            Err(Error::NotFound) => return Ok(best),
+            Err(error) => return Err(error),
         };
-        let mut starts = alloc::vec::Vec::new();
-        starts
-            .try_reserve(page.end().total().min(64) as usize)
-            .map_err(|_| Error::NoMemory)?;
         for row in page.rows() {
+            seen += 1;
+            if seen > MAX_ENTRIES {
+                return Ok(best);
+            }
             let at = row.position();
             let mut start = (at.section, at.offset);
             if row.approximate() && at.section == from.0 {
-                let (mut ask, mut reply) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
                 if let Ok(exact) = docs.toc_target(host, id, row.index(), &mut ask, &mut reply) {
                     start = (exact.section, exact.offset);
                 }
             }
-            starts.push(start);
+            best = choose(
+                best.into_iter().chain(core::iter::once(start)),
+                from,
+                forward,
+            );
         }
-        best = choose(best.into_iter().chain(starts), from, forward);
         match page.end().next() {
             Some(next) => cursor = next,
             None => return Ok(best),

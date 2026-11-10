@@ -335,8 +335,8 @@ relative to the data folder).
 
 ## The font, justify and chapter actions (view slice R3a, `native_actions.rs`)
 
-- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-72 (the
-  setting's range; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
+- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-40 (the
+  setting's range; a font pack may allow less: the host fits it back; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
   a native plugin cannot read: named). `reader.toggle-justify`. Both change the setting by command; the
   page is laid out again by the setting-changed reflow (Port E, #1064), until it lands the change shows at
   the next layout.
