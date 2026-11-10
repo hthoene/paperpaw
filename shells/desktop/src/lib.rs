@@ -21,6 +21,10 @@ pub mod host;
 pub mod host_services;
 pub mod http;
 pub mod light;
+/// The first-party interface-7 plugins linked into the emulator, registered
+/// with the kernel (the reviewed Linux x86-64 profile only).
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub mod linked;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 pub mod offline;
