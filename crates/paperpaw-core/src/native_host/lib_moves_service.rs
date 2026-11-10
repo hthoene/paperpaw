@@ -13,8 +13,8 @@
 use super::{
     host_services::HostServices,
     lib_jobs::Jobs,
-    lib_jobs_journal::DELETE_MAX,
     lib_jobs_env::{EnvJobs, NoCatalog},
+    lib_jobs_journal::DELETE_MAX,
     lib_moves_carry::EnvCarry,
     lib_moves_host::{CardMoves, StepHost},
     lib_moves_walk::Resume,

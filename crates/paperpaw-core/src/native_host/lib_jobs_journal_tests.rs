@@ -97,7 +97,9 @@ fn one_entry_of_one_kind() {
     assert_eq!(journal.read_job().unwrap(), Some(delete()));
     // The move machine leaves it alone: no entry for it, nothing set aside.
     assert_eq!(
-        journal.open_or_set_aside(&mut |_| panic!("not a move")).unwrap(),
+        journal
+            .open_or_set_aside(&mut |_| panic!("not a move"))
+            .unwrap(),
         Opened::Other
     );
     assert!(!card.exists(SET_ASIDE));
@@ -138,7 +140,12 @@ fn a_record_that_is_not_whole_is_set_aside_by_the_move_machine() {
 fn a_failed_write_leaves_no_entry() {
     struct NoRename(MemoryStorage);
     impl paperpaw_platform::Storage for NoRename {
-        fn read_at(&self, p: &str, a: u64, b: &mut [u8]) -> Result<usize, paperpaw_platform::StorageError> {
+        fn read_at(
+            &self,
+            p: &str,
+            a: u64,
+            b: &mut [u8],
+        ) -> Result<usize, paperpaw_platform::StorageError> {
             self.0.read_at(p, a, b)
         }
         fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {

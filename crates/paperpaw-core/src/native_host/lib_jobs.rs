@@ -191,6 +191,7 @@ fn remove_files(storage: &dyn Storage, path: &str) -> Result<Removed, i32> {
 
 impl Jobs {
     /// Whether a job is open.
+    #[cfg(test)]
     pub(crate) fn active(&self) -> bool {
         self.job.try_borrow().map_or(true, |job| job.is_some())
     }
@@ -521,7 +522,11 @@ impl Jobs {
         job.phase = match job.phase {
             Phase::Catalogue => {
                 host.catalogue(to, importer)?;
-                if *replace { Phase::Cache } else { Phase::Changed }
+                if *replace {
+                    Phase::Cache
+                } else {
+                    Phase::Changed
+                }
             }
             Phase::Cache => match host.remove_cache(to)? {
                 Progress::More => Phase::Cache,

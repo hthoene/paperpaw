@@ -17,8 +17,11 @@ use paperpaw_sdk::builtin::events;
 pub(crate) struct NoCatalog;
 
 impl RemovalCarry for NoCatalog {
-    fn forget(&self, _: &str, _: bool, _: RemovalPhase) -> Result<RemovalPhase, i32> {
-        Ok(RemovalPhase::Done)
+    fn forget(&self, _: &str, _: bool, phase: RemovalPhase) -> Result<RemovalPhase, i32> {
+        Ok(match phase {
+            RemovalPhase::Details => RemovalPhase::Marks,
+            _ => RemovalPhase::Done,
+        })
     }
 }
 

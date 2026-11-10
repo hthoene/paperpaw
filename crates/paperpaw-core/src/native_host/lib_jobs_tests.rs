@@ -90,7 +90,11 @@ impl<'a> Host<'a> {
         }
     }
     fn saw(&self, what: &str) -> usize {
-        self.log.borrow().iter().filter(|line| *line == what).count()
+        self.log
+            .borrow()
+            .iter()
+            .filter(|line| *line == what)
+            .count()
     }
     fn note(&self, line: std::string::String) {
         self.log.borrow_mut().push(line);
@@ -320,8 +324,14 @@ fn a_delete_cut_at_every_action_is_finished_or_never_started() {
 fn an_import_puts_the_file_in_the_library_and_catalogues_it() {
     let card = card();
     let jobs = Jobs::default();
-    jobs.begin_import(&card, "data/feed/new.epub", "books/feeds/n.epub", "feed", false)
-        .unwrap();
+    jobs.begin_import(
+        &card,
+        "data/feed/new.epub",
+        "books/feeds/n.epub",
+        "feed",
+        false,
+    )
+    .unwrap();
     // The rename is done at once, the missing folder made; the entry is there.
     assert!(card.exists("books/feeds/n.epub") && !card.exists("data/feed/new.epub"));
     assert!(card.exists(JOURNAL) && jobs.active());
@@ -343,13 +353,22 @@ fn an_import_refuses_what_it_must_and_changes_nothing() {
     let card = card();
     let jobs = Jobs::default();
     let imp = |from: &str, to: &str, replace| jobs.begin_import(&card, from, to, "feed", replace);
-    assert_eq!(imp("data/feed/none.epub", "books/n.epub", false), Err(ERR_NOT_FOUND));
+    assert_eq!(
+        imp("data/feed/none.epub", "books/n.epub", false),
+        Err(ERR_NOT_FOUND)
+    );
     // A folder is no file to import; an existing book is never overwritten
     // without `replace`; a folder is never replaced.
     assert_eq!(imp("data/feed", "books/n.epub", false), Err(ERR_INVALID));
-    assert_eq!(imp("data/feed/new.epub", "books/a.epub", false), Err(ERR_STATE));
+    assert_eq!(
+        imp("data/feed/new.epub", "books/a.epub", false),
+        Err(ERR_STATE)
+    );
     assert_eq!(imp("data/feed/new.epub", "books/sub", true), Err(ERR_STATE));
-    assert_eq!(imp("data/feed/new.epub", "data/feed/new.epub", true), Err(ERR_INVALID));
+    assert_eq!(
+        imp("data/feed/new.epub", "data/feed/new.epub", true),
+        Err(ERR_INVALID)
+    );
     assert!(!card.exists(JOURNAL) && !jobs.active());
     assert!(card.exists("data/feed/new.epub"));
     let mut text = [0_u8; 3];
@@ -383,7 +402,11 @@ fn an_import_cut_at_every_action_arrives_whole_or_not_at_all() {
             let card = card();
             let cut = Cut::after(&card, allowed);
             let jobs = Jobs::default();
-            let to = if replace { "books/a.epub" } else { "books/feeds/n.epub" };
+            let to = if replace {
+                "books/a.epub"
+            } else {
+                "books/feeds/n.epub"
+            };
             let _ = jobs.begin_import(&cut, "data/feed/new.epub", to, "feed", replace);
             let host = Host::new(&cut);
             for _ in 0..10 {
@@ -396,7 +419,10 @@ fn an_import_cut_at_every_action_arrives_whole_or_not_at_all() {
             again.start(&cut).unwrap();
             let host = Host::new(&cut);
             run(&again, &host);
-            assert!(!card.exists(JOURNAL) && !again.active(), "{replace} {allowed}");
+            assert!(
+                !card.exists(JOURNAL) && !again.active(),
+                "{replace} {allowed}"
+            );
             let arrived = !card.exists("data/feed/new.epub");
             let mut buffer = [0_u8; 16];
             if arrived {

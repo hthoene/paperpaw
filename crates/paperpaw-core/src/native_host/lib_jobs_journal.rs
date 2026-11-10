@@ -101,7 +101,7 @@ pub(crate) fn encode(job: &JobRecord) -> Result<Vec<u8>, i32> {
             }
             (
                 KIND_IMPORT,
-                u8::from(*replace) * REPLACE | u8::from(*arrived) * ARRIVED,
+                (u8::from(*replace) * REPLACE) | (u8::from(*arrived) * ARRIVED),
                 8 + 2 + 2 + 1 + from.len() + to.len() + importer.len(),
             )
         }
