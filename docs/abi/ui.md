@@ -821,7 +821,7 @@ or guard rule: only the maker drops its instances.
   closes its own overlay by instance (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
-  guard closes; one shows at a time, and one that comes meanwhile waits behind it, in the same queue, in the order it came: at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
+  guard closes, one after the other in the order they came, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
   from background work and when no screen of the plugin shows (interface 6 `Announce`: device
   messages and rules the user set up; never sync results or offers). Without bit 0 a message from a
   plugin with no instance on the stack is dropped (`OK`, logged). Other bits `ERR_INVALID`.

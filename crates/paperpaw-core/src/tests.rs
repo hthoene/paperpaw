@@ -3282,7 +3282,6 @@ mod key_guard;
 mod library_catalog;
 mod net_demand;
 mod net_policy_wiring;
-mod notice_queue;
 mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;

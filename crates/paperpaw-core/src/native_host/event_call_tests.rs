@@ -583,19 +583,6 @@ fn a_run_may_announce_and_the_notice_shows_after_its_callback_but_may_not_notify
 }
 
 #[test]
-fn a_run_that_announces_while_a_notice_shows_waits_in_the_queue() {
-    let mut w = world(true);
-    w.kernel.notify(alloc::string::String::from("first"));
-    assert!(w.kernel.notice.is_some());
-    w.command.set(4);
-    run_work(&mut w);
-    assert_eq!(w.last.get(), OK);
-    // It did not replace the one that shows; it waits behind it.
-    assert!(w.kernel.notice.is_some());
-    assert!(!w.kernel.waiting_notices.is_empty());
-}
-
-#[test]
 fn a_run_may_only_stage_what_is_listed() {
     use paperpaw_native::host_glue::ERR_STATE;
     // A command not named for runs (here `close_screen`) is refused there by

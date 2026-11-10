@@ -465,12 +465,12 @@ impl Kernel {
     }
 
     /// Shows `text` with the screen bound to the notice slot until the
-    /// notice time is over. It waits (at most 4 waiting, 2 on the X4, the
-    /// oldest dropped) while a screen guards the device and its command is not
-    /// the guard's own, while another notice shows, and behind notices that
-    /// wait.
+    /// notice time is over, in place of the one that shows. It waits (at most
+    /// 4 waiting, 2 on the X4, the oldest dropped) while a screen guards the
+    /// device and its command is not the guard's own, and behind notices that
+    /// wait: those held while a screen guarded show one after the other.
     pub(crate) fn notify(&mut self, text: String) {
-        if self.held_by_guard() || self.notice.is_some() || !self.waiting_notices.is_empty() {
+        if self.held_by_guard() || !self.waiting_notices.is_empty() {
             self.waiting_notices.push(text);
             return;
         }
