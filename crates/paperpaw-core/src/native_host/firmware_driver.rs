@@ -877,10 +877,12 @@ impl Driver {
         };
         let kind = self.plugin_jobs[at].kind();
         let granted = self.granted(owner);
+        // A machine borrowed elsewhere counts as "an image waits": a
+        // dual-boot change then ends with reason 21, the safe side.
         let waiting = self
             .machine
             .try_borrow()
-            .is_ok_and(|machine| machine.waiting_request().is_some());
+            .map_or(true, |machine| machine.waiting_request().is_some());
         self.plugin_jobs[at].image_waiting(waiting);
         let finished = match self.plugin_host.as_ref() {
             Some(host) => match self.plugin_jobs[at].step(&JobEnv {

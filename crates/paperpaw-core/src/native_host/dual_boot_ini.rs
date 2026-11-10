@@ -126,21 +126,53 @@ enum Seen {
     Other,
 }
 
-/// `line` (without its ending) as the firmware's reader sees it.
+/// `line` (without its ending) as the firmware's reader sees it: every `\r`
+/// is dropped (`IniScan` takes none into a line), and only what is left counts
+/// toward [`MAX_LINE`].
 fn read_line(line: &[u8]) -> Seen {
-    let line = line.strip_suffix(b"\r").unwrap_or(line);
-    if line.len() > MAX_LINE {
+    let kept = line.iter().filter(|byte| **byte != b'\r').count();
+    if kept > MAX_LINE {
         // Too long to be one of ours: by its start only.
-        let start = line.iter().position(|b| !b.is_ascii_whitespace());
-        let head = start.map_or(&[][..], |at| &line[at..line.len().min(MAX_LINE)]);
-        return if head.first() == Some(&b'[') {
-            Seen::Header(false)
-        } else if head.starts_with(KEY.as_bytes()) {
-            Seen::Key(Choice::On)
-        } else {
-            Seen::Other
+        let mut bytes = line
+            .iter()
+            .copied()
+            .filter(|byte| *byte != b'\r')
+            .take(MAX_LINE);
+        let first = bytes.find(|byte| !byte.is_ascii_whitespace());
+        return match first {
+            Some(b'[') => Seen::Header(false),
+            Some(first) => {
+                // Only the first MAX_LINE bytes kept are read (the reader's
+                // buffer is cut there).
+                let mut head = [0_u8; KEY.len()];
+                head[0] = first;
+                let mut got = 1;
+                for byte in bytes.take(KEY.len() - 1) {
+                    head[got] = byte;
+                    got += 1;
+                }
+                if got == KEY.len() && head.as_slice() == KEY.as_bytes() {
+                    Seen::Key(Choice::On)
+                } else {
+                    Seen::Other
+                }
+            }
+            None => Seen::Other,
         };
     }
+    // A stray `\r` inside the line is dropped as well (a trailing one
+    // included): the line is copied only then.
+    let mut clean = [0_u8; MAX_LINE];
+    let line = if kept == line.len() {
+        line
+    } else {
+        let mut at = 0;
+        for byte in line.iter().filter(|byte| **byte != b'\r') {
+            clean[at] = *byte;
+            at += 1;
+        }
+        &clean[..at]
+    };
     let Ok(line) = core::str::from_utf8(line) else {
         return Seen::Other;
     };

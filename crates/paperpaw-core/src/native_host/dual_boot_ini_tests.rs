@@ -185,6 +185,29 @@ fn a_line_over_the_firmwares_limit_counts_by_its_start_only() {
 }
 
 #[test]
+fn every_carriage_return_is_dropped_as_the_firmware_does() {
+    // A stray CR inside a line is no part of it: `dual-boot = o\rff` is `off`.
+    assert_eq!(choice("[firmware]\ndual-boot = o\rff\n"), Choice::Off);
+    assert_eq!(choice("[firmware]\r\r\ndual-\rboot = off\r\n"), Choice::Off);
+    // Only the bytes kept count toward the line limit: 256 of them plus
+    // CRs is one line, one byte more is too long (a long entry guards).
+    let fits = std::format!("[firmware]\ndual-boot = off{}\n", "\r".repeat(40));
+    assert_eq!(choice(&fits), Choice::Off);
+    let pad = MAX_LINE - "dual-boot = off".len();
+    let at = std::format!("[firmware]\ndual-boot = off{}\r\n", " ".repeat(pad));
+    assert_eq!(choice(&at), Choice::Off);
+    let over = std::format!("[firmware]\ndual-boot = off{}x\r\n", " ".repeat(pad));
+    assert_eq!(choice(&over), Choice::On);
+    // The key cut by the limit is no key (the reader's buffer ends first).
+    let cut = std::format!(
+        "[firmware]\n{}dual-boot = off{}\n",
+        " ".repeat(MAX_LINE - 4),
+        "x".repeat(10)
+    );
+    assert_eq!(choice(&cut), Choice::Auto);
+}
+
+#[test]
 fn a_line_that_is_no_utf8_is_skipped_by_the_reader_and_refuses_the_edit() {
     let card = MemoryStorage::new();
     card.write(INI_PATH, b"[firmware]\n\xff\xfe\ndual-boot = off\n")
