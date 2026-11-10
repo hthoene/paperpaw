@@ -1096,7 +1096,7 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     /// copy); `None` past the last one.
     #[must_use]
     pub fn record(&self, index: usize) -> Option<&T> {
-        self.records.get(..self.len)?.get(index)?.as_ref()
+        self.records.get(index)
     }
 
     /// Whether this batch contains no records.
