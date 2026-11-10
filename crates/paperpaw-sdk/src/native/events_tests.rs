@@ -182,18 +182,43 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
     let action = Record::EventActionRun(EventActionRun {
         now_ms,
         action: "demo.refresh",
+        flags: 0,
     });
     let len = records_encode(&[action], &mut bytes).unwrap();
     assert_eq!(bytes[1], 39);
     let Event::ActionRun {
         now_ms: got_ms,
         action,
+        background,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
-    assert_eq!((got_ms, action), (now_ms, "demo.refresh"));
+    assert_eq!(
+        (got_ms, action, background),
+        (now_ms, "demo.refresh", false)
+    );
     assert!(bytes[..len].as_ptr_range().contains(&action.as_ptr()));
+}
+
+#[test]
+fn action_run_says_whether_the_reader_ran_it_and_refuses_unknown_bits() {
+    let run = |flags| {
+        let mut bytes = [0; 64];
+        let record = Record::EventActionRun(EventActionRun {
+            now_ms: 7,
+            action: "demo.fetch",
+            flags,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        decode(&bytes[..len]).map(|event| match event {
+            Event::ActionRun { background, .. } => background,
+            _ => panic!(),
+        })
+    };
+    assert!(!run(0).unwrap());
+    assert!(run(1).unwrap());
+    assert!(run(2).is_err() && run(u32::MAX).is_err());
 }
 
 #[test]
@@ -236,6 +261,7 @@ fn screen_and_action_events_refuse_bad_framing_and_utf8() {
         Record::EventActionRun(EventActionRun {
             now_ms: 13,
             action: "demo.refresh",
+            flags: 0,
         }),
     ] {
         let mut bytes = [0; 256];

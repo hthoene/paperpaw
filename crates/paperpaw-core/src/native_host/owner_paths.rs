@@ -148,9 +148,20 @@ impl OwnerPaths {
 }
 
 pub(crate) fn access(who: &Caller<'_>, root: u32, path: &str, write: bool) -> Result<(), i32> {
+    access_with(who.features, root, path, write)
+}
+
+/// [`access`] for a caller known by its admitted features alone (a staged
+/// command, outside any call).
+pub(crate) fn access_with(
+    features: crate::native_host::admitted_features::AdmittedFeatures,
+    root: u32,
+    path: &str,
+    write: bool,
+) -> Result<(), i32> {
     match root {
         0 => {}
-        CARD => who.features.feature("uses.storage")?,
+        CARD => features.feature("uses.storage")?,
         BUNDLE if write => return Err(ERR_DENIED),
         BUNDLE => {}
         _ => return Err(ERR_UNSUPPORTED),

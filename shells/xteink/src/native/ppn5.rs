@@ -98,8 +98,9 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 /// [module documentation](self)). `place` puts the image where it runs.
 pub fn load(
     place: &mut super::Place,
-    depth: &mut Option<FlatDepth>,
+    depth: &FlatDepth,
     resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -125,7 +126,7 @@ pub fn load(
     }
     let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
     x4::run(
-        place, code, &header, &placed, make, depth, resources, declared, started,
+        place, code, &header, &placed, make, depth, resources, device, declared, started,
     )
 }
 
@@ -259,7 +260,7 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: shell::DATA_SERVICES,
+            services: &crate::device_host::OFFERED,
             // Nothing is advertised until a family is wired here and its
             // commands check `features().feature(key)`: a plugin that needs a
             // feature is refused, and one that merely asks for it keeps no bit.
@@ -448,11 +449,16 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
+            // The table the probe shares has `core.device` wired, but the probe
+            // offers the data services alone: a linked plugin is not given the
+            // device service.
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        // The loader's own table of handles (one for the device), not a second.
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), table.share()) else {
+        // The loader's own table of handles and callback-depth counter (one of
+        // each for the device), not a second: the kernel refuses a plugin that
+        // brings another counter.
+        let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
@@ -511,6 +517,7 @@ mod x4 {
         placed: &'a crate::native::Placed5,
         place: &'a mut crate::native::Place,
         resources: &'a mut Option<HostResources>,
+        device: &'a alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         name: Option<alloc::string::String>,
         share: Option<HostResources>,
     }
@@ -525,8 +532,11 @@ mod x4 {
 
         fn table(&mut self) -> Result<(), PluginProblem> {
             if self.resources.is_none() {
+                let device: alloc::rc::Rc<
+                    dyn paperpaw_core::native_host::device_service::DeviceHost,
+                > = self.device.clone();
                 *self.resources =
-                    Some(crate::native::new_resources().ok_or(PluginProblem::NoRoom)?);
+                    Some(crate::native::new_resources(Some(device)).ok_or(PluginProblem::NoRoom)?);
             }
             Ok(())
         }
@@ -590,12 +600,20 @@ mod x4 {
         header: &Header5,
         placed: &crate::native::Placed5,
         make: u32,
-        depth: &mut Option<FlatDepth>,
+        depth: &FlatDepth,
         resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         declared_services: shell::DeclaredServices,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
+        // The device's one counter, a counted share of it, taken before anything
+        // is made: the core's `into_plugin` then never makes a counter of its own
+        // (the kernel refuses a plugin that brings another).
+        let Some(depth) = depth.try_clone() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let mut depth = Some(depth);
         // Plugin calls into the host's slots are told to the record of calls,
         // so the Power-hold escape never blames a plugin for waiting on the host.
         paperpaw_core::native_host::host_slot::set(
@@ -615,6 +633,7 @@ mod x4 {
             placed,
             place,
             resources,
+            device,
             name: None,
             share: None,
         };
@@ -683,7 +702,7 @@ mod x4 {
         // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
         // the instance exactly once.
         let plugin = instance
-            .into_plugin(manifest, depth, code.host)
+            .into_plugin(manifest, &mut depth, code.host)
             .map_err(|why| {
                 warn!("native: {id}: format 5: {why:?}");
                 match why {

@@ -159,3 +159,24 @@ fn a_tap_on_a_word_says_how_to_delete_it_in_both_languages() {
         );
     }
 }
+
+/// Coming back to the list (the screen is shown again, and the shell counts the
+/// words once more): a word looked up meanwhile is the first row, and the
+/// focus stays on a row that is there.
+#[test]
+fn a_list_shown_again_has_the_words_looked_up_meanwhile() {
+    let storage = MemoryStorage::new();
+    store::add(&storage, &word("quire", "", "A book")).unwrap();
+    let mut view = WordsView::new(store::count(&storage).unwrap());
+    assert_eq!(view.count(), 1);
+    // The list is covered by a dialog; a word is looked up behind it.
+    store::add(&storage, &word("verso", "", "A book")).unwrap();
+    store::add(&storage, &word("folio", "", "A book")).unwrap();
+    assert_eq!(view.count(), 1, "the screen counts only when shown");
+    // Shown again: counted again, as `recount` in the shell does.
+    view.recount(store::count(&storage).unwrap());
+    assert_eq!(view.count(), 3);
+    let rows = WordRows::new(&storage, view.count()).rows(0, 10).unwrap();
+    let titles: Vec<&str> = rows.iter().map(|row| row.title.as_str()).collect();
+    assert_eq!(titles, ["folio", "verso", "quire"]);
+}

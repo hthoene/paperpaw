@@ -42,7 +42,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-grid-reflow",
         golden: None,
-        blocked_by: &["HOME-dashboard-slice", "H3"],
+        blocked_by: &["HOME-reflow-slice", "H3"],
     },
     // The tools drawer: every tool as an icon in a grid.
     Case {
@@ -54,7 +54,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-help-hints",
         golden: None,
-        blocked_by: &["H1"],
+        blocked_by: &["#818", "H1"],
     },
     // The grip of a shown item dragged with a finger (down, move, up), as on
     // interface 6: the kit's view takes a hold and a tap instead.
@@ -68,7 +68,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-status-line",
         golden: None,
-        blocked_by: &["H1", "HOME-status-line-slice"],
+        blocked_by: &["HOME-status-line-slice", "H1"],
     },
     // The icons of tools (above their names, on or faint as their plugins show
     // them) and of the footer's buttons (the pencil, the actions): laid out and
@@ -78,13 +78,13 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1"],
     },
-    // The widgets show new content: the minute tick and `widget_changed` lay
-    // the page out anew and draw it (not subscribed to yet), and the screen
-    // turned.
+    // The widgets show new content: the minute tick (subscribed to, `refresh`)
+    // and `widget_changed` (not delivered by the host yet) lay the page out
+    // anew and draw it, and the screen turned.
     Case {
         name: "home-widget-updates",
         golden: None,
-        blocked_by: &["HOME-subscriptions-slice", "H3"],
+        blocked_by: &["event.widget_changed", "H3"],
     },
     // Adding a widget or tool to a page: the gallery that draws widgets as they
     // would show, the ready-made layouts and the icons of the rows. The list
@@ -92,7 +92,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "517", "H1", "H4"],
+        blocked_by: &["HOME-add-gallery", "H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
     // the item, by its corner), and the options' *Settings* entry. Moving,
@@ -115,79 +115,79 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H4: native screen commands and input are not qualified"]
+#[ignore = "BLOCKED H1/H4: H1a navigation commands #820 and screen policy #829 (approved, train 7) and the code activation (todo 90) are open; gestures and pointer input to native screens (H4a) has no PR yet (key layer: #805, #815)"]
 fn home_dashboard() {
     CASES[0].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H2/H4: dialogs and input are not qualified"]
+#[ignore = "BLOCKED H2/H4: dialogs end to end (H2a, Input) has no PR yet; gestures and pointer input to native screens (H4a) has no PR yet (key layer: #805, #815)"]
 fn home_edit() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED WIDGETS-declarations: the five built-in widgets are not declared yet"]
+#[ignore = "BLOCKED WIDGETS-declarations: the date, the clock, the continue card and the recent shelf are native (declared and drawn by the plugin); the status line is still the interface-6 `blocks.rs`, its native port is plugin work (composition into the screen is #827)"]
 fn home_builtin_widgets() {
     CASES[2].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified"]
+#[ignore = "BLOCKED H1/H4: H1a navigation commands #820 and screen policy #829 (approved, train 7) and the code activation (todo 90) are open; gestures and pointer input to native screens (H4a) has no PR yet (key layer: #805, #815)"]
 fn home_footer_items_editor() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-dashboard-slice: the pages are fitted by the dashboard, which measures widgets"]
+#[ignore = "BLOCKED HOME-reflow-slice: the handler of the setting change (columns, rows) that measures the widgets and fits the pages is not written yet (event 64 is admitted, #763; the dashboard it needs exists since slice 3b; `native_pages::reflow` is ready); H3: composing the widgets to measure is #827 (draft)"]
 fn home_grid_reflow() {
     CASES[4].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H4: the drawer is native (native_drawer.rs) but nothing is drawn or taken through a host yet"]
+#[ignore = "BLOCKED H1/H4: the drawer is native (native_drawer.rs) but nothing is drawn or taken through a host yet; H1a navigation commands #820 and screen policy #829 (approved, train 7) and the code activation (todo 90) are open; gestures and pointer input to native screens (H4a) has no PR yet (key layer: #805, #815)"]
 fn home_drawer() {
     CASES[5].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H1: help hints are not declared for the native screen yet"]
+#[ignore = "BLOCKED #818: the native screens declare no help hints yet; the host admits `help.hint` with #818 (draft, todo 328), after which home declares the interface-6 hints (home.tips.*); H1: showing them needs the stack (H1a)"]
 fn home_help_hints() {
     CASES[6].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
+#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet (kit work, plugin side); the pointer input itself is H4a (no PR yet)"]
 fn home_footer_items_editor_grip_drag() {
     CASES[7].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-status-line-slice: the status line above the grid is not drawn yet"]
+#[ignore = "BLOCKED HOME-status-line-slice: the status line above the grid is not composed yet (plugin work: the status line is composed through slot 35, which #827 wires, draft); H1: showing it needs the stack"]
 fn home_status_line() {
     CASES[8].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H1: native screen commands are not qualified"]
+#[ignore = "BLOCKED H1: the icons are laid out and ready (`icon.glyph`, #725); drawing them through the host needs H1a navigation commands #820 and screen policy #829 (approved, train 7) and the code activation (todo 90) are open"]
 fn home_tool_icons() {
     CASES[9].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-subscriptions-slice: the tick and widget changes are not subscribed to yet"]
+#[ignore = "BLOCKED event.widget_changed: the minute tick is subscribed to and redraws the dashboard (done, `refresh`), but the host does not deliver `event.widget_changed` (86) yet (only its codec exists in core); H3: composing the widgets is #827 (draft)"]
 fn home_widget_updates() {
     CASES[10].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show, the ready-made layouts and the icons (#517) are not ported"]
+#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show (plugin work; composition #827, draft), the ready-made layouts and the icons of the rows (plugin work; the icon admission #517 and the glyph call #624 are merged) are not ported; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs the pointer input; the options' Settings entry is not ported"]
+#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs pointer input to native screens (H4a, no PR yet); HOME-item-settings: the options' Settings entry (the widget's settings with a placement of its own) is not ported (plugin work)"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

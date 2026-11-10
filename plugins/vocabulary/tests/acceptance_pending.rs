@@ -12,7 +12,10 @@ use pending::Case;
 const COLLECT: Case = Case {
     name: "vocabulary-collect-and-list",
     golden: None,
-    blocked_by: &["native shell", "H1", "H4"],
+    blocked_by: &[
+        "reader emitter of reader.word-looked-up (Plugin Engineer)",
+        "scripted host with stage calls",
+    ],
 };
 /// The screens on a host. (The flash cards' decks and review, the list of words and the card files'
 /// screens are ported; what they draw is proved by their tests of the rows and the decisions, not on a
@@ -32,13 +35,15 @@ const LOOKUP: Case = Case {
 const WIDGETS: Case = Case {
     name: "vocabulary-widgets",
     golden: None,
-    blocked_by: &["the port of the widgets on the widget stage (Vocabulary's own, as Stats')"],
+    blocked_by: &[
+        "a scripted host that measures and draws a widget with fonts and the cards (hosted construction, #944)",
+    ],
 };
 /// The words marked in books of their language.
 const MARKS: Case = Case {
     name: "vocabulary-marks",
     golden: None,
-    blocked_by: &["decoration stage"],
+    blocked_by: &["reader decorations (reader.decorations@1)"],
 };
 /// The phone page that edits decks and cards.
 const PHONE: Case = Case {
@@ -70,7 +75,9 @@ const WORD_LIST_ACTIONS: Case = Case {
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
     golden: None,
-    blocked_by: &["sleep and wake stages"],
+    blocked_by: &[
+        "a scripted host that shows the sleep slot and wakes (hosted construction, #944)",
+    ],
 };
 
 #[test]
@@ -94,7 +101,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED native shell/H1/H4: word.looked-up event, store::add, the list screen pages store::range"]
+#[ignore = "BLOCKED a scripted host that runs the reader's stage reader.word-looked-up@1 (hosted construction) and the reader's emitter (Plugin Engineer): keeping the word is native_collect (tested), the list pages store::range"]
 fn a_word_looked_up_is_kept_and_listed_newest_first() {
     COLLECT.refuse().unwrap();
 }
@@ -112,13 +119,13 @@ fn a_tapped_word_is_looked_up_again() {
 }
 
 #[test]
-#[ignore = "BLOCKED Core todo 76 and #366: the widget host call and the widget toolkit"]
+#[ignore = "BLOCKED a scripted host that measures and draws a widget (hosted construction #944): the widgets are native (native_widgets.rs); made, dropped and declared are tested in tests/scripted_widgets.rs"]
 fn the_widgets_show_a_word_and_the_cards_due() {
     WIDGETS.refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED decorations: the decoration stage of interface 7 (marks.rs)"]
+#[ignore = "BLOCKED reader decorations: the reader's stage reader.decorations@1 (marks.rs keeps the logic ready)"]
 fn the_words_are_marked_in_books_of_their_language() {
     MARKS.refuse().unwrap();
 }
@@ -142,7 +149,7 @@ fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
 }
 
 #[test]
-#[ignore = "BLOCKED sleep/wake stages: the front of the next card asleep, answered on waking (sleep.rs)"]
+#[ignore = "BLOCKED a scripted host that shows the sleep slot and wakes (hosted construction #944): the pick of the card is native_sleep_card (tested), the offer is declared (tests/declarations.rs)"]
 fn a_flash_card_due_is_the_sleep_screen_and_review_opens_on_waking() {
     SLEEP.refuse().unwrap();
 }

@@ -17,18 +17,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "browser"
-path = "src/bin/browser.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "calibre"
-path = "src/bin/calibre.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "fonts-browser"
 path = "src/bin/fonts-browser.rs"
 test = false
@@ -43,12 +31,6 @@ bench = false
 [[bin]]
 name = "news"
 path = "src/bin/news.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "read-later-cloud"
-path = "src/bin/read-later-cloud.rs"
 test = false
 bench = false
 
@@ -102,12 +84,9 @@ paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
 paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
-paperpaw-plugin-browser = { path = "../../plugins/browser" }
-paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
-paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
 
