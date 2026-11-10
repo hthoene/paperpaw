@@ -46,6 +46,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 pub mod declarations;
 pub mod native_aloud;
 mod native_entry;
+pub mod native_footnote;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 pub mod native_notes;
