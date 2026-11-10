@@ -214,3 +214,28 @@ pub(crate) const fn reason_word(reason: Reason) -> &'static str {
         _ => "failed",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native_phone_web::ANSWER_FILES;
+    use crate::native_words::testing::words;
+
+    /// Long answers take the four files in turn, so that a file is reused only
+    /// after three later ones: the host may still be sending the earlier two.
+    #[test]
+    fn long_answers_take_their_files_in_turn() {
+        let mut view = PhoneView::new(&mut words("en")).unwrap();
+        let files: alloc::vec::Vec<&str> = (0..8)
+            .map(|_| ANSWER_FILES[view.next_answer_file() % ANSWER_FILES.len()])
+            .collect();
+        for window in files.windows(ANSWER_FILES.len()) {
+            let mut seen = window.to_vec();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), ANSWER_FILES.len(), "{window:?}");
+        }
+        assert_eq!(files[0], ANSWER_FILES[0]);
+        assert_eq!(files[4], ANSWER_FILES[0]);
+    }
+}
