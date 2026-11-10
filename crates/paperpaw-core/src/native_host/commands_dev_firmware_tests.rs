@@ -402,6 +402,8 @@ fn author<'a>(request: u32, author: &'a [u8], recovery: &'a [u8]) -> WireCommand
         request,
         author,
         recovery,
+        // The digest of the folder (draft 35) is wired in the removal slice.
+        sha256: &[],
     }
 }
 
