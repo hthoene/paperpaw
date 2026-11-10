@@ -204,8 +204,15 @@ impl crate::Kernel {
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
+        // A batch refused at a declaration cap keeps which one, for the
+        // plugin's `reg_plugin` row.
+        let declared = self.shared.registry.native_declarations.as_ref();
         let (retained, (owner, owned, tokens), raw) =
-            Retained::make_native_stored(host, map_declarations)?;
+            Retained::make_native_stored(host, map_declarations, |plugin, cap| {
+                if let Some(declared) = declared {
+                    declared.record_refusal(plugin, cap);
+                }
+            })?;
         if folder.is_none()
             && owned
                 .iter()

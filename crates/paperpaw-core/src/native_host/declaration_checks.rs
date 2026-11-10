@@ -21,11 +21,36 @@ const KIND_FORMAT: u8 = 31;
 /// Index category of `reader.spec`.
 const KIND_READER: u8 = 32;
 
+/// The declaration cap a refused plugin ran into, as `reg_plugin` row says it
+/// (`docs/abi/registry.md`): `problem` 14 too many formats or 15 too many
+/// readers, `arg` the cap (formats 8 or 32, readers 4 or 16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Cap {
+    pub(crate) problem: u32,
+    pub(crate) arg: u32,
+}
+impl Cap {
+    /// `reg_plugin.problem`: too many formats.
+    pub(crate) const FORMATS: u32 = 14;
+    /// `reg_plugin.problem`: too many readers.
+    pub(crate) const READERS: u32 = 15;
+
+    /// The cap of `problem`; 0 where it does not fit (the row says "unknown").
+    pub(crate) fn of(problem: u32, cap: usize) -> Self {
+        Self {
+            problem,
+            arg: u32::try_from(cap).unwrap_or(0),
+        }
+    }
+}
+
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
     pub(crate) owned: &'a Declarations,
     pub(crate) image: Option<&'a [u8]>,
     pub(crate) plugin: &'a str,
+    /// The cap `finish` refused the batch at, if it was one.
+    pub(crate) refused: core::cell::Cell<Option<Cap>>,
 }
 impl<'a> View<'a> {
     pub(crate) fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
@@ -171,6 +196,10 @@ impl<'a> View<'a> {
             .filter(|entry| entry.kind() == KIND_FORMAT)
             .count();
         if formats > super::format_index::PER_PLUGIN {
+            self.refused.set(Some(Cap::of(
+                Cap::FORMATS,
+                super::format_index::PER_PLUGIN,
+            )));
             return Err(ERR_FULL);
         }
         // At most 4 reading apps per plugin: the fifth refuses the batch
@@ -182,6 +211,10 @@ impl<'a> View<'a> {
             .filter(|entry| entry.kind() == KIND_READER)
             .count();
         if readers > super::format_index::READERS_PER_PLUGIN {
+            self.refused.set(Some(Cap::of(
+                Cap::READERS,
+                super::format_index::READERS_PER_PLUGIN,
+            )));
             return Err(ERR_INVALID);
         }
         let mut result = Ok(());

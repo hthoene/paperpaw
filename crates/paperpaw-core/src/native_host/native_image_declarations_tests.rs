@@ -143,7 +143,7 @@ fn construct(image: Option<&'static [u8]>) -> Result<(Counts, usize, usize, bool
             }
         })?;
         Ok(counts)
-    })?;
+    }, |_, _| {})?;
     let backed = !raw.batches.is_empty() && raw.batches.iter().all(|batch| batch.image.is_some());
     let used = (raw.image_entries, raw.index_bytes);
     drop(retained);
@@ -208,7 +208,7 @@ fn construct_kept() -> (
         let mut total = 0;
         view.visit(&mut |_| total += 1)?;
         Ok(total)
-    })
+    }, |_, _| {})
     .unwrap();
     (retained, raw, total)
 }

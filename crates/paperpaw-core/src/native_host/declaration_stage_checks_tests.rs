@@ -49,6 +49,7 @@ fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
         owned: &owned,
         image: None,
         plugin: "reader",
+        refused: Default::default(),
     }
     .finish()
 }

@@ -7,6 +7,7 @@
 //! native plugins can change image bytes without a sandbox.
 
 use super::{
+    declaration_checks::Cap,
     declarations,
     registrations::{Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
@@ -212,6 +213,8 @@ struct Slot {
 pub(crate) struct Allocations {
     #[cfg(test)]
     pub(crate) fail_after: Option<usize>,
+    /// The declaration cap `prepare` refused the plugin at, if it was one.
+    pub(crate) cap: Option<super::declaration_checks::Cap>,
 }
 impl Allocations {
     pub(crate) fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
@@ -645,6 +648,7 @@ impl DeclarationStore {
             .map(|owner| owner.of_kind(Kind::Format).len())
             .sum();
         if others + pending.of_kind(Kind::Format).len() > super::format_index::DEVICE {
+            allocations.cap = Some(Cap::of(Cap::FORMATS, super::format_index::DEVICE));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         // And 16 reading apps on the device, counted the same way.
@@ -662,6 +666,7 @@ impl DeclarationStore {
             .map(|owner| owner.of_kind(Kind::Reader).len())
             .sum();
         if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
+            allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
