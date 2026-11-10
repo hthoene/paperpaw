@@ -10,6 +10,7 @@ use paperpaw_native::host_glue::PpBytes;
 
 mod bluetooth;
 mod device;
+mod evidence;
 mod image;
 mod lookup;
 #[cfg(test)]
@@ -18,6 +19,7 @@ pub(crate) mod menu_alloc_tests;
 mod registry;
 mod uix;
 pub use device::{CheckKind, FirmwareOptions, InstallRoot, PowerAction};
+pub use evidence::{Evidence, MAX_REVOCATIONS, MAX_ROTATIONS, Revocation, Rotation};
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };
