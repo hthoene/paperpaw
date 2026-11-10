@@ -353,7 +353,8 @@ relative to the data folder).
 ## Lines under, over and through text, and table rules (view slice R8b, Port E)
 
 - `native_decor.rs`: after each run `draw_lines` draws what the run's `TextStyle` asks for, over the run's
-  whole width (its spaces too), as Beta 3's `ReadingFaces::decorate` did: underline at `size / 10` (at least 1)
+  whole width (its spaces too; Beta 3 decorated each word and the space between two words, so a run that
+  ends in a space has a line one space longer here), with the geometry of Beta 3's `ReadingFaces::decorate`: underline at `size / 10` (at least 1)
   below the baseline, overline at 0.78 of the size above it, strike-through at 0.28; the thickness is
   `size / 16` (at least 1); the line style is one line, two (the second as far below as it is thick), dotted
   (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
@@ -361,6 +362,8 @@ relative to the data folder).
   one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
 - Differences: a run's colour is the page's (no per-run ink); lines of mixed direction are set in logical order
   (the existing gap), so a line follows the run's place in that order.
+- X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
+  Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
