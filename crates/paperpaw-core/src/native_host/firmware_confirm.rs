@@ -16,6 +16,7 @@
 //!   question waits and nothing guards (never over the lock), takes the
 //!   answer ([`Kernel::firmware_answer`]), dismisses at sleep and does the
 //!   restart after a yes.
+use super::dialogs::Touch;
 use super::firmware_install::{Answer, Ask};
 use crate::Kernel;
 use alloc::{
@@ -26,7 +27,6 @@ use alloc::{
 use paperpaw_i18n::Arg;
 use paperpaw_platform::{Instant, firmware::Signer};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::ui::{Dialog, Ui, UiStyle};
 use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id, Params,
     Rect, RefreshMode, Screen,
@@ -143,9 +143,8 @@ const NO: usize = 1;
 
 /// The confirmation screen; see the [module documentation](self).
 pub(crate) struct HostConfirm {
-    style: UiStyle,
-    dialog: Dialog,
-    focus: usize,
+    /// The box the host's confirmations share (`dialogs::ConfirmBox`).
+    board: super::dialogs::ConfirmBox,
     nonce: String,
     labels: [String; 2],
     /// When it was shown: the input guard and the timeout count from here.
@@ -157,19 +156,13 @@ pub(crate) struct HostConfirm {
 impl HostConfirm {
     /// The screen the kernel opened with `params` (see [`open_params`]).
     pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
-        let style = UiStyle::new(env);
         let get = |key| params.get(key).unwrap_or("");
-        let text: Vec<&str> = get(TEXT).split('\n').collect();
         let labels = [String::from(get(YES_WORD)), String::from(get(NO_WORD))];
         let buttons = [labels[YES].as_str(), labels[NO].as_str()];
-        let mut dialog = Dialog::new(env, &style, get(TITLE), &text, &buttons);
-        let room = env.device().display.height.saturating_sub(dialog.height());
-        dialog.place(room / 2);
+        // The focus starts on No.
+        let board = super::dialogs::ConfirmBox::new(env, get(TITLE), get(TEXT), &buttons, NO);
         Self {
-            style,
-            dialog,
-            // Focus starts on No.
-            focus: NO,
+            board,
             nonce: String::from(get(NONCE)),
             labels,
             shown: None,
@@ -206,9 +199,7 @@ impl HostConfirm {
 
 impl Screen for HostConfirm {
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
-        let display = env.device().display;
-        let whole = Rect::new(0, 0, display.width, display.height);
-        Some(self.dialog.panel().intersection(&whole).unwrap_or(whole))
+        Some(self.board.region(env))
     }
 
     fn dims_below(&self) -> bool {
@@ -230,7 +221,7 @@ impl Screen for HostConfirm {
 
     fn hint(&self, action: &Id, _: &Env<'_>) -> Hint {
         if *action == actions::CONFIRM {
-            Hint::Text(self.labels[self.focus].clone())
+            Hint::Text(self.labels[self.board.focus()].clone())
         } else {
             Hint::Hidden
         }
@@ -262,8 +253,7 @@ impl Screen for HostConfirm {
     }
 
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let mut ui = Ui::new(canvas, env, &self.style);
-        self.dialog.draw(&mut ui, Some(self.focus));
+        self.board.draw(canvas, env);
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -271,7 +261,7 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         if *action == actions::CONFIRM {
-            let answer = if self.focus == YES {
+            let answer = if self.board.focus() == YES {
                 Answer::Yes
             } else {
                 Answer::No
@@ -283,29 +273,9 @@ impl Screen for HostConfirm {
             self.finish(Answer::Dismissed, cx);
             return Handled::Yes;
         }
-        let scrolled = self.dialog.on_action(action);
-        if scrolled.changed() {
-            cx.request_redraw_area(self.dialog.panel());
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        if scrolled.taken() {
-            return Handled::Yes;
-        }
-        let along = if [actions::UP, actions::PREV_PAGE].contains(action) {
-            &actions::LEFT
-        } else if [actions::DOWN, actions::NEXT_PAGE].contains(action) {
-            &actions::RIGHT
-        } else {
-            action
-        };
-        if let Some(focus) = self.dialog.step(self.focus, along)
-            && focus != self.focus
-        {
-            self.focus = focus;
-            cx.request_redraw_area(self.dialog.panel());
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        // Every other action does nothing: only the user's answer counts.
+        // Scrolls or moves the focus; every other action does nothing: only
+        // the user's answer counts.
+        let _ = self.board.on_action(action, cx);
         Handled::Yes
     }
 
@@ -313,21 +283,11 @@ impl Screen for HostConfirm {
         if !self.counts(cx.env()) {
             return Handled::Yes;
         }
-        let scrolled = self.dialog.on_gesture(&gesture);
-        if scrolled.changed() {
-            cx.request_redraw_area(self.dialog.panel());
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        if scrolled.taken() {
-            return Handled::Yes;
-        }
         // A touch counts only inside its own buttons.
-        if gesture.kind == GestureKind::Tap {
-            match self.dialog.hit(gesture.start) {
-                Some(YES) => self.finish(Answer::Yes, cx),
-                Some(_) => self.finish(Answer::No, cx),
-                None => {}
-            }
+        match self.board.on_gesture(gesture, cx) {
+            Touch::Button(YES) => self.finish(Answer::Yes, cx),
+            Touch::Button(_) => self.finish(Answer::No, cx),
+            Touch::Taken => {}
         }
         Handled::Yes
     }
