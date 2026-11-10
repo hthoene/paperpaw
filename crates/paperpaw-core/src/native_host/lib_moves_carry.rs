@@ -24,6 +24,7 @@
 //! step; replaying from a smaller one gives the same state. A `.bak` sibling
 //! of a book goes with it. A moved single file is one book whatever its
 //! name now (`a.epub.bak` may be named back).
+use super::book_data_steps::{self, Progress};
 use super::lib_moves_host::MoveCarry;
 use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
@@ -38,6 +39,10 @@ use paperpaw_sdk::{
     library::BookData,
     readers,
 };
+
+/// Pieces of a replaced book's data one call removes (see
+/// [`book_data_steps::remove_data`]).
+const DISCARD_PIECES: u32 = 4;
 
 /// A step's view of the catalog.
 pub(crate) struct EnvCarry<'a> {
@@ -127,14 +132,19 @@ impl<'a> EnvCarry<'a> {
     /// One book to its new key: details, cover, place among the recently
     /// opened and the favourites, and what plugins keep by its path. A `.bak`
     /// sibling goes too.
-    fn carry_one(&self, old: &str, new: &str) {
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` or the card's status from the data's move: the step
+    /// is repeated (idempotent) and goes on from what is moved.
+    fn carry_one(&self, old: &str, new: &str) -> Result<(), i32> {
         library::moved(self.storage, old, new);
-        library::move_data(self.storage, self.book_data, old, new);
+        book_data_steps::move_data(self.storage, self.book_data, old, new)?;
         let (old_bak, new_bak) = (format!("{old}.bak"), format!("{new}.bak"));
         if self.storage.exists(&new_bak) {
             library::moved(self.storage, &old_bak, &new_bak);
-            library::move_data(self.storage, self.book_data, &old_bak, &new_bak);
+            book_data_steps::move_data(self.storage, self.book_data, &old_bak, &new_bak)?;
         }
+        Ok(())
     }
 
     /// Settings that name folder `from` or one in it, chosen as folders,
@@ -169,8 +179,13 @@ impl<'a> EnvCarry<'a> {
 impl MoveCarry for EnvCarry<'_> {
     fn discard(&self, to: &str) -> Result<(), i32> {
         library::removed(self.storage, to);
-        library::remove_data(self.storage, self.book_data, to);
-        Ok(())
+        // One bounded piece a call: while the book still has data, `ERR_BUSY`
+        // makes the step repeat later (nothing is recorded as discarded
+        // until it is all gone, and the repeat finds what is left).
+        match book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)? {
+            Progress::Done => Ok(()),
+            Progress::More => Err(ERR_BUSY),
+        }
     }
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
@@ -178,7 +193,7 @@ impl MoveCarry for EnvCarry<'_> {
             Phase::Books(cursor) => {
                 let (books, more) = self.window(false, to, cursor)?;
                 for book in &books {
-                    self.carry_one(&Self::old_path(from, to, book), book);
+                    self.carry_one(&Self::old_path(from, to, book), book)?;
                 }
                 Ok(if more {
                     Phase::Books(cursor + books.len() as u64)
@@ -210,7 +225,7 @@ impl MoveCarry for EnvCarry<'_> {
                     // added from outside shifted its place) is caught here;
                     // for one already carried it changes nothing.
                     let old = Self::old_path(from, to, book);
-                    self.carry_one(&old, book);
+                    self.carry_one(&old, book)?;
                     self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
                 }
                 if more {
@@ -224,8 +239,7 @@ impl MoveCarry for EnvCarry<'_> {
     }
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
-        self.carry_one(&Self::old_path(from, to, book), book.trim_matches('/'));
-        Ok(())
+        self.carry_one(&Self::old_path(from, to, book), book.trim_matches('/'))
     }
 }
 
