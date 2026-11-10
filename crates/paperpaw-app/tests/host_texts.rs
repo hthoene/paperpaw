@@ -57,6 +57,7 @@ const KEYS: &[&str] = &[
     "core.host-library.name-taken",
     "core.host-library.replace-denied",
     "core.host-safe-mode.power-escape",
+    "core.screen.open-failed",
     "core.plugin.title",
     "core.plugin.title.remove",
     "core.plugin.what",
@@ -122,6 +123,8 @@ fn core_catalogs_fit_flash_indexes() {
         include_str!("../../paperpaw-core/i18n/de.ini"),
         include_str!("../../paperpaw-core/i18n/host/en.ini"),
         include_str!("../../paperpaw-core/i18n/host/de.ini"),
+        include_str!("../../paperpaw-core/i18n/settings/en.ini"),
+        include_str!("../../paperpaw-core/i18n/settings/de.ini"),
     ] {
         assert!(Catalog::parse(source).unwrap().narrow_index().is_some());
     }
