@@ -178,9 +178,10 @@ Field meanings:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
   firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none, 1-12, 13 `Other`
   with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
-  of interface 7, where a whole declaration batch was refused with `ERR_FULL` and the plugin did
+  of interface 7, where a whole declaration batch was refused at one of them and the plugin did
   not load: 14 too many formats, 15 too many readers, `problem_arg` the cap it ran into (formats:
-  8 per plugin or 32 device-wide, `document.md`; readers: 4 per plugin or 16 device-wide). A
+  8 per plugin or 32 device-wide, `ERR_FULL`; readers: 4 per plugin, `ERR_INVALID`, or 16
+  device-wide, `ERR_FULL`; `document.md` 1). The cap decides the value, not the status. A
   plugin showing these rows treats a value it does not know as "could not be loaded"; `update`:
   the version waiting, empty if none. The first row of op 5 is always the host itself: `id`
   `core`, its version (interface 6 `env.plugins().kernel()`).
