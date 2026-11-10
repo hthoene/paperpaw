@@ -3438,6 +3438,7 @@ pub paperpaw_sdk::native::declare::EventKind::StatusChanged
 pub paperpaw_sdk::native::declare::EventKind::Stopping
 pub paperpaw_sdk::native::declare::EventKind::Suspend
 pub paperpaw_sdk::native::declare::EventKind::Tick
+pub paperpaw_sdk::native::declare::EventKind::WidgetChanged
 pub paperpaw_sdk::native::declare::EventKind::WifiChanged
 pub paperpaw_sdk::native::declare::EventKind::WifiDone
 pub paperpaw_sdk::native::declare::EventKind::WifiScanned
