@@ -218,6 +218,8 @@ Blocked, each named (nothing invented):
   own setting, no contract lets a screen ask for it always or never; the ink of a bar without a plate
   is black (`IMG-ink`); the bar is on the dashboard only (not while the picture is made, as the page).
   The bar's drawing and taps need a host with a screen stack (`picture-home-bars`, H1).
+  X4 measurement list: a shown bar holds two `SERVICE_BUFFER` buffers while the dashboard draws, and
+  reads the registry's status items and their values on each draw (heap peak and time unmeasured).
 - Icons: tools show their name only, the pencil, *Done* and the dots' pill no icon until icons are
   admitted (#517).
 - The widgets' updates (the minute tick, `widget_changed`) and a change of settings while the

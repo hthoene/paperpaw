@@ -363,6 +363,13 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let bar = match bar::Plan::new(frame.strip, &src, (metrics.margin, metrics.style_gap)) {
+            Ok(bar) => bar,
+            Err(error) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -378,7 +385,7 @@ impl Dashboard {
             slot,
             wide,
             handle: (metrics.row / 2).max(16),
-            bar: bar::Plan::new(frame.strip, &src, (metrics.margin, metrics.style_gap)),
+            bar,
         })
     }
 

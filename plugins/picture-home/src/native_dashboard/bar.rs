@@ -7,6 +7,7 @@ use paperpaw_ui_kit::status_line::{self, Face, Lists, Placed};
 use super::*;
 use crate::native_bar::{self as bar, Look};
 use crate::native_picture::Visible;
+use alloc::string::String;
 
 /// How long a bar that shows after a press stays (until the next minute tick
 /// after this, `PORTING-7.md`), as the kernel's row of hints does.
@@ -28,21 +29,32 @@ pub(super) struct Plan {
 impl Plan {
     /// The bar of `src` in `strip`; none where the bar is off (its strip is not
     /// kept either).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] for the lists of items.
     pub(super) fn new(
         strip: Option<Rect>,
         src: &HostSource,
         (margin, gap): (u16, u16),
-    ) -> Option<Self> {
-        let strip = strip?;
+    ) -> Result<Option<Self>, Error> {
+        let Some(strip) = strip else {
+            return Ok(None);
+        };
         let plate = bar::plate(strip, (margin, gap), src.bar_placing);
-        Some(Self {
+        let items = Lists {
+            left: text::copy(&src.bar_items.left)?,
+            center: text::copy(&src.bar_items.center)?,
+            right: text::copy(&src.bar_items.right)?,
+            line: String::new(),
+        };
+        Ok(Some(Self {
             plate,
             inner: bar::inner(plate, gap),
             look: src.bar_look,
-            items: src.bar_items.clone(),
+            items,
             visible: src.bar,
             hints_auto: src.hints == Visible::Auto,
-        })
+        }))
     }
 
     /// The press that shows the bar is taken: the bar or the hints show after
@@ -174,7 +186,8 @@ impl Dashboard {
             .and_then(|laid| laid.bar.as_ref())
             .is_some_and(|plan| plan.hints_auto)
         {
-            commands.show_hints()?;
+            // The row of hints is the kernel's: a refusal does not take the press.
+            commands.show_hints().ok();
         }
         redraw(host)?;
         Ok(Some(Handled::Yes))
