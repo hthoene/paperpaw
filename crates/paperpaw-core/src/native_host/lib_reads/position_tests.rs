@@ -121,7 +121,7 @@ fn insert_and_the_sync_mark_are_kept_and_the_next_write_replaces_them() {
         read_back(&reads, A),
         [7, 1234, 415_000, 255, 1_760_000_000, 0, 0b010]
     );
-    assert_eq!(reads.stored_position(A).unwrap().unwrap().from_sync, false);
+    assert!(!reads.stored_position(A).unwrap().unwrap().from_sync);
 }
 
 #[test]
