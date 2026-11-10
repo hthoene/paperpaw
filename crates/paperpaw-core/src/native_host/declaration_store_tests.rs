@@ -38,6 +38,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::SetupStep,
     Kind::InputSpec,
     Kind::HelpHint,
+    Kind::Format,
+    Kind::Reader,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,

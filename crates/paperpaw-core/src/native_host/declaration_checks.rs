@@ -16,6 +16,10 @@ const KIND_SCREEN: u8 = 5;
 const KIND_ACTION: u8 = 6;
 /// Index category of `menu.section`.
 const KIND_MENU_SECTION: u8 = 26;
+/// Index category of `format.spec`.
+const KIND_FORMAT: u8 = 31;
+/// Index category of `reader.spec`.
+const KIND_READER: u8 = 32;
 
 pub(crate) struct View<'a> {
     pub(crate) raw: &'a RawDeclarations,
@@ -158,6 +162,28 @@ impl<'a> View<'a> {
         if subscriptions > STAGE_SUBSCRIPTIONS_MAX {
             return Err(ERR_FULL);
         }
+        // At most 8 formats per plugin (`document.md` section 1); the 32 of
+        // the device are the store's, where plugins meet.
+        let formats = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == KIND_FORMAT)
+            .count();
+        if formats > super::format_index::PER_PLUGIN {
+            return Err(ERR_FULL);
+        }
+        // At most 4 reading apps per plugin: the fifth refuses the batch
+        // (`ERR_INVALID`); the 16 of the device are the store's.
+        let readers = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == KIND_READER)
+            .count();
+        if readers > super::format_index::READERS_PER_PLUGIN {
+            return Err(ERR_INVALID);
+        }
         let mut result = Ok(());
         self.visit(&mut |record| {
             if result.is_err() {
@@ -180,8 +206,34 @@ impl<'a> View<'a> {
                 // the declaring plugin. Everything else REG declares refers to
                 // other plugins' items too, so it resolves where it is read.
                 Record::SlotOffer(offer) => self.require_screen(offer.screen),
+                // A format's extensions are its own within the plugin: one
+                // claim, one row (`document.md` section 1).
+                Record::FormatSpec(format) => self.extensions_are_free(&format),
+                // A reading app shows one of the plugin's own screens.
+                Record::ReaderSpec(reader) => self.require_screen(reader.screen),
                 _ => Ok(()),
             };
+        })?;
+        result
+    }
+    /// No other format of the plugin claims an extension of `format`.
+    fn extensions_are_free(&self, format: &FormatSpec<'_>) -> Result<(), i32> {
+        let mut result = Ok(());
+        self.visit(&mut |record| {
+            let Record::FormatSpec(other) = record else {
+                return;
+            };
+            if other.name == format.name || result.is_err() {
+                return;
+            }
+            let clash = format
+                .extensions
+                .split('\n')
+                .filter(|e| !e.is_empty())
+                .any(|extension| other.extensions.split('\n').any(|e| e == extension));
+            if clash {
+                result = Err(ERR_INVALID);
+            }
         })?;
         result
     }
@@ -318,6 +370,10 @@ fn unique_names<'a>(
 #[cfg(test)]
 #[path = "declaration_stage_checks_tests.rs"]
 mod stage_tests;
+
+#[cfg(test)]
+#[path = "declaration_doc_checks_tests.rs"]
+mod doc_tests;
 
 #[cfg(test)]
 #[path = "declaration_setup_checks_tests.rs"]

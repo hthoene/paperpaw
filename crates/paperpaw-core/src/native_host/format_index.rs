@@ -21,6 +21,9 @@ use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SP
 /// Formats per plugin and on the device.
 pub(crate) const PER_PLUGIN: usize = 8;
 pub(crate) const DEVICE: usize = 32;
+/// Reading apps per plugin and on the device (`document.md` section 1).
+pub(crate) const READERS_PER_PLUGIN: usize = 4;
+pub(crate) const READERS_DEVICE: usize = 16;
 /// `format.spec.flags` bit 1: the format can tell its files by their start.
 pub(crate) const SNIFFS: u32 = 1 << 1;
 
@@ -399,6 +402,13 @@ impl FormatIndex {
     }
 }
 
+#[path = "format_index/sync.rs"]
+mod sync;
+
 #[cfg(test)]
 #[path = "format_index_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "format_index/sync_tests.rs"]
+mod sync_tests;
