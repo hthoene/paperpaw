@@ -1,7 +1,7 @@
-//! What the update declares, compared with the interface-6 registration by
-//! the declaration tests: its group of settings (Settings, Device, Updates)
-//! with the three settings, the page, the two actions with their places and
-//! icons, the device needs and the first-run step.
+//! What the update declares (pinned by the declaration tests): its group of
+//! settings (Settings, Device, Updates) with the three settings, the page, the
+//! two actions with their places and icons, the device needs and the first-run
+//! step.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, Kind, MenuEntryDecl,
@@ -17,6 +17,12 @@ pub const PAGE: u32 = 10;
 pub const STARTED: u32 = 3;
 pub const INSTALL_DONE: u32 = 4;
 pub const FIRMWARE_CHANGED: u32 = 5;
+/// The online flow: a request of `core.net` ended or made progress, declared
+/// work came due, and a setting changed (looking by itself).
+pub const HTTP_DONE: u32 = 6;
+pub const HTTP_PROGRESS: u32 = 7;
+pub const WORK_DUE: u32 = 8;
+pub const SETTING_CHANGED: u32 = 9;
 
 const GROUP: &str = "update.group";
 /// The server PaperPaw asks unless the setting says otherwise.
@@ -95,15 +101,20 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The events the card flow hears (the answers and downloads of the online
-/// flow, the weekly look and the setting's change come with it,
-/// `PORTING-7.md`).
+/// The events it hears: the start (how an install went, said after the
+/// restart), the end of an install, its progress, the answers and downloads of
+/// the online flow, the work that looks for updates and the setting that turns
+/// that on or off.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::InstallDone, INSTALL_DONE)?;
     d.subscribe_event(EventKind::FirmwareChanged, FIRMWARE_CHANGED)?;
+    d.subscribe_event(EventKind::HttpDone, HTTP_DONE)?;
+    d.subscribe_event(EventKind::HttpProgress, HTTP_PROGRESS)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_DUE)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()?;
     Ok(())
 }

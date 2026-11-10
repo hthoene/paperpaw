@@ -1,0 +1,4 @@
+### Added
+
+- **The firmware confirmation** (#228, device.md 5.0/5.3). An install or a restart into a new firmware is asked in the host's own words (en/de) on a kernel-owned screen no plugin draws, covers or answers: the asking plugin, the image's project, version and signer (a PaperPaw key by name, another key by fingerprint), "older" where allowed, and for a foreign image the four points. Focus starts on No, input within 500 ms of showing is dropped, Back or ten minutes dismiss, sleep dismisses, and it waits while a guard or the lock is up. After a yes to the restart the plugins hear that PaperPaw stops, what they saved is written and the device restarts; a restart that cannot start ends the request with its reason.
+- A host screen that guards is now the input target: no plugin filter, key binding or raised input reaches it.

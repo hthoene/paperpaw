@@ -73,6 +73,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
+            log: self.host.log,
             ui: self.identity.ui_services(),
         }
     }
@@ -283,7 +284,9 @@ fn status(error: shell::Error) -> i32 {
         shell::Error::Allocation | shell::Error::Lifecycle(Error::Memory) => {
             host_glue::ERR_NO_MEMORY
         }
-        shell::Error::Lifecycle(Error::Busy | Error::Depth) => host_glue::ERR_BUSY,
+        shell::Error::Lifecycle(Error::Busy | Error::Depth) | shell::Error::Refused => {
+            host_glue::ERR_BUSY
+        }
         shell::Error::Lifecycle(Error::Capacity) => host_glue::ERR_NO_SPACE,
         shell::Error::Lifecycle(Error::State) | shell::Error::Attempt => host_glue::ERR_STATE,
         _ => host_glue::ERR_INVALID,

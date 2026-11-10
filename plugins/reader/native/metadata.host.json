@@ -1,0 +1,110 @@
+{
+  "target": "linux-x86_64-sysv64-le",
+  "floor": 1,
+  "used": [
+    {
+      "kind": "host",
+      "name": "heap.alloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.dealloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.realloc"
+    },
+    {
+      "kind": "host",
+      "name": "clock.micros"
+    },
+    {
+      "kind": "host",
+      "name": "env.snapshot"
+    },
+    {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
+      "kind": "host",
+      "name": "font.acquire"
+    },
+    {
+      "kind": "host",
+      "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_rect"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_line"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_round"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.stroke_round"
+    },
+    {
+      "kind": "host",
+      "name": "text.measure"
+    },
+    {
+      "kind": "host",
+      "name": "text.draw"
+    },
+    {
+      "kind": "host",
+      "name": "commands.submit"
+    },
+    {
+      "kind": "host",
+      "name": "registrations.submit"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.format"
+    },
+    {
+      "kind": "host",
+      "name": "text.metrics"
+    },
+    {
+      "kind": "host",
+      "name": "text.ink"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.clip"
+    },
+    {
+      "kind": "callback",
+      "name": "drop"
+    },
+    {
+      "kind": "callback",
+      "name": "dispatch_event"
+    },
+    {
+      "kind": "callback",
+      "name": "draw"
+    },
+    {
+      "kind": "callback",
+      "name": "input"
+    }
+  ],
+  "services": [
+    "core.ui"
+  ],
+  "features": []
+}
