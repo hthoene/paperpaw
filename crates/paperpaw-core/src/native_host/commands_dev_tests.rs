@@ -33,13 +33,18 @@ fn features(bits: u32) -> AdmittedFeatures {
 const WIFI: u32 = 1;
 const POWER: u32 = 2;
 
+/// These tests read the table's outcomes themselves, for owners that are no
+/// plugin instances: the delivery pump (`wifi_events`) is held back, as it
+/// would release the entries of senders nobody can tell.
 fn kernel() -> Kernel {
-    Kernel::builder(crate::tests::DEVICE)
+    let kernel = Kernel::builder(crate::tests::DEVICE)
         .wifi(true)
         .sleep(true)
         .power_off(true)
         .build()
-        .unwrap()
+        .unwrap();
+    kernel.radio_requests.borrow_mut().hold_back(u64::MAX);
+    kernel
 }
 
 fn join(request: u32, ssid: &str) -> WireCommand<'_> {

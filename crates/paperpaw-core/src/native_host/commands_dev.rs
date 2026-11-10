@@ -12,9 +12,13 @@
 //! shows nothing) until the radio command is built at apply time.
 
 use super::{CommandBatch, CommandStage, WireCommand, ui};
+
+#[path = "commands_dev_firmware.rs"]
+mod firmware;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
+pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
@@ -167,12 +171,19 @@ pub(crate) enum DevOp {
     WifiScan,
     WifiLeave,
     NetworkNone,
-    GoOnline { for_ms: u32 },
+    GoOnline {
+        for_ms: u32,
+    },
     Sleep,
     PowerOff,
     Restart,
-    Wear { mode: Id, automatic: bool },
+    Wear {
+        mode: Id,
+        automatic: bool,
+    },
     Join(JoinOp),
+    /// A firmware command; the request was accepted when it was submitted.
+    Firmware(FirmwareOp),
 }
 
 /// A DEV command and the number of ordinary staged commands before it.
@@ -191,6 +202,8 @@ pub(crate) struct DevItem {
 pub(crate) struct DevBatch {
     items: Vec<DevItem>,
     release: Option<Release>,
+    /// The firmware requests accepted at submit that no drain applied yet.
+    fw: Option<FwRelease>,
 }
 
 /// Gives back the reserved (never applied) table entries of one staged batch
@@ -226,6 +239,8 @@ pub(crate) struct DevContext<'a> {
     features: AdmittedFeatures,
     requests: Rc<RefCell<RadioRequests>>,
     guard_owner: Option<&'a str>,
+    /// The firmware table and the owner's key; none without a firmware host.
+    firmware: Option<FirmwareContext>,
 }
 
 impl<'a> DevContext<'a> {
@@ -235,7 +250,15 @@ impl<'a> DevContext<'a> {
             features,
             requests: Rc::clone(requests),
             guard_owner: None,
+            firmware: None,
         }
+    }
+
+    /// The device's firmware table and the submitting plugin's owner key.
+    /// Without it every firmware command is `ERR_UNSUPPORTED`.
+    pub(crate) fn with_firmware(mut self, firmware: FirmwareContext) -> Self {
+        self.firmware = Some(firmware);
+        self
     }
 
     /// The guard's plugin, from the screen stack: while an instance guards only
@@ -258,6 +281,8 @@ pub(super) struct DevStage<'a> {
     items: Vec<DevItem>,
     /// The token its table entries carry; 0 until it reserves the first.
     token: u32,
+    /// The firmware requests this stage accepted (given back when it drops).
+    fw: Option<FwRelease>,
 }
 
 impl DevStage<'_> {
@@ -301,7 +326,7 @@ fn area(command: &WireCommand<'_>) -> Option<&'static str> {
         | WireCommand::PowerOff { .. }
         | WireCommand::Restart { .. }
         | WireCommand::Wear { .. } => Some(FEATURE_POWER),
-        _ => None,
+        _ => firmware::area(command),
     }
 }
 
@@ -316,6 +341,7 @@ impl<'a> CommandStage<'a> {
             ctx,
             items: Vec::new(),
             token: 0,
+            fw: None,
         });
         self
     }
@@ -324,6 +350,7 @@ impl<'a> CommandStage<'a> {
     /// reservations pass to the returned batch, which gives back the ones it
     /// never applied when dropped.
     pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
+        let fw = self.dev.as_mut().and_then(|dev| dev.fw.take());
         let (items, release) = match self.dev.as_mut() {
             Some(dev) => (
                 core::mem::take(&mut dev.items),
@@ -337,7 +364,7 @@ impl<'a> CommandStage<'a> {
             None => (Vec::new(), None),
         };
         let (commands, redraw, hop) = self.into_ui_output();
-        (commands, redraw, hop, DevBatch { items, release })
+        (commands, redraw, hop, DevBatch { items, release, fw })
     }
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
@@ -356,14 +383,22 @@ impl<'a> CommandStage<'a> {
             dev.ctx.features.feature(key)?;
         }
         let (mut wifi, mut power, mut bytes) = (0_usize, 0_usize, 0_usize);
+        let mut firmware = 0_usize;
         let mut requests = [0_u32; MAX_WIFI_PER_BATCH];
         for command in batch.iter() {
-            match area(&command) {
-                Some(FEATURE_WIFI) => wifi += 1,
-                Some(_) => power += 1,
-                None => continue,
+            if firmware::is_firmware(&command) {
+                firmware += 1;
+            } else {
+                match area(&command) {
+                    Some(FEATURE_WIFI) => wifi += 1,
+                    Some(_) => power += 1,
+                    None => continue,
+                }
             }
-            if wifi > MAX_WIFI_PER_BATCH || power > MAX_POWER_PER_BATCH {
+            if wifi > MAX_WIFI_PER_BATCH
+                || power > MAX_POWER_PER_BATCH
+                || firmware > firmware::MAX_PER_BATCH
+            {
                 return Err(ERR_INVALID);
             }
             bytes = bytes.saturating_add(self.validate_dev_command(&command, &mut requests)?);
@@ -420,7 +455,7 @@ impl<'a> CommandStage<'a> {
             WireCommand::PowerOff { .. } | WireCommand::Restart { .. } => {
                 self.guard_allows().map(|()| 0)
             }
-            _ => Ok(0),
+            _ => self.validate_firmware(command),
         }
     }
 
@@ -470,7 +505,7 @@ impl<'a> CommandStage<'a> {
                 ssid,
                 password,
             } => join_op(request, true, ssid, password.expose())?,
-            _ => return Err(ERR_UNSUPPORTED),
+            _ => self.firmware_op(&command)?,
         };
         let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
         // Capacity was reserved by `dev_reserve`; this cannot reallocate.
@@ -480,6 +515,29 @@ impl<'a> CommandStage<'a> {
 
     /// Reserve the table entries of the items from `start`, all or none.
     pub(super) fn dev_commit(&mut self, start: usize) -> Result<(), i32> {
+        self.dev_commit_radio(start)?;
+        if let Err(error) = self.firmware_commit(start) {
+            self.dev_release_radio(start);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Gives back the table entries of the Wi-Fi items from `start`.
+    fn dev_release_radio(&mut self, start: usize) {
+        let Some(dev) = &self.dev else {
+            return;
+        };
+        if let Ok(mut table) = dev.ctx.requests.try_borrow_mut() {
+            for item in dev.items.get(start..).unwrap_or_default() {
+                if let DevOp::Join(join) = &item.op {
+                    table.release_reserved(self.owner.as_str(), join.request);
+                }
+            }
+        }
+    }
+
+    fn dev_commit_radio(&mut self, start: usize) -> Result<(), i32> {
         let Some(dev) = &mut self.dev else {
             return Ok(());
         };
@@ -587,20 +645,28 @@ impl crate::Kernel {
         host: &DevHost<'_>,
     ) {
         let token = batch.release.as_ref().map_or(0, |release| release.token);
+        let mut fw = batch.fw.take();
         let mut items = core::mem::take(&mut batch.items).into_iter().peekable();
         for (index, command) in commands.into_iter().enumerate() {
             while let Some(item) = items.next_if(|item| item.at <= index) {
-                self.apply_dev(owner, item.op, host, token);
+                self.apply_dev(owner, item.op, host, token, &mut fw);
             }
             self.drain_native_command(owner, command);
         }
         for item in items {
-            self.apply_dev(owner, item.op, host, token);
+            self.apply_dev(owner, item.op, host, token, &mut fw);
         }
         self.finish_native_redraw(owner, redraw);
     }
 
-    fn apply_dev(&mut self, owner: &Id, op: DevOp, host: &DevHost<'_>, token: u32) {
+    fn apply_dev(
+        &mut self,
+        owner: &Id,
+        op: DevOp,
+        host: &DevHost<'_>,
+        token: u32,
+        fw: &mut Option<FwRelease>,
+    ) {
         match op {
             DevOp::WifiOn => self.apply(Command::Wifi(WifiCommand::On)),
             DevOp::WifiScan => self.apply(Command::Wifi(WifiCommand::Scan)),
@@ -620,6 +686,7 @@ impl crate::Kernel {
                 }));
             }
             DevOp::Join(join) => self.apply_join(owner, join, host, token),
+            DevOp::Firmware(op) => Self::apply_firmware(op, fw),
         }
     }
 

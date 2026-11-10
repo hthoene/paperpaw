@@ -16,10 +16,11 @@
 //!   the library's move job) that the shell cannot know. `HostWiring::files`
 //!   refuses (`ERR_STATE`) until every [`BusyKind`] has a source: nothing
 //!   busy would be a wrong answer for state the host does hold.
-//! - `rename`: the storage's rename (the library's journal and job follow a
-//!   move of the user's files when the library host is wired).
+//! - `rename`: the storage's rename; a move of the user's files (root 1) is
+//!   the library's move job when it is wired (`with_moves`).
 use super::{
     files_service::{Access, FilesHost},
+    lib_moves_service::LibraryMoves,
     linked_plugins::LinkedPlugins,
 };
 use alloc::{rc::Rc, vec::Vec};
@@ -121,6 +122,9 @@ pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
     linked: Rc<LinkedPlugins>,
+    /// The library's move job: a move of the user's files goes through it.
+    /// `None` where no job is wired (tests): the storage's own rename.
+    moves: Option<Rc<LibraryMoves>>,
 }
 
 impl StorageFiles {
@@ -133,7 +137,15 @@ impl StorageFiles {
             storage,
             sources,
             linked,
+            moves: None,
         }
+    }
+
+    /// The same, a move of the user's files started as the library's move
+    /// job ([`LibraryMoves::begin`]).
+    pub(crate) fn with_moves(mut self, moves: Rc<LibraryMoves>) -> Self {
+        self.moves = Some(moves);
+        self
     }
 
     /// Whether the file or folder `parent/name` exists.
@@ -162,6 +174,23 @@ impl StorageFiles {
 }
 
 impl FilesHost for StorageFiles {
+    /// A move of the user's files (root 1) is the library's move job: the
+    /// journal entry, the rename, then the catalog by the kernel's pump. Any
+    /// other move is the storage's rename.
+    fn rename(
+        &self,
+        storage: &dyn Storage,
+        from: &str,
+        to: &str,
+        replace: bool,
+        library: bool,
+    ) -> Result<(), i32> {
+        match &self.moves {
+            Some(moves) if library => moves.begin(from, to, replace),
+            _ => storage.rename(from, to).map_err(super::storage::status),
+        }
+    }
+
     /// A plugin linked into the firmware (`Kernel::register_linked`); a loaded
     /// `.ppn` plugin never is, and a card plugin never takes a linked id.
     fn built_in(&self, plugin: &str) -> bool {

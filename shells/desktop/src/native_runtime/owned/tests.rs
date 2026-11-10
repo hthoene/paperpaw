@@ -278,7 +278,7 @@ fn real_library_valid_output_guard_cleans_poisoned_and_revoked_commits() {
     for revoke in [false, true] {
         let (plugin, evidence) = fixture.open();
         let mut transaction = plugin.begin().unwrap();
-        let count = if revoke { 1 } else { 8 };
+        let count = if revoke { 1 } else { 32 };
         for _ in 0..count {
             assert!(transaction.stage(Record(evidence.clone())).is_ok());
         }
@@ -435,6 +435,7 @@ fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() 
     assert_eq!(evidence.events.borrow().last(), Some(&"context"));
 }
 
+mod admit;
 mod canvas;
 mod dev;
 mod e2e;

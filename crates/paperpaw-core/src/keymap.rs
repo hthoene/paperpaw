@@ -736,6 +736,17 @@ impl Keymap {
             .and_then(|binding| binding.action.as_ref())
     }
 
+    /// As [`Self::resolve`], with the place in `layers` of the layer that
+    /// bound it.
+    pub(crate) fn resolve_layer(&self, layers: &[&str], input: &InputKey) -> Option<(usize, &Id)> {
+        // An explicit `none` binding stops the search, as in `resolve`.
+        let (at, binding) = layers
+            .iter()
+            .enumerate()
+            .find_map(|(at, layer)| Some((at, self.layers.get(*layer)?.get(input)?)))?;
+        Some((at, binding.action.as_ref()?))
+    }
+
     /// What a tap (`long`: a long tap) in a layer's own zone `name` is
     /// bound to through `layers`, as [`Self::resolve`], making no key.
     pub(crate) fn resolve_zone(&self, layers: &[&str], long: bool, name: &str) -> Option<&Id> {

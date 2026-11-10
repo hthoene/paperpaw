@@ -1,7 +1,8 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin is pinned by `fetch.rs` on a kernel; these cases are the same
-//! behaviours through the production loader with the native plugin. They never
-//! pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host: the behaviours of
+//! interface 6 (`fetch.rs` pinned them on a kernel, until it was removed with
+//! the interface-6 plugin) through the production loader with the native
+//! plugin. `native_fetch_tests.rs` and `native_flow.rs` pin the decisions and
+//! the host calls with stand-ins; these never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -29,7 +30,7 @@ const CASES: [Case; 4] = [
         golden: None,
         blocked_by: &["NET", "FS", "EVENT-page-turned", "ANNOTATIONS"],
     },
-    // A fetch started by a rule runs as declared work at a cheap moment.
+    // A fetch started by a rule runs as declared work, at once.
     Case {
         name: "read-later-cloud-fetch-due",
         golden: None,

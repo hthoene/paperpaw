@@ -11,7 +11,7 @@ use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK,
 };
 use paperpaw_platform::firmware::Signer;
 
@@ -37,20 +37,32 @@ mod op {
 
 /// The `core.device` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.device().ok_or(ERR_UNSUPPORTED)?;
-    let host: &dyn DeviceHost = &*services.0;
+    // The kernel answers Wi-Fi, Bluetooth and power from its own models, where
+    // the frame has them (`kernel_models`).
+    let kernel;
+    let host: &dyn DeviceHost = match frame.kernel_env() {
+        Some(env) => {
+            kernel = super::kernel_models::KernelHost {
+                inner: &*services.0,
+                env,
+                caller: who.plugin,
+            };
+            &kernel
+        }
+        None => &*services.0,
+    };
     match op.id {
-        // Op 13 `install` reads the request table of the install commands
-        // (`device.md` 3), which another slice builds. Until it exists it
-        // answers ERR_UNSUPPORTED on purpose, not by accident of an unknown
-        // op. Ops 3, 6 and 16 read the firmware install machine.
-        op::INSTALL => Err(ERR_UNSUPPORTED),
+        // Op 13 `install` reads the firmware request table (a firmware
+        // install or check); plugin installs and removals have no table yet.
+        // Ops 3, 6 and 16 read the firmware install machine.
+        op::INSTALL => install(who, input, out),
         op::CHECK => check(who, input, out),
         op::LEAVES_OUT => leaves_out(who, host, op, input, out),
         op::FIRMWARE => {
@@ -688,6 +700,35 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
 const CHECK_SIGNED_BY_PAPERPAW: u32 = 1 << 3;
 const CHECK_FOREIGN: u32 = 1 << 4;
 const CHECK_LEAVES_OUT: u32 = 1 << 5;
+
+/// Op 13: the state of the caller's request, and the outcome kept for one
+/// that ended (until its next request of the same kind or its stop).
+fn install(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let table = who.hosts.firmware_requests().ok_or(ERR_UNSUPPORTED)?;
+    let asked: wire::ServiceDevRequest = codec::single(input)?;
+    let found = table
+        .try_borrow()
+        .map_err(|_| ERR_BUSY)?
+        .lookup(who.owner, asked.request)
+        .ok_or(ERR_NOT_FOUND)?;
+    let ended = found.outcome;
+    encode(
+        &Record::ServiceDevInstall(wire::ServiceDevInstall {
+            request: asked.request,
+            kind: found.kind,
+            state: found.state,
+            status: ended.map_or(OK, |outcome| {
+                crate::native_host::firmware_events::status_of(outcome)
+            }),
+            reason: ended.map_or(0, |outcome| u32::from(outcome.reason)),
+            flags: 0,
+            done: found.done,
+            total: found.total,
+            id: "",
+        }),
+        out,
+    )
+}
 
 /// Op 6: the caller's last finished firmware check, by its request.
 fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {

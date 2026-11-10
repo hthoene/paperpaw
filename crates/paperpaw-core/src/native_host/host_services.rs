@@ -50,10 +50,16 @@ pub(crate) struct HostServices {
     /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
     /// and the kernel's pump drives. One per device.
     firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
+    /// The firmware request table (op 13 reads the state of a request and the
+    /// outcome kept for it). One per device.
+    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
     secrets: OnceCell<SecretsServices>,
+    /// The library's move job and its card side, made when `core.files` is
+    /// wired (`lib_moves_service`).
+    pub(super) library_moves: OnceCell<Rc<super::lib_moves_service::LibraryMoves>>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
     /// The ids of the plugins linked into the firmware (root 2 of the file
@@ -122,10 +128,12 @@ impl HostServices {
             ui: OnceCell::new(),
             device: OnceCell::new(),
             firmware: OnceCell::new(),
+            firmware_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
             secrets: OnceCell::new(),
+            library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -298,6 +306,19 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
+    /// Wire the firmware request table once (op 13).
+    pub(crate) fn wire_firmware_requests(
+        &self,
+        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+    ) -> Result<(), i32> {
+        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
+    }
+
+    /// The firmware request table, where wired.
+    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
+        self.firmware_requests.get()
+    }
+
     /// Wire the firmware install machine once.
     #[allow(
         dead_code,
@@ -432,7 +453,6 @@ impl HostServices {
     ///
     /// # Errors
     /// `ERR_BUSY` when the list of sources is in use; `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the library host registers its job (todo)")]
     pub(crate) fn register_library_moves(
         &self,
         moves: Rc<super::lib_service::moves::Moves>,

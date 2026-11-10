@@ -34,6 +34,11 @@ impl EventTags {
         Ok(())
     }
 
+    /// Whether no tag is in the set.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.iter().all(|word| *word == 0)
+    }
+
     /// Whether `tag` was added. A tag beyond the set was never added.
     pub(crate) fn contains(&self, tag: u32) -> bool {
         self.0

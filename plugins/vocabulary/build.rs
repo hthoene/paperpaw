@@ -50,7 +50,19 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 2] = [
+    let emits: [(&str, Emit); 5] = [
+        ("NAVIGATION", |sink| {
+            declarations::navigation(sink)
+                .map_err(|e| format!("invalid Vocabulary navigation declarations: {e:?}"))
+        }),
+        ("WIDGETS", |sink| {
+            declarations::widgets(sink)
+                .map_err(|e| format!("invalid Vocabulary widget declarations: {e:?}"))
+        }),
+        ("STAGES", |sink| {
+            declarations::stages(sink)
+                .map_err(|e| format!("invalid Vocabulary stage declarations: {e:?}"))
+        }),
         ("EVENTS", |sink| {
             declarations::events(sink)
                 .map_err(|e| format!("invalid Vocabulary event declarations: {e:?}"))

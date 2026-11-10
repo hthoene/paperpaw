@@ -25,7 +25,7 @@ use paperpaw_sdk::power::{Power, PowerLevel};
 
 /// A whole fake device. Every part is optional, as on real devices.
 #[derive(Default)]
-struct Fake {
+pub(super) struct Fake {
     device: Option<Dev>,
     values: Option<Vec<(String, Option<i64>)>>,
     firmware: bool,
@@ -71,8 +71,14 @@ impl Dev {
 const ALL: u64 = caps::WIFI | caps::BLUETOOTH | caps::FIRMWARE | caps::NETWORK;
 
 impl Fake {
+    /// The generation the shell's lists have.
+    pub(super) fn with_generation(mut self, generation: u32) -> Self {
+        self.generation = generation;
+        self
+    }
+
     /// A device with every part.
-    fn full() -> Self {
+    pub(super) fn full() -> Self {
         Self {
             device: Some(Dev::x4(ALL)),
             values: Some(vec![
@@ -332,20 +338,20 @@ fn with_view<R>(host: Fake, caller: Option<u64>, run: impl FnOnce(&View<'_>) -> 
     })
 }
 
-fn schema_op(id: u32) -> &'static ServiceOp {
+pub(super) fn schema_op(id: u32) -> &'static ServiceOp {
     services_wire::service_schema(KEY, 1)
         .unwrap()
         .op(id)
         .unwrap()
 }
 
-fn batch(records: &[Record<'_>]) -> Vec<u8> {
+pub(super) fn batch(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = [0; 512];
     let length = registrations::records_encode(records, &mut out).unwrap();
     out[..length].to_vec()
 }
 
-fn query(cursor: u32, generation: u32) -> Vec<u8> {
+pub(super) fn query(cursor: u32, generation: u32) -> Vec<u8> {
     batch(&[Record::ServiceRegQuery(registrations::ServiceRegQuery {
         scope: "",
         cursor,
@@ -354,14 +360,14 @@ fn query(cursor: u32, generation: u32) -> Vec<u8> {
     })])
 }
 
-fn interval(base_ms: u32) -> Vec<u8> {
+pub(super) fn interval(base_ms: u32) -> Vec<u8> {
     batch(&[Record::ServiceDevInterval(
         registrations::ServiceDevInterval { base_ms },
     )])
 }
 
 /// The valid input of an op.
-fn input_of(id: u32) -> Vec<u8> {
+pub(super) fn input_of(id: u32) -> Vec<u8> {
     match id {
         4 | 9 | 11 | 14 => query(0, 0),
         12 => interval(1000),
@@ -384,7 +390,7 @@ fn run(view: &View<'_>, id: u32, input: &[u8]) -> Result<Vec<u8>, i32> {
     Ok(reply)
 }
 
-fn records(reply: &[u8]) -> Vec<Record<'_>> {
+pub(super) fn records(reply: &[u8]) -> Vec<Record<'_>> {
     let mut frames = Vec::new();
     stage_wire::visit_stream(reply, |_, framed| {
         let start = framed.as_ptr() as usize - reply.as_ptr() as usize;

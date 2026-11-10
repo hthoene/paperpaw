@@ -70,6 +70,14 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
+impl DeclKey {
+    /// The place of the record: its owner's slot, its batch, its position in it.
+    /// Sorting by this gives plugin order, then record order.
+    pub(crate) fn order(self) -> (u16, u16, u16) {
+        (self.owner, self.batch, self.record)
+    }
+}
+
 const KIND_COUNT: usize = 31;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
@@ -565,6 +573,8 @@ fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
 pub(crate) struct DeclarationStore {
     owners: Vec<Option<PendingDeclarations>>,
     incarnation: u32,
+    /// Owners taken out so far.
+    removed: u32,
 }
 
 /// Exclusive preparation prevents a second transaction invalidating reservations.
@@ -633,8 +643,19 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.id == *id && owner.generation == generation)
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
+    }
+
+    /// A number that differs after every change to what the store declares:
+    /// an owner added or replaced, or taken out. What was read from the store
+    /// is good while it stays the same (an owner that stops without being
+    /// taken out is not seen here). The input filter list leaves a filter out
+    /// whose calls failed three inputs in a row and keeps that until this
+    /// number changes (`input_chain::FilterCache`).
+    pub(crate) fn revision(&self) -> u64 {
+        u64::from(self.incarnation) << 32 | u64::from(self.removed)
     }
 
     pub(crate) fn prune_stopped_native(&mut self) {
@@ -643,6 +664,7 @@ impl DeclarationStore {
                 owner.source.owner_id().is_ok() && owner.source.generation() != owner.generation
             }) {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }
@@ -654,6 +676,7 @@ impl DeclarationStore {
                 .is_some_and(|owner| owner.source.owner_id() == Ok(key))
             {
                 *owner = None;
+                self.removed = self.removed.wrapping_add(1);
             }
         }
     }

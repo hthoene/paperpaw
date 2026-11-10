@@ -4,6 +4,7 @@
 extern crate std;
 use super::*;
 use crate::abi7::{context::ui_views::Declared, services_wire};
+use crate::native_host::stages_wire::core_widget_v1 as widget;
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
     call_services::validate_reply,
@@ -72,6 +73,10 @@ struct World<'a> {
     replies: RefCell<Vec<Reply>>,
     /// (owner, token, items) of each owner call.
     asked: RefCell<Vec<(u64, u32, Vec<String>)>>,
+    /// (owner, token) -> what the owner answers a `core.widget` call (raw
+    /// stage-local reply bytes, or an error), and each call made.
+    widget_replies: RefCell<Vec<Reply>>,
+    widget_asked: RefCell<Vec<(u64, u32, widget::Record)>>,
 }
 
 type Reply = (u64, u32, Result<Vec<u8>, i32>);
@@ -105,6 +110,27 @@ impl Frame for World<'_> {
     }
     fn ui_directory(&self) -> Result<&dyn UiDirectory, i32> {
         Ok(&self.dir)
+    }
+    fn widget_call(
+        &self,
+        owner: u64,
+        token: u32,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        let call = widget::input_decode(payload)?.next().unwrap()?;
+        // The harness's own allocation must not be the one that fails.
+        let armed = FAIL_NTH.with(|n| n.replace(0));
+        self.widget_asked.borrow_mut().push((owner, token, call));
+        FAIL_NTH.with(|n| n.set(armed));
+        let replies = self.widget_replies.borrow();
+        let (.., reply) = replies
+            .iter()
+            .find(|(o, t, _)| (*o, *t) == (owner, token))
+            .ok_or(ERR_NOT_FOUND)?;
+        let bytes = reply.as_ref().map_err(|e| *e)?;
+        out[..bytes.len()].copy_from_slice(bytes);
+        Ok(bytes.len())
     }
     fn status_ask(
         &self,
@@ -294,6 +320,8 @@ fn world<R>(f: impl FnOnce(&World<'_>) -> R) -> R {
         fail: Cell::new(0),
         replies: RefCell::new(Vec::new()),
         asked: RefCell::new(Vec::new()),
+        widget_replies: RefCell::new(Vec::new()),
+        widget_asked: RefCell::new(Vec::new()),
     })
 }
 
@@ -588,3 +616,6 @@ fn each_item_keeps_its_own_private_flag_in_a_group_and_cache_keys_hold_the_owner
         assert_eq!(cache.get(A, "a.one", b"ctx"), Some(&b"open"[..]));
     });
 }
+
+#[path = "ui_widget_layout_tests.rs"]
+mod layout;

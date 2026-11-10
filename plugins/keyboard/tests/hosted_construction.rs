@@ -1,10 +1,6 @@
-//! The plugin is constructed in the real registered scope of the kernel's
-//! native host. `make` there has no live frame, so it must not open services
-//! (it registers its declarations; `core.ui` opens in the first callback).
-//!
-//! The plugin declares a key binding (`key.bind`: layer `keyboard.screen`, input
-//! `long.back`, action `keyboard.done`); the host maps it, so the install is
-//! accepted.
+//! The plugin is constructed in the real registered scope of the kernel's native host,
+//! installed through `Kernel::register_linked`: `make` submits its declarations (it opens no
+//! service: there is no live frame in `make`) and the host admits them all.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
