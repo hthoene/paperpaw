@@ -568,6 +568,7 @@ impl PendingDeclarations {
                 usize::MAX,
                 usize::MAX,
                 usize::MAX,
+                usize::MAX,
             ];
             if self
                 .owned_counts
