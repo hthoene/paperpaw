@@ -108,6 +108,7 @@ pub paperpaw_native::host_glue::PpHost::storage_sync: fn(*mut core::ffi::c_void)
 pub paperpaw_native::host_glue::PpHost::storage_write: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_covers: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
+pub paperpaw_native::host_glue::PpHost::text_draw_inked: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, u32, paperpaw_native::host_glue::PpBytes, u32, *mut f32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_hyphenate: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes, u32, u32, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::text_ink: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut i32, *mut i32, *mut i32, *mut i32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32

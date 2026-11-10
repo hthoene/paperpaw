@@ -1,4 +1,4 @@
-# Stats on interface 7 (partly ported)
+# Stats on interface 7
 
 Status: **complete.** The plugin is the native plugin only: the interface-6 plugin (the `Stats` plugin in
 `lib.rs` and its registration, screens, widgets, sync, `book.rs`, `books.rs`, `calendar.rs`, `chart.rs`,
@@ -7,6 +7,7 @@ Status: **complete.** The plugin is the native plugin only: the interface-6 plug
 `common/`), its registration in `paperpaw-app` and its store-file builder (`tools/plugin-files`; `plugins.txt`
 keeps a comment line) are gone. What waits for hosts is listed under *Not tested here* at the end; the code
 that sends and reads it is in place.
+The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8; no frame over 2,048 B).
 
 ## Ported: the data layer's files (`src/store.rs`, `src/files.rs`)
 

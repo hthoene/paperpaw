@@ -175,32 +175,37 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
 
-/// Whether the linked native plugin `id` is on where nothing switched it
-/// (the default `Kernel::native_enabled` takes): the rule [`install_with`]
-/// applies to the plugin's interface-6 form, so that a plugin the store
-/// offers keeps the state it ships in. A plugin of [`STORE_PLUGINS`] is on
-/// only where `store` offers it (`Left`: the store installs it, as a file)
-/// and it is not shipped off. Shipped off (Beta 3's default, owner's ruling
-/// for the flip): Mail always (whatever `store` says is built in), and where
-/// `store` is `On` also Notes vault and Picture home (it takes the place of
-/// the home screen). Every other plugin is on. The configuration (`[plugins]
-/// id = on|off`) is the kernel's to read.
+/// Whether the linked native plugin `id` is linked here and, if it is, on where
+/// nothing switched it (the default `Kernel::native_enabled` takes): the rule
+/// [`install_with`] applies to the plugin's interface-6 form, so that a plugin
+/// the store offers keeps the state it ships in.
+///
+/// `None`: not linked here. A plugin of [`STORE_PLUGINS`] where `store` leaves
+/// it out (`Left`: the store installs it, as a file) is neither hosted nor
+/// listed, whatever the configuration says: its card form is the plugin, and a
+/// second copy of the same id must not run beside it.
+///
+/// `Some(on)`: hosted and listed; `on` is its shipped state. Shipped off
+/// (Beta 3's default, owner's ruling for the flip): Mail always (whatever
+/// `store` says is built in), and where `store` is `On` also Notes vault and
+/// Picture home (it takes the place of the home screen). Every other plugin
+/// is on. The configuration (`[plugins] id = on|off`) is the kernel's to read.
 #[cfg(feature = "native-linked")]
-pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> bool {
+pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> Option<bool> {
     if !STORE_PLUGINS.contains(&id) {
-        return true;
+        return Some(true);
     }
     match store {
-        StorePlugins::Left => false,
+        StorePlugins::Left => None,
         #[cfg(feature = "store-plugins")]
-        StorePlugins::On => !matches!(id, "mail" | "notes-vault" | "picture-home"),
+        StorePlugins::On => Some(!matches!(id, "mail" | "notes-vault" | "picture-home")),
         #[cfg(feature = "store-plugins")]
-        StorePlugins::Off(on) => id != "mail" && on(id),
+        StorePlugins::Off(on) => Some(id != "mail" && on(id)),
         #[allow(
             unreachable_patterns,
             reason = "`On` and `Off` exist only with the feature `store-plugins`"
         )]
-        _ => false,
+        _ => None,
     }
 }
 
@@ -246,25 +251,37 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
-    default_on: impl Fn(&str) -> bool,
+    default_on: impl Fn(&str) -> Option<bool>,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
 )> {
     use paperpaw_core::native_host::shell::Error;
     use paperpaw_core::sdk::PluginState;
+    let config = kernel.native_config();
     let mut outcome = alloc::vec::Vec::new();
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
     for (id, linked) in NATIVE_PLUGINS {
-        if !kernel.native_enabled(id, default_on(id)) {
-            list(kernel, id, PluginState::Off, false);
+        // Not linked here (a store plugin the store installs as a file): not
+        // hosted, not listed, whatever the configuration says.
+        let Some(default) = default_on(id) else {
+            continue;
+        };
+        // Once for each plugin: in safe mode a decision saves the file.
+        let decision = kernel.native_decide(&config, id, default, false);
+        if !decision.hosts() {
+            list(
+                kernel,
+                id,
+                (PluginState::Off, decision.enabled(), decision.problem()),
+            );
             continue;
         }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
-            list(kernel, id, PluginState::Failed, true);
+            list(kernel, id, (PluginState::Failed, true, None));
             continue;
         };
         // SAFETY: as this function's contract says.
@@ -286,13 +303,14 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         } else {
             PluginState::Failed
         };
-        list(kernel, id, state, true);
+        list(kernel, id, (state, true, None));
         outcome.push((*id, status));
     }
     outcome
 }
 
-/// Lists the linked native plugin `id` for the plugin manager: its version
+/// Lists the linked native plugin `id` for the plugin manager, with its state,
+/// whether it is switched on and why it is held back (safe mode): its version
 /// from its crate, its name the id (the registry shows the plugin's own
 /// `<id>.plugin.name` and `.description` from its catalog, in the reader's
 /// language, wherever it has them). A listing that fails (the id is listed
@@ -301,8 +319,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
 fn list(
     kernel: &mut paperpaw_core::Kernel,
     id: &'static str,
-    state: paperpaw_core::sdk::PluginState,
-    enabled: bool,
+    (state, enabled, problem): (
+        paperpaw_core::sdk::PluginState,
+        bool,
+        Option<paperpaw_core::sdk::PluginProblem>,
+    ),
 ) {
     use paperpaw_core::sdk::{Id, Manifest, PluginInfo, PluginKind, RequiredFor, Version};
     let Some(version) = native_version(id).and_then(Version::parse) else {
@@ -315,7 +336,7 @@ fn list(
         enabled,
         RequiredFor::default(),
         PluginKind::BuiltIn,
-        None,
+        problem,
         None,
     );
     let _ = kernel.list_native(info);

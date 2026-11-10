@@ -19,15 +19,19 @@ use paperpaw_sdk::{MemoryStorage, PluginState};
 #[test]
 fn a_plugin_the_store_does_not_offer_is_always_on() {
     for id in ["menu", "settings", "files", "about"] {
-        assert!(native_default_on(id, StorePlugins::Left), "{id}");
-        assert!(native_default_on(id, StorePlugins::On), "{id}");
+        assert_eq!(
+            native_default_on(id, StorePlugins::Left),
+            Some(true),
+            "{id}"
+        );
+        assert_eq!(native_default_on(id, StorePlugins::On), Some(true), "{id}");
     }
 }
 
 #[test]
-fn where_the_store_installs_them_none_is_on() {
+fn where_the_store_installs_them_none_is_linked() {
     for id in STORE_PLUGINS {
-        assert!(!native_default_on(id, StorePlugins::Left), "{id}");
+        assert_eq!(native_default_on(id, StorePlugins::Left), None, "{id}");
     }
 }
 
@@ -37,7 +41,7 @@ fn built_in_and_on_the_store_plugins_are_on_except_the_ones_shipped_off() {
         let shipped_off = matches!(id, "mail" | "notes-vault" | "picture-home");
         assert_eq!(
             native_default_on(id, StorePlugins::On),
-            !shipped_off,
+            Some(!shipped_off),
             "{id}"
         );
     }
@@ -46,15 +50,21 @@ fn built_in_and_on_the_store_plugins_are_on_except_the_ones_shipped_off() {
 #[test]
 fn mail_is_always_shipped_off() {
     for store in [StorePlugins::On, StorePlugins::Off(&|_| true)] {
-        assert!(!native_default_on("mail", store));
+        assert_eq!(native_default_on("mail", store), Some(false));
     }
 }
 
 #[test]
 fn off_unless_used_before_follows_the_function() {
     let used = |id: &str| id == "aids";
-    assert!(native_default_on("aids", StorePlugins::Off(&used)));
-    assert!(!native_default_on("notes-vault", StorePlugins::Off(&used)));
+    assert_eq!(
+        native_default_on("aids", StorePlugins::Off(&used)),
+        Some(true)
+    );
+    assert_eq!(
+        native_default_on("notes-vault", StorePlugins::Off(&used)),
+        Some(false)
+    );
 }
 
 #[test]
@@ -117,16 +127,24 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 fn kernel(config: &str) -> Kernel {
+    kernel_with(config, paperpaw_app::default_store())
+}
+
+fn kernel_with(config: &str, store: StorePlugins<'static>) -> Kernel {
     let builder: KernelBuilder = Kernel::builder(DEVICE)
         .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
         .user_config(format!("[core]\nlanguage = en\n{config}"));
-    native_activation::build(paperpaw_app::install(
-        builder,
-        #[cfg(any(feature = "packs", not(feature = "outline")))]
-        paperpaw_app::Fonts::Packs,
-        #[cfg(all(feature = "outline", not(feature = "packs")))]
-        paperpaw_app::Fonts::Outline,
-    ))
+    native_activation::build_with(
+        paperpaw_app::install_with(
+            builder,
+            #[cfg(any(feature = "packs", not(feature = "outline")))]
+            paperpaw_app::Fonts::Packs,
+            #[cfg(all(feature = "outline", not(feature = "packs")))]
+            paperpaw_app::Fonts::Outline,
+            store,
+        ),
+        store,
+    )
 }
 
 fn state(kernel: &Kernel, id: &str) -> Option<(PluginState, bool)> {
@@ -178,4 +196,46 @@ fn a_shipped_off_plugin_switched_on_in_the_configuration_is_hosted() {
 fn a_plugin_switched_off_in_the_configuration_is_not_hosted() {
     let kernel = kernel("[plugins]\nwidgets = off\n");
     assert_eq!(state(&kernel, "widgets"), Some((PluginState::Off, false)));
+}
+
+#[cfg(feature = "native-linked-store")]
+#[test]
+fn where_the_store_installs_a_plugin_the_linked_one_is_not_hosted_nor_listed() {
+    // `id = on` must not host a second copy beside the card's plugin.
+    let kernel = kernel_with("[plugins]\nmail = on\nwidgets = on\n", StorePlugins::Left);
+    for id in STORE_PLUGINS {
+        assert_eq!(state(&kernel, id), None, "{id}");
+    }
+    // The ones the app always has are still listed.
+    assert!(state(&kernel, "menu").is_some());
+}
+
+#[test]
+fn in_safe_mode_the_linked_plugins_run_but_the_one_the_crash_was_in() {
+    use paperpaw_sdk::PluginProblem;
+    use paperpaw_sdk::native::{SafeMode, SafeModeReason};
+    let mut safe = SafeMode::new(SafeModeReason::FailedStarts);
+    safe.crashed = Some(String::from("menu"));
+    let builder: KernelBuilder = Kernel::builder(DEVICE)
+        .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
+        .user_config("[core]\nlanguage = en\n")
+        .safe_mode(safe);
+    let kernel = native_activation::build(paperpaw_app::install(
+        builder,
+        #[cfg(any(feature = "packs", not(feature = "outline")))]
+        paperpaw_app::Fonts::Packs,
+        #[cfg(all(feature = "outline", not(feature = "packs")))]
+        paperpaw_app::Fonts::Outline,
+    ));
+    let menu = kernel
+        .plugins()
+        .iter()
+        .find(|plugin| plugin.manifest.id.as_str() == "menu")
+        .expect("menu is listed");
+    assert_eq!(menu.state, PluginState::Off);
+    assert!(!menu.enabled);
+    assert_eq!(menu.problem, Some(PluginProblem::Crashed));
+    // A built-in plugin that did not crash is hosted as before.
+    let (state, enabled) = state(&kernel, "settings").expect("settings is listed");
+    assert!(enabled && state != PluginState::Off);
 }

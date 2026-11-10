@@ -3,6 +3,7 @@
 //! order against the module, and the refusals.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
+use super::frame_tests::in_frame;
 use super::*;
 use alloc::vec;
 use core::alloc::Layout;
@@ -116,7 +117,7 @@ pub(crate) fn scratch_zeroed_before_free() -> Option<bool> {
 #[global_allocator]
 static ALLOCATOR: Failing = Failing;
 
-const NORMAL: u8 = 0;
+pub(in crate::native_host) const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
 /// `make` returns OK with an output table that does not validate.
 const BAD_TABLE: u8 = 2;
@@ -137,7 +138,8 @@ fn logged() -> Vec<&'static str> {
     LOG.with(|log| log.borrow().clone())
 }
 
-fn reset(mode: u8) {
+pub(in crate::native_host) fn reset(mode: u8) {
+    super::frame_tests::clear();
     EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
@@ -152,7 +154,7 @@ fn reset(mode: u8) {
 }
 
 /// The shell's heap and clock.
-struct Heap;
+pub(in crate::native_host) struct Heap;
 
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
@@ -174,7 +176,7 @@ impl Services for Heap {
 }
 
 /// What keeps the plugin alive: its destructor checks the module still is.
-struct Module;
+pub(in crate::native_host) struct Module;
 
 impl Module {
     fn new() -> Self {
@@ -199,6 +201,7 @@ struct Fake {
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
     MAKES.with(|m| m.set(m.get() + 1));
+    in_frame(1, ctx);
     let mode = MODE.with(Cell::get);
     if mode == FAILS {
         return ERR_INVALID;
@@ -301,6 +304,7 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
     let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
+    in_frame(8, ctx);
     // SAFETY: the table and context outlive the destructor.
     unsafe {
         ((*host).heap_dealloc)(ctx, state, size_of::<Fake>(), align_of::<Fake>());
@@ -309,6 +313,8 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 
 unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
     // Started and the other events 32-39 have no reply family (section 6).
+    // SAFETY: the block `make` wrote, live while it is dispatched.
+    in_frame(2, unsafe { (*state.cast::<Fake>()).ctx });
     if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
@@ -320,6 +326,8 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply
 }
 
 unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    // SAFETY: as for `event`.
+    in_frame(4, unsafe { (*state.cast::<Fake>()).ctx });
     if !has_expected_core_frame(state) {
         return host_glue::ERR_STATE;
     }
@@ -330,14 +338,14 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32
     if frame.len == 1 { 1 } else { OK }
 }
 
-fn frame() -> Vec<u8> {
+pub(in crate::native_host) fn frame() -> Vec<u8> {
     let mut bytes = [0; 64];
     let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
     let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
     bytes[..len].to_vec()
 }
 
-fn fake() -> Hosted<Heap, Module> {
+pub(in crate::native_host) fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
     unsafe {
         Hosted::new(
@@ -354,7 +362,7 @@ fn fake() -> Hosted<Heap, Module> {
     .unwrap()
 }
 
-fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
+pub(in crate::native_host) fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
     hosted.owner().revoke();
     hosted.owner().finish().unwrap();
 }
