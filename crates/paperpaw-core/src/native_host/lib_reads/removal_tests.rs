@@ -5,7 +5,6 @@ extern crate std;
 use super::*;
 use crate::native_host::lib_reads::tests::card;
 use crate::native_host::lib_service::LibQuery;
-use paperpaw_platform::StorageError;
 use paperpaw_sdk::{annotations, positions};
 
 /// A book with everything the two phases remove.
@@ -168,10 +167,11 @@ fn an_unreadable_list_makes_the_delete_step_fail_after_the_rest_is_forgotten() {
         .unwrap();
     assert_eq!(
         details(&*card.storage, "books/c.epub"),
-        Err(storage_status(StorageError::InvalidData))
+        Err(paperpaw_native::host_glue::ERR_INVALID)
     );
     // The details and the fields are gone; the list is as it was, so a repeat
-    // gives the same answer and the delete does not finish.
+    // gives the same answer and the delete does not finish; the code is a
+    // permanent one, not the retried `ERR_IO`.
     assert!(library::book(&*card.storage, "books/c.epub").is_none());
     let mut read = [0_u8; 64];
     let n = card
@@ -181,6 +181,6 @@ fn an_unreadable_list_makes_the_delete_step_fail_after_the_rest_is_forgotten() {
     assert_eq!(&read[..n], newer);
     assert_eq!(
         details(&*card.storage, "books/c.epub"),
-        Err(storage_status(StorageError::InvalidData))
+        Err(paperpaw_native::host_glue::ERR_INVALID)
     );
 }
