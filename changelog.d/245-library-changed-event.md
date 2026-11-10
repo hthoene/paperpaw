@@ -1,0 +1,1 @@
+`core.library` now tells the plugins that subscribed to `event.library_changed` (tag 91) what changed: books, status, positions, annotations, fields. A plugin may register for it (the native `files` plugin was refused before), the changes raised between two passes arrive as one event, and the changer hears it too.
