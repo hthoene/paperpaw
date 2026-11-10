@@ -11,7 +11,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         registrations,
         reply::Reply,
         ui::{
@@ -328,15 +327,7 @@ impl Plugin for NativeWidgets {
         } else {
             (behaviour.draw)(&mut cx, &mut out, area)?;
         }
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
-        {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+        paint::replay(&mut frame, &cx.font, &out)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {

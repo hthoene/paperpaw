@@ -82,13 +82,23 @@ fn frame_flags() {
 /// with Bluetooth too (its heap is smaller by as much as Bluetooth takes).
 const STACK_FLOOR: u32 = 40 * 1024;
 
+/// The least main stack where interface-7 plugins are built in (`ppn5`): the
+/// deepest path measured (some 33 KiB) and the band with its reserve
+/// (`paperpaw_x4::s3_band::STACK_FLOOR`, whose test reads this line).
+const STACK_FLOOR_BAND: u32 = 50 * 1024;
+
 /// Fails the link where the main stack is below [`STACK_FLOOR`]: a
 /// linker script of its own, read beside esp-hal's.
 fn stack_floor(out: &std::path::Path) {
     let script = out.join("stack-floor.x");
+    let floor = if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
+        STACK_FLOOR_BAND
+    } else {
+        STACK_FLOOR
+    };
     let text = format!(
-        "ASSERT(_stack_start - _stack_end >= {STACK_FLOOR}, \"the main stack is below \
-         {STACK_FLOOR} bytes: give the heap less (HEAP_SIZE)\");\n"
+        "ASSERT(_stack_start - _stack_end >= {floor}, \"the main stack is below \
+         {floor} bytes: give the heap less (HEAP_SIZE)\");\n"
     );
     std::fs::write(&script, text).expect("stack-floor.x");
     println!("cargo::rustc-link-arg={}", script.display());

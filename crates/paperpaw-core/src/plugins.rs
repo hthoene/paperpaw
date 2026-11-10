@@ -567,6 +567,7 @@ impl Kernel {
         self.output
             .commands
             .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
     /// Adds a font file of `plugin`, described by its header.
@@ -796,6 +797,21 @@ impl Kernel {
         }
     }
 
+    /// Forgets the declaration cap `plugin` was refused at: it is tried again
+    /// or gone.
+    pub(crate) fn forget_refusal(&self, plugin: &Id) {
+        if let Some(declared) = self.shared.registry.native_declarations.as_ref() {
+            declared.clear_refusal(plugin.as_str());
+        }
+    }
+
+    /// As [`Self::forget_refusal`], giving `plugin` back for the caller's
+    /// own use.
+    pub(crate) fn begin_try(&self, plugin: &Id) -> Id {
+        self.forget_refusal(plugin);
+        plugin.clone()
+    }
+
     /// Removes a data plugin while running (see
     /// [`Command::RemovePlugin`](paperpaw_sdk::Command::RemovePlugin)).
     pub(crate) fn remove_plugin(&mut self, id: &Id) {
@@ -824,6 +840,9 @@ impl Kernel {
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
     pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
+        // A removed plugin leaves no refusal behind to take a place of the
+        // few the host keeps.
+        self.forget_refusal(id);
         let native_key = self.shared.native_instances.find(id.as_str());
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
@@ -1077,7 +1096,7 @@ impl Kernel {
     /// After a plugin was loaded or removed while running: the choices of
     /// fonts and key map presets (a font chosen that is no longer offered
     /// giving way), menu labels, fonts and keys anew.
-    fn plugins_changed(&mut self) {
+    pub(crate) fn plugins_changed(&mut self) {
         self.offer_choices();
         self.keep_offered_choices();
         self.apply_reading_font();
@@ -1086,6 +1105,8 @@ impl Kernel {
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        // What menus, bindings, slots, screens and the rest hold follows the set.
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     /// Releases memory reserved while plugins registered: on small devices

@@ -212,7 +212,7 @@ impl Widgets {
         let area = area_of(frame.rect);
         let mut out = Vec::new();
         (behaviour.draw)(&mut cx, &mut out, area, &item.slot)?;
-        paint::replay_with(&mut frame, &cx.font, None, &out)
+        paint::replay(&mut frame, &cx.font, &out)
     }
 
     /// What `input` is, if a tap on one of the widgets: the ring asks for a

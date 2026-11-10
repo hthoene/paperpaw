@@ -108,15 +108,13 @@ fn role_keys_are_resolved_by_the_host_and_drop_releases() {
     };
     for (role, key) in [
         (FontRole::Ui, "role:ui"),
-        (FontRole::UiBold, "role:ui-bold"),
         (FontRole::Reading, "role:reading"),
-        (FontRole::Mono, "role:mono"),
     ] {
         let font = Font::acquire_role(&host, role).unwrap();
         assert_eq!(ctx.key.borrow().as_str(), key);
         drop(font);
     }
-    assert_eq!(ctx.released.borrow().len(), 4);
+    assert_eq!(ctx.released.borrow().len(), 2);
 }
 
 #[test]

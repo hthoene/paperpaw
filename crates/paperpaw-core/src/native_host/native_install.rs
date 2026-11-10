@@ -102,6 +102,9 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // An input of the plugin's own and a help hint stay in the declaration
         // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
         Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
+        // A format and a reading app stay in the declaration store too
+        // (`document.md` section 1); the document service reads them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -181,6 +184,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        let networked = host.features().feature(crate::work::USES_NETWORK).is_ok();
         self.shared
             .native_instances
             .adopt_pool(
@@ -216,8 +220,15 @@ impl crate::Kernel {
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
+        // A batch refused at a declaration cap keeps which one, for the
+        // plugin's `reg_plugin` row.
+        let refused = self.shared.registry.native_declarations.as_ref();
         let (retained, (owner, owned, tokens, declared), raw) =
-            Retained::make_native_stored(host, map_declarations)?;
+            Retained::make_native_stored(host, map_declarations, |plugin, cap| {
+                if let Some(refused) = refused {
+                    refused.record_refusal(plugin, cap);
+                }
+            })?;
         if folder.is_none()
             && owned
                 .iter()
@@ -273,6 +284,10 @@ impl crate::Kernel {
                 .native_instances
                 .abandon(key)
                 .map_err(shell::Error::Status)?;
+        } else {
+            // With `uses.network` its network settings and policy (never a
+            // refusal: a failure warns).
+            self.admit_native_network(&owner, networked);
         }
         result
     }
@@ -306,6 +321,8 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
+        // Its firmware requests and its confirmation go with it.
+        self.firmware_sender_stopped(key);
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
@@ -349,6 +366,8 @@ impl crate::Kernel {
         // defined go with it (the reader's values stay for its next load).
         self.shared.actions.remove_plugin(owner.as_str());
         self.shared.settings.remove_plugin(owner.as_str());
+        // Its network policy goes; its network settings stay for its next load.
+        self.forget_native_network(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,

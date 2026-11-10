@@ -415,10 +415,12 @@ impl Kernel {
                 Ok(()) => {}
                 Err(ERR_NOT_FOUND) => {
                     self.warn_runtime("native preset dropped: it is gone");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
                 Err(_) => {
                     self.warn_runtime("native preset dropped: it changes a guarded setting");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
             }

@@ -28,87 +28,279 @@ pub struct PpHost {
     /// Highest implemented minor.
     pub minor: u16,
     /// heap.alloc: mutate, status, since 1.
-    pub heap_alloc: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, size: usize, align: usize, out: *mut *mut core::ffi::c_void) -> i32,
+    pub heap_alloc: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        size: usize,
+        align: usize,
+        out: *mut *mut core::ffi::c_void,
+    ) -> i32,
     /// heap.dealloc: mutate, status, since 1.
-    pub heap_dealloc: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, ptr: *mut core::ffi::c_void, size: usize, align: usize) -> i32,
+    pub heap_dealloc: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+        align: usize,
+    ) -> i32,
     /// heap.realloc: mutate, status, since 1.
-    pub heap_realloc: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, ptr: *mut core::ffi::c_void, old_size: usize, align: usize, new_size: usize, out: *mut *mut core::ffi::c_void) -> i32,
+    pub heap_realloc: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        ptr: *mut core::ffi::c_void,
+        old_size: usize,
+        align: usize,
+        new_size: usize,
+        out: *mut *mut core::ffi::c_void,
+    ) -> i32,
     /// clock.micros: query, status, since 1.
     pub clock_micros: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, out: *mut u64) -> i32,
     /// env.snapshot: query, status, since 1.
     pub env_snapshot: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, out: PpBuffer) -> i32,
     /// settings.read: query, length, since 1.
-    pub settings_read: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: PpBuffer) -> i32,
+    pub settings_read:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: PpBuffer) -> i32,
     /// i18n.copy: query, length, since 1.
-    pub i18n_copy: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: PpBuffer) -> i32,
+    pub i18n_copy:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: PpBuffer) -> i32,
     /// font.acquire: mutate, status, since 1.
-    pub font_acquire: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: *mut u32) -> i32,
+    pub font_acquire:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, out: *mut u32) -> i32,
     /// handle.release: mutate, status, since 1.
     pub handle_release: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, handle: u32) -> i32,
     /// canvas.fill_rect: mutate, status, since 1.
-    pub canvas_fill_rect: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32, color: u32) -> i32,
+    pub canvas_fill_rect: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        color: u32,
+    ) -> i32,
     /// canvas.draw_line: mutate, status, since 1.
-    pub canvas_draw_line: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x0: i32, y0: i32, x1: i32, y1: i32, width: u32, color: u32) -> i32,
+    pub canvas_draw_line: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        width: u32,
+        color: u32,
+    ) -> i32,
     /// canvas.fill_round: mutate, status, since 1.
-    pub canvas_fill_round: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32, radius: u32, color: u32) -> i32,
+    pub canvas_fill_round: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        radius: u32,
+        color: u32,
+    ) -> i32,
     /// canvas.stroke_round: mutate, status, since 1.
-    pub canvas_stroke_round: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32, radius: u32, thickness: u32, color: u32) -> i32,
+    pub canvas_stroke_round: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        radius: u32,
+        thickness: u32,
+        color: u32,
+    ) -> i32,
     /// text.measure: query, status, since 1.
-    pub text_measure: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, text: PpBytes, out: *mut f32) -> i32,
+    pub text_measure: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        font: u32,
+        size: f32,
+        text: PpBytes,
+        out: *mut f32,
+    ) -> i32,
     /// text.draw: mutate, status, since 1.
-    pub text_draw: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, x: f32, baseline: i32, color: u32, text: PpBytes, out: *mut f32) -> i32,
+    pub text_draw: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        font: u32,
+        size: f32,
+        x: f32,
+        baseline: i32,
+        color: u32,
+        text: PpBytes,
+        out: *mut f32,
+    ) -> i32,
     /// commands.submit: mutate, status, since 1.
     pub commands_submit: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, batch: PpBytes) -> i32,
     /// registrations.submit: mutate, status, since 1.
-    pub registrations_submit: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, batch: PpBytes) -> i32,
+    pub registrations_submit:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, batch: PpBytes) -> i32,
     /// services.query: mutate, status, since 1.
-    pub services_query: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, major: u16, minor: u16, out: *mut u32) -> i32,
+    pub services_query: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        key: PpBytes,
+        major: u16,
+        minor: u16,
+        out: *mut u32,
+    ) -> i32,
     /// blob.read: query, count, since 1.
-    pub blob_read: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, blob: u32, offset: u64, out: PpBuffer) -> i32,
+    pub blob_read: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        blob: u32,
+        offset: u64,
+        out: PpBuffer,
+    ) -> i32,
     /// blob.release: mutate, status, since 1.
     pub blob_release: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, blob: u32) -> i32,
     /// storage.size: query, status, since 1.
-    pub storage_size: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, out: *mut u64) -> i32,
+    pub storage_size: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        root: u32,
+        path: PpBytes,
+        out: *mut u64,
+    ) -> i32,
     /// storage.read_at: query, count, since 1.
-    pub storage_read_at: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, offset: u64, out: PpBuffer) -> i32,
+    pub storage_read_at: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        root: u32,
+        path: PpBytes,
+        offset: u64,
+        out: PpBuffer,
+    ) -> i32,
     /// storage.write: mutate, status, since 1.
-    pub storage_write: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, data: PpBytes) -> i32,
+    pub storage_write: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        root: u32,
+        path: PpBytes,
+        data: PpBytes,
+    ) -> i32,
     /// storage.append: mutate, status, since 1.
-    pub storage_append: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, data: PpBytes) -> i32,
+    pub storage_append: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        root: u32,
+        path: PpBytes,
+        data: PpBytes,
+    ) -> i32,
     /// storage.rename: mutate, status, since 1.
-    pub storage_rename: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, from: PpBytes, to: PpBytes) -> i32,
+    pub storage_rename: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        root: u32,
+        from: PpBytes,
+        to: PpBytes,
+    ) -> i32,
     /// storage.remove: mutate, status, since 1.
-    pub storage_remove: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes) -> i32,
+    pub storage_remove:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes) -> i32,
     /// storage.sync: mutate, status, since 1.
     pub storage_sync: unsafe extern "C" fn(ctx: *mut core::ffi::c_void) -> i32,
     /// i18n.format: query, length, since 1.
-    pub i18n_format: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32,
+    pub i18n_format: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        key: PpBytes,
+        args: PpBytes,
+        out: PpBuffer,
+    ) -> i32,
     /// i18n.digits: query, length, since 1.
-    pub i18n_digits: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, text: PpBytes, out: PpBuffer) -> i32,
+    pub i18n_digits:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, text: PpBytes, out: PpBuffer) -> i32,
     /// text.metrics: query, status, since 1.
-    pub text_metrics: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, ascent: *mut f32, descent: *mut f32, line_height: *mut f32) -> i32,
+    pub text_metrics: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        font: u32,
+        size: f32,
+        ascent: *mut f32,
+        descent: *mut f32,
+        line_height: *mut f32,
+    ) -> i32,
     /// text.ink: query, status, since 1.
-    pub text_ink: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, text: PpBytes, top: *mut i32, bottom: *mut i32, left: *mut i32, right: *mut i32) -> i32,
+    pub text_ink: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        font: u32,
+        size: f32,
+        text: PpBytes,
+        top: *mut i32,
+        bottom: *mut i32,
+        left: *mut i32,
+        right: *mut i32,
+    ) -> i32,
     /// canvas.clip: mutate, status, since 1.
-    pub canvas_clip: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32) -> i32,
+    pub canvas_clip: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> i32,
     /// stage.run: mutate, count, since 1.
-    pub stage_run: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, stage: PpBytes, cursor: u32, input: PpBytes, out: PpBuffer) -> i32,
+    pub stage_run: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        stage: PpBytes,
+        cursor: u32,
+        input: PpBytes,
+        out: PpBuffer,
+    ) -> i32,
     /// service.open: mutate, status, since 1.
-    pub service_open: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, major: u16, minor: u16, out: *mut u32) -> i32,
+    pub service_open: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        key: PpBytes,
+        major: u16,
+        minor: u16,
+        out: *mut u32,
+    ) -> i32,
     /// service.call: mutate, count, since 1.
-    pub service_call: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, service: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32,
+    pub service_call: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        service: u32,
+        op: u32,
+        input: PpBytes,
+        out: PpBuffer,
+    ) -> i32,
     /// ui.compose: mutate, status, since 1.
-    pub ui_compose: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32) -> i32,
+    pub ui_compose: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        kind: u32,
+        handle: u32,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+    ) -> i32,
     /// image.info: query, status, since 1.
-    pub image_info: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, out: PpBuffer) -> i32,
+    pub image_info:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, out: PpBuffer) -> i32,
     /// canvas.draw_image: mutate, status, since 1.
-    pub canvas_draw_image: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32,
+    pub canvas_draw_image: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        image: u32,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        flags: u32,
+    ) -> i32,
     /// text.hyphenate: query, status, since 1.
-    pub text_hyphenate: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, language: PpBytes, word: PpBytes, left: u32, right: u32, out: PpBuffer) -> i32,
+    pub text_hyphenate: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        language: PpBytes,
+        word: PpBytes,
+        left: u32,
+        right: u32,
+        out: PpBuffer,
+    ) -> i32,
     /// text.covers: query, length, since 1.
-    pub text_covers: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, text: PpBytes) -> i32,
+    pub text_covers:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, text: PpBytes) -> i32,
     /// icon.glyph: query, length, since 1.
-    pub icon_glyph: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, name: PpBytes, out: PpBuffer) -> i32,
+    pub icon_glyph:
+        unsafe extern "C" fn(ctx: *mut core::ffi::c_void, name: PpBytes, out: PpBuffer) -> i32,
+    /// text.draw_inked: mutate, status, since 1.
+    pub text_draw_inked: unsafe extern "C" fn(
+        ctx: *mut core::ffi::c_void,
+        font: u32,
+        size: f32,
+        x: f32,
+        baseline: i32,
+        color: u32,
+        text: PpBytes,
+        extra: u32,
+        tone: PpBytes,
+        flags: u32,
+        out: *mut f32,
+    ) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
@@ -163,11 +355,22 @@ pub struct PpPlugin {
     /// drop: since minor 1.
     pub drop: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void) -> ()>,
     /// dispatch_event: since minor 1.
-    pub dispatch_event: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes, out: PpBuffer) -> i32>,
+    pub dispatch_event: Option<
+        unsafe extern "C" fn(
+            state: *mut core::ffi::c_void,
+            token: u32,
+            input: PpBytes,
+            out: PpBuffer,
+        ) -> i32,
+    >,
     /// draw: since minor 1.
-    pub draw: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
+    pub draw: Option<
+        unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32,
+    >,
     /// input: since minor 1.
-    pub input: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
+    pub input: Option<
+        unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32,
+    >,
 }
 /// Raw PpEntry table since minor 1.
 /// Check accessible bytes before reading fields.
@@ -182,7 +385,13 @@ pub struct PpEntry {
     /// metadata: since minor 1.
     pub metadata: PpBytes,
     /// make: since minor 1.
-    pub make: Option<unsafe extern "C" fn(host: *const PpHost, host_ctx: *mut core::ffi::c_void, out: *mut *const PpPlugin) -> i32>,
+    pub make: Option<
+        unsafe extern "C" fn(
+            host: *const PpHost,
+            host_ctx: *mut core::ffi::c_void,
+            out: *mut *const PpPlugin,
+        ) -> i32,
+    >,
 }
 /// Raw PpHeap table since minor 1.
 /// Check accessible bytes before reading fields.
@@ -197,9 +406,17 @@ pub struct PpHeap {
     /// alloc: since minor 1.
     pub alloc: Option<unsafe extern "C" fn(size: usize, align: usize) -> *mut core::ffi::c_void>,
     /// dealloc: since minor 1.
-    pub dealloc: Option<unsafe extern "C" fn(ptr: *mut core::ffi::c_void, size: usize, align: usize) -> ()>,
+    pub dealloc:
+        Option<unsafe extern "C" fn(ptr: *mut core::ffi::c_void, size: usize, align: usize) -> ()>,
     /// realloc: since minor 1.
-    pub realloc: Option<unsafe extern "C" fn(ptr: *mut core::ffi::c_void, old_size: usize, align: usize, new_size: usize) -> *mut core::ffi::c_void>,
+    pub realloc: Option<
+        unsafe extern "C" fn(
+            ptr: *mut core::ffi::c_void,
+            old_size: usize,
+            align: usize,
+            new_size: usize,
+        ) -> *mut core::ffi::c_void,
+    >,
     /// abort: since minor 1.
     pub abort: Option<unsafe extern "C" fn(code: i32, msg: *const u8, msg_len: usize) -> !>,
 }
@@ -321,7 +538,9 @@ unsafe fn plugin_callback_size(table: *const u8, accessible: usize) -> Result<us
     let size_offset = core::mem::offset_of!(PpPlugin, size);
     let size_end = size_offset + core::mem::size_of::<u32>();
     if table.is_null()
-        || !table.addr().is_multiple_of(core::mem::align_of::<PpPlugin>())
+        || !table
+            .addr()
+            .is_multiple_of(core::mem::align_of::<PpPlugin>())
         || accessible < size_end
         || accessible > isize::MAX as usize
         || table.addr().checked_add(accessible).is_none()
@@ -359,7 +578,9 @@ pub unsafe fn read_plugin_state(
     accessible: usize,
 ) -> Result<*mut core::ffi::c_void, i32> {
     // SAFETY: The caller supplies a stable initialized prefix.
-    unsafe { plugin_callback_size(table, accessible)?; }
+    unsafe {
+        plugin_callback_size(table, accessible)?;
+    }
     let offset = core::mem::offset_of!(PpPlugin, state);
     // SAFETY: The validated prefix covers the aligned raw state pointer.
     Ok(unsafe { table.add(offset).cast::<*mut core::ffi::c_void>().read() })
@@ -378,11 +599,16 @@ pub unsafe fn read_plugin_drop(
     accessible: usize,
 ) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void), i32> {
     // SAFETY: The caller supplies a stable initialized prefix.
-    unsafe { plugin_callback_size(table, accessible)?; }
+    unsafe {
+        plugin_callback_size(table, accessible)?;
+    }
     let offset = core::mem::offset_of!(PpPlugin, drop);
     // SAFETY: The validated prefix covers the aligned destruction callback.
     let drop = unsafe {
-        table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void)>>().read()
+        table
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void)>>()
+            .read()
     };
     drop.ok_or(ERR_INVALID)
 }
@@ -406,12 +632,17 @@ pub unsafe fn read_plugin_dispatch_event(
     // SAFETY: The caller supplies readable stable storage and valid field values.
     let declared = unsafe { plugin_callback_size(table, accessible)? };
     let offset = core::mem::offset_of!(PpPlugin, dispatch_event);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>>();
+    let end = offset
+        + core::mem::size_of::<
+            Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>,
+        >();
     if declared < end {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: Both lengths cover this aligned field; its representation is valid.
-    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>>().read() };
+    let callback = unsafe {
+        table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>>().read()
+    };
     callback.ok_or(ERR_UNSUPPORTED)
 }
 
@@ -434,12 +665,20 @@ pub unsafe fn read_plugin_draw(
     // SAFETY: The caller supplies readable stable storage and valid field values.
     let declared = unsafe { plugin_callback_size(table, accessible)? };
     let offset = core::mem::offset_of!(PpPlugin, draw);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
+    let end = offset
+        + core::mem::size_of::<
+            Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>,
+        >();
     if declared < end {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: Both lengths cover this aligned field; its representation is valid.
-    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
+    let callback = unsafe {
+        table
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>()
+            .read()
+    };
     callback.ok_or(ERR_UNSUPPORTED)
 }
 
@@ -462,12 +701,20 @@ pub unsafe fn read_plugin_input(
     // SAFETY: The caller supplies readable stable storage and valid field values.
     let declared = unsafe { plugin_callback_size(table, accessible)? };
     let offset = core::mem::offset_of!(PpPlugin, input);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
+    let end = offset
+        + core::mem::size_of::<
+            Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>,
+        >();
     if declared < end {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: Both lengths cover this aligned field; its representation is valid.
-    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
+    let callback = unsafe {
+        table
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>()
+            .read()
+    };
     callback.ok_or(ERR_UNSUPPORTED)
 }
 
@@ -479,8 +726,16 @@ unsafe fn heap_entry_end(table: *const PpHeap, end: usize) -> bool {
     // SAFETY: a heap table begins with its size and major (`abi/heap-word.md`).
     let (size, major) = unsafe {
         (
-            table.cast::<u8>().add(core::mem::offset_of!(PpHeap, size)).cast::<u32>().read(),
-            table.cast::<u8>().add(core::mem::offset_of!(PpHeap, major)).cast::<u16>().read(),
+            table
+                .cast::<u8>()
+                .add(core::mem::offset_of!(PpHeap, size))
+                .cast::<u32>()
+                .read(),
+            table
+                .cast::<u8>()
+                .add(core::mem::offset_of!(PpHeap, major))
+                .cast::<u16>()
+                .read(),
         )
     };
     major == MAJOR && usize::try_from(size).is_ok_and(|size| size >= end)
@@ -491,15 +746,23 @@ unsafe fn heap_entry_end(table: *const PpHeap, end: usize) -> bool {
 /// # Safety
 /// `table` is null or the heap word's value: an aligned host table whose first
 /// `size` bytes stay readable and unchanged while the plugin runs.
-pub unsafe fn read_heap_alloc(table: *const PpHeap) -> Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void> {
+pub unsafe fn read_heap_alloc(
+    table: *const PpHeap,
+) -> Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void> {
     let offset = core::mem::offset_of!(PpHeap, alloc);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void>>();
+    let end = offset
+        + core::mem::size_of::<Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void>>(
+        );
     // SAFETY: as documented; the entry is read only inside the checked size.
     unsafe {
         if !heap_entry_end(table, end) {
             return None;
         }
-        table.cast::<u8>().add(offset).cast::<Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void>>().read()
+        table
+            .cast::<u8>()
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(usize, usize) -> *mut core::ffi::c_void>>()
+            .read()
     }
 }
 /// The heap table's `dealloc` entry, or `None` where the table is null,
@@ -508,15 +771,23 @@ pub unsafe fn read_heap_alloc(table: *const PpHeap) -> Option<unsafe extern "C" 
 /// # Safety
 /// `table` is null or the heap word's value: an aligned host table whose first
 /// `size` bytes stay readable and unchanged while the plugin runs.
-pub unsafe fn read_heap_dealloc(table: *const PpHeap) -> Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)> {
+pub unsafe fn read_heap_dealloc(
+    table: *const PpHeap,
+) -> Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)> {
     let offset = core::mem::offset_of!(PpHeap, dealloc);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)>>();
+    let end = offset
+        + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)>>(
+        );
     // SAFETY: as documented; the entry is read only inside the checked size.
     unsafe {
         if !heap_entry_end(table, end) {
             return None;
         }
-        table.cast::<u8>().add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)>>().read()
+        table
+            .cast::<u8>()
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize)>>()
+            .read()
     }
 }
 /// The heap table's `realloc` entry, or `None` where the table is null,
@@ -525,15 +796,40 @@ pub unsafe fn read_heap_dealloc(table: *const PpHeap) -> Option<unsafe extern "C
 /// # Safety
 /// `table` is null or the heap word's value: an aligned host table whose first
 /// `size` bytes stay readable and unchanged while the plugin runs.
-pub unsafe fn read_heap_realloc(table: *const PpHeap) -> Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void> {
+pub unsafe fn read_heap_realloc(
+    table: *const PpHeap,
+) -> Option<
+    unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void,
+> {
     let offset = core::mem::offset_of!(PpHeap, realloc);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void>>();
+    let end = offset
+        + core::mem::size_of::<
+            Option<
+                unsafe extern "C" fn(
+                    *mut core::ffi::c_void,
+                    usize,
+                    usize,
+                    usize,
+                ) -> *mut core::ffi::c_void,
+            >,
+        >();
     // SAFETY: as documented; the entry is read only inside the checked size.
     unsafe {
         if !heap_entry_end(table, end) {
             return None;
         }
-        table.cast::<u8>().add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void>>().read()
+        table
+            .cast::<u8>()
+            .add(offset)
+            .cast::<Option<
+                unsafe extern "C" fn(
+                    *mut core::ffi::c_void,
+                    usize,
+                    usize,
+                    usize,
+                ) -> *mut core::ffi::c_void,
+            >>()
+            .read()
     }
 }
 /// The heap table's `abort` entry, or `None` where the table is null,
@@ -542,14 +838,21 @@ pub unsafe fn read_heap_realloc(table: *const PpHeap) -> Option<unsafe extern "C
 /// # Safety
 /// `table` is null or the heap word's value: an aligned host table whose first
 /// `size` bytes stay readable and unchanged while the plugin runs.
-pub unsafe fn read_heap_abort(table: *const PpHeap) -> Option<unsafe extern "C" fn(i32, *const u8, usize) -> !> {
+pub unsafe fn read_heap_abort(
+    table: *const PpHeap,
+) -> Option<unsafe extern "C" fn(i32, *const u8, usize) -> !> {
     let offset = core::mem::offset_of!(PpHeap, abort);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(i32, *const u8, usize) -> !>>();
+    let end =
+        offset + core::mem::size_of::<Option<unsafe extern "C" fn(i32, *const u8, usize) -> !>>();
     // SAFETY: as documented; the entry is read only inside the checked size.
     unsafe {
         if !heap_entry_end(table, end) {
             return None;
         }
-        table.cast::<u8>().add(offset).cast::<Option<unsafe extern "C" fn(i32, *const u8, usize) -> !>>().read()
+        table
+            .cast::<u8>()
+            .add(offset)
+            .cast::<Option<unsafe extern "C" fn(i32, *const u8, usize) -> !>>()
+            .read()
     }
 }
