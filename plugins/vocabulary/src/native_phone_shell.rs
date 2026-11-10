@@ -24,7 +24,7 @@ use crate::declarations::PHONE_TOKEN;
 use crate::files::{DataFolder, FOLDER};
 use crate::native_phone::{PhoneView, State, reason_word};
 use crate::native_phone_page;
-use crate::native_phone_web::{ANSWER_FILE, Answer, Body, MAX_IMPORT, PAGE_FILE, Request, answer};
+use crate::native_phone_web::{ANSWER_FILES, Answer, Body, MAX_IMPORT, PAGE_FILE, Request, answer};
 use crate::native_plugin::NativeVocabulary;
 use crate::native_words::{HostWords, Words};
 use crate::{cards, native_key};
@@ -192,6 +192,18 @@ impl NativeVocabulary {
     /// The server runs at `address`: the key is drawn now (on the X4 the radio
     /// makes it fully random) and the address shown with it.
     fn phone_serving(&mut self, host: &Host<'_>, address: &str) -> Result<(), Error> {
+        let shown = self.phone_serving_key(host, address);
+        if shown.is_err() {
+            // No address on the screen: no page served without a guard.
+            let _ = self.phone_stop(host);
+            if let Some(view) = self.phones.top(PHONE_TOKEN) {
+                view.guard = None;
+            }
+        }
+        shown
+    }
+
+    fn phone_serving_key(&mut self, host: &Host<'_>, address: &str) -> Result<(), Error> {
         let key = match self.draw_key(host) {
             Ok(Some(key)) => key,
             Ok(None) | Err(Error::Unsupported | Error::NotFound | Error::Denied) => {
@@ -242,14 +254,20 @@ impl NativeVocabulary {
         if self.phones.get(instance).is_none() {
             return Ok(());
         }
+        if let Some(view) = self.phones.get(instance) {
+            // The address carries the key: not left on the heap.
+            view.wipe();
+        }
         self.phones.close(instance);
-        self.phone_stop(host)?;
-        for file in [PAGE_FILE, ANSWER_FILE] {
+        // The files go whether or not the stop was refused.
+        let stopped = self.phone_stop(host);
+        let mut refused = stopped.err();
+        for file in core::iter::once(PAGE_FILE).chain(ANSWER_FILES) {
             if let Err(Error::NoMemory) = storage::remove(host, Root::Data, file) {
-                return Err(Error::NoMemory);
+                refused = Some(Error::NoMemory);
             }
         }
-        Ok(())
+        refused.map_or(Ok(()), Err)
     }
 
     /// A request came to the page. Whatever it asks, the answer is sent and
@@ -325,8 +343,13 @@ impl NativeVocabulary {
                 response.body(words.as_bytes())?
             }
             Body::Owned(words) => {
-                replace(host, Root::Data, ANSWER_FILE, words.as_bytes())?;
-                response.send_file(FileRoot::Data, ANSWER_FILE)?
+                let slot = self
+                    .phones
+                    .top(PHONE_TOKEN)
+                    .map_or(0, PhoneView::next_answer_file);
+                let file = ANSWER_FILES[slot % ANSWER_FILES.len()];
+                replace(host, Root::Data, file, words.as_bytes())?;
+                response.send_file(FileRoot::Data, file)?
             }
             Body::Page => response.send_file(FileRoot::Data, PAGE_FILE)?,
         };

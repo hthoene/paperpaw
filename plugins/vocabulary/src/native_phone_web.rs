@@ -27,8 +27,16 @@ pub(crate) const MAX_FORM: usize = 16 * 1024;
 pub(crate) const MAX_IMPORT: u64 = 4 << 20;
 /// The page's file in the data folder, for `core.net` to send.
 pub(crate) const PAGE_FILE: &str = "phone-page.html";
-/// A long answer's file, in the data folder, for the same.
-pub(crate) const ANSWER_FILE: &str = "phone-answer.json";
+/// The files of long answers, in the data folder, for the same. The host reads
+/// the file in parts after the callback and up to two requests of the server
+/// are open at once, so each long answer has a file of its own, in turn: the
+/// one written four answers ago is long sent.
+pub(crate) const ANSWER_FILES: [&str; 4] = [
+    "phone-answer-0.json",
+    "phone-answer-1.json",
+    "phone-answer-2.json",
+    "phone-answer-3.json",
+];
 
 const JSON: &str = "application/json";
 const PLAIN: &str = "text/plain; charset=utf-8";

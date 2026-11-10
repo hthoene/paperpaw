@@ -23,7 +23,6 @@ use crate::native_words::Words;
 const TITLE: &str = "vocabulary.phone.title";
 
 /// What the screen shows.
-#[derive(Debug)]
 pub(crate) enum State {
     /// Said instead of the address: starting, or why there is none.
     Message(String),
@@ -31,8 +30,17 @@ pub(crate) enum State {
     Serving { url: String, qr: Option<QrCode> },
 }
 
+/// The address carries the key: it is not in what `Debug` prints.
+impl core::fmt::Debug for State {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            State::Message(words) => f.debug_tuple("Message").field(words).finish(),
+            State::Serving { .. } => f.write_str("Serving"),
+        }
+    }
+}
+
 /// One open phone screen.
-#[derive(Debug)]
 pub(crate) struct PhoneView {
     state: State,
     /// What is said with the address: how to use it, and what the phone did
@@ -43,9 +51,39 @@ pub(crate) struct PhoneView {
     /// Whether serving was asked for (once for each time the screen opens).
     pub(crate) started: bool,
     last: Option<String>,
+    /// The file of the next long answer (`native_phone_web::ANSWER_FILES`).
+    answers: usize,
+}
+
+impl core::fmt::Debug for PhoneView {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhoneView")
+            .field("state", &self.state)
+            .field("started", &self.started)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PhoneView {
+    /// The file of the next long answer: each in turn.
+    pub(crate) fn next_answer_file(&mut self) -> usize {
+        let slot = self.answers;
+        self.answers = self.answers.wrapping_add(1);
+        slot
+    }
+
+    /// The address (it holds the key) and its code are wiped.
+    pub(crate) fn wipe(&mut self) {
+        if let State::Serving { url, qr } =
+            core::mem::replace(&mut self.state, State::Message(String::new()))
+        {
+            paperpaw_ui_kit::mem::wipe_text(url);
+            if let Some(mut code) = qr {
+                code.wipe();
+            }
+        }
+    }
+
     /// The screen as opened: saying that it starts.
     ///
     /// # Errors
@@ -57,6 +95,7 @@ impl PhoneView {
             guard: None,
             started: false,
             last: None,
+            answers: 0,
         })
     }
 
