@@ -25,6 +25,7 @@ use super::grid::{Item, What};
 
 /// What the buttons do to the item chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Mode {
     /// Left and right go sideways, up and down a row.
     Move,
@@ -34,6 +35,7 @@ pub enum Mode {
 
 /// A button press while an item is moved or sized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Dir {
     Left,
     Right,
