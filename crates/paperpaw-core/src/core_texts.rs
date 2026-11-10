@@ -19,3 +19,33 @@ pub(crate) fn add(r: &mut Registrar) -> Result<(), RegisterError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use paperpaw_i18n::{Catalog, check};
+
+    /// Each language pair has the same keys and placeholders, the moved
+    /// `core.setting.*` and the host prompts included.
+    #[test]
+    fn every_catalog_pair_is_complete() {
+        for (en, de) in [
+            (
+                include_str!("../i18n/en.ini"),
+                include_str!("../i18n/de.ini"),
+            ),
+            (
+                include_str!("../i18n/host/en.ini"),
+                include_str!("../i18n/host/de.ini"),
+            ),
+            (
+                include_str!("../i18n/settings/en.ini"),
+                include_str!("../i18n/settings/de.ini"),
+            ),
+        ] {
+            let en = Catalog::parse(en).unwrap();
+            let de = Catalog::parse(de).unwrap();
+            let issues = check::compare(&en, &de);
+            assert!(issues.is_empty(), "{issues:?}");
+        }
+    }
+}
