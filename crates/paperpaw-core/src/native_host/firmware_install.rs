@@ -45,6 +45,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::Version;
 
+use super::plugin_job::PluginFacts;
+
 /// Most plugins that keep a firmware check result.
 pub(crate) const RESULTS_MAX: usize = 4;
 /// Most built-in plugins one bit is kept for.
@@ -322,8 +324,17 @@ type Slot = Option<CheckResult>;
 struct CheckResult {
     request: u32,
     reason: u8,
-    facts: Option<CheckFacts>,
+    facts: Facts,
     bits: Bits,
+}
+
+/// What a finished check found: a firmware image's facts or a plugin's. One
+/// slot holds either, so a result is no bigger than the larger of the two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Facts {
+    None,
+    Firmware(CheckFacts),
+    Plugin(PluginFacts),
 }
 
 /// A finished firmware check, for op 6 and op 16.
@@ -331,11 +342,33 @@ struct CheckResult {
 pub(crate) struct Checked {
     pub(crate) request: u32,
     pub(crate) reason: u8,
-    pub(crate) facts: Option<CheckFacts>,
+    facts: Facts,
     bits: Bits,
 }
 
 impl Checked {
+    /// The firmware image's facts, `None` for a plugin's check or one that
+    /// found none.
+    pub(crate) fn facts(&self) -> Option<&CheckFacts> {
+        match &self.facts {
+            Facts::Firmware(facts) => Some(facts),
+            _ => None,
+        }
+    }
+
+    /// The plugin's facts, `None` for a firmware check or one that found none.
+    pub(crate) fn plugin_facts(&self) -> Option<&PluginFacts> {
+        match &self.facts {
+            Facts::Plugin(facts) => Some(facts),
+            _ => None,
+        }
+    }
+
+    /// Whether this is the result of a plugin check (`check_file` kind 0).
+    pub(crate) fn is_plugin(&self) -> bool {
+        matches!(self.facts, Facts::Plugin(_))
+    }
+
     /// `dev_check.flags` bit 5: the image leaves out plugins built in now.
     pub(crate) fn leaves_out_some(&self) -> bool {
         (0..usize::from(self.bits.count)).any(|index| self.bits.leaves_out(index))
@@ -541,7 +574,10 @@ impl FirmwareInstall {
     pub(crate) fn leaves_out_of(&self, owner: u64) -> Result<Checked, i32> {
         let checked = self.checked(owner)?;
         match checked.facts {
-            Some(facts) if !facts.foreign => Ok(checked),
+            Facts::Firmware(facts) if !facts.foreign => Ok(checked),
+            // The rows of op 16 are a firmware check's: the caller's last
+            // check was a plugin's, so it has no finished firmware check.
+            Facts::Plugin(_) => Err(ERR_NOT_FOUND),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -737,10 +773,10 @@ impl FirmwareInstall {
         // gives the update plugin the key to ask for, the version and the size.
         let (facts, bits) = match facts {
             Some(_) if matches!(reason, r if r == Reason::OTHER_CHIP.0 || r == Reason::DAMAGED.0) => {
-                (None, Bits::NONE)
+                (Facts::None, Bits::NONE)
             }
-            Some(facts) => (Some(facts), bits),
-            None => (None, Bits::NONE),
+            Some(facts) => (Facts::Firmware(facts), bits),
+            None => (Facts::None, Bits::NONE),
         };
         if job.install.is_none() {
             self.keep(
@@ -847,10 +883,35 @@ impl FirmwareInstall {
             CheckResult {
                 request,
                 reason,
-                facts: None,
+                facts: Facts::None,
                 bits: Bits::NONE,
             },
         );
+    }
+
+    /// `owner`'s plugin check was stopped before it ran or ended: its result
+    /// slot says what it found (`facts`, none for a refusal).
+    pub(crate) fn keep_plugin(
+        &mut self,
+        owner: u64,
+        request: u32,
+        reason: u8,
+        facts: Option<PluginFacts>,
+    ) {
+        self.keep(
+            owner,
+            CheckResult {
+                request,
+                reason,
+                facts: facts.map_or(Facts::None, Facts::Plugin),
+                bits: Bits::NONE,
+            },
+        );
+    }
+
+    /// `owner`'s plugin check starts: its result slot waits (op 6 `ERR_BUSY`).
+    pub(crate) fn plugin_check_started(&mut self, owner: u64) {
+        self.mark_running(owner);
     }
 
     /// `firmware_restart` at submit: only the plugin whose install waits may
