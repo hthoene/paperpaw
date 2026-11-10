@@ -190,6 +190,8 @@ pub struct RadioRequests {
     entries: Vec<Entry>,
     stale: [Option<Stale>; MAX_REQUESTS],
     last_token: u32,
+    /// No delivery is tried before this time (a plugin could not be called).
+    retry_at: Option<u64>,
 }
 
 impl fmt::Debug for RadioRequests {
@@ -226,6 +228,7 @@ impl RadioRequests {
             entries: Vec::new(),
             stale: [None; MAX_REQUESTS],
             last_token: 0,
+            retry_at: None,
         }
     }
 
@@ -540,6 +543,66 @@ impl RadioRequests {
                 outcome,
             }),
             _ => None,
+        })
+    }
+
+    /// The `nth` ended request, oldest first, with its owner: the pump tells
+    /// each plugin its own, one that cannot be called does not hold up another.
+    #[must_use]
+    pub fn nth_outcome(&self, nth: usize) -> Option<(&str, Delivery<'_>)> {
+        self.entries
+            .iter()
+            .filter_map(|entry| match entry.phase {
+                Phase::Done(outcome) => Some((
+                    entry.owner.as_str(),
+                    Delivery {
+                        request: entry.request,
+                        ssid: entry.ssid.as_str(),
+                        outcome,
+                    },
+                )),
+                _ => None,
+            })
+            .nth(nth)
+    }
+
+    /// Whether an ended request waits for its delivery.
+    #[must_use]
+    pub fn has_outcomes(&self) -> bool {
+        self.nth_outcome(0).is_some()
+    }
+
+    /// A plugin could not be called: no new try before `until_ms`.
+    pub fn hold_back(&mut self, until_ms: u64) {
+        self.retry_at = Some(until_ms);
+    }
+
+    /// Whether deliveries wait for a later time.
+    #[must_use]
+    pub fn held(&self, now_ms: u64) -> bool {
+        self.retry_at.is_some_and(|at| now_ms < at)
+    }
+
+    /// When the held deliveries are tried again; none without an ended request.
+    #[must_use]
+    pub fn due(&self) -> Option<u64> {
+        self.retry_at.filter(|_| self.has_outcomes())
+    }
+
+    /// Releases the `nth` ended request when it is still `request` (its sender
+    /// is gone, so nobody is told); never another one.
+    pub fn release_ended_at(&mut self, nth: usize, request: u32) -> bool {
+        let at = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry.phase, Phase::Done(_)))
+            .nth(nth)
+            .filter(|(_, entry)| entry.request == request)
+            .map(|(at, _)| at);
+        at.is_some_and(|at| {
+            self.entries.remove(at);
+            true
         })
     }
 

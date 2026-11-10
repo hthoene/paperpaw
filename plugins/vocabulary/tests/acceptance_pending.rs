@@ -35,7 +35,9 @@ const LOOKUP: Case = Case {
 const WIDGETS: Case = Case {
     name: "vocabulary-widgets",
     golden: None,
-    blocked_by: &["the port of the widgets on the widget stage (Vocabulary's own, as Stats')"],
+    blocked_by: &[
+        "a scripted host that measures and draws a widget with fonts and the cards (hosted construction, #944)",
+    ],
 };
 /// The words marked in books of their language.
 const MARKS: Case = Case {
@@ -64,16 +66,16 @@ const WORD_LIST_ACTIONS: Case = Case {
     name: "vocabulary-word-list-go-to-and-export",
     golden: None,
     blocked_by: &[
-        "reader open-at (#224)",
-        "core.files #339",
-        "native::files facade #384",
+        "a scripted host that draws the list and drives its input and dialogs (hosted construction, #944)",
     ],
 };
 /// A flash card due is the sleep screen; the review opens on waking.
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
     golden: None,
-    blocked_by: &["sleep and wake stages"],
+    blocked_by: &[
+        "a scripted host that shows the sleep slot and wakes (hosted construction, #944)",
+    ],
 };
 
 #[test]
@@ -115,7 +117,7 @@ fn a_tapped_word_is_looked_up_again() {
 }
 
 #[test]
-#[ignore = "BLOCKED Core todo 76 and #366: the widget host call and the widget toolkit"]
+#[ignore = "BLOCKED a scripted host that measures and draws a widget (hosted construction #944): the widgets are native (native_widgets.rs); made, dropped and declared are tested in tests/scripted_widgets.rs"]
 fn the_widgets_show_a_word_and_the_cards_due() {
     WIDGETS.refuse().unwrap();
 }
@@ -139,13 +141,13 @@ fn card_files_on_the_card_update_the_decks() {
 }
 
 #[test]
-#[ignore = "BLOCKED #224/#339/#384: Go to in the book (reader open-at) and Export (a Storage over core.files) on the list of words"]
+#[ignore = "BLOCKED a scripted host that drives the list screen, its dialogs and core.files (hosted construction #944): Export and Go to are native (native_export.rs, native_goto.rs); the rows and the export format are tested"]
 fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
     WORD_LIST_ACTIONS.refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED sleep/wake stages: the front of the next card asleep, answered on waking (sleep.rs)"]
+#[ignore = "BLOCKED a scripted host that shows the sleep slot and wakes (hosted construction #944): the pick of the card is native_sleep_card (tested), the offer is declared (tests/declarations.rs)"]
 fn a_flash_card_due_is_the_sleep_screen_and_review_opens_on_waking() {
     SLEEP.refuse().unwrap();
 }
