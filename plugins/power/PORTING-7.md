@@ -1,5 +1,7 @@
 # Power on interface 7
 
+Status: **complete.** Native only, no interface-6 code left; the X4 file (`power`) packs at 49,068 B (format 5, interface 7.1, no frame refused).
+
 Version 1.1.2. Native plugin `src/native_plugin.rs` (`NativePower`), decisions
 without a host in `src/model.rs` (which mode the battery calls for, what the
 power menu offers and does). Built-in descriptor `NATIVE_ENTRY` (feature
