@@ -596,9 +596,9 @@ fn the_book_folder_lists_and_stats_through_root_3_and_the_host_decides_when() {
         page.entries().map(|e| e.name()).collect::<Vec<_>>(),
         ["cover.jpg", "page1.png"]
     );
-    assert!(page.done());
-    let sent = sent(&state);
-    let batch = wire::records_decode(&sent).unwrap();
+    assert_eq!(page.next(), None);
+    let bytes = sent(&state);
+    let batch = wire::records_decode(&bytes).unwrap();
     assert!(matches!(
         batch.iter().next(),
         Some(Record::ServiceFsList(r)) if (r.root, r.path, r.cursor) == (3, "", 0)
@@ -608,8 +608,8 @@ fn the_book_folder_lists_and_stats_through_root_3_and_the_host_decides_when() {
         .stat(&host, Root::Book, "page1.png", &mut input, &mut out)
         .unwrap();
     assert_eq!((e.name(), e.size()), ("page1.png", 1200));
-    let sent = sent(&state);
-    let batch = wire::records_decode(&sent).unwrap();
+    let bytes = sent(&state);
+    let batch = wire::records_decode(&bytes).unwrap();
     assert!(matches!(
         batch.iter().next(),
         Some(Record::ServiceFsPath(r)) if (r.root, r.path) == (3, "page1.png")
