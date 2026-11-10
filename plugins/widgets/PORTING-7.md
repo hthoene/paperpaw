@@ -82,8 +82,9 @@ interface-7 port uses it, none builds its own.
   the pages, the chapter and the speed are recorded from the reading events (book opened, page turned,
   book closed, suspend, stopping; one subscription token, 2) in `reading.ini` of the plugin's data
   folder (the file of interface 6 is read as it is). Differences: the pages left in the chapter (and
-  the time they take) are gone, because the reading position of interface 7 carries no chapter end
-  (the setting `chapter-left` is dropped; its texts leave with the interface-6 pack); the chapter's
+  the time they take) are not shown yet, because the reading position of interface 7 carries no chapter
+  end: pending on Kernel's `chapter_left` field of `ReadingView`. The setting `chapter-left` stays declared
+  (it does nothing for now) and its texts stay in the catalogs, so the line comes back without a settings change; the chapter's
   title stays on one line, shortened, where interface 6 broke it in several; the title is set in the
   space the other parts leave. Host acceptance (the reading events delivered to this plugin, H1/H3) is pending.
 

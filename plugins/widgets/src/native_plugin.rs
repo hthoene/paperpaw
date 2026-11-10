@@ -254,6 +254,34 @@ impl NativeWidgets {
     }
 }
 
+/// A tap on a widget of one book (the one being read, or the one chosen): the
+/// library opens where there is none, else the book.
+fn open_current(
+    host: &Host<'_>,
+    (token, widget): (u32, &str),
+    target: u32,
+    (current, next): (
+        &mut crate::native_current::Cache,
+        &mut crate::native_next::Cache,
+    ),
+) -> Result<Handled, Error> {
+    if target == crate::native_next::LIBRARY_TARGET {
+        let mut scratch = [0; 128];
+        CommandSender::new(host, &mut scratch).run_action("core.library")?;
+        return Ok(Handled::Yes);
+    }
+    let book = if token == crate::native_progress::TOKEN || token == crate::native_reading::TOKEN {
+        crate::native_progress::book(host, current)?
+    } else {
+        crate::native_next::book(host, widget, next)?
+    };
+    let Some(book) = book else {
+        return Ok(Handled::No);
+    };
+    crate::native_books::open_book(host, book)?;
+    Ok(Handled::Yes)
+}
+
 /// Notes what a widget shows now. If it differs from what it showed before,
 /// `queue` tells the maker, and only once that is queued is it remembered as
 /// shown; a refusal of either leaves `shown` as it was, so the next tick
@@ -490,23 +518,8 @@ impl Plugin for NativeWidgets {
             return Ok(Handled::Yes);
         }
         if tap == Some(Tap::Next) {
-            if target == crate::native_next::LIBRARY_TARGET {
-                let mut scratch = [0; 128];
-                CommandSender::new(host, &mut scratch).run_action("core.library")?;
-                return Ok(Handled::Yes);
-            }
-            let book = if item.token == crate::native_progress::TOKEN
-                || item.token == crate::native_reading::TOKEN
-            {
-                crate::native_progress::book(host, &mut self.current)?
-            } else {
-                crate::native_next::book(host, &item.widget, &mut self.next)?
-            };
-            let Some(book) = book else {
-                return Ok(Handled::No);
-            };
-            crate::native_books::open_book(host, book)?;
-            return Ok(Handled::Yes);
+            let kept = (&mut self.current, &mut self.next);
+            return open_current(host, (item.token, &item.widget), target, kept);
         }
         if tap == Some(Tap::Books) {
             if target & crate::native_shelf::BOOK_TARGET == 0 {
