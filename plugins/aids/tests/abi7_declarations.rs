@@ -85,3 +85,24 @@ fn the_settings_match_the_interface_6_registration() {
     );
     assert_eq!(specs[2].choices, pictures::CHOICES.join("\n"));
 }
+
+#[test]
+fn the_plugin_subscribes_to_the_readers_rules_stage() {
+    let mut batches = Vec::new();
+    {
+        let mut d = Declarations::new(|b: &[u8]| {
+            batches.push(b.to_vec());
+            Ok(())
+        });
+        declarations::subscriptions(&mut d).unwrap();
+    }
+    assert_eq!(batches.len(), 1);
+    let records = records_decode(&batches[0]).unwrap();
+    assert_eq!(records.len(), 1);
+    let shown = format!("{:?}", records.iter().next().unwrap());
+    assert!(shown.contains("reader.filter"), "{shown}");
+    assert!(
+        shown.contains(&format!("token: {}", declarations::FILTER_TOKEN)),
+        "{shown}"
+    );
+}

@@ -9,10 +9,9 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
-include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "reader-filter.def", "READER-FILTER.md"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "stages", "READER-FILTER.md"]
 
 [features]
-reader-filter = []
 linked = []
 native-entry = []
 

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use super::*;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 use paperpaw_sdk::document::{BlockKind, Run, TextStyle};
 use paperpaw_sdk::filters::Verdict;
 use proptest::prelude::*;
@@ -91,11 +91,11 @@ fn truncations_and_unknown_tags_never_change_the_block() {
         assert_eq!(block, original);
     }
     let mut unknown = bytes;
-    unknown[1] = 3; // local tag 3 is not part of schema 1
+    unknown[1] = 4; // local tag 4 is not part of schema 1
     let mut block = Block::new(BlockKind::Paragraph, 0, 5, "hello".to_string());
     assert!(matches!(
         apply(&unknown, "book.epub", &mut block),
-        Err(Error::Wire(-1))
+        Err(Error::Wire(_))
     ));
 }
 
@@ -150,7 +150,7 @@ fn semantic_refusal_is_atomic_and_short_output_is_untouched() {
             ..rules
         })],
     ] {
-        let len = wire::records_encode(&rows, &mut bytes).unwrap();
+        let len = wire::reply_encode(&rows, &mut bytes).unwrap();
         let original = Block::new(BlockKind::Paragraph, 0, 5, "hello".to_string());
         let mut actual = original.clone();
         assert_eq!(
@@ -214,13 +214,13 @@ fn assert_caption_source_span(alt: &str) {
 #[test]
 fn stale_cache_signature_refuses_before_mutation() {
     let bytes = encoded(true, "a=b", crate::pictures::SHOW, "Picture");
-    let batch = wire::records_decode(&bytes).unwrap();
-    let mut records: Vec<_> = batch.iter().collect();
+    let batch = wire::reply_decode(&bytes).unwrap();
+    let mut records: Vec<_> = batch.clone().map(Result::unwrap).collect();
     if let wire::Record::FilterPair(pair) = &mut records[1] {
         pair.to = "changed";
     }
     let mut altered = alloc::vec![0; 3840];
-    let len = wire::records_encode(&records, &mut altered).unwrap();
+    let len = wire::reply_encode(&records, &mut altered).unwrap();
     let original = Block::new(BlockKind::Paragraph, 0, 1, "a".to_string());
     let mut block = original.clone();
     assert_eq!(
@@ -228,4 +228,130 @@ fn stale_cache_signature_refuses_before_mutation() {
         Err(Error::Invalid)
     );
     assert_eq!(block, original);
+}
+
+fn ask(language: &str, image_only: u32) -> Vec<u8> {
+    let mut bytes = alloc::vec![0; 256];
+    let len = wire::input_encode(
+        &[wire::Record::FilterAsk(wire::FilterAsk::new(
+            language, "epub", image_only,
+        ))],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(len);
+    bytes
+}
+
+fn answered(language: &str, image_only: u32, pictures: &str) -> Vec<u8> {
+    let mut bytes = alloc::vec![0; 3840];
+    let len = answer(
+        &ask(language, image_only),
+        true,
+        "a=b",
+        pictures,
+        None,
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(len);
+    bytes
+}
+
+fn caption_of(bytes: &[u8]) -> (u32, String) {
+    let mut rows = wire::reply_decode(bytes).unwrap();
+    let Some(Ok(wire::Record::FilterRules(rules))) = rows.next() else {
+        panic!("no rules");
+    };
+    (rules.pictures, rules.caption_word.to_string())
+}
+
+#[test]
+fn the_answer_holds_the_rules_in_the_language_asked_for() {
+    let de = answered("de-CH", 0, crate::pictures::CAPTION);
+    assert_eq!(caption_of(&de), (1, "Bild".to_string()));
+    let en = answered("en", 0, crate::pictures::HIDE);
+    assert_eq!(caption_of(&en), (2, "Picture".to_string()));
+    // Another language than the two texts: the English one.
+    assert_eq!(
+        caption_of(&answered("fr", 0, crate::pictures::CAPTION)).1,
+        "Picture"
+    );
+    // The answer is a reply the application takes as it is.
+    let mut block = Block::new(BlockKind::Paragraph, 0, 1, "hello a".to_string());
+    apply(&de, "book.epub", &mut block).unwrap();
+    assert_eq!(block.text, "hello b");
+}
+
+#[test]
+fn a_book_of_pictures_keeps_them() {
+    let bytes = answered("en", 1, crate::pictures::HIDE);
+    assert_eq!(caption_of(&bytes).0, 0);
+}
+
+#[test]
+fn the_caption_words_are_the_texts_of_the_catalogs() {
+    for (file, language) in [
+        (include_str!("../../i18n/en.ini"), "en"),
+        (include_str!("../../i18n/de.ini"), "de"),
+    ] {
+        let line = file
+            .lines()
+            .find_map(|l| l.strip_prefix("aids.picture = "))
+            .unwrap();
+        assert_eq!(caption_word(language), line, "{language}");
+    }
+}
+
+#[test]
+fn a_hostile_ask_is_refused_and_an_oversize_one_leaves_the_output_alone() {
+    let mut out = alloc::vec![7u8; 3840];
+    for bad in [&[][..], &[0xff; 9][..], &[1, 2][..]] {
+        assert!(answer(bad, true, "", crate::pictures::SHOW, None, &mut out).is_err());
+    }
+    let list: String = (0..33).map(|n| alloc::format!("w{n}=x;")).collect();
+    assert!(
+        answer(
+            &ask("en", 0),
+            false,
+            &list,
+            crate::pictures::SHOW,
+            None,
+            &mut out
+        )
+        .is_err()
+    );
+    assert!(out.iter().all(|&b| b == 7));
+}
+
+#[test]
+fn the_catalogs_word_is_taken_first_whatever_the_language() {
+    // A language pack's text (Arabic, Spanish, ...) is the host catalog's.
+    for word in ["صورة", "Imagen"] {
+        let mut bytes = alloc::vec![0; 3840];
+        let len = answer(
+            &ask("ar", 0),
+            false,
+            "",
+            crate::pictures::CAPTION,
+            Some(word),
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(caption_of(&bytes[..len]).1, word);
+    }
+    // No text (or an empty one): the plugin's own by language.
+    for none in [None, Some("")] {
+        let mut bytes = alloc::vec![0; 3840];
+        let len = answer(
+            &ask("de", 0),
+            false,
+            "",
+            crate::pictures::CAPTION,
+            none,
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(caption_of(&bytes[..len]).1, "Bild");
+    }
 }
