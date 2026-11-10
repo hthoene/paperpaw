@@ -60,11 +60,7 @@ fn one_prepared_format_claims_txt_and_text() {
 fn the_host_checks_the_format_and_names_what_it_refuses() {
     for batch in batches() {
         for record in records_decode(&batch).unwrap().iter() {
-            assert_eq!(
-                validate_record("format-txt", &record),
-                Ok(()),
-                "{record:?}"
-            );
+            assert_eq!(validate_record("format-txt", &record), Ok(()), "{record:?}");
         }
     }
 }
