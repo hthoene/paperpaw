@@ -47,6 +47,18 @@ pub(crate) trait NativeInstance: Dispatch {
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
     }
+    /// A widget's `input` callback at `token` with the one-record `bytes`
+    /// (`input.widget`), lent the command `stage`. An instance without a
+    /// stage path takes it without one.
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.input(token, bytes, env)
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -83,6 +95,16 @@ impl NativeLease {
         env: &paperpaw_sdk::Env<'_>,
     ) -> Result<i32, i32> {
         self.live()?.service_event(bytes, env)
+    }
+    /// A widget's `input` callback, with its command stage.
+    pub(crate) fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.input_staged(token, bytes, env, stage)
     }
     /// As [`Self::service_event`], with the callback's command stage.
     pub(crate) fn service_event_staged(
