@@ -101,6 +101,14 @@ clipboard is one space (or one line break) in the native `pasted`; the interface
 two spaces of it in a plain question. The plain field's panel leaves the status line free (the
 interface-6 one filled the screen from the top turned on its side). The native paint does not
 mirror for right to left yet, which the interface-6 keyboard did (the case `keyboard-rtl`).
+The X4 Pro key shares are pinned at 30/36/45 % of the width where interface 6 gave 30/40/50 %:
+32-40 px of 800, more than a few pixels; measure with the real fonts at native activation and
+adjust. `KeyboardDialog` (app tests of wifi and store) duplicates the `TestKeyboard` stand-in of the
+home, menu, picture-home and settings tests; unify them later.
+
+**Activation list.** Script packs' `points/keyboard.layouts.txt` lines are read by nothing until
+the stage path (`keyboard.layouts@1`) is wired, yet `docs/data-files.md` still lists them: update
+that page at activation. The app test `partial_redraw::keyboard` is ignored until then (todo 380).
 
 - Layouts other plugins add (interface 6 point `keyboard.layouts`, now the stage
   `keyboard.layouts@1`): the schema is `stages/keyboard.layouts@1.def` (input `layouts.ask`: the UI

@@ -464,10 +464,7 @@ fn widget_editors() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "re-enable at native activation (#228, todo 380): the keyboard is the native plugin only; the default build registers none, and the linked build waits for the native settings, help, lock, files and file-manager plugins (core.secrets, document/library/files services, event 87 #925)"]
 fn keyboard() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
