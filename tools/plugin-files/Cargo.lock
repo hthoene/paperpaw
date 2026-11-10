@@ -123,7 +123,6 @@ dependencies = [
  "paperpaw-plugin-aids",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-docx",
- "paperpaw-plugin-format-images",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
@@ -154,13 +153,6 @@ name = "paperpaw-plugin-format-epub"
 version = "1.0.5"
 dependencies = [
  "miniz_oxide",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-images"
-version = "1.0.4"
-dependencies = [
  "paperpaw-sdk",
 ]
 
