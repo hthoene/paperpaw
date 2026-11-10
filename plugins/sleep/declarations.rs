@@ -17,6 +17,8 @@ pub const PLUGINS_CHANGED: u32 = 15;
 /// A setting changed: a change of `sleep.show` binds or unbinds the slot
 /// (`native_plugin`); a start binds nothing.
 pub const SETTING_CHANGED: u32 = 14;
+/// A picture the host decoded for the screen is ready (`native_screen`).
+pub const IMAGE_READY: u32 = 16;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -189,6 +191,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::PluginsChanged, PLUGINS_CHANGED)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::ImageReady, IMAGE_READY)?;
     d.submit()
 }
 

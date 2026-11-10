@@ -16,6 +16,8 @@ pub(crate) struct RegistryPage<'a> {
     generation: u32,
     total: u32,
     end_bytes: usize,
+    /// Whole rows one page holds at most.
+    max_rows: usize,
 }
 
 impl<'a> RegistryPage<'a> {
@@ -46,7 +48,15 @@ impl<'a> RegistryPage<'a> {
             generation,
             total,
             end_bytes,
+            max_rows: core_registry_v1::PAGE_MAX_ROWS,
         })
+    }
+
+    /// A page of at most `rows` whole rows (a service whose reply schema says
+    /// fewer than `core.registry`'s 32).
+    pub(crate) fn rows_at_most(mut self, rows: usize) -> Self {
+        self.max_rows = rows;
+        self
     }
 
     /// Continue consumes the row; Break leaves it for the next page.
@@ -56,7 +66,7 @@ impl<'a> RegistryPage<'a> {
         if self.cursor == self.total {
             return Err(ERR_STATE);
         }
-        if self.rows == core_registry_v1::PAGE_MAX_ROWS {
+        if self.rows == self.max_rows {
             return Ok(ControlFlow::Break(()));
         }
         let length = record.framed_len()?;
