@@ -209,11 +209,6 @@ fn done(result: Result<(), StorageError>) -> Result<bool, StorageError> {
     }
 }
 
-/// [`update_list`](super::update_list) with its errors: a list that is
-/// there but unreadable is skipped (not written over), any other read or
-/// write error returned. The list is written only where `change` says it
-/// changed it (no copy of a list of up to 500 paths to compare), so a
-/// repeat writes nothing.
 /// What a list that is there but cannot be read (a newer version's, damaged,
 /// no text) does to the call: it is never written over either way.
 #[derive(Clone, Copy)]
@@ -225,6 +220,11 @@ enum Unreadable {
     Fail,
 }
 
+/// [`update_list`](super::update_list) with its errors: a list that is
+/// there but unreadable is not written over and is left or fails the call as
+/// `unreadable` says, any other read or write error is returned. The list is
+/// written only where `change` says it changed it (no copy of a list of up to
+/// 500 paths to compare), so a repeat writes nothing.
 fn try_update_list(
     storage: &dyn Storage,
     path: &str,
