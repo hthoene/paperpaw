@@ -85,6 +85,7 @@ pub struct NativeWidgets {
     /// The favourites and the series as last read.
     favourites: crate::native_favourites::Cache,
     series: crate::native_series::Cache,
+    next: crate::native_next::Cache,
 }
 
 impl NativeWidgets {
@@ -148,10 +149,12 @@ impl NativeWidgets {
                     .find(|item| item.instance.get() == instance.get())
                     .ok_or(Error::NotFound)?;
                 let tap = behaviour(item.token).map(|b| b.tap);
-                if tap == Some(Tap::Books) {
+                if matches!(tap, Some(Tap::Books | Tap::Next)) {
                     let cx = Cx::open(host, &item.widget)?;
                     let area = frame_to_area(rect);
-                    let targets = if item.token == crate::native_favourites::TOKEN {
+                    let targets = if item.token == crate::native_next::TOKEN {
+                        crate::native_next::targets_with(&cx, area, &mut self.next)?
+                    } else if item.token == crate::native_favourites::TOKEN {
                         crate::native_favourites::targets_with(&cx, area, &mut self.favourites)?
                     } else {
                         crate::native_series::targets_with(&cx, area, &mut self.series)?
@@ -359,7 +362,10 @@ impl Plugin for NativeWidgets {
                 paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
             );
             let mut out = Vec::new();
-            if item.token == crate::native_favourites::TOKEN {
+            if item.token == crate::native_next::TOKEN {
+                let kept = (&mut self.next, &mut pictures);
+                crate::native_next::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_favourites::TOKEN {
                 let kept = (&mut self.favourites, &mut pictures);
                 crate::native_favourites::draw_with(&mut cx, &mut out, area, kept)?;
             } else if item.token == crate::native_series::TOKEN {
@@ -448,6 +454,18 @@ impl Plugin for NativeWidgets {
             }
             self.todo.forget();
             CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
+            return Ok(Handled::Yes);
+        }
+        if tap == Some(Tap::Next) {
+            if target == crate::native_next::LIBRARY_TARGET {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).run_action("core.library")?;
+                return Ok(Handled::Yes);
+            }
+            let Some(book) = crate::native_next::book(host, &item.widget, &mut self.next)? else {
+                return Ok(Handled::No);
+            };
+            crate::native_books::open_book(host, book)?;
             return Ok(Handled::Yes);
         }
         if tap == Some(Tap::Books) {

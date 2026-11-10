@@ -347,6 +347,25 @@ const SERIES_OPTIONS: &[Opt] = &[
     Opt::Part("current", "widgets.books.part.current", true),
 ];
 
+const NEXT_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "pick",
+        "widgets.books.setting.pick",
+        &[
+            "widgets.next.series",
+            "widgets.next.newest",
+            "widgets.next.random",
+        ],
+        "widgets.next.series",
+        "widgets.books.setting.pick.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("series", "widgets.books.part.series", true),
+];
+
 const MOON_OPTIONS: &[Opt] = &[
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
@@ -755,6 +774,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: false,
         options: SERIES_OPTIONS,
+    },
+    Def {
+        name: "next",
+        token: 118,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: NEXT_OPTIONS,
     },
 ];
 

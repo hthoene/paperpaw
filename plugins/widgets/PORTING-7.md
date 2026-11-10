@@ -62,10 +62,19 @@ interface-7 port uses it, none builds its own.
   X4 list (unmeasured): the favourites read each of up to 24 books with `library.book` when the
   catalog's generation changes (once per generation, not per draw); two Series widgets with
   different names share one cache, so each draw of one re-reads the library for its own series.
+- Next up (`native_next`, token 118): the book to read next by the reader's pick (the next book of the
+  series of the book being read that was not begun, the newest new book, or an unread one by chance,
+  another each day), its cover (left where the place is wide, else above the text, left out where
+  too small), the caption, title (as large as the size setting allows, wrapped), author and series
+  where they fit (the series, then the author, then the caption go first). A tap opens the book, or the
+  library where there is none. Differences: which books are new is the catalog's (`Show::New`: added
+  lately and never opened), so the interface-6 files `seen.bits` and `newest.txt` are gone and the
+  first run after porting finds no "newest" backlog; the chance picks among the first page of the
+  unread books (at most 32) the day's lowest scores, the first whose file is on the card.
 
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets (Port D) and `progress`, `reading` and `next` of the
+The words family's picture and logo widgets (Port D) and `progress` and `reading` of the
 books family (they draw book covers; the image slots 36/37 and the SDK facade are on integration, so
 they are not waiting for the host). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).

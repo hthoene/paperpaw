@@ -31,6 +31,7 @@ mod native_favourites;
 mod native_greeting;
 mod native_highlight;
 mod native_moon;
+mod native_next;
 mod native_note;
 mod native_numbers;
 /// The interface-7 plugin.
