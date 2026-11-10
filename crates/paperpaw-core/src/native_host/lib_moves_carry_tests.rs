@@ -233,9 +233,42 @@ fn the_replaced_files_data_is_discarded() {
         &f.resume,
         &mut out,
     );
-    carry.discard("Books/b.epub").unwrap();
+    assert!(carry.discard("Books/b.epub").unwrap());
     assert!(!f.has_place("Books/b.epub"));
     assert!(library::favourites(&f.storage).is_empty());
+}
+
+#[test]
+fn the_discard_of_a_book_with_much_data_is_progress_until_all_is_gone() {
+    let f = fixture();
+    f.book("Books/b.epub");
+    let key = library::key("Books/b.epub");
+    for n in 0..(DISCARD_PIECES as usize * 3) {
+        f.storage
+            .write(&format!(".paperpaw/plugins/x/pos/{key}.p{n}"), b"x")
+            .unwrap();
+    }
+    let mut out = |_| ();
+    let carry = EnvCarry::from_parts(
+        &f.storage,
+        &f.formats,
+        &f.data,
+        &f.settings,
+        &f.resume,
+        &mut out,
+    );
+    // Not a refusal: `false` is "run the step again", and it ends.
+    let mut calls = 0;
+    while !carry.discard("Books/b.epub").unwrap() {
+        calls += 1;
+        assert!(calls < 10, "never ends");
+    }
+    assert_eq!(calls, 2);
+    let mut left = 0;
+    let _ = f
+        .storage
+        .list(".paperpaw/plugins/x/pos", &mut |_| left += 1);
+    assert_eq!(left, 0);
 }
 
 #[test]

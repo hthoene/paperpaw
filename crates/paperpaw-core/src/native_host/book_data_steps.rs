@@ -10,10 +10,10 @@
 //!
 //! - **Fallible:** every list is built with `try_reserve`; no memory is
 //!   `ERR_NO_MEMORY`, and nothing is changed by the call that said so.
-//! - **Bounded:** one call finds at most [`KEPT_MAX`] entries of the book and
-//!   changes them; a removal takes **one piece** of a folder
-//!   (`Storage::remove_tree_step`: at most 64 removals and 256 reads) and says
-//!   there is more.
+//! - **Bounded:** entries are found [`KEPT_MAX`] at a time, each folder listed
+//!   once for a batch (and again only when a batch was full); a removal takes
+//!   **pieces** of a folder (`Storage::remove_tree_step`: at most 64 removals
+//!   and 256 reads each) up to the caller's budget and says there is more.
 //! - **Stateless and repeatable:** nothing is kept between calls. What the
 //!   card shows after a cut is all a repeat needs: a moved entry is no longer
 //!   under the old key; a removed one is gone; a partly removed folder goes on
@@ -22,17 +22,27 @@
 //! - **Never a replacement:** an entry whose new name is taken stays under the
 //!   old key (the book already has data of its own there), and is cleaned up
 //!   with the books no longer found; a move never overwrites.
-//! - **Errors are said:** a card error is the call's status and the step is
-//!   repeated by the caller; only `NotFound` (already gone) is no error.
+//! - **Transient errors are said, permanent ones left:** a card error that may
+//!   pass (`Io`, no memory, a full card, a cause this build doesn't know) is the
+//!   call's status and the caller repeats the step; `NotFound` (already gone)
+//!   is no error; an entry the card refuses for good (`InvalidPath`,
+//!   `Unsupported`, `InvalidData`, `TooLarge`: a damaged or too deep entry, a
+//!   name the card cannot make) stays where it is for the clean-up of books no
+//!   longer found, and the step goes on with the others. So a book with such
+//!   an entry, or with more entries than one batch, never stalls the library.
 use super::storage::status;
 use alloc::{string::String, vec::Vec};
-use paperpaw_native::host_glue::{ERR_FULL, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{self, BookData};
+use paperpaw_sdk::library::{BookData, KEY_LEN, key_into};
 
-/// Most entries of one book, in all folders, one call finds. Folders are at
-/// most four a plugin and a book keeps an entry and a few variants in each.
+/// Entries of one book in one folder found, and then changed, as one batch.
+/// A book with more (per-page files) takes more batches.
 pub(crate) const KEPT_MAX: usize = 64;
+
+/// Batches of one folder a call takes at most (4,096 entries); what a still
+/// larger book keeps stays for the clean-up.
+const BATCHES: usize = 64;
 
 /// Pieces a caller that cannot repeat its call (an event handler) takes at
 /// most for one book: 64 removals each.
@@ -101,8 +111,23 @@ fn joined(parts: &[&str]) -> Result<String, i32> {
     Ok(owned)
 }
 
-/// The entries of `folder` kept for the book with `key`, in the folder itself
-/// and in the part of its key, appended to `out` (at most [`KEPT_MAX`] in all).
+/// Whether a card error is for good: the entry is refused (a damaged one, a
+/// tree too deep, a name the card cannot make), and repeating changes
+/// nothing. Others may pass (`Io`, no memory, a full card, an unknown cause).
+const fn permanent(error: StorageError) -> bool {
+    matches!(
+        error,
+        StorageError::InvalidPath
+            | StorageError::Unsupported
+            | StorageError::InvalidData
+            | StorageError::TooLarge
+    )
+}
+
+/// Up to `max` entries of `folder` kept for the book with `key`, in the
+/// folder itself and in the part of its key, after the first `skip` of them,
+/// appended to `out`. `skip` is the entries an earlier batch left behind: they
+/// stay first in the listing, in their order, while moved ones are gone.
 ///
 /// # Errors
 /// `ERR_NO_MEMORY`; the card's status for a folder that cannot be listed (one
@@ -111,9 +136,12 @@ fn find(
     storage: &dyn Storage,
     folder: &BookData,
     key: &str,
+    skip: usize,
+    max: usize,
     out: &mut Vec<Kept>,
 ) -> Result<(), i32> {
     let part = key.get(..2).unwrap_or("00");
+    let mut seen = 0_usize;
     for split in [false, true] {
         let dir = match split {
             true => joined(&[&folder.folder, part])?,
@@ -125,11 +153,11 @@ fn find(
             let Some((entry_key, tail)) = folder.key_of(entry.name) else {
                 return;
             };
-            if entry_key != key || failed.is_some() {
+            if entry_key != key || failed.is_some() || out.len() >= max {
                 return;
             }
-            if out.len() >= KEPT_MAX {
-                failed = Some(ERR_FULL);
+            seen += 1;
+            if seen <= skip {
                 return;
             }
             let made = gate()
@@ -158,77 +186,106 @@ fn find(
 
 /// Moves what the plugins keep for the book at `from` in folders `data` to
 /// the key of `to`: each entry is one rename, to the folder's part of the new
-/// key where it was in a part. An entry whose new name is taken stays.
+/// key where it was in a part. An entry whose new name is taken, or that the
+/// card refuses for good, stays under the old key (and is cleaned up with the
+/// books no longer found); the others move, in batches of [`KEPT_MAX`].
 ///
 /// # Errors
-/// `ERR_NO_MEMORY` (nothing was changed); the card's status for a rename that
-/// failed (the entries before it are moved: repeat the call).
+/// `ERR_NO_MEMORY` (nothing more is changed); the card's status for a
+/// transient error (the entries before are moved: repeat the call).
 pub(crate) fn move_data(
     storage: &dyn Storage,
     data: &[BookData],
     from: &str,
     to: &str,
 ) -> Result<(), i32> {
-    let (old, new) = (library::key(from), library::key(to));
+    let (mut old_digits, mut new_digits) = ([0_u8; KEY_LEN], [0_u8; KEY_LEN]);
+    let old = key_into(from, &mut old_digits);
+    let new = key_into(to, &mut new_digits);
     if old == new {
         return Ok(());
     }
     for folder in data {
-        let mut kept = Vec::new();
-        find(storage, folder, &old, &mut kept)?;
-        for entry in &kept {
-            let named = concat(&[&folder.prefix, &new, &entry.tail])?;
-            let dir = match entry.split {
-                true => joined(&[&folder.folder, new.get(..2).unwrap_or("00")])?,
-                false => alloc_string(&folder.folder)?,
-            };
-            let target = joined(&[dir.as_str(), named.as_str()])?;
-            // `exists` knows files only: a folder taken counts too.
-            if storage.exists(&target) || paperpaw_sdk::files::is_dir(storage, &target) {
-                continue;
+        let mut left = 0;
+        for _ in 0..BATCHES {
+            let mut kept = Vec::new();
+            find(storage, folder, old, left, KEPT_MAX, &mut kept)?;
+            for entry in &kept {
+                if !move_entry(storage, folder, new, entry)? {
+                    left += 1;
+                }
             }
-            if entry.split {
-                // The part of the new key may not be there yet; a failure
-                // shows in the rename below.
-                let _ = storage.create_dir(&dir);
-            }
-            match storage.rename(&entry.path, &target) {
-                Ok(()) | Err(StorageError::NotFound) => {}
-                Err(error) => return Err(status(error)),
+            if kept.len() < KEPT_MAX {
+                break;
             }
         }
     }
     Ok(())
 }
 
-/// One piece of removing what the plugins keep for the book at `path` in
-/// folders `data`: a file, or one bounded piece of a folder. `More`: call
-/// again; `Done`: nothing of the book is left.
-///
-/// # Errors
-/// `ERR_NO_MEMORY`; the card's status (repeat the call).
-pub(crate) fn remove_data_piece(
+/// One entry to the new key. `false`: it stays (its new name is taken, or the
+/// card refuses it for good).
+fn move_entry(
     storage: &dyn Storage,
-    data: &[BookData],
-    path: &str,
-) -> Result<Progress, i32> {
-    let key = library::key(path);
-    for folder in data {
-        let mut kept = Vec::new();
-        find(storage, folder, &key, &mut kept)?;
-        let Some(entry) = kept.first() else {
-            continue;
-        };
-        let done = match entry.is_dir {
-            true => storage.remove_tree_step(&entry.path, false, 0).map(|_| ()),
-            false => storage.remove(&entry.path),
-        };
-        return match done {
-            Ok(()) | Err(StorageError::NotFound) => Ok(Progress::More),
-            Err(error) => Err(status(error)),
-        };
+    folder: &BookData,
+    new: &str,
+    entry: &Kept,
+) -> Result<bool, i32> {
+    let named = concat(&[&folder.prefix, new, &entry.tail])?;
+    let dir = match entry.split {
+        true => joined(&[&folder.folder, new.get(..2).unwrap_or("00")])?,
+        false => alloc_string(&folder.folder)?,
+    };
+    let target = joined(&[dir.as_str(), named.as_str()])?;
+    // `exists` knows files only: a folder taken counts too.
+    if storage.exists(&target) || paperpaw_sdk::files::is_dir(storage, &target) {
+        return Ok(false);
     }
-    Ok(Progress::Done)
+    if entry.split {
+        // The part of the new key may not be there yet; a failure shows in
+        // the rename below.
+        let _ = storage.create_dir(&dir);
+    }
+    match storage.rename(&entry.path, &target) {
+        Ok(()) | Err(StorageError::NotFound) => Ok(true),
+        Err(error) if permanent(error) => Ok(false),
+        Err(error) => Err(status(error)),
+    }
+}
+
+/// How one piece of removing an entry went.
+enum Removed {
+    /// The entry is gone.
+    Gone,
+    /// A folder was cut down but is not gone yet.
+    More,
+    /// The card refuses it for good, or took nothing: it stays.
+    Left,
+}
+
+/// One piece of removing an entry. A folder goes on from `place` (where the
+/// last piece of it ended; 0 at first), which a piece that did not finish
+/// moves on.
+fn remove_entry(storage: &dyn Storage, entry: &Kept, place: &mut u64) -> Result<Removed, i32> {
+    let done = match entry.is_dir {
+        true => storage
+            .remove_tree_step(&entry.path, false, *place)
+            .map(|step| match (step.done, step.removed) {
+                (true, _) => Removed::Gone,
+                (false, 0) => Removed::Left,
+                (false, _) => {
+                    *place = step.next;
+                    Removed::More
+                }
+            }),
+        false => storage.remove(&entry.path).map(|()| Removed::Gone),
+    };
+    match done {
+        Ok(step) => Ok(step),
+        Err(StorageError::NotFound) => Ok(Removed::Gone),
+        Err(error) if permanent(error) => Ok(Removed::Left),
+        Err(error) => Err(status(error)),
+    }
 }
 
 /// What a `book_moved` event of the `core` plugin does for the data kept for
@@ -246,23 +303,51 @@ pub(crate) fn follow_removal(storage: &dyn Storage, data: &[BookData], path: &st
     let _ = remove_data(storage, data, path, REMOVE_PIECES);
 }
 
-/// [`remove_data_piece`] up to `pieces` times; `More` if the book still has
-/// data after them (a folder larger than that, or the call is to be repeated).
+/// Removes what the plugins keep for the book at `path` in folders `data`,
+/// at most `pieces` pieces (a file, or one bounded step of a folder). `More`:
+/// the book still has data a repeat may remove; `Done`: nothing is left but
+/// what the card refuses for good (the clean-up of books no longer found takes
+/// that).
 ///
 /// # Errors
-/// As [`remove_data_piece`].
+/// `ERR_NO_MEMORY`; the card's status for a transient error (repeat the call).
 pub(crate) fn remove_data(
     storage: &dyn Storage,
     data: &[BookData],
     path: &str,
     pieces: u32,
 ) -> Result<Progress, i32> {
-    for _ in 0..pieces {
-        if remove_data_piece(storage, data, path)? == Progress::Done {
-            return Ok(Progress::Done);
+    let mut digits = [0_u8; KEY_LEN];
+    let key = key_into(path, &mut digits);
+    let mut budget = pieces;
+    for folder in data {
+        let mut left = 0;
+        for _ in 0..BATCHES {
+            let mut kept = Vec::new();
+            find(storage, folder, key, left, KEPT_MAX, &mut kept)?;
+            for entry in &kept {
+                let mut place = 0;
+                loop {
+                    if budget == 0 {
+                        return Ok(Progress::More);
+                    }
+                    budget -= 1;
+                    match remove_entry(storage, entry, &mut place)? {
+                        Removed::More => {}
+                        Removed::Gone => break,
+                        Removed::Left => {
+                            left += 1;
+                            break;
+                        }
+                    }
+                }
+            }
+            if kept.len() < KEPT_MAX {
+                break;
+            }
         }
     }
-    Ok(Progress::More)
+    Ok(Progress::Done)
 }
 
 #[cfg(test)]

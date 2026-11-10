@@ -5,8 +5,55 @@
 extern crate std;
 use super::*;
 use crate::native_host::net_service::fail_nth;
-use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError, library::BookDataKind};
+use paperpaw_sdk::{
+    DirEntry, MemoryStorage, Storage, StorageError,
+    library::{self, BookDataKind},
+};
 use std::{cell::Cell, format, string::String, vec::Vec};
+
+/// A card that refuses to rename or remove an entry whose path holds `name`,
+/// with `error`: for good (`InvalidPath`) or a transient one (`Io`).
+struct Refuse<'a> {
+    card: &'a MemoryStorage,
+    name: &'static str,
+    error: StorageError,
+}
+
+impl Storage for Refuse<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.card.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.card.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        if p.contains(self.name) {
+            return Err(self.error);
+        }
+        self.card.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        if f.contains(self.name) {
+            return Err(self.error);
+        }
+        self.card.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.card.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove_dir_all(p)
+    }
+}
 
 /// A card that lets `allowed` mutating actions through and then none: the
 /// power was cut.
@@ -223,7 +270,7 @@ fn the_data_of_a_book_is_removed_a_piece_at_a_time_and_only_its_own() {
             .unwrap();
     }
     let mut pieces = 0;
-    while remove_data_piece(&card, &data(), BOOK).unwrap() == Progress::More {
+    while remove_data(&card, &data(), BOOK, 1).unwrap() == Progress::More {
         pieces += 1;
         assert!(pieces < 100, "never ends");
     }
@@ -303,4 +350,215 @@ fn a_folder_that_is_not_there_keeps_nothing_and_is_no_error() {
         remove_data(&card, &data(), BOOK, 2).unwrap(),
         Progress::Done
     );
+}
+
+/// `count` per-page files of `BOOK` in one folder (`<key>.p<n>.png`).
+fn pages(card: &MemoryStorage, count: usize) {
+    let key = at(BOOK);
+    for n in 0..count {
+        card.write(
+            &format!(".paperpaw/plugins/notes/books/vault/{key}.p{n}.png"),
+            b"x",
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn a_book_with_more_entries_than_a_batch_moves_and_is_removed_whole() {
+    for count in [63, 64, 65, 200] {
+        let card = card();
+        pages(&card, count);
+        move_data(&card, &data(), BOOK, MOVED).unwrap();
+        assert!(names_of(&card, BOOK).is_empty(), "{count}");
+        assert_eq!(names_of(&card, MOVED).len(), count + 4, "{count}");
+        neighbours_intact(&card);
+        assert_eq!(
+            remove_data(&card, &data(), MOVED, 10_000).unwrap(),
+            Progress::Done,
+            "{count}"
+        );
+        assert!(names_of(&card, MOVED).is_empty(), "{count}");
+        neighbours_intact(&card);
+    }
+}
+
+#[test]
+fn an_entry_the_card_refuses_for_good_stays_and_the_rest_moves() {
+    // One page is refused wherever it is in the listing (first batch, a
+    // batch boundary, a later batch).
+    for (count, name) in [(65, ".p0.png"), (200, ".p64.png"), (200, ".p150.png")] {
+        let card = card();
+        pages(&card, count);
+        let refusing = Refuse {
+            card: &card,
+            name,
+            error: StorageError::InvalidPath,
+        };
+        move_data(&refusing, &data(), BOOK, MOVED).unwrap();
+        assert_eq!(names_of(&card, BOOK).len(), 1, "{count} {name}");
+        assert_eq!(names_of(&card, MOVED).len(), count + 3, "{count} {name}");
+        neighbours_intact(&card);
+    }
+}
+
+#[test]
+fn a_card_that_refuses_every_rename_ends_the_step_with_everything_left() {
+    let card = card();
+    pages(&card, 200);
+    let refusing = Refuse {
+        card: &card,
+        name: "",
+        error: StorageError::InvalidPath,
+    };
+    move_data(&refusing, &data(), BOOK, MOVED).unwrap();
+    assert_eq!(names_of(&card, BOOK).len(), 204);
+    assert!(names_of(&card, MOVED).is_empty());
+}
+
+#[test]
+fn a_transient_card_error_is_the_status_and_the_repeat_finishes() {
+    let card = card();
+    pages(&card, 100);
+    let failing = Refuse {
+        card: &card,
+        name: ".p77.png",
+        error: StorageError::Io,
+    };
+    assert_eq!(
+        move_data(&failing, &data(), BOOK, MOVED),
+        Err(status(StorageError::Io))
+    );
+    move_data(&card, &data(), BOOK, MOVED).unwrap();
+    assert!(names_of(&card, BOOK).is_empty());
+    assert_eq!(names_of(&card, MOVED).len(), 104);
+}
+
+#[test]
+fn a_removal_leaves_what_the_card_refuses_and_is_done() {
+    let card = card();
+    pages(&card, 200);
+    let refusing = Refuse {
+        card: &card,
+        name: ".p100.png",
+        error: StorageError::InvalidPath,
+    };
+    assert_eq!(
+        remove_data(&refusing, &data(), BOOK, 10_000).unwrap(),
+        Progress::Done
+    );
+    assert_eq!(names_of(&card, BOOK).len(), 1);
+    neighbours_intact(&card);
+    // A transient error is the status.
+    let failing = Refuse {
+        card: &card,
+        name: ".p100.png",
+        error: StorageError::Io,
+    };
+    assert_eq!(
+        remove_data(&failing, &data(), BOOK, 10_000),
+        Err(status(StorageError::Io))
+    );
+}
+
+/// Counts the folders listed; everything else goes to the card.
+struct Listings<'a> {
+    card: &'a MemoryStorage,
+    lists: Cell<usize>,
+}
+
+impl Storage for Listings<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.card.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.lists.set(self.lists.get() + 1);
+        self.card.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.card.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.card.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove_dir_all(p)
+    }
+}
+
+/// A library of 1,000 books moved one after the other (a folder move): each
+/// book lists a folder once per place its data can be (the folder and the part
+/// of the key), not once more for a batch that was not full.
+#[test]
+fn a_move_lists_each_folder_once_for_a_thousand_books() {
+    let card = MemoryStorage::new();
+    let books: Vec<String> = (0..1000).map(|n| format!("Books/b{n}.epub")).collect();
+    for book in &books {
+        let key = at(book);
+        card.write(
+            &format!(".paperpaw/plugins/notes/books/vault/{key}/a.txt"),
+            b"a",
+        )
+        .unwrap();
+        card.write(&format!(".paperpaw/cache/p-{key}/pages.bin"), b"p")
+            .unwrap();
+    }
+    let counted = Listings {
+        card: &card,
+        lists: Cell::new(0),
+    };
+    for book in &books {
+        let moved = format!("Books/Sub/{}", &book[6..]);
+        move_data(&counted, &data(), book, &moved).unwrap();
+        assert!(names_of(&card, book).is_empty());
+    }
+    // Two folders, each listed in its own place and in the key's part (4),
+    // and the new name of each entry looked at as a folder (2): not once more
+    // for a batch that was not full.
+    assert_eq!(counted.lists.get(), 1000 * 6);
+}
+
+/// The `core` plugin's event handlers (interface 6): the same steps, by what
+/// one handler call may do.
+#[test]
+fn the_event_handlers_move_a_large_book_whole_and_remove_a_bounded_part() {
+    for count in [65, 200] {
+        let card = card();
+        pages(&card, count);
+        follow_move(&card, &data(), BOOK, MOVED);
+        assert!(names_of(&card, BOOK).is_empty(), "{count}");
+        assert_eq!(names_of(&card, MOVED).len(), count + 4, "{count}");
+        follow_removal(&card, &data(), MOVED);
+        // At most REMOVE_PIECES pieces; the rest is for the clean-up.
+        let left = names_of(&card, MOVED).len();
+        assert!(left < count + 4, "{count}");
+        assert!(left + REMOVE_PIECES as usize >= count + 4, "{count}");
+        neighbours_intact(&card);
+    }
+}
+
+#[test]
+fn the_event_handlers_end_with_everything_left_when_the_card_refuses_for_good() {
+    let card = card();
+    pages(&card, 200);
+    let refusing = Refuse {
+        card: &card,
+        name: "",
+        error: StorageError::InvalidPath,
+    };
+    follow_move(&refusing, &data(), BOOK, MOVED);
+    follow_removal(&refusing, &data(), BOOK);
+    assert_eq!(names_of(&card, BOOK).len(), 204);
 }

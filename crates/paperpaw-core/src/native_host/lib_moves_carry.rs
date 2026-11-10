@@ -16,7 +16,9 @@
 //!   after the move nothing names the old folder;
 //! - events are sent **at least once**: a job replayed after a power cut
 //!   sends those of the step it was cut in again (plugins keep data by path,
-//!   so moving a path twice is harmless).
+//!   so moving a path twice is harmless); a step repeated after a
+//!   transient card error in the data's move sends `book_moved` of its books
+//!   again the same way.
 //!
 //! The books of the moved folder are found by walking it (`to`), by format,
 //! the way the catalog walk finds them; the old path of a book is `from` plus
@@ -177,15 +179,15 @@ impl<'a> EnvCarry<'a> {
 }
 
 impl MoveCarry for EnvCarry<'_> {
-    fn discard(&self, to: &str) -> Result<(), i32> {
+    fn discard(&self, to: &str) -> Result<bool, i32> {
         library::removed(self.storage, to);
-        // One bounded piece a call: while the book still has data, `ERR_BUSY`
-        // makes the step repeat later (nothing is recorded as discarded
-        // until it is all gone, and the repeat finds what is left).
-        match book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)? {
-            Progress::Done => Ok(()),
-            Progress::More => Err(ERR_BUSY),
-        }
+        // One bounded piece budget a call: while the book still has data the
+        // step answers `false` and runs again (nothing is recorded as
+        // discarded until it is all gone, and the repeat finds what is left).
+        Ok(
+            book_data_steps::remove_data(self.storage, self.book_data, to, DISCARD_PIECES)?
+                == Progress::Done,
+        )
     }
 
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
