@@ -120,7 +120,9 @@ fn a_whole_install_asks_first_binds_the_digest_and_waits_for_its_restart() {
             owner: OWNER,
             request: 3,
             kind: KIND_FIRMWARE,
-            reason: 0
+            reason: 0,
+            flags: 0,
+            id: None,
         }
     );
     assert_eq!(machine.state(), State::Installed);

@@ -230,12 +230,13 @@ pub(crate) struct Uses {
     pub(crate) more: bool,
 }
 
-/// The user's answer to a confirmation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Answer {
-    Yes,
-    No,
-    Dismissed,
+/// The user's answer to a confirmation (the firmware's own).
+pub(crate) use super::firmware_install::Answer;
+
+/// The host's trusted-installer grants (`device.md` 5.2).
+pub(crate) trait InstallGrants {
+    /// Whether the plugin `owner` may install without being asked each time.
+    fn granted(&self, owner: u64) -> bool;
 }
 
 /// One plugin job in the queue.

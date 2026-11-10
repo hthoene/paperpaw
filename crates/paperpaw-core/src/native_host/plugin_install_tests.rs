@@ -713,31 +713,54 @@ fn an_aborted_job_removes_its_stage_before_the_journal_and_leaves_the_swap_after
         JobStep::Done(Finished::refused(reason::STOPPED))
     );
     assert!(!card.exists("plugins/.dials.part/plugin.ini"));
-    // Aborted once the journal is written: the next start finishes the swap.
+    // Aborted once the journal is written: the job must finish, steps on to
+    // its end and tells the real outcome (the swap is done, not "stopped").
     let mut job = self::job(0, Evidence::NONE);
     while job.phase != Phase::Swapping {
         if let JobStep::Ask(_) = job.step(&env) {
             job.answer(Answer::Yes);
         }
     }
+    assert!(job.must_finish());
     job.abort(reason::STOPPED);
-    assert_eq!(
-        job.step(&env),
-        JobStep::Done(Finished::refused(reason::STOPPED))
-    );
-    assert!(card.exists("plugins/.journal"));
-    assert!(matches!(
-        replay(&card),
-        Replayed::Finished {
-            rolled_back: false,
-            ..
+    let done = loop {
+        if let JobStep::Done(done) = job.step(&env) {
+            break done;
         }
-    ));
+    };
+    assert_eq!(done.reason, reason::OK);
+    assert!(!card.exists("plugins/.journal"));
     assert_eq!(
         text(&card, "plugins/dials/strings.ini").as_deref(),
         Some("hello\n")
     );
     assert!(clean(&card));
+}
+
+#[test]
+fn the_asking_plugin_going_away_stops_nothing_after_the_yes_and_everything_before() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let mut job = job(0, Evidence::NONE);
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Names,
+        granted: false,
+    };
+    loop {
+        if let JobStep::Ask(_) = job.step(&env) {
+            break;
+        }
+    }
+    // Asked, no answer yet: it goes with its sender.
+    assert!(!job.keep_without_sender() && !job.must_finish());
+    job.answer(Answer::Yes);
+    assert!(job.keep_without_sender());
+    while job.phase != Phase::Swapping {
+        job.step(&env);
+    }
+    assert!(job.keep_without_sender() && job.must_finish());
 }
 
 #[test]

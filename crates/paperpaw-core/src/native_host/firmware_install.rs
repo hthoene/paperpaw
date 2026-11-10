@@ -198,6 +198,12 @@ pub(crate) struct Outcome {
     pub(crate) kind: u32,
     /// The reason of 5.5; 0 done (a check: fits).
     pub(crate) reason: u8,
+    /// `install_done.flags` (a plugin job's: bit 1 the change reaches code
+    /// at the next start).
+    pub(crate) flags: u32,
+    /// The plugin the job installed or removed, for `install_done.id`; `None`:
+    /// the plugin that asked.
+    pub(crate) id: Option<Text<{ super::plugin_job::ID_MAX }>>,
 }
 
 /// What the confirmation shows and asks (device.md 5.0, 5.3).
@@ -417,6 +423,8 @@ fn outcome(job: &Job, reason: u8) -> Outcome {
             KIND_CHECK
         },
         reason,
+        flags: 0,
+        id: None,
     }
 }
 
@@ -966,6 +974,8 @@ impl FirmwareInstall {
             request,
             kind: KIND_FIRMWARE,
             reason: declined(answer),
+            flags: 0,
+            id: None,
         })
     }
 
@@ -986,6 +996,8 @@ impl FirmwareInstall {
             request,
             kind: KIND_FIRMWARE,
             reason: reason.0,
+            flags: 0,
+            id: None,
         })
     }
 
@@ -1002,6 +1014,8 @@ impl FirmwareInstall {
                     request,
                     kind: KIND_FIRMWARE,
                     reason: Reason::STOPPED.0,
+                    flags: 0,
+                    id: None,
                 });
             }
             Phase::Idle => return None,

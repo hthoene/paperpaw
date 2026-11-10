@@ -384,8 +384,18 @@ impl<'a> CommandStage<'a> {
         }
         let (mut wifi, mut power, mut bytes) = (0_usize, 0_usize, 0_usize);
         let mut firmware = 0_usize;
+        let mut evidence = firmware::EvidenceSeen::default();
         let mut requests = [0_u32; MAX_WIFI_PER_BATCH];
         for command in batch.iter() {
+            if firmware::is_evidence(&command) {
+                // Not a command of its own: it belongs to the install before it.
+                evidence.take(&command)?;
+                bytes = bytes.saturating_add(self.validate_firmware(&command)?);
+                continue;
+            }
+            if let WireCommand::InstallPlugin { request, .. } = command {
+                evidence.install(request);
+            }
             if firmware::is_firmware(&command) {
                 firmware += 1;
             } else {
@@ -480,6 +490,9 @@ impl<'a> CommandStage<'a> {
     /// Keep one validated DEV command after the ordinary ones before it.
     pub(super) fn dev_push(&mut self, command: WireCommand<'_>) -> Result<(), i32> {
         let at = self.staged.len();
+        if firmware::is_evidence(&command) {
+            return self.firmware_evidence(&command);
+        }
         let op = match command {
             WireCommand::WifiOn { .. } => DevOp::WifiOn,
             WireCommand::WifiOff { .. } => DevOp::WifiOff,

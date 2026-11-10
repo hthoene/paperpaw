@@ -37,7 +37,7 @@ pub(crate) const SCREEN: Id = Id::new_static("core.firmware-confirm");
 /// The event the screen answers with; the kernel's alone (see
 /// [`Kernel::firmware_answer`]).
 pub(crate) const ANSWERED: Id = Id::new_static("core.firmware-answered");
-const NONCE: &str = "nonce";
+pub(super) const NONCE: &str = "nonce";
 const TITLE: &str = "title";
 const TEXT: &str = "text";
 const YES_WORD: &str = "yes";
@@ -61,7 +61,7 @@ pub(crate) struct Texts {
 /// characters, line and paragraph separators, bidirectional controls that
 /// reorder the text around them) replaced by a space: the image's own names
 /// are not the host's words.
-fn clean(text: &str) -> String {
+pub(super) fn clean(text: &str) -> String {
     text.chars()
         .map(|c| if forges(c) { ' ' } else { c })
         .collect()
@@ -78,7 +78,7 @@ fn forges(c: char) -> bool {
 }
 
 /// The first eight bytes of a key, in groups of four hex digits.
-fn fingerprint(key: &[u8; 32]) -> String {
+pub(super) fn fingerprint(key: &[u8; 32]) -> String {
     let mut text = String::new();
     for (at, byte) in key.iter().take(8).enumerate() {
         if at > 0 && at % 2 == 0 {
@@ -138,7 +138,7 @@ pub(crate) fn texts(i18n: &paperpaw_i18n::Translator, asker: &str, ask: &Ask) ->
 }
 
 /// The buttons, in their order.
-const YES: usize = 0;
+pub(super) const YES: usize = 0;
 const NO: usize = 1;
 
 /// The confirmation screen; see the [module documentation](self).
@@ -376,6 +376,13 @@ impl Kernel {
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
     ) -> bool {
         self.firmware_restart_pump(driver);
+        if let Some(question) = driver
+            .try_borrow()
+            .ok()
+            .and_then(|d| d.peek_plugin_question())
+        {
+            return self.plugin_confirm_pump(driver, &question);
+        }
         let Some(ask) = driver.try_borrow().ok().and_then(|d| d.peek_ask()) else {
             return false;
         };
@@ -479,7 +486,7 @@ impl Kernel {
 
     /// The name of the plugin `owner` for the dialog: its translated name,
     /// else the manifest's, else its id.
-    fn firmware_asker_name(&self, owner: u64) -> String {
+    pub(super) fn firmware_asker_name(&self, owner: u64) -> String {
         let Some(id) = self.shared.native_instances.id(owner) else {
             return String::new();
         };

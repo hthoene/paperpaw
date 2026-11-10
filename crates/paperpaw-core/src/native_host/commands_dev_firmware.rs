@@ -21,9 +21,15 @@
 //!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
-    firmware_driver::Driver, owner_paths, plugin_check::PluginCheck, plugin_jobs::PluginJobs,
+    firmware_driver::Driver,
+    owner_paths,
+    plugin_check::PluginCheck,
+    plugin_install::{self, PluginInstall},
+    plugin_jobs::PluginJobs,
+    plugin_rules::{Author, Evidence, Rotation},
+    shared::try_box,
 };
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     fmt,
@@ -90,6 +96,14 @@ pub(crate) enum FirmwareOp {
     Check { request: u32, path: String },
     /// `check_file` of a plugin folder: a plugin job of the queue.
     PluginCheck { request: u32, path: String },
+    /// `install_plugin`: a plugin job of the queue, with the evidence that
+    /// came with it in the batch (`install_author`, `install_rotation`).
+    PluginInstall {
+        request: u32,
+        path: String,
+        flags: u32,
+        evidence: Box<Evidence>,
+    },
     /// `firmware_restart`: the host asks the user.
     Restart(FirmwareContext),
 }
@@ -139,7 +153,63 @@ pub(super) fn is_firmware(command: &WireCommand<'_>) -> bool {
         WireCommand::InstallFirmware { .. }
             | WireCommand::FirmwareRestart {}
             | WireCommand::CheckFile { .. }
+            | WireCommand::InstallPlugin { .. }
     )
+}
+
+/// Whether the command is evidence for the `install_plugin` before it.
+pub(super) fn is_evidence(command: &WireCommand<'_>) -> bool {
+    matches!(
+        command,
+        WireCommand::InstallAuthor { .. } | WireCommand::InstallRotation { .. }
+    )
+}
+
+/// Most `install_rotation` of one request (`device.md` 3).
+const ROTATIONS_PER_REQUEST: u8 = plugin_rules_max();
+
+const fn plugin_rules_max() -> u8 {
+    crate::native_host::plugin_rules::ROTATIONS_MAX as u8
+}
+
+/// What the batch has said of its install so far: the request it belongs to
+/// and how much evidence came after it.
+#[derive(Clone, Copy, Default)]
+pub(super) struct EvidenceSeen {
+    request: Option<u32>,
+    author: bool,
+    rotations: u8,
+}
+
+impl EvidenceSeen {
+    /// An `install_plugin` of this request starts a new evidence record.
+    pub(super) fn install(&mut self, request: u32) {
+        *self = Self {
+            request: Some(request),
+            ..Self::default()
+        };
+    }
+
+    /// Counts one evidence command: it must name the batch's install, at most
+    /// one author and [`ROTATIONS_PER_REQUEST`] rotations.
+    pub(super) fn take(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        match *command {
+            WireCommand::InstallAuthor { request, .. } => {
+                if self.request != Some(request) || self.author {
+                    return Err(ERR_INVALID);
+                }
+                self.author = true;
+            }
+            WireCommand::InstallRotation { request, .. } => {
+                if self.request != Some(request) || self.rotations >= ROTATIONS_PER_REQUEST {
+                    return Err(ERR_INVALID);
+                }
+                self.rotations += 1;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 /// The feature key the command needs.
@@ -149,6 +219,9 @@ pub(super) fn area(command: &WireCommand<'_>) -> Option<&'static str> {
             Some(FEATURE_FIRMWARE)
         }
         WireCommand::CheckFile { kind, .. } if *kind == KIND_PLUGIN => Some(FEATURE_INSTALL),
+        WireCommand::InstallPlugin { .. }
+        | WireCommand::InstallAuthor { .. }
+        | WireCommand::InstallRotation { .. } => Some(FEATURE_INSTALL),
         // A kind beyond 1 is refused by its own rule (`ERR_DENIED`).
         WireCommand::CheckFile { .. } => Some(FEATURE_FIRMWARE),
         _ => None,
@@ -211,6 +284,41 @@ impl CommandStage<'_> {
                     _ => Err(ERR_DENIED),
                 }
             }
+            WireCommand::InstallPlugin {
+                request,
+                root,
+                path,
+                flags,
+            } => {
+                let ctx = self.firmware()?;
+                if request == 0 || flags & !plugin_install::FLAGS != 0 {
+                    return Err(ERR_INVALID);
+                }
+                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                if !driver.plugins_accepted() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                self.firmware_path(root, path).map(|joined| joined.len())
+            }
+            // Keys and the digest are none or whole (`device.md` 5.2).
+            WireCommand::InstallAuthor {
+                author, recovery, ..
+            } => {
+                let _ = self.firmware()?;
+                if matches!(author.len(), 0 | 32) && matches!(recovery.len(), 0 | 32) {
+                    Ok(0)
+                } else {
+                    Err(ERR_INVALID)
+                }
+            }
+            WireCommand::InstallRotation { to, signature, .. } => {
+                let _ = self.firmware()?;
+                if to.len() == 32 && signature.len() == 64 {
+                    Ok(0)
+                } else {
+                    Err(ERR_INVALID)
+                }
+            }
             WireCommand::FirmwareRestart {} => {
                 let ctx = self.firmware()?;
                 let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
@@ -245,6 +353,17 @@ impl CommandStage<'_> {
                 request,
                 path: self.firmware_path(root, path)?,
             })),
+            WireCommand::InstallPlugin {
+                request,
+                root,
+                path,
+                flags,
+            } => Ok(DevOp::Firmware(FirmwareOp::PluginInstall {
+                request,
+                path: self.firmware_path(root, path)?,
+                flags,
+                evidence: try_box(Evidence::NONE).ok_or(ERR_NO_MEMORY)?,
+            })),
             WireCommand::CheckFile {
                 request,
                 root,
@@ -259,6 +378,40 @@ impl CommandStage<'_> {
             ))),
             _ => Err(ERR_UNSUPPORTED),
         }
+    }
+
+    /// Adds an `install_author` or an `install_rotation` to the install before
+    /// it in the batch (validated: the request matches, the counts hold).
+    pub(super) fn firmware_evidence(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
+        let Some(DevOp::Firmware(FirmwareOp::PluginInstall { evidence, .. })) =
+            dev.items.last_mut().map(|item| &mut item.op)
+        else {
+            return Err(ERR_INVALID);
+        };
+        match *command {
+            WireCommand::InstallAuthor {
+                author, recovery, ..
+            } => {
+                // The code's expected digest joins when the wire carries it
+                // (`install_author.sha256`, draft 35).
+                evidence.author = Some(Author {
+                    author: author.try_into().ok(),
+                    recovery: recovery.try_into().ok(),
+                    sha256: None,
+                });
+            }
+            WireCommand::InstallRotation { to, signature, .. } => {
+                let (Ok(to), Ok(signature)) = (to.try_into(), signature.try_into()) else {
+                    return Err(ERR_INVALID);
+                };
+                if !evidence.push_rotation(Rotation { to, signature }) {
+                    return Err(ERR_INVALID);
+                }
+            }
+            _ => return Err(ERR_INVALID),
+        }
+        Ok(())
     }
 
     /// Accepts the installs and checks of the items from `start` in the
@@ -278,6 +431,7 @@ impl CommandStage<'_> {
                         FirmwareOp::Install { .. }
                             | FirmwareOp::Check { .. }
                             | FirmwareOp::PluginCheck { .. }
+                            | FirmwareOp::PluginInstall { .. }
                     )
                 )
             })
@@ -311,6 +465,15 @@ impl CommandStage<'_> {
                         .and_then(|job| driver.submit_plugin(PluginJobs::Check(job)))
                         .map(|()| *request)
                 }
+                DevOp::Firmware(FirmwareOp::PluginInstall {
+                    request,
+                    path,
+                    flags,
+                    evidence,
+                }) => PluginInstall::new(ctx.owner, *request, path, *flags, **evidence)
+                    .ok_or(ERR_NO_MEMORY)
+                    .and_then(|job| driver.submit_plugin(PluginJobs::Install(job)))
+                    .map(|()| *request),
                 _ => continue,
             };
             match accepted {
@@ -337,7 +500,8 @@ impl crate::Kernel {
         match op {
             FirmwareOp::Install { request, .. }
             | FirmwareOp::Check { request, .. }
-            | FirmwareOp::PluginCheck { request, .. } => {
+            | FirmwareOp::PluginCheck { request, .. }
+            | FirmwareOp::PluginInstall { request, .. } => {
                 if let Some(release) = fw {
                     release.applied(request);
                 }

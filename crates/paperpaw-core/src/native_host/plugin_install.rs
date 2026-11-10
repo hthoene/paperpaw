@@ -54,6 +54,8 @@ use super::shared::try_box;
 pub(crate) const FLAG_REPLACE: u32 = 1;
 /// Bit 1: an older (or the same) version is allowed.
 pub(crate) const FLAG_OLDER: u32 = 2;
+/// The bits `install_plugin.flags` defines; another is `ERR_INVALID`.
+pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER;
 
 const CODE: &str = "code.ppn";
 
@@ -746,7 +748,23 @@ impl PluginJob for PluginInstall {
         }
     }
 
+    fn must_finish(&self) -> bool {
+        // From the journal on the card holds half of a change: the swap is
+        // stepped on to its end, whatever stops, and tells its real outcome.
+        self.phase == Phase::Swapping
+    }
+
+    fn keep_without_sender(&self) -> bool {
+        // The user said yes (or the grant did): the plugin that asked going
+        // away does not stop what was confirmed.
+        matches!(self.phase, Phase::Marks | Phase::Journal | Phase::Swapping)
+            || (self.phase == Phase::Waiting && self.answer == Some(Answer::Yes))
+    }
+
     fn abort(&mut self, why: u8) {
+        if self.must_finish() {
+            return;
+        }
         self.stopped = Some(why);
         self.release();
     }
