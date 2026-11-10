@@ -130,6 +130,13 @@ impl CanvasScope {
         })
     }
 
+    /// Whether a canvas is lent now: `ERR_STATE` outside a draw callback,
+    /// `ERR_BUSY` while a drawing operation holds it. Nothing is drawn.
+    pub(crate) fn present(&self) -> Result<(), i32> {
+        let current = self.current.try_borrow().map_err(|_| ERR_BUSY)?;
+        current.as_ref().map(|_| ()).ok_or(ERR_STATE)
+    }
+
     /// Replace this draw call's clip, intersecting the original frame each time.
     #[must_use]
     pub fn clip(&self, x: i32, y: i32, width: u32, height: u32) -> i32 {

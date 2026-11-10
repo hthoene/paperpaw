@@ -447,3 +447,48 @@ fn over_budget_text_fails_before_pixels_or_semantics() {
     assert_eq!(frame.view().data, before);
     assert_eq!(records.len(), 1);
 }
+
+#[test]
+fn toned_text_refuses_before_drawing_and_returns_the_measured_advance() {
+    use paperpaw_sdk::text::ToneCurve;
+    let fonts = fonts();
+    let font = fonts.get("test.font").unwrap();
+    let mut frame = frame(PixelFormat::Gray8);
+    let before = frame.view().data.to_vec();
+    let long = "א".repeat(2049);
+    for (size, x, text) in [
+        (-1.0, 0.0, "a"),
+        (12.0, f32::NAN, "a"),
+        (12.0, 3.0e9, "a"),
+        (12.0, 0.0, long.as_str()),
+    ] {
+        assert_eq!(
+            graphics::text_draw_toned(
+                &mut frame.canvas(),
+                &font,
+                size,
+                x,
+                16,
+                text,
+                Color::BLACK,
+                16,
+                ToneCurve::SMOOTH,
+            ),
+            Err(InvalidInput)
+        );
+        assert_eq!(frame.view().data, before);
+    }
+    let advance = graphics::text_draw_toned(
+        &mut frame.canvas(),
+        &font,
+        12.0,
+        0.0,
+        16,
+        "abc",
+        Color::BLACK,
+        2,
+        ToneCurve::SMOOTH,
+    )
+    .unwrap();
+    assert_eq!(advance, font.measure(12.0, "abc"));
+}
