@@ -75,12 +75,24 @@ impl Storage for Unreadable {
     }
 }
 
+/// The list file's bytes.
+fn file_bytes(card: &MemoryStorage) -> std::vec::Vec<u8> {
+    let mut bytes = std::vec![0u8; usize::try_from(card.size(FILE).unwrap()).unwrap()];
+    let got = card.read_at(FILE, 0, &mut bytes).unwrap();
+    bytes.truncate(got);
+    bytes
+}
+
 #[test]
 fn a_list_that_cannot_be_read_blocks_installs_and_is_never_rewritten() {
-    for why in [StorageError::Io, StorageError::Other(7), StorageError::CARD_GONE] {
+    for why in [
+        StorageError::Io,
+        StorageError::Other(7),
+        StorageError::CARD_GONE,
+    ] {
         let card = Unreadable(MemoryStorage::new(), why);
         assert!(add(&card.0, "dials") && add(&card.0, "clock"));
-        let before = card.0.read(FILE).unwrap();
+        let before = file_bytes(&card.0);
         // Any id is "listed": the install is refused, not let through.
         assert!(has(&card, "dials") && has(&card, "other"));
         // Nothing is added, removed or retried; the file is untouched.
@@ -95,6 +107,6 @@ fn a_list_that_cannot_be_read_blocks_installs_and_is_never_rewritten() {
             1
         );
         assert!(!tried, "nothing is forgotten from a list nobody can read");
-        assert_eq!(card.0.read(FILE).unwrap(), before);
+        assert_eq!(file_bytes(&card.0), before);
     }
 }
