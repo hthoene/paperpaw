@@ -44,6 +44,7 @@ fn legacy_settings(widget: &str) -> Vec<Shape> {
                     format!("choice {default} {:?}", choices.iter().collect::<Vec<_>>())
                 }
                 (SettingKind::Text, SettingValue::Text(default)) => format!("text {default:?}"),
+                (SettingKind::List, SettingValue::Text(default)) => format!("list {default:?}"),
                 (SettingKind::Int { min, max }, SettingValue::Int(default)) => {
                     format!("int {default} {min}..={max}")
                 }
@@ -68,6 +69,7 @@ fn native_settings(def: &declarations::Def) -> Vec<Shape> {
                 Kind::Bool(on) => format!("bool {on}"),
                 Kind::Choice { default, choices } => format!("choice {default} {choices:?}"),
                 Kind::Text(default) => format!("text {default:?}"),
+                Kind::List(default) => format!("list {default:?}"),
                 Kind::Int { default, min, max } => format!("int {default} {min}..={max}"),
                 other => panic!("a kind the home widgets do not use: {other:?}"),
             };
@@ -114,4 +116,49 @@ fn each_native_widget_has_the_id_title_category_and_group_of_its_interface_6_one
         let group = group.unwrap_or_else(|| panic!("the group {id}"));
         assert_eq!(group.title, def.title, "{id}");
     }
+}
+
+#[test]
+fn the_status_line_has_the_settings_widget_and_place_of_its_interface_6_registration() {
+    // The parts (the line, left, centre, right), then the look of the frame.
+    let native: Vec<Shape> = declarations::STATUS_PARTS
+        .iter()
+        .map(|&(name, default, title, help, _)| Shape {
+            id: format!("home.status.{name}"),
+            title: title.to_string(),
+            help: Some(help.to_string()),
+            kind: format!("list {default:?}"),
+        })
+        .chain(declarations::STATUS_LOOK.iter().map(|&option| {
+            let row = row(option);
+            let kind = match row.kind {
+                Kind::Bool(on) => format!("bool {on}"),
+                Kind::Choice { default, choices } => format!("choice {default} {choices:?}"),
+                Kind::Text(default) => format!("text {default:?}"),
+                other => panic!("a kind the status look does not use: {other:?}"),
+            };
+            Shape {
+                id: format!("home.status.{}", row.suffix),
+                title: row.title.to_string(),
+                help: Some(row.help.to_string()),
+                kind,
+            }
+        }))
+        .collect();
+    let old = legacy_settings("status");
+    assert_eq!(old.len(), native.len(), "{old:#?}");
+    for (old, new) in old.iter().zip(&native) {
+        assert_eq!(old, new);
+    }
+    // The widget (id, title, category), its group and the place that names the three
+    // settings that list its items.
+    let contributions = legacy_contributions();
+    let mut widgets = paperpaw_sdk::widgets::Widgets::new();
+    for contribution in &contributions {
+        if let Contribution::FixedWidgets(list) = contribution {
+            widgets.add_fixed(list);
+        }
+    }
+    assert_eq!(widgets.title("home.status"), Some("home.widget.status"));
+    assert_eq!(widgets.category("home.status"), Some("core.widgets.device"));
 }

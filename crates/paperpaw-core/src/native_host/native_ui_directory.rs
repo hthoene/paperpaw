@@ -6,7 +6,10 @@ use super::{
     registrations::Record,
     ui_service::{Declared, UiDirectory},
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
+use crate::abi7::context::ui_views::HintView;
+use alloc::vec::Vec;
+use core::ops::ControlFlow;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 impl UiDirectory for NativeDeclarations {
     fn widget(&self, widget: &str) -> Result<Declared, i32> {
@@ -17,6 +20,60 @@ impl UiDirectory for NativeDeclarations {
     }
     fn status_line(&self, line: &str) -> Result<Declared, i32> {
         self.lookup(line, Kind::StatusLine)
+    }
+    fn hints(
+        &self,
+        scope: &str,
+        visit: &mut dyn FnMut(HintView<'_>) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        let store = self.store.try_borrow().map_err(|_| ERR_BUSY)?;
+        // The declared order: the keys of the screen's hints, by plugin and
+        // then record (the store keeps a kind in name order). One fallible
+        // allocation of the matches only.
+        let mut keys = Vec::new();
+        let mut failed = false;
+        store.keys(Kind::HelpHint, &mut |key| {
+            if failed {
+                return;
+            }
+            let mut hit = false;
+            store.visit_record(key, &mut |record| {
+                hit = matches!(record, Record::HelpHint(hint) if hint.screen == scope);
+            });
+            if hit {
+                failed = keys.try_reserve(1).is_err();
+                if !failed {
+                    keys.push(key);
+                }
+            }
+        });
+        if failed {
+            return Err(ERR_NO_MEMORY);
+        }
+        keys.sort_unstable_by_key(|key| key.order());
+        for key in keys {
+            let Some(owner) = store.plugin_of(key) else {
+                continue;
+            };
+            let mut flow = ControlFlow::Continue(());
+            store.visit_record(key, &mut |record| {
+                if let Record::HelpHint(hint) = record {
+                    flow = visit(HintView {
+                        input: hint.input,
+                        x: hint.x,
+                        y: hint.y,
+                        width: hint.width,
+                        height: hint.height,
+                        text: hint.text,
+                        owner,
+                    });
+                }
+            });
+            if flow.is_break() {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 impl NativeDeclarations {
