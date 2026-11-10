@@ -190,8 +190,10 @@ impl HostWiring {
     /// catalog, today's date, the format of a file ([`CatalogEnv`]). Only the
     /// reads are served: every write op answers `ERR_UNSUPPORTED` (the
     /// production write half is todo 307), and a name below the card's top
-    /// is one of the host's folders by spelling or, for an 8.3 alias, by
-    /// identity, as `core.files` decides it.
+    /// is one of the host's folders by spelling or, for an 8.3 alias (a name
+    /// with a `~` where one of those names also exists), as `core.files`
+    /// decides it. Where `core.files` is wired too, a book its library move
+    /// job carries is in use: `provide` answers `ERR_BUSY` for it.
     #[must_use]
     pub fn library(mut self, storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
         self.library = Some((storage, env));
@@ -445,13 +447,12 @@ impl HostResources {
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;
         }
-        if let Some((storage, env)) = wiring.library {
-            hosts.wire_library(Rc::new(LibraryHost::new(storage, env)))?;
-        }
+        let mut library_moves = None;
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and
             // the way a move of the user's files goes.
             let moves = hosts.wire_library_moves(storage.clone())?;
+            library_moves = Some(moves.clone());
             hosts.wire_files(Rc::new(
                 StorageFiles::new(
                     storage,
@@ -460,6 +461,11 @@ impl HostResources {
                 )
                 .with_moves(moves),
             ))?;
+        }
+        if let Some((storage, env)) = wiring.library {
+            // After `core.files`, whose library move job it shares: a book the
+            // job carries is in use for `provide`.
+            hosts.wire_library(Rc::new(LibraryHost::new(storage, env, library_moves)))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

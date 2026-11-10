@@ -142,9 +142,9 @@ fn exists_in(storage: &dyn Storage, parent: &str, name: &str) -> bool {
 }
 
 /// Whether `first_segment` (the first name below `parent` in `root`) is one of
-/// the host's folders for `storage`: by its spelling, or by identity (an 8.3
-/// alias, which carries a `~`, that names the same entry). Over-refuses where
-/// it cannot tell.
+/// the host's folders for `storage`: by its spelling, or as an 8.3 alias (a
+/// name with a `~`, where it and one of the host's names both exist, so it
+/// may be that entry). Over-refuses where it cannot tell.
 pub(crate) fn excluded_on(
     storage: &dyn Storage,
     root: u32,

@@ -7,8 +7,11 @@
 //!
 //! The one required piece of the write trait is [`LibExcluded`]: a name
 //! below the card's top is one of the host's folders (`plugins`, `.paperpaw`,
-//! `paperpaw.ini`) by its spelling or, for an 8.3 alias, by identity, as
-//! `core.files` decides it ([`excluded_on`]).
+//! `paperpaw.ini`) by its spelling or, for an 8.3 alias (a name with a `~`
+//! where one of those names also exists), as `core.files` decides it
+//! ([`excluded_on`]; it over-refuses where it cannot tell).
+use super::files_service::Access;
+use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
 use super::lib_service::{BookRef, LibExcluded, LibQuery, LibWrite, One, Rows};
 use super::registrations::{self as wire};
@@ -21,13 +24,21 @@ use paperpaw_platform::Storage;
 pub(crate) struct LibraryHost {
     reads: CatalogReads,
     storage: Rc<dyn Storage>,
+    /// The library's move job, where `core.files` is wired too: a book it
+    /// carries is in use.
+    moves: Option<Rc<LibraryMoves>>,
 }
 
 impl LibraryHost {
-    pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
+    pub(crate) fn new(
+        storage: Rc<dyn Storage>,
+        env: Rc<dyn CatalogEnv>,
+        moves: Option<Rc<LibraryMoves>>,
+    ) -> Self {
         Self {
             reads: CatalogReads::new(storage.clone(), env),
             storage,
+            moves,
         }
     }
 }
@@ -85,7 +96,13 @@ impl LibWrite for LibraryHost {
         book: BookRef<'_>,
         provided: &wire::ServiceLibProvided<'_>,
     ) -> Result<(), i32> {
-        self.reads.provide(book, provided)
+        // A book the move job carries is `ERR_BUSY`: the carry would put the
+        // old details over what a source provided, although it answered OK.
+        self.reads.provide_unless(book, provided, &|path| {
+            self.moves
+                .as_ref()
+                .is_some_and(|moves| moves.moves().busy(&**moves.card(), path, Access::Rework))
+        })
     }
 }
 
