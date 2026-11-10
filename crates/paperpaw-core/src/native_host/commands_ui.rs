@@ -337,7 +337,7 @@ impl<'a> CommandStage<'a> {
 
 /// `command.notify` flags bit 0: also from background work and when no screen
 /// of the plugin shows.
-const NOTIFY_ANNOUNCE: u32 = 1;
+pub(super) const NOTIFY_ANNOUNCE: u32 = 1;
 
 pub(super) fn copy_id(text: &str) -> Result<Id, i32> {
     Id::try_parse(text).map_err(|error| match error {
