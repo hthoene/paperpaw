@@ -35,12 +35,24 @@ pub fn wipe_text(text: String) {
     wipe(&mut bytes);
 }
 
-/// Appends `item` after reserving room for it.
+/// The most elements a full vector grows by at one push.
+const GROW_MOST: usize = 16;
+
+/// Appends `item` after reserving room for it. A full vector grows by its
+/// length up to [`GROW_MOST`] elements, not by doubling: a list of a few
+/// hundred never holds the half again that doubling leaves empty (and a
+/// reallocation of a long list is not asked for twice as large as it is); where
+/// that does not fit, it grows by one.
 ///
 /// # Errors
 /// [`Error::NoMemory`] when the vector cannot grow; it is left unchanged.
 pub fn push<T>(items: &mut Vec<T>, item: T) -> Result<(), Error> {
-    items.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    if items.len() == items.capacity() {
+        let more = items.len().clamp(1, GROW_MOST);
+        if items.try_reserve_exact(more).is_err() {
+            items.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+        }
+    }
     items.push(item);
     Ok(())
 }
@@ -193,6 +205,20 @@ pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_full_vector_grows_by_its_length_up_to_a_few_and_never_doubles() {
+        let mut items: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
+        let mut most_spare = 0;
+        for n in 0..300 {
+            push(&mut items, n).unwrap();
+            most_spare = most_spare.max(items.capacity() - items.len());
+        }
+        assert_eq!(items.len(), 300);
+        assert!(items.iter().copied().eq(0..300));
+        // Doubling would leave up to 255 spare at 300; a step of 16 leaves 15.
+        assert!(most_spare <= GROW_MOST, "{most_spare}");
+    }
 
     #[test]
     fn lowercase_matches_the_standard_conversion_for_plain_text() {

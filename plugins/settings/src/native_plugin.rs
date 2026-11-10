@@ -1,7 +1,7 @@
 //! The settings screens as an interface-7 plugin: the main page, a group's
 //! page, choosing a value, themes and searching, all lists of the shared
 //! kit over the registry's settings, with host dialogs for questions.
-use crate::native_data::{self, Reader};
+use crate::native_data::{self, Fields, Reader};
 use crate::native_model::{
     self as model, Context, Detail, Group, Kind, PageRow, Setting, Val, flag,
 };
@@ -1260,9 +1260,16 @@ impl NativeSettings {
         let mut reader = Reader::open(host)?;
         let found = (|| {
             let groups = reader.groups()?;
-            let all = reader.settings("")?;
             let cx = context(host, false)?;
-            model::reset_plan(&groups, cx, &all, group)
+            let mut keys: Vec<String> = Vec::new();
+            reader.each_setting(
+                "",
+                Fields::Light,
+                |_| true,
+                |_, s| model::reset_step(&mut keys, &groups, cx, &s, group),
+            )?;
+            model::reset_end(&mut keys)?;
+            Ok(keys)
         })();
         let keys = reader.finish(found)?;
         let mut scratch = buffer(512)?;

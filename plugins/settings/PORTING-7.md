@@ -201,3 +201,18 @@ same screen waits (`settings-covered-by-foreign-screen`).
   commands of a callback at 8 (open ruling #422), so the caller must split the plan then.
 - While the removal is held, a build without `native-linked` has no Settings page: merge right after
   native activation.
+
+## Heap of the open pages (#248, X4)
+
+- The registry is read **a page at a time** (`Reader::each_setting`): a page of 250 settings is never held
+  whole. The main page, the group page, the chooser, the themes, search and the reset plan each copy only
+  what they need: the heading groups need no titles or values (`Fields::Light`); a group's page copies only
+  its own group's settings; the chooser one; the themes the covered ones; search copies a setting and drops
+  it unless it matches. Behaviour is as before (search finds the same settings).
+- `ui_kit::mem::push` grows a full vector by its length up to 16 elements, not by doubling, so a list of a
+  few hundred rows has at most 15 spare slots instead of up to half of it.
+- Measured on the native-default branch (`fw/native-default-228`, emulator `--heap-report`, X4 profile): the
+  peak of opening Settings from a reading screen fell from 248.5 to 154.2 KiB (live heap 136.5 KiB at the
+  end); the TXT reading flow's peak (`memory.rs`) from 234.1 to 168.0 KiB, which the start and the book now
+  set (168.0 KiB at the first page, 136.2 KiB live), not Settings. The gate of #248 (108.5 KiB) is not met
+  by the Settings change alone: what native plugins keep resident at start is Core's.

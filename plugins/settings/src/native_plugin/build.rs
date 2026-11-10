@@ -56,21 +56,29 @@ pub(super) fn listed_in<'a>(groups: &[Group], setting: &'a Setting) -> &'a str {
     }
 }
 
-/// The groups that hold a listed setting (`advanced_ok`: advanced ones too).
+/// The groups that hold a listed setting (`advanced_ok`: advanced ones too),
+/// found a page of the registry at a time: no list of settings is kept.
 pub(super) fn holding(
     reader: &mut Reader<'_, '_>,
     groups: &[Group],
     cx: Context,
-    all: &[Setting],
     advanced_ok: bool,
 ) -> Result<Vec<String>, Error> {
     let mut found: Vec<String> = Vec::new();
-    for setting in all {
-        let group = listed_in(groups, setting);
-        if !found.iter().any(|g| g == group) && listed(reader, groups, cx, setting, advanced_ok)? {
-            push(&mut found, copy(group)?)?;
-        }
-    }
+    reader.each_setting(
+        "",
+        Fields::Light,
+        |_| true,
+        |reader, setting| {
+            let group = listed_in(groups, &setting);
+            if !found.iter().any(|g| g == group)
+                && listed(reader, groups, cx, &setting, advanced_ok)?
+            {
+                push(&mut found, copy(group)?)?;
+            }
+            Ok(())
+        },
+    )?;
     Ok(found)
 }
 
@@ -208,9 +216,8 @@ pub(super) fn build_list(
     view: &mut ListView,
 ) -> Result<(), Error> {
     let groups = reader.groups()?;
-    let all = reader.settings("")?;
     let cx = context(host, false)?;
-    let held = holding(reader, &groups, cx, &all, false)?;
+    let held = holding(reader, &groups, cx, false)?;
     let widgets = reader.widget_ids()?;
     let pages = reader.menu(model::PAGES_MENU)?;
     let secrets_kept = crate::native_secrets::shown(host, &pages)?;
@@ -343,6 +350,29 @@ fn entry_of(
     })
 }
 
+/// The group the setting `focus` is listed in (the other group where it is not
+/// known).
+fn focus_group(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    focus: &str,
+) -> Result<String, Error> {
+    let mut own: Option<String> = None;
+    reader.each_setting(
+        "",
+        Fields::Light,
+        |row| row.key() == focus,
+        |_, s| {
+            own = Some(copy(listed_in(groups, &s))?);
+            Ok(())
+        },
+    )?;
+    match own {
+        Some(group) => Ok(group),
+        None => copy(model::OTHER_GROUP),
+    }
+}
+
 /// Builds a group's page.
 pub(super) fn build_group(
     host: &Host<'_>,
@@ -350,7 +380,6 @@ pub(super) fn build_group(
     view: &mut GroupView,
 ) -> Result<(), Error> {
     let groups = reader.groups()?;
-    let all = reader.settings("")?;
     let cx = context(host, view.scoped)?;
     let mut messages = Messages::new()?;
     // A placement's page (`widgets.clock@2`) shows the settings of its widget's
@@ -360,10 +389,7 @@ pub(super) fn build_group(
         copy(base)?
     } else if view.group.is_empty() {
         // A setting to focus, on its own group's page.
-        match all.iter().find(|s| s.key == view.focus) {
-            Some(s) => copy(listed_in(&groups, s))?,
-            None => copy(model::OTHER_GROUP)?,
-        }
+        focus_group(reader, &groups, &view.focus)?
     } else {
         copy(&view.group)?
     };
@@ -387,10 +413,18 @@ pub(super) fn build_group(
     } else {
         title
     };
+    // The settings of the page's group, and only those are read.
+    let mut mine: Vec<Setting> = Vec::new();
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |row| model::in_group(&groups, row.group(), &of),
+        |_, s| push(&mut mine, s),
+    )?;
     // The page's settings: the basic ones, or the advanced ones alone.
     let mut specs: Vec<&Setting> = Vec::new();
     let mut advanced_offered = false;
-    for s in all.iter().filter(|s| model::group_is(&groups, s, &of)) {
+    for s in &mine {
         if view.more {
             if s.has(flag::ADVANCED) && listed(reader, &groups, cx, s, true)? {
                 push(&mut specs, s)?;
@@ -404,10 +438,7 @@ pub(super) fn build_group(
     }
     // A page with nothing basic shows its advanced settings at once.
     if specs.is_empty() && !view.more {
-        for s in all
-            .iter()
-            .filter(|s| model::group_is(&groups, s, &of) && s.has(flag::ADVANCED))
-        {
+        for s in mine.iter().filter(|s| s.has(flag::ADVANCED)) {
             if listed(reader, &groups, cx, s, true)? {
                 push(&mut specs, s)?;
             }
@@ -423,7 +454,7 @@ pub(super) fn build_group(
         host,
         reader,
         view,
-        (&groups, cx, &all, &of),
+        (&groups, cx, &of),
         pool,
         (has_more, !specs.is_empty()),
     )?;
@@ -456,7 +487,7 @@ pub(super) fn page_rows(
     host: &Host<'_>,
     reader: &mut Reader<'_, '_>,
     view: &GroupView,
-    (groups, cx, all, of): (&[Group], Context, &[Setting], &str),
+    (groups, cx, of): (&[Group], Context, &str),
     mut pool: Vec<Option<Entry>>,
     (has_more, has_specs): (bool, bool),
 ) -> Result<(Vec<Row>, Vec<Entry>), Error> {
@@ -466,7 +497,7 @@ pub(super) fn page_rows(
     // A placement's page has no parts, actions or themes: those are the group's.
     if !view.more && model::unplaced(&view.group).is_none() {
         // Its parts, each a page of its own, where they hold something.
-        let held = holding(reader, groups, cx, all, true)?;
+        let held = holding(reader, groups, cx, true)?;
         for g in groups.iter().filter(|g| g.parent == of) {
             if held.iter().any(|h| model::within(groups, h, &g.id)) {
                 push(&mut rows, Row::Part(copy(&g.id)?, copy(&g.title)?))?;
@@ -553,17 +584,25 @@ pub(super) fn build_choose(
     reader: &mut Reader<'_, '_>,
     view: &mut ChooseView,
 ) -> Result<(), Error> {
-    let all = reader.settings("")?;
     // A placement's setting is chosen among the options of the setting it
     // stands for; its value is its own.
     let base = match model::unplaced_key(&view.key)? {
         Some(base) => base,
         None => copy(&view.key)?,
     };
-    let Some(setting) = all.iter().find(|s| s.key == base) else {
+    let mut named: Option<String> = None;
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |row| row.key() == base,
+        |_, s| {
+            named = Some(s.title);
+            Ok(())
+        },
+    )?;
+    let Some(title) = named else {
         return Ok(());
     };
-    let title = copy(&setting.title)?;
     let options = reader.choices(&base)?;
     // More ways to choose: the entries of the menu named like the setting.
     let mut more = Vec::new();
@@ -602,26 +641,31 @@ pub(super) fn build_choose(
 /// gives values (what the reader needs to read at all is kept), or the
 /// settings of every widget's frame, room, sizes and colours.
 pub(super) fn look_settings(reader: &mut Reader<'_, '_>, look: Look) -> Result<Vec<String>, Error> {
-    let all = reader.settings("")?;
     let mut keys = Vec::new();
     if look == Look::Widgets {
         let widgets = reader.widget_ids()?;
-        for s in all
-            .iter()
-            .filter(|s| model::widget_look_covers(&s.key, &widgets))
-        {
-            push(&mut keys, copy(&s.key)?)?;
-        }
+        reader.each_setting(
+            "",
+            Fields::Light,
+            |row| model::widget_look_covers(row.key(), &widgets),
+            |_, s| push(&mut keys, s.key),
+        )?;
         return Ok(keys);
     }
     let groups = reader.groups()?;
-    for s in &all {
-        if model::within(&groups, listed_in(&groups, s), LOOK_GROUP)
-            && !THEME_KEPT.contains(&s.key.as_str())
-        {
-            push(&mut keys, copy(&s.key)?)?;
-        }
-    }
+    reader.each_setting(
+        "",
+        Fields::Light,
+        |_| true,
+        |_, s| {
+            if model::within(&groups, listed_in(&groups, &s), LOOK_GROUP)
+                && !THEME_KEPT.contains(&s.key.as_str())
+            {
+                push(&mut keys, s.key)?;
+            }
+            Ok(())
+        },
+    )?;
     Ok(keys)
 }
 
@@ -641,7 +685,15 @@ pub(super) fn build_themes(
         push(&mut themes, (id, name))?;
     }
     let covered = look_settings(reader, view.look)?;
-    let all = reader.settings("")?;
+    // Only the covered settings are read (their values and whether they are
+    // the defaults).
+    let mut all: Vec<Setting> = Vec::new();
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |row| covered.iter().any(|key| key == row.key()),
+        |_, s| push(&mut all, s),
+    )?;
     let mut in_use: Option<usize> = None;
     // None: every covered setting has its default.
     if all
@@ -687,30 +739,35 @@ pub(super) fn build_search(
         return Ok(());
     }
     let groups = reader.groups()?;
-    let all = reader.settings("")?;
     let cx = context(host, false)?;
-    for s in &all {
-        if !listed(reader, &groups, cx, s, false)? {
-            continue;
-        }
-        let help = reader.detail(&s.key)?.help;
-        if !model::matches(&concat(&[&s.title, " ", &help])?, &words)? {
-            continue;
-        }
-        let group = listed_in(&groups, s);
-        let note = groups
-            .iter()
-            .find(|g| g.id == group)
-            .map_or("", |g| g.title.as_str());
-        push(&mut items, Item::noted(&s.title, "›", note)?)?;
-        push(
-            &mut hits,
-            Target::Setting {
-                group: copy(group)?,
-                key: copy(&s.key)?,
-            },
-        )?;
-    }
+    // Page by page: the settings that match are kept, no others.
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |_| true,
+        |reader, s| {
+            if !listed(reader, &groups, cx, &s, false)? {
+                return Ok(());
+            }
+            let help = reader.detail(&s.key)?.help;
+            if !model::matches(&concat(&[&s.title, " ", &help])?, &words)? {
+                return Ok(());
+            }
+            let group = listed_in(&groups, &s);
+            let note = groups
+                .iter()
+                .find(|g| g.id == group)
+                .map_or("", |g| g.title.as_str());
+            push(&mut items, Item::noted(&s.title, "›", note)?)?;
+            push(
+                &mut hits,
+                Target::Setting {
+                    group: copy(group)?,
+                    key: s.key,
+                },
+            )
+        },
+    )?;
     let mut messages = Messages::new()?;
     let settings_title = messages.copy(host, "settings.title")?;
     for page in reader.menu(model::PAGES_MENU)? {
