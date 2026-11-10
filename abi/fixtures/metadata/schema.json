@@ -2961,6 +2961,15 @@
           "ordinal": null,
           "since": 1,
           "type": "str"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 39,
@@ -12693,6 +12702,15 @@
           "default": null,
           "max_bytes": 32,
           "name": "recovery",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "sha256",
           "optional": false,
           "ordinal": null,
           "since": 1,

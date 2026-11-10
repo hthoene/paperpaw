@@ -1123,3 +1123,205 @@ fn check_file_encodes_its_kind_and_refuses_bad_arguments_before_the_host() {
     }
     assert_eq!(seen, [(5, 1, 6, 1), (6, 0, 512, 0)]);
 }
+
+#[test]
+fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (author, recovery) = ([1_u8; 32], [2_u8; 32]);
+    let (to_a, to_b, sig_a, sig_b) = ([3_u8; 32], [4_u8; 32], [5_u8; 64], [6_u8; 64]);
+    let rotations = [Rotation::new(&to_a, &sig_a), Rotation::new(&to_b, &sig_b)];
+    let digest = [7_u8; 32];
+    let evidence = Evidence::new()
+        .author(&author)
+        .recovery(&recovery)
+        .sha256(&digest)
+        .rotations(&rotations);
+    sender
+        .install_plugin_with(9, InstallRoot::Data, "staging/x", true, false, &evidence)
+        .unwrap();
+    // Without evidence it is `install_plugin`'s batch; with rotations only, no author record.
+    sender
+        .install_plugin_with(
+            10,
+            InstallRoot::Files,
+            "a.ppn",
+            false,
+            true,
+            &Evidence::new(),
+        )
+        .unwrap();
+    sender
+        .install_plugin_with(
+            11,
+            InstallRoot::Data,
+            "b.ppn",
+            false,
+            false,
+            &Evidence::new().rotations(&rotations[..1]),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 3);
+    let first = &batches[0];
+    assert_eq!(first.len(), 4);
+    assert!(first[0].starts_with("InstallPlugin") && first[0].contains("request: 9"));
+    assert!(first[1].starts_with("InstallAuthor") && first[1].contains("request: 9"));
+    assert!(first[1].contains("[1, 1") && first[1].contains("[2, 2"));
+    assert!(first[1].contains("sha256: [7, 7"), "{}", first[1]);
+    assert!(first[2].starts_with("InstallRotation") && first[2].contains("[3, 3"));
+    assert!(first[3].starts_with("InstallRotation") && first[3].contains("[4, 4"));
+    assert_eq!(batches[1].len(), 1);
+    assert_eq!(batches[2].len(), 2);
+    assert!(batches[2][1].starts_with("InstallRotation"));
+}
+
+#[test]
+fn a_recovery_key_alone_sends_the_author_record_with_an_empty_author() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let recovery = [9_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().recovery(&recovery),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].starts_with("InstallAuthor"));
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("[9, 9"));
+    assert!(batches[0][1].contains("sha256: []"));
+}
+
+#[test]
+fn a_digest_alone_sends_the_author_record_with_empty_keys() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let digest = [5_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().sha256(&digest),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("recovery: []"));
+    assert!(batches[0][1].contains("sha256: [5, 5"));
+}
+
+#[test]
+fn an_install_with_evidence_refuses_what_does_not_fit_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let key = [1_u8; 32];
+    let signature = [2_u8; 64];
+    let seven = [Rotation::new(&key, &signature); 7];
+    let none = Evidence::new();
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let mut send = |request, path: &str, evidence: &Evidence<'_>| {
+        sender.install_plugin_with(request, InstallRoot::Data, path, false, false, evidence)
+    };
+    assert_eq!(send(0, "a", &none), Err(Error::Invalid));
+    assert_eq!(send(1, "", &none), Err(Error::Invalid));
+    assert_eq!(send(1, &"p".repeat(513), &none), Err(Error::NoSpace));
+    // More than MAX_ROTATIONS (6) is refused, with a key or without.
+    assert_eq!(
+        send(1, "a", &Evidence::new().rotations(&seven)),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        send(1, "a", &Evidence::new().author(&key).rotations(&seven)),
+        Err(Error::Invalid)
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    // 6 rotations fit with a key (install + author + 6 = 8) and without.
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    for (request, evidence) in [
+        (1, Evidence::new().rotations(&seven[..6])),
+        (2, Evidence::new().author(&key).rotations(&seven[..6])),
+    ] {
+        sender
+            .install_plugin_with(request, InstallRoot::Data, "a", false, false, &evidence)
+            .unwrap();
+    }
+    assert_eq!(ctx.batches.borrow().len(), 2);
+    // A scratch buffer too small for the batch leaves the sender untouched.
+    let mut small = [0_u8; 32];
+    let mut sender = CommandSender::new(&host, &mut small);
+    assert_eq!(
+        sender.install_plugin_with(
+            3,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().author(&key)
+        ),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}
+
+#[test]
+fn revocations_go_in_batches_of_eight_and_keep_their_limits() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 2048];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (key, signature) = ([7_u8; 32], [8_u8; 64]);
+    let id = "p".repeat(64);
+    let one = Revocation::new("store", &key, &signature);
+    sender.trust_revoked(&[one]).unwrap();
+    let many = [Revocation::new(&id, &key, &signature); MAX_REVOCATIONS];
+    sender.trust_revoked(&many).unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [1, 8, 8]);
+    assert!(batches[0][0].starts_with("TrustRevoked") && batches[0][0].contains("store"));
+    ctx.batches.borrow_mut().clear();
+    let too_many = [one; MAX_REVOCATIONS + 1];
+    let long = "p".repeat(65);
+    for refused in [
+        &[][..],
+        &too_many[..],
+        &[Revocation::new("", &key, &signature)][..],
+        &[Revocation::new(&long, &key, &signature)][..],
+    ] {
+        assert_eq!(sender.trust_revoked(refused), Err(Error::Invalid));
+    }
+    assert!(ctx.batches.borrow().is_empty());
+}

@@ -50,9 +50,12 @@ unsafe extern "C" fn make(
     }
     if IGNORE_INVALID {
         // H2 deliberately ignores refusal. The HOST must poison the transaction.
-        let _refusal = unsafe {
-            (h.registrations_submit)(ctx, PpBytes { ptr: INVALID.as_ptr(), len: INVALID.len() })
-        };
+        // Four times: a batch of eight draws fills the 32 callback slots on the 4th.
+        for _ in 0..4 {
+            let _refusal = unsafe {
+                (h.registrations_submit)(ctx, PpBytes { ptr: INVALID.as_ptr(), len: INVALID.len() })
+            };
+        }
     }
     let mut block = core::ptr::null_mut();
     let status = unsafe {
