@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
