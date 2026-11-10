@@ -199,3 +199,33 @@ relative to the data folder).
   so they agree); all lines of a page are sent for each drawn band (Beta 3 skipped lines outside the
   clip: the host clips, the cost is on the first-page timing list for the X4); a page is drawn in one
   colour and each word is one host call, no per-word ink.
+
+## The reading screen (view slice R1e, `native_view.rs`, `native_pages.rs`)
+
+- `core.reader`'s screen (token `SCREEN`): on open it reads the hand-over (`path`, `root`, `section`,
+  `offset`, `page`), opens the book through `core.document` (publisher styles on; root 1, 0 or the handed
+  file 5), reads the section count, and starts at the place the hand-over names if the book has it
+  (`native_open::opening`). Preparing, failed, not ready and "no book" are screens that say so (the
+  Beta 3 texts `reader.preparing`, `reader.error`, `reader.not-ready`, `reader.no-book`; out of memory
+  and no reading font too). The document is closed with the screen.
+- Drawing: the reading settings (`core.font-size`, line and word spacing, margins at the sides and at
+  the ends, justify) and the display give the content box (`native_pages::content_box`; a margin that
+  leaves less than 16 px is a screen that says "no memory"-class error, not a page), the page is laid
+  out once (`layout_page` over `HostDocument` and `Faces`) and drawn on white with `draw_lines`; four of
+  the plugin's eight font handles are held for the length of a draw or a back-layout.
+- Turning: the actions `core.next-page`/`core.prev-page` and the arrows (the keys, edge swipes and
+  tap zones are the host's input mapping). On: the start of the page is kept in a trail of 64; at the
+  end of the book nothing happens (the end-of-book hand-over is the progress slice). Back: the trail,
+  else the page before is found by laying pages out from the section's start (at most 4,096), as the
+  trail is empty after opening in the middle.
+- Metadata now asks `core.document` and `core.ui` and the feature `uses.storage` (root 1); the host
+  calls `services.query` added.
+- **Not yet (named gaps):** the place saved last time and `page` numbers (`LIB-position`, R2); progress,
+  the page index and status lines (R2, op 5 sections in #973); the menus and the font/layout panel (R3);
+  selection, words, links, footnotes (R4); annotations (R5); TOC and skim (R6); search (R7); reflow on
+  a turned screen and on a changed setting (the page is laid out again only after a turn); a document
+  that is still preparing is not read again when the host says it is ready (`document_changed`); the
+  paragraph indent and spacing, widows and orphans, hyphenation and the book-style switches of the
+  layout `Style` (defaults only); pictures and tables (see the assembler); a hosted end-to-end test
+  (open a book of a real format plugin, draw, turn) waits for DocHost's root 5 and a format plugin in
+  the hosted harness; first-page timing on the X4 is not measured.

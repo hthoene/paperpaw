@@ -1,0 +1,474 @@
+//! The reading screen (`core.reader`): the book named by the hand-over is
+//! opened through the document service, a page is laid out with the reading
+//! settings and drawn, and the page actions turn it. One view for each open
+//! instance; the document is closed with it. What is decided without a host is
+//! in `native_pages`, `native_open`, `native_typeset` and `native_draw`; what is
+//! not ported yet (the place saved last time, progress, menus, selection,
+//! links, annotations) is in `PORTING-7.md`.
+use crate::{
+    native_document::HostDocument,
+    native_draw::{HostInk, draw_lines},
+    native_open::{self, Place, Start},
+    native_pages::{self, Reading, Trail, Turn},
+    native_typeset::{Faces, HostFonts},
+};
+use alloc::string::String;
+use paperpaw_sdk::{
+    Color, Handled, NoStorage,
+    document::{DocumentError, Locator},
+    layout::{LayoutContext, Page, Style, layout_page},
+    native::{
+        Error, Host,
+        callbacks::{DrawFrame, DrawPurpose, Input},
+        commands::{CommandSender, RedrawMode},
+        document::{DocId, Documents, OpenBook, Preparation, Root},
+        fonts::{Font, FontRole},
+        settings::{self, SettingValue},
+        snapshot::{self, Snapshot},
+        ui::{HandoverId, Ui},
+    },
+};
+use paperpaw_ui_kit::{
+    Messages, Style as UiStyle,
+    mem::{SERVICE_BUFFER, buffer, push},
+    paint, text,
+};
+
+/// Longest path taken from a hand-over, in bytes.
+pub const MAX_PATH: usize = 512;
+/// Most pages laid out to find the page before one.
+pub const BACK_LIMIT: usize = 4096;
+
+/// What the screen shows.
+#[derive(Debug)]
+enum Body {
+    /// Why there is no page (the key of the text).
+    Message(&'static str),
+    /// The book, open.
+    Open(Open),
+}
+
+/// An open book and the page on show.
+#[derive(Debug)]
+struct Open {
+    id: DocId,
+    sections: u32,
+    whole_pages: bool,
+    /// Where the page on show starts.
+    at: (u32, u32),
+    /// The page on show, laid out at the first draw after it changed.
+    page: Option<Page>,
+    trail: Trail,
+}
+
+/// One open reading screen.
+#[derive(Debug)]
+pub struct View {
+    body: Body,
+}
+
+/// The hand-over's values, as far as the screen reads them.
+#[derive(Debug, Default)]
+struct Handover {
+    path: String,
+    root: Option<String>,
+    section: Option<String>,
+    offset: Option<String>,
+    page: Option<String>,
+}
+
+impl Handover {
+    fn get(&self, key: &str) -> Option<&str> {
+        match key {
+            native_open::SECTION => self.section.as_deref(),
+            native_open::OFFSET => self.offset.as_deref(),
+            native_open::PAGE => self.page.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+fn read_handover(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<Handover, Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let mut found = Handover::default();
+    for param in ui.params(host, handover, &mut input, &mut out)? {
+        let param = param?;
+        let value = param.value();
+        match param.key() {
+            "path" if value.len() <= MAX_PATH => found.path = text::copy(value)?,
+            "root" => found.root = Some(text::copy(value)?),
+            native_open::SECTION => found.section = Some(text::copy(value)?),
+            native_open::OFFSET => found.offset = Some(text::copy(value)?),
+            native_open::PAGE => found.page = Some(text::copy(value)?),
+            _ => {}
+        }
+    }
+    Ok(found)
+}
+
+impl View {
+    /// The screen of the book `handover` names, opened.
+    ///
+    /// # Errors
+    /// `NoMemory` and the host's refusals other than the book's own (a book that
+    /// does not open is a screen that says so).
+    pub fn open(
+        host: &Host<'_>,
+        ui: &Ui,
+        docs: &Documents,
+        handover: Option<HandoverId>,
+    ) -> Result<Self, Error> {
+        let found = match handover {
+            Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
+            None => Handover::default(),
+        };
+        if found.path.is_empty() {
+            return Ok(Self::message("reader.no-book"));
+        }
+        let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
+        let root = match found.root.as_deref() {
+            Some("0") => Root::Data,
+            Some("5") => Root::Handed,
+            _ => Root::Library,
+        };
+        let book = OpenBook::new(&found.path).root(root).publisher_styles();
+        let state = match docs.open_book(host, &book, &mut input, &mut out) {
+            Ok(state) => (state.id(), state.preparation(), state.whole_pages()),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
+            Err(_) => return Ok(Self::message("reader.error")),
+        };
+        let (id, preparation, whole_pages) = state;
+        match preparation {
+            Preparation::Ready => {}
+            Preparation::Preparing => {
+                Self::forget(host, docs, id);
+                return Ok(Self::message("reader.preparing"));
+            }
+            _ => {
+                Self::forget(host, docs, id);
+                return Ok(Self::message("reader.error"));
+            }
+        }
+        let sections = match docs.metadata(host, id, &mut input, &mut out) {
+            Ok(meta) => meta.sections().max(1),
+            Err(Error::NoMemory) => {
+                Self::forget(host, docs, id);
+                return Err(Error::NoMemory);
+            }
+            Err(_) => {
+                Self::forget(host, docs, id);
+                return Ok(Self::message("reader.error"));
+            }
+        };
+        // The place the hand-over names, if the book has it; else the start
+        // (the saved place and a page number come with the progress slice).
+        let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
+            Start::At(place) => (place.section, place.offset),
+            _ => (0, 0),
+        };
+        Ok(Self {
+            body: Body::Open(Open {
+                id,
+                sections,
+                whole_pages,
+                at,
+                page: None,
+                trail: Trail::new(),
+            }),
+        })
+    }
+
+    const fn message(key: &'static str) -> Self {
+        Self {
+            body: Body::Message(key),
+        }
+    }
+
+    /// Gives the document back (the screen closed); a refusal leaves it to the
+    /// host's teardown.
+    fn forget(host: &Host<'_>, docs: &Documents, id: DocId) {
+        if let (Ok(mut input), Ok(mut out)) = (buffer(64), buffer(64)) {
+            docs.close(host, id, &mut input, &mut out).ok();
+        }
+    }
+
+    /// Closes the document of the screen.
+    pub fn close(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &self.body {
+            Self::forget(host, docs, open.id);
+        }
+        self.body = Body::Message("reader.no-book");
+    }
+
+    /// What an input did: turns the page.
+    ///
+    /// # Errors
+    /// Allocation and the host's refusals.
+    pub fn input(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
+        let Body::Open(open) = &mut self.body else {
+            return Ok(Handled::No);
+        };
+        let moved = match native_pages::turn(input) {
+            Turn::Ignored => return Ok(Handled::No),
+            Turn::Next => open.next()?,
+            Turn::Previous => open.previous(host, docs)?,
+        };
+        if moved {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        }
+        Ok(Handled::Yes)
+    }
+
+    /// Draws the screen.
+    ///
+    /// # Errors
+    /// Allocation, font and drawing errors.
+    pub fn draw(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        frame: &mut DrawFrame<'_>,
+    ) -> Result<(), Error> {
+        if !matches!(frame.purpose, DrawPurpose::Screen) {
+            return Ok(());
+        }
+        let key = match &mut self.body {
+            Body::Message(key) => *key,
+            Body::Open(open) => match open.draw(host, docs, frame) {
+                Ok(()) => return Ok(()),
+                Err(Error::NoMemory) => "reader.no-memory",
+                Err(Error::NotFound) => "reader.no-font",
+                Err(_) => "reader.error",
+            },
+        };
+        say(host, frame, key)
+    }
+}
+
+/// The text the screen reads its page from: reading settings and the display.
+struct Setup {
+    reading: Reading,
+    display: Snapshot,
+}
+
+fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
+    let mut bytes = [0; 32];
+    Ok(match settings::read_setting(host, key, &mut bytes)? {
+        SettingValue::Int(value) => value,
+        _ => 0,
+    })
+}
+
+fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
+    let mut bytes = [0; 32];
+    Ok(matches!(
+        settings::read_setting(host, key, &mut bytes)?,
+        SettingValue::Bool(true)
+    ))
+}
+
+impl Setup {
+    fn read(host: &Host<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            reading: Reading::new(
+                integer(host, "core.font-size")?,
+                integer(host, "core.line-spacing")?,
+                integer(host, "core.word-spacing")?,
+                integer(host, "core.margin")?,
+                integer(host, "core.margin-ends")?,
+                flag(host, "core.justify")?,
+            ),
+            display: snapshot::capture_snapshot(host)?,
+        })
+    }
+
+    /// The size of body text in pixels.
+    fn base(&self) -> f32 {
+        self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
+    }
+}
+
+impl Open {
+    /// The page after the one on show; whether there is one.
+    fn next(&mut self) -> Result<bool, Error> {
+        let Some(page) = &self.page else {
+            return Ok(false);
+        };
+        if page.is_past_end() {
+            return Ok(false);
+        }
+        let end = (page.end.section, page.end.offset);
+        // A page that ends where it started would never move on.
+        if end <= self.at {
+            return Ok(false);
+        }
+        self.trail.push(self.at)?;
+        self.at = end;
+        self.page = None;
+        Ok(true)
+    }
+
+    /// The page before the one on show; whether there is one.
+    fn previous(&mut self, host: &Host<'_>, docs: &Documents) -> Result<bool, Error> {
+        let before = match self.trail.pop() {
+            Some(start) => Some(start),
+            None => {
+                let from = if self.at.1 == 0 {
+                    (self.at.0.saturating_sub(1), 0)
+                } else {
+                    (self.at.0, 0)
+                };
+                let setup = Setup::read(host)?;
+                let at = self.at;
+                native_pages::page_before(from, at, BACK_LIMIT, |start| {
+                    let page = self.lay(host, docs, &setup, start)?;
+                    Ok((page.end.section, page.end.offset))
+                })?
+            }
+        };
+        match before {
+            Some(start) => {
+                self.at = start;
+                self.page = None;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    /// The page starting at `start`, laid out with `setup`.
+    fn lay(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        setup: &Setup,
+        start: (u32, u32),
+    ) -> Result<Page, Error> {
+        let area = native_pages::content_box(
+            setup.display.display_width(),
+            setup.display.display_height(),
+            setup.display.display_dpi(),
+            &setup.reading,
+        )
+        .ok_or(Error::NoSpace)?;
+        let fonts = HostFonts::acquire(host)?;
+        let page =
+            Faces::new(&fonts, setup.base(), setup.reading.spacing_factor()).and_then(|faces| {
+                let faces = faces.word_spacing(setup.reading.word_factor());
+                self.lay_with(host, docs, &faces, setup, start, area)
+            });
+        let released = fonts.release();
+        page.and_then(|page| released.map(|()| page))
+    }
+
+    fn lay_with(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        faces: &Faces<&HostFonts<'_>>,
+        setup: &Setup,
+        start: (u32, u32),
+        area: native_pages::Box,
+    ) -> Result<Page, Error> {
+        let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
+        let style = Style::new(0.0, 0.0, setup.base(), setup.reading.justify);
+        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
+        layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
+            match document_error_kind(&error) {
+                Some(kind) => kind,
+                None => Error::Invalid,
+            }
+        })
+    }
+
+    fn draw(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        frame: &mut DrawFrame<'_>,
+    ) -> Result<(), Error> {
+        let setup = Setup::read(host)?;
+        let area = native_pages::content_box(
+            setup.display.display_width(),
+            setup.display.display_height(),
+            setup.display.display_dpi(),
+            &setup.reading,
+        )
+        .ok_or(Error::NoSpace)?;
+        let fonts = HostFonts::acquire(host)?;
+        let drawn = self.draw_with(host, docs, frame, &setup, &fonts, area);
+        let released = fonts.release();
+        drawn.and(released)
+    }
+
+    fn draw_with(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        frame: &mut DrawFrame<'_>,
+        setup: &Setup,
+        fonts: &HostFonts<'_>,
+        area: native_pages::Box,
+    ) -> Result<(), Error> {
+        let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
+            .word_spacing(setup.reading.word_factor());
+        if self.page.is_none() {
+            let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
+            self.page = Some(page);
+        }
+        let page = self.page.as_ref().ok_or(Error::State)?;
+        let rect = frame.rect;
+        let canvas = frame.draw_canvas()?;
+        canvas.fill_rectangle(rect, Color::WHITE)?;
+        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK);
+        let origin = (
+            rect.x as f32 + f32::from(area.x),
+            rect.y as f32 + f32::from(area.y),
+        );
+        draw_lines(&mut ink, &faces, page, origin)
+    }
+}
+
+/// What a layout's refusal is as a host error.
+fn document_error_kind(error: &DocumentError) -> Option<Error> {
+    match error {
+        DocumentError::OutOfMemory => Some(Error::NoMemory),
+        DocumentError::NotReady => Some(Error::Busy),
+        _ => None,
+    }
+}
+
+/// Says why there is no page: the text over the whole screen.
+fn say(host: &Host<'_>, frame: &mut DrawFrame<'_>, key: &str) -> Result<(), Error> {
+    let font = Font::acquire_role(host, FontRole::Ui)?;
+    let said = say_with(host, frame, &font, key);
+    let released = font.release();
+    said.and(released)
+}
+
+fn say_with(
+    host: &Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    key: &str,
+) -> Result<(), Error> {
+    let display = snapshot::capture_snapshot(host)?;
+    let style = UiStyle::read(host, &display, font)?;
+    let area = paperpaw_sdk::Rect::new(0, 0, display.display_width(), display.display_height());
+    let mut messages = Messages::new()?;
+    let shown = messages.copy(host, key)?;
+    let mut body = alloc::vec::Vec::new();
+    push(&mut body, paint::Paint::Fill(area, style.paper))?;
+    text::message(&mut body, font, &style, area, &shown)?;
+    paint::replay(frame, font, body.iter())
+}
+
+#[cfg(test)]
+mod tests;

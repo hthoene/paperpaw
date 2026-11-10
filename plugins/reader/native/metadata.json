@@ -68,6 +68,10 @@
     },
     {
       "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
       "name": "registrations.submit"
     },
     {
@@ -104,7 +108,13 @@
     }
   ],
   "services": [
+    "core.document",
     "core.ui"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.storage",
+      "required": true
+    }
+  ]
 }

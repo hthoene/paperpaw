@@ -12,7 +12,13 @@
       "name": "PAPERPAW_ENTRY"
     }
   ],
-  "features": [],
+  "features": [
+    {
+      "key": "uses.storage",
+      "required": true,
+      "revision": 1
+    }
+  ],
   "flags": 0,
   "layout": 2,
   "needs_minor": 1,
@@ -28,6 +34,12 @@
   },
   "services": [
     {
+      "key": "core.document",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.ui",
       "major": 1,
       "min_table_bytes": 0,
@@ -35,5 +47,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 97
+  "total_bytes": 142
 }

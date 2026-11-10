@@ -73,6 +73,16 @@ pub trait Measure {
     fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error>;
 }
 
+impl<M: Measure + ?Sized> Measure for &M {
+    fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error> {
+        (**self).width(role, size, text)
+    }
+
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
+        (**self).metrics(role, size)
+    }
+}
+
 /// The host's reading fonts, held for one callback.
 #[derive(Debug)]
 pub struct HostFonts<'h> {

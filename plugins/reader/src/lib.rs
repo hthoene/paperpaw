@@ -53,11 +53,13 @@ mod native_entry;
 pub use native_entry::NATIVE_ENTRY;
 pub mod native_notes;
 pub mod native_open;
+pub mod native_pages;
 pub mod native_plugin;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
 pub mod native_typeset;
+pub mod native_view;
 pub mod native_words;
 
 /// The codec of the reader's own stage schemas (`stages/*.def`, made by

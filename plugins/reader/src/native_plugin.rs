@@ -5,16 +5,20 @@
 //! the plugin is not in the app's `NATIVE_PLUGINS` until they have one
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
+use crate::{declarations::SCREEN, native_view::View};
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
-        events::Incoming,
+        document::Documents,
+        events::{Event, Incoming, kinds},
         registrations,
         reply::Reply,
+        ui::Ui,
     },
 };
+use paperpaw_ui_kit::{Screens, read_event};
 
 #[expect(
     dead_code,
@@ -39,7 +43,41 @@ const BATCHES: [&[&[u8]]; 6] = [
 
 /// The interface-7 reader.
 #[derive(Debug, Default)]
-pub struct NativeReader;
+pub struct NativeReader {
+    ui: Option<Ui>,
+    docs: Option<Documents>,
+    screens: Screens<View>,
+}
+
+impl NativeReader {
+    /// The reading screen opened: its book is opened with it.
+    fn open(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        if self.docs.is_none() {
+            self.docs = Some(Documents::open(host)?);
+        }
+        let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
+            return Err(Error::State);
+        };
+        let view = View::open(host, ui, docs, handover)?;
+        self.screens.open(instance, view)
+    }
+
+    /// The screen closed: its document is given back.
+    fn close(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
+        if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.close(host, docs);
+        }
+        self.screens.close(instance);
+    }
+}
 
 impl Plugin for NativeReader {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
@@ -48,29 +86,55 @@ impl Plugin for NativeReader {
                 registrations::submit(host, batch)?;
             }
         }
-        Ok(Self)
+        Ok(Self::default())
     }
 
     fn event(
         &mut self,
-        _host: &Host<'_>,
-        _token: u32,
-        _incoming: Incoming<'_>,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        Ok(())
+        let Some(event) = read_event!(
+            incoming;
+            kinds::ScreenOpened,
+            kinds::ScreenShown,
+            kinds::ScreenClosed
+        ) else {
+            return Ok(());
+        };
+        // Only the reading screen has a view yet (`PORTING-7.md`).
+        if token != SCREEN {
+            return Ok(());
+        }
+        match event {
+            Event::ScreenOpened {
+                instance, handover, ..
+            } => self.open(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => self.screens.shown(SCREEN, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.close(host, instance);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
-    fn draw(&mut self, _host: &Host<'_>, _token: u32, _frame: DrawFrame<'_>) -> Result<(), Error> {
-        Err(Error::State)
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
+            return Err(Error::State);
+        };
+        view.draw(host, docs, &mut frame)
     }
 
-    fn input(
-        &mut self,
-        _host: &Host<'_>,
-        _token: u32,
-        _input: Input<'_>,
-    ) -> Result<Handled, Error> {
-        Ok(Handled::No)
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match (self.screens.top(token), &self.docs) {
+            (Some(view), Some(docs)) => view.input(host, docs, &input),
+            _ => Ok(Handled::No),
+        }
     }
 }
