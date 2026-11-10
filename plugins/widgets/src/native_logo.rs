@@ -35,8 +35,9 @@ const PAPERPAW: &str = "PaperPaw";
 pub const PATH_MAX: usize = 512;
 /// The longest side the host decodes the logo to.
 pub const SIDE: u32 = 320;
-/// The number a request is made with.
-const COOKIE: u32 = 0x4c4f_4700;
+/// What the cookies of the logo's requests begin with: the rest is the
+/// generation and the step.
+const COOKIE: u32 = 0x4c4f_0000;
 
 /// How many files there are to try: the picture set, then PaperPaw's own.
 #[must_use]
@@ -58,10 +59,10 @@ pub fn candidate(own: &str, step: usize) -> Option<(PrepareRoot, &str)> {
     Some((PrepareRoot::Bundle, BUNDLED))
 }
 
-/// The number the request for step `step` is made with.
+/// Whether `cookie` is one of the logo's requests (of any generation).
 #[must_use]
-pub const fn cookie(step: usize) -> u32 {
-    COOKIE | (step as u32 & 0xff)
+pub const fn is_cookie(cookie: u32) -> bool {
+    cookie & 0xffff_0000 == COOKIE
 }
 
 /// What the host's answer to the request in flight leads to.
@@ -91,6 +92,9 @@ pub struct Logo {
     open: Option<usize>,
     /// No file could be read (until the setting changes).
     none: bool,
+    /// Counts the changes of the setting, so that the answer to a request made
+    /// before one is not taken for the answer to the one made after.
+    generation: u8,
 }
 
 impl Logo {
@@ -105,6 +109,12 @@ impl Logo {
     #[must_use]
     pub const fn wants(&self) -> bool {
         self.held.is_none() && self.open.is_none() && !self.none
+    }
+
+    /// The number the request for step `step` is made with.
+    #[must_use]
+    pub const fn cookie(&self, step: usize) -> u32 {
+        COOKIE | (self.generation as u32) << 8 | (step as u32 & 0xff)
     }
 
     /// The request for step `step` is made.
@@ -123,6 +133,7 @@ impl Logo {
     pub fn forget(&mut self) -> Option<ImageId> {
         self.none = false;
         self.open = None;
+        self.generation = self.generation.wrapping_add(1);
         self.held.take().map(|(image, _)| image)
     }
 
@@ -136,7 +147,7 @@ impl Logo {
         let Some(step) = self.open else {
             return Next::Ignore;
         };
-        if cookie_of != cookie(step) {
+        if cookie_of != self.cookie(step) {
             return Next::Ignore;
         }
         self.open = None;
@@ -244,9 +255,10 @@ pub fn draw_with(
     };
     // The name a third of the logo's width after it, where it fits.
     let gap = w / 3;
-    let beside = name.filter(|wide| f32::from(w + gap) + wide <= f32::from(area.width));
+    let beside =
+        name.filter(|wide| f32::from(w.saturating_add(gap)) + wide <= f32::from(area.width));
     let total = match beside {
-        Some(wide) if w > 0 => f32::from(w + gap) + wide,
+        Some(wide) if w > 0 => f32::from(w.saturating_add(gap)) + wide,
         Some(wide) => wide,
         None => f32::from(w),
     };
@@ -256,7 +268,8 @@ pub fn draw_with(
     let top = area.y.saturating_add(area.height.saturating_sub(tall) / 2);
     let left = clamp_u16(x as i64);
     if beside.is_some() {
-        let after = clamp_u16(i64::from(left) + i64::from(if w > 0 { w + gap } else { 0 }));
+        let after =
+            clamp_u16(i64::from(left) + i64::from(if w > 0 { w.saturating_add(gap) } else { 0 }));
         let row = Rect::new(
             after,
             top,

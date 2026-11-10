@@ -234,7 +234,7 @@ impl NativeWidgets {
     /// Asks for the first file from step `from` on that can be asked for. With
     /// none left the name stays alone.
     fn ask_logo(&mut self, host: &Host<'_>, from: usize) -> Result<(), Error> {
-        use crate::native_logo::{SIDE, candidate, cookie, steps};
+        use crate::native_logo::{SIDE, candidate, steps};
         if from == 0 && !self.logo.wants() {
             return Ok(());
         }
@@ -244,10 +244,18 @@ impl NativeWidgets {
         let mut step = from;
         while step < steps(own) {
             if let Some((root, path)) = candidate(own, step) {
-                let request = PrepareImage::new(root, path, cookie(step)).side(SIDE);
-                CommandSender::new(host, &mut scratch).image_prepare(&request)?;
-                self.logo.asked(step);
-                return Ok(());
+                let request = PrepareImage::new(root, path, self.logo.cookie(step)).side(SIDE);
+                match CommandSender::new(host, &mut scratch).image_prepare(&request) {
+                    Ok(()) => {
+                        self.logo.asked(step);
+                        return Ok(());
+                    }
+                    // For want of memory: asked again at the next minute.
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    // Refused otherwise (the card is not granted, a path the
+                    // host does not take): the next file is tried.
+                    Err(_) => {}
+                }
             }
             step = step.saturating_add(1);
         }
@@ -268,7 +276,7 @@ impl NativeWidgets {
             // Not an answer anyone waits for: a picture it holds is given back
             // (only for the cookies of the logo, not another request's).
             Next::Ignore => {
-                if ready.cookie() & !0xff == crate::native_logo::cookie(0) & !0xff
+                if crate::native_logo::is_cookie(ready.cookie())
                     && let Some(image) = ready.image()
                 {
                     release_image(host, image);
