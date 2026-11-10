@@ -42,6 +42,8 @@ pub struct BlockHead<'a>(wire::ServiceDocBlock<'a>);
 impl<'a> BlockHead<'a> {
     /// What the block is. A kind a later format adds is [`BlockKind::Extended`];
     /// one that does not fit reads as a paragraph.
+    /// A heading level outside 1 to 6 is clamped into it, without an error: the
+    /// host checks the level, so the facade only keeps it in range.
     #[must_use]
     pub fn kind(&self) -> BlockKind {
         match self.0.kind {
@@ -154,7 +156,8 @@ impl<'a> BlockHead<'a> {
         self.0.drop_cap
     }
     /// The whole length of the block's text, which its [`BlockRecord::Text`]
-    /// parts add up to over all fragments.
+    /// parts add up to over all fragments. It is not checked against the parts
+    /// here: clamp it before slicing.
     #[must_use]
     pub const fn text_bytes(&self) -> u32 {
         self.0.text_bytes
@@ -319,7 +322,37 @@ impl<'a> BlockRuby<'a> {
     }
 }
 
+/// A table row's column weights, at most 16, in the order of its cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BlockColumns<'a>(&'a [u8]);
+impl BlockColumns<'_> {
+    /// How many columns the row has.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len() / 2
+    }
+    /// The row has no column weights.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// The weights of the columns, in order.
+    pub fn weights(&self) -> impl Iterator<Item = u16> + use<'_> {
+        self.0
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+    }
+}
+
 /// One record of a block's list, in the order of `document.md` 4.
+///
+/// The facade checks the framing of a block, not what its numbers mean: the
+/// offsets and lengths of runs, maps, cells and rubies and `text_bytes` are the
+/// format's, checked against the text only by the host. A reader clamps them to
+/// the text it joined before it slices with them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BlockRecord<'a> {
@@ -333,8 +366,8 @@ pub enum BlockRecord<'a> {
     Map(BlockMap),
     /// The picture of an image block.
     Image(BlockImage),
-    /// A table row's column weights, little-endian `u16`s (at most 16).
-    Columns(&'a [u8]),
+    /// A table row's column weights (at most 16).
+    Columns(BlockColumns<'a>),
     /// A cell of a table row.
     Cell(BlockCell),
     /// An annotation.
@@ -389,12 +422,16 @@ impl<'a> BlockFragment<'a> {
             return Err(Error::Invalid);
         }
         let seen = u32::try_from(count).map_err(|_| Error::Invalid)?;
+        // A block whose identity changed under a continuation is State, like a
+        // page whose list changed: the reader starts the block again.
+        if cursor.generation != 0 && end.generation != 0 && cursor.generation != end.generation {
+            return Err(Error::State);
+        }
         let continuation = if more {
             // The record the next fragment starts from, under the block's identity.
             if end.generation == 0
                 || count == 0
                 || end.next != cursor.record.checked_add(seen).ok_or(Error::Invalid)?
-                || (cursor.generation != 0 && cursor.generation != end.generation)
             {
                 return Err(Error::Invalid);
             }
@@ -488,7 +525,7 @@ fn record_of(record: RawRecord<'_>) -> Result<BlockRecord<'_>, Error> {
             if weights.len() % 2 != 0 || weights.len() > 32 {
                 return Err(Error::Invalid);
             }
-            BlockRecord::Columns(weights)
+            BlockRecord::Columns(BlockColumns(weights))
         }
         wire::ServiceDocCell::TAG => BlockRecord::Cell(BlockCell(record.decode().map_err(bad)?)),
         wire::ServiceDocRuby::TAG => BlockRecord::Ruby(BlockRuby(record.decode().map_err(bad)?)),

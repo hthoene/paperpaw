@@ -3980,7 +3980,7 @@ pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::ssid(self) -> &'a st
 pub mod paperpaw_sdk::native::document
 #[non_exhaustive] pub enum paperpaw_sdk::native::document::BlockRecord<'a>
 pub paperpaw_sdk::native::document::BlockRecord::Cell(paperpaw_sdk::native::document::BlockCell)
-pub paperpaw_sdk::native::document::BlockRecord::Columns(&'a [u8])
+pub paperpaw_sdk::native::document::BlockRecord::Columns(paperpaw_sdk::native::document::BlockColumns<'a>)
 pub paperpaw_sdk::native::document::BlockRecord::Head(paperpaw_sdk::native::document::BlockHead<'a>)
 pub paperpaw_sdk::native::document::BlockRecord::Image(paperpaw_sdk::native::document::BlockImage)
 pub paperpaw_sdk::native::document::BlockRecord::InlineLang(&'a str)
@@ -4009,6 +4009,11 @@ pub const fn paperpaw_sdk::native::document::BlockCell::rows(&self) -> u32
 pub const fn paperpaw_sdk::native::document::BlockCell::span(&self) -> u32
 pub const fn paperpaw_sdk::native::document::BlockCell::vertical(&self) -> paperpaw_document::table::VerticalAlign
 pub const fn paperpaw_sdk::native::document::BlockCell::width(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockColumns<'a>(_)
+impl paperpaw_sdk::native::document::BlockColumns<'_>
+pub const fn paperpaw_sdk::native::document::BlockColumns<'_>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockColumns<'_>::len(&self) -> usize
+pub fn paperpaw_sdk::native::document::BlockColumns<'_>::weights(&self) -> impl core::iter::traits::iterator::Iterator<Item = u16> + use<'_>
 pub struct paperpaw_sdk::native::document::BlockCursor
 impl paperpaw_sdk::native::document::BlockCursor
 pub const fn paperpaw_sdk::native::document::BlockCursor::start() -> Self
