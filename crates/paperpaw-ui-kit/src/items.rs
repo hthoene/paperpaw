@@ -505,7 +505,7 @@ fn draw_row_with_grip(
     font: &Font<'_>,
     style: &Style,
     rect: Rect,
-    row: &Row,
+    row: &RowItem,
     focused: bool,
     grip: Option<(&mut Vec<(Rect, usize)>, usize)>,
 ) -> Result<Option<(Rect, Rect)>, Error> {
