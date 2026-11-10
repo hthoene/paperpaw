@@ -13,7 +13,7 @@ use crate::native_host::registrations::{
 use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Id, Settings};
 
@@ -73,6 +73,8 @@ struct Rig<'a> {
     /// The owner whose provider fails, and how; the flags of every answer.
     failing: Cell<Option<(u64, i32)>>,
     flags: Cell<u32>,
+    /// The owner whose provider answers bytes that are no `lookup_entry`.
+    garbage: Cell<u64>,
 }
 impl Frame for Rig<'_> {
     fn settings(&self) -> &Settings {
@@ -112,6 +114,11 @@ impl Frame for Rig<'_> {
             && who == owner
         {
             return Err(status);
+        }
+        if self.garbage.get() == owner {
+            reply[..3].copy_from_slice(&[0xff; 3]);
+            accept(&reply[..3])?;
+            return Ok(3);
         }
         let title = std::format!("title of {owner}");
         let length = stage::LookupEntry::new(&title, "text", self.flags.get())
@@ -155,6 +162,7 @@ fn rig<'a>(env: &'a Env<'a>) -> Rig<'a> {
         calls: RefCell::new(Vec::new()),
         failing: Cell::new(None),
         flags: Cell::new(0),
+        garbage: Cell::new(0),
     }
 }
 
@@ -283,7 +291,7 @@ fn the_askers_own_providers_and_stopped_plugins_are_left_out() {
 }
 
 #[test]
-fn a_provider_without_an_entry_is_an_empty_page_and_other_failures_pass_through() {
+fn a_provider_that_fails_or_answers_badly_is_an_empty_page() {
     let kernel = kernel(false);
     let env = kernel.shared.env(Instant(0));
     let mut rig = rig(&env);
@@ -296,9 +304,22 @@ fn a_provider_without_an_entry_is_an_empty_page_and_other_failures_pass_through(
         page(&rig, "", 1),
         Ok(("wiki".into(), "title of 2".into(), 0))
     );
-    // Another failure is its own status.
+    // Its other failures are its page only too: the ones after it still
+    // answer.
+    for status in [ERR_BUSY, ERR_NO_MEMORY, ERR_INVALID] {
+        rig.failing.set(Some((1, status)));
+        assert_eq!(page(&rig, "", 0), Ok(("main".into(), String::new(), 1)));
+    }
     rig.failing.set(Some((2, ERR_BUSY)));
-    assert_eq!(page(&rig, "", 1), Err(ERR_BUSY));
+    assert_eq!(page(&rig, "", 1), Ok(("wiki".into(), String::new(), 0)));
+    // So is a reply the stage check or the decoder refuses.
+    rig.failing.set(None);
+    rig.garbage.set(1);
+    assert_eq!(page(&rig, "", 0), Ok(("main".into(), String::new(), 1)));
+    assert_eq!(
+        page(&rig, "", 1),
+        Ok(("wiki".into(), "title of 2".into(), 0))
+    );
 }
 
 #[test]
