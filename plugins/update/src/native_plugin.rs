@@ -3,8 +3,10 @@
 //! who signed it, newer, older, the same or another firmware, `native_check`),
 //! the install the device checks again and asks the reader about (decisions 132
 //! and 134), how it ended, and what is said after the restart. The online check,
-//! the downloads, the plugin fetch, the weekly look, the badge, the plugins an
-//! update leaves out and the dual-boot notice are named in `PORTING-7.md`.
+//! the downloads, the plugin fetch and the weekly look are in `online`, `fetch`
+//! and `waiting`; the plugins an update leaves out and the *New* mark are in
+//! `leaves`. What is not native yet (the dual-boot notice) is named in
+//! `PORTING-7.md`.
 use crate::{
     declarations::{
         CHECK_TOKEN, FIRMWARE_CHANGED, HTTP_DONE, HTTP_PROGRESS, INSTALL_DONE, OPEN_TOKEN, PAGE,
@@ -48,6 +50,7 @@ use paperpaw_ui_kit::{
 };
 
 mod fetch;
+mod leaves;
 mod online;
 mod waiting;
 
@@ -97,8 +100,9 @@ enum View {
     UpToDate,
     /// The server could not be asked, or answered with an error.
     Unreachable(Trouble),
-    /// An update the server named, to download.
-    Offer(Offer),
+    /// An update the server named, to download, and the plugins built in now it
+    /// leaves out (their names, empty for none).
+    Offer(Offer, String),
     /// An update the server named that waits for plugins.
     Waiting(waiting::Waited),
     /// The same, which the reader chose to download anyway.
@@ -568,7 +572,25 @@ impl NativeUpdate {
             id: check.id(),
             version: check.version(),
         };
-        native_check::judge(path, &evidence, &running.version)
+        let found = native_check::judge(path, &evidence, &running.version)?;
+        self.with_leaves(host, found)
+    }
+
+    /// An image the device says leaves plugins out names them (its list is the
+    /// last check's only, so it is read now). Where the list cannot be read the
+    /// file is not offered: its plugins would go without a word.
+    fn with_leaves(&mut self, host: &Host<'_>, found: Found) -> Result<Found, Error> {
+        let Found::Image(mut image) = found else {
+            return Ok(found);
+        };
+        match self.left_by_check(host) {
+            Ok(names) => {
+                image.leaves = names;
+                Ok(Found::Image(image))
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(Found::Unfit(DeviceOutcome::Other)),
+        }
     }
 
     /// All files are checked: the page that is open shows what is offered; at
@@ -615,7 +637,7 @@ impl NativeUpdate {
                     return Ok(());
                 };
                 match core::mem::replace(&mut page.view, View::Searching) {
-                    View::Offer(offer) => self.download(host, offer),
+                    View::Offer(offer, _) => self.download(host, offer),
                     View::Anyway(waited) => self.download(host, waited.offer),
                     // Chosen anyway: the offer first, which says what stops.
                     View::Waiting(waited) => {
@@ -773,6 +795,8 @@ impl NativeUpdate {
         let card = self.started_card(host);
         // Where the setting is on; a device without declared work has no look.
         online::tolerate(self.plan_look(host))?;
+        // The *New* mark as the offer kept says (the host kept the last one).
+        online::tolerate(Self::mark_new(host))?;
         card
     }
 
@@ -951,12 +975,13 @@ fn row(
 }
 
 /// What the button of an update says: an own build installs with its key, an
-/// older or the same version says so.
+/// older or the same version says so, one that leaves plugins out says that.
 const fn install_label(image: &Image) -> &'static str {
     match (&image.signer, image.order) {
         (Signer::Own(_), _) => "update.install-with-key",
         (_, Ordering::Less) => "update.install-older",
         (_, Ordering::Equal) => "update.reinstall",
+        _ if !image.leaves.is_empty() => "update.install-without",
         _ => "update.install",
     }
 }
@@ -1023,14 +1048,13 @@ fn rows_of(
                 )?;
             }
         }
-        View::Offer(_) => {
-            plain(
-                host,
-                messages,
-                &mut rows,
-                "update.download",
-                Button::Download,
-            )?;
+        View::Offer(_, leaves) => {
+            let label = if leaves.is_empty() {
+                "update.download"
+            } else {
+                "update.download-without"
+            };
+            plain(host, messages, &mut rows, label, Button::Download)?;
         }
         View::Waiting(_) => return waiting::rows(host, messages, false),
         View::Anyway(_) => return waiting::rows(host, messages, true),
@@ -1058,7 +1082,7 @@ fn rows_of(
         _ => {}
     }
     let close = match view {
-        View::Ready(_) | View::Checking | View::Offer(_) => "update.later",
+        View::Ready(_) | View::Checking | View::Offer(..) => "update.later",
         View::Installing(_) | View::Searching | View::Downloading(..) => return Ok(rows),
         _ => "update.ok",
     };
@@ -1127,7 +1151,11 @@ fn texts(
             true,
         ),
         View::Unfit(outcome) => ("update.unfit.title", reason(*outcome), false),
-        View::Ready(image) => return ready_texts(host, messages, image, current),
+        View::Ready(image) => {
+            let (title, help) = ready_texts(host, messages, image, current)?;
+            let help = leaves::with_leaves(host, messages, &help, "update.leaves", &image.leaves)?;
+            return Ok((title, help));
+        }
         View::Foreign(other) => {
             let named = [Arg::Text {
                 name: "name",
@@ -1166,7 +1194,7 @@ fn texts(
         }
         View::UpToDate => ("update.up-to-date.title", "update.up-to-date.help", true),
         View::Unreachable(trouble) => return unreachable_texts(host, messages, *trouble),
-        View::Offer(offer) => return offer_texts(host, messages, offer, current),
+        View::Offer(offer, leaves) => return offer_texts(host, messages, offer, leaves, current),
         View::Waiting(waited) => return waiting::texts(host, messages, waited, false),
         View::Anyway(waited) => return waiting::texts(host, messages, waited, true),
         View::Downloading(version, percent) => {
@@ -1247,6 +1275,7 @@ fn offer_texts(
     host: &Host<'_>,
     messages: &mut Messages,
     offer: &Offer,
+    leaves: &str,
     current: &str,
 ) -> Result<(String, String), Error> {
     let version = shown_version(host, messages, &offer.version)?;
@@ -1262,8 +1291,10 @@ fn offer_texts(
         name: "current",
         value: current,
     };
+    // What cannot come along comes first: where the footer is cut, the size goes.
     if offer.size == 0 {
         let help = messages.format(host, "update.offer.help-unsized", &[current])?;
+        let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
         return Ok((title, help));
     }
     let (key, value) = match offer.size / 1024 {
@@ -1283,6 +1314,7 @@ fn offer_texts(
         value: &size,
     };
     let help = messages.format(host, "update.offer.help", &[current, size])?;
+    let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
     Ok((title, help))
 }
 
