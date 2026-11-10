@@ -1081,7 +1081,11 @@ impl Kernel {
         let trusted = self.guard().is_some_and(|guard| {
             index == guard || (index > guard && self.stack.get(index).is_some_and(|s| s.by_guard))
         });
+        // What the screen's callbacks need for their command stage (a native
+        // screen's), asked of the kernel before it is borrowed.
+        let armed = self.arm_screen_stage(index);
         let Some(active) = self.stack.get_mut(index) else {
+            self.disarm_screen_stage(armed);
             self.output.redraw = earlier;
             return Handled::No;
         };
@@ -1097,6 +1101,9 @@ impl Kernel {
             .with_params(&self.action_params);
         let handled = f(active.screen.as_mut(), &mut cx);
         drop(running);
+        if let (Some(before), Some(stage)) = (armed, self.shared.native_instances.screen_stage()) {
+            stage.restore(before);
+        }
         // A part it asked to draw again is in its own coordinates.
         let own = mem::replace(&mut self.output.redraw_area, asked_area);
         if let Some(own) = own.map(|own| chrome::on_screen(own, area)) {

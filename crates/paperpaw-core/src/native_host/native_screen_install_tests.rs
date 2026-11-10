@@ -378,6 +378,7 @@ unsafe extern "C" fn screen_event(
 
     // SAFETY: the callback borrows the host's initialized event for this call.
     let bytes = unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) };
+    input_records::events_submit(state, bytes);
     let record = match wire::records_decode_single(bytes) {
         Ok(record) => record,
         Err(error) => return error,

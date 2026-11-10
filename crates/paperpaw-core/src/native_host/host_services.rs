@@ -39,6 +39,8 @@ pub(crate) struct Caller<'a> {
 
 #[derive(Default)]
 pub(crate) struct HostServices {
+    /// What a native screen's callbacks stage, for the kernel (`screen_stage`).
+    pub(super) screen_stage: super::screen_stage::ScreenStage,
     documents: OnceCell<DocServices>,
     files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
@@ -119,6 +121,7 @@ impl core::fmt::Debug for HostServices {
 impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
+            screen_stage: super::screen_stage::ScreenStage::new(),
             documents: OnceCell::new(),
             files: OnceCell::new(),
             library: OnceCell::new(),

@@ -48,6 +48,7 @@ mod preset;
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
 #[path = "commands_nav.rs"]
 mod nav;
+pub(crate) use nav::PolicyChange;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -64,6 +65,14 @@ pub(crate) mod dev;
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
     guarded_exempt: bool,
+}
+
+impl CommandAuthority {
+    /// The authority of a plugin that may (`true`) or may not change the
+    /// guarded settings.
+    pub(crate) const fn new(guarded_exempt: bool) -> Self {
+        Self { guarded_exempt }
+    }
 }
 
 impl crate::Kernel {

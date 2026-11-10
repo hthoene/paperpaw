@@ -278,6 +278,8 @@ pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
 mod reading_events;
 pub(crate) mod save_files;
+pub(crate) mod screen_apply;
+pub(crate) mod screen_stage;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;
