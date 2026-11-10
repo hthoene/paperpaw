@@ -327,6 +327,11 @@ relative to the data folder).
   (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
   chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
+  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
+  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
+  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
+  `read_handover` error is "no book".
 
 
 ## Annotations (native model, `native_annotations.rs`)
@@ -366,8 +371,3 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
-- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
-  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
-  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
-  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
-  `read_handover` error is "no book".
