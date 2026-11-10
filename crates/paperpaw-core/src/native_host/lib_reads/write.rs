@@ -6,6 +6,20 @@ use super::{CatalogReads, field, position};
 use crate::native_host::lib_service::{BookRef, FieldKind, LibWrite, StoredPosition};
 use crate::native_host::registrations as wire;
 
+impl CatalogReads {
+    /// Op 14 `write_position`, where `busy` says a book is in use (a library
+    /// move carries it): `ERR_BUSY`, nothing written.
+    pub(crate) fn write_position_unless(
+        &self,
+        book: BookRef<'_>,
+        written: &wire::ServiceLibPosition<'_>,
+        from_sync: bool,
+        busy: &dyn Fn(&str) -> bool,
+    ) -> Result<(), i32> {
+        position::write(self, book, written, from_sync, busy)
+    }
+}
+
 impl LibWrite for CatalogReads {
     fn stored_position(&self, book: BookRef<'_>) -> Result<Option<StoredPosition>, i32> {
         position::stored(self, book)
@@ -17,7 +31,7 @@ impl LibWrite for CatalogReads {
         written: &wire::ServiceLibPosition<'_>,
         from_sync: bool,
     ) -> Result<(), i32> {
-        position::write(self, book, written, from_sync)
+        position::write(self, book, written, from_sync, &|_| false)
     }
 
     fn provide(

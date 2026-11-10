@@ -117,15 +117,21 @@ impl LibWrite for LibraryHost {
         self.reads.stored_position(book)
     }
 
-    /// The position file is the book's own and never carried over by a move
-    /// (a move renames it with the book), so a write during a move survives.
+    /// A local or confirmed position is the book's own: the carry never
+    /// replaces it, so a write during a move survives. An unconfirmed sync
+    /// write is `ERR_BUSY` while the move holds the book: before the carry
+    /// `stored_position` finds nothing at the new key, so it could land there
+    /// over the user's local position (`library.md` 2.2: a local write wins).
     fn write_position(
         &self,
         book: BookRef<'_>,
         position: &wire::ServiceLibPosition<'_>,
         from_sync: bool,
     ) -> Result<(), i32> {
-        self.reads.write_position(book, position, from_sync)
+        self.reads
+            .write_position_unless(book, position, from_sync, &|path| {
+                from_sync && self.in_use(path)
+            })
     }
 
     fn field_kind(&self, field: &str) -> Result<FieldKind, i32> {

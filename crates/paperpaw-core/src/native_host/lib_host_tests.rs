@@ -151,3 +151,32 @@ fn a_field_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
             .any(|(k, v)| k == "stars.rating" && v == "4")
     );
 }
+
+#[test]
+fn an_unconfirmed_sync_position_is_busy_for_a_book_the_move_carries_and_a_local_one_is_not() {
+    let card = card();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
+    let at = wire::ServiceLibPosition {
+        section: 3,
+        offset: 40,
+        insert: 0,
+        progress_ppm: 250_000,
+        conversion: 0,
+        updated: 1_760_000_000,
+        xpointer: "",
+        flags: 0,
+    };
+    let book = BookRef::Path("books/c.epub");
+    assert_eq!(
+        host.write_position(book, &at, true),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+    assert_eq!(host.stored_position(book), Ok(None), "nothing was written");
+    // A local write is the user's and is kept; another book's sync write is
+    // not the job's.
+    host.write_position(book, &at, false).unwrap();
+    host.write_position(BookRef::Path("books/a.epub"), &at, true)
+        .unwrap();
+}
