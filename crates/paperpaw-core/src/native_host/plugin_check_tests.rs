@@ -792,6 +792,8 @@ pub(in crate::native_host) struct Counting {
     listed: Cell<usize>,
     pub(in crate::native_host) most_listed: Cell<usize>,
     pub(in crate::native_host) fail: RefCell<Option<&'static str>>,
+    /// Reads of the paths holding the text return at most this many bytes.
+    short: RefCell<Option<(&'static str, usize)>>,
 }
 
 use core::cell::{Cell, RefCell};
@@ -804,6 +806,7 @@ impl Counting {
             listed: Cell::new(0),
             most_listed: Cell::new(0),
             fail: RefCell::new(None),
+            short: RefCell::new(None),
         }
     }
 
@@ -818,7 +821,10 @@ impl Storage for Counting {
             return Err(StorageError::Io);
         }
         self.most_read.set(self.most_read.get().max(buf.len()));
-        self.inner.read_at(path, at, buf)
+        let cut = (*self.short.borrow())
+            .filter(|(part, _)| path.contains(part))
+            .map_or(buf.len(), |(_, most)| most.min(buf.len()));
+        self.inner.read_at(path, at, &mut buf[..cut])
     }
     fn size(&self, path: &str) -> Result<u64, StorageError> {
         if self.failing(path) {
@@ -1063,4 +1069,33 @@ fn the_job_is_small_enough_to_pass_by_value_on_the_x4() {
         "{} bytes",
         core::mem::size_of::<PluginCheck>()
     );
+}
+
+#[test]
+fn a_read_that_returns_less_than_asked_does_not_end_the_revocation_scan() {
+    let inner = MemoryStorage::new();
+    signed_folder(&inner, SOURCE);
+    assert!(keys::remember_first_install(
+        &inner,
+        "dials",
+        &author(),
+        &public_key(&RECOVERY_SEED)
+    ));
+    let hex = paperpaw_sdk::digest::hex::encode;
+    let sign_by =
+        |seed: &[u8; 32]| sign_message(revocation_message("dials", &author()).as_bytes(), seed);
+    // Lines of other plugins, then the one that holds.
+    let mut file = String::from("other 00 00\n").repeat(300);
+    file.push_str(&format!(
+        "dials {} {}\n",
+        hex(&author()),
+        hex(&sign_by(&RECOVERY_SEED))
+    ));
+    inner
+        .write(".paperpaw/revoked-keys.txt", file.as_bytes())
+        .unwrap();
+    let card = Counting::new(inner);
+    // Reads of 7 bytes: a short read is not the end of the file.
+    *card.short.borrow_mut() = Some(("revoked-keys", 7));
+    assert_eq!(reason_of(&card, SOURCE), reason::REVOKED);
 }
