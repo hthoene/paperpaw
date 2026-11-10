@@ -375,10 +375,9 @@ pub fn export(host: &Host<'_>, library: &Library, path: &str) -> Result<String, 
     let temp = text::concat(&[&file, ".new"])?;
     make_dir(host, &dir);
     let mut messages = Messages::new()?;
-    let headings = Headings::new(
-        &messages.copy(host, "reader.highlights")?,
-        &messages.copy(host, "reader.bookmarks")?,
-    );
+    let highlights = messages.copy(host, "reader.highlights")?;
+    let bookmarks = messages.copy(host, "reader.bookmarks")?;
+    let headings = Headings::new(&highlights, &bookmarks);
     let mut sink = Sink::new(host, &temp)?;
     let written = stream(host, library, path, (&title, &author), &headings, &mut sink)
         .and_then(|()| sink.finish())
@@ -548,9 +547,10 @@ impl<'a, 'p> Markdown<'a, 'p> {
     }
 
     fn begin(&mut self) -> Result<(), Error> {
-        self.piece(format_args!("# {}\n\n", self.title))?;
-        if !self.author.is_empty() {
-            self.piece(format_args!("{}\n\n", self.author))?;
+        let (title, author) = (self.title, self.author);
+        self.piece(format_args!("# {title}\n\n"))?;
+        if !author.is_empty() {
+            self.piece(format_args!("{author}\n\n"))?;
         }
         Ok(())
     }

@@ -106,6 +106,7 @@ fn the_screen_without_a_book_says_so_and_has_nothing_to_choose() {
 
 #[test]
 fn building_the_markdown_survives_every_refused_allocation() {
+    let all = notes();
     crate::fail_alloc::sweep(|| {
         let headings = Headings::new("Highlights", "Bookmarks");
         let mut size = 0;
@@ -115,7 +116,7 @@ fn building_the_markdown_survives_every_refused_allocation() {
         };
         let mut markdown = Markdown::new("Title", "Author", &headings, &mut put);
         markdown.begin()?;
-        for (kind, percent, snippet, note) in notes() {
+        for (kind, percent, snippet, note) in all.iter().copied() {
             markdown.note(&Note::new(kind, percent, snippet, note))?;
         }
         markdown.end()?;
