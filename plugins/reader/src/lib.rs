@@ -49,6 +49,7 @@ pub mod native_block;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
+pub mod native_look;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 pub mod native_notes;

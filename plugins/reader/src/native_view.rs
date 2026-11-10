@@ -8,6 +8,7 @@
 use crate::{
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
+    native_look::Look,
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_typeset::{Faces, HostFonts},
@@ -431,7 +432,8 @@ impl Open {
         let rect = frame.rect;
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
-        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK);
+        let look = Look::read(host, setup.display.display_gray_levels())?;
+        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look);
         let origin = (
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),

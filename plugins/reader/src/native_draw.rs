@@ -1,11 +1,11 @@
 //! A laid-out page drawn: the words of each line set one after the other with
 //! the gaps the layout gave them. What the pen draws with is the [`Ink`]; the
 //! host's is [`HostInk`], and the one place that decides how a run of text
-//! reaches the host is [`draw_run`], where the font weight and the tone of
-//! the letters' edges will come in with the host's new text slot (until then
-//! it is `Font::render_text`). Lines of mixed direction are set in logical
+//! reaches the host is [`draw_run`], which draws with the weight and the tone
+//! of the letters' edges the reading settings give (`native_look`). Lines of mixed direction are set in logical
 //! order, underlines, strike-throughs, pictures and rules are not drawn yet
 //! (`PORTING-7.md`).
+use crate::native_look::Look;
 use crate::native_typeset::{Faces, HostFonts, Measure, Role};
 use paperpaw_sdk::{
     Color,
@@ -13,7 +13,7 @@ use paperpaw_sdk::{
     native::{
         Error,
         canvas::Canvas,
-        fonts::{Font, TextOrigin},
+        fonts::{Font, Ink as Inking, TextOrigin},
     },
 };
 
@@ -108,8 +108,9 @@ pub fn draw_run(
     origin: TextOrigin,
     color: Color,
     text: &str,
+    inking: Inking,
 ) -> Result<f32, Error> {
-    font.render_text(canvas, size, origin, color, text)
+    font.draw_inked(canvas, size, origin, color, text, inking)
 }
 
 /// The host's reading fonts drawing on a canvas in one colour.
@@ -118,16 +119,23 @@ pub struct HostInk<'a, 'h> {
     fonts: &'a HostFonts<'h>,
     canvas: &'a Canvas<'a>,
     color: Color,
+    look: Look,
 }
 
 impl<'a, 'h> HostInk<'a, 'h> {
-    /// Draws with `fonts` on `canvas` in `color`.
+    /// Draws with `fonts` on `canvas` in `color`, inked as `look` says.
     #[must_use]
-    pub const fn new(fonts: &'a HostFonts<'h>, canvas: &'a Canvas<'a>, color: Color) -> Self {
+    pub const fn new(
+        fonts: &'a HostFonts<'h>,
+        canvas: &'a Canvas<'a>,
+        color: Color,
+        look: Look,
+    ) -> Self {
         Self {
             fonts,
             canvas,
             color,
+            look,
         }
     }
 }
@@ -148,6 +156,7 @@ impl Ink for HostInk<'_, '_> {
             TextOrigin::new(x, baseline),
             self.color,
             text,
+            self.look.ink(size),
         )
     }
 }

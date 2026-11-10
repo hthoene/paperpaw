@@ -186,9 +186,13 @@ relative to the data folder).
   line's word spacing), in the role of each run; `Ink` is the pen (`HostInk` draws with the host's
   reading fonts on the frame's canvas in one colour). The tests lay real pages out with a fake document
   and measure, and record what is drawn.
-- `draw_run` is the one place that decides how a run reaches the host: `Font::render_text` today; the
-  font weight, smooth text and text contrast (Beta 3's extra/tone) come in with Kernel's new `text.draw`
-  slot (todo 430), a one-line change there.
+- `draw_run` is the one place that decides how a run reaches the host: `Font::draw_inked` (slot 41),
+  with the ink of `native_look::Look` read from the settings once per draw: `core.font-weight` 0-4 →
+  extra pixels (`weight × size / 48`, rounded, at least 1), `core.text-contrast` and
+  `core.text-sharpness` → the tone curve (soft a step lighter, sharp a step darker and without grays),
+  `core.text-curve` (the entry without a script) replacing both, `core.smooth-text` off → sharp except on a
+  two-gray panel (Beta 3's `ink`). Gaps: the per-script entry of `core.text-curve` is not used (the view
+  tells no script yet); the per-character host call is uncached; X4 flash cost is not measured.
 - Gaps: lines of mixed direction are drawn in logical order; underline, overline, strike-through,
   super/subscript shifts, small capitals, pictures, rules (tables), annotations and the lines between
   inserted blocks are not drawn; no hanging punctuation.
