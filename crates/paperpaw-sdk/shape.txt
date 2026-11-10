@@ -3124,6 +3124,7 @@ struct paperpaw_sdk::native::document::nav::DocPage<'a, T> { bytes: &'a [u8], co
 struct paperpaw_sdk::native::document::nav::DocPageEnd { total: u32, next: core::option::Option<paperpaw_sdk::native::document::nav::DocCursor> }
 struct paperpaw_sdk::native::document::nav::DocSpan { section: u32, from: u32, to: u32 }
 struct paperpaw_sdk::native::document::nav::Link<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocLink<'a>)
+struct paperpaw_sdk::native::document::nav::SectionEntry(0: paperpaw_sdk::native::declare::records_wire::ServiceDocSection)
 struct paperpaw_sdk::native::document::nav::TocEntry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocToc<'a>)
 struct paperpaw_sdk::native::document::readers::Reader<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceDocReader<'a>)
 struct paperpaw_sdk::native::document::readers::ReaderCursor { offset: u32, generation: u32 }
