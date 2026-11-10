@@ -131,7 +131,10 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
-    ("fonts-browser", &paperpaw_plugin_fonts_browser::NATIVE_ENTRY),
+    (
+        "fonts-browser",
+        &paperpaw_plugin_fonts_browser::NATIVE_ENTRY,
+    ),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),

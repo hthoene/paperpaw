@@ -2366,9 +2366,13 @@ and the memory for them, packs for the others. The store
 (`plugins/store`, *Plugin store*) lists the other plugins of the plugin
 library made for the device, data plugins and, where PaperPaw loads
 them and a build fits, plugins with code, and installs, updates and
-removes them ([ADR 0023](adr/0023-plugin-store.md)). Both build on the
-SDK's `install` module: an `Installer` downloads a `Package`'s files one
-after another into `plugins/.<id>.part`, checks each by its size and
+removes them ([ADR 0023](adr/0023-plugin-store.md)). The fonts browser is
+an interface-7 plugin: it downloads a font's files one after another with
+`core.net` into `staging/` of its data folder, checks each by its size and
+SHA-1, and has the host install the folder (`command.install_plugin`; the
+host asks the user), the font chosen from an older version staying chosen.
+The store builds on the SDK's `install` module: an `Installer` downloads a
+`Package`'s files one after another into `plugins/.<id>.part`, checks each by its size and
 digest (SHA-1 or SHA-256), then has the kernel install it
 (`Command::InstallPlugin`) in place of
 every version of it before, what was chosen from it still chosen; the
