@@ -176,7 +176,8 @@ Field meanings:
   translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
-  firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none, 1-12, 13 `Other`
+  firmware, 4 safe mode, 5 installed by a store (below); `problem`: interface-6 `PluginProblem`
+  order (0 none, 1-12, 13 `Other`
   with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
   of interface 7, where a whole declaration batch was refused at one of them and the plugin did
   not load (`state` 2 failed): 14 too many formats, 15 too many readers, `problem_arg` the cap it
@@ -186,6 +187,15 @@ Field meanings:
   the status. A plugin showing these rows treats a value it does not know as "could not be
   loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the host
   itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
+- [D] `reg_plugin.flags` bit 5 (installed by a store): the version installed, or the one waiting
+  as `update`, is one a store's install put in place (`device.md` 5.2: an install that carries its
+  author's evidence). The host keeps these versions in its own record, out of reach of plugins and
+  of the card transfers (interface 6 `paperpaw_sdk::install::Origin`, `plugin-origin.txt`); a
+  plugin put in place any other way, or replaced since by another version, has the bit clear even
+  where the id is the same. With the bit set, `version` (and `update`) is written as the store
+  named it, pre-release included (`1.2.0-beta.1`; interface 6 `Installed::release`); the numbers
+  are the plugin's own. A store offers updates only for plugins with the bit set, as interface 6
+  did. Built-in and linked plugins (bit 3) never have it.
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
 - [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
