@@ -65,6 +65,7 @@ mod keymap;
 mod meter;
 pub mod native_host;
 mod network;
+mod notices;
 mod panes;
 mod plugins;
 mod realtime;
@@ -278,9 +279,9 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// A notice given while a screen guarded the device, shown once it
-    /// lets go.
-    held_notice: Option<String>,
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
+    waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,

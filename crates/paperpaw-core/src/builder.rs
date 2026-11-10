@@ -839,7 +839,7 @@ impl BuilderParts {
             from_guard: false,
             from_guard_own: false,
             own_trusted: Vec::new(),
-            held_notice: None,
+            waiting_notices: crate::notices::Waiting::new(self.device.memory),
             last_activity: Instant(0),
             native_tick_at: None,
             last_user_input: None,
