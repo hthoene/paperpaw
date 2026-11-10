@@ -580,7 +580,14 @@ impl Index {
             return Err(error);
         }
         if !run.is_empty() {
-            kept &= flush(storage, &mut run, &mut runs)?;
+            match flush(storage, &mut run, &mut runs) {
+                Ok(done) => kept &= done,
+                Err(error) => {
+                    // The runs file goes whatever ends the last flush.
+                    let _ = storage.remove(SORT);
+                    return Err(error);
+                }
+            }
         }
         drop(run);
         if !kept {
@@ -694,13 +701,16 @@ pub fn hit(storage: &dyn Storage, n: usize) -> Option<usize> {
 }
 
 /// Takes the list fetched to `fetched`: its index, kept for the next visits.
-/// `None` (and the file gone) if it is no list this plugin reads. The index is
-/// built beside the one kept and moved into place, the head last: an index is
-/// whole where its head is.
+/// `None` (and the file gone) if it is no list this plugin reads: the index kept
+/// before is not touched then. The index is built beside the one kept
+/// (`*.part`) and moved into place, the head last: an index is whole where its
+/// head is.
 ///
 /// # Errors
-/// `NoMemory`; `Io` where the card refuses (the index kept before stays where
-/// it was whole).
+/// `NoMemory`, or `Io` where the card refuses a write while the new index is
+/// built (the one kept before is not touched), or a move into place (the head
+/// is taken away first, so a move cut short leaves no head and so no index:
+/// the next visit fetches the list again).
 pub fn take(
     storage: &dyn Storage,
     fetched: &str,
