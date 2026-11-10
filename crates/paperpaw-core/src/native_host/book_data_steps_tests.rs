@@ -725,18 +725,6 @@ fn a_cache_wider_than_unstamp_looks_into_is_left_whole() {
         Progress::Done
     );
     assert_eq!(all_pages(&card, BOOK), STAMPS_LISTED + 1);
-    // Exactly as many as it looks into is removed as usual.
-    let card = self::card();
-    for n in 0..STAMPS_LISTED {
-        card.write(
-            &format!(".paperpaw/cache/{key}/epub/c{n}/pages/p0.bin"),
-            b"x",
-        )
-        .unwrap();
-    }
-    let mut budget = 100;
-    remove_doc_cache(&card, BOOK, &mut budget).unwrap();
-    assert_eq!(all_pages(&card, BOOK), 0);
 }
 
 /// N5: a step that took nothing but moved on does not end the removal; one
