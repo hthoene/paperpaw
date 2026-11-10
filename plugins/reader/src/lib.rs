@@ -47,6 +47,7 @@ pub mod declarations;
 pub mod native_actions;
 pub mod native_aloud;
 pub mod native_block;
+pub mod native_bookmark;
 pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
