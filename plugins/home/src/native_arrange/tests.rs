@@ -101,6 +101,18 @@ fn the_options_are_move_resize_remove_and_cancel_with_their_words() {
             "home.edit.cancel"
         ]
     );
+    let with: Vec<&str> = choices(true).iter().map(|(_, key)| *key).collect();
+    assert_eq!(
+        with,
+        [
+            "core.grid.move",
+            "core.grid.resize",
+            "core.grid.settings",
+            "core.grid.remove",
+            "home.edit.cancel"
+        ]
+    );
+    assert_eq!(choices(false).len(), 4);
     assert_eq!(help(Mode::Move), "core.grid.move.help");
     assert_eq!(help(Mode::Resize), "core.grid.resize.help");
 }

@@ -63,6 +63,7 @@ pub mod native_drawer;
 pub mod native_focus;
 pub mod native_grid;
 pub mod native_icons;
+pub mod native_item_settings;
 pub mod native_measure;
 pub mod native_pages;
 pub mod native_plugin;

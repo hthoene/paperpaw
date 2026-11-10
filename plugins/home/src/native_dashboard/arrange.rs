@@ -10,7 +10,8 @@ use paperpaw_ui_kit::dialog::Dialog;
 
 use super::*;
 use crate::native_add_screen as add_screen;
-use crate::native_arrange::{self as arrange, CHOICES, Choice, Dir, Mode, Put};
+use crate::native_arrange::{self as arrange, Choice, Dir, Mode, Put, choices};
+use crate::native_item_settings as item_settings;
 
 /// The options of the item of a cell: which button has the focus, and the
 /// dialog (made at the first draw: it needs the font).
@@ -19,6 +20,8 @@ pub(super) struct Options {
     cell: usize,
     focus: usize,
     dialog: Option<Dialog>,
+    /// The item is a widget that has settings of its own: *Settings* is offered.
+    settings: bool,
 }
 
 /// An item the buttons are moving or sizing.
@@ -31,12 +34,27 @@ pub(super) struct Moving {
 impl Dashboard {
     /// The options of the item of `cell` open.
     pub(super) fn open_options(&mut self, host: &Host<'_>, cell: usize) -> Result<(), Error> {
+        let settings = match self.widget_at(cell) {
+            Some(id) => item_settings::has_settings(host, id)?,
+            None => false,
+        };
         self.options = Some(Options {
             cell,
             focus: 0,
             dialog: None,
+            settings,
         });
         redraw(host)
+    }
+
+    /// The id of the widget in the item of `cell`, if the item is a widget.
+    fn widget_at(&self, cell: usize) -> Option<&str> {
+        let laid = self.laid.as_ref()?;
+        let item = laid.cells.get(cell)?.item;
+        match &laid.items.get(item)?.what {
+            What::Widget(id) => Some(id.as_str()),
+            What::Tool(_) => None,
+        }
     }
 
     /// Makes the options' dialog where it is not made yet.
@@ -50,7 +68,7 @@ impl Dashboard {
         let title = laid.cells.get(options.cell).map_or("", |c| c.name.as_str());
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let made = Self::make_dialog(host, &display, &font, title);
+        let made = Self::make_dialog(host, &display, &font, title, options.settings);
         let released = font.release();
         let dialog = made?;
         released?;
@@ -63,14 +81,15 @@ impl Dashboard {
         display: &snapshot::Snapshot,
         font: &Font<'_>,
         title: &str,
+        settings: bool,
     ) -> Result<Dialog, Error> {
         let style = Style::read(host, display, font)?;
         let mut messages = Messages::new()?;
         let mut words: Vec<String> = Vec::new();
         words
-            .try_reserve_exact(CHOICES.len())
+            .try_reserve_exact(choices(settings).len())
             .map_err(|_| Error::NoMemory)?;
-        for (_, key) in CHOICES {
+        for (_, key) in choices(settings) {
             words.push(messages.copy(host, key)?);
         }
         let mut labels: Vec<&str> = Vec::new();
@@ -107,7 +126,7 @@ impl Dashboard {
         input: &Input<'_>,
     ) -> Result<Option<Handled>, Error> {
         if self.options.is_some() {
-            return self.options_input(host, input).map(Some);
+            return self.options_input(host, ui, input).map(Some);
         }
         if let Some(moving) = self.moving {
             return self.moving_input(host, ui, moving, input).map(Some);
@@ -115,7 +134,12 @@ impl Dashboard {
         Ok(None)
     }
 
-    fn options_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+    fn options_input(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         self.ensure_dialog(host)?;
         let Some(options) = self.options.as_mut() else {
             return Ok(Handled::No);
@@ -128,7 +152,9 @@ impl Dashboard {
             Input::Action {
                 action: "core.confirm",
                 ..
-            } => CHOICES.get(options.focus).map(|(choice, _)| *choice),
+            } => choices(options.settings)
+                .get(options.focus)
+                .map(|(choice, _)| *choice),
             Input::Action { action, .. } => {
                 let to = options
                     .dialog
@@ -148,26 +174,57 @@ impl Dashboard {
                 .dialog
                 .as_ref()
                 .and_then(|dialog| dialog.hit(position))
-                .and_then(|button| CHOICES.get(button))
+                .and_then(|button| choices(options.settings).get(button))
                 .map(|(choice, _)| *choice),
             // The dialog is modal: everything else is taken.
             _ => None,
         };
         let cell = options.cell;
         if let Some(choice) = chosen {
-            self.choose(host, cell, choice)?;
+            self.choose(host, ui, cell, choice)?;
         }
         Ok(Handled::Yes)
     }
 
-    fn choose(&mut self, host: &Host<'_>, cell: usize, choice: Choice) -> Result<(), Error> {
+    fn choose(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        cell: usize,
+        choice: Choice,
+    ) -> Result<(), Error> {
         self.options = None;
         match choice {
             Choice::Cancel => redraw(host),
             Choice::Move => self.pick_up(host, cell, Mode::Move),
             Choice::Resize => self.pick_up(host, cell, Mode::Resize),
+            Choice::Settings => self.settings(host, ui, cell),
             Choice::Remove => self.remove(host, cell),
         }
+    }
+
+    /// The widget's own settings: its placement (one placed before there were
+    /// placements gets its number first, kept on the page), then the settings
+    /// open on its page.
+    fn settings(&mut self, host: &Host<'_>, ui: &Ui, cell: usize) -> Result<(), Error> {
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(());
+        };
+        let Some(item) = laid.cells.get(cell).map(|c| c.item) else {
+            return Ok(());
+        };
+        let Some(What::Widget(id)) = laid.items.get(item).map(|i| &i.what) else {
+            return Ok(());
+        };
+        let shown = Shown::current(host)?;
+        let placed = item_settings::placement(host, &shown.src, id)?;
+        let renamed = placed != *id;
+        if renamed {
+            let mut items = crate::native_grid::copy_items(&laid.items)?;
+            items[item].what = What::Widget(paperpaw_ui_kit::text::copy(&placed)?);
+            self.write(host, &items, &[])?;
+        }
+        item_settings::open(host, ui, &placed)
     }
 
     /// The item of `cell` is picked up: the buttons move or size it.
@@ -329,8 +386,10 @@ mod tests {
 
     #[test]
     fn the_options_are_offered_in_the_order_the_dialog_has_its_buttons() {
-        assert_eq!(CHOICES.len(), 4);
-        assert_eq!(CHOICES[0].0, Choice::Move);
-        assert_eq!(CHOICES[3].0, Choice::Cancel);
+        let plain = choices(false);
+        assert_eq!(plain.len(), 4);
+        assert_eq!(plain[0].0, Choice::Move);
+        assert_eq!(plain[3].0, Choice::Cancel);
+        assert_eq!(choices(true)[2].0, Choice::Settings);
     }
 }

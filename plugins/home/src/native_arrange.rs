@@ -132,6 +132,8 @@ pub fn removed(items: &[Item], index: usize) -> Result<(Vec<Item>, Option<String
 pub enum Choice {
     Move,
     Resize,
+    /// The widget's own settings (a placement of its own), where it has some.
+    Settings,
     Remove,
     Cancel,
 }
@@ -144,6 +146,27 @@ pub const CHOICES: [(Choice, &str); 4] = [
     (Choice::Remove, "core.grid.remove"),
     (Choice::Cancel, "home.edit.cancel"),
 ];
+
+/// The options of a widget that has settings of its own: *Settings* between
+/// *Change the size* and *Remove*, as interface 6 offered them.
+pub const CHOICES_WITH_SETTINGS: [(Choice, &str); 5] = [
+    (Choice::Move, "core.grid.move"),
+    (Choice::Resize, "core.grid.resize"),
+    (Choice::Settings, "core.grid.settings"),
+    (Choice::Remove, "core.grid.remove"),
+    (Choice::Cancel, "home.edit.cancel"),
+];
+
+/// The options an item offers: with *Settings* where it is a widget that has
+/// settings.
+#[must_use]
+pub const fn choices(settings: bool) -> &'static [(Choice, &'static str)] {
+    if settings {
+        &CHOICES_WITH_SETTINGS
+    } else {
+        &CHOICES
+    }
+}
 
 /// The help said when moving or sizing starts.
 #[must_use]
