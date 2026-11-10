@@ -347,6 +347,12 @@ fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
     (w, h, hint.min_h.clamp(1, h))
 }
 
+/// Whether `key` is a setting of the grid's size, which the pages are fitted to.
+#[must_use]
+pub fn is_grid_setting(key: &str) -> bool {
+    key == COLUMNS || key == ROWS
+}
+
 impl HostSource {
     /// Whether widget `id` (or its base) declared how many cells it takes.
     #[must_use]

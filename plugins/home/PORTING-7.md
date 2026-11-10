@@ -39,7 +39,6 @@ each what it waits for.
   with their settings and groups, and the covers and the recent books they show (the date and the
   clock are native: slice 4a).
 - The status line above the grid (composed through slot 35).
-- The fitting of the pages to a new grid (`native_pages::reflow` is ready).
 - *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
   the finger's drag of an item, its corner and the footer items' grips.
 - The help hints (`help.hint` declarations).
@@ -102,12 +101,7 @@ regenerate with `python3 tools/abi-metadata.py --schema abi/abi.def --input nati
 
 ### Gaps (each an ignored acceptance case in `tests/acceptance_pending.rs`)
 
-- *The grid's columns or rows changed* (the subscription to setting changes is declared; the
-  handler is not written): the pages are to be fitted to the new grid. A widget that declares its
-  cells has its size from the registry row (cell hints, draft 29); any other is measured with
-  `widget_measure` of an instance made for it (docs/abi/ui.md 5.2). `native_pages::reflow` is ready;
-  what is missing is the handler (a callback that has the screen's size: at the dashboard's show),
-  which writes with `set_setting` as *Add* does.
+- *The grid's columns or rows changed*: done in slice 4d (below).
 - The editor draws and takes input through the host (H1/H4): `home-footer-items-editor`. The drag of
   a grip is a hold and a tap in the kit (`home-footer-items-editor-grip-drag`).
 - The host admits every declaration home makes and `make` runs to the end in the real registered
@@ -406,6 +400,23 @@ values) per status instance each minute; both are on the X4 measurement list. Th
 most 64 registry rows and asks for at most 16 items; a tap and the target list lay the line out
 again (two 4 KiB buffers more). A refused allocation elsewhere fails the draw, not the screen.
 
+## Slice 4d: the pages fitted to a new grid (reflow)
+
+`src/native_reflow.rs` handles `event.setting_changed` (64, subscribed since slice 3) for the
+grid's two settings (`home.columns`, `home.rows`; `native_source::is_grid_setting`): it reads the
+device (`Shown::current`), fits each layout to its own grid with `native_pages::refit` (the upright
+pages to the upright grid, the pages of a screen on its side to the wide grid, whichever way the
+screen is now, as interface 6 did: what has no room goes to the next page, a page is added where
+there is none, the tools and spaces stay, nothing is lost) and stages the writes with the Add
+screen's `apply` (only the settings whose text changes; over the budget of a callback's commands
+nothing is staged, the old layout stays and the reader is told `home.grid.too-big`). Then a
+dashboard that is on top is drawn anew. Allocation refusals fail the callback, which stages nothing.
+
+Tests: `native_pages` (the writes per layout, none where it fits, refusal sweep over `refit`).
+There is no scripted-host test: the scripted host has no settings store to change and read back
+(the same limit as the other settings-driven cases). **On the device (gate, not measured):** the
+read of the device (`Shown::current`) plus two layouts' pages in one callback.
+
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
 Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the missing piece.
@@ -421,7 +432,7 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (c) the host does not deliver `event.widget_changed` (86) yet (core has only its codec; `command.widget_changed` is unsupported too) |
 | built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a); the continue card and the recent shelf native (slice 4b: `core.library`, `library.cover`, `canvas.draw_image`). (c) the status line (composition #827 is wired by H3a) |
 | status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
-| reflow (`HOME-reflow-slice`, was in `HOME-dashboard-slice`) | the setting-change handler | (c) plugin work, host ready: event 64 admitted (#763) |
+| reflow (`HOME-reflow-slice`) | the setting-change handler | (a) done (slice 4d: `native_reflow`; event 64 admitted by #763) |
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
 | gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
 | options' *Settings* (`HOME-item-settings`) | | (c) plugin work |
