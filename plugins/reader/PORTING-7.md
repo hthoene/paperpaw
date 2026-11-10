@@ -129,3 +129,21 @@ relative to the data folder).
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
+
+## Search (native model, `native_search.rs`)
+
+- Host-free: the text looked for (trimmed, compared by lower case, whole characters, hits do not overlap,
+  walked in place without collecting a block's characters), the snippet round a hit (24 characters before,
+  48 after, marks `…`, white space as spaces) and its cut to the row (`with_hit`, over a `Measure` the screen
+  backs with the font), the hits kept (100 at most, in the order of the book; more are counted as "100+"),
+  and the background scan, `Search::step`, that reads 24 blocks of a book (`Blocks`, backed by
+  `core.document` with the filters of the page applied) and keeps their hits. Allocation is fallible and
+  tested refused in turn; a block whose hits could not all be kept is read again and none is kept twice.
+- Differences from interface 6, on purpose: a block that cannot be read is skipped as an end of the section
+  only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
+  end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the
+  `native_open::Place` the document host counts with.
+- **Not yet: the screen.** It needs the document's block, progress and section ops (`core.document`, #2223),
+  the font measures (`Measure`), the timer (`core.work`) that drives `step` (interface 6 woke itself every
+  2 ms), the list, and, to choose a hit, going back and to the place with the match marked (the successor of
+  `core.goto`, not declared yet). Choosing a hit is `Search::target`: where the match begins and ends.

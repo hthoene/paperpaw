@@ -51,6 +51,7 @@ pub use native_entry::NATIVE_ENTRY;
 pub mod native_notes;
 pub mod native_open;
 pub mod native_plugin;
+pub mod native_search;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
