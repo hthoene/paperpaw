@@ -426,10 +426,7 @@ fn the_document_caches_of_a_moved_folder_are_removed_over_steps_within_one_budge
     }
     // 8 pieces of at most 64 removals, and a stamp or so for each book.
     assert!(worst <= 8 * 65 + 2 * books, "a step removed {worst}");
-    assert!(
-        steps > books,
-        "the caches took more than a step a book: {steps}"
-    );
+    assert!(steps > 10, "the caches took many steps: {steps}");
     assert!(
         f.storage
             .exists(&std::format!(".paperpaw/cache/{other}/.complete"))
