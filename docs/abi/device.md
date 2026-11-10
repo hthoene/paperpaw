@@ -483,19 +483,32 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`.
 - [D] **Dual boot** (draft 35; interface 6 update's *This is not a dual-boot setup* and *Detect
   dual boot again*, `docs/dual-boot.md`): `firmware_dual_boot` with `mode` 1 `off` or 0 `auto`
-  (others `ERR_INVALID` at submit, nothing queued) is a firmware request (5.2's queue, one at a
-  time). Mode 1 always asks (5.0, whatever grant): in the host's words, PaperPaw will then update
-  itself into the other app partition, and a second firmware there is overwritten by the next
-  update. Mode 0 is the safe direction and does not ask. On yes (mode 0 at once) the host writes
-  `dual-boot = off` or `auto` into the `[firmware]` section of `paperpaw.ini` (the rest of the file
-  as it was, written whole and atomically as settings saves are), removes `.paperpaw/boot.txt` and
-  restarts; the outcome is the restart (a plugin reads `dev_firmware.flags` after it). No, dismissed
-  or 10 minutes end it with `install_done` kind 1, reason 2 or 3, changing nothing; a failed write
-  ends it with reason 16 and no restart; while an installed image waits for its restart
-  (`dev_firmware.state` 3) it ends with reason 21; a device without dual-boot handling ends it with
-  reason 19. Once an install found the setup declared, it stays declared until the next start
-  whatever the file says (`docs/dual-boot.md`). `paperpaw.ini` and `.paperpaw/` stay closed to
-  plugins (root 1): only this command changes the `[firmware]` section.
+  (others `ERR_INVALID` at submit, nothing queued) is a firmware request: it waits in 5.2's queue,
+  behind a running install too, one at a time. Where nothing would change (mode 1 and
+  `paperpaw.ini` says `off` already; mode 0 and it does not say `off`) it ends at once with
+  reason 0, asking and writing nothing.
+  - **Mode 1 always asks** (5.0, whatever grant; focus on **No**; the asking plugin's name as 5.0
+    shows it, its display text cleaned). In the host's words: PaperPaw then treats this device as
+    its own, so its next update **erases the other firmware**, which the reader cannot bring back
+    (only the tool that set the two up can). Yes writes `dual-boot = off` and restarts, so the
+    start no longer reads the setup as declared; no, dismissed or 10 minutes end it with
+    `install_done` kind 1, reason 2 or 3, changing nothing.
+  - **Mode 0 does not ask and does not restart** (it is the safe direction, and a plugin must not
+    restart the device by it): it writes `dual-boot = auto`, takes effect at the next start, and
+    ends with reason 0. A plugin that wants it now asks the user to restart (its own question,
+    then `command.restart`, `uses.power`).
+  - **Order and failure:** the host reads `paperpaw.ini` whole (a file it cannot read whole, or
+    over its size, ends with reason 16 and nothing is written), sets `dual-boot` in the last
+    `[firmware]` section (adding the section if there is none, the rest of the file as it was),
+    writes it whole and atomically as settings saves are, and only then removes
+    `.paperpaw/boot.txt` (mode 1): a power cut at any point leaves the setup declared, the safe
+    side. A failed write ends with reason 16 and no restart.
+  - While an installed image waits for its restart (`dev_firmware.state` 3) it ends with reason
+    21; a device without dual-boot handling (no second app partition to share) with reason 19.
+    Once an install found the setup declared, it stays declared until the next start whatever the
+    file says (`docs/dual-boot.md`).
+  - **Closed to plugins:** `paperpaw.ini` and `.paperpaw/` are not reachable through root 1
+    (`files.md` 1.1), so this command is the only way a plugin changes the `[firmware]` section.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
 

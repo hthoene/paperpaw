@@ -198,8 +198,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
   by the format's own clock (the format stops at a safe point and answers its progress), until it
   answers done or fails. The opener gets `event.document_changed` (88: `document`, `state` and
-  `progress_ppm` as `doc_state` has them at delivery; one per document, coalesced, the latest
-  wins) when the state or the progress moves; other ops on a preparing document are
+  `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
+  the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
 - [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
