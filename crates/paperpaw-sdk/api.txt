@@ -3438,6 +3438,7 @@ pub paperpaw_sdk::native::declare::EventKind::StatusChanged
 pub paperpaw_sdk::native::declare::EventKind::Stopping
 pub paperpaw_sdk::native::declare::EventKind::Suspend
 pub paperpaw_sdk::native::declare::EventKind::Tick
+pub paperpaw_sdk::native::declare::EventKind::WidgetChanged
 pub paperpaw_sdk::native::declare::EventKind::WifiChanged
 pub paperpaw_sdk::native::declare::EventKind::WifiDone
 pub paperpaw_sdk::native::declare::EventKind::WifiScanned
@@ -4922,6 +4923,7 @@ pub fn paperpaw_sdk::native::fonts::Font<'_>::ink(&self, f32, impl core::convert
 pub fn paperpaw_sdk::native::fonts::Font<'_>::read_line_metrics(&self, f32) -> core::result::Result<paperpaw_text::font::LineMetrics, paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::fonts::Font<'cb>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire(&'cb paperpaw_sdk::native::Host<'cb>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire_data(&'cb paperpaw_sdk::native::Host<'cb>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire_role(&'cb paperpaw_sdk::native::Host<'cb>, paperpaw_sdk::native::fonts::FontRole) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::draw_inked(&self, &paperpaw_sdk::native::canvas::Canvas<'_>, f32, paperpaw_sdk::native::fonts::TextOrigin, paperpaw_platform::pixel::Color, impl core::convert::AsRef<str>, paperpaw_sdk::native::fonts::Ink) -> core::result::Result<f32, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::fonts::Font<'cb>::measure_text(&self, f32, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>

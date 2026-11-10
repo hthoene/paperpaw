@@ -133,6 +133,7 @@ pub(crate) fn owned_kind(command: &WireCommand<'_>) -> bool {
 }
 
 /// Copies an admitted image command, fallibly; `None` for another command.
+#[inline(never)]
 pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i32>> {
     match command {
         WireCommand::ImagePrepare {

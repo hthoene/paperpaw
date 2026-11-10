@@ -168,6 +168,9 @@ pub use env::EnvParts;
 pub use env::{Capabilities, Capability, Env, Metrics};
 pub use event::{Event, EventData, EventHandler, FixedSubscription};
 pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use fonts::{OpenError as FontOpenError, open_file as open_font_file};
 pub use formats::{
     COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions, cover_fit,
 };

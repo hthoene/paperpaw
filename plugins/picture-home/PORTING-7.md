@@ -45,7 +45,7 @@ The model, without the host (the same rules as `plugins/home`'s slices 3b to 3d,
 the two plugins are separate crates), with the unit tests that pin it (sweeps that refuse each
 allocation, the SDK's grid text, the interface-6 settings and constants):
 
-- `native_grid.rs`: items (a widget or a tool) with their cells, the text they are kept as
+- `native_grid` (in `paperpaw_ui_kit::dashboard::grid`, shared with home; re-exported under this name): items (a widget or a tool) with their cells, the text they are kept as
   (`parse`/`write`, the SDK's format), `fit` and `add`. Home's `refit` (a landscape home derived from
   the portrait one) is not here: this plugin has no layout of its own for a screen on its side.
 - `native_pages.rs`: the four pages (`picture-home.page-1` to `-4`), `expand` (the tools for
@@ -56,7 +56,7 @@ allocation, the SDK's grid text, the interface-6 settings and constants):
   a callback's staged writes (`fits`).
 - `native_dash.rs`: the places of the bar's strip (kept free, shown or not, at the top or bottom, as
   interface 6), the grid, the footer (the pencil, *Add*), the dots and page turning.
-- `native_focus.rs`, `native_arrange.rs`, `native_measure.rs`: the buttons' focus over the page's
+- `native_focus` and `native_arrange` (in `paperpaw_ui_kit::dashboard::{focus, arrange}`, shared with home; re-exported under these names) and `native_measure.rs`: the buttons' focus over the page's
   targets, the steps of moving and sizing an item and what removing leaves, the rows of a widget.
 - `native_source.rs` (`HostSource`: the pages, the grid's columns and rows, the switches, the plate,
   the bar's visibility and place, the widgets and the tools from the registry's menus
@@ -79,8 +79,8 @@ over the host's budget says so ("This change is too big to save at once.") and k
 On its side the pages are shown (placed anew) but not arranged: the pencil says to turn the screen
 upright, as interface 6 did. A dashboard opened again keeps its page and its widgets.
 
-Differences from interface 6, each a named step below: no bar in its
-strip, no hints row, words instead of the pencil, plus and tick icons, no drag with the finger, and
+Differences from interface 6, each a named step below: words instead of the
+pencil, plus and tick icons, a bar that goes within a minute, and
 the parts of the picture's recipe the host cannot do (*Slice 6*).
 
 ## Slice 5: Add
@@ -192,9 +192,8 @@ Blocked, each named (nothing invented):
   that reads the picture again).
 - `IMG-replaced`: a picture replaced by another file of the same name is not noticed (the key has no file
   size or time, `Asked::bytes` and `modified` are 0; interface 6 read them from the card).
-- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar is not drawn yet
-  (H1b #851, `picture-home-bars`), and no contract reads the brightness of a prepared picture behind
-  a rectangle.
+- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar (drawn, slice 7) has no plate under `Look::Clear` and
+  its ink is black: no contract reads the brightness of a prepared picture behind a rectangle.
 - A picture over 1,600 pixels on its long side is made smaller than interface 6's 2,400 (the host's limit).
 - A change of the screen's turn while the dashboard is open is met at the next show, as the page itself.
 
@@ -203,28 +202,36 @@ Blocked, each named (nothing invented):
 *Add* is no longer one of them (slice 5); its icons wait for #517 (`picture-home-add`).
 
 
-- Moving and sizing with a finger (H2/H4; the drag of an item or its corner waits for the pointer
-  input): `picture-home-edit`.
+- Moving and sizing with a finger: ported (the drag of an item or its corner, as home's; the cells
+  it makes are unit-tested in `paperpaw_ui_kit::dashboard::arrange`). Seen only on a host with a
+  screen stack that delivers pointers: `picture-home-edit` (H1).
 - The picture's parts the host cannot do are named under *Slice 6* (`IMG-turn`, `IMG-tone`,
   `IMG-dots`, `IMG-stretch`, `IMG-tile-many`, `IMG-replaced`, `IMG-ink`); the rest is ported and
   waits for the production loader (`picture-home-picture`).
-- `H1`: the bar drawn through the host's status frame and the hints row (`picture-home-bars`). The
-  bar's strip is kept free when it is not off (the page does not move when it comes) and the
-  settings that place it are read (`native_dash::frame`); nothing is drawn in it, and the press that
-  shows a bar that shows after a press (`takes_buttons`, `HintVisibility`) is not there. The hints
-  row is the kernel's: no contract lets a native screen ask for it to show (always, never, after a
-  press) yet.
+- The bar: ported (`native_bar.rs`: the five looks, full or compact, where its plate sits;
+  `paperpaw_ui_kit::status_line`: the items of the three lists with their values, laid out as interface 6,
+  drawn here and by their owners; `native_dashboard/bar.rs`: drawing, a tap on an item that does
+  something, and the bar that shows after a press: the first key press (not the power key) only shows
+  it, and the row of hints with it through `command.show_hints`). Differences: a bar shown after a
+  press goes at the first minute tick after its four seconds (`event.tick` is the only clock a screen
+  has, so up to a minute, not four seconds); the row of hints shows after a press or by the kernel's
+  own setting, no contract lets a screen ask for it always or never; the ink of a bar without a plate
+  is black (`IMG-ink`); the bar is on the dashboard only (not while the picture is made, as the page).
+  The bar's drawing and taps need a host with a screen stack (`picture-home-bars`, H1).
+  X4 measurement list: a shown bar holds two `SERVICE_BUFFER` buffers while the dashboard draws, and
+  reads the registry's status items and their values on each draw (heap peak and time unmeasured).
 - Icons: tools show their name only, the pencil, *Done* and the dots' pill no icon until icons are
   admitted (#517).
-- The widgets' updates (the minute tick, `widget_changed`) and a change of settings while the
-  dashboard is open are not subscribed to: the page is laid out when it shows again (after the
-  settings screen closes) and when the page turns (`picture-home-dashboard`). The grid's columns or
-  rows changed while open: the same.
+- The widgets' updates: the minute tick is subscribed to (the bar, a cover being made); `event.widget_changed`
+  (86, delivered by the host to the maker that subscribes) is not: the declare SDK's `EventKind` has no
+  variant for it (asked of Services). A change of settings while the dashboard is open is met when it
+  shows again (after the settings screen closes) and when the page turns (`picture-home-dashboard`). The
+  grid's columns or rows changed while open: the same.
 - A widget's least width and square hint (`KERNEL-cell-hints`, draft 29): as home's, a widget may be
   made narrower than it wants (`native_measure.rs`).
 - `H1/H4`: the dashboard, the chooser and the editor through the production loader
   (`picture-home-dashboard`, `picture-home-pick`, `picture-home-bar-items-editor`), and
-  `KIT-grip-drag` for the grip's finger drag.
+  the grip's finger drag.
 
 Worst case memory: the snapshot (4 page texts of at most 4 KiB, 256 widgets and tools of a few dozen
 bytes) and one page of cells with their names; one dashboard open at a time. Not measured on the
@@ -232,27 +239,22 @@ device.
 
 ### Still missing for native-only
 
-With *Add* and the picture open, three things stand between this plugin and the interface-6 one,
-and the picture has parts the host cannot do:
+With *Add*, the picture, the bar and the finger's drag open, the picture's parts the host cannot do
+stand between this plugin and the interface-6 one:
 
 1. The picture's remaining parts (*Slice 6*): the turn of a phone's picture, brightness and contrast,
    dots by force, stretching, many tiles, a replaced file of the same name, and the bar's ink over it
-   (with the bar).
-2. The bar: the host's status frame drawn in the strip the dashboard keeps free, and the hints row
-   (H1b #851, in train 7), with the press that shows a bar that shows after a press
-   (`picture-home-bars`).
-3. The finger's drag of an item and its corner while editing (H2/H4, `picture-home-edit`), and the
-   grip's drag in the bar items' editor (`KIT-grip-drag`).
+   (Kernel writes the fields on #244: `PrepareImage`/`ImageStyle`).
 
 The icons (#517) and the widgets' updates are smaller steps named above.
 
-### Gate: not in `NATIVE_PLUGINS` or `complete.txt` before the bar and the drag are open
+### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 
 `make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and
-the picture open (slices 4 to 6), but the bar and the hints row are missing and the picture lacks the
-parts named under *Slice 6*: a picture home screen without its bar is not what the reader has now. So
-`NativePictureHome` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when
-the bar (and the finger's drag) are drawn (together with the removal step below). The gate stays.
+the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture lacks the
+parts named under *Slice 6*. `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
+`tools/plugin-files7/complete.txt` with the activation (together with the removal step below), once
+the picture's parts are in or accepted as named.
 
 ### Removal step (one later sweep)
 
@@ -297,7 +299,7 @@ interface-6 suites (`tests/home.rs`, `tests/common`), the app's wiring of `Pictu
   (`EditorDecl::Screen`, one screen for the three, opened with the setting's id), built on
   `paperpaw_ui_kit::status_items` as home's footer items are (Kernel's ruling, todo 121). The
   declaration is compared with the interface-6 registration (only the editor's name differs); its
-  callbacks wait for the native entry (H1/H4), and the finger's drag of a grip is a hold and a tap
-  in the kit (`KIT-grip-drag`).
+  callbacks wait for the native entry (H1/H4); the finger's drag of a grip is native in the kit
+  (as home's, slice 4f).
   The native entry will need `uses core.registry` in its metadata: the view reads the registered
   items with the kit's `status_items::view::read_entries`.
