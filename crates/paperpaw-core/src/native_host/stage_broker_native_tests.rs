@@ -111,6 +111,7 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
         retained,
         depth.try_clone().unwrap(),
         FlatHost {
+            log: Default::default(),
             meter: Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: Rc::clone(&kernel.shared.stack_rows),

@@ -8,6 +8,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::Kernel;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -48,7 +50,7 @@ fn role(kernel: &Kernel, role: &paperpaw_sdk::Id) -> String {
 fn the_status_lines_follow_their_setting() {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage).user_config("");
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     // As the menus at first.
     assert_eq!(status(&kernel), role(&kernel, &fonts::UI));
@@ -91,7 +93,7 @@ fn a_font_chosen_as_source_sans_3_is_kept_where_the_packs_are_paperpaw_sans() {
         .storage(storage)
         .user_config("\n[core]\nreading-font = Source Sans 3\nstatus-font = Source Sans 3\n");
     let packs = matches!(fonts(), paperpaw_app::Fonts::Packs);
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     let _ = kernel.tick(Instant(10));
     let family = if packs {

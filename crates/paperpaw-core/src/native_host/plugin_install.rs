@@ -54,6 +54,8 @@ use super::shared::try_box;
 pub(crate) const FLAG_REPLACE: u32 = 1;
 /// Bit 1: an older (or the same) version is allowed.
 pub(crate) const FLAG_OLDER: u32 = 2;
+/// The bits `install_plugin.flags` defines; another is `ERR_INVALID`.
+pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER;
 
 const CODE: &str = "code.ppn";
 
@@ -84,9 +86,9 @@ struct Copying {
 
 /// What stands installed under the id.
 #[derive(Clone, Copy)]
-struct Installed {
-    version: Option<Version>,
-    code: bool,
+pub(super) struct Installed {
+    pub(super) version: Option<Version>,
+    pub(super) code: bool,
 }
 
 /// An install in the queue.
@@ -581,10 +583,12 @@ impl PluginInstall {
                     facts: None,
                     flags: if code { DONE_AT_NEXT_START } else { 0 },
                     changed: Some(self.id),
+                    needs_draft: 0,
                 })
             }
             SwapStep::Done { rolled_back: true } => self.end(storage, reason::OTHER),
             SwapStep::Failed(why) => self.end(storage, why),
+            SwapStep::Stuck => self.end(storage, reason::OTHER),
         }
     }
 }
@@ -598,7 +602,12 @@ fn no_uses() -> Uses {
     }
 }
 
-fn installed_of(storage: &dyn Storage, target: &str, id: &str, buf: &mut [u8]) -> Installed {
+pub(super) fn installed_of(
+    storage: &dyn Storage,
+    target: &str,
+    id: &str,
+    buf: &mut [u8],
+) -> Installed {
     let version = plugin_folder::read_manifest(storage, target, id, buf)
         .ok()
         .map(|manifest| manifest.parsed);
@@ -730,7 +739,11 @@ impl PluginJob for PluginInstall {
                     JobStep::More
                 }
                 Some(Answer::No) => self.end(storage, reason::DECLINED),
-                Some(Answer::Dismissed) => self.end(storage, reason::DISMISSED),
+                // An install offers two answers; the removal's second one
+                // is never a yes to it.
+                Some(Answer::Dismissed | Answer::YesAndData) => {
+                    self.end(storage, reason::DISMISSED)
+                }
             },
             Phase::Marks => self.marks(storage),
             Phase::Journal => self.journal(storage),
@@ -745,7 +758,23 @@ impl PluginJob for PluginInstall {
         }
     }
 
+    fn must_finish(&self) -> bool {
+        // From the journal on the card holds half of a change: the swap is
+        // stepped on to its end, whatever stops, and tells its real outcome.
+        self.phase == Phase::Swapping
+    }
+
+    fn keep_without_sender(&self) -> bool {
+        // The user said yes (or the grant did): the plugin that asked going
+        // away does not stop what was confirmed.
+        matches!(self.phase, Phase::Marks | Phase::Journal | Phase::Swapping)
+            || (self.phase == Phase::Waiting && self.answer == Some(Answer::Yes))
+    }
+
     fn abort(&mut self, why: u8) {
+        if self.must_finish() {
+            return;
+        }
         self.stopped = Some(why);
         self.release();
     }

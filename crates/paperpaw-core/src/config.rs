@@ -380,6 +380,7 @@ impl Kernel {
             self.stack.last().map(|top| top.serial)
         };
         self.output.commands.push(events::PREVIEW_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 
     /// Ends the values shown without being kept when the screen that
@@ -455,6 +456,7 @@ impl Kernel {
             info.enabled = enabled;
         }
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     pub(crate) fn setting_changed(&mut self, id: &Id) {

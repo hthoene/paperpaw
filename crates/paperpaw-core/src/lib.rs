@@ -1286,6 +1286,7 @@ struct Shared {
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     /// The generation of `core.registry`, bumped when a list it reads changes.
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
+    device_log: native_host::device_log::DeviceLog,
     formats: Formats,
     hyphenation: Hyphenation,
     hyphen_feed: hyphen_feed::HyphenFeed,
