@@ -145,8 +145,7 @@ native screens replace these callers.
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The rest of the native shell: the scan action, events and help.
 - The sleep card on `core.ui`.
-- The widgets on the widget stage, as Stats' (`native_widgets.rs`): the host call and the stage exist
-  (Core todo 76 is done), so this is Vocabulary's own work, not a blocker.
+- The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
@@ -216,7 +215,7 @@ native screens replace these callers.
 - Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
   card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
   (done: next section), the sleep card and review on waking (sleep and
-  wake stages), the widget, marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
+  wake stages), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
 
@@ -295,3 +294,21 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   still fires that event, and the native reader does not run the stage yet, so removing it now would collect nothing);
   the marks, the interface-6 list and `tests/collecting.rs` use it. It goes with the interface-6 removal.
 - Not run against a host (hosted construction): that the reader's call reaches `word_looked_up`.
+
+## Ported: the home widgets (`native_widgets.rs`, `native_widget_word.rs`, `native_widget_saved.rs`, `native_widget_due.rs`)
+
+- *Word of the day*, *Words saved* and *Cards due* are declared with the same ids, groups and settings as
+  interface 6 (look, size, alignment, `pick`, the parts), in `declarations.rs` (`widgets`), category
+  `core.widgets.words`; the word of the day is live. The host makes an instance (`event.widget_made`), measures
+  it through the `core.widget` stage and calls the plugin to draw it, as for Stats' widgets. Nothing of a
+  callback is kept: what a widget shows is read from the files when it is measured or drawn (one pass over the
+  words). A tap opens the list of words (the first two) or the flash cards (the third).
+- The minute tick asks the host to draw a widget again when what it shows changed (the day, the size of the
+  words file, the number of cards due); a word looked up does the same at once.
+- One difference from interface 6: where the device does not know the day, the word of the day is picked by a
+  seed made when the widget is made (the plugin has no random source), so it changes each time the screen
+  makes the widget, not at each reading of the words.
+- Not proved here: measuring and drawing a widget on a scripted host (`tests/acceptance_pending.rs`, hosted
+  construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
+  `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) go with the interface-6 removal.
+
