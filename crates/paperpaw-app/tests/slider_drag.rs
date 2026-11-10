@@ -13,6 +13,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -168,8 +171,7 @@ impl App {
             .user_config("[core]\nlanguage = en\n");
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Light)
-            .build()
-            .unwrap();
+            .build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self {
             kernel,
@@ -229,6 +231,10 @@ impl App {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);

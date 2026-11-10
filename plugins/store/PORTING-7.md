@@ -117,6 +117,40 @@ finishes the port; until then nothing is dropped.
   also for 1,300 plugins across runs and the merge, refusing cards),
   `tests/native_index_refusal.rs`.
 
+## Ported in slice 5 (`src/native_queue.rs`, `src/native_request.rs`, host-free)
+
+- **The queue** (*Update all*, the plugins another plugin asked for, the first-run
+  setup's): `queue.txt` in the interface-6 format (`> ` the turn, `~` quiet, `&`
+  asked for by a plugin; a Beta 3 queue is read and written back as it was) as
+  `Queue` (`read`, `keep`, `add` each id once with a `Mark`, `interrupted`,
+  `advance`: the one before goes, what is no plugin's name goes, the next gets its
+  turn, `None` once empty; `requested`, `requested_waiting`, `quiet`, `has_quiet`)
+  and the notes of the quiet plugins (`note`, `report`: told once, when none waits).
+  What to fetch is the answer of `advance`; the page's request, the install and the
+  notices are the plugin's, with their host pieces.
+- **The requests of other plugins**: `request.txt` / `request-result.txt` (same
+  format) as `Request` (`open`, `start`, `again`, `close`), `outcome`, `finished`
+  (who asked, what is installed, what is missing; the request closes), `wanted` (each
+  id once, none on the device, 32 at most, four times as many looked at), `entries`
+  and `names` (the dialog names plugins by the store's listing, never by the ask),
+  and `decide`: the interface-6 choices as a verdict (nothing missing, the same ask
+  the reader declined within a minute, the same one still open, busy with another's
+  request, or show the dialog, closing a request an unanswered dialog left).
+- Fallible throughout (`NoMemory`, an allocation sweep in
+  `tests/native_queue_refusal.rs`); a queue or request that cannot be read (too
+  big, not text, no file) is none, as before. Differences on purpose: at most 512
+  lines are read of a queue and at most 32 ids of a request (`MAX_WANTED`, as the ask is
+  capped; interface 6 read them all); a card that refuses a write is `Io` for the caller
+  to say (interface 6 ignored it), and no directory is made (the data folder exists).
+- **The fetch must check every id** it reads from `queue.txt` or `request.txt` with
+  `is_plugin_name` before it builds an address from it (`Queue::advance` drops those
+  that are none, and `Request::open` keeps the ids as written: a damaged or planted
+  file is not trusted).
+- Still the plugin's (host pieces): the event that asks (77) and its answer (78),
+  the dialog (`Ui::ask`), the fetch of a page and the download, the install, the
+  first-run offer's names (`styles.rs`'s hint) and what the fetch screen shows.
+- Tests: `tests/native_queue.rs`, `native_queue_refusal.rs`.
+
 ## Not yet (the install and the fetch)
 
 - Whether a page's files make a package the install accepts (safe paths, each once,
