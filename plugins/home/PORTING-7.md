@@ -295,7 +295,7 @@ and each widget's title, category and group with the interface-6 registration.
 `src/native_widgets.rs` (`Widgets`, in `NativeHome`): the instances a screen made
 (`event.widget_made` / `widget_dropped`; a widget that is none of ours is none of our business), the
 `core.widget` stage (measure: the height; place; targets: none, a tap on these does nothing as on
-interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay_with`)
+interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay`)
 and the minute tick that tells the maker (`command.widget_changed`) what shows something new.
 `src/native_date.rs` and `src/native_clock.rs` are the two widgets, over the kit's look, text and
 layout (the same arithmetic as interface 6 `blocks.rs`: the date as large as set, smaller down to the
