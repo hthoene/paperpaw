@@ -713,3 +713,21 @@ fn a_refused_allocation_makes_no_document_state_and_no_event_allocates() {
         assert_eq!(armed, 1, "no allocation was asked for");
     });
 }
+
+#[test]
+fn an_event_asks_for_one_pass_and_one_for_an_owner_that_does_not_run_stays_quiet() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(0, "a.epub").unwrap();
+        assert!(!w.state.events_waiting());
+        doc_service::end_by_host(&*w.state, document, 2).unwrap();
+        assert!(w.state.events_waiting(), "the pump is asked for a pass");
+        // The pass starts, but the owner is not running: nothing takes the
+        // event, and nothing asks for another pass for it.
+        w.state.set_now(10);
+        assert!(!w.state.events_waiting());
+        assert!(w.state.table.has_closed());
+        // The owner's callback runs on a later pass and still hears it.
+        assert_eq!(closed_event(w, OPENER), Ok(Some((document, 2))));
+    });
+}

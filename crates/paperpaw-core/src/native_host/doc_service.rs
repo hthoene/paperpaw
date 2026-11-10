@@ -179,7 +179,9 @@ pub(crate) trait DocHost {
     fn next_event(&self, _owner: u64, _out: &mut [u8]) -> Result<Option<usize>, i32> {
         Ok(None)
     }
-    /// Whether any event waits for delivery (the kernel's pump looks again).
+    /// Whether an event was raised since the pump's last pass ([`Self::set_now`]
+    /// starts one): the kernel's pump looks again at once. Events left over
+    /// for an owner that does not run are not asked for again.
     fn events_waiting(&self) -> bool {
         false
     }

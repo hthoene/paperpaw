@@ -79,6 +79,10 @@ pub(crate) struct DocState {
     /// The kernel's clock as the event pump last gave it: events are stamped
     /// with it.
     now: Cell<u64>,
+    /// An event was raised since the pump's last pass: it asks for one. An
+    /// event whose owner does not run stays queued without asking again, so
+    /// an idle device is not woken for it.
+    fresh: Cell<bool>,
 }
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -125,10 +129,13 @@ impl DocState {
             skipped: Cell::new(0),
             unfinished: RefCell::new(unfinished),
             now: Cell::new(0),
+            fresh: Cell::new(false),
         })
     }
 
-    /// The oldest `event.document_closed` of `owner`, encoded into `out`.
+    /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
+    /// is taken when it is encoded: a callback that refuses it does not get
+    /// it again (as every service event).
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
         self.table.take_closed(owner, |event| {
             codec::encode_one(
@@ -292,14 +299,18 @@ macro_rules! frameless {
         }
         fn document_closed(&self, document: &Document, reason: u32) {
             self.state().table.raise_closed(document, reason);
+            self.state().fresh.set(true);
         }
         fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
             self.state().next_event(owner, out)
         }
         fn events_waiting(&self) -> bool {
-            self.state().table.has_closed()
+            self.state().fresh.get()
         }
         fn set_now(&self, now_ms: u64) {
+            // The pass that takes the events starts here: what was raised
+            // before it has had its turn.
+            self.state().fresh.set(false);
             self.state().now.set(now_ms);
         }
         fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {

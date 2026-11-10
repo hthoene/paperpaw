@@ -390,6 +390,7 @@ impl DocumentTable {
     }
 
     /// Whether any event waits for its opener.
+    #[cfg(test)]
     pub(crate) fn has_closed(&self) -> bool {
         self.closed
             .try_borrow()
