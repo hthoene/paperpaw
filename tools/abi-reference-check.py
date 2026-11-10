@@ -21,7 +21,10 @@ trusted base (the PR's base, or the commit before a push):
   files `tools/interface.py` and the SDK's bless write;
 - a raise and a freeze are named: `abi/interface-<N>/blessings.txt` keeps the
   base's lines as they were (checked every time) and gains at least one, and
-  its last line names the candidate's draft (0 for the freeze).
+  its last line names the candidate's draft (0 for the freeze);
+- a frozen interface 7 or later ships its ABI lock released (`released_minor`
+  at least the schema's minor in `abi/abi.lock`), so the append-only lock
+  checks hold from the freeze on.
 
 A blessing line is `<draft> <what changed> (#<ticket or PR>)`, with draft 0
 for the freeze; lines that
@@ -31,6 +34,7 @@ interface test). It does not establish caller provenance or defend against
 changes to the checker itself.
 """
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -113,6 +117,26 @@ def summary_values(text):
     return int(found[0]), draft
 
 
+LOCK = 'abi/abi.lock'
+
+
+def released_with_the_freeze(root, interface):
+    """A frozen interface with a C boundary (7 on) ships its lock released:
+    `released_minor` at least the schema's minor, so the append-only checks of
+    `tools/abi-gen.py` hold from the freeze on (Senior's M1 on #1055)."""
+    if interface < 7:
+        return
+    path = root / LOCK
+    try:
+        lock = json.loads(path.read_text(encoding='utf-8'))
+        released, minor = lock['released_minor'], lock['schema']['minor']
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f'a frozen interface {interface} needs a readable {LOCK}: {error}')
+    if type(released) is not int or type(minor) is not int or released < minor:
+        raise ValueError(f'interface {interface} is frozen but {LOCK} has released_minor '
+                         f'{released} below the schema minor {minor}: the freeze releases the lock')
+
+
 def history(root, base, interface, raised=False):
     """`blessings.txt`'s entries now (None where there is no file) and in the
     base; refuses a rewrite of the base's, a removal, and (`raised`) a base
@@ -176,6 +200,8 @@ def check(root, base):
         raise ValueError(f'native::DRAFT moves from {base_draft} to {draft}: a draft only moves on')
     elif draft > base_draft + 1:
         raise ValueError(f'native::DRAFT moves from {base_draft} to {draft}: one draft at a time')
+    if draft == 0:
+        released_with_the_freeze(root, interface)
     stated = summary_values((root / SUMMARY).read_bytes())
     if stated != (interface, draft):
         raise ValueError(f'{SUMMARY} says interface {stated[0]} draft {stated[1]}, '

@@ -1,6 +1,7 @@
 """Trusted Git references keep candidate edits from laundering interface changes."""
 import importlib.util
 from pathlib import Path
+import json
 import subprocess
 import tempfile
 import unittest
@@ -275,9 +276,35 @@ class DraftTests(Fixture):
         with self.assertRaisesRegex(ValueError, 'still a draft'):
             self.check()
 
+    def lock(self, released, minor=1):
+        self.write(reference.LOCK, json.dumps({'released_minor': released,
+                                               'schema': {'minor': minor}}))
+
+    def test_the_freeze_releases_the_lock(self):
+        self.write(reference.SOURCE, source(7))
+        self.write(reference.SUMMARY, summary(7))
+        self.named('0 frozen by the owner (#228)')
+        for content in [None, '{', '{"released_minor": 0, "schema": {"minor": 1}}',
+                        '{"released_minor": 1, "schema": {"minor": 2}}']:
+            with self.subTest(content=content):
+                if content is None:
+                    (self.root / reference.LOCK).unlink(missing_ok=True)
+                else:
+                    self.write(reference.LOCK, content)
+                with self.assertRaisesRegex(ValueError, 'frozen'):
+                    self.check()
+        self.lock(released=1)
+        self.assertIn('moved to frozen', self.check())
+        # A draft needs no released lock.
+        self.write(reference.SOURCE, source(7, 1))
+        self.write(reference.SUMMARY, summary(7, 1))
+        self.lock(released=0)
+        self.assertIn('reference files', self.check())
+
     def test_freezing_is_its_own_named_step(self):
         self.write(reference.SOURCE, source(7))
         self.write(reference.SUMMARY, summary(7))
+        self.lock(released=1)
         with self.assertRaisesRegex(ValueError, 'gains no line'):
             self.check()
         self.named('0 frozen by the owner (#228)')
