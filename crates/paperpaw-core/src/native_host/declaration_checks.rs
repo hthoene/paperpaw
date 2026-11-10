@@ -20,6 +20,12 @@ const KIND_MENU_SECTION: u8 = 26;
 const KIND_FORMAT: u8 = 31;
 /// Index category of `reader.spec`.
 const KIND_READER: u8 = 32;
+/// Index category of `lookup.spec`.
+const KIND_LOOKUP: u8 = 33;
+/// Lookup providers one plugin declares at most (a ninth is `ERR_INVALID`),
+/// and the device holds (`ERR_FULL`), `document.md` section 7.
+pub(crate) const LOOKUPS_PER_PLUGIN: usize = 8;
+pub(crate) const LOOKUPS_DEVICE: usize = 32;
 
 /// The declaration cap a refused plugin ran into, as `reg_plugin` row says it
 /// (`docs/abi/registry.md`): `problem` 14 too many formats or 15 too many
@@ -214,6 +220,17 @@ impl<'a> View<'a> {
                 Cap::READERS,
                 super::format_index::READERS_PER_PLUGIN,
             )));
+            return Err(ERR_INVALID);
+        }
+        // At most 8 lookup providers per plugin: the ninth refuses the batch
+        // (`ERR_INVALID`); the 32 of the device are the store's.
+        let providers = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == KIND_LOOKUP)
+            .count();
+        if providers > LOOKUPS_PER_PLUGIN {
             return Err(ERR_INVALID);
         }
         let mut result = Ok(());

@@ -217,11 +217,10 @@ fn a_format_is_admitted_and_a_bad_one_is_invalid() {
     use crate::native_host::declarations::validate_record;
     let spec = format("epub", 0);
     assert_eq!(validate_record(PLUGIN, &Record::FormatSpec(spec)), Ok(()));
-    // The lookup and book declarations are checked and refused until the
-    // host admits them.
+    // A lookup provider is admitted too.
     assert_eq!(
         validate_record(PLUGIN, &Record::LookupSpec(lookup("en", 0))),
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+        Ok(())
     );
     let mut bad = format("EPUB", 0);
     bad.name = "epub";
