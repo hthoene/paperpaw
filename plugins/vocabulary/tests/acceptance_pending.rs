@@ -75,7 +75,9 @@ const WORD_LIST_ACTIONS: Case = Case {
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
     golden: None,
-    blocked_by: &["sleep and wake stages"],
+    blocked_by: &[
+        "a scripted host that shows the sleep slot and wakes (hosted construction, #944)",
+    ],
 };
 
 #[test]
@@ -147,7 +149,7 @@ fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
 }
 
 #[test]
-#[ignore = "BLOCKED sleep/wake stages: the front of the next card asleep, answered on waking (sleep.rs)"]
+#[ignore = "BLOCKED a scripted host that shows the sleep slot and wakes (hosted construction #944): the pick of the card is native_sleep_card (tested), the offer is declared (tests/declarations.rs)"]
 fn a_flash_card_due_is_the_sleep_screen_and_review_opens_on_waking() {
     SLEEP.refuse().unwrap();
 }

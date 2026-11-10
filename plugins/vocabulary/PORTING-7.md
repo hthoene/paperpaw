@@ -144,7 +144,7 @@ native screens replace these callers.
 - `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The rest of the native shell: the scan action, events and help.
-- The sleep card on `core.ui`.
+- The sleep card: done, see *Ported: the sleep card* below.
 - The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
@@ -214,8 +214,7 @@ native screens replace these callers.
   none: the last time known stands, as in `cards::now_of`).
 - Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
   card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
-  (done: next section), the sleep card and review on waking (sleep and
-  wake stages), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
+  (done: next section), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
 
@@ -311,4 +310,22 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
 - Not proved here: measuring and drawing a widget on a scripted host (`tests/acceptance_pending.rs`, hosted
   construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
   `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) go with the interface-6 removal.
+
+## Ported: the sleep card (`native_sleep_card.rs`, `declarations.rs` `navigation`)
+
+- *A flash card due* is offered as a sleep screen as in Beta 3: the screen `vocabulary.sleep-card` (one at a
+  time) is offered to the slot `core.sleep` at priority -1 (the sleep plugin's own is 0, so it stays the
+  default) and is a choice of `sleep.show` (declaration agreed with Port F, as Reading goal's). The host shows
+  the screen as the sleep screen and replaces it on waking; the plugin has no stage or wake callback for it.
+- The screen shows the front of the card due next, large in the middle (six lines at most), and below it how
+  many cards are due, or that none is. Opening it keeps the card shown in `cards/asleep.txt` (`<deck> <id>`),
+  forgetting the last one.
+- On waking (`event.resume`) the review opens with that card first where the sleep card was the sleep screen,
+  or, with `vocabulary.review-on-wake`, where cards are due. The decisions (`next`, `shown`) are host-free and
+  tested, with every allocation refused. Not proved here: the slot shown and the wake on a scripted host
+  (hosted construction, #944; the ignored case says so).
+- The colours are the theme's (`style.paper`, `style.ink`, `style.note`), not Beta 3's fixed white and black: on a
+  dark theme the card is light on dark, like the other screens.
+- A refused read of the card leaves the sleep screen saying that none is due; a refused read of `sleep.show` or
+  of `vocabulary.review-on-wake` counts as "not chosen"/"off", never ends the wake.
 

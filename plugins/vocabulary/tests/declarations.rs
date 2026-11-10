@@ -67,8 +67,8 @@ fn the_settings_and_the_start_are_declared() {
         count += records_decode(&batch).unwrap().len();
     }
     assert_eq!(
-        count, 3,
-        "the start, the minute tick and the work of the card files"
+        count, 4,
+        "the start, the minute tick, the work of the card files and the waking"
     );
 }
 
@@ -94,9 +94,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
-    // Nothing is offered that ends in a refusal: the phone,
-    // the sleep card are declared with their ports.
-    for absent in ["phone", "sleep-card", "widget", "scan-card"] {
+    // Nothing is offered that ends in a refusal: the phone and the scan
+    // action are declared with their ports.
+    for absent in ["phone", "widget", "scan-card"] {
         assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
     }
 }
@@ -108,7 +108,8 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 5] = [
+    let builders: [(&str, Build); 6] = [
+        ("navigation", |sink| declarations::navigation(sink)),
         ("widgets", |sink| declarations::widgets(sink)),
         ("stages", |sink| declarations::stages(sink)),
         ("settings", |sink| declarations::settings(sink)),
@@ -188,4 +189,18 @@ fn no_widget_previews_a_settings_group() {
         }
     }
     assert_eq!(seen, declarations::WIDGETS.len());
+}
+
+/// The flash card is offered as a sleep screen, as in Beta 3: a screen of its
+/// own (one at a time), offered to the slot `core.sleep` below the sleep
+/// plugin's own, and a choice of `sleep.show`.
+#[test]
+fn the_sleep_card_is_offered_to_the_sleep_screen() {
+    let screens = records(|sink| declarations::ui(sink));
+    assert!(screens.contains("sleep-card"), "{screens}");
+    let all = records(|sink| declarations::navigation(sink));
+    assert!(all.contains("core.sleep"), "{all}");
+    assert!(all.contains("vocabulary.sleep-card"), "{all}");
+    assert!(all.contains("sleep.show"), "{all}");
+    assert!(all.contains("priority: -1"), "{all}");
 }
