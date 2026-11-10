@@ -12,7 +12,6 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
-        fonts::{Font, FontRole},
         image::ImageStyle,
         reply::Reply,
         ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},

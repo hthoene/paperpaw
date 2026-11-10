@@ -25,7 +25,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, FrameRect, Input},
         commands::{CommandSender, RedrawMode},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         i18n, registrations,
         reply::Reply,
         settings::SettingValue,
