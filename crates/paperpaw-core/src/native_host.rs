@@ -226,6 +226,9 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+pub(crate) mod lib_jobs;
+pub(crate) mod lib_jobs_env;
+pub(crate) mod lib_jobs_journal;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;

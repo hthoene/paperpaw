@@ -46,7 +46,7 @@ use paperpaw_sdk::{
 /// Pieces of removals (a replaced book's data, the document caches of old
 /// keys: see [`book_data_steps::remove_data_within`]) one step of the carry
 /// makes in all, whatever the number of books in it: at most 8 x 64 entries.
-const STEP_PIECES: u32 = 8;
+pub(super) const STEP_PIECES: u32 = 8;
 
 /// A step's view of the catalog.
 pub(crate) struct EnvCarry<'a> {
@@ -95,7 +95,17 @@ impl<'a> EnvCarry<'a> {
         }
     }
 
-    fn send(&self, command: Command) -> Result<(), i32> {
+    /// The card.
+    pub(super) fn storage(&self) -> &dyn Storage {
+        self.storage
+    }
+
+    /// The plugins' book-data folders.
+    pub(super) fn book_data(&self) -> &[BookData] {
+        self.book_data
+    }
+
+    pub(super) fn send(&self, command: Command) -> Result<(), i32> {
         let mut out = self.out.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         (*out)(command);
         Ok(())
