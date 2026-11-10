@@ -266,7 +266,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 - [D] `set_status` (`lib_status`: `lib_ref`, `set`, `clear`: bit 0 finished, 1 favourite, 2 opened):
   both masks applied together, idempotent; `finished` set raises nothing more (EVT 67 is the
-  reader's session event, not this).
+  reader's session event, not this). A favourites or opened list that cannot be read (not text, a
+  card error) fails the call and is left as it is; the other changes of the same call may already
+  be made, and applying the same masks again finishes it.
 - [D] **Positions** (interface 6 `Position`): `lib_position` (`section`, `offset`, `insert`,
   `progress_ppm`, `conversion: u64` with `flags` bit 1 `has_conversion` (interface 6
   `Option<u64>`: absent and 0 differ), `updated: u64` seconds since 1970, 0 for an unknown clock,
@@ -401,7 +403,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `ERR_STATE` (nothing changes); bit 1 makes the name free as `name (2).ext`, `(3)` and so on, and
   answers the path taken. Bit 0 `replace` is allowed only where the existing file is one **this
   plugin imported** and nobody moved since (the host keeps the importer's id with the book's data;
-  a move by the user or another plugin clears it); anything else `ERR_DENIED`. A replaced book
+  a move by the user or another plugin clears it), and only while the file at that path is still
+  the one the plugin imported (size and partial MD5 are kept with the importer's id); a file put
+  there since is `ERR_DENIED`, and so is anything else. A replaced book
   keeps its key, positions and annotations (an updated feed issue), and its document caches are
   dropped.
 
