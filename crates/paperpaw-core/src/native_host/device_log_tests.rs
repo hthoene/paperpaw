@@ -80,7 +80,7 @@ fn the_builders_sink_reaches_a_frame_and_a_frame_line_is_cut_whole() {
         log: kernel.shared.device_log,
         ui: None,
     };
-    frame.log("direct");
+    frame.log(format_args!("direct"));
     frame_line(
         &frame,
         format_args!("format skipped: {} reason {} count {}", "a.b", 1, 4),

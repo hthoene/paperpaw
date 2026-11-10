@@ -4,7 +4,9 @@
 //! unfinished), never for plugin content: a line carries plugin ids and
 //! numbers (reasons, counts) only, no plugin-supplied text, paths, titles or
 //! secrets. A device without a sink drops the line (nothing is formatted);
-//! a line is cut at 120 bytes on a character boundary. Nothing allocates. A
+//! a line is cut at 120 bytes on a character boundary. The sink is a plain
+//! `fn` and keeps no state of its own (a shell that needs state uses a
+//! `static`). Nothing allocates. A
 //! call site logs at most one line per sync or job.
 use crate::abi7::context::Frame;
 use core::fmt::{self, Write};
@@ -12,20 +14,12 @@ use core::fmt::{self, Write};
 /// The longest line, in bytes.
 pub(crate) const LINE_MAX: usize = 120;
 
-/// One line for `frame`: `args` rendered into a stack buffer cut at
-/// [`LINE_MAX`] bytes on a character boundary, then handed to
-/// [`Frame::log`]. For the services of the host (todo 390): at most one line
-/// per call site per sync or job, plugin ids and numbers only.
+/// One line for `frame`: `args` are rendered only when the frame has a sink
+/// ([`Frame::log`]). For the services of the host (todo 390): at most one
+/// line per call site per sync or job, plugin ids and numbers only.
 #[allow(dead_code, reason = "the document service logs through it (todo 390)")]
 pub(crate) fn frame_line(frame: &dyn Frame, args: fmt::Arguments<'_>) {
-    let mut line = Line {
-        bytes: [0; LINE_MAX],
-        used: 0,
-    };
-    let _ = line.write_fmt(args);
-    if let Ok(text) = core::str::from_utf8(&line.bytes[..line.used]) {
-        frame.log(text);
-    }
+    frame.log(args);
 }
 
 /// The shell's sink, if it gave one.

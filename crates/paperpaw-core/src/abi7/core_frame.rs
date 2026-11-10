@@ -46,8 +46,8 @@ pub(crate) struct CoreFrame<'a> {
 }
 
 impl Frame for CoreFrame<'_> {
-    fn log(&self, line: &str) {
-        self.log.line(format_args!("{line}"));
+    fn log(&self, line: core::fmt::Arguments<'_>) {
+        self.log.line(line);
     }
 
     fn stage_run(
