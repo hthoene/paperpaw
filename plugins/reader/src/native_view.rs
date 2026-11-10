@@ -56,6 +56,17 @@ enum Body {
     Open(Open),
 }
 
+/// Why the place is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum When {
+    /// A page was turned: not more often than the interval.
+    Turn,
+    /// The quiet time, sleep or stop: now.
+    Now,
+    /// The screen closed: now, and said to the device if it fails.
+    Closing,
+}
+
 /// An open book and the page on show.
 #[derive(Debug)]
 struct Open {
@@ -243,10 +254,25 @@ impl View {
         }
     }
 
+    /// Whether the page on show is not the place saved (the quiet time is
+    /// to be started again).
+    #[must_use]
+    pub const fn unsaved(&self) -> bool {
+        matches!(&self.body, Body::Open(open) if open.unsaved)
+    }
+
+    /// Writes the place now if it is not saved: the quiet time has come, or
+    /// the device sleeps or stops.
+    pub fn save_now(&mut self, host: &Host<'_>, library: Option<&Library>) {
+        if let Body::Open(open) = &mut self.body {
+            open.save(host, library, When::Now);
+        }
+    }
+
     /// Closes the document of the screen.
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
         if let Body::Open(open) = &mut self.body {
-            open.save(host, library, true);
+            open.save(host, library, When::Closing);
             Self::forget(host, docs, open.id);
         }
         self.body = Body::Message("reader.no-book");
@@ -272,7 +298,7 @@ impl View {
         };
         if moved {
             open.unsaved = true;
-            open.save(host, library, false);
+            open.save(host, library, When::Turn);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         }
@@ -367,12 +393,12 @@ impl Open {
     /// `closing`, else once Beta 3's interval has gone since the last write. A
     /// refused write leaves it to the next (a notice needs a command the host
     /// has not given the reader yet: `PORTING-7.md`).
-    fn save(&mut self, host: &Host<'_>, library: Option<&Library>, closing: bool) {
+    fn save(&mut self, host: &Host<'_>, library: Option<&Library>, when: When) {
         let (true, Some(library)) = (self.unsaved, library) else {
             return;
         };
         let now = clock::micros(host).ok();
-        let due = closing
+        let due = when != When::Turn
             || match (self.saved_at, now) {
                 (Some(then), Some(now)) => now.saturating_sub(then) >= native_place::SAVE_EVERY_US,
                 _ => true,
@@ -400,7 +426,7 @@ impl Open {
             self.saved_at = now;
         } else if !self.said {
             self.said = true;
-            self.say_not_saved(host, closing);
+            self.say_not_saved(host, when == When::Closing);
         }
     }
 

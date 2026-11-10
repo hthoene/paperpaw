@@ -110,7 +110,8 @@
   "services": [
     "core.document",
     "core.library",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
     {
