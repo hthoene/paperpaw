@@ -197,7 +197,7 @@ fn busy_waits_for_the_running_check_then_the_same_file_is_checked_again() {
     let mut file = Recheck::default();
     // Op 16 answered Busy: wait; the end of a check that is not the file's own
     // is the one waited for, and the answer is to submit, never to read the old request.
-    assert!(file.stale());
+    assert_eq!(file.stale(Error::Busy), Retry::Wait);
     assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
     // The re-submitted check ends and is read.
     assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
@@ -206,13 +206,35 @@ fn busy_waits_for_the_running_check_then_the_same_file_is_checked_again() {
 }
 
 #[test]
-fn a_replaced_result_is_waited_for_and_submitted_again_like_a_busy_one() {
+fn busy_waits_even_for_the_end_of_the_files_own_request() {
     let mut file = Recheck::default();
-    // Op 16 answered NotFound after a newer check replaced the result.
-    assert!(is_stale(Error::NotFound));
-    assert!(file.stale());
-    // Even the end of the file's own request does not read the old result.
+    assert_eq!(file.stale(Error::Busy), Retry::Wait);
+    // The old result is never read: the end waited for submits again.
     assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Submit);
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+}
+
+#[test]
+fn a_replaced_result_is_submitted_again_at_once_and_nothing_is_waited_for() {
+    let mut file = Recheck::default();
+    // Op 16 answered NotFound: no check runs, so no end would come.
+    assert!(is_stale(Error::NotFound));
+    assert_eq!(file.stale(Error::NotFound), Retry::Now);
+    // After the immediate re-submit the end of the new check is read, not
+    // taken as the awaited one (no loop of submits).
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+    // And a check of another request is nothing to the file.
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Skip);
+}
+
+#[test]
+fn an_immediate_resubmit_clears_an_earlier_wait() {
+    let mut file = Recheck::default();
+    assert_eq!(file.stale(Error::Busy), Retry::Wait);
+    assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
+    // The re-submitted check ended and was replaced meanwhile.
+    assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+    assert_eq!(file.stale(Error::NotFound), Retry::Now);
     assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
 }
 
@@ -220,20 +242,37 @@ fn a_replaced_result_is_waited_for_and_submitted_again_like_a_busy_one() {
 fn a_file_that_stays_stale_is_unfit_after_a_few_submits() {
     let mut file = Recheck::default();
     for _ in 0..MOST_RESUBMITS {
-        assert!(file.stale());
+        assert_eq!(file.stale(Error::Busy), Retry::Wait);
         assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Submit);
         assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
     }
     // The last re-submit was read and is stale again: no more waiting, the
     // caller marks the file unfit.
-    assert!(!file.stale());
+    assert_eq!(file.stale(Error::Busy), Retry::Unfit);
     assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Skip);
+}
+
+#[test]
+fn immediate_submits_count_against_the_same_limit() {
+    let mut file = Recheck::default();
+    for _ in 0..MOST_RESUBMITS {
+        assert_eq!(file.stale(Error::NotFound), Retry::Now);
+        assert_eq!(file.ended(OWN, true, DeviceOutcome::Ok), Turn::Read);
+    }
+    assert_eq!(file.stale(Error::NotFound), Retry::Unfit);
+    // A mix of both causes shares the count.
+    let mut mixed = Recheck::default();
+    assert_eq!(mixed.stale(Error::NotFound), Retry::Now);
+    assert_eq!(mixed.stale(Error::Busy), Retry::Wait);
+    assert_eq!(mixed.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
+    assert_eq!(mixed.stale(Error::NotFound), Retry::Now);
+    assert_eq!(mixed.stale(Error::NotFound), Retry::Unfit);
 }
 
 #[test]
 fn a_refusal_of_the_submitted_check_makes_the_file_unfit() {
     let mut file = Recheck::default();
-    assert!(file.stale());
+    assert_eq!(file.stale(Error::Busy), Retry::Wait);
     assert_eq!(file.ended(OTHER, true, DeviceOutcome::Ok), Turn::Submit);
     assert_eq!(
         file.ended(OWN, false, DeviceOutcome::OtherChip),

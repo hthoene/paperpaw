@@ -17,7 +17,7 @@ use crate::{
         read_pair, reason,
     },
     native_check::{self, Evidence, Found, Image, Other, Signer},
-    native_leaves::{self, Recheck, Turn},
+    native_leaves::{self, Recheck, Retry, Turn},
     native_online::{Offer, Trouble},
 };
 use alloc::{string::String, vec::Vec};
@@ -160,11 +160,12 @@ struct Scan {
     /// Whether a newer update is offered when this ends (at start).
     offer: bool,
     /// The re-submits of the check of `next`: when the list of what its image
-    /// leaves out was asked while a check was running (op 16, `ERR_BUSY`) or
-    /// after a newer check replaced the result (`ERR_NOT_FOUND`), the file waits
-    /// for the running check to end and its check is submitted again (op 6 and
-    /// op 16 answer only for the most recent check, so the old request is never
-    /// read again), not offered and not given up before.
+    /// leaves out was asked while a check was running (op 16, `ERR_BUSY`) the
+    /// file waits for that check to end and its check is submitted again; after
+    /// a newer check replaced the result (`ERR_NOT_FOUND`) none runs, so it is
+    /// submitted again at once (op 6 and op 16 answer only for the most recent
+    /// check, so the old request is never read again), not offered and not
+    /// given up before.
     recheck: Recheck,
 }
 
@@ -501,6 +502,7 @@ impl NativeUpdate {
                     return Ok(Step::Done(None, false));
                 }
                 Err(_) => {
+                    scan.recheck = Recheck::default();
                     push(&mut scan.found, Found::Unfit(DeviceOutcome::Other))?;
                     scan.next = scan.next.saturating_add(1);
                 }
@@ -542,7 +544,7 @@ impl NativeUpdate {
                 };
                 let path = native_card::path(name)?;
                 match self.read_check(host, request, &path) {
-                    Err(Error::Busy) => self.stale(host),
+                    Err(error) if native_leaves::is_stale(error) => self.stale(host, error),
                     Ok(found) => self.found(host, found),
                     Err(error) => {
                         self.scan = None;
@@ -557,15 +559,21 @@ impl NativeUpdate {
         }
     }
 
-    /// The file's result is not there for its request (`Busy`: op 16 answered `ERR_BUSY` or `ERR_NOT_FOUND`, a
-    /// check is running or replaced it): wait for the running check to end and
-    /// submit the file's check again; after a few times the file is unfit.
-    fn stale(&mut self, host: &Host<'_>) -> Result<Step, Error> {
-        let waits = self.scan.as_mut().is_some_and(|scan| scan.recheck.stale());
-        if waits {
-            return Ok(Step::Running);
+    /// The file's result is not there for its request (`error`: op 16 answered
+    /// `ERR_BUSY`, a check is running, or `ERR_NOT_FOUND`, a newer one replaced
+    /// it): for `Busy` wait for the running check to end and submit the file's
+    /// check again; for `NotFound` no check runs and no end would come, so
+    /// submit it at once. After a few times the file is unfit.
+    fn stale(&mut self, host: &Host<'_>, error: Error) -> Result<Step, Error> {
+        let retry = self
+            .scan
+            .as_mut()
+            .map_or(Retry::Unfit, |scan| scan.recheck.stale(error));
+        match retry {
+            Retry::Wait => Ok(Step::Running),
+            Retry::Now => self.advance(host),
+            Retry::Unfit => self.found(host, Found::Unfit(DeviceOutcome::Other)),
         }
-        self.found(host, Found::Unfit(DeviceOutcome::Other))
     }
 
     /// The file is settled: on to the next check, or the end of them all.
@@ -612,7 +620,7 @@ impl NativeUpdate {
     /// An image the device says leaves plugins out names them (its list is the
     /// last check's only, so it is read now). Where the list cannot be read the
     /// file is not offered: its plugins would go without a word. A check still
-    /// running or one that replaced the result (`Busy`, `NotFound`) is `Busy`: not an answer.
+    /// running (`Busy`) or one that replaced the result (`NotFound`) is returned as it is: not an answer.
     fn with_leaves(&mut self, host: &Host<'_>, found: Found) -> Result<Found, Error> {
         let Found::Image(mut image) = found else {
             return Ok(found);
@@ -624,7 +632,7 @@ impl NativeUpdate {
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
             // A check is running or a newer one replaced the result: stale.
-            Err(error) if native_leaves::is_stale(error) => Err(Error::Busy),
+            Err(error) if native_leaves::is_stale(error) => Err(error),
             Err(_) => Ok(Found::Unfit(DeviceOutcome::Other)),
         }
     }

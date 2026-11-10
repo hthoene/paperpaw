@@ -214,11 +214,13 @@ the interface-6 ones are used as they are (`update.leaves`, `update.leaves.downl
   sentence names the plugins); *Not now* is the wait. A foreign image is not asked (`Unsupported`). Errors of the
   op-16 read, as Kernel ruled on `device.md` 5.1 (`native_leaves::read_all`, tested without the host): op 6 (`check_file` result) and op 16 answer ONLY for the plugin's most recent firmware check, a newer
   check replaces both results, and while a check runs op 16 answers `ERR_BUSY`. So one file at a time: `check_file`,
-  wait for its `install_done` (kind 3), read op 6, then op 16. If op 16 answers `ERR_BUSY`, or `ERR_NOT_FOUND` because a
-  newer check replaced the result, the file stays in the scan (the page shows *Checking*), the plugin waits for the
-  running check to end and then SUBMITS `check_file` AGAIN for that file and reads again; the old request is never
-  read again. The file is "cannot be installed" only when the re-submitted check itself refuses the image, or after
-  3 re-submits (then unfit; `native_leaves::Recheck`, tested without the host). `ERR_STATE` (a cursor of an earlier
+  wait for its `install_done` (kind 3), read op 6, then op 16. If op 16 answers `ERR_BUSY` a check is running: the file stays in the scan (the page shows *Checking*), the plugin
+  waits for the running check to end and then SUBMITS `check_file` AGAIN for that file and reads again. If it answers
+  `ERR_NOT_FOUND` a newer check replaced the result and, since the plugin checks one file at a time, no check of the
+  plugin runs and no end event will come: the plugin SUBMITS `check_file` AGAIN AT ONCE (same request id) and waits for
+  nothing else, as waiting would hang the file. The old request is never read again. The file is "cannot be
+  installed" only when the re-submitted check itself refuses the image, or after 3 re-submits of either kind (then
+  unfit; `native_leaves::Recheck`, tested without the host). `ERR_STATE` (a cursor of an earlier
   check) starts the read again at page 0 with `generation` 0, at most twice, then the file is unfit.
   `ERR_UNSUPPORTED` (a PaperPaw image should not get it) and any
   other error: the file is *not offered* (*This update cannot be installed*) rather than offered with plugins

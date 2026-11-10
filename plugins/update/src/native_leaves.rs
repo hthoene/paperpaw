@@ -30,18 +30,32 @@ pub const MOST_PAGES: usize = 16;
 /// (`ERR_STATE`, `docs/abi/device.md` 5.1) before the file counts as unfit.
 pub const MOST_RESTARTS: u8 = 2;
 
-/// Times the check of one file is submitted again after its result was gone or
-/// not there yet (`Busy`, `NotFound` of op 16) before the file counts as unfit.
+/// Times the check of one file is submitted again after its result was not there
+/// yet or gone (`Busy`, `NotFound` of op 16) before the file counts as unfit.
 pub const MOST_RESUBMITS: u8 = 3;
 
 /// Whether the error of an op-16 read says that the result of the check is not
 /// there for this plugin's request: a check is running (`ERR_BUSY`) or a newer
 /// check replaced it (`ERR_NOT_FOUND`). Op 6 and op 16 answer only for the
 /// plugin's most recent firmware check (`docs/abi/device.md` 5.1), so the old
-/// request is never read again: the file's check is submitted again.
+/// request is never read again: the file's check is submitted again, after the
+/// running check ended for `Busy` ([`Retry::Wait`]), at once for `NotFound`
+/// ([`Retry::Now`]).
 #[must_use]
 pub const fn is_stale(error: Error) -> bool {
     matches!(error, Error::Busy | Error::NotFound)
+}
+
+/// What to do after a stale read ([`Recheck::stale`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retry {
+    /// A check is running: wait for it to end, then submit the file's check
+    /// again ([`Turn::Submit`]).
+    Wait,
+    /// No check runs: submit the file's check again now (no end comes).
+    Now,
+    /// Submitted [`MOST_RESUBMITS`] times: the file is unfit.
+    Unfit,
 }
 
 /// What the scan does when a check ends.
@@ -66,15 +80,24 @@ pub struct Recheck {
 }
 
 impl Recheck {
-    /// The read of the file's result was stale ([`is_stale`]): `true` to wait
-    /// for the running check to end and then submit the check again, `false`
-    /// once that has been done [`MOST_RESUBMITS`] times (the file is unfit).
-    pub const fn stale(&mut self) -> bool {
+    /// The read of the file's result was stale ([`is_stale`], `error` is what
+    /// op 16 answered). `ERR_BUSY` means a check is running: [`Retry::Wait`] for
+    /// it to end and then submit the check again. `ERR_NOT_FOUND` means a newer
+    /// check replaced the result and none runs (the plugin checks one file at a
+    /// time), so no end would come: [`Retry::Now`], submit at once and wait for
+    /// nothing. Both count as a re-submit; after [`MOST_RESUBMITS`] of them
+    /// [`Retry::Unfit`].
+    pub const fn stale(&mut self, error: Error) -> Retry {
         if self.submits >= MOST_RESUBMITS {
-            return false;
+            return Retry::Unfit;
+        }
+        if matches!(error, Error::NotFound) {
+            self.waiting = false;
+            self.submits = self.submits.saturating_add(1);
+            return Retry::Now;
         }
         self.waiting = true;
-        true
+        Retry::Wait
     }
 
     /// A check ended: `ours` when it is the file's own, `accepted` when the
@@ -107,9 +130,9 @@ impl Recheck {
 /// A cursor of an earlier check (`Error::State`) starts the read again at
 /// `start` with the list empty, at most [`MOST_RESTARTS`] times. A check still
 /// running (`Error::Busy`) or a result a newer check replaced
-/// (`Error::NotFound`, [`is_stale`]) is not an answer: it is returned for the
-/// caller to wait for the running check and submit the file's check again
-/// ([`Recheck`]), never as a list (the image must not be offered without
+/// (`Error::NotFound`, [`is_stale`]) is not an answer: it is returned, each as
+/// it is, for the caller to submit the file's check again ([`Recheck`]: after
+/// the running check ended for `Busy`, at once for `NotFound`), never as a list (the image must not be offered without
 /// knowing what it drops). Any other error is returned as it is: a foreign
 /// image and the rest make the file unfit, where `Error::NoMemory` is retried
 /// as before.
