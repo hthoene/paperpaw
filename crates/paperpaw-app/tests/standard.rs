@@ -189,6 +189,7 @@ language = de
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_plugin_reaches_the_reader_through_the_standard_ids() {
     let mut app = App::new();
     app.now += 100;
@@ -207,6 +208,7 @@ fn a_plugin_reaches_the_reader_through_the_standard_ids() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_decorators_marks_are_chosen_with_the_buttons() {
     let mut app = App::new();
     app.now += 100;

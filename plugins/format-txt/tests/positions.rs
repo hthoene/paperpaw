@@ -79,7 +79,7 @@ fn text_of(long: u32) -> impl Strategy<Value = String> {
 
 fn open(text: &str) -> (MemoryStorage, TxtDocument) {
     let storage = MemoryStorage::new().with("t.txt", text.as_bytes().to_vec());
-    let doc = TxtDocument::open(&storage, "t.txt").unwrap();
+    let doc = TxtDocument::open_converted(&storage, "t.txt", "").unwrap();
     (storage, doc)
 }
 

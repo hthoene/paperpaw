@@ -1,15 +1,13 @@
 use alloc::borrow::Cow;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::{Ref, RefCell};
 use core::fmt;
 
-use crate::PLUGIN;
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, Locator, Metadata, OffsetMap,
 };
-use paperpaw_sdk::{Env, Storage, read_file};
 
 /// Bytes inspected to detect encoding, paragraph style and metadata.
 const SNIFF: u32 = 16 * 1024;
@@ -28,8 +26,6 @@ const SPLIT_SEARCH: usize = 256;
 /// Bytes read beyond what a block needs, so the blocks after it are found
 /// in what was read: about two pages of the X4.
 const AHEAD: u32 = 4096;
-/// Bytes of a UTF-16 file converted at a time.
-const UTF16_PIECE: u32 = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Encoding {
@@ -90,40 +86,21 @@ pub struct TxtDocument {
 }
 
 impl TxtDocument {
-    pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
-        Self::open_with(storage, path, None)
-    }
-
     /// Opens the book on `path` where a UTF-16 file is read from its UTF-8
     /// copy `utf8` (made beforehand by `Preparation`), never made here: the
-    /// native provider's form, which writes nothing.
+    /// native provider's form, which writes nothing. A file in another
+    /// encoding does not use `utf8`.
     pub fn open_converted(
         storage: &dyn Storage,
         path: &str,
         utf8: &str,
     ) -> Result<Self, DocumentError> {
-        Self::open_with(storage, path, Some(utf8))
-    }
-
-    fn open_with(
-        storage: &dyn Storage,
-        path: &str,
-        converted: Option<&str>,
-    ) -> Result<Self, DocumentError> {
         let mut size = file_size(storage, path)?;
         let mut head = read(storage, path, 0, size.min(SNIFF))?;
-        // UTF-16 is read from a copy in UTF-8, made when it is first opened.
+        // UTF-16 is read from a copy in UTF-8, made beforehand.
         let mut text = copy_text(path)?;
-        let big_endian = match head.get(..2) {
-            Some([0xff, 0xfe]) => Some(false),
-            Some([0xfe, 0xff]) => Some(true),
-            _ => None,
-        };
-        if let Some(big_endian) = big_endian {
-            text = match converted {
-                Some(copy) => copy_text(copy)?,
-                None => utf8_copy(storage, path, size, big_endian)?,
-            };
+        if matches!(head.get(..2), Some([0xff, 0xfe] | [0xfe, 0xff])) {
+            text = copy_text(utf8)?;
             size = file_size(storage, &text)?;
             head = read(storage, &text, 0, size.min(SNIFF))?;
         }
@@ -581,101 +558,6 @@ fn file_size(storage: &dyn Storage, path: &str) -> Result<u32, DocumentError> {
         .map_err(|_| DocumentError::Malformed(Cow::Borrowed("file larger than 4 GiB")))
 }
 
-/// The path of a copy in UTF-8 of the UTF-16 file at `path` (`size`
-/// bytes, a byte order mark first), in the plugin's folder: made a piece
-/// at a time when it is missing or was made from another file.
-fn utf8_copy(
-    storage: &dyn Storage,
-    path: &str,
-    size: u32,
-    big_endian: bool,
-) -> Result<String, DocumentError> {
-    let base = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-    let (copy, stamp_path) = (format!("{base}.txt"), format!("{base}.source"));
-    // Its size and a hash of its first and last 4 KiB tell the file from
-    // another of its name (storages tell no time a file was changed).
-    let mut ends = read(storage, path, 0, size.min(UTF16_PIECE))?;
-    ends.extend_from_slice(&read(
-        storage,
-        path,
-        size.saturating_sub(UTF16_PIECE),
-        size,
-    )?);
-    let stamp = format!("{size} {:016x}\n", paperpaw_sdk::digest::fnv1a64(&ends));
-    drop(ends);
-    if read_file(storage, &stamp_path, 64).ok().as_deref() == Some(stamp.as_bytes())
-        && storage.exists(&copy)
-    {
-        return Ok(copy);
-    }
-    // The stamp goes first and comes last: a copy cut short is made again.
-    storage.remove(&stamp_path)?;
-    storage.write(&copy, b"")?;
-    let mut raw = Vec::new();
-    let mut utf8 = Vec::new();
-    // Each unit takes at most 3 bytes in UTF-8 (a pair of them 4), and a
-    // high surrogate left over from the piece before adds 3 more.
-    raw.try_reserve_exact(UTF16_PIECE as usize)
-        .and_then(|()| utf8.try_reserve_exact(UTF16_PIECE as usize / 2 * 3 + 3))
-        .map_err(|_| DocumentError::OutOfMemory)?;
-    let mut high = None;
-    let mut at = 2;
-    while at < size {
-        raw.clear();
-        read_onto(
-            storage,
-            path,
-            at,
-            at.saturating_add(UTF16_PIECE).min(size),
-            &mut raw,
-        )?;
-        // A last odd byte is no unit.
-        let units = raw.as_chunks::<2>().0;
-        if units.is_empty() {
-            break;
-        }
-        at += 2 * units.len() as u32;
-        utf8.clear();
-        for &pair in units {
-            let unit = if big_endian {
-                u16::from_be_bytes(pair)
-            } else {
-                u16::from_le_bytes(pair)
-            };
-            push_utf16(&mut utf8, &mut high, unit);
-        }
-        storage.append(&copy, &utf8)?;
-    }
-    if high.is_some() {
-        storage.append(&copy, "\u{fffd}".as_bytes())?;
-    }
-    storage.write(&stamp_path, stamp.as_bytes())?;
-    Ok(copy)
-}
-
-/// Appends UTF-16 unit `unit` to `utf8`; `high` keeps a high surrogate
-/// until the unit after it. Surrogates without their pair become U+FFFD.
-fn push_utf16(utf8: &mut Vec<u8>, high: &mut Option<u16>, unit: u16) {
-    let ch = match (high.take(), unit) {
-        (Some(first), 0xdc00..=0xdfff) => {
-            let code = 0x10000 + ((u32::from(first) - 0xd800) << 10) + (u32::from(unit) - 0xdc00);
-            char::from_u32(code)
-        }
-        (first, _) => {
-            if first.is_some() {
-                utf8.extend_from_slice("\u{fffd}".as_bytes());
-            }
-            if (0xd800..=0xdbff).contains(&unit) {
-                *high = Some(unit);
-                return;
-            }
-            char::from_u32(u32::from(unit))
-        }
-    };
-    let ch = ch.unwrap_or('\u{fffd}');
-    utf8.extend_from_slice(ch.encode_utf8(&mut [0; 4]).as_bytes());
-}
-
 /// Reads `from..to`; fails cleanly instead of aborting when memory is short.
 fn read(storage: &dyn Storage, path: &str, from: u32, to: u32) -> Result<Vec<u8>, DocumentError> {
     let mut buf = Vec::new();
@@ -848,12 +730,46 @@ fn copy_text(text: &str) -> Result<String, DocumentError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::preparation::Preparation;
     use alloc::format;
+    use paperpaw_sdk::native::Error;
     use paperpaw_sdk::{DirEntry, MemoryStorage, StorageError};
+
+    const COPY: &str = "books/book.utf8";
+
+    /// The book as the provider opens it: a UTF-16 file is read from its UTF-8
+    /// copy, made first the way `Preparation` makes it for the host.
+    fn open_in(storage: &dyn Storage) -> TxtDocument {
+        let mut bom = [0u8; 2];
+        storage.read_at("books/book.txt", 0, &mut bom).unwrap();
+        if matches!(bom, [0xff, 0xfe] | [0xfe, 0xff]) {
+            let size = storage.size("books/book.txt").unwrap();
+            let mut preparation = Preparation::new(size, bom == [0xfe, 0xff]).unwrap();
+            while !preparation
+                .advance(
+                    |offset, buf| {
+                        storage
+                            .read_at("books/book.txt", offset, buf)
+                            .map_err(|_| Error::Io)
+                    },
+                    |first, bytes| {
+                        let written = if first {
+                            storage.write(COPY, bytes)
+                        } else {
+                            storage.append(COPY, bytes)
+                        };
+                        written.map_err(|_| Error::Io)
+                    },
+                )
+                .unwrap()
+            {}
+        }
+        TxtDocument::open_converted(storage, "books/book.txt", COPY).unwrap()
+    }
 
     fn open(content: impl Into<Vec<u8>>) -> (MemoryStorage, TxtDocument) {
         let storage = MemoryStorage::new().with("books/book.txt", content);
-        let document = TxtDocument::open(&storage, "books/book.txt").unwrap();
+        let document = open_in(&storage);
         (storage, document)
     }
 
@@ -997,7 +913,7 @@ mod tests {
             inner: MemoryStorage::new().with("books/book.txt", text.clone()),
             bytes: core::cell::Cell::new(0),
         };
-        let document = TxtDocument::open(&storage, "books/book.txt").unwrap();
+        let document = open_in(&storage);
         storage.bytes.set(0);
         let blocks = blocks(&storage, &document);
         assert_eq!(blocks.len(), 800);
@@ -1101,21 +1017,6 @@ mod tests {
     }
 
     #[test]
-    fn a_replaced_utf_16_file_of_the_same_size_is_copied_anew() {
-        let utf16 = |text: &str| -> Vec<u8> {
-            core::iter::once(0xfeff)
-                .chain(text.encode_utf16())
-                .flat_map(u16::to_le_bytes)
-                .collect()
-        };
-        let (storage, document) = open(utf16("Alpha."));
-        assert_eq!(texts(&blocks(&storage, &document)), ["Alpha."]);
-        storage.write("books/book.txt", &utf16("Bravo.")).unwrap();
-        let document = TxtDocument::open(&storage, "books/book.txt").unwrap();
-        assert_eq!(texts(&blocks(&storage, &document)), ["Bravo."]);
-    }
-
-    #[test]
     fn reads_utf_16_in_either_byte_order() {
         // Characters of one, two and three bytes in UTF-8 and a surrogate
         // pair, at offsets that put some pairs across converted pieces.
@@ -1144,11 +1045,7 @@ mod tests {
             assert_eq!(blocks.len(), 2001, "big endian: {big_endian}");
             assert!(blocks[..2000].iter().all(|b| b.text == line));
             assert_eq!(blocks[2000].text, "\u{fffd}");
-            // Opened again, the copy made before is read.
-            let copy = storage.get(&document.path).unwrap();
-            let again = TxtDocument::open(&storage, "books/book.txt").unwrap();
-            assert_eq!(again.path, document.path);
-            assert_eq!(storage.get(&again.path).unwrap(), copy);
+            assert_eq!(document.path, COPY);
         }
     }
 

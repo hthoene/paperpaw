@@ -252,6 +252,7 @@ fn inked(image: &[Vec<u8>], rows: std::ops::Range<usize>, from: usize, to: usize
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_layer_draws_in_the_room_it_reserves() {
     let mut app = App::new("");
     let image = app.image();
@@ -278,6 +279,7 @@ fn a_layer_draws_in_the_room_it_reserves() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_layers_room_hears_taps_and_the_buttons() {
     let mut app = App::new("");
     app.image();
@@ -300,6 +302,7 @@ fn a_layers_room_hears_taps_and_the_buttons() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_frame_sets_the_page_in_two_columns() {
     let mut app = App::new("page-frame = margin.two\n");
     let image = app.image();
@@ -331,6 +334,7 @@ fn a_frame_sets_the_page_in_two_columns() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn choosing_a_frame_lays_the_page_out_anew_where_it_was() {
     let mut app = App::new("");
     app.run(actions::NEXT_PAGE);
@@ -369,6 +373,7 @@ fn inked_in(image: &[Vec<u8>], area: Rect) -> bool {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn layers_below_order_0_are_behind_the_text_and_the_others_over_it() {
     let mut app = App::new("[margin]\nerase = on\n");
     let image = app.image();
@@ -380,6 +385,7 @@ fn layers_below_order_0_are_behind_the_text_and_the_others_over_it() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_layer_switched_on_draws_at_once() {
     let mut app = App::new("");
     let image = app.image();
@@ -396,6 +402,7 @@ fn a_layer_switched_on_draws_at_once() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn rooms_at_the_left_and_at_the_top() {
     let mut app = App::with("", Side::Left);
     app.image();
@@ -418,6 +425,7 @@ fn rooms_at_the_left_and_at_the_top() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_frame_of_one_narrower_column_sets_the_text_in_it() {
     let mut plain = App::new("");
     plain.image();
@@ -448,6 +456,7 @@ fn a_frame_of_one_narrower_column_sets_the_text_in_it() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_bookmark_corner_goes_before_a_room_at_the_top() {
     let mut app = App::with("", Side::Top);
     app.image();

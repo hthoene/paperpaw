@@ -1,4 +1,4 @@
-//! The `core.format` provider against the interface-6 reader on the same
+//! The `core.format` provider against the document's own reading of the same
 //! files: the same blocks, the same texts, runs and maps, whole or in
 //! fragments; and the refusals a hostile call or book gets.
 
@@ -212,9 +212,9 @@ fn walk(book: Vec<u8>) -> usize {
         (s, ppm, _, _) = state(&run(&mut p, &io, &call(3, 1, |_| {})).unwrap());
     }
     assert_eq!(s, 0);
-    // The interface-6 reader on the same bytes (a UTF-16 book from its copy).
+    // The document on the same bytes (these books are not UTF-16).
     let old_io = MemoryStorage::new().with("b.txt", book);
-    let old = TxtDocument::open(&old_io, "b.txt").unwrap();
+    let old = TxtDocument::open_converted(&old_io, "b.txt", "").unwrap();
     let mut at = Locator::START;
     let mut count = 0;
     while let Ok(Some(expected)) = old.block_at(&old_io, at) {
@@ -237,7 +237,7 @@ fn walk(book: Vec<u8>) -> usize {
 }
 
 #[test]
-fn the_blocks_of_a_utf_8_book_are_the_interface_6_blocks() {
+fn the_blocks_of_a_utf_8_book_are_the_documents_blocks() {
     assert!(walk(sample()) > 60);
 }
 
@@ -311,7 +311,7 @@ fn a_long_block_comes_in_fragments_that_join_whole() {
         block(&mut p, &io, 0).unwrap()
     };
     let old_io = MemoryStorage::new().with("b.txt", book);
-    let old = TxtDocument::open(&old_io, "b.txt").unwrap();
+    let old = TxtDocument::open_converted(&old_io, "b.txt", "").unwrap();
     let expected = old.block_at(&old_io, Locator::START).unwrap().unwrap();
     same(&got, &expected);
     assert!(fragments > 1, "{fragments} fragments, {} rows", got.rows);

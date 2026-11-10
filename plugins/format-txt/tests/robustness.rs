@@ -52,7 +52,7 @@ fn any_bytes_read_cleanly() {
             }
         }
         let storage = MemoryStorage::new().with("book.txt", data);
-        let Ok(doc) = TxtDocument::open(&storage, "book.txt") else {
+        let Ok(doc) = TxtDocument::open_converted(&storage, "book.txt", "") else {
             continue;
         };
         let mut at = Locator::new(0, 0);
@@ -107,7 +107,7 @@ impl Storage for Huge {
 
 #[test]
 fn files_of_almost_4_gib_read_to_the_end() {
-    let doc = TxtDocument::open(&Huge, "big.txt").unwrap();
+    let doc = TxtDocument::open_converted(&Huge, "big.txt", "").unwrap();
     let mut at = Locator::new(0, u32::MAX - 10_000);
     let mut texts = Vec::new();
     while let Some(block) = doc.block_at(&Huge, at).unwrap() {

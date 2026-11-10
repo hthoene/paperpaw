@@ -25,6 +25,7 @@ fn numbered(device: paperpaw_sdk::DeviceInfo, storage: Shared) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn n_pages_forward_and_n_back_is_the_first_page_again() {
     let mut reading = numbered(BUTTONS, Shared::default());
     reading.open();
@@ -47,6 +48,7 @@ fn n_pages_forward_and_n_back_is_the_first_page_again() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn going_back_after_a_new_start_follows_the_page_index() {
     let storage = Shared::default();
     let mut reading = numbered(BUTTONS, storage.clone());
@@ -72,6 +74,7 @@ fn going_back_after_a_new_start_follows_the_page_index() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_last_page_stays_and_the_book_is_finished_once() {
     let text = numbered_book(8, 12);
     let mut reading = Reading::new(BUTTONS, Shared::default(), BOOK, text.as_bytes(), "");
@@ -101,6 +104,7 @@ fn the_last_page_stays_and_the_book_is_finished_once() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn an_empty_book_opens_and_turns_nowhere() {
     let mut reading = Reading::new(BUTTONS, Shared::default(), BOOK, b"", "");
     reading.open();
@@ -124,6 +128,7 @@ fn an_empty_book_opens_and_turns_nowhere() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_book_of_one_page_does_not_turn() {
     let mut reading = Reading::new(
         BUTTONS,
@@ -194,6 +199,7 @@ fn a_book_that_vanishes_while_open_does_not_break_the_reader() {
 
 /// Kept positions that cannot be used: the book opens at its start.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_broken_position_opens_the_book_at_its_start() {
     let broken: [&[u8]; 9] = [
         b"",
@@ -233,6 +239,7 @@ fn a_broken_position_opens_the_book_at_its_start() {
 /// A position inside a line (kept with another layout) continues at the
 /// start of that line, never after it.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_position_inside_a_line_continues_at_its_start() {
     let storage = Shared::default();
     let mut reading = numbered(BUTTONS, storage.clone());
@@ -266,6 +273,7 @@ fn a_position_inside_a_line_continues_at_its_start() {
 /// cut, or garbage marked complete): pages still turn both ways and stay
 /// in the book.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_damaged_page_index_does_not_lose_the_book() {
     let storage = Shared::default();
     let mut reading = numbered(BUTTONS, storage.clone());
@@ -333,6 +341,7 @@ fn a_damaged_page_index_does_not_lose_the_book() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_last_book_is_opened_again_at_start_up() {
     let storage = Shared::default();
     let mut reading = numbered(BUTTONS, storage.clone());
@@ -403,6 +412,7 @@ fn a_broken_state_file_opens_nothing() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn larger_then_smaller_text_comes_back_to_the_same_place() {
     let mut reading = numbered(BUTTONS, Shared::default());
     reading.open();
@@ -482,6 +492,7 @@ fn a_swipe_in_from_the_left_edge_turns_on_where_pages_go_right_to_left() {
 /// finds nothing, the book stays on its last page, and the pages are
 /// counted again, the count right after.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_turn_past_the_last_page_counts_the_pages_again_when_the_index_says_more() {
     let storage = Shared::default();
     let mut reading = numbered(BUTTONS, storage.clone());

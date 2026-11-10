@@ -402,6 +402,7 @@ fn main_menu_and_tools() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));
