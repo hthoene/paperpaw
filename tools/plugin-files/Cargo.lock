@@ -125,7 +125,6 @@ dependencies = [
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",
  "paperpaw-plugin-format-mobi",
- "paperpaw-plugin-mail",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-picture-home",
@@ -169,14 +168,6 @@ name = "paperpaw-plugin-format-mobi"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-mail"
-version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]

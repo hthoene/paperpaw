@@ -78,13 +78,12 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
     "fonts-browser",
     "format-docx",
     "format-images",
     "format-mobi",
-    "mail",
     "news",
     "notes-vault",
     "picture-home",
@@ -152,7 +151,6 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "fonts-browser",
-    "mail",
     "news",
     "store",
     "transfer",
@@ -235,7 +233,6 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_news::News);
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
-        b = offer_shipped_off(b, store);
     }
     // A theme of the app's own, off as it ships, on every device.
     let builder = b.plugin_off(Pebble);
@@ -244,18 +241,6 @@ pub fn install_with(
         .plugin(paperpaw_plugin_keyboard::Keyboard)
         .plugin(paperpaw_plugin_settings::SettingsPlugin);
     builder.plugin(paperpaw_plugin_update::Update)
-}
-
-/// Adds the plugins the store offers that ship off, wherever they are
-/// built in, as `store` says.
-#[cfg(feature = "store-plugins")]
-fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBuilder {
-    let shipped_off = match store {
-        StorePlugins::Left => StorePlugins::Left,
-        _ => StorePlugins::Off(&|_| false),
-    };
-    b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
-    b
 }
 
 /// Adds `plugin`, one the store offers as a file too that takes the place of

@@ -1,11 +1,10 @@
-//! The native HTML reader gives the same text as the interface-6 one on what
-//! both take: fixed mails, random mails made of tags, entities and text, and
-//! the same mail cut into pieces anywhere. It differs, on purpose, where
-//! interface 6 panics (a non-ASCII character inside `<style>` or `<script>`),
-//! loses the rest of the mail (a comment longer than 1,024 bytes) or grows
-//! without end (the text limit).
+//! The native HTML reader gives the text interface 6 gave on fixed mails (kept
+//! in `testdata/html.golden`, written from the interface-6 code before it was
+//! removed), and the same text for a mail cut into pieces anywhere. It
+//! differs, on purpose, where interface 6 panicked (a non-ASCII character
+//! inside `<style>` or `<script>`), lost the rest of the mail (a comment
+//! longer than 1,024 bytes) or grew without end (the text limit).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use paperpaw_plugin_mail::html::{self as old, HtmlText as Old};
 use paperpaw_plugin_mail::native_model::html::{self as new, HtmlText as New, MAX_TEXT};
 
 /// A small deterministic generator, so that failures repeat.
@@ -24,8 +23,12 @@ impl Rng {
     }
 }
 
-fn old_text(html: &str) -> String {
-    old::to_text(html)
+/// The lines of the golden file with the tag `tag`.
+fn golden(tag: &str) -> Vec<&'static str> {
+    include_str!("../testdata/html.golden")
+        .lines()
+        .filter_map(|line| line.strip_prefix(tag)?.strip_prefix('\t'))
+        .collect()
 }
 
 fn new_text(html: &str) -> String {
@@ -65,9 +68,11 @@ const FIXED: &[&str] = &[
 ];
 
 #[test]
-fn fixed_mails_give_the_same_text() {
-    for html in FIXED {
-        assert_eq!(new_text(html), old_text(html), "{html:?}");
+fn fixed_mails_give_the_text_interface_6_gave() {
+    let expected = golden("fixed");
+    assert_eq!(expected.len(), FIXED.len());
+    for (html, expected) in FIXED.iter().zip(expected) {
+        assert_eq!(format!("{html:?}\t{:?}", new_text(html)), expected);
     }
 }
 
@@ -142,27 +147,6 @@ fn random_mail(rng: &mut Rng) -> String {
     html
 }
 
-/// Whether interface 6 can take it: it panics when a non-ASCII character
-/// sits inside what is skipped and the watch for the end tag cuts it.
-fn old_takes(html: &str) -> bool {
-    std::panic::catch_unwind(|| old_text(html)).is_ok()
-}
-
-#[test]
-fn random_mails_give_the_same_text() {
-    let mut rng = Rng(11);
-    let mut compared = 0;
-    for _ in 0..4000 {
-        let html = random_mail(&mut rng);
-        if !old_takes(&html) {
-            continue;
-        }
-        assert_eq!(new_text(&html), old_text(&html), "{html:?}");
-        compared += 1;
-    }
-    assert!(compared > 2000, "only {compared} mails compared");
-}
-
 #[test]
 fn pieces_give_the_same_text_as_the_whole() {
     let mut rng = Rng(5);
@@ -192,29 +176,29 @@ fn pieces_give_the_same_text_as_the_whole() {
 }
 
 #[test]
-fn pieces_of_interface_6_and_native_agree() {
+fn pieces_read_as_interface_6_read_them() {
     // The way `render` feeds the reader: a piece at a time, then `finish`.
-    let html = "<p>Hello &am";
-    let rest = "p; world</p><ul><li>a</li></ul>&#x1F6";
-    let tail = "00; <sty";
-    let mut old_parser = Old::new();
-    let mut new_parser = New::new();
-    let (mut old_out, mut new_out) = (String::new(), String::new());
-    for piece in [html, rest, tail] {
-        old_parser.push(piece, &mut old_out);
-        new_parser.push(piece, &mut new_out).unwrap();
-        assert_eq!(new_out, old_out);
+    let mut parser = New::new();
+    let mut out = String::new();
+    let mut seen = Vec::new();
+    for piece in [
+        "<p>Hello &am",
+        "p; world</p><ul><li>a</li></ul>&#x1F6",
+        "00; <sty",
+    ] {
+        parser.push(piece, &mut out).unwrap();
+        seen.push(format!("{piece:?}\t{out:?}"));
     }
-    old_parser.finish(&mut old_out);
-    new_parser.finish(&mut new_out).unwrap();
-    assert_eq!(new_out, old_out);
+    parser.finish(&mut out).unwrap();
+    seen.push(format!("finish\t{out:?}"));
+    assert_eq!(seen, golden("pieces"));
 }
 
 #[test]
 fn a_non_ascii_character_in_a_skipped_block_is_no_panic() {
-    // Interface 6 cut its watch for the end tag inside a character.
+    // Interface 6 cut its watch for the end tag inside a character (and
+    // panicked).
     let html = "<style>\u{e9}aaaaaaa</style>visible<script>\u{4e16}\u{4e16}\u{4e16}</script>end";
-    assert!(!old_takes(html), "interface 6 was expected to panic here");
     assert_eq!(new_text(html), "visibleend");
 }
 
@@ -223,8 +207,8 @@ fn a_long_comment_ends_at_its_end() {
     let filler = "x".repeat(5000);
     let html = format!("before<!-- {filler} --> after <p>more</p>");
     assert_eq!(new_text(&html), "before after \n\nmore");
-    // Interface 6 never found the end and dropped the rest of the mail.
-    assert_eq!(old_text(&html), "before");
+    // Interface 6 never found the end and dropped the rest of the mail
+    // ("before" was all it gave).
 }
 
 #[test]

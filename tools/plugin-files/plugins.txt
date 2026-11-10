@@ -18,7 +18,7 @@ format-images reading
 # keys system  (no file until the store build moves to interface 7, #228)
 # kosync sync  (no file until the store build moves to interface 7, #228)
 # koreader sync  (no file until the store build moves to interface 7, #228)
-mail news
+# mail news  (no file until the store build moves to interface 7, #228)
 # menu-editor look  (no file until the store build moves to interface 7, #228)
 news news
 # notes-overview notes  (no file until the store build moves to interface 7, #228)
