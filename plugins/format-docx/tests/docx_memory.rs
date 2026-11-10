@@ -144,6 +144,14 @@ fn long_document(paragraphs: usize) -> Vec<u8> {
         .build()
 }
 
+/// Converts the archive at `path` into the cache (the root of `storage`) and
+/// opens it, as the provider does at prepare.
+fn open(storage: &Short, path: &str) -> DocxDocument {
+    let options = OpenOptions::default();
+    DocxDocument::convert(storage, path, "").unwrap();
+    DocxDocument::native(storage, options.image_fit, options.color).unwrap()
+}
+
 #[test]
 fn converting_needs_the_same_memory_for_a_short_and_a_long_document() {
     let short = Short(MemoryStorage::new().with("s.docx", long_document(50)));
@@ -152,10 +160,10 @@ fn converting_needs_the_same_memory_for_a_short_and_a_long_document() {
     let size = long.0.get("l.docx").unwrap().len();
     assert!(size > 20_000, "{size}");
     let small = peak_of(|| {
-        let _ = DocxDocument::open(&short, "s.docx", &OpenOptions::default()).unwrap();
+        let _ = open(&short, "s.docx");
     });
     let large = peak_of(|| {
-        let doc = DocxDocument::open(&long, "l.docx", &OpenOptions::default()).unwrap();
+        let doc = open(&long, "l.docx");
         drop(doc);
     });
     assert!(large < 160 * 1024, "{large} bytes for a long document");

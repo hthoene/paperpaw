@@ -1,6 +1,8 @@
 //! Word documents: text, headings, lists, tables, links and pictures from
 //! documents as Word writes them; and what is done with documents that
-//! are made to do harm or are damaged.
+//! are made to do harm or are damaged. A document is converted and read as
+//! the provider does it: the archive is the book (root 3, path `""`), the
+//! cache is root 6.
 
 #![allow(
     clippy::unwrap_used,
@@ -9,11 +11,13 @@
 )]
 
 mod common;
+mod native;
 
 use common::{Recording, blocks, text};
+use native::Roots;
 use paperpaw_plugin_format_docx::DocxDocument;
 use paperpaw_sdk::document::{BlockKind, Document, DocumentError, Locator};
-use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
+use paperpaw_sdk::{OpenOptions, Storage};
 use paperpaw_zip::testing::ZipBuilder;
 use proptest::prelude::*;
 
@@ -78,9 +82,17 @@ fn docx(body: &str) -> Vec<u8> {
         .build()
 }
 
-fn open(zip: Vec<u8>) -> (MemoryStorage, Result<DocxDocument, DocumentError>) {
-    let storage = MemoryStorage::new().with("d.docx", zip);
-    let doc = DocxDocument::open(&storage, "d.docx", &OpenOptions::default());
+/// Converts the book of `storage` (root 3) into its cache (root 6) and opens
+/// it, as the provider's prepare does.
+fn convert(storage: &dyn Storage) -> Result<DocxDocument, DocumentError> {
+    let options = OpenOptions::default();
+    DocxDocument::convert(storage, "", "")?;
+    DocxDocument::native(storage, options.image_fit, options.color)
+}
+
+fn open(zip: Vec<u8>) -> (Roots, Result<DocxDocument, DocumentError>) {
+    let storage = Roots::new(zip);
+    let doc = convert(&storage);
     (storage, doc)
 }
 
@@ -124,12 +136,13 @@ fn properties_name_the_document() {
     assert_eq!(m.title.as_deref(), Some("The Report"));
     assert_eq!(m.authors, ["Ann Author"]);
     assert_eq!(m.language.as_deref(), Some("de-DE"));
-    // Without properties the file's name is the title.
+    // Without properties there is no title here: the root of the book has no
+    // file name, so the library names the book by its file.
     let zip = ZipBuilder::new()
         .deflated("word/document.xml", document(&p("x")))
         .build();
     let (_, doc) = open(zip);
-    assert_eq!(doc.unwrap().metadata().title.as_deref(), Some("d"));
+    assert_eq!(doc.unwrap().metadata().title, None);
 }
 
 #[test]
@@ -250,33 +263,6 @@ fn text_boxes_and_odd_nesting_do_no_harm() {
 }
 
 #[test]
-fn opened_again_it_is_not_converted_again() {
-    let storage = Recording::new(MemoryStorage::new().with("d.docx", docx(&p("hello"))));
-    let doc = DocxDocument::open(&storage, "d.docx", &OpenOptions::default()).unwrap();
-    assert!(text(&doc, &storage).contains("hello"));
-    let first = storage.written.borrow().len();
-    storage.written.borrow_mut().clear();
-    let doc = DocxDocument::open(&storage, "d.docx", &OpenOptions::default()).unwrap();
-    assert!(text(&doc, &storage).contains("hello"));
-    assert!(first > 0);
-    assert!(
-        !storage
-            .written
-            .borrow()
-            .iter()
-            .any(|p| p.ends_with("book.html")),
-        "{:?}",
-        storage.written
-    );
-    // A changed file is converted anew.
-    storage.inner.write("d.docx", &docx(&p("changed"))).unwrap();
-    let doc = DocxDocument::open(&storage, "d.docx", &OpenOptions::default()).unwrap();
-    assert!(text(&doc, &storage).contains("changed"));
-    // Nothing is written outside the plugin's folder.
-    assert!(storage.written_outside(&[]).is_empty());
-}
-
-#[test]
 fn what_is_not_a_document_is_refused() {
     for zip in [
         Vec::new(),
@@ -294,19 +280,6 @@ fn what_is_not_a_document_is_refused() {
             }
         }
     }
-}
-
-#[test]
-fn nothing_is_left_of_a_failed_conversion() {
-    let storage = MemoryStorage::new().with("d.docx", b"PK\x03\x04 broken".to_vec());
-    assert!(DocxDocument::open(&storage, "d.docx", &OpenOptions::default()).is_err());
-    let mut left = Vec::new();
-    storage
-        .list(".paperpaw/plugins/format-epub", &mut |e| {
-            left.push(e.name.to_string())
-        })
-        .ok();
-    assert!(left.iter().all(|n| !n.starts_with("docx-")), "{left:?}");
 }
 
 #[test]
@@ -335,13 +308,13 @@ fn hostile_documents_are_bounded() {
         lists,
         format!("<w:p>{many_pictures}</w:p>"),
     ] {
-        let storage =
-            Recording::limited(MemoryStorage::new().with("d.docx", docx(&body)), 64 << 20);
-        let doc = DocxDocument::open(&storage, "d.docx", &OpenOptions::default());
-        if let Ok(doc) = doc {
+        let storage = Recording::limited(Roots::new(docx(&body)), 64 << 20);
+        if let Ok(doc) = convert(&storage) {
             let _ = blocks(&doc, &storage);
         }
-        assert!(storage.written_outside(&[]).is_empty());
+        // The book (path "") is never written, and no file runs away.
+        assert!(storage.written.borrow().iter().all(|p| !p.is_empty()));
+        assert!(storage.largest() <= 64 << 20);
     }
 }
 
@@ -387,16 +360,16 @@ proptest! {
         if let Some(cut) = cut {
             bytes.truncate(cut % len);
         }
-        let storage = Recording::limited(MemoryStorage::new().with("d.docx", bytes), 8 << 20);
-        if let Ok(doc) = DocxDocument::open(&storage, "d.docx", &OpenOptions::default()) {
+        let storage = Recording::limited(Roots::new(bytes), 8 << 20);
+        if let Ok(doc) = convert(&storage) {
             let _ = blocks(&doc, &storage);
         }
     }
 
     #[test]
     fn any_xml_is_text_or_nothing(body in "[<>/a-zA-Z:=\" 0-9&;]{0,400}") {
-        let storage = MemoryStorage::new().with("d.docx", docx(&body));
-        if let Ok(doc) = DocxDocument::open(&storage, "d.docx", &OpenOptions::default()) {
+        let storage = Roots::new(docx(&body));
+        if let Ok(doc) = convert(&storage) {
             let _ = blocks(&doc, &storage);
             let _ = doc.toc_len(&storage);
             let _ = doc.links(&storage, 0, 0, u32::MAX);

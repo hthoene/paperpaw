@@ -183,15 +183,15 @@ pub fn text(doc: &dyn Document, storage: &dyn Storage) -> String {
 /// to let any one file grow past `limit` bytes (counting what was asked
 /// to be written, so a runaway writer shows in [`Recording::largest`]).
 #[derive(Debug)]
-pub struct Recording {
-    pub inner: MemoryStorage,
+pub struct Recording<S = MemoryStorage> {
+    pub inner: S,
     pub written: RefCell<Vec<String>>,
     pub limit: u64,
     largest: Cell<u64>,
 }
 
-impl Recording {
-    pub fn new(inner: MemoryStorage) -> Self {
+impl<S: Storage> Recording<S> {
+    pub fn new(inner: S) -> Self {
         Self {
             inner,
             written: RefCell::new(Vec::new()),
@@ -200,7 +200,7 @@ impl Recording {
         }
     }
 
-    pub fn limited(inner: MemoryStorage, limit: u64) -> Self {
+    pub fn limited(inner: S, limit: u64) -> Self {
         Self {
             limit,
             ..Self::new(inner)
@@ -232,7 +232,7 @@ impl Recording {
     }
 }
 
-impl Storage for Recording {
+impl<S: Storage> Storage for Recording<S> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         self.inner.read_at(path, offset, buf)
     }

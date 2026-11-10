@@ -45,7 +45,7 @@ mod op {
 
 /// Open documents (the host allows 8 elsewhere, 2 on the X4).
 pub const MAX_DOCUMENTS: usize = 8;
-/// The format's id, as `crate::FORMAT` spells it.
+/// The format's id, as the declaration spells it (`format-docx.docx`).
 const FORMAT_ID: &str = "format-docx.docx";
 /// The code a refused allocation travels as through `StorageError`.
 const NO_MEMORY: u16 = 0x6e6d;
