@@ -124,6 +124,27 @@ fn lookup(languages: &str, flags: u32) -> LookupSpec<'_> {
 }
 
 #[test]
+fn a_lookup_provider_name_is_at_most_64_bytes() {
+    fn spec(name: &str) -> LookupSpec<'_> {
+        LookupSpec {
+            name,
+            title: "lookup.dict",
+            languages: "",
+            flags: 0,
+            token: 1,
+        }
+    }
+    let name = |n: usize| "a".repeat(n);
+    assert_eq!(lookup_check("dictionary", &spec(&name(64))), Ok(()));
+    // `lookup_entry.provider` holds 64 bytes.
+    assert_eq!(
+        lookup_check("dictionary", &spec(&name(65))),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(lookup_check("dictionary", &spec("")), Err(ERR_INVALID));
+}
+
+#[test]
 fn a_lookup_provider_lists_up_to_32_language_tags_or_any() {
     assert_eq!(lookup_check("dictionary", &lookup("", 1)), Ok(()));
     assert_eq!(

@@ -188,11 +188,13 @@ fn a_plugin_declares_eight_lookup_providers_and_the_ninth_is_invalid() {
     let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
     let rows: Vec<Record<'_>> = names.iter().map(|n| provider(n)).collect();
     assert_eq!(finish(&[&rows[..4], &rows[4..8]]), Ok(()));
-    // The ninth refuses the whole set, over any number of batches.
+    // The ninth refuses the whole set, over any number of batches: problem
+    // 18, arg 8.
     assert_eq!(
-        finish(&[&rows[..4], &rows[4..8], &rows[8..]]),
-        Err(ERR_INVALID)
+        refused(&[&rows[..4], &rows[4..8], &rows[8..]]),
+        (Err(ERR_INVALID), Some(Cap::of(Cap::LOOKUPS, 8)))
     );
+    assert_eq!(refused(&[&rows[..4]]).1, None);
 }
 
 #[test]
