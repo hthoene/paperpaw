@@ -189,6 +189,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
@@ -196,6 +197,7 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+pub(crate) mod doc_host;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
@@ -424,10 +426,17 @@ pub(crate) mod native_widget;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/native_call.rs"]
+#[allow(
+    dead_code,
+    reason = "the document and lookup adapters call it through Frame::call_native"
+)]
+pub(crate) mod native_call;
 #[path = "native_host/core_events.rs"]
 pub(crate) mod core_events;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
+
 #[path = "native_host/native_menus.rs"]
 #[allow(
     dead_code,
