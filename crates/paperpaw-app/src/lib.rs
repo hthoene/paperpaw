@@ -146,6 +146,112 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
 ];
 
+/// The consent features the shells admit linked plugins to use (a plugin's
+/// metadata may require any: an `uses.…` it needs that is not here refuses it
+/// at admission). The shell's `Host` offers these and the services it wires.
+#[cfg(feature = "native-linked")]
+pub static NATIVE_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[
+    paperpaw_native::metadata::Feature {
+        key: "uses.registry",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.library",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.network",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.wifi",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.power",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.install",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.firmware",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.bluetooth",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.storage",
+        revision: 1,
+    },
+    paperpaw_native::metadata::Feature {
+        key: "uses.secrets",
+        revision: 1,
+    },
+];
+
+/// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
+/// `Kernel::register_linked`, before the kernel starts (the one path the X4,
+/// the emulator and the tests share). `host` is what the shell offers
+/// (its profile, the services it wires, [`NATIVE_FEATURES`]); `resources` is
+/// the shell's table of handles (each plugin gets a share) with its services
+/// wired; `depth` the shell's one dispatch budget; `services` makes one
+/// [`Services`](paperpaw_native::host_glue::Services) (heap and clock) per
+/// plugin. A plugin the host refuses (a service it does not wire, no memory)
+/// is returned with the reason and does not stop the others.
+///
+/// # Safety
+/// Every entry of [`NATIVE_PLUGINS`] comes from `native_plugin!(..., linked =
+/// NAME)` of a crate linked into this program, so its factory obeys the SDK's
+/// native factory contract and its code and static data stay for the whole
+/// run; the caller must not call this with a `host` that offers more than it
+/// wires (a service offered and not wired is a plugin that fails later).
+#[cfg(feature = "native-linked")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the shell supplies what Kernel::register_linked takes, once for every plugin"
+)]
+pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 'static>(
+    kernel: &mut paperpaw_core::Kernel,
+    host: &paperpaw_native::metadata::Host<'static>,
+    resources: &paperpaw_core::native_host::HostResources,
+    depth: &paperpaw_core::native_host::flat::FlatDepth,
+    mut services: impl FnMut() -> S,
+    teardown: paperpaw_core::native_host::shell::Report<S>,
+    report: fn(&S, u32, i32),
+) -> alloc::vec::Vec<(&'static str, Result<(), paperpaw_core::native_host::shell::Error>)> {
+    use paperpaw_core::native_host::shell::Error;
+    let mut outcome = alloc::vec::Vec::new();
+    if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
+        return outcome;
+    }
+    for (id, linked) in &NATIVE_PLUGINS {
+        let Some(share) = resources.try_clone() else {
+            outcome.push((*id, Err(Error::Allocation)));
+            continue;
+        };
+        // SAFETY: as this function's contract says.
+        let status = unsafe {
+            kernel.register_linked(
+                linked.entry(),
+                linked.metadata(),
+                host,
+                id,
+                services(),
+                share,
+                depth,
+                teardown,
+                report,
+            )
+        };
+        outcome.push((*id, status));
+    }
+    outcome
+}
+
 /// The network settings of every networked first-party plugin, kept in
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
