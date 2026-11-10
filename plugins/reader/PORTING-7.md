@@ -142,3 +142,10 @@ relative to the data folder).
   and the table records); the fragment-to-pieces step is covered by the hosted test of the view slice.
 - Builds on the SDK Documents facade (PR #959, merged into this branch locally: the stack is #954,
   #959, this).
+- Review remarks (PR #969), for the view: a text part that would take the text past the head's length
+  is refused at once. A block is up to 64 KiB of text and 2,048 runs, checkpoints and annotations each
+  (over 100 KB in all): too much for the X4's heap, so the view must read with lower caps by device class
+  (measurement list), and a block refused as `NoSpace` is shown as a visible notice in the page, never
+  cut silently. The view always advances past a block, also when its end is not after its start or when
+  reading it failed (the next place is the block's end, else one further), or a page could repeat for
+  ever. A checkpoint's text index is not checked against the text length (the layout clamps it).
