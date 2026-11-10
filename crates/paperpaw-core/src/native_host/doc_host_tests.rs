@@ -76,6 +76,9 @@ struct World<'a> {
     fail: Cell<u32>,
     /// The length of the bytes each sniff was given.
     sniffed: RefCell<Vec<usize>>,
+    /// What the format's call is for, as its slots see it: (book path, kind,
+    /// opened file, document, CSS card path), one per call.
+    scoped: RefCell<Vec<Scoped>>,
     /// The format plugins (by host owner) that answer a sniff with yes.
     sniffs: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
@@ -150,6 +153,8 @@ impl Frame for World<'_> {
         reply: &mut [u8],
         accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
     ) -> Result<usize, i32> {
+        // The fixture's own allocations are never the ones refused.
+        let _unarmed = Unarmed::new();
         let Record::StageCall(call) = wire::records_decode_single(input).unwrap() else {
             panic!("not a stage.call")
         };
@@ -163,6 +168,15 @@ impl Frame for World<'_> {
             other => panic!("{other:?}"),
         };
         self.calls.borrow_mut().push((owner, token, op));
+        self.hosts.format_scope().current(owner, &mut |book| {
+            self.scoped.borrow_mut().push((
+                book.path.into(),
+                book.kind,
+                book.opened.into(),
+                book.document,
+                book.css.into(),
+            ));
+        });
         if op == 1 {
             self.sniffed.borrow_mut().push(arg);
         }
@@ -183,6 +197,31 @@ impl Frame for World<'_> {
         reply[..answer.len()].copy_from_slice(&answer);
         accept(&reply[..answer.len()])?;
         Ok(answer.len())
+    }
+}
+
+/// What a format call is for, as its slots see it.
+type Scoped = (
+    std::string::String,
+    BookKind,
+    std::string::String,
+    u32,
+    std::string::String,
+);
+
+/// Puts the allocation failure of the test aside while the fixture works,
+/// and back as it was.
+struct Unarmed(u32);
+impl Unarmed {
+    fn new() -> Self {
+        let armed = crate::native_host::shell::tests::FAIL_NTH.with(Cell::get);
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(0));
+        Self(armed)
+    }
+}
+impl Drop for Unarmed {
+    fn drop(&mut self) {
+        crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(self.0));
     }
 }
 
@@ -279,6 +318,16 @@ impl World<'_> {
     }
 
     fn open(&self, root: u32, path: &str) -> Result<u32, i32> {
+        self.open_with_css(root, path, 0, "")
+    }
+
+    fn open_with_css(
+        &self,
+        root: u32,
+        path: &str,
+        css_root: u32,
+        css_path: &str,
+    ) -> Result<u32, i32> {
         let features = if root == 1 {
             AdmittedFeatures::test(1, FEATURES)
         } else {
@@ -294,8 +343,8 @@ impl World<'_> {
                 flags: 0,
                 image_side: 0,
                 cover_side: 0,
-                css_root: 0,
-                css_path: "",
+                css_root,
+                css_path,
             })],
         )?;
         match wire::record_decode_one(&reply).unwrap() {
@@ -390,6 +439,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         walks: Cell::new(0),
         sniffs: RefCell::new(Vec::new()),
         sniffed: RefCell::new(Vec::new()),
+        scoped: RefCell::new(Vec::new()),
         fail: Cell::new(0),
         reply: RefCell::new(Ok(state_reply())),
         calls: RefCell::new(Vec::new()),
@@ -936,6 +986,89 @@ fn a_refused_allocation_while_sniffing_is_no_memory_and_nothing_else() {
             );
             // Nothing is left half-made: the next call reads the file.
             assert!(w.open(1, "mystery").is_ok(), "allocation {nth}");
+        });
+    }
+}
+
+#[test]
+fn a_format_call_is_for_its_book_and_the_scope_ends_with_it() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert_eq!(
+            *w.scoped.borrow(),
+            [(
+                "books/a.epub".into(),
+                BookKind::File,
+                "".into(),
+                document,
+                "".into()
+            )]
+        );
+        // Nobody is in a call any more.
+        assert!(!w.hosts.format_scope().current(EPUB, &mut |_| {}));
+        // The root-0 book is named by its card path.
+        w.scoped.borrow_mut().clear();
+        w.open(0, "b.epub").unwrap();
+        assert_eq!(w.scoped.borrow()[0].0, ".paperpaw/plugins/opener/b.epub");
+    });
+}
+
+#[test]
+fn a_siblings_or_folder_format_gets_its_kind_and_the_opened_name() {
+    const FOLDER: u32 = 1 << 2;
+    const SIBLINGS: u32 = 1 << 4;
+    world(|w| {
+        w.install("cbz", 11, &[format("cbz", "cbz", SIBLINGS, 0)]);
+        w.install("dir", 12, &[format("dir", "dir", FOLDER, 0)]);
+        w.open(1, "comics/a.cbz").unwrap();
+        w.open(1, "comics/b.dir").unwrap();
+        let seen = w.scoped.borrow();
+        assert_eq!(seen[0].1, BookKind::Siblings);
+        assert_eq!(seen[0].2, "a.cbz");
+        assert_eq!(seen[1].1, BookKind::Folder);
+        assert_eq!(seen[1].2, "");
+    });
+}
+
+#[test]
+fn the_css_file_is_root_4_in_the_open_only_by_its_card_path() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let close = |document: u32| {
+            w.call(
+                AdmittedFeatures::NONE,
+                18,
+                &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+            )
+            .unwrap();
+        };
+        close(
+            w.open_with_css(1, "books/a.epub", 1, "styles/u.css")
+                .unwrap(),
+        );
+        close(w.open_with_css(1, "books/b.epub", 0, "u.css").unwrap());
+        close(w.open(1, "books/c.epub").unwrap());
+        let seen = w.scoped.borrow();
+        assert_eq!(seen[0].4, "styles/u.css");
+        assert_eq!(seen[1].4, ".paperpaw/plugins/opener/u.css");
+        assert_eq!(seen[2].4, "");
+    });
+}
+
+#[test]
+fn a_call_that_cannot_enter_its_scope_is_refused_and_a_refused_allocation_leaves_none() {
+    for nth in 1..=12 {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            w.fail.set(nth);
+            let opened = w.open(1, "books/a.epub");
+            w.fail.set(0);
+            assert!(
+                matches!(opened, Ok(_) | Err(ERR_NO_MEMORY | ERR_FULL)),
+                "allocation {nth}: {opened:?}"
+            );
+            assert!(!w.hosts.format_scope().current(EPUB, &mut |_| {}));
         });
     }
 }

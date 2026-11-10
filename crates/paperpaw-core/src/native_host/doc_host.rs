@@ -33,6 +33,7 @@ use super::{
     },
     fmt_call::{FrameRoute, ImageMap, Opener, Stage},
     format_index::FormatIndex,
+    format_scope::{BookKind, FormatBook},
     host_services::Caller,
     owner_paths::OwnerPaths,
     paths_in_use::PathsInUse,
@@ -55,6 +56,9 @@ const SNIFF_BYTES: usize = 512;
 
 /// `format.spec.flags` bit 4: root 3 is the book's folder and below.
 const SIBLINGS: u32 = 1 << 4;
+
+/// `format.spec.flags` bit 2: the book is a folder.
+const FOLDER: u32 = 1 << 2;
 
 /// What an open document's reader hold needs to be given back.
 struct Book {
@@ -442,6 +446,55 @@ impl Bound<'_> {
         self.state
     }
 
+    /// The card path of the user's CSS file of an open (`""`: none, or a call
+    /// that does not read it), root 4 of the format's call.
+    fn css_card_path(&self, call: &FormatCall<'_>) -> Result<String, i32> {
+        if call.op != super::doc_service::fmt::OPEN || call.css_path.is_empty() {
+            return Ok(String::new());
+        }
+        if call.css_root == 1 {
+            let path = call.css_path.trim_start_matches('/');
+            let mut copy = String::new();
+            copy.try_reserve_exact(path.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+            copy.push_str(path);
+            return Ok(copy);
+        }
+        super::owner_paths::OwnerPaths::join_for(self.who, call.css_root, call.css_path)
+    }
+
+    /// The format's call for `call.document` begins: its roots 3, 4 (and later
+    /// 6) are the document's, until the guard is dropped.
+    fn enter_scope(
+        &self,
+        owner: u64,
+        call: &FormatCall<'_>,
+        kind: BookKind,
+        css: &str,
+    ) -> Result<super::format_scope::Guard<'_>, i32> {
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let book = books
+            .iter()
+            .find(|book| book.document == call.document)
+            .ok_or(ERR_CANCELLED)?;
+        let opened = if kind == BookKind::Siblings {
+            book.path.rsplit('/').next().unwrap_or("")
+        } else {
+            ""
+        };
+        self.who.hosts.format_scope().enter(
+            owner,
+            &FormatBook {
+                path: &book.path,
+                kind,
+                opened,
+                document: call.document,
+                cache: "",
+                css,
+            },
+        )
+    }
+
     /// The index in line with the declarations, if the registry changed since
     /// it was. The documents of a format that went end as it stopped.
     fn sync(&self) -> Result<(), i32> {
@@ -597,13 +650,22 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
-        let (target, siblings) = {
+        let (target, kind) = {
             let index = self.state.index()?;
-            (
-                index.target(call.format).ok_or(ERR_CANCELLED)?,
-                index.has_flag(call.format, SIBLINGS),
-            )
+            let kind = if index.has_flag(call.format, FOLDER) {
+                BookKind::Folder
+            } else if index.has_flag(call.format, SIBLINGS) {
+                BookKind::Siblings
+            } else {
+                BookKind::File
+            };
+            (index.target(call.format).ok_or(ERR_CANCELLED)?, kind)
         };
+        let siblings = kind == BookKind::Siblings;
+        // The format's roots 3 and 4 are this call's book and CSS file for as
+        // long as the guard lives.
+        let css = self.css_card_path(call)?;
+        let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let route = FrameRoute(self.frame);
         let stage = Stage {
             route: &route,
