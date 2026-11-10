@@ -211,11 +211,18 @@ the interface-6 ones are used as they are (`update.leaves`, `update.leaves.downl
   name of the plugin, else its id) in the `Image`. The page then says *These plugins cannot come along: ... Update
   without them, or wait until they are ready* (`update.leaves`, after the state's words) and the button reads *Update
   without them* (`update.install-without`; going back, the same again and an own build keep their words, and the
-  sentence names the plugins); *Not now* is the wait. A foreign image is not asked (`Unsupported`). Where the list
-  cannot be read for a PaperPaw image (any refusal but memory) the file is *not offered* (*This update cannot be
-  installed*) rather than offered with plugins dropped without a word. **To confirm with Kernel:** the plugin calls op
+  sentence names the plugins); *Not now* is the wait. A foreign image is not asked (`Unsupported`). Errors of the
+  op-16 read, as Kernel ruled on `device.md` 5.1 (`native_leaves::read_all`, tested without the host):
+  `ERR_BUSY` (a check is still running) is waited for, not an answer: the file stays in the scan (the page shows
+  *Checking*) and is read again, op 6 then op 16, when the next check ends; it is not marked unfit and not given
+  up. `ERR_STATE` (a cursor of an earlier check) starts the read again at page 0 with `generation` 0, at most
+  twice, then the file is unfit. `ERR_NOT_FOUND`, `ERR_UNSUPPORTED` (a PaperPaw image should not get it) and any
+  other error: the file is *not offered* (*This update cannot be installed*) rather than offered with plugins
+  dropped without a word. `ERR_NO_MEMORY` keeps its retry path.
+  **To confirm with Kernel:** the plugin calls op
   16 for every PaperPaw image, not only where `dev_check.flags` bit 5 is set, because the SDK's `FileCheck` has no
   accessor for bit 5 (an image that leaves nothing out answers no rows); one more service call per file.
+  TODO: call op 16 only when `FileCheck::leaves_out()` (dev_check.flags bit 5, draft-36 carrier) says so, once it is on integration
 - **An update the server named, not yet downloaded.** The answer lists the crates it has built in (`plugins`); what
   is built in now (`core.device` `builtins`) and not among them is left out. The page names them, each with the
   server's reason where it says one (*not in the plugin library*, *not ready yet*; the `missing` lines),

@@ -158,6 +158,10 @@ struct Scan {
     next: usize,
     /// Whether a newer update is offered when this ends (at start).
     offer: bool,
+    /// The device was still running a check when the list of what the image of
+    /// `next` leaves out was asked (op 16, `ERR_BUSY`): the file is read again
+    /// when a check ends, not offered and not given up before.
+    waiting: bool,
 }
 
 /// How far the checks are.
@@ -447,6 +451,7 @@ impl NativeUpdate {
             found: Vec::new(),
             next: 0,
             offer,
+            waiting: false,
         });
         self.advance(host)
     }
@@ -502,9 +507,6 @@ impl NativeUpdate {
     /// A check ended: what the device says of the file, then the next check, or
     /// the end of them all.
     fn checked(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
-        let Some(request) = done.request() else {
-            return Ok(());
-        };
         let Some(scan) = self.scan.as_ref() else {
             return Ok(());
         };
@@ -514,11 +516,17 @@ impl NativeUpdate {
         let Some(name) = scan.names.get(scan.next) else {
             return Ok(());
         };
-        if wanted != Some(request.get()) {
+        let Some(request) = wanted.and_then(DeviceRequest::new) else {
+            return Ok(());
+        };
+        // A file that waits for a check still running is read again when any
+        // check ends; else only the end of its own check counts.
+        let ours = done.request().map(DeviceRequest::get) == Some(request.get());
+        if !ours && !scan.waiting {
             return Ok(());
         }
         let path = native_card::path(name)?;
-        let found = if done.status().is_ok() {
+        let found = if scan.waiting || done.status().is_ok() {
             self.read_check(host, request, &path)
         } else {
             Ok(Found::Unfit(match done.outcome() {
@@ -527,8 +535,16 @@ impl NativeUpdate {
             }))
         };
         let step = match found {
+            // A check is still running: wait for the next one to end.
+            Err(Error::Busy) => {
+                if let Some(scan) = self.scan.as_mut() {
+                    scan.waiting = true;
+                }
+                return Ok(());
+            }
             Ok(found) => {
                 if let Some(scan) = self.scan.as_mut() {
+                    scan.waiting = false;
                     push(&mut scan.found, found)?;
                     scan.next = scan.next.saturating_add(1);
                 }
@@ -578,7 +594,8 @@ impl NativeUpdate {
 
     /// An image the device says leaves plugins out names them (its list is the
     /// last check's only, so it is read now). Where the list cannot be read the
-    /// file is not offered: its plugins would go without a word.
+    /// file is not offered: its plugins would go without a word. A check still
+    /// running (`Busy`) is waited for, not an answer.
     fn with_leaves(&mut self, host: &Host<'_>, found: Found) -> Result<Found, Error> {
         let Found::Image(mut image) = found else {
             return Ok(found);
@@ -589,6 +606,7 @@ impl NativeUpdate {
                 Ok(Found::Image(image))
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(Error::Busy) => Err(Error::Busy),
             Err(_) => Ok(Found::Unfit(DeviceOutcome::Other)),
         }
     }

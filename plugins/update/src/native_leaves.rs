@@ -23,6 +23,53 @@ use paperpaw_ui_kit::{
 /// Plugins named at most: a device holds far fewer built in.
 pub const MAX_LEAVES: usize = 128;
 
+/// Pages of the device's list read at most in one go.
+pub const MOST_PAGES: usize = 16;
+
+/// Times the read starts again at page 0 after a cursor of an earlier check
+/// (`ERR_STATE`, `docs/abi/device.md` 5.1) before the file counts as unfit.
+pub const MOST_RESTARTS: u8 = 2;
+
+/// Reads the device's list of what the checked image leaves out, page by page,
+/// into the ids it returns. `read` gets the cursor of the page (`start` for
+/// the first), appends the page's ids to the list it is given and answers the
+/// cursor of the next page, or `None` at the end.
+///
+/// A cursor of an earlier check (`Error::State`) starts the read again at
+/// `start` with the list empty, at most [`MOST_RESTARTS`] times. A check still
+/// running (`Error::Busy`) is not an answer: it is returned for the caller to
+/// ask again once the check has ended, never as a list (the image must not be
+/// offered without knowing what it drops). Any other error is returned as it
+/// is: no finished check, a foreign image and the rest make the file unfit,
+/// where `Error::NoMemory` is retried as before.
+///
+/// # Errors
+/// What `read` answers, as above; [`Error::State`] once the restarts are spent.
+pub fn read_all<C: Copy>(
+    start: C,
+    mut read: impl FnMut(C, &mut Vec<String>) -> Result<Option<C>, Error>,
+) -> Result<Vec<String>, Error> {
+    let mut ids: Vec<String> = Vec::new();
+    let mut restarts = 0;
+    let mut cursor = start;
+    let mut pages = 0;
+    while pages < MOST_PAGES {
+        pages += 1;
+        match read(cursor, &mut ids) {
+            Ok(Some(next)) => cursor = next,
+            Ok(None) => break,
+            Err(Error::State) if restarts < MOST_RESTARTS => {
+                restarts += 1;
+                ids.clear();
+                cursor = start;
+                pages = 0;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(ids)
+}
+
 /// Why the server says a crate is missing from an update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {

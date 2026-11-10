@@ -30,28 +30,26 @@ const BADGE: &str = "update.badge";
 impl NativeUpdate {
     /// The plugins the device says the update it has just checked leaves out, by
     /// their names, `, ` between; empty where it leaves none out. Read at once
-    /// after the check: the list is the last check's only.
+    /// after the check: the list is the last check's only. A cursor of an
+    /// earlier check starts the read again (a few times, `native_leaves::read_all`).
     ///
     /// # Errors
-    /// The host's refusal (no finished check, a check still running, a foreign
-    /// image), or [`Error::NoMemory`].
+    /// [`Error::Busy`] while a check is still running (the caller asks again
+    /// when it has ended); else the host's refusal (no finished check, a foreign
+    /// image, a cursor that stays stale), or [`Error::NoMemory`].
     pub(super) fn left_by_check(&mut self, host: &Host<'_>) -> Result<String, Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let dev = self.device(host)?;
-        let mut ids: Vec<String> = Vec::new();
-        let mut cursor = DeviceCursor::start();
-        for _ in 0..MOST_PAGES {
+        // TODO: call op 16 only when `FileCheck::leaves_out()` (dev_check.flags bit 5, draft-36 carrier) says so, once it is on integration
+        let ids = native_leaves::read_all(DeviceCursor::start(), |cursor, ids| {
             let page = dev.leaves_out(host, cursor, &mut input, &mut out)?;
             for plugin in page.rows() {
                 if ids.len() < MAX_LEAVES {
-                    push(&mut ids, copy(plugin.id())?)?;
+                    push(ids, copy(plugin.id())?)?;
                 }
             }
-            match page.end().next_cursor() {
-                Some(next) => cursor = next,
-                None => break,
-            }
-        }
+            Ok(page.end().next_cursor())
+        })?;
         self.leaves_named(host, &ids, None)
     }
 
