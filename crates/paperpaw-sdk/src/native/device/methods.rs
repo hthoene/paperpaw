@@ -141,6 +141,32 @@ impl Device {
             BuiltinPlugin::decode,
         )
     }
+    /// Read the built-in plugins the caller's last finished firmware check
+    /// leaves out: those the running image has and the checked image does not
+    /// (op 16, `docs/abi/device.md` 5.1), 32 rows a page. Continue with the
+    /// cursor of the page; it is valid for that check only.
+    ///
+    /// # Errors
+    /// Returns `NotFound` without a finished firmware check of the caller,
+    /// `Busy` while one runs, `Unsupported` for a foreign image, `State` for a
+    /// cursor of an earlier check, other host refusals, or `Invalid` for
+    /// malformed rows or framing. No row is no plugin left out.
+    pub fn leaves_out<'a>(
+        &self,
+        host: &Host<'_>,
+        cursor: DeviceCursor,
+        input: &mut [u8],
+        out: &'a mut [u8],
+    ) -> Result<DevicePage<'a, BuiltinPlugin<'a>>, Error> {
+        self.list(
+            host,
+            schema::OP_LEAVES_OUT,
+            cursor,
+            input,
+            out,
+            BuiltinPlugin::decode,
+        )
+    }
     /// Read networks in device order.
     ///
     /// # Errors
