@@ -107,6 +107,9 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
+
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
