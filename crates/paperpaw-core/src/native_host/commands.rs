@@ -365,6 +365,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Room for the instances of the batch's `command.widget_changed`.
+    #[inline(never)]
     fn reserve_widgets(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch
             .iter()
@@ -377,6 +378,7 @@ impl<'a> CommandStage<'a> {
 
     /// Every command of a batch but the item states and the dev commands:
     /// image admission, scalar ranges, settings, and the byte budget.
+    #[inline(never)]
     fn validate_each(
         &self,
         batch: &CommandBatch<'_>,
@@ -411,6 +413,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
+    #[inline(never)]
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
         // `answer_plugin` and a write of a grant are refused for every plugin
         // (`refused_outright`).
@@ -433,6 +436,7 @@ impl<'a> CommandStage<'a> {
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
+                        | WireCommand::ScreenReady {}
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
@@ -469,6 +473,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// How many of `batch` are image commands the host admitted.
+    #[inline(never)]
     fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
         if !images {
             return 0;
@@ -481,6 +486,7 @@ impl<'a> CommandStage<'a> {
 
     /// Keep every command of a validated batch in order (capacity is reserved)
     /// and reserve the request entries of its DEV commands, last.
+    #[inline(never)]
     fn push_batch(
         &mut self,
         batch: &CommandBatch<'_>,
@@ -504,7 +510,10 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             // Kept apart, applied before the others (`stage_policy`).
-            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+            if matches!(
+                command,
+                WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+            ) {
                 self.stage_policy(&command)?;
                 continue;
             }
@@ -533,6 +542,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.
+    #[inline(never)]
     fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
         let WireCommand::SetSetting { key, value } = command else {
             return self.owned_ui(command);

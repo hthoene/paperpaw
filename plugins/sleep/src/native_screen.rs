@@ -3,24 +3,25 @@
 //! and places when it first draws, and what it draws. The decisions are
 //! [`crate::native_sleep`]'s and the layout [`crate::native_stack`]'s.
 //!
-//! BLOCKED (see `PORTING-7.md`): the sleeping cat, the cover and the pictures
-//! of the folder need the host's image drawing, which has no SDK call yet; the
-//! screen shows the message where they would show.
+//! The pictures (the cat, the logo, the cover, the folder's picture and the
+//! picture over the page) are [`images`]'s: asked for from the events, since a
+//! draw can send no command; until one is there the screen shows the message.
 use crate::{
     native_sleep::{self as model, Content, Facts},
     native_stack::{self as stack, Entry},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Rect,
+    Color, Rect,
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
         fonts::{Font, FontRole},
+        image::ImageStyle,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{Compose, HandoverId, Ui, UiCursor, WidgetHandle},
+        ui::{Compose, HandoverId, MadeWidget, Ui, UiCursor, WidgetHandle},
     },
 };
 use paperpaw_ui_kit::{
@@ -44,13 +45,19 @@ const VALUE_BUFFER: usize = 4096 + 64;
 /// Most lines the message takes.
 const MOST_LINES: usize = 4;
 
+mod images;
+
 /// What is read of the settings for the picture over the page.
 #[derive(Debug)]
 struct OverSetup {
-    /// The widget chosen ([`crate::overlay`]'s picture waits for the images).
+    /// The widget chosen; none: a picture goes over the page.
     widget: String,
+    /// The picture's file chosen (`sleep.overlay-picture`); none: the folder's.
+    picture: String,
     position: String,
     percent: u32,
+    /// How opaque the picture is drawn (0 to 255).
+    opacity: u8,
 }
 
 /// A widget made for the screen and where it goes.
@@ -63,7 +70,8 @@ struct Placed {
 /// What the first draw made of the screen.
 #[derive(Debug)]
 struct Laid {
-    content: Content,
+    /// Nothing could be laid out: only the message.
+    failed: bool,
     widgets: Vec<Placed>,
     /// The widget over the page and its panel.
     over: Option<Placed>,
@@ -82,6 +90,10 @@ pub struct Sleeping {
     list: String,
     over: Option<OverSetup>,
     laid: Option<Laid>,
+    /// What is known of what can be shown (see [`facts_before`]).
+    facts: Facts,
+    /// The pictures asked for and held.
+    pics: images::Pics,
 }
 
 impl Sleeping {
@@ -97,6 +109,13 @@ impl Sleeping {
             list: String::new(),
             over: None,
             laid: None,
+            facts: Facts {
+                over_page: false,
+                picture: false,
+                cover: false,
+                ..facts_before(off)
+            },
+            pics: images::Pics::default(),
         }
     }
 
@@ -112,7 +131,8 @@ impl Sleeping {
         };
         let mut view = Self::plain(off);
         view.setting = read_text(host, "sleep.show")?;
-        let effective = model::effective(&view.setting, facts_before(off));
+        view.facts = facts_before(off);
+        let effective = model::effective(&view.setting, view.facts);
         if effective == model::WIDGETS {
             view.list = read_text(host, "sleep.widgets")?;
         }
@@ -122,10 +142,13 @@ impl Sleeping {
             if stack::used(&when, guarded, reading) {
                 view.over = Some(OverSetup {
                     widget: read_text(host, "sleep.overlay-widget")?,
+                    picture: read_text(host, "sleep.overlay-picture")?,
                     position: read_text(host, "sleep.overlay-position")?,
                     percent: model::percent(read_int(host, "sleep.overlay-size", 35)?),
+                    opacity: model::opacity(read_int(host, "sleep.overlay-see-through", 0)?),
                 });
             }
+            view.facts.over_page = view.over.is_some();
         }
         Ok(view)
     }
@@ -172,33 +195,67 @@ impl Sleeping {
             let laid = match self.lay(host, ui, &display, &font, &style) {
                 Ok(laid) => laid,
                 // Whatever went wrong, the device still says it sleeps.
-                Err(_) => Laid::message(self.off),
+                Err(_) => Laid::message(),
             };
             self.laid = Some(laid);
         }
+        let content = self.content();
+        let held = self.held_for(content);
         let laid = self.laid.as_ref().ok_or(Error::State)?;
         let screen = Rect::new(0, 0, display.display_width(), display.display_height());
         let mut below = Vec::new();
-        match laid.content {
+        match content {
             Content::Overlay => {
                 if let Some(over) = &laid.over {
                     push(&mut below, Paint::Fill(over.rect, style.paper))?;
                 }
             }
             Content::Page => {}
+            Content::Cat if held.is_some() => push(&mut below, Paint::Fill(screen, Color::WHITE))?,
+            Content::Cover | Content::Picture if held.is_some() => {
+                push(&mut below, Paint::Fill(screen, Color::BLACK))?;
+            }
             _ => push(&mut below, Paint::Fill(screen, style.paper))?,
         }
-        if matches!(
-            laid.content,
-            Content::Message | Content::Cat | Content::Cover
-        ) || matches!(laid.content, Content::Picture | Content::Other)
-        {
-            self.message(host, &font, &style, screen, &mut below)?;
+        // The message where no picture shows; the logo above it where there is one.
+        let message = content == Content::Message
+            || held.is_none()
+                && matches!(
+                    content,
+                    Content::Cat | Content::Cover | Content::Picture | Content::Other
+                );
+        let mut logo = None;
+        if message {
+            // PaperPaw's logo, a third of the screen across, above the message.
+            let side = match held {
+                Some(_) if content == Content::Message => screen.width.min(screen.height) / 3,
+                _ => 0,
+            };
+            logo = self.message(host, &font, &style, screen, side, &mut below)?;
         }
         paint::replay(frame, &font, below.iter())?;
+        if let Some(held) = held {
+            let room = images::room(content, screen, style.margin);
+            let (rect, picture) = match (content, logo) {
+                (Content::Message, Some(rect)) => (rect, ImageStyle::new().small()),
+                (Content::Overlay, _) => match self.over_rect(&font, &style, screen, held)? {
+                    Some((rect, opacity)) => (rect, ImageStyle::new().transparency(255 - opacity)),
+                    None => (Rect::new(0, 0, 0, 0), ImageStyle::new()),
+                },
+                _ => (images::centred(held, room), ImageStyle::new()),
+            };
+            // A picture the host refuses (an id it ended, no memory) leaves
+            // the rest: the message, or the colour it is on.
+            if rect.width > 0 && rect.height > 0 {
+                frame
+                    .draw_canvas()?
+                    .draw_image(held.id, paint::frame_rect(rect), picture)
+                    .ok();
+            }
+        }
         let all = laid.widgets.iter().chain(laid.over.iter());
         for placed in all {
-            let rect = match laid.content {
+            let rect = match content {
                 Content::Overlay => stack::inside(placed.rect, pad(&style)),
                 _ => placed.rect,
             };
@@ -216,15 +273,17 @@ impl Sleeping {
         Ok(())
     }
 
-    /// The message, with the logo's place left empty (see `PORTING-7.md`).
+    /// The message in the middle, with room above for a logo `logo` pixels
+    /// across (none: 0); where the logo goes.
     fn message(
         &self,
         host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
         screen: Rect,
+        logo: u16,
         paint: &mut Vec<Paint>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Rect>, Error> {
         let mut messages = Messages::new()?;
         let text = messages.copy(
             host,
@@ -253,14 +312,28 @@ impl Sleeping {
             Vec::new()
         };
         let small = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
-        let total = u32::from(line) * lines.len() as u32
+        // The logo a little above the middle, the message below it.
+        let above = if logo == 0 {
+            0
+        } else {
+            u32::from(logo) + u32::from(style.gap) * 2
+        };
+        let total = above
+            + u32::from(line) * lines.len() as u32
             + u32::from(small) * hint.len() as u32
             + if hint.is_empty() {
                 0
             } else {
                 u32::from(style.gap)
             };
-        let mut y = u32::from(screen.height).saturating_sub(total) / 2;
+        let top = u32::from(screen.height).saturating_sub(total) / 2;
+        let at = Rect::new(
+            screen.width.saturating_sub(logo) / 2,
+            top.min(u32::from(u16::MAX)) as u16,
+            logo,
+            logo,
+        );
+        let mut y = top.saturating_add(above);
         for (rows, size, high, color) in [
             (&lines, style.text, line, style.ink),
             (&hint, style.small, small, style.muted),
@@ -282,12 +355,12 @@ impl Sleeping {
             }
             y = y.saturating_add(u32::from(style.gap));
         }
-        Ok(())
+        Ok((logo > 0).then_some(at))
     }
 
     /// Makes and places what the mode shows, and decides what shows.
     fn lay(
-        &self,
+        &mut self,
         host: &Host<'_>,
         ui: &Ui,
         display: &Snapshot,
@@ -295,22 +368,27 @@ impl Sleeping {
         style: &Style,
     ) -> Result<Laid, Error> {
         let screen = Rect::new(0, 0, display.display_width(), display.display_height());
-        let mut facts = facts_before(self.off);
         let mut over = None;
-        if model::effective(&self.setting, facts) == model::OVERLAY
-            && let Some(setup) = &self.over
+        // A widget over the page is made here; the picture over it was asked
+        // for when the screen opened (`images`), and stands as it was found.
+        let widget = self
+            .over
+            .as_ref()
+            .filter(|setup| !setup.widget.trim().is_empty());
+        if model::effective(&self.setting, self.facts) == model::OVERLAY
+            && let Some(setup) = widget
         {
             over = self.make_over(host, ui, display, font, style, setup)?;
         }
-        facts.over_page = over.is_some();
+        if widget.is_some() || self.over.is_none() {
+            self.facts.over_page = over.is_some();
+        }
         let mut widgets = Vec::new();
-        if model::effective(&self.setting, facts) == model::WIDGETS {
+        if model::effective(&self.setting, self.facts) == model::WIDGETS {
             widgets = self.make_widgets(host, ui, screen, style)?;
         }
-        facts.widgets_empty = widgets.is_empty();
-        let content = model::decide(&self.setting, facts);
         Ok(Laid {
-            content,
+            failed: false,
             widgets,
             over,
         })
@@ -388,11 +466,9 @@ impl Sleeping {
                 continue;
             }
             let handle = match ui.widget_make(host, id, WIDGETS_PLACE, &mut input, &mut out) {
-                Ok(handle) if !handle.is_own() => handle,
-                Ok(handle) => {
-                    drop_all(host, ui, [handle]);
-                    continue;
-                }
+                Ok(MadeWidget::Widget(handle)) => handle,
+                // One the plugin draws itself is not asked for.
+                Ok(_) => continue,
                 // A widget that is gone, or not for this screen: left out.
                 Err(Error::NotFound | Error::Denied) => continue,
                 Err(error) => return Err(error),
@@ -434,11 +510,8 @@ impl Sleeping {
         }
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let handle = match ui.widget_make(host, id, OVERLAY_PLACE, &mut input, &mut out) {
-            Ok(handle) if !handle.is_own() => handle,
-            Ok(handle) => {
-                drop_all(host, ui, [handle]);
-                return Ok(None);
-            }
+            Ok(MadeWidget::Widget(handle)) => handle,
+            Ok(_) => return Ok(None),
             Err(Error::NotFound | Error::Denied) => return Ok(None),
             Err(error) => return Err(error),
         };
@@ -486,9 +559,9 @@ impl Sleeping {
 
 impl Laid {
     /// Nothing but the message.
-    fn message(_off: bool) -> Self {
+    fn message() -> Self {
         Self {
-            content: Content::Message,
+            failed: true,
             widgets: Vec::new(),
             over: None,
         }
@@ -500,15 +573,16 @@ fn pad(style: &Style) -> u16 {
     style.gap.saturating_mul(2)
 }
 
-/// The facts there are before anything is made: there is no cover or picture
-/// to draw natively yet (images wait for the host), no other plugin's screen.
+/// The facts there are before anything is found: all that could show is
+/// taken to be there, and `images` clears what it finds missing. No other
+/// plugin's screen (the host shows it).
 fn facts_before(off: bool) -> Facts {
     Facts {
         off,
         over_page: true,
         other_screen: false,
-        picture: false,
-        cover: false,
+        picture: true,
+        cover: true,
         widgets_empty: false,
     }
 }

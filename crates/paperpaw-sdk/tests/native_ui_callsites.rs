@@ -4,7 +4,10 @@ use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
     events::Event,
-    ui::{Answer, Compose, Notify, Open, Param, Question, RequestId, TextPart, TextWrite, Ui},
+    ui::{
+        Answer, Compose, MadeWidget, Notify, Open, Param, Question, RequestId, TextPart, TextWrite,
+        Ui,
+    },
 };
 
 fn keys_parameterized_open(
@@ -149,8 +152,9 @@ fn reading_goal_widget_layout(
     input: &mut [u8],
     out: &mut [u8],
 ) -> Result<(), Error> {
-    let widget = ui.widget_make(host, "reading-goal.progress", "core.home", input, out)?;
-    if !widget.is_own() {
+    if let MadeWidget::Widget(widget) =
+        ui.widget_make(host, "reading-goal.progress", "core.home", input, out)?
+    {
         let size = ui.widget_measure(host, widget, 300, input, out)?;
         let rect = Rect::new(0, 0, 300, size.height());
         ui.widget_place(host, widget, rect, input, out)?;

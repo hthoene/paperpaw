@@ -14,7 +14,7 @@ const CASES: [Case; 5] = [
     Case {
         name: "sleep-images",
         golden: None,
-        blocked_by: &["IMG-slots-36-37", "FS"],
+        blocked_by: &["H1"],
     },
     // The message with PaperPaw's logo, the page as it is, and a mode of
     // another plugin shown in place.
@@ -55,7 +55,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED IMG-slots-36-37/FS: image slots (PR 391) and core.files are not on integration"]
+#[ignore = "BLOCKED H1: the native plugin is not constructed by the production loader yet (the images are ported, not accepted)"]
 fn sleep_images() {
     CASES[0].refuse().unwrap();
 }

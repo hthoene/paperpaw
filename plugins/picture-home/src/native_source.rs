@@ -216,6 +216,12 @@ impl HostSource {
         &self.widgets
     }
 
+    /// The tools there are: their actions and names.
+    #[must_use]
+    pub fn tool_rows(&self) -> &[(String, String)] {
+        &self.tools
+    }
+
     /// The grid's columns upright (`picture-home.columns`), as the grid holds
     /// them: 2 to 6.
     #[must_use]

@@ -62,6 +62,9 @@ fn decimal(value: u32) -> Option<alloc::string::String> {
 impl crate::Kernel {
     /// One pass of the dialog pump; `true` when it wants another at once
     /// (answers remain, or a batch waits).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_dialog_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() != 0 {
             return true;
