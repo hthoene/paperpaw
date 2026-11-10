@@ -8,9 +8,10 @@
 //! card and the widget follow with their host pieces (see `PORTING-7.md`): a
 //! screen or an entry that cannot work is not declared.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, SubscribeDecl, WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, HelpHintDecl,
+    Instances, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, SubscribeDecl, WidgetDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
 /// Callback tokens are stable within this plugin image.
@@ -330,5 +331,22 @@ pub fn navigation(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Decl
     offer.priority = -1;
     d.slot_offer(offer)?;
     d.setting_choice("sleep.show", SLEEP_CARD, SLEEP_CARD)?;
+    d.submit()
+}
+
+/// The help of the review (the first review: the answers, by touch or with the
+/// buttons), as interface 6 listed it.
+pub fn help(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    let mut d = Declarations::new(sink);
+    for (text, input) in [
+        ("vocabulary.help.answers", HintInput::Any),
+        ("vocabulary.help.tap", HintInput::Touch),
+        ("vocabulary.help.select", HintInput::Buttons),
+        ("vocabulary.help.back", HintInput::Any),
+    ] {
+        let hint = HelpHintDecl::new("vocabulary.review", text, input)
+            .map_err(|_| DeclareError::Empty("help hint"))?;
+        d.help_hint(hint)?;
+    }
     d.submit()
 }
