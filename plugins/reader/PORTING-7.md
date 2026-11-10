@@ -143,6 +143,10 @@ relative to the data folder).
   the sizes are absurd.
 - Differences from interface 6, on purpose: none in what is decided; the sums are made in `u32` and cut at
   `u16::MAX` where interface 6 added `u16`s.
+- Limits the screen keeps: `lines` hands the whole rest of the note to `fit` where the text is cut, so the
+  screen caps the note text it reads (a note is a few paragraphs, not a chapter) and with it the wrap
+  ranges it passes in. `Metrics` is `#[non_exhaustive]`: only this crate builds it, which suits the screen
+  that measures the sizes; a test or another crate goes through the model's functions.
 - **Not yet: the screen.** It needs the overlay slot's host side (`core.footnote`, the successor of the
   `OpenSlot` with `text`, `path` and `url`), the font's wrap and line metrics and the button measures of
   `core.ui` for the model's inputs, and the follow-link event that *Go to the note* sends back to the reader
