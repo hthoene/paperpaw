@@ -33,7 +33,10 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
         let _ = storage.remove(TMP);
     }
     match replay(storage) {
-        Replayed::Nothing | Replayed::Finished { .. } | Replayed::Removed { .. } => {}
+        Replayed::Nothing
+        | Replayed::Finished { .. }
+        | Replayed::Removed { .. }
+        | Replayed::Unforgotten { .. } => {}
         Replayed::Forgetting => return true,
         Replayed::SetAside => say(String::from(
             "plugins/.journal could not be finished: set aside as .journal.bad, no plugin was changed by it",
@@ -44,7 +47,12 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
             ));
         }
     }
-    false
+    // Secrets that stayed after a removal: the first pass tries again.
+    // (a list that cannot be read counts as there: the pass fails closed).
+    !matches!(
+        storage.size(super::plugin_unforgotten::FILE),
+        Err(paperpaw_platform::StorageError::NotFound)
+    )
 }
 
 /// Sweeps the leftovers no journal owns. Nothing is swept while a journal is
