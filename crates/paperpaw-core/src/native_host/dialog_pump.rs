@@ -81,6 +81,17 @@ impl crate::Kernel {
         for _ in 0..store.take_refused() {
             self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
         }
+        // The kernel's clipboard is the store's (once); a text op 18 committed
+        // goes out to the system (`Io::Copy`); a text left begun by a callback
+        // that returned is dropped.
+        store.bind_clipboard(&self.shared.clipboard);
+        if self.shared.clipboard.take_copy() {
+            match self.shared.clipboard.text_for_copy() {
+                Some(text) => self.io.clipboard.copy(text),
+                None => self.warn_runtime("the clipboard could not be copied out: no memory"),
+            }
+        }
+        store.clipboard_callbacks_over();
         if store.callbacks_over().is_err() {
             return true;
         }
