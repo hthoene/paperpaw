@@ -164,9 +164,13 @@ relative to the data folder).
 
 - `Faces<M>` is the layout's `Typesetter` over the host's four reading fonts (`role:reading`,
   `-bold`, `-italic`, `-bold-italic`; the host resolves and falls back at each call; four of the
-  plugin's eight font handles). Headings are set in bold at the sizes 1.6, 1.4, 1.2, 1.1, 1.0, 1.0 of the
-  body size, body text by the book's percent. Widths of single characters are kept in a 256-entry table
-  (direct-mapped, 4 KiB on the heap); a host that refuses a measure gives width 0 and sets `failed`, which
+  plugin's eight font handles). The size follows Beta 3's `ReadingFaces`: the book's percent first, else a heading's level (1.6,
+  1.4, 1.2, 1.1, 1.0, 1.0 of the body size), else the reader's. The font comes from the style bits
+  only. Body lines keep the reader's ascent and line height from the line spacing (`Faces::new`,
+  scaled by the book's percent); a heading is at least 1.2 of its size high with the extra shared
+  above and below. Widths of single characters are kept in a 256-entry table
+  (direct-mapped, 4 KiB on the heap; one host call for each character not in it, and four of the
+  plugin's eight font handles are held); a host that refuses a measure gives width 0 and sets `failed`, which
   the view turns into a notice. `Measure` is the seam: tests use a fake that counts the asks.
 - Gaps: no kerning, small capitals, superscripts, letter spacing, the book's own fonts or shaped (Arabic)
   text widths yet; the base size comes from the reader's settings in the view slice.

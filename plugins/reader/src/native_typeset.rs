@@ -45,11 +45,11 @@ impl Role {
         }
     }
 
-    /// The role a face is set in: headings in bold.
+    /// The role a face is set in: by its style bits only, as Beta 3 chose the
+    /// font (a heading is bold where the layout's style says so).
     #[must_use]
     pub fn of(face: Face) -> Self {
-        let bold = face.style.bold() || face.heading > 0;
-        match (bold, face.style.italic()) {
+        match (face.style.bold(), face.style.italic()) {
             (false, false) => Self::Reading,
             (true, false) => Self::Bold,
             (false, true) => Self::Italic,
@@ -66,11 +66,11 @@ pub trait Measure {
     /// The host's refusal.
     fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error>;
 
-    /// Ascent and line height in `role` at `size` pixels.
+    /// Ascent and descent in `role` at `size` pixels.
     ///
     /// # Errors
     /// The host's refusal.
-    fn line(&self, role: Role, size: f32) -> Result<(f32, f32), Error>;
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error>;
 }
 
 /// The host's reading fonts, held for one callback.
@@ -119,9 +119,9 @@ impl Measure for HostFonts<'_> {
         self.font(role).measure_text(size, text)
     }
 
-    fn line(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
         let metrics = self.font(role).read_line_metrics(size)?;
-        Ok((metrics.ascent, metrics.line_height))
+        Ok((metrics.ascent, metrics.descent))
     }
 }
 
@@ -134,17 +134,28 @@ pub struct Faces<M> {
     measure: M,
     /// The size of body text, in pixels.
     base: f32,
+    /// Ascent and line height of body text: the reader's line spacing.
+    body: (f32, f32),
     table: RefCell<Vec<Slot>>,
     failed: Cell<bool>,
 }
 
 impl<M: Measure> Faces<M> {
-    /// Body text of `base` pixels.
+    /// Body text of `base` pixels with the line spacing `spacing` (1.0 is the
+    /// size; at least the font's own distance, below 1.0 that much of it).
     ///
     /// # Errors
-    /// `Invalid` for a size that is not positive and finite; `NoMemory` for the table.
-    pub fn new(measure: M, base: f32) -> Result<Self, Error> {
-        if !(base.is_finite() && base > 0.0) {
+    /// `Invalid` for a size or spacing that is not positive and finite, or a
+    /// font that cannot be measured; `NoMemory` for the table.
+    pub fn new(measure: M, base: f32, spacing: f32) -> Result<Self, Error> {
+        if !(base.is_finite() && base > 0.0 && spacing.is_finite() && spacing > 0.0) {
+            return Err(Error::Invalid);
+        }
+        let (ascent, descent) = measure.metrics(Role::Reading, base)?;
+        let natural = ascent + descent;
+        let line_height = (base * spacing).max(natural * spacing.min(1.0));
+        let body = (ascent + (line_height - natural) / 2.0, line_height);
+        if !(body.0.is_finite() && body.1.is_finite()) {
             return Err(Error::Invalid);
         }
         let mut table = Vec::new();
@@ -155,6 +166,7 @@ impl<M: Measure> Faces<M> {
         Ok(Self {
             measure,
             base,
+            body,
             table: RefCell::new(table),
             failed: Cell::new(false),
         })
@@ -177,17 +189,17 @@ impl<M: Measure> Faces<M> {
         &self.measure
     }
 
-    /// The size in pixels a face is set at: headings by their level, body
-    /// text by the percent the book asks (the reader's size where it says none).
+    /// The size in pixels a face is set at: the book's percent wins, else a
+    /// heading's level, else the reader's size.
     #[must_use]
     pub fn size(&self, face: Face) -> f32 {
-        if face.heading > 0 {
-            let at = usize::from(face.heading).min(HEADING_SCALE.len()) - 1;
-            return self.base * HEADING_SCALE[at];
-        }
-        match face.size {
-            0 => self.base,
-            percent => self.base * f32::from(percent) / 100.0,
+        match (face.size, face.heading) {
+            (percent, _) if percent > 0 => self.base * f32::from(percent) / 100.0,
+            (_, 0) => self.base,
+            (_, level) => {
+                let at = usize::from(level).clamp(1, HEADING_SCALE.len()) - 1;
+                self.base * HEADING_SCALE[at]
+            }
         }
     }
 
@@ -225,13 +237,28 @@ impl<M: Measure> Typesetter for Faces<M> {
         width
     }
 
+    /// Body text keeps the reader's ascent and line height, scaled by the
+    /// book's percent; a heading is at least 1.2 of its size high with the
+    /// extra shared above and below.
     fn line(&self, face: Face) -> (f32, f32) {
-        match self.measure.line(Role::of(face), self.size(face)) {
-            Ok((ascent, height)) if ascent.is_finite() && height.is_finite() => (ascent, height),
+        if face.heading == 0 {
+            let scale = match face.size {
+                0 => 1.0,
+                percent => f32::from(percent) / 100.0,
+            };
+            return (self.body.0 * scale, self.body.1 * scale);
+        }
+        let size = self.size(face);
+        match self.measure.metrics(Role::of(face), size) {
+            Ok((ascent, descent)) if ascent.is_finite() && descent.is_finite() => {
+                let natural = ascent + descent;
+                let line_height = (size * 1.2).max(natural);
+                (ascent + (line_height - natural) / 2.0, line_height)
+            }
             _ => {
                 self.refused();
-                // A line that cannot be measured is one body size high, so a page still moves on.
-                (self.base * 0.8, self.base * 1.2)
+                // A line that cannot be measured is 1.2 of its size high, so a page still moves on.
+                (size * 0.8, size * 1.2)
             }
         }
     }
