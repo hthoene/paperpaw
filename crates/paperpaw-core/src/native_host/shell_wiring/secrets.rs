@@ -3,10 +3,12 @@
 //! device has one, its random source ([`Rng`]).
 //!
 //! Core owns the file, its format, the ops and every rule of the service; the
-//! shell chooses where the file is and how it is protected. A device that
-//! keeps values sealed (the X4: AES-256-GCM under a device key, decision 138)
-//! gives a [`Sealer`] that seals; one that does not gives [`Veiling`], which
-//! keeps interface 6's veiled values (the help says it is not encryption).
+//! shell chooses where the file is and the key that protects it. Values are
+//! only ever written sealed (the X4: AES-256-GCM under a device key, decision
+//! 138). A shell that has no key does not wire `core.secrets`: a plugin that
+//! needs it is refused, and a [`Sealer`] that does not seal makes `keep`
+//! answer `ERR_STATE` with nothing written (decision 140: no veiled or plain
+//! value, ever). Values interface 6 wrote veiled are still read.
 //!
 //! The file is `.paperpaw/secrets.txt` on the storage given. A card removed
 //! or a file that cannot be read answers `ERR_IO` to the plugin and calls
@@ -17,7 +19,7 @@
 //! [`SecretsLifecycle::forget_plugin`] when the user deletes a plugin's data
 //! (decision 124).
 use super::*;
-pub use crate::native_host::secrets_file::{SEALED_MAX, Sealer, Veiling};
+pub use crate::native_host::secrets_file::{SEALED_MAX, Sealer};
 pub use crate::native_host::secrets_service::Rng;
 use crate::native_host::secrets_service::{SecretsHost, SecretsServices};
 

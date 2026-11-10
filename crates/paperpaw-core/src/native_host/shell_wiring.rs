@@ -40,7 +40,7 @@ pub use net::{
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
-pub use secrets::{Rng, SEALED_MAX, Sealer, SecretsInputs, SecretsLifecycle, Veiling};
+pub use secrets::{Rng, SEALED_MAX, Sealer, SecretsInputs, SecretsLifecycle};
 pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
 pub use work::{WorkDevice, WorkInputs};
 

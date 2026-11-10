@@ -36,12 +36,12 @@ use crate::native_host::codec;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
-#[allow(unused_imports, reason = "the emulator and Android shells use Veiling")]
-pub(crate) use super::secrets_file::{Sealer, Veiling};
+pub(crate) use super::secrets_file::Sealer;
 
 /// `uses.secrets`: the feature that reaches another plugin's secrets.
 const USES_SECRETS: &str = "uses.secrets";
@@ -352,6 +352,11 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     }
     check_name(ask.name)?;
     check_label(ask.label)?;
+    // A device that does not seal writes nothing (decision 140): no file is
+    // opened, no temporary file is made.
+    if !secrets.host.sealer().seals() {
+        return Err(ERR_STATE);
+    }
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;
