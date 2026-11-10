@@ -656,16 +656,6 @@ const CASES: &[Case] = &[
         colour: 1_000,
         fixtures: false,
     },
-    // A picture as a book: its page, the picture fit to the screen.
-    Case {
-        name: "x4-pictures-book",
-        profile: "xteink-x4",
-        book: Some("books/alice-cover.jpg"),
-        sets: &[],
-        script: "wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
     Case {
         name: "x4-mobi-reading",
         profile: "xteink-x4",
@@ -708,6 +698,21 @@ const CASES: &[Case] = &[
         book: Some("books/report.docx"),
         sets: &[],
         script: "wait:1500,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+];
+
+/// Screens of a book in a format that only a native plugin reads (interface 6
+/// is removed): they need the native plugins activated in the shell.
+const NATIVE_ONLY_CASES: &[Case] = &[
+    // A picture as a book: its page, the picture fit to the screen.
+    Case {
+        name: "x4-pictures-book",
+        profile: "xteink-x4",
+        book: Some("books/alice-cover.jpg"),
+        sets: &[],
+        script: "wait:1500",
         colour: 0,
         fixtures: false,
     },
@@ -852,11 +857,21 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
 
 #[test]
 fn screens_look_as_before() {
+    check_screens(CASES);
+}
+
+#[test]
+#[ignore = "needs native activation (format removal)"]
+fn screens_of_native_only_formats_look_as_before() {
+    check_screens(NATIVE_ONLY_CASES);
+}
+
+fn check_screens(cases: &[Case]) {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
-    for case in CASES {
+    for case in cases {
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(
