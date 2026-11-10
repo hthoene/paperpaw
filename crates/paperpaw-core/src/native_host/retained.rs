@@ -50,6 +50,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
     pub(crate) fn make_native_stored<R>(
         host: shell::Hosted<S, M>,
         map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, super::declaration_checks::Cap),
     ) -> Result<(Self, R, super::raw_declarations::RawDeclarations), shell::Error> {
         let mut transaction = host.begin()?;
         // A batch lying wholly in the plugin's image is kept as offsets, not
@@ -57,7 +58,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         transaction.set_image(host.image().unwrap_or(&[]))?;
         let (batch, staging, raw) = host
             .make_registered(transaction)?
-            .commit_native_stored(map)?;
+            .commit_native_stored(map, refused)?;
         // SAFETY: this holder retains the pinned owner and releases its batch
         // before the owner, as in make_native.
         let batch = unsafe { batch.into_retained() };

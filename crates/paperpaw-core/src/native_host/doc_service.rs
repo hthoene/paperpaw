@@ -32,7 +32,7 @@ mod args;
 mod check;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING};
+pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -94,6 +94,10 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) text: &'a str,
     /// Op 2 only.
     pub(crate) options: Options<'a>,
+    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
+    /// `""` for none), which the format reads as root 4.
+    pub(crate) css_root: u32,
+    pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
     fn new(format: FormatRef, op: u32, document: u32) -> Self {
@@ -112,6 +116,8 @@ impl FormatCall<'_> {
             conversion: 0,
             text: "",
             options: Options::NONE,
+            css_root: 0,
+            css_path: "",
         }
     }
 }
@@ -169,6 +175,25 @@ pub(crate) trait DocHost {
     /// the event; the service ends the image ids (`end_images`) first and
     /// never calls the format here.
     fn document_closed(&self, document: &Document, reason: u32);
+    /// The oldest `event.document_closed` of `owner` still to deliver,
+    /// encoded into `out` as a one-record batch: its length, or `None`. A
+    /// failure consumes nothing. A host without events has none.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the host's queue is borrowed; `ERR_NO_SPACE` when `out`
+    /// is too small.
+    fn next_event(&self, _owner: u64, _out: &mut [u8]) -> Result<Option<usize>, i32> {
+        Ok(None)
+    }
+    /// Whether an event was raised since the pump's last pass ([`Self::set_now`]
+    /// starts one): the kernel's pump looks again at once. Events left over
+    /// for an owner that does not run are not asked for again.
+    fn events_waiting(&self) -> bool {
+        false
+    }
+    /// The kernel's clock, milliseconds, as the pump last read it: the time
+    /// the events it delivers are stamped with.
+    fn set_now(&self, _now_ms: u64) {}
     /// An `open` is about to read the card path `path` of root `root`
     /// (document `document`): the host counts it so the file is not freed under
     /// the reader. `Err` refuses the open: nothing is opened and the error is
@@ -198,6 +223,9 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The format answered that the document is ready (the open, or the
+    /// last preparing call): what the host keeps for it is complete now.
+    fn document_ready(&self, _document: u32) {}
     /// The owner is a format plugin that stopped: it is removed from the
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
@@ -376,6 +404,9 @@ impl DocHost for Cx<'_> {
     }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
+    }
+    fn document_ready(&self, document: u32) {
+        self.host.document_ready(document);
     }
     fn reader_closed(&self, document: u32) {
         self.host.reader_closed(document);
@@ -572,6 +603,8 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         call.cover_side = cover_side;
         call.conversion = conversion;
         call.options = options;
+        call.css_root = request.css_root;
+        call.css_path = request.css_path;
         let length = run(host, &call, out)?;
         let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
         check::state(&answer)?;
@@ -582,7 +615,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
             answer.status,
             answer.flags,
             conversion,
-        )
+        )?;
+        if answer.state == READY {
+            host.document_ready(id);
+        }
+        Ok(())
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.

@@ -247,6 +247,7 @@ fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
         members: Default::default(),
         items: Default::default(),
         item_room: Default::default(),
+        refusals: Default::default(),
     }
 }
 

@@ -4,6 +4,7 @@
 extern crate std;
 use super::super::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations};
 use super::*;
+use crate::native_host::declaration_checks::Cap;
 use crate::native_host::registrations::{REGISTRATION_MAX_BYTES, records_encode};
 use alloc::{format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::Cell;
@@ -71,13 +72,29 @@ fn install(
     plugin: &Rc<Plugin>,
     batches: &[Vec<u8>],
 ) -> Result<(), i32> {
+    install_capped(store, plugin, batches).0
+}
+
+/// As `install`, with the cap `prepare` said it refused the plugin at.
+fn install_capped(
+    store: &mut DeclarationStore,
+    plugin: &Rc<Plugin>,
+    batches: &[Vec<u8>],
+) -> (Result<(), i32>, Option<Cap>) {
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(Id::try_parse(plugin.id).unwrap(), plugin.clone());
     for bytes in batches {
-        pending.stage_batch(bytes, &mut allocations)?;
+        if let Err(error) = pending.stage_batch(bytes, &mut allocations) {
+            return (Err(error), allocations.cap);
+        }
     }
-    store.prepare(pending, &mut allocations)?.commit();
-    Ok(())
+    match store.prepare(pending, &mut allocations) {
+        Ok(prepared) => {
+            prepared.commit();
+            (Ok(()), None)
+        }
+        Err(error) => (Err(error), allocations.cap),
+    }
 }
 
 fn formats(store: &DeclarationStore) -> Vec<(u64, String, i32)> {
@@ -171,9 +188,10 @@ fn thirty_two_formats_fit_the_device_and_the_thirty_third_is_full() {
         install(&mut store, p, &[batch(&rows[..4]), batch(&rows[4..])]).unwrap();
     }
     assert_eq!(formats(&store).len(), 32);
+    // The 33rd is refused at the device's cap: problem 14, arg 32.
     assert_eq!(
-        install(&mut store, &plugins[4], &[batch(&[format("z", "zzz", 0)])]),
-        Err(ERR_FULL)
+        install_capped(&mut store, &plugins[4], &[batch(&[format("z", "zzz", 0)])]),
+        (Err(ERR_FULL), Some(Cap::of(Cap::FORMATS, 32)))
     );
     // The refusal left nothing behind; a plugin that updates may keep its own.
     assert_eq!(formats(&store).len(), 32);
@@ -200,9 +218,10 @@ fn sixteen_reading_apps_fit_the_device_and_the_seventeenth_is_full() {
     let mut count = 0;
     store.each_reader(&mut |_| count += 1);
     assert_eq!(count, 16);
+    // The 17th is refused at the device's cap: problem 15, arg 16.
     assert_eq!(
-        install(&mut store, &plugins[4], &[batch(&[reader("z")])]),
-        Err(ERR_FULL)
+        install_capped(&mut store, &plugins[4], &[batch(&[reader("z")])]),
+        (Err(ERR_FULL), Some(Cap::of(Cap::READERS, 16)))
     );
     store.remove_host_owner(2);
     install(&mut store, &plugins[4], &[batch(&[reader("z")])]).unwrap();

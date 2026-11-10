@@ -419,7 +419,8 @@ impl HostResources {
                 super::doc_service::Limits::LARGE
             };
             let state =
-                super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?;
+                super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?
+                    .with_storage(wiring.files.clone());
             // The reader's open book is a source of `core.files` from now on.
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;

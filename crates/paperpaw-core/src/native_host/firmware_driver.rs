@@ -36,7 +36,8 @@ use super::firmware_install::{
     Question,
 };
 use super::plugin_job::{
-    Finished, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost, PluginJob,
+    Finished, ID_MAX, InstallGrants, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost,
+    PluginJob, PluginQuestion,
 };
 use super::plugin_jobs::PluginJobs;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
@@ -44,7 +45,11 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_platform::{Storage, firmware::FirmwareHost};
+use paperpaw_platform::{
+    Storage,
+    firmware::{FirmwareHost, Text},
+};
+use paperpaw_sdk::native::keys::{self, Revocation};
 
 /// Most install, removal, firmware and check requests waiting device-wide.
 pub(crate) const REQUESTS_MAX: usize = 4;
@@ -54,6 +59,8 @@ pub(crate) const REQUESTS_MAX: usize = 4;
 pub(crate) const PER_PLUGIN_MAX: usize = 2;
 /// Most outcomes kept for op 13 (one per plugin and kind).
 pub(crate) const KEPT_MAX: usize = 8;
+/// Revocations the driver holds before it keeps them (two batches).
+pub(crate) const MAX_REVOCATIONS_QUEUED: usize = 16;
 /// Reason 20 (`ERR_CANCELLED`): the host stopped the job.
 const STOPPED: u8 = 20;
 /// Most steps [`Driver::finish_stopped`] takes at once.
@@ -135,6 +142,25 @@ pub(crate) struct Driver {
     finishing: Option<bool>,
     /// What the device tells a plugin job; `None`: no plugin job is accepted.
     plugin_host: Option<PluginHost>,
+    /// Which plugins hold the trusted-installer grant (`None`: none does).
+    grants: Option<Box<dyn InstallGrants>>,
+    /// The running plugin job asked the user and waits for the answer.
+    plugin_question: Option<PluginQuestion>,
+    /// The nonce of the confirmation that shows `plugin_question`: only an
+    /// answer that carries it is taken, once.
+    plugin_shown: Option<u128>,
+    /// The running plugin job asks the host to close this plugin's instances
+    /// and waits for [`Self::plugin_unloaded`] (a removal).
+    plugin_unload: Option<Text<ID_MAX>>,
+    /// The running removal asks the host to forget this plugin's secrets and
+    /// grants and waits for [`Self::plugin_forgotten`].
+    plugin_forget: Option<Text<ID_MAX>>,
+    /// A removal journal the start left to finish with the host's help (its
+    /// plugin's secrets and grants): the kernel's first pass does it.
+    resume: bool,
+    /// Revocations handed in (`trust_revoked`), kept at the next pump with no
+    /// plugin job running; at most [`MAX_REVOCATIONS_QUEUED`].
+    revocations: Vec<Revocation>,
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
@@ -170,6 +196,13 @@ impl Driver {
             running: None,
             finishing: None,
             plugin_host: None,
+            grants: None,
+            plugin_question: None,
+            plugin_shown: None,
+            plugin_unload: None,
+            plugin_forget: None,
+            resume: false,
+            revocations: Vec::new(),
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
@@ -179,6 +212,27 @@ impl Driver {
             shown: None,
             restart_wanted: false,
             stopping: false,
+        }
+    }
+
+    /// Takes a revocation to keep at the next idle pump; `false`: no room (the
+    /// library lists it again), and it is dropped.
+    pub(crate) fn queue_revocation(&mut self, revocation: Revocation) -> bool {
+        if self.revocations.len() >= MAX_REVOCATIONS_QUEUED
+            || self.revocations.try_reserve(1).is_err()
+        {
+            return false;
+        }
+        self.revocations.push(revocation);
+        true
+    }
+
+    /// Keeps the revocations that hold (`device.md` 5.1); the others are
+    /// dropped, counted. One bounded write; never while a plugin job runs.
+    fn keep_revocations(&mut self, storage: &dyn Storage) {
+        let list = core::mem::take(&mut self.revocations);
+        if keys::keep_revoked(storage, &list).is_err() {
+            self.skip();
         }
     }
 
@@ -325,6 +379,98 @@ impl Driver {
         self.plugin_host = Some(host);
     }
 
+    /// The host's trusted-installer grants (`core.grant.install.<plugin>`,
+    /// `device.md` 5.2): without them no install skips its question.
+    pub(crate) fn set_install_grants(&mut self, grants: Box<dyn InstallGrants>) {
+        self.grants = Some(grants);
+    }
+
+    /// The question the running plugin job waits on, for the host to show
+    /// (`None` when none waits). Answered by [`Self::answer_plugin`].
+    pub(crate) fn plugin_question(&self) -> Option<&PluginQuestion> {
+        self.plugin_question.as_ref()
+    }
+
+    /// The open question the host has not shown yet.
+    pub(crate) fn peek_plugin_question(&self) -> Option<PluginQuestion> {
+        self.plugin_question.filter(|_| self.plugin_shown.is_none())
+    }
+
+    /// The plugin whose instances the running job waits for the host to close.
+    pub(crate) fn peek_unload(&self) -> Option<Text<ID_MAX>> {
+        self.plugin_unload
+    }
+
+    /// The plugin whose secrets and grants the running removal waits for the
+    /// host to forget.
+    pub(crate) fn peek_forget(&self) -> Option<Text<ID_MAX>> {
+        self.plugin_forget
+    }
+
+    /// The host forgot (or could not forget, `ok` false): the job goes on.
+    pub(crate) fn plugin_forgotten(&mut self, ok: bool) {
+        self.plugin_forget = None;
+        if let Some((owner, request)) = self.running
+            && let Some(at) = self.plugin_at(owner, request)
+        {
+            self.plugin_jobs[at].forgotten(ok);
+        }
+    }
+
+    /// The start left a removal journal that needs the host's help to finish.
+    pub(crate) fn want_resume(&mut self) {
+        self.resume = true;
+    }
+
+    /// Whether [`Self::want_resume`] is not done yet; taken once.
+    pub(crate) fn take_resume(&mut self) -> bool {
+        core::mem::take(&mut self.resume)
+    }
+
+    /// The host closed the instances asked for: the job goes on.
+    pub(crate) fn plugin_unloaded(&mut self) {
+        self.plugin_unload = None;
+        if let Some((owner, request)) = self.running
+            && let Some(at) = self.plugin_at(owner, request)
+        {
+            self.plugin_jobs[at].unloaded();
+        }
+    }
+
+    /// The host opened the confirmation of `question` with `nonce`.
+    pub(crate) fn plugin_question_shown(&mut self, nonce: u128, question: &PluginQuestion) {
+        if self.plugin_question.as_ref() == Some(question) && self.plugin_shown.is_none() {
+            self.plugin_shown = Some(nonce);
+        }
+    }
+
+    /// The confirmation of `question` could not be shown: it ends as
+    /// dismissed (reason 3), never as a yes.
+    pub(crate) fn plugin_question_dismissed(&mut self, question: &PluginQuestion) {
+        if self.plugin_question.as_ref() == Some(question) {
+            self.answer_plugin(question.owner, question.request, Answer::Dismissed);
+        }
+    }
+
+    /// The user's answer to [`Self::plugin_question`]; `false` for a question
+    /// that is not (or no longer) the open one.
+    pub(crate) fn answer_plugin(&mut self, owner: u64, request: u32, answer: Answer) -> bool {
+        let open = self
+            .plugin_question
+            .as_ref()
+            .is_some_and(|question| (question.owner, question.request) == (owner, request));
+        if !open || self.running != Some((owner, request)) {
+            return false;
+        }
+        let Some(at) = self.plugin_at(owner, request) else {
+            return false;
+        };
+        self.plugin_question = None;
+        self.plugin_shown = None;
+        self.plugin_jobs[at].answer(answer);
+        true
+    }
+
     /// Whether plugin jobs are accepted (a plugin host is set).
     pub(crate) fn plugins_accepted(&self) -> bool {
         self.plugin_host.is_some()
@@ -461,6 +607,12 @@ impl Driver {
     /// The user's answer to the confirmation shown with `nonce`; any other
     /// nonce, or none shown, changes nothing.
     pub(crate) fn answer_shown(&mut self, nonce: u128, answer: Answer) -> Option<Event> {
+        if self.plugin_shown == Some(nonce)
+            && let Some(question) = self.plugin_question
+        {
+            self.answer_plugin(question.owner, question.request, answer);
+            return Some(Event::Quiet);
+        }
         let (shown, question) = self.shown?;
         if shown != nonce {
             return None;
@@ -472,6 +624,12 @@ impl Driver {
     /// The shown confirmation ends as dismissed (sleep); its nonce, so that
     /// the screen can be closed.
     pub(crate) fn dismiss_shown(&mut self) -> Option<u128> {
+        if let Some(nonce) = self.plugin_shown
+            && let Some(question) = self.plugin_question
+        {
+            self.answer_plugin(question.owner, question.request, Answer::Dismissed);
+            return Some(nonce);
+        }
         let (nonce, question) = self.shown.take()?;
         self.answer(question, Answer::Dismissed);
         Some(nonce)
@@ -563,7 +721,17 @@ impl Driver {
         built_ins: &dyn BuiltIns,
         now_ms: u64,
     ) -> Event {
+        if self.running.is_none() && !self.revocations.is_empty() {
+            self.keep_revocations(storage);
+        }
         if self.running.is_some() {
+            // A job that asked the user waits for the answer; nothing to step.
+            if self.plugin_question.is_some()
+                || self.plugin_unload.is_some()
+                || self.plugin_forget.is_some()
+            {
+                return Event::Quiet;
+            }
             return self.plugin_step(storage, built_ins);
         }
         let Ok(mut machine) = self.machine.try_borrow_mut() else {
@@ -610,16 +778,22 @@ impl Driver {
                 storage,
                 host,
                 built_ins,
-                // Only the host-held `core.grant.install.<asker>` may say so,
-                // and nothing reads it yet (B2c-2b): never granted.
-                granted: false,
+                granted: self
+                    .grants
+                    .as_ref()
+                    .is_some_and(|grants| grants.granted(owner)),
             }) {
                 JobStep::More | JobStep::Wait => return Event::Quiet,
-                JobStep::Ask(_) => {
-                    // The host's confirmation for a plugin install is not
-                    // wired yet (B2c-2b): the question is not asked, which
-                    // is a dismissal (reason 3), never a yes.
-                    self.plugin_jobs[at].answer(super::plugin_job::Answer::Dismissed);
+                JobStep::Ask(question) => {
+                    self.plugin_question = Some(question);
+                    return Event::Quiet;
+                }
+                JobStep::Unload(id) => {
+                    self.plugin_unload = Some(id);
+                    return Event::Quiet;
+                }
+                JobStep::Forget(id) => {
+                    self.plugin_forget = Some(id);
                     return Event::Quiet;
                 }
                 JobStep::Done(finished) => finished,
@@ -628,6 +802,8 @@ impl Driver {
             None => Finished::refused(1),
         };
         // The job goes (its `Drop` releases what it holds).
+        self.plugin_unload = None;
+        self.plugin_forget = None;
         self.plugin_jobs.remove(at);
         self.running = None;
         if self.finishing.take() == Some(false) {
@@ -653,6 +829,8 @@ impl Driver {
             request,
             kind,
             reason: finished.reason,
+            flags: finished.flags,
+            id: finished.changed,
         }))
     }
 
@@ -763,7 +941,15 @@ impl Driver {
     /// waits for [`Self::due`], so the device may idle.
     pub(crate) fn has_work(&self, now: u64) -> bool {
         let held = self.blocked_until.is_some_and(|until| now < until);
-        if self.restart_wanted || self.running.is_some() || (!held && self.tell_pending()) {
+        // A job that waits for the user's answer has nothing to step.
+        let stepping = self.running.is_some() && self.plugin_question.is_none();
+        let revoking = self.running.is_none() && !self.revocations.is_empty();
+        if self.restart_wanted
+            || stepping
+            || revoking
+            || self.resume
+            || (!held && self.tell_pending())
+        {
             return true;
         }
         self.machine.try_borrow().map_or(true, |machine| {
@@ -884,6 +1070,12 @@ impl Driver {
         // releases what it holds) and ends like a waiting one. One that must
         // finish (past the point where the card holds half of a change)
         // stays, aborted: [`Self::finish_stopped`] steps it on.
+        // Nobody is left to answer.
+        self.plugin_question = None;
+        self.plugin_shown = None;
+        // The device is going down: its instances are not waited for.
+        self.plugin_unload = None;
+        self.plugin_forget = None;
         let mut running = None;
         if let Some((owner, request)) = self.running.take()
             && let Some(at) = self.plugin_at(owner, request)
@@ -921,6 +1113,8 @@ impl Driver {
                 request: job.request(),
                 kind,
                 reason: STOPPED,
+                flags: 0,
+                id: None,
             });
         }
         // What is left has no job: a restart that waits for its answer. With
@@ -938,6 +1132,8 @@ impl Driver {
                 request: entry.request,
                 kind: entry.kind,
                 reason: STOPPED,
+                flags: 0,
+                id: None,
             });
         }
     }
@@ -982,6 +1178,13 @@ impl Driver {
                 .entries
                 .iter()
                 .any(|entry| entry.owner == owner && !self.queue_has(entry));
+        // Its question goes with its sender (or with the job); a confirmation
+        // that shows it is closed by the caller.
+        let mut closed = None;
+        if plugin_runs {
+            self.plugin_question = None;
+            closed = self.plugin_shown.take();
+        }
         if plugin_runs
             && let Some((runs, request)) = self.running
             && let Some(at) = self.plugin_at(runs, request)
@@ -998,6 +1201,10 @@ impl Driver {
                 self.plugin_jobs.remove(at);
                 self.running = None;
             }
+        }
+        if self.running.is_none() {
+            self.plugin_unload = None;
+            self.plugin_forget = None;
         }
         // Its other jobs go; the one that runs on stays.
         let kept = self.running;
@@ -1025,7 +1232,7 @@ impl Driver {
                 self.shown = None;
                 Some(nonce)
             }
-            _ => None,
+            _ => closed,
         }
     }
 
@@ -1040,6 +1247,9 @@ impl Driver {
 #[path = "firmware_driver_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "firmware_driver_install_tests.rs"]
+mod install_tests;
 #[cfg(test)]
 #[path = "firmware_driver_plugin_tests.rs"]
 pub(crate) mod plugin_tests;

@@ -64,6 +64,8 @@ pub(crate) mod firmware_install;
     reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
 )]
 pub(crate) mod plugin_check;
+#[path = "native_host/plugin_confirm.rs"]
+pub(crate) mod plugin_confirm;
 #[path = "native_host/plugin_folder.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
@@ -81,9 +83,15 @@ pub(crate) mod plugin_install;
 pub(crate) mod plugin_job;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
+#[path = "native_host/plugin_remove.rs"]
+#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
+pub(crate) mod plugin_remove;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_start.rs"]
+#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
+pub(crate) mod plugin_start;
 #[path = "native_host/plugin_swap.rs"]
 #[allow(
     dead_code,
@@ -200,6 +208,7 @@ pub mod device_service;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
+pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
@@ -320,6 +329,7 @@ mod declaration_index;
 
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
+mod declaration_refusals;
 
 #[path = "native_host/declarations_uix.rs"]
 mod declarations_uix;
@@ -721,6 +731,7 @@ impl<C, M> HostOwner<C, M> {
             failure: None,
             image: None,
             submitted: false,
+            refused: None,
         })
     }
 
@@ -807,6 +818,8 @@ pub struct Construction<'a, C, M, T> {
     failure: Option<Error>,
     image: Option<&'a [u8]>,
     submitted: bool,
+    /// The declaration cap the batch was refused at, once `finish` said so.
+    refused: Option<declaration_checks::Cap>,
 }
 
 type StoredConstruction<'a, C, M, T, R> = (
@@ -839,12 +852,16 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             owned: &self.declarations,
             image: self.image,
             plugin: self.plugin_id,
+            refused: core::cell::Cell::new(None),
         }
     }
 
     fn finish_declarations(&mut self) -> Result<(), i32> {
         self.raw.sort_index();
-        self.declaration_view().finish()
+        let view = self.declaration_view();
+        let result = view.finish();
+        self.refused = view.refused.get();
+        result
     }
 
     /// Poison this transaction after any registration decoding or validation
@@ -928,7 +945,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
-        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map, |_, _| {})?;
         drop(raw);
         Ok((batch, staging))
     }
@@ -939,11 +956,17 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         mut self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, declaration_checks::Cap),
     ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
-        self.finish_declarations()?;
+        if let Err(status) = self.finish_declarations() {
+            if let Some(cap) = self.refused {
+                refused(self.plugin_id, cap);
+            }
+            return Err(status);
+        }
         let staging = map(&self.declaration_view())?;
         self.declarations = Declarations::default();
         let raw = core::mem::take(&mut self.raw);
