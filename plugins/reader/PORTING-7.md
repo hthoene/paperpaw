@@ -145,7 +145,9 @@ relative to the data folder).
   three that end a section (e.g. `NoSpace` on a block over the caps) leaves the scan where it was, and a
   screen that gets the same error again must end the search with a notice, not step for ever; as `step`
   does not return `first_new` after an error, the screen compares `hits().len()` before and after.
-- Differences from interface 6, on purpose: a block that cannot be read is skipped as an end of the section
+- Differences from interface 6, on purpose: a query longer than 32 characters is cut to them (so the text looked for
+  can match more than was typed): the screen limits what can be typed to 32 characters, or shows the cut, so that
+  the header never counts hits for text the user did not type; a block that cannot be read is skipped as an end of the section
   only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
   end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the
   `native_open::Place` the document host counts with.
