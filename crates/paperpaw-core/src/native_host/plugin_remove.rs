@@ -423,6 +423,7 @@ impl PluginJob for PluginRemove {
         KIND_REMOVAL
     }
 
+    #[inline(never)]
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep {
         if let Some(why) = self.stopped {
             return self.end(why);

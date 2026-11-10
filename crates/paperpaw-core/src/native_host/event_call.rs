@@ -171,6 +171,9 @@ impl crate::Kernel {
 
     /// Runs the batch in the outbox: its commands and picture requests, for
     /// the plugin that staged them (one that is gone loses them).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_outbox_run(&mut self) {
         let Some(staged) = self.shared.native_instances.outbox.take() else {
             return;
