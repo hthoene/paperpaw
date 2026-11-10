@@ -292,10 +292,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     outcome
 }
 
-/// Lists the linked native plugin `id` for the plugin manager: its name and
-/// description from the plugin's own catalog (the id where it has none), its
-/// version from its crate. A listing that fails (the id is listed already)
-/// is left alone: the plugin runs or not without it.
+/// Lists the linked native plugin `id` for the plugin manager: its version
+/// from its crate, its name the id (the registry shows the plugin's own
+/// `<id>.plugin.name` and `.description` from its catalog, in the reader's
+/// language, wherever it has them). A listing that fails (the id is listed
+/// already) is left alone: the plugin runs or not without it.
 #[cfg(feature = "native-linked")]
 fn list(
     kernel: &mut paperpaw_core::Kernel,
@@ -307,15 +308,7 @@ fn list(
     let Some(version) = native_version(id).and_then(Version::parse) else {
         return;
     };
-    let text = |suffix: &str| {
-        let mut key = alloc::string::String::from(id);
-        key.push_str(suffix);
-        let said = kernel.translator().tr(&key);
-        (said != key).then(|| alloc::string::String::from(said))
-    };
-    let name = text(".plugin.name").unwrap_or_else(|| alloc::string::String::from(id));
-    let description = text(".plugin.description").unwrap_or_default();
-    let manifest = Manifest::new(Id::new_static(id), name, version).description(description);
+    let manifest = Manifest::new(Id::new_static(id), id, version);
     let info = PluginInfo::new(
         manifest,
         state,

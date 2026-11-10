@@ -140,13 +140,14 @@ fn state(kernel: &Kernel, id: &str) -> Option<(PluginState, bool)> {
 #[test]
 fn the_plugin_manager_lists_the_linked_plugins_and_a_shipped_off_one_is_off() {
     let kernel = kernel("");
-    // Listed with a name of its own, whether hosted or not.
+    // Listed, hosted or not; the name is the id (the registry shows the
+    // catalog's).
     let menu = kernel
         .plugins()
         .iter()
         .find(|plugin| plugin.manifest.id.as_str() == "menu")
         .expect("menu is listed");
-    assert_eq!(menu.manifest.name.as_str(), "Menu");
+    assert_eq!(menu.manifest.name.as_str(), "menu");
     assert_eq!(
         Some(menu.manifest.version.to_string()),
         paperpaw_app::native_version("menu").map(String::from)
