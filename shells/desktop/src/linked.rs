@@ -247,7 +247,7 @@ pub fn register(
             storage.clone(),
             inputs.view.clone(),
         ));
-        // Plain TCP and UDP broadcast, no TLS (the emulator has none). The
+        // TCP with TLS (`paperpaw_serve::secure`) and UDP broadcast. The
         // same transport tells core of the network for both services: core
         // combines their demand.
         let sockets = Rc::new(crate::native_sock::NativeSock::new());
@@ -260,12 +260,15 @@ pub fn register(
                 // wirings (`SockLimits::large`: 4).
                 NetLimits::new(0, 8).tls_sessions(4),
             ))
-            .sockets(SockInputs::new(
-                storage,
-                sockets.clone(),
-                transport.clone(),
-                SockLimits::large(0),
-            ));
+            .sockets(
+                SockInputs::new(
+                    storage,
+                    sockets.clone(),
+                    transport.clone(),
+                    SockLimits::large(0),
+                )
+                .tls(sockets.clone()),
+            );
         (transport, sockets)
     });
     match (inputs.storage, sealer(inputs.simulated)) {
