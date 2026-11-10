@@ -41,6 +41,7 @@ fn main() -> Result<(), String> {
     emit!(source, "SCREENS", declarations::screens);
     emit!(source, "NAVIGATION", declarations::navigation);
     emit!(source, "EVENTS", declarations::events);
+    emit!(source, "HELP", declarations::help);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("home_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))
