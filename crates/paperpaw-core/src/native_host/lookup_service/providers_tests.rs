@@ -198,10 +198,24 @@ fn providers_answer_one_per_page_in_load_order_and_the_last_has_no_more() {
         Ok(("extra".into(), "title of 2".into(), 0))
     );
     assert_eq!(page(&rig, "en", 3), Err(ERR_NOT_FOUND));
-    // The provider got the ask with its own token and the cursor of its page.
+    // The provider got the ask with its own token and cursor 0 (its paging stays in its page).
     let calls = rig.calls.borrow();
-    assert_eq!(calls[1], (2, 22, "word".into(), "en".into(), 1));
+    assert_eq!(calls[1], (2, 22, "word".into(), "en".into(), 0));
     assert_eq!(calls.len(), 3);
+}
+
+#[test]
+fn a_provider_always_gets_cursor_0_whatever_its_index() {
+    let kernel = kernel(false);
+    let env = kernel.shared.env(Instant(0));
+    let mut rig = rig(&env);
+    install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 1)]);
+    install(&mut rig.store, &plugin("wiki", 2), &[("wiki", "", 0, 2)]);
+    page(&rig, "", 0).unwrap();
+    page(&rig, "", 1).unwrap();
+    let calls = rig.calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|call| call.4 == 0), "{calls:?}");
 }
 
 #[test]

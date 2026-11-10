@@ -17,7 +17,7 @@
 //! The cursor counts the providers that are left, on every ask: a plugin that
 //! loads or stops, or a network that comes or goes, between two pages can make
 //! the asker skip or see a provider twice (the asker's loop is best effort).
-//! The cable link is not in the frame's environment: only Wi-Fi (and the
+//! The cable link is not in the frame's environment yet: only Wi-Fi (and the
 //! device's ability) say "connected" here. A provider that is stopped is not
 //! started for a lookup, and one that fails or answers badly has the empty
 //! entry for its page (see [`call`]).
@@ -70,6 +70,8 @@ impl Chosen {
 /// PaperPaw manages Wi-Fi, it is online. A frame without an environment says
 /// no.
 fn network_up(frame: &dyn Frame) -> bool {
+    // Cable link not yet in Env: a network provider is skipped while only the
+    // cable is up.
     frame.kernel_env().is_some_and(|env| {
         env.caps().network && env.wifi().is_none_or(|wifi| wifi.state.is_online())
     })
@@ -146,7 +148,9 @@ fn scratch(capacity: usize) -> Result<Vec<u8>, i32> {
 }
 
 /// The ask as the one `stage.call` record the provider's `core.lookup` token
-/// takes, framed as a batch.
+/// takes, framed as a batch. The provider's cursor is always 0: the host pages
+/// across providers, one page each, and a provider's paging stays inside its
+/// page (`document.md` 7).
 fn framed(ask: &wire::ServiceLookupAsk<'_>) -> Result<Vec<u8>, i32> {
     // The payload: one `lookup_ask` in the stage's own tag.
     let payload_len = ask
@@ -157,8 +161,8 @@ fn framed(ask: &wire::ServiceLookupAsk<'_>) -> Result<Vec<u8>, i32> {
         .and_then(|n| n.checked_add(32))
         .ok_or(ERR_NO_SPACE)?;
     let mut payload = scratch(payload_len)?;
-    let used = stage::LookupAsk::new(ask.text, ask.language, ask.context, ask.cursor)
-        .encode(&mut payload)?;
+    let used =
+        stage::LookupAsk::new(ask.text, ask.language, ask.context, 0).encode(&mut payload)?;
     let record = wire::Record::StageCall(wire::StageCall {
         stage: stage::KEY,
         schema: u32::from(stage::MAJOR),
