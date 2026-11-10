@@ -908,7 +908,7 @@ fn verify(
     document: &Document,
     check: &Check,
     out: &mut [u8],
-    length: usize,
+    mut length: usize,
 ) -> Result<usize, i32> {
     let bytes = &out[..length];
     match *check {
@@ -933,6 +933,12 @@ fn verify(
             check::page_end(&end, cursor, generation)?;
         }
         Check::Toc { cursor, generation } => {
+            // A row with a bad level or flags is dropped, the others go on.
+            length = check::drop_rows(out, length, |raw| {
+                let row: wire::ServiceDocToc<'_> = raw.decode().map_err(|_| ERR_INVALID)?;
+                Ok(check::toc_row_ok(&row))
+            })?;
+            let bytes = &out[..length];
             let mut forward = Forward(None, cursor);
             let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocToc<'_>| {
                 forward.row(row.index)?;
@@ -949,6 +955,12 @@ fn verify(
             check::page_end(&end, cursor, generation)?;
         }
         Check::Links { cursor, generation } => {
+            // A row with a bad kind or range is dropped, the others go on.
+            length = check::drop_rows(out, length, |raw| {
+                let row: wire::ServiceDocLink<'_> = raw.decode().map_err(|_| ERR_INVALID)?;
+                Ok(check::link_row_ok(&row))
+            })?;
+            let bytes = &out[..length];
             let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocLink<'_>| {
                 check::link(row)
             })?;

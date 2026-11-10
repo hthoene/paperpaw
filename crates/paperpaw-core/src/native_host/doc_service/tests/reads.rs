@@ -490,21 +490,6 @@ fn malformed_pages(document: u32) -> Vec<(u32, Vec<u8>)> {
         (5, stream(&[section(0), end(1, 1, 0, 1)])),
         (5, stream(&[section(0), end(2, 1, 5, 1)])),
         (5, stream(&[section(0), end(0, 9, 5, 0)])),
-        (7, stream(&[toc(0, 16), last()])),
-        (
-            7,
-            stream(&[
-                Record::ServiceDocToc(Toc {
-                    index: 0,
-                    level: 0,
-                    section: 0,
-                    offset: 0,
-                    flags: 4,
-                    title: ""
-                }),
-                last()
-            ])
-        ),
         (7, stream(&[section(0), last()])),
         (8, stream(&[position(document + 1)])),
         (
@@ -540,19 +525,6 @@ fn malformed_pages(document: u32) -> Vec<(u32, Vec<u8>)> {
         (
             10,
             stream(&[Record::ServiceDocXpointer(Xpointer { document, text: "" })])
-        ),
-        (12, stream(&[link(3), last()])),
-        (
-            12,
-            stream(&[
-                Record::ServiceDocLink(Link {
-                    start: 4,
-                    end: 3,
-                    kind: 0,
-                    href: "x"
-                }),
-                last()
-            ])
         ),
         (14, stream(&[font(124, 1), last()])),
         (14, stream(&[font(0, 0), last()])),
@@ -802,4 +774,66 @@ fn no_path_calls_a_format_after_it_stopped() {
     }
     call(&fake, 18, &[doc_ref(id)]).unwrap();
     assert_eq!(*fake.ended.borrow(), [id]);
+}
+
+fn flagged_toc(index: u32, level: u32, flags: u32) -> Record<'static> {
+    Record::ServiceDocToc(Toc {
+        index,
+        level,
+        section: 0,
+        offset: 0,
+        flags,
+        title: "A",
+    })
+}
+
+fn range_link(start: u32, end: u32, kind: u32) -> Record<'static> {
+    Record::ServiceDocLink(Link {
+        start,
+        end,
+        kind,
+        href: "x",
+    })
+}
+
+#[test]
+fn a_bad_toc_or_link_row_is_dropped_and_the_others_are_delivered() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    let last = || end(1, 9, 5, 9);
+    // Level 16, an unknown flag: dropped; the good rows keep their order and
+    // the `end` still pages on as the format said.
+    let good = stream(&[toc(0, 0), toc(3, 15), last()]);
+    *fake.answer.borrow_mut() = stream(&[
+        toc(0, 0),
+        flagged_toc(1, 16, 0),
+        flagged_toc(2, 0, 4),
+        toc(3, 15),
+        last(),
+    ]);
+    assert_eq!(call_raw(&fake, 7, &input_for(7, id)).unwrap(), good);
+    // `end < start` and a kind over 2: dropped.
+    let good = stream(&[range_link(1, 3, 0), range_link(5, 5, 2), last()]);
+    *fake.answer.borrow_mut() = stream(&[
+        range_link(1, 3, 0),
+        range_link(4, 3, 0),
+        range_link(5, 5, 3),
+        range_link(5, 5, 2),
+        last(),
+    ]);
+    assert_eq!(call_raw(&fake, 12, &input_for(12, id)).unwrap(), good);
+    // A page of only bad rows is an empty page with its `end`.
+    *fake.answer.borrow_mut() = stream(&[range_link(4, 3, 0), last()]);
+    assert_eq!(
+        call_raw(&fake, 12, &input_for(12, id)).unwrap(),
+        stream(&[last()])
+    );
+    // It is not a strike: the document is not closed after many such pages.
+    for _ in 0..8 {
+        assert!(call_raw(&fake, 12, &input_for(12, id)).is_ok());
+    }
+    assert!(fake.closed.borrow().is_empty());
+    // A broken stream still fails the page: rows out of order, a bad count.
+    *fake.answer.borrow_mut() = stream(&[toc(2, 0), toc(1, 0), last()]);
+    assert_eq!(call_raw(&fake, 7, &input_for(7, id)), Err(ERR_INVALID));
 }
